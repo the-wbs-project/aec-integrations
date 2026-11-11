@@ -1,6 +1,6 @@
 # Counsel questions and answers: the November 2026 legal review
 
-Every written question put to counsel through Rocket Lawyer Ask an Attorney, the answer as received, and what we did with it. Answers are general guidance, not representation, and are reproduced verbatim. Chris's rulings are at the end. The exact legal-text changes that followed are the numbered items on AECI-1363 (comments dated 2026-11-05 to 2026-11-07); the build issues are named per question.
+Every written question put to counsel through Rocket Lawyer Ask an Attorney, the answer as received, and what we did with it. Answers are general guidance, not representation, and are reproduced verbatim. Chris's rulings are at the end. The exact legal-text changes that followed are the numbered items on AECI-1363 (comments dated 2026-11-05 to 2026-11-11); the build issues are named per question.
 
 Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/src/content/legal/README.md` for versions and the gate list, `docs/STAGE_1_SPEC.md` §27 for legal pages.
 
@@ -44,6 +44,11 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q34 | Terms of Service | Changing the Terms by continued use, with no notice to account holders | Alexander Coffin | 2026-11-06 |
 | Q35 | Terms of Service | Confirming no arbitration and no class-action waiver | Alexander Coffin | 2026-11-06 |
 | Q36 | Privacy Policy | Private messages between two companies: the privacy disclosures | Alexander Coffin | 2026-11-06 |
+| Q37 | Privacy Policy | A first-party browser report that a page view was a person, under ePrivacy Article 5(3) | Alexander Coffin | 2026-11-11 |
+| Q38 | Terms of Service | The DMCA copyright-complaints section | Brian D. Lerner | 2026-11-10 |
+| Q39 | Managed plan agreement | Five clauses assembled from your colleagues' answers, as they now read | Travis Russell | 2026-11-11 |
+| Q40 | Terms of Service | Website accessibility exposure | Alexander Coffin | 2026-11-11 |
+| Q41 | Privacy Policy | Breach notification obligations, and the one 1.1 acceptor | Alexander Coffin | 2026-11-11 |
 
 ## Questions and answers
 
@@ -879,6 +884,143 @@ Mostly there, but each of the three disclosures has a gap. (a) Are they sufficie
 
 **What we did:** 'We can read it' and when; legal-process carve-out; purposes; 30-day backup ceiling; read-record handling. Text branches 2 and 3; AECI-1616.
 
+### Q37. A first-party browser report that a page view was a person, under ePrivacy Article 5(3)
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. We do not target the EU or UK, but visitors from there reach the site. You advised us on Q29 that reading browser signals is an Article 5(3) event under EDPB Guidelines 2/2023, that purpose decides the strictly-necessary exemption, and that our third-party bot check should stay switched off for EEA, UK and Swiss visitors until we confirm the providers do not reuse the signals.
+
+We want to add a first-party signal to our own visit count, which already runs without consent and honors Do Not Track and Global Privacy Control as an opt-out. Our own page script would send one word to our own server once per page load: "ran" when the script executed, or "interacted" when the visitor scrolled, clicked, tapped or pressed a key. It sends nothing else: not what was clicked, not what was typed, no coordinates, no timings. Nothing is written to or read from the device except the page's own navigation timing entry, which our server put there, to recover the request's own Cloudflare Ray ID so the report can be matched to the visit row. That Ray ID is generated per request, is never written to the browser, and is never compared across visits. Nothing goes to a third party. Visitors who send Do Not Track or Global Privacy Control send nothing. The purpose is to count how many daily visits were people rather than programs, as a floor beside the total. The privacy policy would name both facts as a yes or no.
+
+What is sent and stored:
+
+| Item | Sent by the browser | Stored | Never |
+|---|---|---|---|
+| The page load's own Ray ID | Yes, read from the navigation timing entry | Already on the visit row | Written to the browser; linked across visits |
+| One word, "ran" or "interacted" | Yes | One column on the visit row | What was clicked, typed, scroll depth, coordinates, timing |
+| IP address | Implicit in the request | No | |
+| Anything for Do Not Track or GPC visitors | Nothing | Nothing | |
+
+Our view: this is first-party audience measurement with no identifier and no cross-site linkage, the case several EU regulators, the CNIL in particular, allow without consent, so it can run everywhere; and the per-request Ray ID is not an identifier of the visitor under any state law because it is not persistent.
+
+Questions: (a) Does reading the page's own navigation timing entry and listening for an input event fall within Article 5(3), and if so does a first-party audience-measurement exemption cover it on these facts, or must it carry the same EEA, UK and Swiss hold as the third-party bot check? (b) Is the per-request Ray ID a "unique identifier" or personal information under California or other US state law, given it is not persistent and never stored in the browser? (c) Is the proposed privacy sentence enough: "For visitors who do not send Do Not Track or Global Privacy Control, the tally also records whether our page script ran and whether the page was scrolled, clicked or typed in, as a yes or no only, never which key or what was clicked"?
+
+**Answer (Alexander Coffin, 2026-11-11):**
+
+Yes, it's an Article 5(3) event. The audience-measurement exemption is real, but it's not EU-wide. Is it in scope? I think so, and I don't think it's close. EDPB Guidelines 2/2023 treat a script that runs on the device and reports information back as "gaining access." That covers information the device generates, like an input event, and arguably information your server put there, like the navigation timing entry. Sending only one word doesn't take it out of scope. It just makes the intrusion small. Your purpose is to count how many daily visits were people rather than programs, and that goes to the exemption question, not to scope. The exemption. This is where your view goes too far. The Directive itself has only two exemptions: transmission, and what's strictly necessary for a service the user requested. "Audience measurement" isn't one of them. The CNIL reads it into "strictly necessary" under French law, with conditions: measurement is the only purpose, output is anonymous and aggregated, nothing is linked across sites, and users get notice and an opt-out. Your design probably meets all of that. But that's France. The EDPB guidelines don't endorse a general carve-out, and Germany's §25 TDDDG is read narrowly. So "it can run everywhere" overstates it. UK and Switzerland. These are friendlier. The Data (Use and Access) Act 2025 adds a PECR exemption for statistical analytics used to improve your own service, as long as you give clear information and an easy way to object. Check that the provision has commenced. Switzerland's Article 45c FMG is already an inform-and-refuse regime, so your notice plus the Do Not Track and Global Privacy Control opt-out likely works.
+
+**What we did:** Nothing built yet. The browser report is an Article 5(3) event with no EU-wide exemption, so it cannot run in the EEA without consent. Where it runs is ruling 21, open: proposal is the same EEA, UK and Switzerland hold as the bot check. The privacy sentence ships with Phase 1 of the human-traffic floor plan. The answer does not reach (b) the Ray ID or (c) the sentence. Both are re-asked as Q43, drafted on AECI-308 and not yet answered.
+
+### Q38. The DMCA copyright-complaints section
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. Readers post reviews, and vendors upload logos, screenshots and text. We registered a DMCA designated agent with the Copyright Office (DMCA-1084399, October 2026). Our Terms of Service carry this section, which we have never had reviewed:
+
+**Copyright complaints**
+
+We respond to notices of claimed copyright infringement under the Digital Millennium Copyright Act (DMCA). If you believe content on the service infringes your copyright, send a notice to our designated agent:
+
+Copyright Agent, The WBS Project, Inc.
+315 SE Saint Lucie Blvd, Stuart, FL 34996, USA
+[copyright@thewbsproject.com](mailto:copyright@thewbsproject.com)
+
+Our designated agent is registered with the U.S. Copyright Office DMCA Designated Agent Directory.
+
+Your notice must identify the copyrighted work, identify the content you say infringes it and where it is on the service, give your contact details, state that you have a good-faith belief the use is not authorized, state under penalty of perjury that the information is accurate and that you are the owner or authorized to act for the owner, and carry your physical or electronic signature. We may remove or disable access to the content and tell the person who submitted it.
+
+If your content was removed and you believe it was removed by mistake, you may send a counter-notice to the same address. It must identify the removed content, state under penalty of perjury that you have a good-faith belief it was removed by mistake or misidentification, give your contact details, consent to the jurisdiction of the United States District Court for the Southern District of Florida (or, if you are outside the United States, any judicial district in which we may be found), state that you will accept service of process from the person who sent the notice, and carry your signature. We may restore the content after 10 business days unless that person tells us they have filed a court action. We may end the accounts of repeat infringers.
+
+Our view: the section states the notice elements, the counter-notice elements with consent to the Southern District of Florida, the 10-business-day restore window, and a repeat-infringer line, which is what Section 512(c) and (g) require for the safe harbor.
+
+Questions: (a) Does this section, with the registration, give us the Section 512 safe harbor for user reviews and vendor uploads, or is anything missing? (b) Is "We may end the accounts of repeat infringers" enough, or must we adopt and state a repeat-infringer policy with a threshold? (c) Vendor-uploaded logos are the vendor's own marks, and a complaint about them is more often trademark than copyright. Should the section say that trademark complaints go through the Listing Accuracy Policy route instead, and does a logo complaint from the mark's owner ever need the DMCA process?
+
+**Answer (Brian D. Lerner, 2026-11-10):**
+
+The section has three defects. The counter-notice must consent to the federal district of the user's address, not the Southern District of Florida. After forwarding the counter-notice to the complainant, you must restore the content within 10 to 14 business days, not merely "may." And change "tell the person" to "will promptly notify." For repeat infringers, no threshold is required, but you must adopt and actually enforce a policy: say you "will terminate repeat infringers in appropriate circumstances" and log notices. Trademark complaints can go through Listing Accuracy, but a logo may also be copyrighted artwork, so accept DMCA notices for logos too. Renew the agent registration every three years.
+
+**What we did:** Text items 13.1 to 13.4 on AECI-1363, for legal branch 5: 'will promptly notify', counter-notice consent to the user's own district, mandatory restore between 10 and 14 business days, a stated repeat-infringer policy, and DMCA notices accepted for logos. The notice log is AECI-1665. The agent renewal (2029-10-28) is in the legal README. Not yet applied to the text.
+
+### Q39. Five clauses assembled from your colleagues' answers, as they now read
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. Over the past week your colleagues answered questions on our Managed Plan Agreement and Vendor Terms. We assembled their points into the clauses below, which are now live as drafts. We are asking for a defect check on the wording as written, not for new advice on the positions.
+
+Managed Plan Agreement, Limit of liability:
+
+**Our total liability under this agreement is limited to the greater of the fees you paid for the Managed subscription for the product to which the claim relates in the twelve months before the claim arose, or one hundred US dollars. For a claim not tied to one product, the base is all fees you paid under this agreement in that period. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible.**
+**Neither the cap nor the exclusion of lost profits or indirect or consequential loss in this section applies to the claims listed below, and that exclusion applies only to claims against us. The claims are: your obligation to pay fees; your indemnity under the [Vendor Terms](/legal/vendor-terms); our infringement of your intellectual property; our breach of confidentiality; our gross negligence or willful misconduct; and any liability that cannot be limited under applicable law.**
+
+Managed Plan Agreement, Suspension and non-payment (first two paragraphs):
+
+If we reasonably believe you have broken the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may suspend every seat and all editing at once, without prior notice, to protect the listing. We then write to you naming the rule and the evidence. You have 7 business days from receiving that notice to fix a breach that can be fixed, or to show us we are wrong. If you do not, or if the breach cannot be fixed, we end your subscriptions and cancel your billing.
+When we end your subscriptions this way, we refund the unused part of the term, less the fees for the period you used and our documented cost of the abuse: staff time at $150 an hour, logged by task at the time, and costs we paid to others such as chargeback fees and claims from third parties, in each case only where the breach caused them. We credit anything we recover from elsewhere. That cost is never more than the refund due, and we send you an itemized statement with the refund. A false claim cannot be fixed. If the first 7 business days do not resolve a false-claim finding, you have a further 7 business days to prove your identity and authority before we keep anything. When your subscriptions end you lose the edit right, and we may correct or remove the fields you maintained. You keep ownership of what you wrote.
+
+Managed Plan Agreement, General terms, precedence:
+
+We read them together first. Only where they directly conflict on the same subject does this agreement win for subscriptions and billing, then the Vendor Terms, then the Terms of Service. Nothing in this agreement overrides the content license, intellectual property, disclaimers, liability limits, indemnity, governing law or disputes sections of the other two documents. The Listing Accuracy Policy and the Review Guidelines rank below the document that incorporates them. Where a grant we record has its own written deal, that deal wins on price and term for those subscriptions.
+
+Vendor Terms, Disputes (including the jury waiver):
+
+If you have a problem with us, contact us first at the address below. Most issues are resolved this way.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there.
+**Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.**
+
+Questions: (a) Any sentence in these five clauses that a vendor's counsel would read against us, or that is ambiguous? (b) Is the jury waiver conspicuous and mutual enough as written to be enforced in Florida? (c) Does the suspension clause's "reasonably believe" standard for the suspension, with the evidence named in the notice, hold together with the pro-rata refund and the capped cost deduction?
+
+**Answer (Travis Russell, 2026-11-11):**
+
+Overall, the five clauses hang together, but a few spots could be read against you.
+
+Liability cap: the line saying the exclusion applies "only to claims against us" clashes with carve-outs that list the customer's own obligations, like fees and indemnity. Florida courts read unclear wording against the drafter, and a vendor's counsel may argue the cap is one-sided or unclear. Decide whether the cap and lost-profits exclusion are mutual or vendor-only, and say so plainly.
+
+Jury waiver: Florida generally enforces contractual jury waivers between businesses when made knowingly and voluntarily. Courts look at how visible the clause is and the parties' bargaining power. A bold, plain-language, mutual waiver is a good start. One caution: it binds only someone who actually agreed to the document containing it, and yours is in the Vendor Terms. Make sure each customer clearly accepts the Vendor Terms, such as a checkbox at signup, and consider a separate heading or acknowledgment where they accept.
+
+Suspension and refund: a "reasonable belief" standard with immediate suspension is common. Florida reads a duty of good faith into contracts, so your notice, evidence, and cure period help. The staff-time deduction is the likeliest target. Tying it to logged time and actual breach-caused costs, capped at the refund, helps it look like real damages rather than a penalty. Also say whether these deductions count against the liability cap.
+
+Precedence and venue: "read together first" is sound, but the list of sections the Managed Plan Agreement can't override may overlap its own billing and refund terms. Exclusive Martin County or Southern District of Florida venue is generally enforceable between businesses.
+
+For a line-by-line review, consider a consultation with a Florida contracts attorney.
+
+This is general legal information and does not create an attorney-client relationship.
+
+**What we did:** Text items 13.6 to 13.11 on AECI-1363, for legal branch 5: the liability clauses in all three documents say in plain words that they limit what we can owe and not what the vendor owes; the jury paragraph is labelled; the refund deduction is stated as outside our cap and credited against the vendor's indemnity; the precedence sentence names refunds and suspension. Rulings 18 to 20 are open. Not yet applied to the text.
+
+### Q40. Website accessibility exposure
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. The site is free to readers. We test every interface change with the axe-core accessibility checker against the WCAG 2.1 AA standard, we run a manual keyboard and screen-reader checklist, and we fix every error and serious finding before shipping. We have no accessibility statement page. Your colleague noted on Q35 that ADA website-accessibility suits are the most likely class exposure for a free review site.
+
+Our view: WCAG 2.1 AA is the right standard to hold ourselves to, a public accessibility statement helps show good faith, and a demand letter should get a prompt, specific response rather than silence.
+
+Questions: (a) Does the ADA reach a US website with no physical place of business, and does Florida add anything? (b) Is WCAG 2.1 AA the standard courts and the Department of Justice apply, and does a published accessibility statement with a contact route reduce exposure or create a promise we could breach? (c) What should the first response to an accessibility demand letter contain, and within what time?
+
+**Answer (Alexander Coffin, 2026-11-11):**
+
+(a) Does the ADA reach you? In Florida, probably not on a website-only theory. The Eleventh Circuit that a website isn't a "place of public accommodation" under Title III. That opinion was later vacated as moot, so it isn't binding precedent. It still signals how the circuit reads the statute, and the nexus-to-a-physical-store line from Haynes v. Dunkin' Donuts helps you, since you have no store. The catch is that plaintiffs pick their forum. SDNY and some other courts have let standalone-website claims go forward. You're national and free to readers, so you can be sued wherever a reader lives. Florida doesn't add a private website-accessibility claim that I'd worry about. (b) Is WCAG 2.1 AA the standard? It's the de facto benchmark. DOJ's 2024 rule adopted it, but only for state and local governments under Title II. No Title III private-sector regulation exists. Courts and settlements use 2.1 AA anyway, so you're aiming at the right target. One caution: axe only catches a minority of real barriers, which is why your manual screen-reader pass matters. Keep records of both. The statement helps, as long as it's worded as aspiration and process. Say "we aim to conform" and "we test each release." Never write "fully compliant." Add a contact route and a response window you can actually meet. Then honor that window every time, because a missed self-imposed deadline makes great exhibit material. (c) The first response to a demand letter. No statute sets a deadline. Answer within the letter's stated deadline, and if it doesn't give one, within about 14 days. Before you write, notify your insurer, since CGL or cyber policies may require prompt notice, and send an internal hold notice to preserve documents.
+
+**What we did:** No change to the legal documents. AECI-1673 builds a public accessibility statement worded as aim and process, with a contact route and a reply window (ruling 22, open). AECI-1674 writes the demand-letter runbook: insurer first, hold notice, reply by the letter's deadline or within 14 days. The answer does not say what the reply should contain. We did not re-ask, because the runbook step is to retain an attorney before replying.
+
+### Q41. Breach notification obligations, and the one 1.1 acceptor
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. We hold: account email addresses, optional profile answers (role, company, LinkedIn link), vendor claim records (name, title, work email, the company's legal name, and for 90 days the IP address and browser), reviews, and a monthly keyed hash of visitor IP addresses. We hold no card numbers (Stripe does), no government identifiers, no passwords (sign-in is by emailed link or Google). Your colleague cited Fla. Stat. 501.171 twice.
+
+Our view: under 501.171 a breach of email addresses alone is not a breach of "personal information", so most of what we hold is outside the statute, but we want a plan written before we need it.
+
+Questions: (a) Which of the data we hold counts as personal information under Fla. Stat. 501.171, and under the other state breach laws that could reach a non-resident's data? (b) If a breach occurs, who must be told, in what order, and within what time, and what must the notice contain? (c) Separately: one vendor accepted our Vendor Terms version 1.1 on November 5, 2026. We published 1.2 on November 9 with changes that narrow nothing against that vendor. Is it enough that 1.2 binds them only after the 30-day change email our terms promise, or is anything else owed to a vendor that accepted an earlier draft?
+
+**Answer (Alexander Coffin, 2026-11-11):**
+
+(a) What counts. Short version: you're mostly right. Under 501.171, "personal information" means a first name or initial plus last name, combined with an SSN, a driver's license or ID number, a financial account number with its access code, medical information, or health insurance information. The other branch is a username or email address combined with a password or security question and answer that would allow access to an online account. None of what you hold fits the first branch. Vendor claim records are names and work emails, and nothing more sensitive is attached. The one wrinkle is your emailed sign-in links. If an attacker gets live magic-link tokens or stored Google OAuth tokens along with the email addresses, that starts to look like the "credentials permitting access" branch. Treat that scenario as notifiable, and make sure those tokens expire fast. IP addresses and keyed hashes aren't covered by Florida's law or any other state breach law I know of. Other states like California, follow the same email-plus-credential model, and their extra categories, like biometrics, don't match your data. Each state's law follows where the affected person lives, not where you are. (b) Who, when, what.
+
+Notify affected individuals as fast as practicable, and no later than 30 days after you determine a breach happened or have reason to believe one did. If 500 or more Floridians are affected, notify the Florida Department of Legal Affairs within the same 30 days. You can get 15 more days if you give the Department good cause in writing. If more than 1,000 people are affected, notify the consumer reporting agencies too. Under the Florida statute, the individual notice must include the date or estimated date range of the breach, what information was involved, and how to contact you. Your vendors (hosting, email) must tell you within 10 days. Add a quick check of the residence-state rules, since some have shorter deadlines.
+
+**What we did:** No change to the Privacy Policy. AECI-1674 writes the breach runbook and records three checks: the production sign-in link lifetime, whether Google tokens are stored, and the 10-day breach-notice term in each processor agreement (AECI-310). The answer does not reach (c) the one 1.1 acceptor. That part is re-asked as Q42, widened to all six vendors who accepted a draft, drafted on AECI-308 and not yet answered.
+
 ## Chris's rulings
 
 1. **Ban structure (Q13, 2026-11-05).** Suspend at once; written notice with evidence; 7 business days to cure or rebut, a further 7 on a false-claim finding; then subscriptions end with a pro-rata refund of the unused term less fees for the period used and the itemised cost of the abuse (staff time at $150 an hour logged at the time, costs paid to others, only where the breach caused them, recoveries credited, never more than the refund due). Ending a subscription ends the edit right; the vendor keeps ownership of its text.
@@ -889,10 +1031,20 @@ Mostly there, but each of the three disclosures has a gap. (a) Are they sufficie
 6. **Correction deadlines (Q21).** Hide or flag within two business days of proof; correct within five if verified.
 7. **Renewal refund (Q2).** The 14-day full refund applies after a renewal charge too.
 8. **Removal election (Q4).** A vendor may have its own authored fields removed within 30 days after its plan ends.
-9. **Logos on unclaimed listings (Q12 follow-up).** Open: keep small sourced logos with the Unclaimed and not-affiliated line beside them, or names only.
+9. **Logos on unclaimed listings (Q12 follow-up, 2026-11-11).** Keep small sourced logos, never as a badge or header, with the Unclaimed and not-affiliated line beside them, removed at once on objection (AECI-1618).
 10. **EU and UK visitors (Q26, Q29, 2026-11-06).** Keep serving them; no geo-block; rights section stays; GDPR and state addenda under AECI-309.
 11. **Acceptance-record IP and browser (Q27).** Deleted 90 days after acceptance (AECI-1636).
 12. **Reader-account changes (Q34).** Email every account holder before a material change; click-to-accept at next sign-in for rights-reducing changes; prospective only (AECI-1637). The site banner (AECI-1592) stays for visitors.
 13. **Jury waiver (Q35).** Mutual jury-trial waiver in the Managed plan agreement and the Vendor Terms only, not the Terms of Service.
+14. **Connector-delivered integrations (2026-11-09).** Claim, edit and contest are open to every claimed owner, with no Managed gate (AECI-1663, text item 12.17).
+15. **Tamper-evident acceptance record (AECI-1615 review, 2026-11-11).** Yes: a nightly export of acceptance and grant rows to a versioned R2 bucket with a running hash. Not yet built.
+16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row records what the box said and that it started unticked. Whether it stores the label text or a hash of it is not yet decided. Not yet built.
+17. **Retention clause in text item 13.5 (2026-11-11).** Yes: 'or five years after a granted subscription ends, if later'.
+18. **Direction of the liability cap (Q39, 2026-11-11).** One-way: the cap and the lost-profits exclusion limit what we can owe, not what the vendor owes (items 13.6 and 13.7).
+19. **Jury waiver acknowledgment (Q39, 2026-11-11).** No separate acknowledgment beyond the labelled bold paragraph and the required box.
+20. **Refund deduction and the caps (Q39, 2026-11-11).** Yes: the deduction sits outside our liability cap and is credited against the vendor's indemnity for the same breach (item 13.9).
+21. **Where the browser report runs (Q37, 2026-11-11).** Held in the EEA, the UK and Switzerland, the same as the bot check.
+22. **Accessibility statement (Q40, 2026-11-11).** Publish it, with a reply window of 10 business days (AECI-1673).
+23. **Platform gate issues (2026-11-11).** Build AECI-1621, AECI-1622 and AECI-1638 before any effective date. No text is softened.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
