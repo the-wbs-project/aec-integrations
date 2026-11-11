@@ -7,7 +7,7 @@ import { makeTestDb, statementsForMigration } from './d1';
  * generated a `DROP COLUMN` for `products.has_api_docs` when `schema.ts` stopped
  * declaring it. It was replaced, because the Worker deployed before this migration still
  * names the column in every SELECT and INSERT it builds (`docs/migrations.md` §3.2). The
- * physical drop ships in PR B, once this Worker is live on every tier.
+ * physical drop is PR B, `0117_drop_has_api_docs.sql`.
  *
  * Regenerating the file brings the drop back. This spec fails if it does.
  */

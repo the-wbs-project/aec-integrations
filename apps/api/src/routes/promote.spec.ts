@@ -5326,11 +5326,11 @@ describe('createPromoteHandler — hasApiDocs is accepted and ignored', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as PromoteResponse;
 
-    // The physical column still exists until phase two, at its default.
+    // The column is gone from D1 (`0117`); the product still lands.
     const row = t.raw
-      .prepare(`SELECT has_api_docs FROM products WHERE id = ?`)
-      .get(body.product?.id as string) as { has_api_docs: number } | undefined;
-    expect(row?.has_api_docs).toBe(0);
+      .prepare(`SELECT id FROM products WHERE id = ?`)
+      .get(body.product?.id as string) as { id: string } | undefined;
+    expect(row?.id).toBe(body.product?.id);
   });
 });
 

@@ -318,9 +318,8 @@ create table products (
   tool_integrations_url text,
   api_docs_url text,
   -- has_api_docs: review-app bookkeeping, not a product fact. AECI-534 removed it
-  -- from schema.ts, the API, Algolia and /search (0110 is a no-op). The physical
-  -- DROP COLUMN is AECI-534's phase two and has NOT shipped: the column is still in
-  -- the live table, `integer DEFAULT false NOT NULL`, and nothing reads it.
+  -- from schema.ts, the API, Algolia and /search (0110 is a no-op). Phase two,
+  -- 0117_drop_has_api_docs.sql, drops the column from D1 in place (no recreate).
 
   -- Narrative content
   usefulness text, -- JSON: slug-based {audiences,phases} narrative; shape in API_CONTRACTS §5.1
