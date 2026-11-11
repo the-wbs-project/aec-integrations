@@ -4,10 +4,16 @@
     "outDir": "./out-tsc/spec",
     "types": ["node", "vitest/globals", "@angular/localize"]
   },
+  // `src/markdown.d.ts` declares the ambient `*.md` text-import module
+  // (AECI-237); nothing imports it (it is ambient), so it must be listed
+  // explicitly or the `.md`-importing content registries fail with TS2307
+  // when a spec pulls them in transitively. `tsconfig.component-spec.json`
+  // lists it for the same reason.
   "include": [
     "src/**/*.spec.ts",
     "src/**/*.integration.spec.ts",
     "e2e/**/*.ts",
-    "worker-configuration.d.ts"
+    "worker-configuration.d.ts",
+    "src/markdown.d.ts"
   ]
 }

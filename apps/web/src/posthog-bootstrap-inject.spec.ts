@@ -35,9 +35,12 @@ describe('buildPostHogPublicConfig', () => {
   });
 
   it('honors an explicit POSTHOG_HOST', () => {
-    expect(
-      buildPostHogPublicConfig(makeEnv({ POSTHOG_HOST: 'https://eu.i.posthog.com' })).host,
-    ).toBe('https://eu.i.posthog.com');
+    expect(buildPostHogPublicConfig(makeEnv({ POSTHOG_HOST: 'https://eu.i.posthog.com' }))).toEqual(
+      {
+        key: 'phc_abc',
+        host: 'https://eu.i.posthog.com',
+      },
+    );
   });
 });
 

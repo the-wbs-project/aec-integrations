@@ -5,7 +5,7 @@ import { ServerApiError, type ServerApiClient } from '../../../server-api-client
 import { fetchTaxonomyList, fetchTaxonomyTermBySlug } from './taxonomy';
 import type { TaxonomyKind } from '../../shared/taxonomy-badge/taxonomy-badge';
 
-function stubClient(impl: ServerApiClient['request']): ServerApiClient {
+function stubClient(impl: (path: string, init?: RequestInit) => Promise<unknown>): ServerApiClient {
   return { request: vi.fn(impl) as ServerApiClient['request'] };
 }
 

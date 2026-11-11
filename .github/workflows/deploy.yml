@@ -281,8 +281,9 @@ jobs:
             pnpm "${FILTER[@]}" run lint
           fi
           pnpm run format:check
-      # apps/web has no `typecheck` script (its type errors surface in `ng build`
-      # and `ng test`), so `--if-present` skips it in both lanes, as before.
+      # apps/web has a `typecheck` script since AECI-1652 (`tsc -p
+      # tsconfig.spec.json --noEmit`, the spec + e2e graph), so `--if-present`
+      # runs it in both lanes. Its app code is still checked by `ng build`.
       - name: Typecheck
         env:
           LANE: ${{ steps.plan.outputs.lane }}

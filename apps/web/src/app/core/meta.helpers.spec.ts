@@ -522,6 +522,8 @@ describe('buildProductJsonLd', () => {
         name: 'Autodesk',
         logo_url: 'https://cdn.example/autodesk.png',
       },
+      vendor_facts: { company_size: null, ownership_type: null },
+      claim_status: 'claimed',
       integration_count: 12,
       review_count: 4,
       rating_overall_avg: 4.2,
@@ -540,6 +542,7 @@ describe('buildProductJsonLd', () => {
       phases: [],
       trades: [],
       usefulness: null,
+      usefulness_source: null,
       integrations_as_source: [],
       integrations_as_target: [],
       integrations_as_connector: [],
@@ -547,6 +550,8 @@ describe('buildProductJsonLd', () => {
       extension_of: [],
       extensions: [],
       reviews: [],
+      reachable_pair_count: 0,
+      maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     };
     return { ...base, ...overrides };
   }
@@ -636,9 +641,24 @@ describe('buildVendorJsonLd', () => {
       updated_at: '2024-06-01T00:00:00.000Z',
       description: 'Software for designers, engineers, and builders.',
       website: 'https://www.autodesk.com',
+      claim_status: 'claimed',
+      linkedin_url: null,
+      x_url: null,
+      facebook_url: null,
+      instagram_url: null,
+      youtube_url: null,
       headquarters: 'San Francisco, CA, USA',
       founded_year: 1982,
       products: [],
+      maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+      company_facts: {
+        headquarters: null,
+        founded_year: null,
+        company_size: null,
+        ownership_type: null,
+        parent_company: null,
+        funding_stage: null,
+      },
     };
     return { ...base, ...overrides };
   }
@@ -1001,6 +1021,8 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     logo_url: null,
     product_role: 'application',
     vendor: null,
+    vendor_facts: { company_size: null, ownership_type: null },
+    claim_status: 'claimed',
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,
@@ -1016,6 +1038,7 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     phases: [],
     trades: [],
     usefulness: null,
+    usefulness_source: null,
     integrations_as_source: [],
     integrations_as_target: [],
     integrations_as_connector: [],
@@ -1023,6 +1046,7 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     extension_of: [],
     extensions: [],
     reviews: [],
+    reachable_pair_count: 0,
     maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
   };
   return { ...base, ...overrides };
@@ -1067,6 +1091,15 @@ function makeProductVendor(overrides: Partial<VendorDetail> = {}): VendorDetail 
     youtube_url: null,
     products: [],
     maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+    claim_status: 'claimed',
+    company_facts: {
+      headquarters: null,
+      founded_year: null,
+      company_size: null,
+      ownership_type: null,
+      parent_company: null,
+      funding_stage: null,
+    },
   };
   return { ...base, ...overrides };
 }

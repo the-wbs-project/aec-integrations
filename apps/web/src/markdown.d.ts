@@ -10,7 +10,9 @@
  * This MUST stay a script (no top-level `import`/`export`) so the wildcard
  * `declare module '*.md'` is a true ambient module declaration that participates
  * in module resolution — inside a module file it would be treated as augmentation
- * and would not resolve the imports. Covered by `tsconfig.app.json`'s `src` glob.
+ * and would not resolve the imports. Covered by `tsconfig.app.json`'s `src`
+ * glob, and listed explicitly by both spec tsconfigs (`tsconfig.spec.json` since
+ * AECI-1652, `tsconfig.component-spec.json`) because nothing imports it.
  */
 declare module '*.md' {
   const content: string;

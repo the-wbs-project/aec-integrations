@@ -26,7 +26,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
 
     // Marker to prove every hop below is client-side (a full reload would clear it).
-    await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
+    await page.evaluate(() => ((window as unknown as Record<string, unknown>)['__aeciSpa'] = true));
 
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
@@ -43,7 +43,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await expect(page).toHaveURL(/\/vendors\/[^/]+$/);
 
     const spaPreserved = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__aeciSpa === true,
+      () => (window as unknown as Record<string, unknown>)['__aeciSpa'] === true,
     );
     expect(spaPreserved, 'navigation must be client-side (no full document reload)').toBe(true);
 
@@ -66,13 +66,13 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     const firstProductLink = page.locator('#main a[href^="/products/"]').first();
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
 
-    await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
+    await page.evaluate(() => ((window as unknown as Record<string, unknown>)['__aeciSpa'] = true));
 
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
 
     const spaPreserved = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__aeciSpa === true,
+      () => (window as unknown as Record<string, unknown>)['__aeciSpa'] === true,
     );
     expect(spaPreserved, 'navigation must be client-side (no full document reload)').toBe(true);
 
@@ -92,13 +92,13 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     const firstCategoryLink = page.locator('#main a[href^="/categories/"]').first();
     test.skip((await firstCategoryLink.count()) === 0, 'no categories seeded in this environment');
 
-    await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
+    await page.evaluate(() => ((window as unknown as Record<string, unknown>)['__aeciSpa'] = true));
 
     await firstCategoryLink.click();
     await expect(page).toHaveURL(/\/categories\/[^/]+$/);
 
     const spaPreserved = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__aeciSpa === true,
+      () => (window as unknown as Record<string, unknown>)['__aeciSpa'] === true,
     );
     expect(spaPreserved, 'navigation must be client-side (no full document reload)').toBe(true);
 

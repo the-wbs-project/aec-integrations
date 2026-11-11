@@ -10,11 +10,11 @@ const NEXT_BUILD = { sha: 'e2e-next-build', deployedAt: '2026-10-28T00:00:00.000
 
 /** Marks the document so a full reload is detectable (it clears the marker). */
 async function markDocument(page: Page): Promise<void> {
-  await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciDoc = true));
+  await page.evaluate(() => ((window as unknown as Record<string, unknown>)['__aeciDoc'] = true));
 }
 
 async function documentMarked(page: Page): Promise<boolean> {
-  return page.evaluate(() => (window as unknown as Record<string, unknown>).__aeciDoc === true);
+  return page.evaluate(() => (window as unknown as Record<string, unknown>)['__aeciDoc'] === true);
 }
 
 /** The local stack runs without a stamp when `COMMIT_SHA` was not injected. */

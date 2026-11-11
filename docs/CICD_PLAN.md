@@ -257,8 +257,9 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 In the lite lane, step 4 narrows only the per-package ESLint pass to the affected packages. The
 CLAUDE.md size gate, the NOTIFICATIONS.md drift check and the whole-repo Prettier check still run.
-Step 5 runs `typecheck` for the affected packages. apps/web has no `typecheck` script in either
-lane. Its type errors surface in `ng build` and `ng test`.
+Step 5 runs `typecheck` for the affected packages. apps/web has had a `typecheck` script since
+AECI-1652 (`tsc -p tsconfig.spec.json --noEmit`, the spec + e2e graph), so both lanes check it.
+Its app code is still covered by `ng build` in the Build SSR Worker lane.
 
 This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
