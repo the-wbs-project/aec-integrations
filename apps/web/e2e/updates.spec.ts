@@ -18,6 +18,7 @@ import {
   expectConsoleClean,
   waitForHydrationSettle,
 } from './console-capture';
+import { untilHydrated } from './hydration';
 
 const PATH = '/updates';
 const TITLE = 'Get updates · AEC Integrations';
@@ -97,12 +98,12 @@ test.describe(`${PATH} — AECI-536`, () => {
 
     await page.getByLabel('Email address').fill('pm@example.com');
     const question = page.getByRole('combobox', { name: /How did you find AEC Integrations/ });
-    // The first click can land before hydration finishes; retry until the list opens.
+    // One click, after hydration. An earlier click is queued and replayed, not
+    // dropped (AECI-1655), so a retry would toggle the list shut again.
     const option = page.getByRole('option', { name: 'Google or another search engine' });
-    await expect(async () => {
-      await question.click();
-      await expect(option).toBeVisible({ timeout: 2000 });
-    }).toPass();
+    await untilHydrated(question);
+    await question.click();
+    await expect(option).toBeVisible();
     await option.click();
     await page.getByLabel('What did you search for?').fill('aec integrations directory');
     await expect(page.getByRole('status').filter({ hasText: 'follow-up' })).toHaveText(

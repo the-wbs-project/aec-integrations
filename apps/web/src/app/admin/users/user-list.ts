@@ -19,6 +19,7 @@ import {
   COMPANY_TYPE_OPTIONS,
   labelFor,
 } from '../../account/profile-details/profile-details-model';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Every boolean filter is a TRI-state, never a toggle: an operator needs "show
  *  me the banned ones", "show me the rest", and "don't filter" as three separate
@@ -183,6 +184,14 @@ export class UserList {
 
   protected onSearchInput(event: Event): void {
     this.searchDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onSearchSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    this.submitSearch();
   }
 
   protected submitSearch(): void {

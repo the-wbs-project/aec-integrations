@@ -35,6 +35,7 @@ import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 import { productCan } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
 import { VendorLockedNote } from './vendor-locked-note';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The four taxonomy facets, each its own product tab (AECI-994). */
 export type ProductFacetKind = 'categories' | 'trades' | 'audiences' | 'phases';
@@ -159,7 +160,7 @@ interface PendingRemoval {
     BrnDialogDescription,
   ],
   template: `
-    <form class="space-y-5" novalidate (submit)="$event.preventDefault(); onSave()">
+    <form class="space-y-5" novalidate (submit)="onFormSubmit($event)">
       <div class="space-y-2">
         @if (headingLevel() === 2) {
           <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
@@ -744,6 +745,14 @@ export class VendorProductFacetEditor {
   protected reloadSection(): void {
     this.acceptNextPayload.set(true);
     void this.store.reload('products');
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.onSave();
   }
 
   protected async onSave(): Promise<void> {

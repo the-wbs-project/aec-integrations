@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import { chooseSort, chooseView } from './listing-toolbar';
+import { untilHydrated } from './hydration';
 
 // AECI-61 / Phase 2.15 / AECI-544 — taxonomy browse pages: /categories/:slug,
 // /audiences/:slug, /phases/:slug, /trades/:slug. The four routes share one
@@ -209,6 +210,7 @@ for (const { kind, segment, listKey } of KINDS) {
 
       const href = await firstProduct.getAttribute('href');
       expect(href).toMatch(/^\/products\/[^/]+$/);
+      await untilHydrated(firstProduct);
       await firstProduct.click();
       await expect(page).toHaveURL(/\/products\/[^/]+$/);
     });

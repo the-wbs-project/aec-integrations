@@ -52,6 +52,7 @@ import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
+import { isReplayedEvent } from '../core/event-replay';
 
 /** The two pair-finder pickers. */
 type PairSide = 'tool' | 'other';
@@ -257,6 +258,7 @@ export class HomeHero {
 
   /** The finder's native submit (button click, or Enter on a no-Algolia field). */
   protected onPairSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     this.submitPair();
   }

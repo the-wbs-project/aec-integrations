@@ -9,6 +9,7 @@ import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BrandAssetRemovals } from './brand-asset-removals';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
@@ -145,6 +146,14 @@ export class VendorList {
 
   protected onSearchInput(event: Event): void {
     this.searchDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onSearchSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    this.submitSearch();
   }
 
   protected submitSearch(): void {

@@ -6,6 +6,7 @@ import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aec
 import { Analytics } from '../../analytics/analytics';
 import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 interface SubscribeModel {
   email: string;
@@ -272,6 +273,7 @@ export class MailingListSignup {
   );
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     this.status.set('idle');
     await submit(this.form, async (f) => {

@@ -62,4 +62,38 @@ describe('SectionNav', () => {
     // Only one link is active at a time.
     expect(el.querySelectorAll('a[aria-current="location"]')).toHaveLength(1);
   });
+
+  it('never prevents the native jump, so the browser does the scrolling (AECI-1655)', () => {
+    const fixture = setup();
+    const link = (fixture.nativeElement as HTMLElement).querySelectorAll('nav a')[1]!;
+
+    const click = new MouseEvent('click', { cancelable: true, bubbles: true });
+    link.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(false);
+  });
+
+  it('marks the link current when the click lands on a child of the anchor', () => {
+    const fixture = setup();
+    const el = fixture.nativeElement as HTMLElement;
+    const link = el.querySelectorAll('nav a')[1] as HTMLAnchorElement;
+    const inner = document.createElement('span');
+    link.appendChild(inner);
+
+    inner.dispatchEvent(new MouseEvent('click', { cancelable: true, bubbles: true }));
+    fixture.detectChanges();
+
+    expect(link.getAttribute('aria-current')).toBe('location');
+  });
+
+  it('ignores a click on the nav outside any link', () => {
+    const fixture = setup();
+    const el = fixture.nativeElement as HTMLElement;
+
+    el.querySelector('ul')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    // Still the first-link default.
+    expect(el.querySelector('a[aria-current="location"]')).toBe(el.querySelector('nav a'));
+  });
 });

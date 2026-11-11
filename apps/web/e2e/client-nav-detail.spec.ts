@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { untilHydrated } from './hydration';
 
 // AECI-151 — an in-app (client-side) navigation to a detail page must render
 // the entity, not the global not-found shell. Before the fix the resolver's
@@ -28,6 +29,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     // Marker to prove every hop below is client-side (a full reload would clear it).
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
 
+    await untilHydrated(firstProductLink);
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
 
@@ -68,6 +70,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
 
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
 
+    await untilHydrated(firstProductLink);
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
 
@@ -94,6 +97,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
 
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
 
+    await untilHydrated(firstCategoryLink);
     await firstCategoryLink.click();
     await expect(page).toHaveURL(/\/categories\/[^/]+$/);
 

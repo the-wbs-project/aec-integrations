@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page, type Response } from '@playwright/test';
+import { untilHydrated } from './hydration';
 
 // AECI-145 / Phase 3.12 — the AECI-143 faceted filter sidebar on the API-backed
 // listing pages. Covers the acceptance criteria:
@@ -196,21 +197,18 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     expect(n, `first facet count must be a positive number, got "${countText}"`).toBeGreaterThan(0);
 
     // Register the refine refetch BEFORE the click (per the discipline note
-    // above) so the response can't be missed while the action retries.
+    // above) so the response can't be missed.
     const refine = apiResponse(page, '/api/products', (sp) => sp.has(param));
 
-    // Retry the ACTION, not just the assertion: `app-root` being attached is
-    // satisfied by the SSR HTML alone, so a click dispatched before Angular
-    // attaches its listeners is dropped outright and the URL never changes
-    // (same failure the listing-toolbar helpers work around). Unlike those
-    // toggles this checkbox is not idempotent — a second click would REMOVE the
-    // term — so the inner window is generous enough that a landed click is not
-    // mistaken for a dropped one, and the retry converges either way because
-    // every attempt ends by asserting the refined URL.
-    await expect(async () => {
-      await checkbox.click();
-      await expect(page).toHaveURL(FACET_PARAM, { timeout: 2_000 });
-    }).toPass({ timeout: 15_000 });
+    // Click once, after hydration. `app-root` being attached is satisfied by the
+    // SSR HTML alone. A click before hydration is not dropped: the event-replay
+    // contract queues it and replays it once the app is stable (AECI-1655). So a
+    // retry loop would queue a second click, and this checkbox is not
+    // idempotent: the second click REMOVES the term. Wait for the checkbox's
+    // listener to be live, then click it exactly once.
+    await untilHydrated(checkbox);
+    await checkbox.click();
+    await expect(page).toHaveURL(FACET_PARAM);
     await refine;
 
     // `waitForResponse` resolves when the response ARRIVES, not when Angular has
@@ -467,11 +465,14 @@ test.describe('/categories/:slug — locked-kind facet sidebar (AECI-143 / AECI-
     await firstFacet.waitFor({ timeout: 8000 }).catch(() => {});
     test.skip((await firstFacet.count()) === 0, 'no facet data seeded for this category');
 
-    // The initial load is satisfied by the SSR transfer cache (zero client API
-    // traffic), so the lock is only observable on a CLICK-driven refetch:
-    // refine a cross-filter and intercept the request pair it fires. Both carry
-    // the page's lock: the grid as `category_slug=<term.slug>` (AECI-1508, so SSR
-    // can prefetch it without the term id), the facets as `category_id=<term.id>`.
+    // The lock is only checked on a CLICK-driven refetch: refine a cross-filter
+    // and intercept the request pair it fires. Both requests carry the page's
+    // lock: the grid as `category_slug=<term.slug>` (AECI-1508, so SSR can
+    // prefetch it without the term id), the facets as `category_id=<term.id>`.
+    // The page also fetches the facets once on load with the lock alone, so wait
+    // for hydration first. Otherwise that load-time request can satisfy
+    // `facetsWait` (AECI-1655).
+    await untilHydrated(firstFacet);
     const gridWait = apiResponse(
       page,
       '/api/products',

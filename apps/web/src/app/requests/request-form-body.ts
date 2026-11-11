@@ -42,6 +42,7 @@ import { ClaimRoutedNotice } from './claim-routed-notice';
 import { ClaimantFields } from './claimant-fields';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
+import { isReplayedEvent } from '../core/event-replay';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -299,6 +300,14 @@ export class RequestFormBody implements OnInit {
     } catch {
       // Fail quiet: no disclosure. The submit still works.
     }
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.onSubmit();
   }
 
   protected async onSubmit(): Promise<void> {

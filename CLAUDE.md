@@ -177,8 +177,8 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
   Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
   `apps/web/src/server-runtime.ts`) and reconcile after hydration.
 - **Zoneless Angular.** `Lint: ✅`. No `zone.js`, no `NgZone`. `provideZonelessChangeDetection()`
-  plus `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`.
-  `ANGULAR_STYLE_GUIDE.md`.
+  plus `provideClientHydration(withI18nSupport(), withHttpTransferCacheOptions({ includePostRequests: false }))`.
+  Without `withI18nSupport()` every `i18n` component skips hydration. `ANGULAR_STYLE_GUIDE.md`.
 - **Router scroll restoration is already solved; don't re-solve it.** `withInMemoryScrolling`,
   `ScrollBehaviorManager`, `provideScrollMarginViewportScroller()`, `InitialFragmentScroller` and
   `PreStableScrollReset` work together. Never fix an anchor offset with a global `setOffset([0, N])`.

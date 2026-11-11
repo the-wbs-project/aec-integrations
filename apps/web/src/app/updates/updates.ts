@@ -43,6 +43,7 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
+import { isReplayedEvent } from '../core/event-replay';
 
 interface SubscribeModel {
   email: string;
@@ -284,6 +285,7 @@ export class UpdatesPage {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     this.status.set('idle');
     await submit(this.form, async (f) => {

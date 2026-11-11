@@ -9,11 +9,7 @@
     </h2>
 
     <div class="flex flex-wrap items-end gap-3">
-      <form
-        novalidate
-        class="flex items-end gap-2"
-        (submit)="$event.preventDefault(); submitSearch()"
-      >
+      <form novalidate class="flex items-end gap-2" (submit)="onSearchSubmit($event)">
         <label class="sr-only" for="admin-connectors-search" i18n="@@admin.connectors.search.label">
           Search by connector name or slug
         </label>

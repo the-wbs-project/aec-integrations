@@ -895,36 +895,70 @@ hours of each other.
 
 **(a) There is no hydration gate.** `await expect(page.locator('app-root')).toBeAttached()`
 is the repo's standard preamble, but it passes on the SSR HTML alone — it says
-nothing about whether Angular has attached its listeners. A click or
-`selectOption` dispatched in that window is dropped outright (event replay does
-not rescue it), the URL never changes, and the following `toHaveURL` times out.
-Whether hydration wins the race depends on machine load, so it reads like a code
-regression. There is no clean DOM signal to wait on: `#ng-state` survives the
-`TransferState` read, and `[ngh]` attributes are already consumed by the time a
-default `goto` resolves.
+nothing about whether Angular has attached its listeners. Until AECI-1655 a click
+or `selectOption` dispatched in that window was dropped outright, the URL never
+changed, and the following `toHaveURL` timed out. Whether hydration won the race
+depended on machine load, so it read like a code regression. Since AECI-1655
+(`withI18nSupport()`, see `ANGULAR_STYLE_GUIDE.md` §3) the pages really hydrate
+and carry Angular's event-replay contract. An early `click`, `change` or `input`
+on an element with a template or host listener is queued and replayed once the
+app is stable after hydration (`e2e/ssr-hydration-contract.spec.ts`). A queued
+click on a toggle replays once per click, so retrying a toggle before stability
+can cancel itself out. Wait with `untilHydrated` and click once instead. Replay does not cover listeners
+added in code (`addEventListener`, `Renderer2.listen`) or controls that render
+only on the client, so keep the remedy below.
 
-  **Remedy — retry the *action*, not just the assertion:**
-  `await expect(async () => { await click(); await expect(page).toHaveURL(x, { timeout: 1_000 }); }).toPass({ timeout: 15_000 })`.
-  `apps/web/e2e/listing-toolbar.ts` (`chooseView` / `chooseSort`) is the worked
-  example. Note the retry is only unconditionally safe for **idempotent**
-  actions; for a toggle (a facet checkbox, where a second click *removes* the
-  term) widen the inner timeout so a landed click is not mistaken for a dropped
-  one — the loop still converges, since every attempt ends on the same assertion.
-  `chooseSort` shows the other fix: it clicks the combobox only when `aria-expanded`
-  is not `true`, so a retried attempt cannot toggle an open popup shut.
+There is now one clean DOM signal. Angular removes an element's `jsaction`
+attribute once the app is stable after hydration, and its listener is live from
+then on. `untilHydrated(locator)` in `apps/web/e2e/hydration.ts` waits for that.
+Call it before clicking an SSR-rendered control whose in-app handling the test
+asserts. It returns at once for an element with no listener, and it waits for an
+element inside a `@defer (hydrate …)` block until that block hydrates. `#ng-state`
+is no signal: it survives the `TransferState` read. `[ngh]` is no signal either:
+it is consumed before a default `goto` resolves.
+
+  **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
+  then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and
+  the `updates.spec.ts` signup question are the worked examples. Do not wrap a
+  click on an SSR-rendered control in `expect(...).toPass()` on the old premise
+  that an early click is dropped. It is queued, so a retry queues a second click,
+  and on a toggle (a facet checkbox, a combobox) the second click undoes the
+  first. Keep a `toPass()` retry only for a step that is idempotent, or for a
+  listener replay does not cover. `apps/web/e2e/listing-toolbar.ts`
+  (`chooseView` / `chooseSort`) waits with `untilHydrated` first and keeps its
+  retry as a safety net. `chooseSort` clicks the combobox only when
+  `aria-expanded` is not `true`, so a retried attempt cannot toggle an open popup
+  shut.
+
+  **A popup's keyboard handling is live only once its focus has settled.** A
+  panel can be visible before its overlay has finished attaching. A key pressed
+  in that gap reaches no listener. Before pressing Escape or an arrow key in an
+  opened menu, assert that the element the menu focuses on open is focused.
+  `openMenu` in `e2e/nav-menu.spec.ts` waits for the menu's first link.
 
   **A link click is not dropped. It loads a new document (AECI-1630).** A click
   on an SSR-rendered `<a href>` before hydration still follows the `href`. The
-  SSR HTML carries no event-replay contract (no `jsaction` attributes, no inline
-  `_ejsas` script, checked 2026-11-09), so nothing intercepts the click. The URL
+  inline event-replay contract only queues an early event. It never calls
+  `preventDefault`, so the browser runs the native navigation (checked against
+  the 22.2 contract in AECI-1655). The queued click also replays into the
+  link's handler if the app becomes stable before the old page unloads. That
+  handler returns early on a replay (`isReplayedEvent`, `ANGULAR_STYLE_GUIDE.md`
+  §3), because the browser already followed the link. After
+  stability Angular's dispatcher does call `preventDefault` on an `<a>` click
+  inside a not-yet-hydrated `@defer` block, then hydrates the block and replays
+  the click. The URL
   changes as the test expects, so the retry above never fires. The test is now on
   a fresh document. A fresh page opens at the top, and Back from it reloads the
   previous page at the top too.
 
-  **Remedy — wait for a quiet network, then prove the click stayed in the
-  document.** `await page.waitForLoadState('networkidle')` before the click: the
-  main bundle, the lazy route chunk and the page's own requests have landed by
-  then. Set a `window` property before the click and read it after. A full load
+  **Remedy — wait for hydration, then prove the click stayed in the
+  document.** Prefer `await untilHydrated(link)` before the click (see above).
+  `client-nav-detail`, `taxonomy-browse`, `home` and `nav-menu` use it since
+  AECI-1655. Before AECI-1655 those tests passed by luck: the client re-rendered
+  every page and threw away the SSR nodes, and Playwright's click retried onto
+  the new, listening node. `await page.waitForLoadState('networkidle')` is the
+  older remedy: the main bundle, the lazy route chunk and the page's own requests
+  have landed by then. Set a `window` property before the click and read it after. A full load
   clears it. Retrying from `goto` alone does not work: each new load restarts the
   same race and lost four times in a row in 14 of 32 loaded runs. Fail rather than
   skip when the marker is gone, so a real hydration break stays red.
