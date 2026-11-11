@@ -1094,7 +1094,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 21. **Where the browser report runs (Q37, 2026-11-11).** Held in the EEA, the UK and Switzerland, the same as the bot check.
 22. **Accessibility statement (Q40, 2026-11-11).** Publish it, with a reply window of 10 business days (AECI-1673).
 23. **Platform gate issues (2026-11-11).** Build AECI-1621, AECI-1622 and AECI-1638 before any effective date. No text is softened.
-24. **Vendor re-acceptance (Q42).** Open: proposal is that any owner seat accepts for the company, the portal opens only the acceptance screen until one does, and no deadline ends the claim (AECI-1677).
+24. **Vendor re-acceptance (Q42, 2026-11-11).** Until an owner seat accepts the in-force Vendor Terms, the portal opens only the acceptance screen. Any owner seat accepts for the company, the listing stays claimed, and no deadline ends the claim (AECI-1677).
 25. **Later rights-reducing changes to the Vendor Terms (Q42).** Open: proposal is that they apply only after an owner seat accepts, mirroring ruling 12.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
