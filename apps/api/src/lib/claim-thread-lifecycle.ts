@@ -9,8 +9,9 @@
  *   (§15.5). {@link planClaimRemovedThreadCloses} NULLs `claim_id`, writes the
  *   anchor snapshot and closes an open thread `claim_removed`, in the delete's batch.
  * - **A thread closes read-only and never reopens** (§15.10). Retire closes it
- *   `retired`, a withdrawn added row closes it `withdrawn`, and a promote that makes
- *   the edge connector-powered closes it `not_attestable`, by a move or in place.
+ *   `retired`, a withdrawn added row closes it `withdrawn`, and a write that makes
+ *   the edge connector-powered closes it `not_attestable`: a promote move, a promote
+ *   flip in place (AECI-1541) or an admin contest accept (AECI-1661).
  *   {@link threadCloseStatements} writes the guarded UPDATE and the `thread.closed`
  *   audit row (§15.7) for each. `retract-product.ts` closes `claim_removed` in raw
  *   SQL, because that lane is pure SQL text.
@@ -624,6 +625,11 @@ export type ThreadNotAttestableCause = 'move' | 'became_connector_powered';
  * `powered_by_product_id`, on an ordinary `integrations` row makes it connector-powered
  * without a move. The closes, sentinels and race rule are the move's; only the audit
  * metadata differs, since the row stays on its anchor.
+ *
+ * AECI-1661: the admin accept of a `mechanism_kind` contest (`iPaaS` / `integrator`)
+ * on a claimed `integrations` row is the second in-place caller, and the one that
+ * names a person: `actor` puts the deciding admin on the `thread.closed` rows and the
+ * close notices, where promote's rows say `system`.
  */
 export function planThreadMoveCloses(
   db: Db,
@@ -633,13 +639,16 @@ export function planThreadMoveCloses(
     now: string;
     /** Defaults to `'move'`, the AECI-1536 cross-table move. */
     cause?: ThreadNotAttestableCause;
+    /** Who the `thread.closed` rows and the notices name. Defaults to `system`
+     *  (promote). The AECI-1661 admin accept names the deciding admin. */
+    actor?: Pick<AuditLogEntry, 'actorId' | 'actorType'>;
   },
 ): { stmts: BatchStmt[]; audits: AuditLogEntry[]; planned: PlannedThreadMove } {
   const closes = threadCloseStatements(db, {
     threads: args.threads,
     reason: 'not_attestable',
     now: args.now,
-    actor: { actorId: null, actorType: 'system' },
+    actor: args.actor ?? { actorId: null, actorType: 'system' },
     metadata:
       args.cause === 'became_connector_powered'
         ? { integrationId: args.anchorId, cause: 'became_connector_powered' }

@@ -156,6 +156,11 @@ import {
   runGuardedContestBatch,
 } from './vendor-contests';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import {
+  anyThreadMoveRaced,
+  openThreadsOnAnchor,
+  planThreadMoveCloses,
+} from '../lib/claim-thread-lifecycle';
 import { purgeTags } from './vendor-shared';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { dispatchMirrorSync } from '../lib/ownership-sync';
@@ -735,6 +740,19 @@ function contestValueStale(): ApiError {
   );
 }
 
+/**
+ * `409 CONTEST_INTEGRATION_CHANGED` for a private-thread race on an accept that makes
+ * the row connector-powered (AECI-1661, §15.10). No new error code: the admin queue
+ * already handles this one on its generic retry path (`ADMIN_PANEL_SPEC.md` §5.12).
+ */
+function threadRaceRefusal(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+    'A private thread on this integration was opened or closed while you were deciding. Reload and decide again.',
+  );
+}
+
 /** After a lost batch: did the contested column move while claim state held? */
 async function acceptWentStale(db: Db, row: ContestRow): Promise<boolean> {
   const integration = await loadContestTarget(db, contestAnchorOf(row));
@@ -923,27 +941,64 @@ export async function planAcceptWrites(
       }
       appliedMode = 'applied-here';
       // Review finding (AECI-1092): this accept can turn an ordinary claimed row into a
-      // connector-powered one (`mechanism_kind` → `iPaaS` / `integrator`). Rulings A
-      // and B then apply to the contests already open on it, in this same batch.
+      // connector-powered one (`mechanism_kind` → `iPaaS` / `integrator`). An evidenced
+      // pair is connector-powered by definition, so this names an `integrations` row.
+      // Rulings A and B then apply to the contests already open on it, in this same
+      // batch, and AECI-1661 closes its open threads.
       if (
         field === 'mechanism_kind' &&
+        anchor.kind === 'integration' &&
         !integration.connectorPowered &&
-        integration.builtByVendorId !== null &&
         isConnectorPoweredEdge({
           poweredByProductId: integration.poweredByProductId,
           mechanismKind: row.proposedValue,
         })
       ) {
-        await rerouteOnBecomingConnectorPowered(
-          db,
-          row,
-          anchor,
-          integration.builtByVendorId,
-          actor,
+        // AECI-1661 (§15.10): the thread routes refuse every write on a
+        // connector-powered edge (§15.2), so the row's open threads close
+        // `not_attestable` in this batch, after the column UPDATE — the same closes,
+        // sentinels and race rule as promote's in-place flip (AECI-1541). Planned
+        // even when no thread is open, so a first post landing between the read and
+        // the batch cannot leave an open thread (AECI-1544).
+        const threads = await openThreadsOnAnchor(db, anchor.id);
+        const threadPlan = planThreadMoveCloses(db, {
+          threads,
+          anchorId: anchor.id,
           now,
-          stmts,
-          audits,
-        );
+          cause: 'became_connector_powered',
+          // The admin's accept caused the close, so the rows name the admin, not
+          // `system`.
+          actor,
+        });
+        stmts.push(...threadPlan.stmts);
+        audits.push(...threadPlan.audits);
+        // The plan's sentinels abort like every other, and SQLite's error carries no
+        // token. Name a thread race after the lock race, which has priority, and only
+        // while the contest is still open: a second admin who won the same accept
+        // closed these threads too, and that loser must hear CONTEST_NOT_OPEN.
+        const lockNamer = lockRace;
+        lockRace = async () => {
+          const locked = lockNamer ? await lockNamer() : null;
+          if (locked) return locked;
+          const current = await db.query.integrationFieldChallenges.findFirst({
+            columns: { status: true },
+            where: eq(integrationFieldChallenges.id, row.id),
+          });
+          if (current?.status !== 'open') return null;
+          return (await anyThreadMoveRaced(db, [threadPlan.planned])) ? threadRaceRefusal() : null;
+        };
+        if (integration.builtByVendorId !== null) {
+          await rerouteOnBecomingConnectorPowered(
+            db,
+            row,
+            anchor,
+            integration.builtByVendorId,
+            actor,
+            now,
+            stmts,
+            audits,
+          );
+        }
       }
     }
   } else if (row.proposedValue === row.submitterVendorId) {
