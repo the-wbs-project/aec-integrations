@@ -34,6 +34,7 @@ import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initia
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import { Analytics } from '../analytics/analytics';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { AgreementBadge } from './agreement-badge';
@@ -1313,6 +1314,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 })
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
+  private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
   private readonly locale = inject(LOCALE_ID);
 
@@ -1338,6 +1340,16 @@ export class ProductsPairPage {
     // HTML. When the URL carries no `?view=`, `viewMode` defers to this remembered
     // value; an explicit `?view=` in the URL still wins. Mirrors `ConsentBanner`.
     afterNextRender(() => this.cookieView.set(readPairViewCookie()));
+    // AECI-935: browser-only `integration_viewed`, mirroring `product_viewed`.
+    // Canonical id order (the AECI-933 `pairKey` order), so both URL
+    // orientations emit the same pair. One component instance per pair route,
+    // and a version-selector change keeps the instance, so one event per page.
+    afterNextRender(() => {
+      const p = this.pair();
+      if (!p) return;
+      const [a, b] = canonicalPairIds(p.context_product.id, p.other_product.id);
+      if (a && b) this.analytics.integrationViewed(a, b);
+    });
   }
 
   /** Disclosure level from the URL (`?view=basic|detailed`). `requireSync` so SSR

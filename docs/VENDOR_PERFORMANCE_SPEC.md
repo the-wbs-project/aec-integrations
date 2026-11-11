@@ -82,7 +82,7 @@ Comparative figures (decision 3), emailed reports (decision 6), enquiries or any
 | Source | Consent | What it counts | Use on the page |
 |---|---|---|---|
 | D1 `page_views` | none (Tier 1, server-side, `ANALYTICS.md` §5) | Every full-document arrival and SPA navigation, including crawlers, with `is_bot` / `bot_name` and the entity ids | **Views and crawls.** The primary source. |
-| PostHog product events | opt-in (Tier 3) | `product_viewed`, `external_link_clicked`, and (after §3.4) the pair-page view event | **Outbound clicks only.** Never totals: it is a funnel, not a census. |
+| PostHog product events | opt-in (Tier 3) | `product_viewed`, `external_link_clicked`, and `integration_viewed` (the pair-page view event, §3.4) | **Outbound clicks only.** Never totals: it is a funnel, not a census. |
 | Google Search Console | n/a | Per-URL impressions, clicks, CTR, position; per-URL index verdict and last crawl | **Discovery** (§6). Two-to-three-day lag. |
 | Bing Webmaster Tools | n/a | Per-URL page and query stats, per-URL last crawl | **Discovery** (§6). Labelled Bing's, never blended with Google's. |
 
@@ -192,7 +192,7 @@ As built (2026-10-12, AECI-934, `ADMIN_PANEL_SPEC.md` §13 D26):
 
 ### 3.4 Consented pair-page view event — AECI-935
 
-`integration_viewed` has no emitter and its catalogue row cites a file that no longer exists. Re-home it: emit from the pair page with `product_a_id`, `product_b_id` (canonical order) and `source`. Fix the `ANALYTICS.md` §4 row in the same PR (§7 checklist item 4). It exists so the outbound funnel on pair pages has a denominator in the same consented slice as its clicks; it is never a total.
+**Shipped.** `integration_viewed` had no emitter and its catalogue row cited a file that no longer existed. It is re-homed: emit from the pair page with `product_a_id`, `product_b_id` (canonical order) and `source`. The ids use the AECI-933 `pairKey` order (product ids, not slugs), so views and clicks join on one key. The `ANALYTICS.md` §4 row was fixed in the same change (§7 checklist item 4). It exists so the outbound funnel on pair pages has a denominator in the same consented slice as its clicks; it is never a total.
 
 ### 3.5 Crawler purpose split — AECI-762 (existing)
 

@@ -1052,7 +1052,7 @@ Client-side initialization in Angular app:
 - Custom events (**the live catalogue is `docs/ANALYTICS.md` §4**; this list is the pre-launch sketch):
   - `search_performed` — query, results count, filters applied, plus `status` / `duration_ms` / `results_bucket`, which absorbed the retired `aeci.search.query` Datadog RUM action (§3.9). **Accepted narrowing:** search latency becomes a consented-slice number where the RUM action saw every search
   - `product_viewed` — product_id, source (search / browse / direct)
-  - `integration_viewed` — integration_id
+  - `integration_viewed` — product_a_id, product_b_id, source (pair page; AECI-935 replaced the retired integration_id shape)
   - `review_submitted` — product_id
   - `claim_requested` — vendor_id *(as shipped: `target_type`, `slug`, `request_id` — the request form never holds the UUID; the documented deviation is in `ANALYTICS.md` §4)*
   - `correction_requested` — product_id or vendor_id *(same deviation)*

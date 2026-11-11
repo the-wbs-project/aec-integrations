@@ -1433,7 +1433,7 @@ describe('ProductsPairPage: outbound click ownership (AECI-933)', () => {
   }
 
   function render(pair: ProductPairResponse) {
-    const analytics = { externalLinkClicked: vi.fn() };
+    const analytics = { externalLinkClicked: vi.fn(), integrationViewed: vi.fn() };
     TestBed.configureTestingModule({ providers: [{ provide: Analytics, useValue: analytics }] });
     const { el } = setup(pair);
     // Keep the test runner on the page: the tracker's own listener still runs.
@@ -1822,5 +1822,38 @@ describe('ProductsPairPage: values under review (AECI-1238)', () => {
       ),
     ).toBe(true);
     expect(markers(cards[1]!)).toEqual([]);
+  });
+});
+
+// AECI-935 (VENDOR_PERFORMANCE_SPEC §3.4): one consented `integration_viewed` per
+// pair-page render, ids in canonical order whichever way the URL is oriented.
+describe('ProductsPairPage — integration_viewed', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const procore = productListItem('procore', 'Procore');
+  const revit = productListItem('revit', 'Revit');
+  const [lowId, highId] = [procore.id, revit.id].sort();
+
+  async function renderWith(pair: ProductPairResponse | null) {
+    const analytics = { externalLinkClicked: vi.fn(), integrationViewed: vi.fn() };
+    TestBed.configureTestingModule({ providers: [{ provide: Analytics, useValue: analytics }] });
+    const { fixture } = setup(pair);
+    await hydrate(fixture);
+    return analytics.integrationViewed;
+  }
+
+  it.each([
+    ['procore → revit', procore, revit],
+    ['revit → procore', revit, procore],
+  ])('fires once with canonical ids from %s', async (_label, context, other) => {
+    const spy = await renderWith(buildPair({ context_product: context, other_product: other }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    // Identifiers only: two product ids and nothing else.
+    expect(spy).toHaveBeenCalledWith(lowId, highId);
+  });
+
+  it('does not fire when the pair did not resolve', async () => {
+    const spy = await renderWith(null);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
