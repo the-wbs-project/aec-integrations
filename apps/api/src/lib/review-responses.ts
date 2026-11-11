@@ -80,8 +80,9 @@ export function vendorReviewsWhere(db: Db, vendorId: string): SQL | undefined {
  * newest approved one. The list never reads it.
  *
  * It is wider than {@link vendorReviewsWhere} on purpose, and leaks nothing: the
- * only way into `removed` is the guarded `approved → removed` write, so every row
- * it matches was in the caller's list until that moment. Read `removed_at`, never
+ * only way into `removed` is the guarded `approved → removed` write, and the scope
+ * is the caller's owned products. The most it exposes is a removal timestamp on an
+ * owned product, which can predate the caller's claim. Read `removed_at`, never
  * `updated_at`: `removed_at` is stamped once, at the removal, while `updated_at`
  * moves again on later writes the vendor cannot see (a reviewer's erasure).
  */

@@ -405,8 +405,8 @@ export function createVendorUpdatesHandler(
           // AECI-1657: an admin removal (AECI-1643) drops a review out of the
           // approved term, which moves only when the removed review was the newest.
           // `removed_at` is stamped once, at the removal, so this term moves exactly
-          // then. Every removed review was in the caller's list until that write, so
-          // it is not "too wide". See `vendorRemovedReviewsWhere`.
+          // then. It reads only the caller's owned products and exposes only a removal
+          // time, so it is not "too wide". See `vendorRemovedReviewsWhere`.
           removed: sql<string | null>`(${db
             .select({ value: max(reviews.removedAt) })
             .from(reviews)
