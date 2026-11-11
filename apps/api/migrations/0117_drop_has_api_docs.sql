@@ -1,0 +1,16 @@
+-- AECI-534, PR B of two: drop `products.has_api_docs`. Written by hand into a
+-- `drizzle-kit generate --custom` file. `0110` already moved the snapshot, so
+-- drizzle-kit has nothing left to generate here.
+--
+-- Safe to apply only once the `0110` Worker is live on the tier. That Worker no longer
+-- names the column in any SELECT or INSERT (`docs/migrations.md` §3.2). It was live on
+-- staging, demo and prod by 2026-11-11.
+--
+-- A plain DROP COLUMN, NOT a recreate. The column has no index, FK, CHECK or UNIQUE,
+-- so SQLite rewrites each row in place and runs no DROP TABLE. No ON DELETE action
+-- fires on any child of `products` (`docs/migrations.md` §3.3a).
+--
+-- Data: the flag was review-app bookkeeping, not a product fact. The review app keeps
+-- its own copy, so nothing is lost. Chris approved the drop on AECI-534 on 2026-11-11
+-- (§3.3). `src/test/migration-0117.spec.ts` is the tripwire.
+ALTER TABLE `products` DROP COLUMN `has_api_docs`;
