@@ -49,6 +49,8 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q39 | Managed plan agreement | Five clauses assembled from your colleagues' answers, as they now read | Travis Russell | 2026-11-11 |
 | Q40 | Terms of Service | Website accessibility exposure | Alexander Coffin | 2026-11-11 |
 | Q41 | Privacy Policy | Breach notification obligations, and the one 1.1 acceptor | Alexander Coffin | 2026-11-11 |
+| Q42 | Vendor Terms | Moving vendors who accepted a draft version onto the final Vendor Terms | Alexander Coffin | 2026-11-11 |
+| Q43 | Privacy Policy | Is one privacy sentence enough for a yes-or-no browser report, under US state privacy law | Alexander Coffin | 2026-11-11 |
 
 ## Questions and answers
 
@@ -909,7 +911,7 @@ Questions: (a) Does reading the page's own navigation timing entry and listening
 
 Yes, it's an Article 5(3) event. The audience-measurement exemption is real, but it's not EU-wide. Is it in scope? I think so, and I don't think it's close. EDPB Guidelines 2/2023 treat a script that runs on the device and reports information back as "gaining access." That covers information the device generates, like an input event, and arguably information your server put there, like the navigation timing entry. Sending only one word doesn't take it out of scope. It just makes the intrusion small. Your purpose is to count how many daily visits were people rather than programs, and that goes to the exemption question, not to scope. The exemption. This is where your view goes too far. The Directive itself has only two exemptions: transmission, and what's strictly necessary for a service the user requested. "Audience measurement" isn't one of them. The CNIL reads it into "strictly necessary" under French law, with conditions: measurement is the only purpose, output is anonymous and aggregated, nothing is linked across sites, and users get notice and an opt-out. Your design probably meets all of that. But that's France. The EDPB guidelines don't endorse a general carve-out, and Germany's §25 TDDDG is read narrowly. So "it can run everywhere" overstates it. UK and Switzerland. These are friendlier. The Data (Use and Access) Act 2025 adds a PECR exemption for statistical analytics used to improve your own service, as long as you give clear information and an easy way to object. Check that the provision has commenced. Switzerland's Article 45c FMG is already an inform-and-refuse regime, so your notice plus the Do Not Track and Global Privacy Control opt-out likely works.
 
-**What we did:** Nothing built yet. The browser report is an Article 5(3) event with no EU-wide exemption, so it cannot run in the EEA without consent. Where it runs is ruling 21, open: proposal is the same EEA, UK and Switzerland hold as the bot check. The privacy sentence ships with Phase 1 of the human-traffic floor plan. The answer does not reach (b) the Ray ID or (c) the sentence. Both are re-asked as Q43, drafted on AECI-308 and not yet answered.
+**What we did:** Nothing built yet. The browser report is an Article 5(3) event with no EU-wide exemption, so it cannot run in the EEA without consent. Where it runs is ruling 21, open: proposal is the same EEA, UK and Switzerland hold as the bot check. The privacy sentence ships with Phase 1 of the human-traffic floor plan. The answer does not reach (b) the Ray ID or (c) the sentence. Both are re-asked as Q43, answered on 2026-11-11.
 
 ### Q38. The DMCA copyright-complaints section
 
@@ -1019,7 +1021,53 @@ Questions: (a) Which of the data we hold counts as personal information under Fl
 
 Notify affected individuals as fast as practicable, and no later than 30 days after you determine a breach happened or have reason to believe one did. If 500 or more Floridians are affected, notify the Florida Department of Legal Affairs within the same 30 days. You can get 15 more days if you give the Department good cause in writing. If more than 1,000 people are affected, notify the consumer reporting agencies too. Under the Florida statute, the individual notice must include the date or estimated date range of the breach, what information was involved, and how to contact you. Your vendors (hosting, email) must tell you within 10 days. Add a quick check of the residence-state rules, since some have shorter deadlines.
 
-**What we did:** No change to the Privacy Policy. AECI-1674 writes the breach runbook and records three checks: the production sign-in link lifetime, whether Google tokens are stored, and the 10-day breach-notice term in each processor agreement (AECI-310). The answer does not reach (c) the one 1.1 acceptor. That part is re-asked as Q42, widened to all six vendors who accepted a draft, drafted on AECI-308 and not yet answered.
+**What we did:** No change to the Privacy Policy. AECI-1674 writes the breach runbook and records three checks: the production sign-in link lifetime, whether Google tokens are stored, and the 10-day breach-notice term in each processor agreement (AECI-310). The answer does not reach (c) the one 1.1 acceptor. That part is re-asked as Q42, widened to all six vendors who accepted a draft, answered on 2026-11-11.
+
+### Q42. Moving vendors who accepted a draft version onto the final Vendor Terms
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+A vendor claims its company listing by ticking a required box that reads: "I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company." We record the person, the time and the version number accepted. Every version so far has carried a banner that says it is a draft, pending legal review and not yet in force. Six vendors accepted while that banner was showing: five accepted version 1.0, and one accepted version 1.1 on November 5, 2026. Version 1.2 replaced 1.1 on November 7, 2026. Nobody has accepted 1.2. None of the six pays us anything. The changes from 1.0 to 1.2 followed your colleagues' advice: a capped indemnity, a liability limit in bold, exclusive Florida venue, and a mutual jury-trial waiver.
+
+We plan to give the final version an effective date, then email all six. Every version has promised a 30-day email and has said that continued use binds. The current wording is:
+
+"When we change these terms, we email every seat at the company and the billing email at least 30 days before the new version takes effect, unless the change is required by law or fixes an error, in which case it may take effect sooner. The email names the version and its effective date, summarizes every material change, links the archived text, and attaches a copy you can save. If you keep using the portal after the effective date, the new version applies to you. If you do not agree, give up your claim before that date."
+
+Our view: the 30-day email followed by continued use binds the six vendors to the final version, and nothing else is owed to them.
+
+Question: is that enough to bind a vendor who accepted a draft version to the final version, including its jury-trial waiver and exclusive venue, or must each of the six tick the acceptance box again at their next sign-in?
+
+**Answer (Alexander Coffin, 2026-11-11):**
+
+No. Have each of the six tick the box again at their next sign-in. Your plan assumes there's already a contract you can amend, and I'm not sure there is. Every version these vendors accepted said it was a draft, pending legal review and "not yet in force." So what did they actually agree to? Arguably a document that told them, in its own banner, that it didn't bind anyone yet. That cuts against mutual assent. And the 30-day change clause lives inside that same draft. If the draft never took effect, the amendment mechanism didn't either. You'd be using a clause that may not exist to pull vendors into terms they've never seen. Then there's what you're adding. A jury-trial waiver isn't ordinary boilerplate. Florida courts enforce these waivers, but they look for a knowing and voluntary relinquishment and read them narrowly against the party relying on them. "We emailed you and you kept logging in" is a weak record for that, especially for something you've only just added. Exclusive venue is easier to enforce, but it has the same assent problem underneath. Your email process is good, honestly: it's specific, archived, and summarizes the changes. That's a solid way to handle changes once a live contract exists. It just shouldn't be what forms the contract in the first place.
+
+**What we did:** Recorded on 2026-11-11. Not yet triaged.
+
+### Q43. Is one privacy sentence enough for a yes-or-no browser report, under US state privacy law
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Florida law governs. This is one question about US law only. Your colleague answered the European side on November 11, 2026, and the report described here will not run for visitors in the European Economic Area, the United Kingdom or Switzerland.
+
+We keep our own count of page visits. We want to add one fact to it. Our own page script would send one word to our own server once per page load: "ran" when the script executed, or "interacted" when the visitor scrolled, clicked, tapped or pressed a key. It sends nothing else: not what was clicked, not what was typed, no coordinates, no timings. Nothing is stored in the browser. Nothing goes to a third party. Visitors who send Do Not Track or Global Privacy Control send nothing.
+
+To match the word to the right visit, the script also sends that page load's Cloudflare Ray ID. A Ray ID is a random label our network provider gives each single request. A new one is made for every page load. It is never stored in the browser and never compared across visits. We do not sell or share data, and we believe we are below the California Consumer Privacy Act thresholds.
+
+The Privacy Policy would gain this sentence in its paragraph on our visit count:
+
+"For visitors who do not send Do Not Track or Global Privacy Control, the tally also records whether our page script ran and whether the page was scrolled, clicked or typed in, as a yes or no only, never which key or what was clicked."
+
+Our view: a Ray ID that lasts one request is not a "unique identifier" or personal information under California or any other US state privacy law, so the sentence above is all the disclosure US law requires.
+
+Question: is that sentence sufficient disclosure under US federal and state law for this report, or does the per-request Ray ID make it personal information that needs anything more?
+
+**Answer (Alexander Coffin, 2026-11-11):**
+
+The sentence is probably enough. But I think your reasoning is aimed at the wrong thing. The Ray ID on its own is fine. The California Consumer Privacy Act (CCPA) definition of "unique identifier" is about persistent identifiers that recognize a consumer or device over time and across services. A label that's created for one request and never stored or compared isn't that. So I'd agree it isn't, by itself, personal information. What it does, though, is attach the "ran" or "interacted" word to the visit record. So what's actually in that record? If your visit count keeps IP addresses, user agents or anything similar, even briefly, then the new fact becomes part of a record that probably is personal information under the CCPA and the newer state laws. In that case the Ray ID isn't the problem. The join is. If the count is truly aggregate, with no IPs kept, then you're clean.
+
+**What we did:** Recorded on 2026-11-11. Not yet triaged.
 
 ## Chris's rulings
 
