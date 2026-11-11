@@ -85,6 +85,7 @@ import { readAlgoliaConfig } from './algolia-config';
 import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
+import { isReplayedEvent } from '../core/event-replay';
 
 /** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
 const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
@@ -372,6 +373,7 @@ export class SearchAutocomplete {
    * never double-fires for the same Enter — it stays purely the no-JS base layer.
    */
   protected onEnterKey(event: Event): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     const input = event.target as HTMLInputElement;
     if (input.getAttribute('aria-activedescendant')) return;
     event.preventDefault();
@@ -382,6 +384,7 @@ export class SearchAutocomplete {
   /** Native form submit (no-JS base layer) → `/search?q=`. Under JS, Enter is
    * owned by `onEnterKey`; this still guards the post-commit suppression. */
   protected onSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     if (this.suppressSubmit) return; // a suggestion was just committed
     this.expanded.set(false);

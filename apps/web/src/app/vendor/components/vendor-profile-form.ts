@@ -36,6 +36,7 @@ import { VendorLockedNote } from './vendor-locked-note';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field; the
  *  discrete company facts are in `choiceFields`, handled separately). */
@@ -119,7 +120,7 @@ interface FieldConfig {
     VendorLockedNote,
   ],
   template: `
-    <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
+    <form class="space-y-8" novalidate (submit)="onFormSubmit($event)">
       <!--
         AECI-967 (section 6.9). The product form has always said what to do about
         its AECi-owned identity fields; this form said nothing at all, so a vendor
@@ -696,6 +697,14 @@ export class VendorProfileForm {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
     this.model.update((m) => ({ ...m, [key]: value }));
     this.saved.set(false);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.onSave();
   }
 
   protected async onSave(): Promise<void> {

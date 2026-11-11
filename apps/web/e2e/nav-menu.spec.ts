@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { untilHydrated } from './hydration';
 
 // AECI-96 / AECI-158 / AECI-159. The primary navigation (DESIGN.md §5) is
 // responsive AND taxonomy-driven. Below `lg` it is a labelled hamburger to the
@@ -59,18 +60,23 @@ function overlay(page: Page) {
   return page.locator('.cdk-overlay-container');
 }
 
-// AECI-1672. A visible panel is not yet a listening panel. Spartan's popover
-// renders the panel inside the click handler, but it subscribes to the overlay's
-// outside-click and Escape streams in a root effect, which runs on the NEXT app
-// tick. CDK drops an outside click or Escape that arrives before then, because
-// the stream has no subscriber yet. Under parallel load Chrome can run the next
-// queued input before that tick, so "Products is visible, now click outside"
-// left the menu open about 1 run in 30. The trigger's `aria-expanded` is a host
-// binding, so it flips to "true" in the same tick that attaches the listeners.
-// Gate on it before acting on the open panel.
+// Open the menu on a hydrated toggle (AECI-1655). A click before hydration is
+// queued and replayed at app stability, so without the wait the open lands at a
+// load-dependent moment rather than on the click.
+//
+// Then wait until the popover is listening (AECI-1672). A visible panel is not
+// yet a listening panel. Spartan's popover renders the panel inside the click
+// handler, but it subscribes to the overlay's outside-click and Escape streams
+// in a root effect, which runs on the NEXT app tick. CDK drops an outside click
+// or Escape that arrives before then, because the stream has no subscriber yet.
+// The trigger's `aria-expanded` is a host binding, so it flips to "true" in the
+// same tick that attaches the listeners. Focus on the first link (the popover's
+// focus trap) lands after that render, so it confirms the panel is ready too.
 async function openMenu(page: Page) {
+  await untilHydrated(toggle(page));
   await toggle(page).click();
   await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(overlay(page).getByRole('link', { name: 'Home' })).toBeFocused();
 }
 
 test.describe('primary navigation menu (375px)', () => {
@@ -355,6 +361,7 @@ test.describe('primary navigation menu (1280px)', () => {
   test('the flyout opens on keyboard and Escape closes it, returning focus', async ({ page }) => {
     await page.goto(ROUTE);
     const trigger = primaryNav(page).getByRole('link', { name: 'Audiences', exact: true });
+    await untilHydrated(trigger);
     await trigger.focus();
     await page.keyboard.press('ArrowDown');
 

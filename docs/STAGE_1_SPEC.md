@@ -43,7 +43,7 @@ When a section of this spec references one of these documents, the companion doc
 | Frontend | Angular 21+ with SSR, **zoneless** (`provideZonelessChangeDetection()` — no `zone.js`) |
 | Styling | Tailwind CSS **v4** (`@tailwindcss/postcss`) with `@spartan-ng/brain/hlm-tailwind-preset.css` |
 | Components | Spartan UI **brain primitives only** (signal-based) + Angular CDK. `helm` codegen is avoided (alpha-CLI instability; decision validated in stack-test) |
-| Hydration | `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). See `apps/web/src/app/app.config.ts:13-30` |
+| Hydration | `provideClientHydration(withI18nSupport(), withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). `withI18nSupport()` is required: without it Angular skips hydration for every component that uses `i18n`, and the replay contract goes with it (AECI-1655). See `provideClientHydration` in `apps/web/src/app/app.config.ts` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
 | Database | Cloudflare D1 (SQLite) — the application DB (ADR 0016); Supabase retained for **Auth only** |
@@ -1052,7 +1052,7 @@ Client-side initialization in Angular app:
 - Custom events (**the live catalogue is `docs/ANALYTICS.md` §4**; this list is the pre-launch sketch):
   - `search_performed` — query, results count, filters applied, plus `status` / `duration_ms` / `results_bucket`, which absorbed the retired `aeci.search.query` Datadog RUM action (§3.9). **Accepted narrowing:** search latency becomes a consented-slice number where the RUM action saw every search
   - `product_viewed` — product_id, source (search / browse / direct)
-  - `integration_viewed` — integration_id
+  - `integration_viewed` — product_a_id, product_b_id, source (pair page; AECI-935 replaced the retired integration_id shape)
   - `review_submitted` — product_id
   - `claim_requested` — vendor_id *(as shipped: `target_type`, `slug`, `request_id` — the request form never holds the UUID; the documented deviation is in `ANALYTICS.md` §4)*
   - `correction_requested` — product_id or vendor_id *(same deviation)*
@@ -1249,7 +1249,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
 - [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as reference brand assets; not shipped — AECI-226; dark reintroduction dropped, §2a.1)
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
-- [ ] Hydration providers wired: `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130) — mirror `apps/web/src/app/app.config.ts`
+- [ ] Hydration providers wired: `provideClientHydration(withI18nSupport(), withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130); `withI18nSupport()` keeps `i18n` components hydratable (AECI-1655) — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
 - [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (light-only — AECI-226; dark reintroduction dropped, not roadmapped — §2a.1); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
 - [ ] Light-only presentation — no theme switcher or system-preference detection (AECI-226). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9) — dark is not roadmapped; the semantic tokens remain, so a later stage *could* revisit it as a token-block + toggle change, but nothing is planned

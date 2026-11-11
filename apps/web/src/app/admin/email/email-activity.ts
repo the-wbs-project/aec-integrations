@@ -20,6 +20,7 @@ import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminEmailApi, type AdminEmailFilters } from './admin-email-api';
 import { EmailSwitches } from './email-switches';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Rows per page. The spec's figure (§5.14); one page is a morning's sends on production. */
 const PER_PAGE = 25;
@@ -181,6 +182,14 @@ export class EmailActivity {
   protected onAddressInput(event: Event): void {
     this.addressDraft.set((event.target as HTMLInputElement).value);
     this.addressInvalid.set(false);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onSearchSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    this.submitSearch();
   }
 
   protected submitSearch(): void {

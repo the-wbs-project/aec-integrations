@@ -4,6 +4,7 @@ import { Directive, PLATFORM_ID, inject, input } from '@angular/core';
 import type { PlanCtaPage, PlanCtaPlacement } from '../../analytics/analytics';
 
 import { ClaimDialogService } from './claim-dialog.service';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * Opens the claim dialog from a "Claim your listing" link
@@ -13,7 +14,9 @@ import { ClaimDialogService } from './claim-dialog.service';
  * Progressive enhancement: the anchor keeps a plain `href`
  * (`CLAIM_DIALOG_FALLBACK_HREF`, the search page). Without JS,
  * before hydration, on a page with no `ClaimDialogHost`, or on a modified or
- * non-primary click, the link is followed. A plain `href`, not `routerLink`, because
+ * non-primary click, the link is followed. A pre-hydration click that Angular
+ * replays after hydration is ignored, because the browser already followed the
+ * link (`core/event-replay.ts`). A plain `href`, not `routerLink`, because
  * `RouterLink` navigates whether or not the click was prevented.
  */
 @Directive({
@@ -30,6 +33,7 @@ export class ClaimDialogTrigger {
   readonly aecClaimDialogPage = input.required<PlanCtaPage>();
 
   protected onClick(event: MouseEvent): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     if (!this.isBrowser || !this.dialog.hosted()) return;
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;

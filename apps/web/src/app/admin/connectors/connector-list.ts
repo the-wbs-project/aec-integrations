@@ -7,6 +7,7 @@ import type { AdminConnectorCatalogRow, ConnectorManagedBy } from '@aeci/shared'
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminPaginator } from '../admin-paginator';
 import { AdminConnectorsApi } from './admin-connectors-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 const PAGE_SIZE = 25;
 
@@ -76,6 +77,14 @@ export class ConnectorList {
 
   protected onSearchInput(event: Event): void {
     this.searchDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onSearchSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    this.submitSearch();
   }
 
   protected submitSearch(): void {

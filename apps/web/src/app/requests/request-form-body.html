@@ -189,7 +189,7 @@
   class="space-y-6"
   [class.mt-10]="variant() === 'page'"
   novalidate
-  (submit)="$event.preventDefault(); onSubmit()"
+  (submit)="onFormSubmit($event)"
 >
   <!-- What's wrong -->
   <div class="space-y-1.5">
@@ -332,7 +332,7 @@
   class="space-y-6"
   [class.mt-10]="variant() === 'page'"
   novalidate
-  (submit)="$event.preventDefault(); onSubmit()"
+  (submit)="onFormSubmit($event)"
 >
   <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
   <aec-claim-routed-notice [show]="routed()" [company]="company()" />
