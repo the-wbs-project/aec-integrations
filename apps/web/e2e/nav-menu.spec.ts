@@ -59,6 +59,20 @@ function overlay(page: Page) {
   return page.locator('.cdk-overlay-container');
 }
 
+// AECI-1672. A visible panel is not yet a listening panel. Spartan's popover
+// renders the panel inside the click handler, but it subscribes to the overlay's
+// outside-click and Escape streams in a root effect, which runs on the NEXT app
+// tick. CDK drops an outside click or Escape that arrives before then, because
+// the stream has no subscriber yet. Under parallel load Chrome can run the next
+// queued input before that tick, so "Products is visible, now click outside"
+// left the menu open about 1 run in 30. The trigger's `aria-expanded` is a host
+// binding, so it flips to "true" in the same tick that attaches the listeners.
+// Gate on it before acting on the open panel.
+async function openMenu(page: Page) {
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+}
+
 test.describe('primary navigation menu (375px)', () => {
   test.use({ viewport: MOBILE });
 
@@ -81,8 +95,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('opening the menu exposes links, facet sections, search, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+    await openMenu(page);
 
     for (const name of TOP_LINKS) {
       await expect(overlay(page).getByRole('link', { name })).toBeVisible();
@@ -111,7 +124,7 @@ test.describe('primary navigation menu (375px)', () => {
     page,
   }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
 
     const categories = overlay(page).getByRole('button', { name: 'Categories' });
     await categories.click();
@@ -131,7 +144,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -143,7 +156,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('clicking outside closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
 
     await page.mouse.click(5, 400);
@@ -154,7 +167,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('selecting a top-level link navigates and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     const link = overlay(page).getByRole('link', { name: 'Products' });
     await expect(link).toBeVisible();
 
@@ -167,7 +180,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('carries no "More" disclosure and no secondary destinations', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
 
     // The overflow disclosure was retired with the desktop menu. On a phone the
     // secondary links are a scroll to the footer rather than two taps here —
@@ -205,7 +218,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('a facet "View all" link navigates to the index and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Phases' }).click();
     const viewAll = overlay(page).getByRole('link', { name: 'View all phases' });
     await expect(viewAll).toBeVisible();
@@ -225,7 +238,7 @@ test.describe('primary navigation menu (375px)', () => {
     // is now capped at the viewport and scrolls inside.
     await page.setViewportSize(SHORT_MOBILE);
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     for (const name of FACETS) {
       await overlay(page).getByRole('button', { name }).click();
     }
@@ -257,7 +270,7 @@ test.describe('primary navigation menu (375px)', () => {
     await expect(toggle(page)).toBeVisible();
     expect(await analyzeHeader(page), 'closed state').toEqual([]);
 
-    await toggle(page).click();
+    await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Categories' }).click();
     await expect(overlay(page).getByRole('link', { name: 'View all categories' })).toBeVisible();
     expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
@@ -411,6 +424,8 @@ test.describe('header search in the lg-xl band (1100px)', () => {
     await expect(input).toBeVisible();
     // Opening a search affordance that does not take focus is a dead control.
     await expect(input).toBeFocused();
+    // Same popover, same one-tick gap before Escape is heard (see `openMenu`).
+    await expect(searchTrigger(page)).toHaveAttribute('aria-expanded', 'true');
 
     await page.keyboard.press('Escape');
     await expect(input).toHaveCount(0);
