@@ -544,8 +544,9 @@ export function buildProductJsonLd(
 
 /**
  * Build a `schema.org/Organization` JSON-LD payload for a vendor detail page
- * (§9.2). `headquarters` is free text on `VendorDetail`, so `address` is set
- * as a plain string rather than a synthesized `PostalAddress`.
+ * (§9.2). Headquarters is free text, so `address` is set as a plain string rather
+ * than a synthesized `PostalAddress`. Both facts come from `company_facts`, which has
+ * already passed the company-facts display rule (AECI-1635).
  */
 export function buildVendorJsonLd(vendor: VendorDetail): OrganizationLd {
   const ld: OrganizationLd = {
@@ -556,10 +557,12 @@ export function buildVendorJsonLd(vendor: VendorDetail): OrganizationLd {
   if (vendor.website) ld.url = vendor.website;
   const logo = shareableLogo(vendor);
   if (logo) ld.logo = logo;
-  if (vendor.founded_year !== null && vendor.founded_year !== undefined) {
-    ld.foundingDate = String(vendor.founded_year);
-  }
-  if (vendor.headquarters) ld.address = vendor.headquarters;
+  // AECI-1635: read through the §6.23 display rule, the same values the Company facts
+  // panel shows. The API leaves a fact null when no visitor may see it.
+  const founded = vendor.company_facts?.founded_year?.value;
+  if (founded !== null && founded !== undefined) ld.foundingDate = String(founded);
+  const headquarters = vendor.company_facts?.headquarters?.value;
+  if (headquarters) ld.address = headquarters;
   return ld;
 }
 

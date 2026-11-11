@@ -82,6 +82,12 @@ that tier's own SSR Worker consumes.
   vendor (AECI-1038). `apps/api/src/lib/algolia-builder-parity.spec.ts` builds the same
   D1 rows through both paths and asserts the product and vendor records are strictly
   equal. **Add a new record field to both builders in the same PR**, or that spec fails.
+- **Vendor headquarters and founded year pass the company-facts display rule (AECI-1635).**
+  The vendor builder reads each fact's source URL, `owned_at` and AECi's corrections on
+  the two fields, and calls `publicCompanyFact` / `correctionFor` from
+  `@aeci/shared/company-facts-display`, the same helpers the Worker uses. An unsourced
+  value on a vendor that does not own its record is `null` in the record. The listing
+  tier still reads the stored value (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).
 - **Edge-cache purge = queue enqueue, `purgeEverything` (WC-7 / AECI-321).** A
   clone/seed invalidates the whole cache, so after the reindex the tool enqueues a
   single `{ purgeEverything: true, source: 'datatool' }` message onto the

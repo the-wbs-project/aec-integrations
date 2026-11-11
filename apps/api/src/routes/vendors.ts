@@ -22,7 +22,7 @@ import { and, count, eq, inArray, like, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { fieldHides, vendors } from '../db/schema';
+import { fieldHides, fieldOverrides, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -32,7 +32,8 @@ import {
   vendorDetailConfig,
   vendorListConfig,
 } from '../lib/drizzle-helpers';
-import { vendorCorrectionsQuery } from '../lib/field-corrections';
+import { toFieldCorrections } from '../lib/field-captions';
+import { groupCorrections, vendorCorrectionsQuery } from '../lib/field-corrections';
 import { maskVendorDetail, maskVendorListItem } from '../lib/field-hide-mask';
 import { groupHides, vendorHidesQuery } from '../lib/field-hides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
@@ -51,7 +52,7 @@ export function createVendorsListHandler(
     if (query.search) conds.push(like(vendors.companyName, `%${query.search}%`));
     const where = and(...conds);
 
-    const [rows, countRows, hideRows] = await Promise.all([
+    const [rows, countRows, hideRows, correctionRows] = await Promise.all([
       db.query.vendors.findMany({
         ...vendorListConfig,
         where,
@@ -64,11 +65,23 @@ export function createVendorsListHandler(
       // list's own filter and the two fields, not the page's ids: active hides are a
       // handful of admin rows, so this binds no id list and stays well under D1's cap.
       vendorHidesQuery(db, and(where, inArray(fieldHides.field, ['headquarters', 'founded_year']))),
+      // AECI-1635 (§6.23): AECi's corrections on the same two facts. A still-true one
+      // lets an unsourced value show, as on the vendor page. Scoped the same way.
+      vendorCorrectionsQuery(
+        db,
+        and(where, inArray(fieldOverrides.field, ['headquarters', 'founded_year'])),
+      ),
     ]);
     const hides = groupHides(hideRows);
+    const corrections = groupCorrections(correctionRows);
 
     const body: VendorsListResponse = {
-      data: rows.map((row) => maskVendorListItem(toVendorListItem(row), hides)),
+      data: rows.map((row) =>
+        maskVendorListItem(
+          toVendorListItem(row, toFieldCorrections(corrections.get(row.id) ?? [])),
+          hides,
+        ),
+      ),
       page: query.page,
       perPage: query.perPage,
       total: countRows[0]?.value ?? 0,

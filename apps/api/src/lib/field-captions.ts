@@ -29,6 +29,7 @@ import type {
   ProductFieldCaptions,
 } from '@aeci/shared';
 import { isFacetOverrideField } from '@aeci/shared';
+import { isNewerCorrection, scalarCorrectionHolds } from '@aeci/shared/company-facts-display';
 import { compareText } from '@aeci/shared/text-sort';
 
 /** The stamps on one product, as the read config selects them. */
@@ -162,7 +163,7 @@ export function toFieldCorrections(
   const newest = new Map<string, CorrectionRow>();
   for (const row of rows) {
     const held = newest.get(row.field);
-    if (!held || row.setAt > held.setAt || (row.setAt === held.setAt && row.id > held.id)) {
+    if (!held || isNewerCorrection(row, held)) {
       newest.set(row.field, row);
     }
   }
@@ -192,8 +193,7 @@ function correctionStillTrue(
     const live = facets?.[row.field];
     return live !== undefined && Array.isArray(row.value) && sameSlugs(row.value, live);
   }
-  if (Array.isArray(row.value)) return false;
-  return (row.value ?? null) === (row.live ?? null);
+  return scalarCorrectionHolds(row.value, row.live);
 }
 
 // ─── The write side: when a stamp moves ─────────────────────────────────────────

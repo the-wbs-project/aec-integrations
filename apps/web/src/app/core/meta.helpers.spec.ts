@@ -628,6 +628,11 @@ describe('buildProductJsonLd', () => {
 });
 
 describe('buildVendorJsonLd', () => {
+  const SOURCED = {
+    set_by: 'aeci' as const,
+    date: '2026-11-01T00:00:00.000Z',
+    url: 'https://www.autodesk.com/company',
+  };
   function makeVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     const base: VendorDetail = {
       id: '00000000-0000-0000-0000-0000000000a0',
@@ -652,8 +657,8 @@ describe('buildVendorJsonLd', () => {
       products: [],
       maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
       company_facts: {
-        headquarters: null,
-        founded_year: null,
+        headquarters: { value: 'San Francisco, CA, USA', source: SOURCED },
+        founded_year: { value: 1982, source: SOURCED },
         company_size: null,
         ownership_type: null,
         parent_company: null,
@@ -690,7 +695,12 @@ describe('buildVendorJsonLd', () => {
   });
 
   it('stringifies founded_year for schema.org foundingDate (YYYY)', () => {
-    const ld = buildVendorJsonLd(makeVendor({ founded_year: 1999 }));
+    const base = makeVendor();
+    const ld = buildVendorJsonLd(
+      makeVendor({
+        company_facts: { ...base.company_facts, founded_year: { value: 1999, source: SOURCED } },
+      }),
+    );
     expect(ld.foundingDate).toBe('1999');
     expect(typeof ld.foundingDate).toBe('string');
   });
@@ -700,8 +710,11 @@ describe('buildVendorJsonLd', () => {
       makeVendor({
         website: null,
         logo_url: null,
-        headquarters: null,
-        founded_year: null,
+        company_facts: {
+          ...makeVendor().company_facts,
+          headquarters: null,
+          founded_year: null,
+        },
       }),
     );
     expect(ld).toEqual({
@@ -713,6 +726,37 @@ describe('buildVendorJsonLd', () => {
     expect(ld).not.toHaveProperty('logo');
     expect(ld).not.toHaveProperty('address');
     expect(ld).not.toHaveProperty('foundingDate');
+  });
+});
+
+// AECI-1635 (§6.23): JSON-LD shows what the Company facts panel shows, never the raw
+// top-level fields. The API nulls a fact no visitor may see, such as an unsourced value
+// on a vendor that does not own its record.
+describe('buildVendorJsonLd and the company-facts display rule', () => {
+  const base = (): VendorDetail =>
+    ({
+      id: '00000000-0000-0000-0000-0000000000a1',
+      slug: 'acme',
+      company_name: 'Acme',
+      logo_url: null,
+      claim_status: 'unclaimed',
+      website: null,
+      headquarters: 'Raw City',
+      founded_year: 1950,
+      company_facts: {
+        headquarters: null,
+        founded_year: null,
+        company_size: null,
+        ownership_type: null,
+        parent_company: null,
+        funding_stage: null,
+      },
+    }) as unknown as VendorDetail;
+
+  it('omits foundingDate and address when company_facts hides them', () => {
+    const ld = buildVendorJsonLd(base());
+    expect(ld).not.toHaveProperty('foundingDate');
+    expect(ld).not.toHaveProperty('address');
   });
 });
 

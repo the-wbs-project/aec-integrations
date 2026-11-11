@@ -14,6 +14,8 @@ import type {
   OwnershipType,
 } from '@aeci/shared';
 
+import { companyFactSource } from '@aeci/shared/company-facts-display';
+
 import type { vendors } from '../db/schema';
 
 type VendorRow = typeof vendors.$inferSelect;
@@ -86,43 +88,11 @@ export function companyFactCorrectionColumns(
   };
 }
 
-/** A stored date as ISO-8601, or null. The promote wire is loose about its format. */
-function isoOrNull(stored: string | null | undefined): string | null {
-  if (!stored) return null;
-  const parsed = new Date(stored);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function httpUrlOrNull(stored: string | null | undefined): string | null {
-  return stored && /^https?:\/\//i.test(stored) ? stored : null;
-}
-
 /**
- * The display rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): who a visitor is told set
- * this value, or null when the value must not show. An AECi correction comes first. A value with no source on a
- * vendor that does not own its record may predate the AECI-1588 cleanup.
+ * The display rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23) lives in `@aeci/shared` since
+ * AECI-1635, so the list, search and the datatool reindex apply the same copy.
  */
-export function companyFactSource(input: {
-  value: unknown;
-  sourceUrl: string | null | undefined;
-  checkedAt: string | null | undefined;
-  ownedAt: string | null | undefined;
-  /** AECi's correction on this field, when it still holds (AECI-1614 `toFieldCorrections`). */
-  correction?: FieldCorrection | undefined;
-}): CompanyFactSource | null {
-  if (input.value === null || input.value === undefined) return null;
-  if (input.correction) {
-    return {
-      set_by: 'aeci',
-      date: isoOrNull(input.correction.date),
-      url: httpUrlOrNull(input.correction.source_url),
-    };
-  }
-  const url = httpUrlOrNull(input.sourceUrl);
-  if (url) return { set_by: 'aeci', date: isoOrNull(input.checkedAt), url };
-  if (input.ownedAt) return { set_by: 'vendor', date: isoOrNull(input.checkedAt), url: null };
-  return null;
-}
+export { companyFactSource, publicCompanyFact } from '@aeci/shared/company-facts-display';
 
 /** The vendor columns the public facts read. */
 export const companyFactColumns = {

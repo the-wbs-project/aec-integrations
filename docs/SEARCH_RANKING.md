@@ -209,6 +209,17 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **A value under review is masked (AECI-1238 PR 2):** the same rule as products. A hidden
   `description` or `headquarters` is `null` on the record, so it is neither searchable nor a facet
   value while it is hidden.
+- **`headquarters` and `founded_year` pass the company-facts display rule (AECI-1635,
+  `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** An unsourced value on a vendor that does not own its
+  record is `null` on the record, unless an AECi correction on it still holds. Both builders call
+  `publicCompanyFact` from `@aeci/shared/company-facts-display`: `toAlgoliaVendor` with corrections
+  from `toFieldCorrections`, the datatool reindex with `correctionFor`. The parity spec covers
+  each case. `listing_tier` still reads the stored `headquarters`, so the rule never moves a rank.
+  A return of records to AECi clears `owned_at` without touching `updated_at`. The nightly window
+  therefore also picks a vendor with a `vendor.records_returned` audit row in the window
+  (`recordsReturnedInWindow` in `lib/algolia-sync.ts`). A correction bumps `updated_at`, so it
+  needs no arm. Run a full vendor reindex per environment once to clear values indexed before
+  AECI-1635.
 
 ### 3.3 `integrations`
 

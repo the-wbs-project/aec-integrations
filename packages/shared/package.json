@@ -101,6 +101,10 @@
       "types": "./src/pair-page-path.ts",
       "default": "./src/pair-page-path.ts"
     },
+    "./company-facts-display": {
+      "types": "./src/company-facts-display.ts",
+      "default": "./src/company-facts-display.ts"
+    },
     "./response-drain": {
       "types": "./src/response-drain.ts",
       "default": "./src/response-drain.ts"

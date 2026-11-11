@@ -73,7 +73,7 @@ function correctionsQuery(
 }
 
 /** Corrections on the vendors `scope` selects. */
-export function vendorCorrectionsQuery(db: Db, scope: SQL) {
+export function vendorCorrectionsQuery(db: Db, scope: SQL | undefined) {
   return correctionsQuery(db, 'vendor', vendors, vendors.id, CAPTION_COLUMNS.vendor, scope);
 }
 

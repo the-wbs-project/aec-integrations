@@ -26,13 +26,14 @@ import {
   AlgoliaProductRecordSchema,
   AlgoliaVendorRecordSchema,
 } from '@aeci/shared/algolia-records';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildProductRecords, buildVendorRecords } from '../../../datatool/src/algolia-reindex';
 import {
   connectorEvidencedPairs,
   fieldHides,
+  fieldOverrides,
   integrations,
   productAudiences,
   productCategories,
@@ -47,6 +48,8 @@ import {
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { toFieldCorrections } from './field-captions';
+import { groupCorrections, vendorCorrectionsQuery } from './field-corrections';
 import {
   algoliaProductConfig,
   algoliaVendorConfig,
@@ -325,6 +328,82 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     expect(products.find((r) => r.objectID === u(11))!.description).toBeNull();
     const unmasked = products.find((r) => r.objectID === u(12))!;
     expect(unmasked).toStrictEqual(await transformProduct(u(12)));
+  });
+
+  it('applies the company-facts display rule identically on both paths (AECI-1635)', async () => {
+    await seed();
+    const at = '2026-11-01T00:00:00.000Z';
+    await t.db.insert(vendors).values([
+      // Not owned, no source: both facts hidden.
+      {
+        id: u(3),
+        slug: 'unsourced',
+        companyName: 'Unsourced',
+        headquarters: 'Nowhere',
+        foundedYear: 1990,
+        promotionStatus: 'promoted',
+      },
+      // Not owned, no source, a still-true correction on one fact and a stale one on the
+      // other. Only the first shows.
+      {
+        id: u(4),
+        slug: 'corrected',
+        companyName: 'Corrected',
+        headquarters: 'Boston, MA',
+        foundedYear: 1999,
+        promotionStatus: 'promoted',
+      },
+      // Not owned, one fact sourced.
+      {
+        id: u(5),
+        slug: 'sourced',
+        companyName: 'Sourced',
+        headquarters: 'Denver, CO',
+        headquartersSourceUrl: 'https://sourced.example/about',
+        headquartersCheckedAt: at,
+        foundedYear: 2001,
+        promotionStatus: 'promoted',
+      },
+    ]);
+    const correction = (id: number, field: string, value: string | number, setAt: string) => ({
+      id: u(id),
+      entityType: 'vendor',
+      entityId: u(4),
+      field,
+      value,
+      reason: 'R',
+      sourceUrl: 'https://registry.example',
+      setAt,
+    });
+    await t.db
+      .insert(fieldOverrides)
+      .values([
+        correction(96, 'headquarters', 'Boston, MA', at),
+        correction(97, 'founded_year', 1998, at),
+      ]);
+    const corrections = groupCorrections(
+      await vendorCorrectionsQuery(
+        t.db,
+        inArray(fieldOverrides.field, ['headquarters', 'founded_year']),
+      ),
+    );
+
+    const reindexed = await buildVendorRecords(asD1(t.raw));
+    for (const record of reindexed) {
+      const id = record.objectID as string;
+      const row = (await t.db.query.vendors.findFirst({
+        ...algoliaVendorConfig,
+        where: eq(vendors.id, id),
+      })) as RawAlgoliaVendorRow;
+      expect(record).toStrictEqual(
+        toAlgoliaVendor(row, [], toFieldCorrections(corrections.get(id) ?? [])),
+      );
+    }
+    const byId = new Map(reindexed.map((r) => [r.objectID, r]));
+    expect(byId.get(u(1))).toMatchObject({ headquarters: 'Carpinteria, CA', founded_year: 2002 });
+    expect(byId.get(u(3))).toMatchObject({ headquarters: null, founded_year: null });
+    expect(byId.get(u(4))).toMatchObject({ headquarters: 'Boston, MA', founded_year: null });
+    expect(byId.get(u(5))).toMatchObject({ headquarters: 'Denver, CO', founded_year: null });
   });
 
   it('builds every product record identically on both paths', async () => {

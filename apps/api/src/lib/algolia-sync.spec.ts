@@ -15,16 +15,20 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  auditLog,
   connectorEvidencedPairs,
   fieldHides,
+  fieldOverrides,
   integrations,
   products,
   statsCache,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { RECORDS_RETURNED_ACTION } from './vendor-handback';
 import {
   ALGOLIA_WATERMARK_KEY,
+  RECORDS_RETURNED_AUDIT_ACTION,
   indexEntity,
   readWatermark,
   runDailySync,
@@ -287,6 +291,80 @@ describe('indexEntity — value hides in the window (AECI-1238)', () => {
     const pushed = bodies(edges.calls[0]!);
     expect(pushed.map((b) => b.objectID).sort()).toEqual(['edge', 'pair']);
     expect(pushed.every((b) => b.mechanism_name === null)).toBe(true);
+  });
+});
+
+// ── indexEntity: the company-facts display rule (AECI-1635) ──────────────────
+
+describe('indexEntity — company facts follow the display rule (AECI-1635)', () => {
+  const W: AlgoliaSyncFilter = {
+    type: 'window',
+    gtIso: '2026-06-01T00:00:00.000Z',
+    lteIso: '2026-06-09T00:00:00.000Z',
+  };
+  const OUTSIDE = '2026-05-01T00:00:00.000Z';
+  const INSIDE = '2026-06-05T00:00:00.000Z';
+  type Body = { objectID: string; headquarters?: string | null };
+  const bodies = (call: BatchCall) => call.body.requests.map((r) => r.body as Body);
+
+  it('keys the window arm on the action the return writes', () => {
+    expect(RECORDS_RETURNED_AUDIT_ACTION).toBe(RECORDS_RETURNED_ACTION);
+  });
+
+  it('re-pushes a vendor whose records returned to AECi in the window, though updated_at is old', async () => {
+    // The return clears owned_at and leaves updated_at alone.
+    await seedVendor('returned', { updatedAt: OUTSIDE, headquarters: 'Vendor-set City' });
+    await seedVendor('returned-long-ago', { updatedAt: OUTSIDE, headquarters: 'Old City' });
+    await seedVendor('untouched', { updatedAt: OUTSIDE });
+    const audit = (id: number, entityId: string, createdAt: string) => ({
+      id: u(id),
+      actorType: 'admin',
+      action: RECORDS_RETURNED_ACTION,
+      entityType: 'vendor',
+      entityId,
+      createdAt,
+    });
+    await t.db
+      .insert(auditLog)
+      .values([audit(70, 'returned', INSIDE), audit(71, 'returned-long-ago', OUTSIDE)]);
+    // Another action on the vendor in the window does not count.
+    await t.db.insert(auditLog).values({
+      ...audit(72, 'untouched', INSIDE),
+      action: 'vendor.updated',
+    });
+    const { fetchImpl, calls } = makeFetch();
+
+    const result = await indexEntity(t.db, fetchImpl, CREDS, ENV, 'vendors', W);
+
+    expect(result).toMatchObject({ saved: 1, ok: true });
+    const pushed = bodies(calls[0]!);
+    expect(pushed.map((b) => b.objectID)).toEqual(['returned']);
+    expect(pushed[0]!.headquarters).toBeNull();
+  });
+
+  it('indexes an unsourced value a still-true AECi correction stands behind', async () => {
+    await seedVendor('corrected', { updatedAt: INSIDE, headquarters: 'Boston, MA' });
+    await seedVendor('stale', { updatedAt: INSIDE, headquarters: 'Moved On' });
+    const correction = (id: number, entityId: string, value: string) => ({
+      id: u(id),
+      entityType: 'vendor',
+      entityId,
+      field: 'headquarters',
+      value,
+      reason: 'R',
+      sourceUrl: 'https://registry.example',
+      setAt: INSIDE,
+    });
+    await t.db
+      .insert(fieldOverrides)
+      .values([correction(80, 'corrected', 'Boston, MA'), correction(81, 'stale', 'Was Here')]);
+    const { fetchImpl, calls } = makeFetch();
+
+    await indexEntity(t.db, fetchImpl, CREDS, ENV, 'vendors', W);
+
+    const byId = new Map(bodies(calls[0]!).map((b) => [b.objectID, b]));
+    expect(byId.get('corrected')!.headquarters).toBe('Boston, MA');
+    expect(byId.get('stale')!.headquarters).toBeNull();
   });
 });
 
