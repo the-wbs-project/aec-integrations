@@ -64,13 +64,18 @@ function overlay(page: Page) {
 // queued and replayed at app stability, so without the wait the open lands at a
 // load-dependent moment rather than on the click.
 //
-// Then wait for the popover's focus trap to move focus to its first link. The
-// panel can be visible before the popover has finished attaching, and a key
-// pressed in that gap (Escape) reaches no listener. Focus on the first link means
-// the overlay is attached and its keyboard handling is live.
+// Then wait until the popover is listening (AECI-1672). A visible panel is not
+// yet a listening panel. Spartan's popover renders the panel inside the click
+// handler, but it subscribes to the overlay's outside-click and Escape streams
+// in a root effect, which runs on the NEXT app tick. CDK drops an outside click
+// or Escape that arrives before then, because the stream has no subscriber yet.
+// The trigger's `aria-expanded` is a host binding, so it flips to "true" in the
+// same tick that attaches the listeners. Focus on the first link (the popover's
+// focus trap) lands after that render, so it confirms the panel is ready too.
 async function openMenu(page: Page) {
   await untilHydrated(toggle(page));
   await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
   await expect(overlay(page).getByRole('link', { name: 'Home' })).toBeFocused();
 }
 
@@ -97,7 +102,6 @@ test.describe('primary navigation menu (375px)', () => {
   test('opening the menu exposes links, facet sections, search, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
     await openMenu(page);
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
 
     for (const name of TOP_LINKS) {
       await expect(overlay(page).getByRole('link', { name })).toBeVisible();
@@ -427,6 +431,8 @@ test.describe('header search in the lg-xl band (1100px)', () => {
     await expect(input).toBeVisible();
     // Opening a search affordance that does not take focus is a dead control.
     await expect(input).toBeFocused();
+    // Same popover, same one-tick gap before Escape is heard (see `openMenu`).
+    await expect(searchTrigger(page)).toHaveAttribute('aria-expanded', 'true');
 
     await page.keyboard.press('Escape');
     await expect(input).toHaveCount(0);

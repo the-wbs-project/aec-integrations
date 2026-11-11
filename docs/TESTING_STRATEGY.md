@@ -890,11 +890,11 @@ A test is flaky if it fails intermittently without code changes. Flaky tests are
 
 This is strict but necessary. Tolerating flakiness leads to compounding pain.
 
-### 14.3 The two e2e hazards that actually cause flakes here
+### 14.3 The three e2e hazards that actually cause flakes here
 
-Both are timing races against Angular, and both have a standard remedy. Neither
-is hypothetical: `e2e/facets.spec.ts` "criterion #1" hit *both* on `main` within
-hours of each other.
+All three are timing races against Angular, and each has a standard remedy. None
+is hypothetical. `e2e/facets.spec.ts` "criterion #1" hit both (a) and (b) on
+`main` within hours of each other.
 
 **(a) There is no hydration gate.** `await expect(page.locator('app-root')).toBeAttached()`
 is the repo's standard preamble, but it passes on the SSR HTML alone — it says
@@ -937,7 +937,8 @@ it is consumed before a default `goto` resolves.
   panel can be visible before its overlay has finished attaching. A key pressed
   in that gap reaches no listener. Before pressing Escape or an arrow key in an
   opened menu, assert that the element the menu focuses on open is focused.
-  `openMenu` in `e2e/nav-menu.spec.ts` waits for the menu's first link.
+  For a Spartan popover the cause and the exact gate are in (c) below.
+  `openMenu` in `e2e/nav-menu.spec.ts` waits for both.
 
   **A link click is not dropped. It loads a new document (AECI-1630).** A click
   on an SSR-rendered `<a href>` before hydration still follows the `href`. The
@@ -983,6 +984,23 @@ IntelliBid").
   because the lede and the grid are driven by the same `httpResource`. Where a
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
+
+**(c) A visible overlay is not yet listening (AECI-1672).** A Spartan popover or
+dialog (`BrnPopover`, `BrnDialog`) renders its panel inside the click handler
+that opens it. It subscribes to the overlay's outside-click and Escape streams
+in a root `effect()`, which runs on the next app tick. CDK drops an outside
+click or an Escape that arrives before that tick, because the stream has no
+subscriber yet. Under parallel load Chrome can run the next queued input before
+the tick. So "the panel is visible, now click outside" leaves the panel open
+about 1 run in 30. A real user would have to tap within one frame of opening, so
+the app is left as it is.
+
+  **Remedy: gate on the trigger's `aria-expanded="true"` before acting on the
+  open panel.** It is a host binding, so it flips in the same tick that attaches
+  the listeners. A visible link inside the panel is not a gate: it is in the DOM
+  before the tick. Focus on the panel's first link lands after that render, so
+  it is a valid gate too. `openMenu` in `e2e/nav-menu.spec.ts` is the worked
+  example.
 
 
 ---
