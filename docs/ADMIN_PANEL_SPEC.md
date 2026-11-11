@@ -2211,10 +2211,11 @@ Handlers in `apps/api/src/routes/admin-reviews.ts`, the screen in `apps/web/src/
 - **Edit a review.** AECi approves, rejects or removes the reviewer's words. It never rewrites them.
 - **Email anyone about a removal.**
 
-> **Known gap (AECI-1643 finding).** `GET /api/vendor/updates` does not reliably move the vendor
-> portal's `reviews` cursor on a removal. Its `reviews` term is `MAX(updated_at)` over the vendor's
-> *approved* reviews, so a removal changes it only when the removed review held the maximum. An
-> open portal then keeps the removed review until a reload.
+> **Vendor portal freshness (AECI-1657, 2026-11-11).** A removal moves the vendor portal's
+> `reviews` cursor on `GET /api/vendor/updates`, so an open portal drops the review on its next
+> poll. The cursor takes `MAX(removed_at)` over the vendor's removed reviews as its own term
+> (`STAGE_2_REALTIME_SPEC.md` §2.2). Before AECI-1657 it read only approved reviews, so a removal
+> moved it only when the removed review was the newest.
 
 ## 6. API surface
 
