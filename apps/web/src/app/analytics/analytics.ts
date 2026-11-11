@@ -306,8 +306,17 @@ export class Analytics {
     this.capture('product_viewed', { product_id: productId, source: this.navigationSource() });
   }
 
-  integrationViewed(integrationId: string): void {
-    this.capture('integration_viewed', { integration_id: integrationId });
+  /**
+   * Pair-page view (AECI-935, VENDOR_PERFORMANCE_SPEC §3.4). The caller passes the
+   * two product ids in canonical order (`canonicalPairIds`), so both URL
+   * orientations emit the same pair. Consented-slice denominator, never a total.
+   */
+  integrationViewed(productAId: string, productBId: string): void {
+    this.capture('integration_viewed', {
+      product_a_id: productAId,
+      product_b_id: productBId,
+      source: this.navigationSource(),
+    });
   }
 
   reviewSubmitted(productId: string): void {

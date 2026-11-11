@@ -100,7 +100,7 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
 
     analytics.searchPerformed(SEARCH_INPUT);
     analytics.productViewed('prod-1');
-    analytics.integrationViewed('int-1');
+    analytics.integrationViewed('prod-a', 'prod-b');
     analytics.reviewSubmitted('prod-1');
     analytics.reviewUpdateSubmitted({ product_id: 'prod-1', rerated: true });
     analytics.claimRequested({
@@ -139,7 +139,12 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     );
     expect(client.capture).toHaveBeenCalledWith(
       'integration_viewed',
-      expect.objectContaining({ integration_id: 'int-1', ...dims }),
+      expect.objectContaining({
+        product_a_id: 'prod-a',
+        product_b_id: 'prod-b',
+        source: 'direct',
+        ...dims,
+      }),
     );
     expect(client.capture).toHaveBeenCalledWith(
       'review_submitted',
@@ -400,7 +405,7 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     document.documentElement.dataset['theme'] = 'dark';
     const { analytics, client } = setup();
 
-    analytics.integrationViewed('int-9');
+    analytics.integrationViewed('prod-a', 'prod-b');
     await flush();
 
     expect(client.capture).toHaveBeenCalledWith(
