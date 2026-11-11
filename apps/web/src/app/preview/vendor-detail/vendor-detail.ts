@@ -29,6 +29,13 @@ import {
  * spec-compliant payload to render JSON-LD from. Only the fields the service
  * actually reads are populated; the rest are placeholder zeros.
  */
+/** An AECi-sourced company fact, as `companyFactSource` returns one. */
+const FIXTURE_FACT_SOURCE = {
+  set_by: 'aeci',
+  date: '2024-01-01T00:00:00.000Z',
+  url: 'https://www.procore.com/about',
+} as const;
+
 const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   id: '00000000-0000-0000-0000-00000000aaaa',
   slug: 'procore',
@@ -53,9 +60,11 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   // The unreviewed baseline (AECI-616): bare attribution, no date. Matches every
   // real row today — nothing was backfilled.
   maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+  // AECI-1635: the API returns the top-level facts only when `company_facts` carries
+  // them, and the JSON-LD reads `company_facts`. A sourced AECi value, as the API sends.
   company_facts: {
-    headquarters: null,
-    founded_year: null,
+    headquarters: { value: VENDOR_FIXTURE.hq, source: FIXTURE_FACT_SOURCE },
+    founded_year: { value: VENDOR_FIXTURE.founded, source: FIXTURE_FACT_SOURCE },
     company_size: null,
     ownership_type: null,
     parent_company: null,
