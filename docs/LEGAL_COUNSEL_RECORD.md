@@ -1043,7 +1043,7 @@ Question: is that enough to bind a vendor who accepted a draft version to the fi
 
 No. Have each of the six tick the box again at their next sign-in. Your plan assumes there's already a contract you can amend, and I'm not sure there is. Every version these vendors accepted said it was a draft, pending legal review and "not yet in force." So what did they actually agree to? Arguably a document that told them, in its own banner, that it didn't bind anyone yet. That cuts against mutual assent. And the 30-day change clause lives inside that same draft. If the draft never took effect, the amendment mechanism didn't either. You'd be using a clause that may not exist to pull vendors into terms they've never seen. Then there's what you're adding. A jury-trial waiver isn't ordinary boilerplate. Florida courts enforce these waivers, but they look for a knowing and voluntary relinquishment and read them narrowly against the party relying on them. "We emailed you and you kept logging in" is a weak record for that, especially for something you've only just added. Exclusive venue is easier to enforce, but it has the same assent problem underneath. Your email process is good, honestly: it's specific, archived, and summarizes the changes. That's a solid way to handle changes once a live contract exists. It just shouldn't be what forms the contract in the first place.
 
-**What we did:** Recorded on 2026-11-11. Not yet triaged.
+**What we did:** Our view was wrong. A vendor who accepted a draft is not moved to the final version by the 30-day email. AECI-1677 builds an acceptance screen in the vendor portal at next sign-in, and it gates the effective date. It covers every acceptance made while the draft banner shows, not only the six. No text change to the change clause. Rulings 24 and 25 are open.
 
 ### Q43. Is one privacy sentence enough for a yes-or-no browser report, under US state privacy law
 
@@ -1067,7 +1067,7 @@ Question: is that sentence sufficient disclosure under US federal and state law 
 
 The sentence is probably enough. But I think your reasoning is aimed at the wrong thing. The Ray ID on its own is fine. The California Consumer Privacy Act (CCPA) definition of "unique identifier" is about persistent identifiers that recognize a consumer or device over time and across services. A label that's created for one request and never stored or compared isn't that. So I'd agree it isn't, by itself, personal information. What it does, though, is attach the "ran" or "interacted" word to the visit record. So what's actually in that record? If your visit count keeps IP addresses, user agents or anything similar, even briefly, then the new fact becomes part of a record that probably is personal information under the CCPA and the newer state laws. In that case the Ray ID isn't the problem. The join is. If the count is truly aggregate, with no IPs kept, then you're clean.
 
-**What we did:** Recorded on 2026-11-11. Not yet triaged.
+**What we did:** Nothing built yet. The Ray ID is fine and the sentence is probably enough. The visit record for a visitor who sends no privacy signal is not aggregate: it holds a user-agent hash and network details, and links to the request log's keyed IP hash. So the Phase 1 sentence attaches to 'our record of the visit', not to 'the tally'. No change to the live Privacy Policy.
 
 ## Chris's rulings
 
@@ -1094,5 +1094,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 21. **Where the browser report runs (Q37, 2026-11-11).** Held in the EEA, the UK and Switzerland, the same as the bot check.
 22. **Accessibility statement (Q40, 2026-11-11).** Publish it, with a reply window of 10 business days (AECI-1673).
 23. **Platform gate issues (2026-11-11).** Build AECI-1621, AECI-1622 and AECI-1638 before any effective date. No text is softened.
+24. **Vendor re-acceptance (Q42).** Open: proposal is that any owner seat accepts for the company, the portal opens only the acceptance screen until one does, and no deadline ends the claim (AECI-1677).
+25. **Later rights-reducing changes to the Vendor Terms (Q42).** Open: proposal is that they apply only after an owner seat accepts, mirroring ruling 12.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
