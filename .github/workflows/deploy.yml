@@ -281,6 +281,13 @@ jobs:
             pnpm "${FILTER[@]}" run lint
           fi
           pnpm run format:check
+      # AECI-1689: a reminder, never a gate. An upcoming legal version more than 14 days
+      # past its effective moment still waits for its bump-day cleanup. The site already
+      # switched on the date, so nothing is wrong for readers. The script always exits 0
+      # and the step is `continue-on-error`, so a passed date can never turn `main` red.
+      - name: Legal bump reminder (warning only)
+        continue-on-error: true
+        run: node scripts/legal-upcoming-overdue.mjs
       # apps/web has a `typecheck` script since AECI-1652 (`tsc -p
       # tsconfig.spec.json --noEmit`, the spec + e2e graph), so `--if-present`
       # runs it in both lanes. Its app code is still checked by `ng build`.

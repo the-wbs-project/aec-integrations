@@ -17,11 +17,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import {
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  REQUEST_CONFIRMATION_DAYS,
-  type RequestConfirmationKind,
-} from '@aeci/shared';
+import { REQUEST_CONFIRMATION_DAYS, type RequestConfirmationKind } from '@aeci/shared';
 import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -35,6 +31,7 @@ import {
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { sendClaimConfirmEmail, type ClaimConfirmSubject, type EmailContext } from './email';
 import { sha256Hex } from './hash';
+import { loadLegalInForce } from './legal-in-force';
 import { forwardAuditBatch, type ForwardContext } from './moderation-forward';
 
 /** How long the emailed link works. Ruled 2026-10-21 (Chris). The shared constant. */
@@ -195,6 +192,8 @@ export async function createPendingConfirmation(
   const now = p.now ?? new Date();
   const id = crypto.randomUUID();
   const token = newConfirmationToken();
+  // AECI-1689: the versions in force at submit, the ones the visitor's page showed.
+  const inForce = await loadLegalInForce(db, now);
   const built = pendingConfirmationStatements(db, {
     id,
     kind: p.kind,
@@ -203,11 +202,11 @@ export async function createPendingConfirmation(
     tokenHash: await confirmationTokenHash(token),
     email: p.email,
     payload: p.payload,
-    // The version the visitor saw. Re-checked at confirm, where a bump in between
-    // refuses the acceptance (`agreementAcceptanceStatements`).
-    termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    // The version the visitor saw. Re-checked at confirm, where a bump or a switch in
+    // between refuses the acceptance (`agreementAcceptanceStatements`).
+    termsVersion: inForce.agreements.vendor_terms,
     // AECI-1619: the policy versions the box named beside the terms, for the same row.
-    policyVersions: currentPolicyVersions(),
+    policyVersions: currentPolicyVersions(inForce),
     evidence: acceptanceRequestEvidence(c.req.raw.headers),
     now,
   });

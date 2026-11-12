@@ -1751,7 +1751,7 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
   `CREATE INDEX`.
 - **The policy versions (AECI-1619, counsel Q14; migration `0118`, plain `ADD COLUMN`s).**
   The submit stores the Listing Accuracy Policy and Review Guidelines versions the claim box
-  named (`LEGAL_POLICY_CURRENT_VERSIONS`). The confirm copies them into the acceptance row
+  named: the versions in force at submit (`legalPolicyVersionInForce`, AECI-1689). The confirm copies them into the acceptance row
   (§8.6d). A row written before the columns holds NULL in both, and its acceptance records
   NULL rather than a version the code cannot prove.
 - **The id is the single-use rule.** The confirm inserts the request with this row's id as
@@ -2919,7 +2919,12 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   `packages/shared/src/api/legal-versions.ts`, and a CHECK change on D1 is a table recreate
   (`docs/migrations.md` §0). The migration is one `CREATE TABLE` and one `CREATE UNIQUE INDEX`,
   guarded by `src/test/migration-0119.spec.ts`.
-- **Readers.** `GET /api/admin/legal-versions`. No public page reads it, so a write purges nothing.
+- **Readers.** `GET /api/admin/legal-versions`, the acceptance screen (AECI-1677), and since
+  AECI-1689 the version-in-force read (`apps/api/src/lib/legal-in-force.ts`): a published
+  upcoming agreement version is the one a new acceptance stamps from its effective moment, and
+  `GET /api/legal/published` tells the legal pages so. A write still purges nothing: the read lists
+  a row only from its moment, a page's TTL ends at that moment, and a publish is refused once the
+  moment has passed (`docs/CACHE_STRATEGY.md` §4).
 - **Retention.** Kept. Not in `PRUNABLE` (`lib/retention-prune.ts`).
 - **`notice_vendor_count` is kept, not derived** (AECI-1620 review). It is the number of companies
   the LAST fan-out queued: everyone on a publish, only those not yet delivered on a re-send. The

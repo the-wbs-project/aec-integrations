@@ -31,14 +31,20 @@
  *     day;
  *   - a `## Change history` problem: the section is missing or not last, an
  *     archived version is not listed with its link and superseded date, the
- *     current version is not listed, or a listed version or link does not resolve.
+ *     current version is not listed, or a listed version or link does not resolve;
+ *   - the same problem in an upcoming file's own change history, read as it will
+ *     be once that file is current (AECI-1689): the old current version must be
+ *     listed with its link and, as its superseded date, the upcoming
+ *     `effectiveOn` written out. That is what lets the file move unchanged on
+ *     bump day, and lets the page switch to it on the date with the same bytes.
  *
- * The change history never has to list an upcoming version: that would edit the
- * current file, and so an agreement's hashed text, while it is in force.
+ * The current change history never has to list an upcoming version: that would
+ * edit the current file, and so an agreement's hashed text, while it is in force.
  * `LegalPage` announces the upcoming version from the manifest instead.
  *
  * It never reads the clock. An upcoming entry whose effective date has passed
- * still builds: what happens on that date is AECI-1689's.
+ * still builds. On that date the page switches to it by itself
+ * (`legal-in-force-state.ts`, AECI-1689); the bump is cleanup.
  *
  * Pure and `.md`-free (the caller passes the raw strings), so it runs under plain
  * Vitest. `legal-versions.spec.ts` also feeds it the real files from disk.
@@ -259,9 +265,41 @@ export function buildLegalVersions(sources: LegalVersionSources): LegalVersionMa
     knownPaths.add(legalPath(slug));
     for (const v of set.versions.values()) knownPaths.add(legalArchivePath(slug, v.version));
   }
-  for (const set of sets.values()) checkChangeHistory(set, knownPaths);
+  for (const set of sets.values()) {
+    checkChangeHistory(set, knownPaths, legalPath(set.current.slug));
+    for (const v of set.versions.values()) {
+      if (v.effectiveOn === undefined) continue;
+      checkChangeHistory(
+        bumpLegalVersionSet(set, v.version),
+        knownPaths,
+        `upcoming ${legalArchiveFile(v.slug, v.version)} (read as current)`,
+      );
+    }
+  }
 
   return sets;
+}
+
+/**
+ * The version set as bump day leaves it (AECI-1689): the upcoming `version` is
+ * current, and the old current version is archived, superseded on the upcoming
+ * `effectiveOn` written out. Every other version is unchanged. It is also what the
+ * page shows once the switch has happened, so the bump changes no byte.
+ */
+export function bumpLegalVersionSet(set: LegalVersionSet, version: string): LegalVersionSet {
+  const next = set.versions.get(version);
+  if (!next || next.effectiveOn === undefined) {
+    fail(`${legalPath(set.current.slug)} has no upcoming version ${version}`);
+  }
+  const supersededOn = legalDateLabel(next.effectiveOn) ?? next.effectiveOn;
+  const current: LegalVersion = { slug: next.slug, version, data: next.data, body: next.body };
+  const versions = new Map<string, LegalVersion>();
+  for (const [v, entry] of set.versions) {
+    if (v === version) versions.set(v, current);
+    else if (v === set.current.version) versions.set(v, { ...entry, supersededOn });
+    else versions.set(v, entry);
+  }
+  return { current, versions };
 }
 
 /**
@@ -277,9 +315,12 @@ export function changeHistoryItems(body: string): string[] | undefined {
   return rest.filter((line) => /^\s*[-*]\s/.test(line)).map((line) => line.trim());
 }
 
-function checkChangeHistory(set: LegalVersionSet, knownPaths: ReadonlySet<string>): void {
+function checkChangeHistory(
+  set: LegalVersionSet,
+  knownPaths: ReadonlySet<string>,
+  where: string,
+): void {
   const { slug, version: currentVersion } = set.current;
-  const where = legalPath(slug);
   const items = changeHistoryItems(set.current.body);
   if (!items) fail(`${where} does not end with a "${CHANGE_HISTORY_HEADING}" section`);
 

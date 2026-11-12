@@ -28,6 +28,7 @@ import {
 import {
   type LegalVersionSources,
   buildLegalVersions,
+  bumpLegalVersionSet,
   changeHistoryItems,
   legalDateLabel,
 } from './legal-versions';
@@ -308,8 +309,14 @@ describe('buildLegalVersions with an upcoming version', () => {
   const UPCOMING: LegalUpcomingEntry = { slug: 'terms', version: '1.2', effectiveOn: '2027-03-31' };
   const UPCOMING_FILE = 'versions/terms/v1.2.md';
   const OLD_FILE = '---\ntitle: T\nversion: 1.0\n---\n\nOld body.\n';
+  /** An upcoming file with the change history it will have once current (AECI-1689). */
   function upcomingFile(version = '1.2', effective = 'March 31, 2027'): string {
-    return `---\ntitle: T\nversion: ${version}\neffective_date: ${effective}\n---\n\nNew body.\n`;
+    const history = [
+      `- **Version ${version}** (this version): effective ${effective}.`,
+      `- [Version 1.1](/legal/terms/v1.1): draft, never in force. Superseded ${effective}.`,
+      '- [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded May 1, 2026.',
+    ].join('\n');
+    return `---\ntitle: T\nversion: ${version}\neffective_date: ${effective}\n---\n\nNew body.\n\n## Change history\n\n${history}\n`;
   }
 
   function withUpcoming(overrides: Partial<LegalVersionSources> = {}): LegalVersionSources {
@@ -439,6 +446,46 @@ describe('buildLegalVersions with an upcoming version', () => {
         }),
       ),
     ).toThrow(/terms already has upcoming version 1.2/);
+  });
+
+  // AECI-1689: the upcoming file moves unchanged on bump day, and the page shows it
+  // as current from its date, so its own history must already read as current.
+  it('throws when the upcoming file has no change history of its own', () => {
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]:
+              '---\ntitle: T\nversion: 1.2\neffective_date: March 31, 2027\n---\n\nNew.\n',
+          },
+        }),
+      ),
+    ).toThrow(/upcoming versions\/terms\/v1\.2\.md \(read as current\) does not end with/);
+  });
+
+  it('throws when the upcoming history does not supersede the current version on its date', () => {
+    const wrongDate = upcomingFile().replace(
+      'Superseded March 31, 2027',
+      'Superseded April 1, 2027',
+    );
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: { 'versions/terms/v1.0.md': OLD_FILE, [UPCOMING_FILE]: wrongDate },
+        }),
+      ),
+    ).toThrow(/line for version 1\.1 does not give its superseded date "March 31, 2027"/);
+  });
+
+  it('bumpLegalVersionSet: the upcoming version current, the old one superseded on its date', () => {
+    const set = buildLegalVersions(withUpcoming()).get('terms')!;
+    const bumped = bumpLegalVersionSet(set, '1.2');
+    expect(bumped.current.version).toBe('1.2');
+    expect(bumped.current.effectiveOn).toBeUndefined();
+    expect(bumped.versions.get('1.1')!.supersededOn).toBe('March 31, 2027');
+    expect(bumped.versions.get('1.0')!.supersededOn).toBe('May 1, 2026');
+    expect(() => bumpLegalVersionSet(set, '1.0')).toThrow(/has no upcoming version 1.0/);
   });
 
   // Announcing a version must not edit the current file: for an agreement that

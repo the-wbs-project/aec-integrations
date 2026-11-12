@@ -3692,6 +3692,10 @@ The vendor can always edit a hidden field. A save that changes it ends the hide 
 - **`409 FIELD_HIDE_ACTIVE`.** The field is already hidden. Reload the page.
 - **`409 FIELD_HIDE_CLEARED`.** The hide ended before your restore or status reply: someone restored it, corrected it, or the vendor changed the value. Reload the page.
 - **The digest reports `field_hide_decision_overdue`.** A hide is past its "Decide by" date with no status reply. Decide it now, or send the requester a status reply and record it.
+
+### The digest reports `legal_agreement_unpublished` (AECI-1689)
+
+An upcoming Vendor Terms or Managed plan agreement version is 30 days or less from its effective moment, or past it, and has no `legal_versions` row on this tier. Without the row it never becomes the version in force: the page keeps "takes effect on <date>" and new acceptances keep the old version. Publish it on `/admin/legal` (legal `README.md` "Publishing an upcoming agreement version"). The publish needs 30 days of notice, so inside 30 days move the effective date instead, unless a Vendor Terms change is expedited. In demo and production the publish is off until `LEGAL_PUBLISH_ENABLED` is turned on, so there the line is expected until that release.
 - **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see "Algolia sync failed".
 
 ## Rename a live slug

@@ -126,7 +126,7 @@ in `apps/web/src/content/legal/`.
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
 | The claim form's fields, what we record at acceptance | Personal data | Name, title, company legal name, work email, optional LinkedIn and note (title and legal name arrive with AECI-1617; the role field went with AECI-1649, matching Vendor Terms 1.2); IP and browser at acceptance. |
 | Seat roles and powers, invitations, who may buy or assign or change the billing email or the company's legal name, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing. Suspension comes first, then notice naming the rule and evidence, then 7 business days from receipt to fix or rebut, and on a false-claim finding a further 7 business days to prove identity and authority, then the subscriptions end with a refund of the unused term less fees used and documented cost (ruling 1, AECI-1623). The code is built (2026-11-05). Item 10.3 landed in Vendor Terms 1.2 on 2026-11-07, so text and code agree. The owner's legal name edit (AECI-1625) is in the owner-powers list since Vendor Terms 1.2 (AECI-1639). |
-| The claim box: its label, the policies it incorporates, the line naming their versions, what the acceptance records | Accepting these terms | The label is quoted word for word. The Listing Accuracy Policy and the Review Guidelines are part of the terms, and "the form names their versions beside the box". We record the version of the terms and of both policies. Built 2026-11-11 (AECI-1619): `@@requests.terms.policies` names both versions from `LEGAL_POLICY_CURRENT_VERSIONS`, and the claim row stores them. A label change, or a policy bump without the matching constant, makes this text false. |
+| The claim box: its label, the policies it incorporates, the line naming their versions, what the acceptance records | Accepting these terms | The label is quoted word for word. The Listing Accuracy Policy and the Review Guidelines are part of the terms, and "the form names their versions beside the box". We record the version of the terms and of both policies. Built 2026-11-11 (AECI-1619): `@@requests.terms.policies` names both versions, and the claim row stores them. Since AECI-1689 both are the versions in force at request time (`legalPolicyVersionInForce`), so a policy whose date has passed is named and recorded before its bump. A label change, or a policy bump without the matching constant, makes this text false. |
 | Giving up a claim: what happens to seats, content, subscriptions | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, subscriptions handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
@@ -174,7 +174,11 @@ Not a `/legal/*` page and not versioned (`docs/STAGE_1_SPEC.md` §27.6), but a p
 - `docs/PRICING_RULES.md` and the Managed plan agreement must agree. `PRICING_RULES.md` names the
   agreement as the binding contract, so a change to one is a change to both.
 - `LEGAL_AGREEMENT_CURRENT_VERSIONS` in `packages/shared/src/api/agreements.ts` must equal each
-  agreement's frontmatter `version`; a spec enforces it. A version bump touches both.
+  agreement's frontmatter `version`; a spec enforces it. A version bump touches both. Since
+  AECI-1689 it is the BUILD's version: a published upcoming version is in force, on the pages and
+  in every new stamp, from 12:00 UTC of its effective day with no deploy
+  (`packages/shared/src/api/legal-in-force.ts`). A change to when a version takes effect, or to
+  which document needs a publish before it does, changes what the pages' effective dates promise.
 - The DMCA block in the Terms and the U.S. Copyright Office registration must stay identical.
 
 ## 4. How to check, at plan time

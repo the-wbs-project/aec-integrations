@@ -37,7 +37,6 @@
 
 import {
   claimantTitle,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   ListingRequestSchema,
   normalizeFoundVia,
   type ListingRequest,
@@ -59,6 +58,7 @@ import {
   type AcceptancePolicyVersions,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { sendClaimReceivedEmail, sendListingRequestAlert } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
@@ -155,17 +155,22 @@ export async function submitListingNow(
     },
   };
 
-  // AECI-1366: the vendor terms box. The server stamps the current version, the IP
+  // AECI-1366: the vendor terms box. The server stamps the version in force, the IP
   // and the user agent. Nothing to link at approval: a listing request has no seat.
   // AECI-1435: a confirmed request carries the submit's version and evidence, and
   // the confirm's time.
+  // AECI-1689: the versions in force now, so a published upcoming Vendor Terms version is
+  // stamped from its effective moment. No D1 read unless one can matter.
+  const acceptedAt = new Date();
+  const inForce = await loadLegalInForce(db, acceptedAt);
   const acceptance = agreementAcceptanceStatements(db, {
     document: 'vendor_terms',
-    version: opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    version: opts.acceptance?.version ?? inForce.agreements.vendor_terms,
+    inForce,
     source: 'claim',
     email: row.submitterEmail,
     listingRequestId: requestId,
-    acceptedAt: new Date().toISOString(),
+    acceptedAt: acceptedAt.toISOString(),
     requestHeaders: c.req.raw.headers,
     evidence: opts.acceptance?.evidence ?? null,
     signer: {
@@ -174,11 +179,11 @@ export async function submitListingNow(
       companyLegalName: row.companyLegalName,
     },
     // AECI-1615 ruling 16: the request form's vendor terms box (`vendor-terms-box.ts`).
-    checkbox: claimBoxFor(
-      opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
-    ),
+    checkbox: claimBoxFor(opts.acceptance?.version ?? inForce.agreements.vendor_terms, inForce),
     // AECI-1619: the policy versions the box named. A confirm carries the submit's.
-    policyVersions: opts.acceptance ? opts.acceptance.policyVersions : currentPolicyVersions(),
+    policyVersions: opts.acceptance
+      ? opts.acceptance.policyVersions
+      : currentPolicyVersions(inForce),
     actorId: null,
     actorType: 'user',
   });

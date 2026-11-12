@@ -1,10 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
-import { LEGAL_POLICY_CURRENT_VERSIONS } from '@aeci/shared/api/agreements';
-
-import { legalPath } from '../legal/legal-manifest';
+import { LegalInForceClient } from '../legal/legal-in-force-client';
+import { legalPath } from '../legal/legal-slugs';
 import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
@@ -27,8 +26,9 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  *
  * Under the box, one line names the two policies the Vendor Terms incorporate and the
  * version of each (AECI-1619, counsel Q14: "The form names their versions beside the
- * box"). The versions are `LEGAL_POLICY_CURRENT_VERSIONS`, the same constants the claim
- * route records on the acceptance row, so the line and the record cannot disagree. It is
+ * box"). The versions are the ones in force (`LegalInForceClient`, AECI-1689), the rule
+ * the claim route records on the acceptance row by, so the line and the record cannot
+ * disagree, before or after a policy's effective moment. It is
  * part of the box's description (`aria-describedby`). Its links open in a new tab, as
  * the terms link does. The label itself is unchanged: `vendor-terms.md` quotes it.
  */
@@ -91,14 +91,14 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
         rel="noopener"
         class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         >Listing Accuracy Policy<span class="sr-only"> (opens in a new tab)</span></a
-      >, version {{ policyVersions.listing_accuracy }}, and the
+      >, version {{ policyVersions().listing_accuracy }}, and the
       <a
         [href]="reviewGuidelinesHref"
         target="_blank"
         rel="noopener"
         class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         >Review Guidelines<span class="sr-only"> (opens in a new tab)</span></a
-      >, version {{ policyVersions.review_guidelines }}.
+      >, version {{ policyVersions().review_guidelines }}.
     </p>
     @if (showError()) {
       <p [id]="errorId()" [class]="errorClass" role="alert" i18n="@@requests.terms.error">
@@ -117,8 +117,9 @@ export class VendorTermsBox {
   protected readonly termsHref = legalPath('vendor-terms');
   protected readonly listingAccuracyHref = legalPath('listing-accuracy');
   protected readonly reviewGuidelinesHref = legalPath('review-guidelines');
-  /** The policy versions the line names, and the claim records (AECI-1619). */
-  protected readonly policyVersions = LEGAL_POLICY_CURRENT_VERSIONS;
+  private readonly inForce = inject(LegalInForceClient);
+  /** The policy versions the line names, and the claim records (AECI-1619, AECI-1689). */
+  protected readonly policyVersions = computed(() => this.inForce.versions().policies);
   protected readonly inputClass = CHOICE_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
 
@@ -130,6 +131,11 @@ export class VendorTermsBox {
     const base = `${this.shortFormId()} ${this.policiesId()}`;
     return this.showError() ? `${base} ${this.errorId()}` : base;
   });
+
+  constructor() {
+    // Browser only, and only while an upcoming entry exists: no read today.
+    void this.inForce.refresh();
+  }
 
   protected readonly showError = computed(() => {
     const state = this.field()();

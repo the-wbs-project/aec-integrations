@@ -56,7 +56,6 @@
 
 import {
   ApiErrorCode,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   WithdrawLicenseGrantResponseSchema,
   WithdrawLicenseGrantSchema,
   type WithdrawLicenseGrantInput,
@@ -112,6 +111,7 @@ import {
 } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import {
   endLicensesStatements,
   licenseEndMirrorGuard,
@@ -340,8 +340,10 @@ export function createGrantLicensesHandler(
     }
     const reference = payload.reference || null;
     const notes = payload.notes || null;
-    // The version every new grant pins (the grant-date version governs, v1.1 opening).
-    const termsVersion = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+    const { db } = writeDb(c, dbFor);
+    // The version every new grant pins (the grant-date version governs, v1.1 opening):
+    // the one in force now, a published upcoming version from its moment (AECI-1689).
+    const termsVersion = (await loadLegalInForce(db, new Date(now))).agreements.managed_plan;
     const deal = payload.signed_deal ?? null;
     let dealSignedAt: string | null = null;
     if (deal) {
@@ -357,7 +359,6 @@ export function createGrantLicensesHandler(
       }
     }
 
-    const { db } = writeDb(c, dbFor);
     const vendor = await db.query.vendors.findFirst({
       columns: { id: true, slug: true, companyName: true, verified: true },
       where: eq(vendors.id, vendorId),
@@ -943,7 +944,8 @@ export function createBanTermLicensesHandler(
         product_id: item.product_id,
         ends_at: item.endsAt,
       })),
-      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      // AECI-1689: the version in force now, as on every new grant.
+      termsVersion: (await loadLegalInForce(db, new Date(now))).agreements.managed_plan,
       grantedBy: auth.userId,
       now,
       vendorPlan: licensePlanSnapshot(vendorLicenses, now),

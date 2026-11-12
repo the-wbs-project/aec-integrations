@@ -25,8 +25,6 @@
  * it is rendered via `[innerHTML]` (Angular's sanitizer runs) and is not
  * `$localize`-extracted. Only the page chrome in `legal-page.ts` is i18n-wrapped.
  */
-import { marked } from 'marked';
-
 import listingAccuracyMd from '../../content/legal/listing-accuracy-policy.md';
 import managedPlanAgreementMd from '../../content/legal/managed-plan-agreement.md';
 import privacyMd from '../../content/legal/privacy-policy.md';
@@ -45,36 +43,12 @@ import {
   LEGAL_UPCOMING,
   type LegalSlug,
 } from './legal-manifest';
-import { type LegalVersion, buildLegalVersions } from './legal-versions';
+import { type LegalDoc, renderLegalVersion } from './legal-render';
+import { buildLegalVersions } from './legal-versions';
 
 export { LEGAL_SLUGS, type LegalSlug } from './legal-manifest';
 
-/** Frontmatter fields surfaced in the page header. */
-export interface LegalFrontmatter {
-  readonly title: string;
-  readonly version: string;
-  /** Pre-formatted display string; empty while a doc is an unapproved draft. */
-  readonly effectiveDate: string;
-  /** Pre-formatted display string. */
-  readonly lastUpdated: string;
-}
-
-/** A parsed legal document: header metadata + rendered body HTML. */
-export interface LegalDoc {
-  readonly slug: LegalSlug;
-  readonly frontmatter: LegalFrontmatter;
-  readonly html: string;
-  /**
-   * Set on an archived version only (`/legal/<slug>/v<version>`): the day the
-   * next version replaced it. Absent on the current version.
-   */
-  readonly supersededOn?: string;
-  /**
-   * Set on an upcoming version only (AECI-1610): the day it takes effect,
-   * `YYYY-MM-DD`. Its display label is `frontmatter.effectiveDate`.
-   */
-  readonly effectiveOn?: string;
-}
+export type { LegalDoc, LegalFrontmatter } from './legal-render';
 
 // The current text of each document (`LEGAL_SOURCE_FILES` names the files).
 const CURRENT_SOURCES: Record<LegalSlug, string> = {
@@ -98,23 +72,6 @@ const ARCHIVE_SOURCES: Record<string, string> = {
   'versions/vendor-terms/v1.2.md': vendorTermsV1_2Md,
 };
 
-function renderVersion(v: LegalVersion): LegalDoc {
-  // Synchronous render — `async: false` keeps the body in the first SSR paint.
-  const html = marked.parse(v.body, { async: false, gfm: true });
-  return {
-    slug: v.slug,
-    frontmatter: {
-      title: v.data['title'] ?? '',
-      version: v.version,
-      effectiveDate: v.data['effective_date'] ?? '',
-      lastUpdated: v.data['last_updated'] ?? '',
-    },
-    html,
-    ...(v.supersededOn === undefined ? {} : { supersededOn: v.supersededOn }),
-    ...(v.effectiveOn === undefined ? {} : { effectiveOn: v.effectiveOn }),
-  };
-}
-
 const VERSIONS = buildLegalVersions({
   current: CURRENT_SOURCES,
   archives: ARCHIVE_SOURCES,
@@ -127,7 +84,7 @@ const VERSIONS = buildLegalVersions({
 const REGISTRY: ReadonlyMap<LegalSlug, ReadonlyMap<string, LegalDoc>> = new Map(
   Array.from(VERSIONS, ([slug, set]) => [
     slug,
-    new Map(Array.from(set.versions, ([version, v]) => [version, renderVersion(v)] as const)),
+    new Map(Array.from(set.versions, ([version, v]) => [version, renderLegalVersion(v)] as const)),
   ]),
 );
 

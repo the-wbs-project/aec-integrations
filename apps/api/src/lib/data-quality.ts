@@ -41,6 +41,10 @@
  */
 
 import {
+  LEGAL_AGREEMENT_DOCUMENTS,
+  LEGAL_IN_FORCE_MAPS,
+  legalEffectiveAtMs,
+  type LegalInForceMaps,
   OWNERSHIP_VERSIONS_MAX_IDS,
   OwnershipVersionsResponseSchema,
   ownershipVersionsUrl,
@@ -83,6 +87,7 @@ import {
   connectorEvidencedPairs,
   fieldHides,
   integrations,
+  legalVersions,
   listingHides,
   mailingList,
   ownershipSyncDeliveries,
@@ -1263,6 +1268,54 @@ function truncate(message: string): string {
   return message.length > BUILD_ERROR_MAX ? `${message.slice(0, BUILD_ERROR_MAX)}…` : message;
 }
 
+/** How far ahead `legal_agreement_unpublished` looks (AECI-1689). */
+export const LEGAL_UNPUBLISHED_WARN_DAYS = 30;
+
+/**
+ * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms or Managed plan
+ * agreement version whose effective moment is 30 days away or less, or already past, and
+ * that has no `legal_versions` row. Unpublished, it never becomes the version in force
+ * (`legalAgreementVersionInForce`), so the page keeps "takes effect on <date>" past the
+ * date, and the 30-day notice can no longer be given in time. Publish it, or move the
+ * date. `warn`: nothing false is stamped, and a seeded database has no upcoming entry, so
+ * it is clean. Reads nothing while no entry is in the window.
+ */
+export async function checkLegalAgreementUnpublished(
+  db: Db,
+  now: Date,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): Promise<CheckFinding> {
+  const horizon = now.getTime() + LEGAL_UNPUBLISHED_WARN_DAYS * DAY_MS;
+  const due = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
+    const upcoming = maps.agreementUpcoming[document];
+    if (!upcoming) return [];
+    const at = legalEffectiveAtMs(upcoming.effectiveOn);
+    return Number.isFinite(at) && at <= horizon ? [{ document, upcoming, at }] : [];
+  });
+  if (due.length === 0) return { lines: [] };
+  const rows = await db
+    .select({ document: legalVersions.document, version: legalVersions.version })
+    .from(legalVersions)
+    .where(
+      inArray(
+        legalVersions.document,
+        due.map((d) => d.document),
+      ),
+    );
+  const lines = due
+    .filter(
+      ({ document, upcoming }) =>
+        !rows.some((r) => r.document === document && r.version === upcoming.version),
+    )
+    .map(({ document, upcoming, at }) => {
+      const days = Math.ceil((at - now.getTime()) / DAY_MS);
+      const when =
+        days > 0 ? `takes effect in ${days} day${days === 1 ? '' : 's'}` : 'its moment has passed';
+      return `${document} ${upcoming.version} (${upcoming.effectiveOn}) ${when} and is not published: it will not switch. Publish it on /admin/legal or move the date.`;
+    });
+  return { lines };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -1422,6 +1475,14 @@ export const CHECKS: CheckSpec[] = [
     // `warn`: the value stays hidden, so nothing false shows, but a promise is late.
     severity: 'warn',
     run: ({ db, now }) => checkFieldHideDecisionOverdue(db, now),
+  },
+  {
+    id: 'legal_agreement_unpublished',
+    label: 'Upcoming agreement versions due within 30 days with no publish',
+    // `warn`: nothing false is stamped (an unpublished version never switches), and a
+    // seeded database has no upcoming entry. A warning, not a seed obligation.
+    severity: 'warn',
+    run: ({ db, now }) => checkLegalAgreementUnpublished(db, now),
   },
   {
     id: 'review_mirror_drift',

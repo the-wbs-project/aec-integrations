@@ -1,5 +1,5 @@
-import { inject } from '@angular/core';
-import { type Route, Router, Routes, type UrlSegment } from '@angular/router';
+import { Injector, inject, runInInjectionContext } from '@angular/core';
+import { type ResolveFn, type Route, Router, Routes, type UrlSegment } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
@@ -32,6 +32,19 @@ import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
  *  binding is emitted, which is what lets the build's `define` substitution
  *  reach the bare identifier. */
 declare const ngDevMode: unknown;
+
+/**
+ * AECI-1689 — whether a legal page's upcoming version is in force for this request
+ * (`legal/legal-in-force.resolver.ts`). Lazy, so the version lists stay out of the
+ * initial bundle; the injector is captured before the import so the resolver body
+ * still runs in an injection context.
+ */
+const legalSwitchedResolver: ResolveFn<boolean> = (route) => {
+  const injector = inject(Injector);
+  return import('./legal/legal-in-force.resolver').then((m) =>
+    runInInjectionContext(injector, () => m.resolveLegalSwitched(route)),
+  );
+};
 
 export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
@@ -621,21 +634,25 @@ export const routes: Routes = [
     path: 'legal/terms',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'terms' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/privacy',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'privacy' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/review-guidelines',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'review-guidelines' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/listing-accuracy',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'listing-accuracy' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   // AECI-1359 / AECI-1360: the two vendor agreements (`docs/VENDOR_SIGNUP_PROCESS.md`
   // §4), on the same LegalPage and the same `/legal/*` cache rules.
@@ -643,11 +660,13 @@ export const routes: Routes = [
     path: 'legal/vendor-terms',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'vendor-terms' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/managed-plan-agreement',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'managed-plan-agreement' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   // AECI-1361, AECI-1610 — every version with a page at `/legal/<slug>/v<version>`:
   // each archive (`LEGAL_ARCHIVES`), each version not yet in force (`LEGAL_UPCOMING`)
@@ -659,6 +678,8 @@ export const routes: Routes = [
   // through to the `**` 404. Same LegalPage, same `/legal/*` cache rules. The page
   // sets `robots: noindex` and a canonical to the current version; the SSR egress
   // stamps `X-Robots-Tag` (`NOINDEX_PATH_PREFIXES`); the sitemap leaves them out.
+  // Every legal route resolves `legalSwitched` (AECI-1689): from its effective moment
+  // an upcoming version is current with no deploy, and the same URLs serve it.
   {
     matcher: legalVersionMatcher,
     canMatch: [
@@ -668,6 +689,7 @@ export const routes: Routes = [
         ),
     ],
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
   // behind `ngDevMode` so the optimized build folds this to `[]` and never

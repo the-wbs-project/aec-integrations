@@ -13,8 +13,12 @@
  *   2. `legal_versions.effective_at`, for a published version (AECI-1688). Publishing
  *      needs an upcoming file with its effective date filled, so a row is final text.
  * The effective moment is 12:00 UTC of the effective day (`legalEffectiveAtMs`). A final
- * version is IN FORCE once that moment has passed. An agreement is in force when any
- * version of it is.
+ * version is IN FORCE once that moment has come (`legalMomentReached`, the one comparison
+ * in `@aeci/shared/api/legal-in-force`, AECI-1689). An agreement is in force when any
+ * version of it is. A published upcoming version is the same version the legal page and
+ * a new acceptance switch to at that moment (`legalAgreementVersionInForce`): both need
+ * its row and both use the one comparison. `legal-in-force.spec.ts` holds the two
+ * together across the moment.
  *
  * ── THE INVARIANT: NOTHING IN FORCE, NOTHING PENDING ─────────────────────────────
  * While no version of an agreement is in force, nothing is pending for it, in either
@@ -45,6 +49,7 @@ import {
   compareLegalVersions,
   legalAgreementEffectiveOn,
   legalEffectiveAtMs,
+  legalMomentReached,
   legalVersionPagePath,
   LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_AGREEMENT_EFFECTIVE_ON,
@@ -132,7 +137,7 @@ export function inForceVersions(
   nowMs: number,
 ): string[] {
   return finalVersions(document, published)
-    .filter((v) => v.effectiveAt <= nowMs)
+    .filter((v) => legalMomentReached(v.effectiveAt, nowMs))
     .map((v) => v.version);
 }
 
@@ -181,7 +186,7 @@ function pendingItem(
     version,
     mode,
     effective_at: new Date(at).toISOString(),
-    in_force: at <= nowMs,
+    in_force: legalMomentReached(at, nowMs),
     summary: row ? summaryOf(row) : [],
     page_path: legalVersionPagePath(document, version),
   };

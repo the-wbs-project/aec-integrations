@@ -10,6 +10,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LEGAL_IN_FORCE_MAPS, type LegalInForceMaps } from '@aeci/shared';
 import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
@@ -17,6 +18,7 @@ import {
   billingAccounts,
   connectorEvidencedPairs,
   integrations,
+  legalVersions,
   licenses,
   mailingList,
   ownershipSyncDeliveries,
@@ -46,6 +48,7 @@ import {
   checkDuplicateProducts,
   checkDuplicateVendors,
   checkLandingCfCoverage,
+  checkLegalAgreementUnpublished,
   checkLicenseMirrorDrift,
   checkLogo404Sample,
   checkOwnershipSyncUnknownVendor,
@@ -676,6 +679,57 @@ describe('checkLicenseMirrorDrift', () => {
     const ids = CHECKS.map((c) => c.id);
     expect(ids).not.toContain('entitlement_mirror_drift');
     expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
+  });
+});
+
+// ── legal_agreement_unpublished (AECI-1689) ─────────────────────────────────
+
+describe('checkLegalAgreementUnpublished', () => {
+  const ADMIN = '00000000-0000-4000-8000-000000000b01';
+  const NOW = new Date('2027-03-10T00:00:00.000Z');
+  const maps = (effectiveOn: string): LegalInForceMaps => ({
+    ...LEGAL_IN_FORCE_MAPS,
+    agreementUpcoming: { vendor_terms: { version: '1.4', effectiveOn } },
+  });
+
+  it("is clean with today's empty upcoming map, and reads nothing", async () => {
+    const noDb = new Proxy({} as typeof t.db, {
+      get() {
+        throw new Error('read D1');
+      },
+    });
+    expect((await checkLegalAgreementUnpublished(noDb, NOW)).lines).toEqual([]);
+  });
+
+  it('lists an unpublished version due within 30 days, or already past', async () => {
+    const soon = await checkLegalAgreementUnpublished(t.db, NOW, maps('2027-03-31'));
+    expect(soon.lines).toHaveLength(1);
+    expect(soon.lines[0]).toMatch(/^vendor_terms 1\.4 \(2027-03-31\) takes effect in 22 days/);
+    const past = await checkLegalAgreementUnpublished(t.db, NOW, maps('2027-03-01'));
+    expect(past.lines[0]).toMatch(/its moment has passed and is not published/);
+  });
+
+  it('is clean outside the window, and once the version is published', async () => {
+    expect((await checkLegalAgreementUnpublished(t.db, NOW, maps('2027-05-31'))).lines).toEqual([]);
+    await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
+    await t.db.insert(legalVersions).values({
+      document: 'vendor_terms',
+      version: '1.4',
+      effectiveAt: Date.UTC(2027, 2, 31, 12),
+      summaryJson: '[]',
+      material: true,
+      requiresAcceptance: false,
+      pdfKey: 'legal/vendor-terms/v1.4.pdf',
+      pdfSha256: 'a'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: ADMIN,
+      publishedAt: '2027-02-01T00:00:00.000Z',
+    });
+    expect((await checkLegalAgreementUnpublished(t.db, NOW, maps('2027-03-31'))).lines).toEqual([]);
+  });
+
+  it('is registered at warn severity: never a seed obligation', () => {
+    expect(CHECKS.find((c) => c.id === 'legal_agreement_unpublished')?.severity).toBe('warn');
   });
 });
 

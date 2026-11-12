@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
+import type { LegalUpcomingEntry } from './app/legal/legal-manifest';
 import type { LegalNotice } from './app/legal/legal-notices';
 import {
   DEFAULT_LOCALE,
@@ -18,8 +19,11 @@ import {
   applyCfContextHeaders,
   buildCacheControl,
   cacheControlForRoute,
+  capTtlAtLegalEffectiveMoment,
   capTtlAtLegalNoticeBoundary,
   cacheGateway,
+  LEGAL_UNCERTAIN_TTL,
+  legalPageTtl,
   createApp,
   hasSessionCookie,
   isAdminPath,
@@ -381,6 +385,90 @@ describe('capTtlAtLegalNoticeBoundary (AECI-1592)', () => {
 
   it('leaves the TTL alone with no notices', () => {
     expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens, [])).toBe(STATIC_TTL);
+  });
+});
+
+// AECI-1689: an upcoming version becomes current at 12:00 UTC of its day, with no
+// write and no deploy, so a cached `/legal/*` page must expire at that moment.
+// Miniflare does not emulate the front cache, so the TTL is pinned here.
+describe('legal effective-moment TTL (AECI-1689)', () => {
+  const STATIC_TTL = { edge: 86_400, browser: 3_600 };
+  const entry: LegalUpcomingEntry = {
+    slug: 'vendor-terms',
+    version: '1.4',
+    effectiveOn: '2027-03-31',
+  };
+  const moment = Date.UTC(2027, 2, 31, 12);
+  const MINUTE = 60_000;
+
+  it('caps edge and browser at the next moment', () => {
+    expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment - 10 * MINUTE, [entry])).toEqual({
+      edge: 600,
+      browser: 600,
+    });
+    expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment - 1, [entry]).edge).toBe(1);
+  });
+
+  it('leaves the TTL alone at and after the moment, and with no upcoming entry', () => {
+    expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment, [entry])).toBe(STATIC_TTL);
+    expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment - 2 * 86_400_000, [entry])).toBe(
+      STATIC_TTL,
+    );
+    expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment - MINUTE, [])).toBe(STATIC_TTL);
+  });
+
+  it('applies to /legal/* only; other pages keep only the notice cap', () => {
+    expect(
+      legalPageTtl(STATIC_TTL, '/legal/vendor-terms', moment - MINUTE, false, [entry], []),
+    ).toEqual({
+      edge: 60,
+      browser: 60,
+    });
+    expect(legalPageTtl(STATIC_TTL, '/about', moment - MINUTE, false, [entry], [])).toBe(
+      STATIC_TTL,
+    );
+  });
+
+  it('a failed in-force read caches the page for a minute at the edge and never in the browser', () => {
+    expect(LEGAL_UNCERTAIN_TTL).toEqual({ edge: 60, browser: 0 });
+    expect(legalPageTtl(STATIC_TTL, '/legal/vendor-terms', moment, true, [entry], [])).toEqual({
+      edge: 60,
+      browser: 0,
+    });
+  });
+
+  it("today's data: the /legal/* TTL is the route's", () => {
+    expect(legalPageTtl(STATIC_TTL, '/legal/terms', Date.UTC(2026, 10, 12), false)).toEqual(
+      STATIC_TTL,
+    );
+  });
+
+  it('the cacheable branch sends the uncertain TTL when the render flags it', async () => {
+    const { binding } = recordingApiBinding();
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.legalStateUncertain = true;
+      return htmlResponse('<html><body>legal</body></html>');
+    };
+    const app = createApp({ ssrRenderer: renderer });
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/legal/vendor-terms'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('Cache-Tag')).toContain('route:index');
+    expect(res.headers.get('Vary')).toBe('Accept-Language');
+  });
+
+  it('the cacheable branch keeps the 24 h TTL on a legal page that read fine', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html></html>')) });
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/legal/vendor-terms'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
   });
 });
 
