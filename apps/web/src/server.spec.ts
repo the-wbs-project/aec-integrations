@@ -8,6 +8,7 @@ import {
 } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
 import type { LegalNotice } from './app/legal/legal-notices';
 import {
   DEFAULT_LOCALE,
@@ -231,6 +232,15 @@ describe('cacheControlForRoute', () => {
     ['/trades/electrical', { edge: 300, browser: 0, ...R }],
   ])('returns the §9.2 TTL for %s', (path, expected) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toEqual(expected);
+  });
+
+  // AECI-1673 / AECI-1687 — the accessibility statement takes the static-page TTL
+  // only once published. While hidden the path 404s, and a 404 must not be cached
+  // on the 24h static TTL (it would outlive the publish by a day).
+  it('gives /accessibility the static-page TTL only when published', () => {
+    expect(cacheControlForRoute(new URL('https://x/accessibility'))).toEqual(
+      ACCESSIBILITY_STATEMENT_PUBLISHED ? { edge: 86_400, browser: 3_600 } : null,
+    );
   });
 
   it.each([

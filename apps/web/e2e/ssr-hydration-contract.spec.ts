@@ -30,6 +30,7 @@ import {
 } from './console-capture';
 import { untilHydrated } from './hydration';
 
+// AECI-1687 adds '/accessibility' here when it publishes the statement.
 const STATIC_PATHS = ['/', '/about', '/products', '/docs', '/vendor-program'];
 
 async function firstProductSlug(

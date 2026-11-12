@@ -44,6 +44,7 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
       '/vendor-program',
       '/vendor-program/list-your-product',
       '/methodology',
+      '/accessibility',
     ]) {
       expect(pathForcesNoindex(path), path).toBe(false);
     }

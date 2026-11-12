@@ -3,6 +3,7 @@ import { type Route, Router, Routes } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './accessibility/accessibility-published';
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
@@ -521,6 +522,21 @@ export const routes: Routes = [
     path: 'methodology',
     loadComponent: () => import('./methodology/methodology').then((m) => m.MethodologyPage),
   },
+  // AECI-1673 — the accessibility statement (`/accessibility`, counsel Q40,
+  // ruling 22). The /methodology pattern: static, indexable, CACHEABLE on the
+  // static-page TTL, pre-wired in `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`,
+  // in `sitemap.xml`, no resolver. Not a `/legal/*` page: it has no version
+  // registry. Governed by `docs/STAGE_1_SPEC.md` §27.6.
+  // Hidden until AECI-1687 (`accessibility-published.ts`): off, the path 404s.
+  ...(ACCESSIBILITY_STATEMENT_PUBLISHED
+    ? [
+        {
+          path: 'accessibility',
+          loadComponent: () =>
+            import('./accessibility/accessibility').then((m) => m.AccessibilityPage),
+        },
+      ]
+    : []),
   // AECI-1283 — the public vendor landing page (`docs/VENDOR_PROGRAM_PAGE_SPEC.md`
   // §2). Static + indexable + CACHEABLE on the /about static-page TTL, pre-wired in
   // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`, and in `sitemap.xml`. No

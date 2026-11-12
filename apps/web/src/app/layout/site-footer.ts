@@ -47,6 +47,7 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../accessibility/accessibility-published';
 import { BrandLogo } from './brand-logo';
 
 @Component({
@@ -217,6 +218,18 @@ import { BrandLogo } from './brand-logo';
                   ></a
                 >
               </li>
+              <!-- Hidden until AECI-1687 (accessibility-published.ts). -->
+              @if (accessibilityPublished) {
+                <li>
+                  <a
+                    routerLink="/accessibility"
+                    class="text-(--text-secondary) hover:text-(--text-primary)"
+                    ><ng-container i18n="@@app.footer.legal.accessibility"
+                      >Accessibility</ng-container
+                    ></a
+                  >
+                </li>
+              }
             </ul>
           </nav>
           <nav class="text-sm" i18n-aria-label="@@app.footer.company.aria" aria-label="Company">
@@ -278,4 +291,5 @@ import { BrandLogo } from './brand-logo';
 })
 export class SiteFooter {
   protected readonly year = new Date().getFullYear();
+  protected readonly accessibilityPublished = ACCESSIBILITY_STATEMENT_PUBLISHED;
 }
