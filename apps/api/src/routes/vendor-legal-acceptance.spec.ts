@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   agreementAcceptances,
+  billingAccounts,
   auditLog,
   legalVersions,
   licenses,
@@ -353,7 +354,10 @@ describe('required mode: a draft-only company and a version in force (ruling 24)
   });
 
   it('never trusts a vendor from the request: the session vendor is the one accepted for', async () => {
-    const { status } = await accept(acceptBody(), seat(OTHER_OWNER, OTHER));
+    const { status } = await accept(
+      acceptBody({ signer_name: 'Otto Other' }),
+      seat(OTHER_OWNER, OTHER),
+    );
     expect(status).toBe(201);
     const [row] = await portalRows();
     expect(row?.vendorId).toBe(OTHER);
@@ -419,5 +423,46 @@ describe('optional mode', () => {
       const [license] = await t.db.select().from(licenses).where(eq(licenses.id, id));
       expect(license).toMatchObject({ endedAt: null, cancelAtTermEnd: false });
     });
+  });
+});
+
+describe('the signer name and the Stripe billing flag (AECI-1677 review)', () => {
+  const INVITED = u(104);
+  beforeEach(async () => {
+    await publish();
+    // An invited owner: no display name, and no claim row of its own.
+    await t.db
+      .insert(profiles)
+      .values({ id: INVITED, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true });
+  });
+
+  it('reads no name for an invited owner, and refuses the accept without one', async () => {
+    expect((await read(seat(INVITED))).body.signer).toMatchObject({ name: null });
+    const { status, body } = await accept(acceptBody(), seat(INVITED));
+    expect(status).toBe(400);
+    expect(body.error.field).toBe('signer_name');
+    expect(await portalRows()).toEqual([]);
+  });
+
+  it('records the name typed on the screen', async () => {
+    const { status } = await accept(acceptBody({ signer_name: 'Ivy Invited' }), seat(INVITED));
+    expect(status).toBe(201);
+    expect((await portalRows())[0]).toMatchObject({ signerName: 'Ivy Invited' });
+  });
+
+  it('keeps the name on file over a typed one', async () => {
+    await accept(acceptBody({ signer_name: 'Someone Else' }));
+    expect((await portalRows())[0]).toMatchObject({ signerName: 'Olive Owner' });
+  });
+
+  it('says whether the company has Stripe billing to manage, to owners only', async () => {
+    expect((await read()).body.stripe_billing).toBe(false);
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await t.db
+      .update(billingAccounts)
+      .set({ stripeCustomerId: 'cus_1' })
+      .where(eq(billingAccounts.id, account));
+    expect((await read()).body.stripe_billing).toBe(true);
+    expect((await read(seat(MEMBER))).body.stripe_billing).toBe(false);
   });
 });

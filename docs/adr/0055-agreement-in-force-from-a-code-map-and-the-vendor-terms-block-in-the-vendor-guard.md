@@ -36,8 +36,10 @@ A bug in any of these locks every vendor out of the portal. Today no document is
    `allowTermsPending`: the accept, and the Stripe portal link. Reads stay open. The portal shell
    hides the tabs while blocked, and fails open when its read fails.
 4. **One acceptance screen, source `portal`.** The row carries the claim's fields and the box
-   label naming the version and the company. It records no IP address or browser until the
-   Privacy Policy names this acceptance.
+   label naming the version and the company. A seat with no name on file types its name. It
+   records no IP address or browser until the Privacy Policy names this acceptance.
+5. **A block that starts mid-session reaches the screen.** One interceptor on the vendor route
+   hears `403 LEGAL_ACCEPTANCE_REQUIRED` from any `/api/vendor/*` call and re-reads the state.
 
 ## Consequences
 
@@ -51,3 +53,17 @@ A bug in any of these locks every vendor out of the portal. Today no document is
   and a read failure never hides the portal.
 - What happens to a monthly subscription without the Managed plan click is not decided here
   (AECI-1690).
+- **The block covers only routes behind the vendor guard.** Account settings, the seat-invite
+  accept (`POST /api/seat-invites/:token/accept`) and claim requests sit outside it and stay
+  open. That is deliberate: they act for a person, not as the company under the Vendor Terms.
+- **Two owners accepting at the same instant can write two rows.** Both are true evidence of an
+  acceptance of the same version, and coverage reads either. Harmless, so there is no unique
+  index or guard for it.
+- **Publishing stays off in demo and production.** Once a published row's effective moment
+  passes, every claimed company without a covering acceptance is blocked. The change-notice
+  email (AECI-1620) has shipped, so a publish tells vendors first. `LEGAL_PUBLISH_ENABLED` stays
+  off in demo and production until every issue on the legal gate list has shipped, and the
+  release that sets the first effective date turns it on.
+- **Two open items for the legal stream (AECI-1363):** whether the Privacy Policy will name the
+  portal acceptance's IP address and browser (then `PORTAL_RECORDS_EVIDENCE` flips), and
+  confirmation that the first in-force version must be a new version number.

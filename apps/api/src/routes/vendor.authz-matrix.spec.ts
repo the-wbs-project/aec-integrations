@@ -1031,6 +1031,8 @@ describe('/api/vendor/* — a company that must accept the Vendor Terms (AECI-16
       accepted: true,
       signer_title: 'CEO',
       company_legal_name: 'Autodesk, Inc.',
+      // SEAT_A has no display name and no claim on file, so it types its name.
+      signer_name: 'Ada Seat',
     });
     expect(accepted.status).toBe(201);
     expect((await patch()).status).toBe(200);

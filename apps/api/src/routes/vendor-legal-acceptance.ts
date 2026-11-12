@@ -23,6 +23,10 @@
  * already accepted, a stale page, a forged body.
  *
  * ── ONE BATCH ───────────────────────────────────────────────────────────────────
+ * Before it, the signer's name: the seat's display name, else its claim's, else the
+ * `signer_name` typed on the screen. None of the three is `400 VALIDATION_FAILED` on
+ * `signer_name`, nothing written.
+ *
  * The `agreement_acceptances` row (`source: 'portal'`) and its `agreement.accepted` audit
  * row, from `agreementAcceptanceStatements`, in one `db.batch`. The row stores what a
  * claim stores: the seat's email and profile, the signer's name, the title and legal name
@@ -112,16 +116,29 @@ export async function legalAcceptanceState(
       pending: all.filter((p) => p.mode === 'required'),
       owner_names: ownerNames,
       signer: null,
+      stripe_billing: false,
     };
   }
 
-  const signer = all.length > 0 ? await loadCheckoutSigner(db, userId, vendorId) : null;
+  const [signer, account] =
+    all.length > 0
+      ? await Promise.all([
+          loadCheckoutSigner(db, userId, vendorId),
+          db.query.billingAccounts.findFirst({
+            columns: { stripeCustomerId: true },
+            where: eq(billingAccounts.vendorId, vendorId),
+          }),
+        ])
+      : [null, null];
   return {
     blocked,
     can_accept: true,
     pending: all,
     owner_names: [],
-    signer: signer ? { title: signer.title, legal_name: signer.companyLegalName } : null,
+    signer: signer
+      ? { name: signer.name, title: signer.title, legal_name: signer.companyLegalName }
+      : null,
+    stripe_billing: Boolean(account?.stripeCustomerId),
   };
 }
 
@@ -186,6 +203,14 @@ export function createAcceptLegalVersionHandler(
     // 4. The acceptance and its audit row, one batch.
     const labelText = portalAcceptanceLabel(pending.document, pending.version, vendor.companyName);
     const signer = await loadCheckoutSigner(db, session.userId, vendorId, payload.signer_title);
+    // The record holds the signer's name (Vendor Terms "Accepting these terms"). A seat with
+    // none on file types it on the screen.
+    const signerName = signer.name ?? payload.signer_name ?? null;
+    if (!signerName) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Enter your name', {
+        field: 'signer_name',
+      });
+    }
     const acceptedAt = now.toISOString();
     const batch = agreementAcceptanceStatements(db, {
       document: pending.document,
@@ -199,7 +224,7 @@ export function createAcceptLegalVersionHandler(
       acceptedAt,
       requestHeaders: c.req.raw.headers,
       signer: {
-        name: signer.name,
+        name: signerName,
         title: payload.signer_title,
         companyLegalName: payload.company_legal_name,
       },

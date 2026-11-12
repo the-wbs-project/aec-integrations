@@ -35,7 +35,8 @@
  *     (`lib/authz.ts`) refuses every other write with `403 LEGAL_ACCEPTANCE_REQUIRED`.
  *   - `optional` (ruling 25, counsel Q3): the agreement is in force, the company is not
  *     blocked by it, and the newest published version with `requires_acceptance` is not
- *     covered. For the Managed plan agreement, only while the company holds a live
+ *     covered. The item offered is the newest FINAL version, which is at or after that one,
+ *     so an owner never accepts a text a later version already replaced. For the Managed plan agreement, only while the company holds a live
  *     monthly card subscription. This build only records the click: it never changes a
  *     subscription.
  */
@@ -223,9 +224,13 @@ export function pendingAcceptances(
       }
     }
     if (document === 'managed_plan' && !input.monthlyCard) continue;
-    const optional = newestNeedingAcceptance(document, published);
-    if (optional !== null && !acceptanceCovers(document, optional, accepted, published)) {
-      out.push(pendingItem(document, optional, 'optional', published, nowMs));
+    const needing = newestNeedingAcceptance(document, published);
+    if (needing !== null && !acceptanceCovers(document, needing, accepted, published)) {
+      // Offer the newest final version, which is at or after the one that needs acceptance:
+      // a later version that needs none may already be in force, and accepting the
+      // superseded text would leave the owner on a version nobody applies (AECI-1677 review).
+      const offered = finalVersions(document, published)[0]?.version ?? needing;
+      out.push(pendingItem(document, offered, 'optional', published, nowMs));
     }
   }
   return out;

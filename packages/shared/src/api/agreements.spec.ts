@@ -19,7 +19,7 @@ import {
   portalAcceptanceLabel,
   AGREEMENT_CHECKBOX_LABELS,
 } from './agreements';
-import { legalEffectiveAtMs } from './legal-versions';
+import { compareLegalVersions, legalEffectiveAtMs } from './legal-versions';
 
 describe('LEGAL_AGREEMENT_KNOWN_VERSIONS (AECI-1500)', () => {
   it('ends with the current version of every agreement', () => {
@@ -95,7 +95,12 @@ describe('LEGAL_AGREEMENT_EFFECTIVE_ON (AECI-1677)', () => {
     ['managed_plan', ['1.0', '1.1']],
   ] as const)('keeps the draft versions of %s undated for good', (document, drafts) => {
     const map = LEGAL_AGREEMENT_EFFECTIVE_ON[document] as Record<string, string | null>;
-    for (const version of drafts) expect(map[version], `${document} ${version}`).toBeNull();
+    for (const version of drafts) {
+      expect(
+        map[version],
+        `${document} ${version} was accepted as a draft; ship the final text as a new version number, see the legal README "Bump day"`,
+      ).toBeNull();
+    }
   });
 });
 
@@ -109,5 +114,14 @@ describe('portalAcceptanceLabel (AECI-1677)', () => {
     expect(portalAcceptanceLabel('managed_plan', '1.2', 'Bentley')).toBe(
       'I have read and accept the Managed plan agreement, version 1.2, on behalf of Bentley.',
     );
+  });
+});
+
+describe('compareLegalVersions (AECI-1677)', () => {
+  it('orders by number, part by part', () => {
+    expect(compareLegalVersions('1.10', '1.9')).toBe(1);
+    expect(compareLegalVersions('1.9', '1.10')).toBe(-1);
+    expect(compareLegalVersions('1.3', '1.3.0')).toBe(0);
+    expect(compareLegalVersions('2.0', '1.99')).toBe(1);
   });
 });

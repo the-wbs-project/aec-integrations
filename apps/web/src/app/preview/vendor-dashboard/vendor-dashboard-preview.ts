@@ -1,4 +1,12 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
 import type { VendorMeResponse, VendorSeat } from '@aeci/shared';
@@ -382,6 +390,8 @@ export class VendorDashboardPreview {
   );
 
   constructor() {
+    // AECI-1677: optional prompts wait for the session's dismissals, read in the browser.
+    afterNextRender(() => this.legal.loadDismissed());
     // Keep the fixture-backed fake pointed at whichever fixture is on screen, so
     // the seat roster + product saves operate on matching data.
     //

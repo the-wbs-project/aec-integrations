@@ -713,9 +713,10 @@ describe('LegalPage', () => {
           const doc = getLegalVersion(slugFor[document as LegalAgreementDocument], version);
           if (!doc) continue;
           checked += 1;
-          expect(doc.frontmatter.effectiveDate, `${document} ${version}`).toBe(
-            day === null ? '' : writtenOut(day),
-          );
+          expect(
+            doc.frontmatter.effectiveDate,
+            `${document} ${version}: LEGAL_AGREEMENT_EFFECTIVE_ON must equal this file's effective_date. If this version was accepted as a draft, ship the final text as a new version number instead (see the legal README, "Bump day")`,
+          ).toBe(day === null ? '' : writtenOut(day));
         }
       }
       // The current version of each agreement always has a page.

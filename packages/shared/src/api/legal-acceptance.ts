@@ -27,6 +27,7 @@ export type LegalAcceptanceMode = z.infer<typeof LegalAcceptanceModeSchema>;
 /** The longest title and legal name the screen takes, as on the claim form. */
 export const LEGAL_ACCEPT_SIGNER_TITLE_MAX = 100;
 export const LEGAL_ACCEPT_LEGAL_NAME_MAX = 200;
+export const LEGAL_ACCEPT_SIGNER_NAME_MAX = 200;
 
 /** One version this session must or may accept. */
 export const VendorLegalPendingSchema = z.object({
@@ -61,12 +62,19 @@ export const VendorLegalAcceptanceResponseSchema = z.object({
   /** What the screen pre-fills, for an owner seat with something pending. */
   signer: z
     .object({
+      /** The seat's display name, else its own newest claim's name, else null (an invited
+       *  seat with no name on file). Null: the screen asks for the name, and the POST
+       *  requires `signer_name`. */
+      name: z.string().nullable(),
       /** This seat's title from its own newest claim, else null (an invited seat). */
       title: z.string().nullable(),
       /** `vendors.legal_name`, else the newest claim's legal name, else null. */
       legal_name: z.string().nullable(),
     })
     .nullable(),
+  /** Owner seat only: the company has a Stripe customer, so the required screen offers
+   *  "Manage billing in Stripe" (`POST /api/vendor/billing/portal` passes a blocked company). */
+  stripe_billing: z.boolean(),
 });
 export type VendorLegalAcceptanceResponse = z.infer<typeof VendorLegalAcceptanceResponseSchema>;
 
@@ -78,6 +86,9 @@ export const AcceptLegalVersionRequestSchema = z
     accepted: z.literal(true),
     signer_title: z.string().trim().min(1).max(LEGAL_ACCEPT_SIGNER_TITLE_MAX),
     company_legal_name: z.string().trim().min(1).max(LEGAL_ACCEPT_LEGAL_NAME_MAX),
+    /** Required only when the server has no name for the seat (`signer.name` null);
+     *  ignored otherwise. Missing then: `400 VALIDATION_FAILED` on `signer_name`. */
+    signer_name: z.string().trim().min(1).max(LEGAL_ACCEPT_SIGNER_NAME_MAX).optional(),
   })
   .strict();
 export type AcceptLegalVersionRequest = z.infer<typeof AcceptLegalVersionRequestSchema>;

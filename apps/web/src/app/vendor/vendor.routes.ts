@@ -1,4 +1,12 @@
+import {
+  provideHttpClient,
+  withInterceptors,
+  withRequestsMadeViaParent,
+} from '@angular/common/http';
 import type { Routes } from '@angular/router';
+
+import { VendorApi } from './vendor-api';
+import { vendorLegalRequiredInterceptor } from './vendor-legal-required';
 
 import { vendorHomeRedirectGuard } from './vendor-home-redirect.guard';
 import { vendorLegalResolver } from './vendor-legal.resolver';
@@ -242,6 +250,16 @@ export const VENDOR_ROUTES: Routes = [
   {
     path: ':vendorSlug',
     loadComponent: () => import('./vendor-page').then((m) => m.VendorPage),
+    // AECI-1677: the portal's calls pass the "must accept first" interceptor
+    // (`vendor-legal-required.ts`), then the app's own chain (`withRequestsMadeViaParent`).
+    // `VendorApi` is provided here so it uses this client.
+    providers: [
+      provideHttpClient(
+        withInterceptors([vendorLegalRequiredInterceptor]),
+        withRequestsMadeViaParent(),
+      ),
+      VendorApi,
+    ],
     // AECI-1677: the acceptance screen's state, beside `me`, so SSR knows the gate.
     resolve: { me: vendorMeResolver, legal: vendorLegalResolver },
     children: VENDOR_SECTION_ROUTES,

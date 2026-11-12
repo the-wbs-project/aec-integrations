@@ -5,7 +5,11 @@ import type { VendorLegalAcceptanceResponse } from '@aeci/shared';
 // (`/legal/<slug>/v<version>`) are real pages, so "Read version" resolves in the preview.
 // In production a draft is never in force (`LEGAL_AGREEMENT_EFFECTIVE_ON`).
 
-const LEGAL_SIGNER = { title: 'Head of Partnerships', legal_name: 'Northwind Software, Inc.' };
+const LEGAL_SIGNER = {
+  name: 'Priya Raman',
+  title: 'Head of Partnerships',
+  legal_name: 'Northwind Software, Inc.',
+};
 
 /** Blocking mode, owner seat (ruling 24). */
 export const LEGAL_REQUIRED_OWNER_FIXTURE: VendorLegalAcceptanceResponse = {
@@ -27,6 +31,7 @@ export const LEGAL_REQUIRED_OWNER_FIXTURE: VendorLegalAcceptanceResponse = {
   ],
   owner_names: [],
   signer: LEGAL_SIGNER,
+  stripe_billing: true,
 };
 
 /** Blocking mode, member seat: nothing to accept, the owners named. */
@@ -35,6 +40,7 @@ export const LEGAL_REQUIRED_MEMBER_FIXTURE: VendorLegalAcceptanceResponse = {
   can_accept: false,
   owner_names: ['Priya Raman', 'Sam Okafor'],
   signer: null,
+  stripe_billing: false,
 };
 
 /** Optional mode, a Vendor Terms version that needs acceptance (ruling 25). */
@@ -54,6 +60,7 @@ export const LEGAL_OPTIONAL_TERMS_FIXTURE: VendorLegalAcceptanceResponse = {
   ],
   owner_names: [],
   signer: LEGAL_SIGNER,
+  stripe_billing: true,
 };
 
 /** Optional mode, the Managed plan click for a monthly card subscription (counsel Q3). */
@@ -72,7 +79,9 @@ export const LEGAL_OPTIONAL_MANAGED_FIXTURE: VendorLegalAcceptanceResponse = {
     },
   ],
   owner_names: [],
-  signer: { title: null, legal_name: null },
+  // An invited owner with no name, title or legal name on file: the screen asks for all three.
+  signer: { name: null, title: null, legal_name: null },
+  stripe_billing: true,
 };
 
 /** Nothing pending: the state after an accept, and the state of every vendor today. */
@@ -82,4 +91,5 @@ export const LEGAL_NOTHING_PENDING_FIXTURE: VendorLegalAcceptanceResponse = {
   pending: [],
   owner_names: [],
   signer: null,
+  stripe_billing: false,
 };

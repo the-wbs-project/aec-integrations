@@ -3564,6 +3564,29 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
 
+## A company is blocked on the acceptance screen and has no working owner seat (AECI-1677)
+
+Once a Vendor Terms version is in force, a company with no acceptance of a version in force sees
+only the acceptance screen, and only an owner seat can accept (ruling 24,
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). A company whose owners are all banned, or which has only
+member seats, cannot unblock itself. Its member seats see "Your company has no owner seat that can
+sign in." Find these companies before the effective date, not after.
+
+1. **Before the effective date, list who has not accepted.** On `/admin/legal`, open "Who has
+   accepted" and read the "Not yet" list for the version that will take effect. Each name links
+   to `/admin/vendors/:id`.
+2. **Check each company's seats.** On the vendor page, Seats tab: a company needs at least one
+   seat marked owner that is not banned. Note every company with none.
+3. **Find the person who should own it.** Use the claim on record or the member seats. Confirm
+   with the company, in writing, who has authority to accept for it.
+4. **Make that person an owner seat.** On the vendor page, provision a seat for their email
+   (`POST /api/admin/vendors/:id/seats`, §5.7). It creates an owner seat, or promotes an
+   existing member seat to owner, with its audit row.
+5. **Tell them.** Reply to the company: an owner seat now exists, and the next sign-in shows the
+   acceptance screen. Do not accept on their behalf: an acceptance is the company's act.
+6. **After the effective date,** a member seat that writes in about the screen gets the same
+   steps 2 to 5.
+
 ## Accessibility barrier report (AECI-1673)
 
 Use this when someone tells the support inbox (`support@aecintegrations.com`) that something on the site stops them from using it. The statement at `/accessibility` says "We reply within 10 business days." It is hidden until AECI-1687, but treat a barrier report the same way now. Ruling 22 set that window, and a missed self-set deadline is evidence against us (counsel Q40). `STAGE_1_SPEC.md` §27.6 governs the page.

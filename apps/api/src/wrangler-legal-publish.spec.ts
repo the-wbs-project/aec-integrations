@@ -7,9 +7,10 @@ import { describe, expect, it } from 'vitest';
  * inherited across environments, so a block that loses the var silently reads as off
  * (or, worse, a later edit copies "true" into production). This pins the value per block.
  *
- * AECI-1677 turned demo and production on: they were held "false" until the portal's
- * acceptance screen existed, so a published version that needs acceptance always has
- * somewhere to be accepted. Publishing still needs an upcoming version committed in code.
+ * Production and demo stay "false" until the legal README's "must ship before any
+ * effective date" list has shipped. The release that sets the first effective date flips
+ * demo and production, and edits this spec in the same change (AECI-1677: a passed
+ * effective moment blocks vendor writes until an owner accepts).
  */
 const raw = readFileSync(join(__dirname, '../wrangler.jsonc'), 'utf8');
 type Block = { vars?: Record<string, string> };
@@ -24,8 +25,8 @@ const config = JSON.parse(
 const EXPECTED = {
   root: 'true',
   staging: 'true',
-  demo: 'true',
-  production: 'true',
+  demo: 'false',
+  production: 'false',
 } as const;
 
 describe('LEGAL_PUBLISH_ENABLED in every wrangler block', () => {

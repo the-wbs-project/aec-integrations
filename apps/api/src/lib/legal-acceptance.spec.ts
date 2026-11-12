@@ -182,3 +182,37 @@ describe('acceptanceCovers', () => {
     );
   });
 });
+
+describe('the effective moment boundary, 12:00:00.000 UTC', () => {
+  const published = [row({ effectiveAt: legalEffectiveAtMs('2027-03-31') })];
+  const moment = Date.parse('2027-03-31T12:00:00.000Z');
+
+  it('is not in force one millisecond before', () => {
+    expect(inForceVersions('vendor_terms', published, moment - 1)).toEqual([]);
+    expect(requiredVendorTermsVersion(published, [], moment - 1)).toBeNull();
+  });
+
+  it('is in force at the moment exactly', () => {
+    expect(inForceVersions('vendor_terms', published, moment)).toEqual(['1.4']);
+    expect(requiredVendorTermsVersion(published, [], moment)).toBe('1.4');
+  });
+});
+
+describe('a later version that needs no acceptance (AECI-1677 review)', () => {
+  it('offers the newest final version, not the superseded one that needs acceptance', () => {
+    const published = [
+      row(),
+      row({ version: '1.5', effectiveAt: PAST + 1, requiresAcceptance: true }),
+      row({ version: '1.6', effectiveAt: PAST + 2 }),
+    ];
+    const pending = pendingAcceptances(
+      { published, accepted: [acc('1.4')], monthlyCard: false },
+      NOW,
+    );
+    expect(pending).toEqual([expect.objectContaining({ version: '1.6', mode: 'optional' })]);
+    // Accepting 1.6 covers 1.5, so nothing is pending after it.
+    expect(
+      pendingAcceptances({ published, accepted: [acc('1.6')], monthlyCard: false }, NOW),
+    ).toEqual([]);
+  });
+});

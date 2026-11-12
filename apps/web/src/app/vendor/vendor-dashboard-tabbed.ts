@@ -169,8 +169,11 @@ import { planHasEnded } from './vendor-plan';
           case that does.
         -->
         <div class="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <!-- tabindex="-1": a script may move the focus here (AECI-1677, closing the
+               acceptance confirmation), never the Tab key. -->
           <h1
-            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
+            tabindex="-1"
+            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) focus-visible:outline-none md:text-4xl"
           >
             {{ product()?.name ?? m.vendor.company_name }}
           </h1>
@@ -202,6 +205,8 @@ import { planHasEnded } from './vendor-plan';
           [ownerNames]="legalState?.owner_names ?? []"
           [prefillTitle]="legalState?.signer?.title ?? null"
           [prefillLegalName]="legalState?.signer?.legal_name ?? null"
+          [askName]="!!legalState?.signer && !legalState?.signer?.name"
+          [stripeBilling]="legalState?.stripe_billing ?? false"
         />
       } @else {
         <!--
@@ -244,6 +249,7 @@ import { planHasEnded } from './vendor-plan';
             [canAccept]="legalState?.can_accept ?? false"
             [prefillTitle]="legalState?.signer?.title ?? null"
             [prefillLegalName]="legalState?.signer?.legal_name ?? null"
+            [askName]="!!legalState?.signer && !legalState?.signer?.name"
           />
         }
 

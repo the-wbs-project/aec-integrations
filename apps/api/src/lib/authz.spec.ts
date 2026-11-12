@@ -21,7 +21,8 @@ import {
   capabilitiesFor,
   licensePlanSnapshot,
 } from '@aeci/shared/entitlements';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { fakeExecutionContext } from '../test/helpers';
 import {
   SignJWT,
   createLocalJWKSet,
@@ -867,6 +868,50 @@ describe('requireAuth / requireAdmin do not read licenses', () => {
     expect(res.status).toBe(200);
     expect(batch).toHaveBeenCalledTimes(1);
     expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  // AECI-1677: on a write the Vendor Terms rows ride the same one batch, never a second trip.
+  it('requireVendor on a write reads the Vendor Terms rows in the same ONE batch', async () => {
+    const { batch, dbFor: fake } = fakeDb(VENDOR_ROW);
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler());
+    app.patch('/api/vendor/profile', requireVendor({ getKey, dbFor: fake }), (c) => c.json({}));
+    const token = await mintToken({ sub: 'user-vendor' });
+    const res = await app.request(
+      '/api/vendor/profile',
+      { method: 'PATCH', headers: bearer(token) },
+      ENV,
+    );
+    expect(res.status).toBe(200);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect((batch.mock.calls[0] as unknown as [unknown[]])[0]).toHaveLength(5);
+  });
+
+  // AECI-1677: the current behaviour, kept on purpose. A D1 error while reading the Vendor
+  // Terms rows FAILS CLOSED for that write: a 500, and the handler never runs. It cannot
+  // fail open into a write the block should have refused. Reads never run the statements.
+  it('a D1 error in the Vendor Terms read fails closed: the write answers 500, no handler', async () => {
+    const { batch, dbFor: fake } = fakeDb(VENDOR_ROW);
+    batch.mockImplementation((async (stmts: unknown) => {
+      if ((stmts as unknown[]).length > 3) throw new Error('D1_ERROR: network');
+      return [[VENDOR_ROW], [], []];
+    }) as unknown as () => Promise<Record<string, unknown>[][]>);
+    const handler = vi.fn((c: Context) => c.json({}));
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler());
+    app.patch('/api/vendor/profile', requireVendor({ getKey, dbFor: fake }), handler);
+    app.get('/api/vendor/me', requireVendor({ getKey, dbFor: fake }), (c) => c.json({}));
+    const token = await mintToken({ sub: 'user-vendor' });
+    const write = await app.request(
+      '/api/vendor/profile',
+      { method: 'PATCH', headers: bearer(token) },
+      ENV,
+      fakeExecutionContext(),
+    );
+    expect(write.status).toBe(500);
+    expect(handler).not.toHaveBeenCalled();
+    const readRes = await app.request('/api/vendor/me', { headers: bearer(token) }, ENV);
+    expect(readRes.status).toBe(200);
   });
 });
 

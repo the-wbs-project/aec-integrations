@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import type {
   AcceptLegalVersionResponse,
@@ -7,6 +7,7 @@ import type {
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
+import { VendorLegalRequiredEvents } from './vendor-legal-required';
 
 /** The `sessionStorage` key holding the optional prompts dismissed in this session. */
 export const LEGAL_DISMISSED_KEY = 'aeci.vendor.legal-accept.dismissed';
@@ -44,6 +45,15 @@ export interface LegalAcceptConfirmation {
  * (`sessionStorage`). The prompt comes back on the next visit in a new session, and on a
  * different browser. A required item cannot be dismissed. The stored set is read after
  * the first render (`loadDismissed`), so SSR and hydration render the same thing.
+ *
+ * ── OPTIONAL PROMPTS WAIT FOR THE CLIENT ─────────────────────────────────────────
+ * An optional prompt renders only once `loadDismissed` has run in the browser. SSR never
+ * renders one, so a prompt dismissed earlier in the session never flashes on a reload. The
+ * required screen does not wait: SSR renders it, so a blocked company never sees the tabs.
+ *
+ * ── A BLOCK THAT STARTS MID-SESSION ──────────────────────────────────────────────
+ * A write refused with `403 LEGAL_ACCEPTANCE_REQUIRED` (`vendor-legal-required.ts`)
+ * re-reads the state, so the required screen appears in place of the tabs.
  */
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- surface-scoped, alongside VendorPortalStore
 @Injectable()
@@ -53,6 +63,17 @@ export class VendorLegalAcceptanceState {
   readonly state = signal<VendorLegalAcceptanceResponse | null>(null);
   readonly confirmation = signal<LegalAcceptConfirmation | null>(null);
   private readonly dismissed = signal<ReadonlySet<string>>(new Set());
+  /** `loadDismissed` has run in the browser: optional prompts may render. */
+  private readonly dismissedLoaded = signal(false);
+  private readonly events = inject(VendorLegalRequiredEvents);
+
+  constructor() {
+    // A vendor write was refused because the company must accept first: re-read.
+    effect(() => {
+      if (this.events.count() === 0) return;
+      untracked(() => void this.refresh());
+    });
+  }
 
   /** The portal opens only the acceptance screen. */
   readonly blocked = computed(() => this.state()?.blocked === true);
@@ -63,7 +84,7 @@ export class VendorLegalAcceptanceState {
     if (!state) return null;
     const required = state.pending.find((p) => p.mode === 'required');
     if (required) return required;
-    if (!state.can_accept) return null;
+    if (!state.can_accept || !this.dismissedLoaded()) return null;
     const dismissed = this.dismissed();
     return state.pending.find((p) => !dismissed.has(legalPromptKey(p))) ?? null;
   });
@@ -111,8 +132,10 @@ export class VendorLegalAcceptanceState {
     }
   }
 
-  /** Read this session's dismissals. Browser only, after the first render. */
+  /** Read this session's dismissals. Browser only, after the first render. Until it runs,
+   *  no optional prompt renders. */
   loadDismissed(): void {
+    this.dismissedLoaded.set(true);
     try {
       const raw = globalThis.sessionStorage?.getItem(LEGAL_DISMISSED_KEY);
       const parsed: unknown = raw ? JSON.parse(raw) : [];

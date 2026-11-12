@@ -133,7 +133,11 @@ On November 12, 2026 **AECI-1363** applied legal branch 5 (change list section 1
 - **The record.** Source `portal`, with the claim's fields: name, title, legal name, email, time, version, the box label naming the version and the company, its hash and the unticked flag. **No IP address or browser yet.** The Privacy Policy's "Agreement acceptance records" names them only "for a claim or an in-portal acceptance of a granted subscription". Recording them on this screen needs that sentence changed first, then `PORTAL_RECORDS_EVIDENCE` set to true.
 - **Who has accepted.** `/admin/legal` lists, per final version, the accepted and not-yet counts and the companies not yet accepted (`docs/ADMIN_PANEL_SPEC.md` §5.22a). The effective-date change uses it.
 
-**Publishing is on in every tier (AECI-1688, AECI-1677).** The API var `LEGAL_PUBLISH_ENABLED` held demo and production at `"false"` until the acceptance screen existed, so a version that needs acceptance always has somewhere to be accepted. AECI-1677 set all four tiers to `"true"` (`docs/environments.md` "Legal publish per tier"). Recording a version on `/admin/legal` is still not a way around the list of issues that must ship before any effective date: the publish records only a version committed in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and that change is reviewed against the list.
+**Publishing is gated too (AECI-1688, AECI-1677).** The API var `LEGAL_PUBLISH_ENABLED` is `"true"` on local and staging and `"false"` on demo and production, and the publish answers `409 LEGAL_PUBLISH_DISABLED` while it is off (`docs/environments.md` "Legal publish per tier"). **Demo and production stay off until every issue on the gate list above has shipped. The release that sets the first effective date turns them on.** The reason: once a published version's effective moment passes, the acceptance screen blocks every claimed vendor's writes until an owner seat accepts. The change-notice email (AECI-1620) has shipped, so a publish tells vendors before that moment.
+
+**Open item for the legal stream (AECI-1363): the IP address and browser on a portal acceptance.** The acceptance screen records no IP address or browser, because the Privacy Policy's "Agreement acceptance records" names them only "for a claim or an in-portal acceptance of a granted subscription". If the legal stream widens that sentence to cover the acceptance screen, flip `PORTAL_RECORDS_EVIDENCE` to `true` in `apps/api/src/lib/agreement-acceptances.ts` in the same change, and update its spec.
+
+**Open item for the legal stream (AECI-1363): the first in-force version is a new version number.** The code requires it (the draft versions are pinned undated). It stands pending the legal stream's confirmation.
 
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
 
@@ -294,7 +298,10 @@ To change a legal document:
 4. **Counsel review** — counsel reviews the PR diff; capture their approval in the Linear issue.
 5. **Bump frontmatter** — increment `version`, set `effective_date`, fill `counsel_approved_by` /
    `counsel_approved_on`, update `last_updated`, and remove the draft notice. Archive the
-   superseded text and add its `## Change history` line in the same PR (see above).
+   superseded text and add its `## Change history` line in the same PR (see above). For the
+   vendor terms or the Managed plan agreement, add the new version to
+   `LEGAL_AGREEMENT_EFFECTIVE_ON` with the same day (AECI-1677). The first effective date of
+   either agreement is always a new version number: the draft versions stay undated for good.
 6. **Merge** — the new version goes live on the next deploy.
 7. **Close the Linear issue** — link the merged PR and note the effective date.
 
@@ -337,6 +344,11 @@ steps in this order.
    - For the vendor terms or the Managed plan agreement, set `LEGAL_AGREEMENT_CURRENT_VERSIONS` to
      the new version, append it to `LEGAL_AGREEMENT_KNOWN_VERSIONS`, and add its
      `LEGAL_AGREEMENT_TEXT_SHA256` entry.
+   - In the same file, add the new version to `LEGAL_AGREEMENT_EFFECTIVE_ON` with its
+     `effectiveOn` day (`'YYYY-MM-DD'`), the day its `effective_date` writes out (AECI-1677). This
+     is how the API knows the version is in force. Never date a version listed there as `null`:
+     each was accepted as a draft. `agreements.spec.ts` and `legal-page.component.spec.ts` fail
+     until the entry matches the file.
    - For the Listing Accuracy Policy or the Review Guidelines, set `LEGAL_POLICY_CURRENT_VERSIONS`
      to the new version and append it to `LEGAL_POLICY_KNOWN_VERSIONS` (same file). A claim
      records those two versions. The Terms and the Privacy Policy have no shared map.

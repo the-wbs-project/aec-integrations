@@ -43,7 +43,10 @@ for customers, or what file they would be sent.
    evening before in the Americas, which would start a version early there and shorten the notice.
 5. **Publishing is switched per tier.** `LEGAL_PUBLISH_ENABLED` is `"true"` on local and staging,
    `"false"` on demo and production, so a publish cannot stand in for the legal README's list of
-   issues that must ship before any effective date. AECI-1677 turns production on.
+   issues that must ship before any effective date. Demo and production stay off until that
+   list has shipped. The release that sets the first effective date turns them on: once an
+   effective moment passes, the acceptance screen (AECI-1677, ADR 0055) blocks vendor writes
+   until an owner accepts.
 6. **The publish alone sends nothing.** AECI-1688 added no email, queue message or purge.
    AECI-1620 added the notice, decision 7.
 7. **The change notice (AECI-1620, 2026-11-12).**

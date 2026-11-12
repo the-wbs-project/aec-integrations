@@ -12,12 +12,20 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { FormField, form, maxLength, submit, validateStandardSchema } from '@angular/forms/signals';
+import {
+  FormField,
+  form,
+  maxLength,
+  required,
+  submit,
+  validateStandardSchema,
+} from '@angular/forms/signals';
 
 import {
   AcceptLegalVersionRequestSchema,
   ApiErrorCode,
   LEGAL_ACCEPT_LEGAL_NAME_MAX,
+  LEGAL_ACCEPT_SIGNER_NAME_MAX,
   LEGAL_ACCEPT_SIGNER_TITLE_MAX,
   type VendorLegalPending,
 } from '@aeci/shared';
@@ -38,18 +46,21 @@ import { VendorLegalAcceptanceState } from '../vendor-legal-acceptance-state';
 
 const SUPPORT_EMAIL = 'support@aecintegrations.com';
 
-/** The three fields the owner gives. `accepted` is `z.literal(true)`, so the form stays
- *  invalid until the box is ticked. */
+/** The fields the owner gives. `accepted` is `z.literal(true)`, so the form stays invalid
+ *  until the box is ticked. `signer_name` is checked by `required` below, only when asked;
+ *  `loose()` lets the model carry it past this strict schema. */
 const AcceptFormSchema = AcceptLegalVersionRequestSchema.pick({
   accepted: true,
   signer_title: true,
   company_legal_name: true,
-});
+}).loose();
 
 interface AcceptModel {
   accepted: boolean;
   signer_title: string;
   company_legal_name: string;
+  /** Asked only when the server has no name for the seat (`signer.name` null). */
+  signer_name: string;
 }
 
 /** A refusal, mapped to a sentence the owner can act on. `stale`: the state is out of
@@ -57,7 +68,7 @@ interface AcceptModel {
 export interface LegalAcceptFailure {
   readonly message: string;
   readonly stale: boolean;
-  readonly field: 'signer_title' | 'company_legal_name' | null;
+  readonly field: 'signer_title' | 'company_legal_name' | 'signer_name' | null;
 }
 
 export function legalAcceptFailure(err: unknown): LegalAcceptFailure {
@@ -83,6 +94,12 @@ export function legalAcceptFailure(err: unknown): LegalAcceptFailure {
         return inline(
           $localize`:@@vendor.legalAccept.error.title:Enter your title, up to 100 characters.`,
           'signer_title',
+        );
+      }
+      if (field === 'signer_name') {
+        return inline(
+          $localize`:@@vendor.legalAccept.error.name:Enter your name, up to 200 characters.`,
+          'signer_name',
         );
       }
       if (field === 'company_legal_name') {
@@ -184,14 +201,16 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                 </p>
               }
               <p i18n="@@vendor.legalAccept.required.listing">
-                Your listing stays claimed and public in the meantime. There is no deadline.
+                Your listing stays claimed in the meantime. There is no deadline.
               </p>
             } @else {
               <p>{{ optionalLead() }}</p>
               @if (it.document === 'vendor_terms') {
                 <p i18n="@@vendor.legalAccept.optional.terms">
-                  This version applies to {{ companyName() }} only after an owner seat accepts it.
-                  Until then, the earlier version applies to you.
+                  This version changes the liability, indemnity, disputes or content license
+                  sections in a way that reduces your rights. That change applies to
+                  {{ companyName() }} only after an owner seat accepts it. Until then the earlier
+                  version applies to you.
                 </p>
               }
             }
@@ -230,6 +249,46 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
 
           @if (canAccept()) {
             <form novalidate class="mt-6 max-w-xl space-y-5" (submit)="accept($event)">
+              @if (askName()) {
+                <div class="space-y-1.5 sm:max-w-[calc(50%-0.625rem)]">
+                  <label
+                    [attr.for]="id('name')"
+                    [class]="labelClass"
+                    i18n="@@vendor.legalAccept.name"
+                    >Your name</label
+                  >
+                  <input
+                    [id]="id('name')"
+                    type="text"
+                    autocomplete="name"
+                    [class]="inputClass"
+                    [formField]="form.signer_name"
+                    [attr.aria-invalid]="nameError() ? 'true' : null"
+                    [attr.aria-describedby]="
+                      nameError() ? id('name-hint') + ' ' + id('name-error') : id('name-hint')
+                    "
+                    data-testid="legal-accept-name"
+                    (input)="rejected.set(null)"
+                  />
+                  <p
+                    [id]="id('name-hint')"
+                    [class]="hintClass"
+                    i18n="@@vendor.legalAccept.nameHint"
+                  >
+                    We have no name on file for your seat. We record it with your acceptance.
+                  </p>
+                  @if (nameError()) {
+                    <p
+                      [id]="id('name-error')"
+                      role="alert"
+                      [class]="errorClass"
+                      i18n="@@vendor.legalAccept.nameError"
+                    >
+                      Enter your name, up to 200 characters.
+                    </p>
+                  }
+                </div>
+              }
               <div class="grid gap-5 sm:grid-cols-2">
                 <div class="space-y-1.5">
                   <label
@@ -447,6 +506,43 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                 Questions about these terms go to {{ supportEmail }}.
               </li>
             </ul>
+            @if (canAccept() && stripeBilling()) {
+              <!-- The Stripe portal route passes a blocked company (allowTermsPending), so an
+                   owner can still manage or cancel billing without accepting first. -->
+              <div class="mt-5 border-t border-(--border-default) pt-4">
+                <p class="text-sm text-(--text-secondary)" i18n="@@vendor.legalAccept.billing.body">
+                  You can still manage or cancel your billing.
+                </p>
+                <button
+                  type="button"
+                  [class]="secondaryClass + ' mt-3'"
+                  [disabled]="portalBusy()"
+                  [attr.aria-busy]="portalBusy()"
+                  data-testid="legal-accept-billing"
+                  (click)="openBillingPortal()"
+                >
+                  @if (portalBusy()) {
+                    <ng-container i18n="@@vendor.legalAccept.billing.pending"
+                      >Opening Stripe…</ng-container
+                    >
+                  } @else {
+                    <ng-container i18n="@@vendor.legalAccept.billing.action"
+                      >Manage billing in Stripe</ng-container
+                    >
+                  }
+                </button>
+                @if (portalFailed()) {
+                  <p
+                    role="alert"
+                    [class]="errorClass + ' mt-2'"
+                    data-testid="legal-accept-billing-error"
+                    i18n="@@vendor.legalAccept.billing.error"
+                  >
+                    We could not open Stripe just now. Try again in a moment.
+                  </p>
+                }
+              </div>
+            }
           </div>
         } @else {
           <div class="text-sm text-(--text-secondary)">
@@ -467,6 +563,10 @@ export class VendorLegalAcceptance {
   readonly ownerNames = input<readonly string[]>([]);
   readonly prefillTitle = input<string | null>(null);
   readonly prefillLegalName = input<string | null>(null);
+  /** The server has no name for this seat, so the screen asks for it. */
+  readonly askName = input(false);
+  /** The company has Stripe billing: the required screen offers the Stripe portal. */
+  readonly stripeBilling = input(false);
 
   private readonly api = inject(VendorApi);
   private readonly legal = inject(VendorLegalAcceptanceState);
@@ -486,12 +586,19 @@ export class VendorLegalAcceptance {
     computation: (src, previous) =>
       previous && previous.source.key === src.key
         ? previous.value
-        : { accepted: false, signer_title: src.title, company_legal_name: src.legalName },
+        : {
+            accepted: false,
+            signer_title: src.title,
+            company_legal_name: src.legalName,
+            signer_name: '',
+          },
   });
   protected readonly form = form(this.model, (p) => {
     validateStandardSchema(p, () => AcceptFormSchema);
     maxLength(p.signer_title, LEGAL_ACCEPT_SIGNER_TITLE_MAX);
     maxLength(p.company_legal_name, LEGAL_ACCEPT_LEGAL_NAME_MAX);
+    required(p.signer_name, { when: () => this.askName() });
+    maxLength(p.signer_name, LEGAL_ACCEPT_SIGNER_NAME_MAX);
   });
 
   protected readonly busy = signal(false);
@@ -503,6 +610,11 @@ export class VendorLegalAcceptance {
   protected readonly titleError = computed(() => {
     if (this.rejected() === 'signer_title') return true;
     const f = this.form.signer_title();
+    return f.touched() && f.invalid();
+  });
+  protected readonly nameError = computed(() => {
+    if (this.rejected() === 'signer_name') return true;
+    const f = this.form.signer_name();
     return f.touched() && f.invalid();
   });
   protected readonly legalNameError = computed(() => {
@@ -588,6 +700,7 @@ export class VendorLegalAcceptance {
           accepted: true,
           signer_title: v.signer_title.trim(),
           company_legal_name: v.company_legal_name.trim(),
+          ...(this.askName() ? { signer_name: v.signer_name.trim() } : {}),
         });
         this.legal.accepted(res);
       } catch (err) {
@@ -600,6 +713,23 @@ export class VendorLegalAcceptance {
       }
       return undefined;
     });
+  }
+
+  protected readonly portalBusy = signal(false);
+  protected readonly portalFailed = signal(false);
+
+  /** `POST /api/vendor/billing/portal`, then leave for Stripe. Busy stays on while leaving. */
+  protected async openBillingPortal(): Promise<void> {
+    if (this.portalBusy()) return;
+    this.portalFailed.set(false);
+    this.portalBusy.set(true);
+    try {
+      const { url } = await this.api.openBillingPortal();
+      globalThis.location.assign(url);
+    } catch {
+      this.portalBusy.set(false);
+      this.portalFailed.set(true);
+    }
   }
 
   protected dismiss(): void {

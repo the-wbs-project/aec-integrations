@@ -313,12 +313,14 @@
     "THREADS_ENABLED": "true",
     // AECI-1688: the legal publish switch (`POST /api/admin/legal-versions`,
     // ADMIN_PANEL_SPEC.md §5.22). Only "true" lets an admin publish a version; anything
-    // else answers 409 LEGAL_PUBLISH_DISABLED. "true" in all four blocks since AECI-1677:
-    // it held demo and production off until the acceptance screen existed, because a
-    // published version that needs acceptance had nowhere to be accepted. Publishing still
-    // needs an upcoming version committed in code (`LEGAL_AGREEMENT_UPCOMING_VERSIONS`),
-    // so it cannot stand in for the legal README's "must ship before any effective date"
-    // list. `wrangler-legal-publish.spec.ts` pins it in all four blocks.
+    // else answers 409 LEGAL_PUBLISH_DISABLED. "true" on local dev and staging, "false"
+    // on demo and production, so publishing cannot stand in for the legal README's
+    // "must ship before any effective date" list. Once a published version's effective
+    // moment passes, the portal acceptance screen (AECI-1677) blocks every claimed vendor's
+    // writes until an owner accepts. So demo and production stay off until the legal gate
+    // list has shipped, and the release that sets the first effective date turns them on.
+    // The change-notice email (AECI-1620) has shipped.
+    // `wrangler-legal-publish.spec.ts` pins it in all four blocks.
     "LEGAL_PUBLISH_ENABLED": "true",
   },
   "dev": {
@@ -795,8 +797,8 @@
         "STRIPE_CHECKOUT_ENABLED": "false",
         // AECI-1553: threads off for now (see the base-config note).
         "THREADS_ENABLED": "false",
-        // AECI-1677: legal publish on, as production (see the base-config note).
-        "LEGAL_PUBLISH_ENABLED": "true",
+        // AECI-1688: legal publish off while demo mirrors production.
+        "LEGAL_PUBLISH_ENABLED": "false",
       },
       "kv_namespaces": [
         {
@@ -1081,9 +1083,10 @@
         "STRIPE_CHECKOUT_ENABLED": "false",
         // AECI-1553: threads OFF until the legal drafts are in force (§15.15).
         "THREADS_ENABLED": "false",
-        // AECI-1677: legal publish on now the acceptance screen exists (see the
+        // AECI-1688: legal publish OFF until the gate list in the legal README has
+        // shipped. The release that sets the first effective date turns it on (see the
         // base-config note).
-        "LEGAL_PUBLISH_ENABLED": "true",
+        "LEGAL_PUBLISH_ENABLED": "false",
         // AECI-1305: the vendor claim nudge stays off (ruling 2026-10-31). Every gate in
         // docs/ACCOUNT_ONBOARDING_SPEC.md §1.1 has landed (AECI-1595). The flip is Chris's.
         // "true" turns it on. Only production can send it.
