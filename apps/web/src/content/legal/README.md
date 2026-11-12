@@ -13,6 +13,11 @@ the current version of each on SSR. See `STAGE_1_SPEC.md` §13 (required documen
 > and parsed by the content registry at `apps/web/src/app/legal/legal-content.ts`. Editing a file
 > here changes the rendered page on the next build/deploy.
 
+**Not in this registry: the accessibility statement.** `/accessibility` renders
+`../accessibility.md` on the `/methodology` pattern. It is hidden until AECI-1687. It has no version, archive or change
+history, because nobody accepts it. Its wording rules are `STAGE_1_SPEC.md` §27.6, and its legal
+triggers are in `docs/LEGAL_IMPACT_REVIEW.md` §3.
+
 ## Files ↔ routes
 
 The route slug (short, public, set by the footer links) maps to a long filename per spec §27.1.

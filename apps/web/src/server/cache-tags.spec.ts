@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../app/accessibility/accessibility-published';
 import { CACHE_TAG_MAX_BYTES, buildCacheTags, cacheTagInputsForPath } from './cache-tags';
 
 describe('buildCacheTags', () => {
@@ -252,5 +253,15 @@ describe('cacheTagInputsForPath', () => {
       expect(value).toMatch(/^route:(detail|index|browse)/);
       expect(value).not.toMatch(/ /);
     }
+  });
+});
+
+// AECI-1673 / AECI-1687 — the accessibility statement is a route-tag-only static
+// page once published. While hidden it is the `**` 404, so it maps to null.
+describe('cacheTagInputsForPath /accessibility (publish flag)', () => {
+  it('maps to route:index only when published', () => {
+    expect(cacheTagInputsForPath('/accessibility')).toEqual(
+      ACCESSIBILITY_STATEMENT_PUBLISHED ? { route: 'index' } : null,
+    );
   });
 });

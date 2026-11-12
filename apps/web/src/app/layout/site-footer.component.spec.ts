@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../accessibility/accessibility-published';
 import { SiteFooter } from './site-footer';
 
 /**
@@ -78,7 +79,7 @@ describe('SiteFooter', () => {
     expect(link?.textContent?.trim()).toBe('Vendor guide');
   });
 
-  it('carries all six Legal pages', () => {
+  it('carries all six Legal pages, then the accessibility statement once published (AECI-1673, AECI-1687)', () => {
     expect(column(render(), 'Legal')).toEqual([
       '/legal/terms',
       '/legal/privacy',
@@ -86,6 +87,7 @@ describe('SiteFooter', () => {
       '/legal/listing-accuracy',
       '/legal/vendor-terms',
       '/legal/managed-plan-agreement',
+      ...(ACCESSIBILITY_STATEMENT_PUBLISHED ? ['/accessibility'] : []),
     ]);
   });
 

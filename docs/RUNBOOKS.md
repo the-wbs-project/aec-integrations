@@ -3518,6 +3518,16 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
 
+## Accessibility barrier report (AECI-1673)
+
+Use this when someone tells the support inbox (`support@aecintegrations.com`) that something on the site stops them from using it. The statement at `/accessibility` says "We reply within 10 business days." It is hidden until AECI-1687, but treat a barrier report the same way now. Ruling 22 set that window, and a missed self-set deadline is evidence against us (counsel Q40). `STAGE_1_SPEC.md` §27.6 governs the page.
+
+1. Reply within 10 business days of receipt, every time. Count from the day the email arrives. Thank them and restate the barrier as you understand it. Say what happens next. Do not promise a fix date unless you can meet it.
+2. File a Linear issue in the **Bugs** project. Put the page address, the browser and assistive technology, and the reporter's words in it. Never put their email address in it.
+3. If the report needs a workaround to reach the content, such as a review, a correction or a claim, offer to do it for them by email.
+4. When the fix ships, tell the reporter.
+5. A letter that cites the ADA, threatens suit or comes from a lawyer is not a barrier report. Follow the demand-letter runbook (AECI-1674): insurer first, hold notice, then an attorney. Do not reply to the substance yourself.
+
 ## Removal requests
 
 Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** There are two tools. The listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052) takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact. The value hide (§11d.7) blanks one value on a vendor-held record while AECi checks it, and shows "Under review" in its place.

@@ -26,6 +26,8 @@
 
 import { orderedPairSlugs } from '@aeci/shared';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../app/accessibility/accessibility-published';
+
 /** Route classes that map to `route:<class>` tags. */
 export type CacheableRouteClass = 'detail' | 'index' | 'browse';
 
@@ -126,6 +128,9 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   // AECI-804 — /methodology. Static content page with no §2 entity, so the
   // route-class tag only, like /about and /updates. Never an ad-hoc namespace.
   if (path === '/methodology') return { route: 'index' };
+  // AECI-1673 — /accessibility, the accessibility statement. Same shape. Hidden
+  // until AECI-1687: while off, the path is the `**` 404, so no route tag.
+  if (path === '/accessibility' && ACCESSIBILITY_STATEMENT_PUBLISHED) return { route: 'index' };
   // AECI-1283 — /vendor-program, the vendor landing page. Static, no §2 entity,
   // route-class tag only (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2).
   if (path === '/vendor-program') return { route: 'index' };

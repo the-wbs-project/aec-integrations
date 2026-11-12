@@ -150,6 +150,18 @@ in `apps/web/src/content/legal/`.
 | What happens to subscriptions when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
 | How a change to the agreements is announced, who gets it, what it contains | Changes to this agreement; Vendor Terms › Changes to these terms | Owner seats and billing email; names the version and date, summarizes material changes, links the archive, attaches a copy. A material monthly change needs a click (AECI-1620). A Vendor Terms change that reduces rights under the liability, indemnity, disputes or content license sections applies to a company only after an owner seat accepts it in the portal (item 13.12, ruling 25). That is ahead of the code until AECI-1677 ships. |
 
+### Accessibility statement (`apps/web/src/content/accessibility.md`, `/accessibility`)
+
+Not a `/legal/*` page and not versioned (`docs/STAGE_1_SPEC.md` §27.6), but a public promise once AECI-1687 publishes it. It is hidden until then. Apply the table to a change made before then too, because the text ships as soon as the flag flips. A change that makes one of these sentences false is `text`, and the page changes in the same PR. A change to the promise itself is `decision`.
+
+| Change class | Section | What it promises today |
+|---|---|---|
+| Removing or weakening the axe job (`deploy.yml` `e2e-and-integration`), its WCAG 2.1 AA tags, or its block on `deploy-staging` | How we test | "We test each release with automated accessibility checks (axe)." |
+| Changing the manual-pass cadence in `docs/a11y-manual-testing-checklist.md` | How we test | "Before major releases we also work through a manual keyboard and screen-reader checklist." |
+| Changing the production `SUPPORT_EMAIL` or retiring the support inbox | Report a barrier | The barrier report goes to `support@aecintegrations.com`. A spec fails when the two differ. |
+| Changing the reply window, or the runbook step that meets it | Report a barrier | "We reply within 10 business days." Ruling 22 set it. A change is `decision`. |
+| Changing the target standard | Our standard | "We aim to conform to … WCAG 2.1 at level AA." Never "compliant". |
+
 ### Cross-document triggers
 
 - `/docs/vendors/plans` is linked from both agreements as the description of what Managed includes.
