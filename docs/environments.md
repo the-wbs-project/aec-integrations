@@ -165,6 +165,30 @@ check all of these. The first three are built:
 Turning it on for a tier is a one-line change to that block's `vars` in `apps/api/wrangler.jsonc`,
 then a normal deploy.
 
+### Legal publish per tier (AECI-1688)
+
+The committed API var `LEGAL_PUBLISH_ENABLED` is the switch for `POST /api/admin/legal-versions`,
+the publish on `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22). Only `"true"` turns it on. Absent or
+any other value answers `409 LEGAL_PUBLISH_DISABLED`, and `GET /api/admin/legal-versions` reports
+`publish_enabled: false`, so the page keeps Publish off and says why. It is a plain var: no secret,
+no preflight, no web var. `apps/api/src/wrangler-legal-publish.spec.ts` pins the four blocks.
+
+| Tier | `LEGAL_PUBLISH_ENABLED` |
+| --- | --- |
+| **Local** | `"true"` |
+| **Staging** | `"true"` |
+| **Demo** | `"false"` |
+| **Production** | `"false"` |
+
+It keeps publishing from becoming a way around the legal README's list of issues that must ship
+before any effective date. AECI-1677 turns production on, and edits the spec in the same change.
+
+**The PDF workflow.** `.github/workflows/legal-pdf.yml` (dispatch only, `CICD_PLAN.md` §11a-ter)
+prints one version and uploads it to `aeci-uploads-<env>` at `legal/<slug>/v<version>.pdf`. It
+runs in the `<env>` GitHub environment, so a production run waits for the `production` reviewer.
+It needs `CLOUDFLARE_API_TOKEN` with `Workers R2 Storage: Edit` and `CLOUDFLARE_ACCOUNT_ID`, the
+pair `deploy.yml` uses. It refuses to overwrite an object that exists.
+
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app

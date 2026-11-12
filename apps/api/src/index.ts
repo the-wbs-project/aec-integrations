@@ -142,6 +142,10 @@ import {
   createSetAdminEmailSwitchHandler,
 } from './routes/admin-email-switches';
 import {
+  createAdminLegalVersionsHandler,
+  createPublishLegalVersionHandler,
+} from './routes/admin-legal-versions';
+import {
   createAdminReindexListHandler,
   createAdminReindexSubmissionsHandler,
   createClearReindexRowHandler,
@@ -1277,6 +1281,17 @@ authAdmin.put(
   requireAdmin(),
   rateLimit('write'),
   createSetAdminEmailSwitchHandler(),
+);
+// §5.22 / AECI-1688 — the legal publish page. The GET is a read (no audit, no limiter).
+// The POST records one upcoming version: a write that audits in its own batch and
+// carries `rateLimit('write')` after the guard. It sends no email and enqueues nothing.
+// `LEGAL_PUBLISH_ENABLED` must be "true" on the tier, else 409 LEGAL_PUBLISH_DISABLED.
+authAdmin.get('/api/admin/legal-versions', requireAdmin(), createAdminLegalVersionsHandler());
+authAdmin.post(
+  '/api/admin/legal-versions',
+  requireAdmin(),
+  rateLimit('write'),
+  createPublishLegalVersionHandler(),
 );
 app.route('/', authAdmin);
 

@@ -142,6 +142,7 @@ Tables grouped by domain:
 - `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
+- `legal_versions` — one announced version of the Vendor Terms or the Managed plan agreement: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -2841,6 +2842,55 @@ create index license_grants_account_idx on license_grants(billing_account_id);
   (`max(updated_at)` per vendor, `STAGE_2_REALTIME_SPEC.md`).
 - **Never pruned** (§8.6d, `NEVER_PRUNED`).
 - **Grandfathered (ruling R3).** Grants live before AECI-1615 have no row here and stay live.
+
+### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
+
+One version of the Vendor Terms or the Managed plan agreement that an operator published on
+`/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
+ADR 0054). A row is the record that the version was announced: its summary, the operator's two
+answers, and the fingerprint of the PDF a customer can save. Publishing sends nothing. The
+change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader accounts
+(AECI-1637) read the row later.
+
+```sql
+create table legal_versions (
+  id text primary key,
+  document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
+  version text not null,           -- the LEGAL_AGREEMENT_UPCOMING_VERSIONS entry, e.g. '1.4'
+  effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
+  summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
+  material integer not null,       -- 0/1: the change is summarised and noticed
+  requires_acceptance integer not null, -- 0/1: an owner seat must accept before it applies; implies material
+  expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
+  pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
+  pdf_sha256 text not null,        -- of the exact bytes read at publish
+  pdf_bytes integer not null,      -- at most 5 MB
+  published_by text not null,      -- a profiles.id; NO FK
+  published_at text not null,      -- ISO-8601
+  notice_enqueued_at text,         -- NULL until AECI-1620 records its fan-out
+  notice_vendor_count integer      -- NULL until AECI-1620 records its fan-out
+);
+
+create unique index legal_versions_document_version_key on legal_versions(document, version);
+```
+
+- **The one writer.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
+  the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
+  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing updates or
+  deletes a row in this issue. AECI-1620 will fill the two `notice_*` columns.
+- **Not typed by the operator.** `version` and `effective_at` come from
+  `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
+- **The two flags are the operator's answers.** `material` and `requires_acceptance` have no
+  default on the page. `requires_acceptance = 1` with `material = 0` is refused by Zod
+  (`PublishLegalVersionRequestSchema`).
+- **The effective moment is 12:00 UTC**, not midnight, so a version never starts on the evening
+  before in the Americas (legal README "The effective moment").
+- **No CHECK and no FK**, the house rule for enum-like text (§8.6d): Zod owns the vocabulary in
+  `packages/shared/src/api/legal-versions.ts`, and a CHECK change on D1 is a table recreate
+  (`docs/migrations.md` §0). The migration is one `CREATE TABLE` and one `CREATE UNIQUE INDEX`,
+  guarded by `src/test/migration-0119.spec.ts`.
+- **Readers.** `GET /api/admin/legal-versions`. No public page reads it, so a write purges nothing.
+- **Retention.** Kept. Not in `PRUNABLE` (`lib/retention-prune.ts`).
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 

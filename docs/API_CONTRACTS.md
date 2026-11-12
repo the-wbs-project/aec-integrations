@@ -353,6 +353,11 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
 | `NOTIFICATION_NOT_PAUSABLE` | 400 | `PUT /api/admin/email/switches/:key` asked to pause an entry the notification registry marks always on (AECI-1224): a seat invite, a claim or review decision, the account-deleted confirmation, a deadline email, or anything not sent through `lib/email.ts`. Resuming one is allowed. `field: 'key'` |
 | `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
+| `LEGAL_PUBLISH_DISABLED` | 409 | `POST /api/admin/legal-versions` (AECI-1688) on a tier whose `LEGAL_PUBLISH_ENABLED` var is not `"true"`: demo and production until AECI-1677 turns production on. Checked first, before the body. Nothing is written |
+| `LEGAL_VERSION_NOT_UPCOMING` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the `version` is not the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. `field: 'version'`. Nothing is written |
+| `LEGAL_VERSION_EXISTS` | 409 | `POST /api/admin/legal-versions` (AECI-1688) when a `legal_versions` row exists for that document and version. Also the loser of two publishes racing on the unique index `legal_versions_document_version_key`: the batch rolls back and answers this, never a `500`. `field: 'version'` |
+| `LEGAL_NOTICE_WINDOW` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the version takes effect (12:00 UTC of its `effectiveOn` day) less than 30 days from now. A Vendor Terms version with an `expedited_reason` (`law` or `error`) only has to be in the future. `field: 'version'`. Nothing is written |
+| `LEGAL_PDF_MISSING` | 409 | `POST /api/admin/legal-versions` (AECI-1688) when the CI-built PDF at `legal/<slug>/v<version>.pdf` in `UPLOADS` is absent, does not start with `%PDF-`, is over 5 MB, or the bucket is unbound. `details` is `{ pdf_key, problem }`, `problem` one of `missing`, `not_pdf`, `too_large`, `unbound`. Run `legal-pdf.yml` first. Nothing is written |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -7008,6 +7013,62 @@ cache purge: no public page reads the table.
 Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or a long reason;
 `MALFORMED_REQUEST` (400) for a non-JSON body; `NOTIFICATION_NOT_PAUSABLE` (400); `NOT_FOUND`
 (404); `NOTIFICATION_SWITCH_CHANGED` (409); `RATE_LIMITED` (429).
+
+#### Legal versions: `GET /api/admin/legal-versions`, `POST /api/admin/legal-versions` (AECI-1688)
+
+Record an upcoming version of the Vendor Terms or the Managed plan agreement before it takes
+effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
+(`DATABASE_SCHEMA.md` §8.6i). `requireAdmin()` on both; the POST adds `rateLimit('write')` after
+the guard. Contract in `packages/shared/src/api/legal-versions.ts`. **A publish sends no email and
+enqueues nothing.** The change-notice email is AECI-1620.
+
+```typescript
+// GET /api/admin/legal-versions — no parameters. A read: no audit row, no limiter.
+export const AdminLegalVersionsResponseSchema = z.object({
+  publish_enabled: z.boolean(),              // LEGAL_PUBLISH_ENABLED === "true" on this tier
+  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS
+});
+export const AdminLegalUpcomingEntrySchema = z.object({
+  document: z.enum(['vendor_terms', 'managed_plan']),
+  version: z.string(),
+  effective_on: z.string(),                  // YYYY-MM-DD, from the upcoming map
+  effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
+  current_version: z.string(),               // LEGAL_AGREEMENT_CURRENT_VERSIONS[document]
+  published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
+});
+
+// POST /api/admin/legal-versions — strict body
+export const PublishLegalVersionRequestSchema = z.object({
+  document: z.enum(['vendor_terms', 'managed_plan']),
+  version: z.string().trim().min(1).max(20),
+  material: z.boolean(),                     // no default: the page asks Yes or No
+  requires_acceptance: z.boolean(),          // no default; true needs material: true
+  summary: z.array(z.string().trim().min(1).max(300) /* one line */).min(1).max(10),
+  expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
+}).strict();
+// 201: { legal_version: LegalVersion }
+// LegalVersion: id, document, version, effective_at, material, requires_acceptance, summary,
+//   expedited_reason, pdf_key, pdf_sha256, pdf_bytes, published_by, published_at,
+//   notice_enqueued_at (null), notice_vendor_count (null)
+```
+
+**Order of checks.** `LEGAL_PUBLISH_ENABLED` first: anything but `"true"` is `409
+LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body is `400
+MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
+without `material`, an expedited reason on a Managed plan version) is `400 VALIDATION_FAILED`.
+Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
+`409 LEGAL_PDF_MISSING`, in that order. The effective moment is `legalEffectiveAtMs(effectiveOn)`,
+12:00 UTC of the day, for the row and the 30-day check alike. An expedited reason is stored only
+when the window needed it, else NULL. The R2 key is built from the upcoming entry after the
+upcoming check, never from the request. The PDF's size is checked on `head` before any download,
+and `pdf_sha256` and `pdf_bytes` describe the exact bytes read. Then ONE `db.batch`: the insert
+and the `legal_version.published` audit row. A unique-index race is the same `409
+LEGAL_VERSION_EXISTS`. The audit forward to PostHog runs post-commit in `waitUntil`. No cache
+purge: no public page reads the table.
+
+Errors: `LEGAL_PUBLISH_DISABLED` (409); `MALFORMED_REQUEST` (400); `VALIDATION_FAILED` (400);
+`LEGAL_VERSION_NOT_UPCOMING` (422); `LEGAL_VERSION_EXISTS` (409); `LEGAL_NOTICE_WINDOW` (422);
+`LEGAL_PDF_MISSING` (409); `RATE_LIMITED` (429).
 
 #### `POST /api/admin/field-overrides`, `POST /api/admin/field-overrides/:id/lift` and `GET /api/admin/vendors/:id/field-overrides` (AECI-1237)
 

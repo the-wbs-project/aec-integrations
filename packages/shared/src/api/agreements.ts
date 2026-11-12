@@ -55,7 +55,9 @@ export interface LegalAgreementUpcomingVersion {
  * the source: `legal-page.component.spec.ts` asserts this map equals its
  * `vendor-terms` and `managed-plan-agreement` entries. Add an entry here in the same
  * change that adds the upcoming file, and remove it in the bump-day change. Empty
- * today. No runtime code reads it yet. The text-hash spec skips the upcoming file.
+ * today. The admin publish (`/api/admin/legal-versions`, AECI-1688) reads it: only the
+ * version listed here can be published, on its `effectiveOn` day at 12:00 UTC
+ * (`legalEffectiveAtMs`). The text-hash spec skips the upcoming file.
  */
 export const LEGAL_AGREEMENT_UPCOMING_VERSIONS: Readonly<
   Partial<Record<LegalAgreementDocument, LegalAgreementUpcomingVersion>>

@@ -30,6 +30,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'indexnow_queue',
   'integration',
   'integration_field_challenge',
+  'legal_version',
   'license_grant',
   'listing_request',
   'notification_setting',

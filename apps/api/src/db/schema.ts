@@ -2369,6 +2369,62 @@ export const agreementAcceptances = sqliteTable(
 );
 
 /**
+ * Published legal versions (AECI-1688, `STAGE_1_SPEC.md` §27.5, `DATABASE_SCHEMA.md`
+ * §8.6i, ADR 0054). One row is one version of the vendor terms or the Managed plan
+ * agreement that an operator published on `/admin/legal` before it takes effect. The
+ * publish sends nothing: the notice email (AECI-1620), the acceptance screen (AECI-1677)
+ * and reader accounts (AECI-1637) read this row later.
+ *
+ * `effective_at` is 12:00 UTC of the upcoming map's `effectiveOn` day
+ * (`legalEffectiveAtMs`). `summary_json` is a JSON array of 1 to 10 plain-text bullets,
+ * each up to 300 characters (`LegalSummarySchema`). `material` and `requires_acceptance`
+ * are the operator's two answers, 0/1, and `requires_acceptance` implies `material`.
+ * `expedited_reason` is `law` | `error` on a Vendor Terms version published inside the
+ * 30-day window, NULL otherwise. `pdf_key` names the CI-built copy in `UPLOADS`
+ * (`legal/<slug>/v<version>.pdf`), and `pdf_sha256` / `pdf_bytes` describe the exact
+ * bytes read at publish. `notice_enqueued_at` and `notice_vendor_count` are NULL until
+ * AECI-1620 records its fan-out.
+ *
+ * No CHECK on `document` or `expedited_reason`, the house rule for enum-like text
+ * (`agreement_acceptances.document` above): Zod owns the vocabulary, and a CHECK change
+ * on D1 is a table recreate (`docs/migrations.md` §0). No FK: `published_by` is a
+ * `profiles.id`, as `listing_requests.resolved_by`. The one writer is
+ * `routes/admin-legal-versions.ts`, whose insert carries its `legal_version.published`
+ * audit row in the same `db.batch`. Nothing updates or deletes a row yet.
+ */
+export const legalVersions = sqliteTable(
+  'legal_versions',
+  {
+    id: uuidPk(),
+    /** `LEGAL_AGREEMENT_DOCUMENTS`: `vendor_terms` | `managed_plan`. No CHECK. */
+    document: text('document').notNull(),
+    /** e.g. `'1.4'`. */
+    version: text('version').notNull(),
+    /** Epoch ms, 12:00 UTC of the manifest's `effectiveOn` day. */
+    effectiveAt: integer('effective_at').notNull(),
+    /** JSON array of strings. */
+    summaryJson: text('summary_json').notNull(),
+    material: integer('material', { mode: 'boolean' }).notNull(),
+    requiresAcceptance: integer('requires_acceptance', { mode: 'boolean' }).notNull(),
+    /** `LEGAL_EXPEDITED_REASONS`: `law` | `error`. Vendor Terms only. No CHECK. */
+    expeditedReason: text('expedited_reason'),
+    pdfKey: text('pdf_key').notNull(),
+    /** 64 lowercase hex characters. */
+    pdfSha256: text('pdf_sha256').notNull(),
+    pdfBytes: integer('pdf_bytes').notNull(),
+    /** A `profiles.id`, NO FK. */
+    publishedBy: text('published_by').notNull(),
+    /** ISO-8601. */
+    publishedAt: text('published_at').notNull(),
+    /** ISO-8601. AECI-1620 fills it when the notice fan-out is queued. */
+    noticeEnqueuedAt: text('notice_enqueued_at'),
+    /** AECI-1620 fills it with the number of vendors queued. */
+    noticeVendorCount: integer('notice_vendor_count'),
+  },
+  (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
+);
+
+/**
  * Stripe webhook events (AECI-1500, E9.2 of the AECI-1339 epic; `DATABASE_SCHEMA.md`
  * §8.6g). One row per Stripe event the webhook handled: the dedup ledger, exactly like
  * `promote_jobs` for promote. The INSERT is the FIRST statement of the handler's
@@ -5891,6 +5947,7 @@ export const schema = {
   licenses,
   licenseGrants,
   agreementAcceptances,
+  legalVersions,
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
