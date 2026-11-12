@@ -1243,7 +1243,7 @@ and no `apps/api/src/prisma.ts`:
    `user_id`, the same id as the `account.deleted` row's `entity_id`, and no email or
    display name. The metric carries no id. The PostHog alert
    `erasure-auth-delete-orphaned` fires on either outcome in production, and the cleanup
-   is the `RUNBOOKS.md` section "Erasure left an `auth.users` row behind".
+   is the `docs/runbooks/alerts.md` section "Erasure left an `auth.users` row behind".
 
    The key has been on the API Worker on staging, demo and production since AECI-530
    (§3.1). Since AECI-1468 only production reaches the seam, so `skipped_no_creds` means

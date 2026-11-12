@@ -444,7 +444,7 @@ unchanged. The ledger itself is never deleted.
 
 **What would end the exemption.** If any code ever reads this table to decide a person's access, a
 vendor's standing or a ranking, or an operator action edits a row through the app, that is domain
-state and audits in the same `db.batch`. A hand delete to force a re-archive (`RUNBOOKS.md`) is an
+state and audits in the same `db.batch`. A hand delete to force a re-archive (`docs/runbooks/alerts.md`) is an
 ops action, like any other `wrangler d1` repair.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`

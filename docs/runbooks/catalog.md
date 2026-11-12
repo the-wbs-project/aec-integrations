@@ -3,7 +3,7 @@
 Procedures for the catalog and the review app upstream of it: promote jobs, the strand audit, retractions,
 the ownership mirror, removal requests and slug renames. The governing docs are
 `docs/REVIEW_APP_PROMOTE_API.md`, ADR 0021, ADR 0030 and ADR 0044. Alert runbooks for everything else are
-in [`RUNBOOKS.md`](./RUNBOOKS.md). Keep the heading anchors stable: other docs and code cite them by name.
+in [`alerts.md`](./alerts.md). Keep the heading anchors stable: other docs and code cite them by name.
 
 ## Promote job errored or stuck
 
@@ -507,7 +507,7 @@ Counsel's table, from the Q20 and Q21 answers of 2026-11-04 (`LEGAL_COUNSEL_RECO
 | 1 | A vendor asks to be removed, and the listing is accurate | No | Refuse politely. Offer the correction route. | No hide. |
 | 2 | A vendor says the listing is inaccurate, and we cannot verify either way | No. But knowingly keeping a materially false listing risks a claim under Fla. Stat. 501.204 (FDUTPA) | Investigate. Hide the contested value pending verification. Correct what is proved. Record receipt, verification, interim hide and decision. Act in days. | A single value on a vendor-held record: the value hide ("Hide a value" below). Once it is proved wrong, correct it with a field correction (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5), which ends the hide. On an AECi-held record, correct it upstream in the review app. A whole listing that is materially false: hide it as `complaint_under_review`. |
 | 3 | The company or product is defunct | Policy | Verify it: a dissolution record, or the product site says it is discontinued. Then take it down. | Hide as `defunct`, with the evidence as the source. |
-| 4 | A trademark or copyright complaint about a name or logo | No for a name, which is nominative use. A compliant DMCA notice (17 U.S.C. 512) or a court order changes that for a logo or screenshot | Name: refuse. Logo or screenshot: the DMCA process or the order. Otherwise refuse. | No hide for a name. A logo under a compliant notice or order: Remove on objection (`LISTING_SUBMISSIONS_RUNBOOK.md` §6a). An order that covers the whole listing: hide as `lawful_order`. |
+| 4 | A trademark or copyright complaint about a name or logo | No for a name, which is nominative use. A compliant DMCA notice (17 U.S.C. 512) or a court order changes that for a logo or screenshot | Name: refuse. Logo or screenshot: the DMCA process or the order. Otherwise refuse. | No hide for a name. A logo under a compliant notice or order: Remove on objection (`docs/runbooks/listing-submissions.md` §6a). An order that covers the whole listing: hide as `lawful_order`. |
 | 5 | A defamation claim about a listing's text, not a review | Vendor-authored text: Section 230 applies, and a bare notice creates no duty. Our own text: correct or remove it if proved false | Investigate with proof. Hide pending verification. Correct our own text when it is proved false. Fla. Stat. 770.01's presuit notice rule applies to media defendants. | One text value on a vendor-held record: the value hide ("Hide a value" below). A whole listing: hide as `complaint_under_review`. Correct our own text upstream in the review app and promote it. |
 | 6 | A court order, or lawful government process | Yes, within its scope | Comply. An informal government request is not an order. | Hide as `lawful_order`, with the order as the source. An order that requires deletion goes to Chris first. |
 | 7 | A request about a named person, not a company | No general right. The Florida Digital Bill of Rights does not reach us | Refuse, unless it is personal data we hold in a review. Handle that under the privacy policy. | No hide. |
@@ -556,7 +556,7 @@ The value hide computes the two value deadlines from the received date: "Hide by
 
 - **`409 LISTING_HIDDEN` or `LISTING_NOT_HIDDEN`.** Someone else acted first. Reload the page.
 - **`409 LISTING_CHANGED_WHILE_SAVING`.** The listing changed during the save. Reload and try again.
-- **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see `RUNBOOKS.md` "Algolia sync failed".
+- **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see `docs/runbooks/alerts.md` "Algolia sync failed".
 - **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's. A line ending "still hidden by a restored hide" is the reverse. The product's hide row, or its company's hide, was restored without it, and no restore will ever reach it. Check that no company joined to it is hidden. Then clear its `hidden_at` and `hidden_hide_id` with an ops script, and run a by-id Algolia sync for it.
 - **The review app still shows the listing as live.** That is expected. The review mirror does not carry the hide (ADR 0044), and a `REVIEW - ` follow-up covers it.
 
@@ -587,7 +587,7 @@ The vendor can always edit a hidden field. A save that changes it ends the hide 
 - **`409 FIELD_HIDE_ACTIVE`.** The field is already hidden. Reload the page.
 - **`409 FIELD_HIDE_CLEARED`.** The hide ended before your restore or status reply: someone restored it, corrected it, or the vendor changed the value. Reload the page.
 - **The digest reports `field_hide_decision_overdue`.** A hide is past its "Decide by" date with no status reply. Decide it now, or send the requester a status reply and record it.
-- **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see `RUNBOOKS.md` "Algolia sync failed".
+- **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see `docs/runbooks/alerts.md` "Algolia sync failed".
 
 ## Rename a live slug
 

@@ -229,7 +229,7 @@ things worth knowing operationally:
 - **It refuses more than it writes.** No inserts (one row would clear the 03:00 prune to delete a
   day's `page_views` while every unrecoverable stock key was missing), no day whose raw rows are gone,
   no *increase* (the retro-join can only remove rows), and nothing at all above ten moved days. The
-  refusals are reported, not swallowed — `RUNBOOKS.md` has the triage table.
+  refusals are reported, not swallowed — `docs/runbooks/alerts.md` has the triage table.
 - **A re-check failure turns the run red; a refusal does not.** A silently-broken correction pass is
   the defect class this closes, so it cannot hide behind a green tick. The guard working is not a
   fault.
@@ -494,7 +494,7 @@ either, so only a no-data monitor can catch it.
 **Known gap:** `metrics-snapshot` has **no dedicated Datadog monitor**. It is queue-less, so a
 failed run is not retried, and the *stock* metrics of a missed day are unrecoverable — the one cron
 where absence is permanently lossy is the one without an absence monitor. Runbook added at
-`RUNBOOKS.md` → "Metrics snapshot missing or incomplete"; the monitor is a punt
+`docs/runbooks/alerts.md` → "Metrics snapshot missing or incomplete"; the monitor is a punt
 (`PHASE_8_COMPLETION.md` §F5).
 
 **`page_views` has a read surface.** This log previously described it as "write-only; query

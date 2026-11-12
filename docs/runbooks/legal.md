@@ -2,8 +2,8 @@
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
 report or demand letter, a subpoena for a reviewer's identity. No alert pages any of them. Alert runbooks are in
-[`RUNBOOKS.md`](./RUNBOOKS.md). Subscription and billing procedures are in
-[`SUBSCRIPTION_RUNBOOKS.md`](./SUBSCRIPTION_RUNBOOKS.md). Counsel's answers are verbatim in
+[`alerts.md`](./alerts.md). Subscription and billing procedures are in
+[`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
 `docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q40, Q41). Where counsel did not say something, these steps say
 "retain an attorney", not a guess.
 
@@ -198,7 +198,7 @@ npx wrangler d1 execute aeci-app-production-us --remote --json --command "SELECT
 ```
 
 The email address is not in D1. It is in Supabase Auth. Read the account with the service-role key, as
-in `RUNBOOKS.md` "Erasure left an `auth.users` row behind":
+in `docs/runbooks/alerts.md` "Erasure left an `auth.users` row behind":
 
 ```bash
 curl -s "$SUPABASE_URL/auth/v1/admin/users/$REVIEWER_ID" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" > auth_user.json

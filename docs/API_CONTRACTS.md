@@ -4173,7 +4173,7 @@ Plus the shared 401/403 and the `write` rate limit's 429.
 
 #### Suspend and terminate (AECI-1623)
 
-Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The eight writes add `rateLimit('write')` after it. Source of truth: `packages/shared/src/api/admin-vendor-suspension.ts`. Rulings: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15. Operator steps: `SUBSCRIPTION_RUNBOOKS.md` "Vendor suspension and termination". Every write emits its audit row in the same `db.batch` and forwards it after commit. Every write answers `{ suspension, notice_sent? }` with the `VendorSuspension` it changed, except the read.
+Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The eight writes add `rateLimit('write')` after it. Source of truth: `packages/shared/src/api/admin-vendor-suspension.ts`. Rulings: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15. Operator steps: `docs/runbooks/subscriptions.md` "Vendor suspension and termination". Every write emits its audit row in the same `db.batch` and forwards it after commit. Every write answers `{ suspension, notice_sent? }` with the `VendorSuspension` it changed, except the read.
 
 | Route | Body | Does |
 |---|---|---|
@@ -4258,7 +4258,7 @@ live subscription holds it. The batch also carries the `license.revoked` audit r
 the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
 (`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
 never the internal note). No statement names `products`: the Managed-field content stays.
-A paid subscription can be revoked; its Stripe subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The Stripe subscription still holds the quantity, so the next webhook or reconcile sync grants a new subscription. End paid subscriptions in Stripe (`SUBSCRIPTION_RUNBOOKS.md` "Stripe: refund a paid subscription").*
+A paid subscription can be revoked; its Stripe subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The Stripe subscription still holds the quantity, so the next webhook or reconcile sync grants a new subscription. End paid subscriptions in Stripe (`docs/runbooks/subscriptions.md` "Stripe: refund a paid subscription").*
 
 **Last live subscription: the mirror guard (AECI-1663, 2026-11-09).** A revoke moves no
 contest. Ruling 14 retired ruling B, so the re-route that ran here from AECI-1092 (moved here
@@ -10727,6 +10727,6 @@ Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `
 
 **A held overwrite is recorded as a correction (AECI-1628, 2026-11-09).** On a vendor-held record (an owned company, or a product joined to one) the overwrite writes a record-only `field_overrides` row for `logo_url` in the same batch, and the audit row gets `metadata.overrideId` and `metadata.sourceUrl`. A replacement then requires `sourceUrl` (`HttpsUrlSchema`): without it the answer is `400 VALIDATION_FAILED` with `error.field = 'sourceUrl'` and nothing is written. A removal (`logo_url: null`, with or without `objection`) may omit it. On an unheld record `sourceUrl` is ignored and no row is written. The public read then captions the logo (`FieldCorrection` on `logo_url`, §5.3a).
 
-**Remove on objection (AECI-1618, 2026-11-05).** `objection: true` is valid only with `logo_url: null`, otherwise `400 VALIDATION_FAILED`. It also clears `sourced_logo_url`, so nothing restores the logo, and deletes the stored object when no `vendors.logo_url`, `products.logo_url` or `sourced_logo_url` references it. The audit row's `metadata.objection` is true and its before and after state carry `sourcedLogoUrl`. `object_removed` is false when something else references the object or the delete failed. The row is clear either way. The runbook is `LISTING_SUBMISSIONS_RUNBOOK.md`.
+**Remove on objection (AECI-1618, 2026-11-05).** `objection: true` is valid only with `logo_url: null`, otherwise `400 VALIDATION_FAILED`. It also clears `sourced_logo_url`, so nothing restores the logo, and deletes the stored object when no `vendors.logo_url`, `products.logo_url` or `sourced_logo_url` references it. The audit row's `metadata.objection` is true and its before and after state carry `sourcedLogoUrl`. `object_removed` is false when something else references the object or the delete failed. The row is clear either way. The runbook is `docs/runbooks/listing-submissions.md`.
 
 Vendor profile/product PATCHes use LogoUrlSchema for logo_url, check local object existence/validation, and set logo_source=vendor only for explicitly supplied logo_url. Admin PATCHes set admin ownership. All catalog saves audit atomically and enqueue page purges after commit. Intentional clears retain ownership. Admin product roster rows now include nullable logo_url. Neither provenance nor protected catalog columns are client-writable.

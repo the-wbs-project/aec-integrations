@@ -42,7 +42,7 @@
         "datadogMonitor": "AECi — Worker error rate > 1% (5m)",
         "datadogQuery": "sum(last_5m):( ( count:aeci.page.render.duration_ms{status_class:5xx,env:production} + count:aeci.api.query.duration_ms{status_class:5xx,env:production} ) / ( count:aeci.page.render.duration_ms{env:production} + count:aeci.api.query.duration_ms{env:production} ) ) * 100 > 1"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Worker error rate high'."
+      "runbook": "docs/runbooks/alerts.md — 'Worker error rate high'."
     },
     {
       "key": "cron-job-failed",
@@ -71,7 +71,7 @@
         "datadogMonitor": "AECi — Algolia sync failed / Home stats compute failed / Data quality job failed / Retention prune failed (4 monitors)",
         "datadogQuery": "sum(last_1d):sum:aeci.algolia.sync{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.stats.compute.key{outcome:failed,env:production}.as_count() + sum:aeci.stats.compute{outcome:failed,trigger:cron,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.data_quality.job{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.retention.prune{outcome:failed,env:production}.as_count() > 0"
       },
-      "runbook": "docs/RUNBOOKS.md — 'A scheduled job failed'; /admin/system shows the matching job_runs row."
+      "runbook": "docs/runbooks/alerts.md — 'A scheduled job failed'; /admin/system shows the matching job_runs row."
     },
     {
       "key": "data-quality-error",
@@ -101,7 +101,7 @@
         "datadogMonitor": "AECi — Data quality check found ERROR-severity issues (by check)",
         "datadogQuery": "max(last_1d):max:aeci.data_quality.check{env:production,severity:error} by {check} > 0"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Data quality check'. Report-only: humans triage, nothing auto-remediates."
+      "runbook": "docs/runbooks/alerts.md — 'Data quality check'. Report-only: humans triage, nothing auto-remediates."
     },
     {
       "key": "retention-runaway",
@@ -130,7 +130,7 @@
         "datadogMonitor": "AECi — Retention prune deleted an unexpected number of rows",
         "datadogQuery": "sum(last_1d):sum:aeci.retention.rows_deleted{env:production} by {table}.as_count() > 5000"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Retention prune'. §7.4: a runaway must be visible HERE before it is visible as missing data."
+      "runbook": "docs/runbooks/alerts.md — 'Retention prune'. §7.4: a runaway must be visible HERE before it is visible as missing data."
     },
     {
       "key": "reconcile-persistent-stuck",
@@ -159,7 +159,7 @@
         "datadogMonitor": "AECi — Linear reconciliation: persistent stuck requests",
         "datadogQuery": "sum(last_1h):sum:aeci.linear.reconcile.persistent_failure{env:production}.as_count() > 0"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Linear reconciliation'. §6.2 admin alert email is the parallel channel."
+      "runbook": "docs/runbooks/alerts.md — 'Linear reconciliation'. §6.2 admin alert email is the parallel channel."
     },
     {
       "key": "algolia-orphan-cap",
@@ -188,7 +188,7 @@
         "datadogMonitor": "AECi — Algolia orphan sweep capped",
         "datadogQuery": "max(last_1d):max:aeci.algolia.orphans_skipped_cap{env:production} by {index} > 0"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Algolia index drift / orphan sweep'. Either raise DEFAULT_SAFETY_CAP deliberately or find out why the index diverged that far."
+      "runbook": "docs/runbooks/alerts.md — 'Algolia index drift / orphan sweep'. Either raise DEFAULT_SAFETY_CAP deliberately or find out why the index diverged that far."
     },
     {
       "key": "auth-error-rate",
@@ -217,7 +217,7 @@
         "datadogMonitor": "AECi — Auth sign-in error rate > 30% (15m)",
         "datadogQuery": "sum(last_15m):( sum:aeci.auth.signin{outcome:failed,env:production}.as_count() / sum:aeci.auth.signin{env:production}.as_count() ) * 100 > 30"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Auth sign-in error rate'. Check the `reason` breakdown on the Auth board: link_invalid / missing_code / auth_not_configured point at three different causes."
+      "runbook": "docs/runbooks/alerts.md — 'Auth sign-in error rate'. Check the `reason` breakdown on the Auth board: link_invalid / missing_code / auth_not_configured point at three different causes."
     },
     {
       "key": "toxicity-outage",
@@ -246,7 +246,7 @@
         "datadogMonitor": "AECi — Toxicity scoring outage (>50% errors, 15m)",
         "datadogQuery": "sum(last_15m):( sum:aeci.toxicity.api{outcome:failed,env:production}.as_count() / sum:aeci.toxicity.api{env:production}.as_count() ) * 100 > 50"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Toxicity scoring outage'. Reviews still submit; they queue for human moderation without a score."
+      "runbook": "docs/runbooks/alerts.md — 'Toxicity scoring outage'. Reviews still submit; they queue for human moderation without a score."
     },
     {
       "key": "pageviews-write-errors",
@@ -275,7 +275,7 @@
         "datadogMonitor": "AECi — page_views write error rate > 10% (10m)",
         "datadogQuery": "sum(last_10m):( sum:aeci.pageviews.write{outcome:failed,env:production}.as_count() / sum:aeci.pageviews.write{env:production}.as_count() ) * 100 > 10"
       },
-      "runbook": "docs/RUNBOOKS.md — 'page_views write errors'. Traffic keeps serving; the admin panel's traffic screen under-reports."
+      "runbook": "docs/runbooks/alerts.md — 'page_views write errors'. Traffic keeps serving; the admin panel's traffic screen under-reports."
     },
     {
       "key": "pageviews-raw-unsent",
@@ -305,7 +305,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1384, no Datadog predecessor. aeci.pageviews.raw outcome:failed is a capture whose raw envelope the Pipelines stream refused. outcome:skipped in production means the PAGE_VIEW_RAW binding is missing from the deployed config. Either way the R2 backup has a hole that cannot be back-filled. ADR 0041."
       },
-      "runbook": "docs/RUNBOOKS.md \u2014 'Raw page-view store missed a capture'."
+      "runbook": "docs/runbooks/alerts.md \u2014 'Raw page-view store missed a capture'."
     },
     {
       "key": "pageviews-archive-failed",
@@ -336,7 +336,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1228, no Datadog predecessor. aeci.pageviews.archive outcome:failed counts page_views days the 03:00 job could not copy to R2 and confirm. outcome:archive_unbound means production lost the PAGE_VIEWS_ARCHIVE binding, so the prune refuses every page_views day. ADR 0050."
       },
-      "runbook": "docs/RUNBOOKS.md \u2014 'page_views archive failed'."
+      "runbook": "docs/runbooks/alerts.md \u2014 'page_views archive failed'."
     },
     {
       "key": "pageviews-turnstile-unknown",
@@ -366,7 +366,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1457, no Datadog predecessor. aeci.pageviews.turnstile verdict:unknown is a siteverify call that timed out, errored or refused the secret. The page view is still written; its turnstile_verdict is unknown, which the classifier never reads as automation evidence. Silent on a tier with no TURNSTILE_SITE_KEY: every beacon there is verdict:absent, which the ratio excludes. Production carries a key since AECI-1581, so this can fire there once applied. A visitor in an excluded region emits verdict:absent too."
       },
-      "runbook": "docs/RUNBOOKS.md \u2014 'Turnstile verdicts unknown'."
+      "runbook": "docs/runbooks/alerts.md \u2014 'Turnstile verdicts unknown'."
     },
     {
       "key": "linear-pipeline-failure",
@@ -395,7 +395,7 @@
         "datadogMonitor": "AECi — Linear pipeline failure rate > 50% (1h)",
         "datadogQuery": "sum(last_1h):( sum:aeci.linear.issue{outcome:failed,env:production}.as_count() + sum:aeci.linear.sync{outcome:failed,env:production}.as_count() ) / ( sum:aeci.linear.issue{!outcome:skipped_exists,env:production}.as_count() + sum:aeci.linear.sync{!outcome:skipped_no_issue,env:production}.as_count() ) * 100 > 50"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Linear pipeline failure'. The every-15-minute reconciliation sweep is the backstop; this alert says the backstop is doing all the work."
+      "runbook": "docs/runbooks/alerts.md — 'Linear pipeline failure'. The every-15-minute reconciliation sweep is the backstop; this alert says the backstop is doing all the work."
     },
     {
       "key": "webhook-hmac-failure",
@@ -424,7 +424,7 @@
         "datadogMonitor": "AECi — Linear webhook HMAC failures > 3 (1h)",
         "datadogQuery": "sum(last_1h):sum:aeci.webhooks.linear.hmac_failure{env:production}.as_count() > 3"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Linear webhook HMAC failures'. Check LINEAR_WEBHOOK_SECRET first; if it is current, this is unauthenticated traffic."
+      "runbook": "docs/runbooks/alerts.md — 'Linear webhook HMAC failures'. Check LINEAR_WEBHOOK_SECRET first; if it is current, this is unauthenticated traffic."
     },
     {
       "key": "waf-ratelimit-spike",
@@ -453,7 +453,7 @@
         "datadogMonitor": "AECi — WAF rate-limit / challenge spike (15m)",
         "datadogQuery": "sum(last_15m):sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500"
       },
-      "runbook": "docs/waf-rate-limits.md for the rule expressions; docs/RUNBOOKS.md — 'WAF rate-limit spike'."
+      "runbook": "docs/waf-rate-limits.md for the rule expressions; docs/runbooks/alerts.md — 'WAF rate-limit spike'."
     },
     {
       "key": "detail-render-p95",
@@ -482,7 +482,7 @@
         "datadogMonitor": "AECi — p95 detail page render > 1.5s (10m)",
         "datadogQuery": "avg(last_10m):p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500"
       },
-      "runbook": "docs/RUNBOOKS.md — 'High p95 detail render'. Check the Traffic board tile 'Page speed spread — how many were fast, how many were slow' first: it needs no reconstruction and cannot be wrong."
+      "runbook": "docs/runbooks/alerts.md — 'High p95 detail render'. Check the Traffic board tile 'Page speed spread — how many were fast, how many were slow' first: it needs no reconstruction and cannot be wrong."
     },
     {
       "key": "indexnow-failure-rate",
@@ -513,7 +513,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-826 \u2014 no Datadog predecessor. `aeci.indexnow.submit` shipped in AECI-236 and was never alerted on, which is why production sat at a 100% HTTP 429 failure rate for at least three days with nothing noticing. A fail-open integration with no ratio alert is indistinguishable from a healthy one."
       },
-      "runbook": "docs/RUNBOOKS.md \u2014 'IndexNow submissions refused'."
+      "runbook": "docs/runbooks/alerts.md \u2014 'IndexNow submissions refused'."
     },
     {
       "key": "profile-ensure-failed",
@@ -543,7 +543,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1099, no Datadog predecessor. aeci.auth.profile_ensure shipped in AECI-770. Any outcome:failed is a user left with no profiles row, and a vendor with no profiles row cannot be seated."
       },
-      "runbook": "docs/RUNBOOKS.md — 'Account record could not be created at sign-in'."
+      "runbook": "docs/runbooks/alerts.md — 'Account record could not be created at sign-in'."
     },
     {
       "key": "api-requests-stalled",
@@ -573,7 +573,7 @@
         "datadogQuery": null,
         "_note": "NEW after the 2026-11-03 stall, no Datadog predecessor. Hourly, so it says a stall happened, not that one is happening now. INITIAL threshold, set from Workers Logs baselines before the metric had data."
       },
-      "runbook": "docs/RUNBOOKS.md \u2014 'API requests stalled'."
+      "runbook": "docs/runbooks/alerts.md \u2014 'API requests stalled'."
     },
     {
       "key": "erasure-auth-delete-orphaned",
@@ -603,7 +603,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-531, no Datadog predecessor. aeci.account.erasure.auth_delete outcome:skipped_no_creds or outcome:failed is a person whose D1 data was erased but whose auth.users row survived. Before AECI-531 the skip logged nothing at all."
       },
-      "runbook": "docs/RUNBOOKS.md — 'Erasure left an auth.users row behind'."
+      "runbook": "docs/runbooks/alerts.md — 'Erasure left an auth.users row behind'."
     },
     {
       "key": "email-failure-rate",

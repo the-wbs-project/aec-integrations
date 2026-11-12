@@ -243,7 +243,7 @@
       // cache-key normalization, the page_views arrival write. `Renderer` (cache on)
       // is served from cache on a HIT. Rollback: delete this block and promote. Each
       // Worker version has its own cache, so HITs stop at that deploy
-      // (docs/RUNBOOKS.md "Native cache rollback").
+      // (docs/runbooks/alerts.md "Native cache rollback").
       "exports": {
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },
@@ -295,7 +295,7 @@
         // add below inherits this flag: gate it or don't add it.
         //
         // Provision the launch-only SEO secret (INDEXNOW_KEY) at the same
-        // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
+        // time — pinging for a noindex site is a bug (docs/runbooks/launch-cutover.md).
         "ALLOW_INDEXING": "true",
         // AECI-1581: REQUIRED. The production widget's public site key (Invisible
         // mode). src/turnstile-site-key.spec.ts fails without it.
@@ -320,7 +320,7 @@
       // 301, cache-key normalization, the page_views arrival write. `Renderer`
       // (cache on) is served from cache on a HIT. Rollback: delete this block and
       // promote. Each Worker version has its own cache, so HITs stop at that deploy
-      // (docs/RUNBOOKS.md "Native cache rollback").
+      // (docs/runbooks/alerts.md "Native cache rollback").
       "exports": {
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },

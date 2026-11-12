@@ -81,14 +81,14 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Counsel questions and answers (November 2026 review), Chris's rulings on them | `docs/LEGAL_COUNSEL_RECORD.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | R2 page-view stores: raw, edge log, archive | ADR 0041/0045/0050; `docs/ANALYTICS.md` §11–§11c |
-| Vendor claim, subscriptions, billing process; pricing, discounts, refunds; operator steps | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md`; `docs/SUBSCRIPTION_RUNBOOKS.md` |
+| Vendor claim, subscriptions, billing process; pricing, discounts, refunds; operator steps | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md`; `docs/runbooks/subscriptions.md` |
 | Stripe billing: card checkout, webhook-owned subscriptions, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
-| Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
+| Inbound listing submissions: who lists what, identity proof, reply templates | `docs/runbooks/listing-submissions.md`; `/docs/trust/listing-submissions` |
 | Retired stages 2.1 (vendor activation, dress rehearsal), 2.5 and 3 (trust ladder, pSEO): cited sections still govern | `docs/STAGE_2_1_SPEC.md`, `docs/STAGE_2_1_REHEARSAL.md`, `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
 | `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
-| Review-app → app-DB promote (async kick-off/poll/collect, idempotency keys, connector-catalog arm §3a, retraction consumer §5.1, cross-table moves) | `docs/REVIEW_APP_PROMOTE_API.md`; ADR 0021, ADR 0030; operator steps `docs/CATALOG_RUNBOOKS.md` |
+| Review-app → app-DB promote (async kick-off/poll/collect, idempotency keys, connector-catalog arm §3a, retraction consumer §5.1, cross-table moves) | `docs/REVIEW_APP_PROMOTE_API.md`; ADR 0021, ADR 0030; operator steps `docs/runbooks/catalog.md` |
 | Database schema (§12 is the app-layer authorization model; no RLS on app tables) | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow, D1 recreate hazards, cascade data-loss controls | `docs/migrations.md` §0 |
 | Local dev: ports, Conductor workspaces, service binding, version reporting | `docs/local-dev.md` |
@@ -107,10 +107,11 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
 | Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
-| Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
-| Legal events with a deadline: data breach, accessibility barrier report and demand letter, subpoena, litigation hold | `docs/LEGAL_RUNBOOKS.md` |
+| Runbooks: every operator procedure, indexed by event | `docs/runbooks/README.md` |
+| Incident runbooks; post-launch monitoring and health log | `docs/runbooks/alerts.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
+| Legal events with a deadline: data breach, accessibility barrier report and demand letter, subpoena, litigation hold | `docs/runbooks/legal.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
-| Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |
+| Launch / DNS cutover runbook | `docs/runbooks/launch-cutover.md` |
 | Phase completion checkpoints | `docs/PHASE_{2..8}_COMPLETION.md` |
 | Auth model and authorization (the Worker guard is the only layer) | `docs/AUTH_AND_RLS.md` |
 | Strategic product / brand context | `PRODUCT.md` |

@@ -4,7 +4,7 @@ Spec: `docs/POSTHOG_MIGRATION_SPEC.md` §AW6 (+ §3.4, §5, §8). This directory
 committed source of truth for the PostHog dashboards, insights and alerts. It replaced
 `observability/datadog/`, which **AECI-651 deleted** — so the disposition table below is
 now the only record of the retired monitors' thresholds anywhere in the repo. The disposition table below is mirrored in
-`docs/RUNBOOKS.md` (lifted there by AECI-648) — **this file is the origin**, so
+`docs/runbooks/alerts.md` (lifted there by AECI-648) — **this file is the origin**, so
 change it here first and carry the edit across; keep the table clean and liftable.
 
 | File | What it is |
@@ -23,7 +23,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 Every monitor that landed anywhere **other** than a PostHog alert keeps its old Datadog
 threshold in this table, so re-promoting one is a config change and not archaeology.
 `observability/datadog/` was deleted at AECI-651, so this table is the only place those
-thresholds survive. `docs/RUNBOOKS.md` stopped mirroring it on 2026-11-12 and now indexes the
+thresholds survive. `docs/runbooks/alerts.md` stopped mirroring it on 2026-11-12 and now indexes the
 current alerts only.
 
 | # | Datadog monitor | Old threshold | New home | Why |

@@ -82,7 +82,7 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 | Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, or a company that gives up its claim. |
 
 A refund ends the subscriptions it paid for, and the products move to Free. Money goes back to the
-payment method used. The operator steps are `docs/SUBSCRIPTION_RUNBOOKS.md` "Stripe: refund a paid subscription".
+payment method used. The operator steps are `docs/runbooks/subscriptions.md` "Stripe: refund a paid subscription".
 
 ## 6. Changing a price
 

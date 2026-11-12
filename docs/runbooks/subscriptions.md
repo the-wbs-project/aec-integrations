@@ -3,7 +3,7 @@
 Operator procedures for vendor subscriptions, Stripe billing, pilot and granted terms, and ending a
 vendor. The governing docs are `docs/VENDOR_SIGNUP_PROCESS.md`, `docs/PRICING_RULES.md` and
 `docs/STAGE_2_PAID_TIERS_SPEC.md`; ADR 0047 for Stripe. Alert runbooks for everything else are in
-[`RUNBOOKS.md`](./RUNBOOKS.md). Keep the heading anchors stable: other docs and code comments cite them
+[`alerts.md`](./alerts.md). Keep the heading anchors stable: other docs and code comments cite them
 by name.
 
 ## Stripe reconcile changed subscriptions
@@ -247,7 +247,7 @@ One database batch then does all of this.
   un-claimed, open contests moved to AECi, open product proposals deleted. The audit row is
   `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. `usefulness_source` stays
   `vendor`. The claim ends too (`vendors.claim_ended_at`, AECI-1618), so pages read Unclaimed at once, and the
-  daily brand asset removal clears `logo_source = 'vendor'` logos within 14 days (see `RUNBOOKS.md` "Brand asset removal (AECI-1618)").
+  daily brand asset removal clears `logo_source = 'vendor'` logos within 14 days (see `docs/runbooks/alerts.md` "Brand asset removal (AECI-1618)").
 - Every pending seat invite is revoked.
 - The suspension closes with the statement, and one refund row per payment lands `pending`.
 

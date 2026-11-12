@@ -1,12 +1,12 @@
 # Runbooks
 
 Operational response guides for AECi's alerts. Subscription, catalog and legal procedures live in
-the three files listed at the end.
+the other files in this folder. [`README.md`](./README.md) lists them all.
 
 > **Keep the heading anchors stable.** Alert messages in `observability/posthog/alerts.json`, the
 > CI workflows and other docs cite these headings by name.
 
-> **Cloudflare account (2026-10-04, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
+> **Cloudflare account (2026-10-04, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](../adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
 ## Which console just paged you
 
@@ -88,8 +88,8 @@ thresholds of retired alerts are in `observability/posthog/README.md` "Monitor d
 | `[AECi] Scheduled job failed: <job>` email | The Worker, after the last retry of any cron | [A scheduled job failed](#a-scheduled-job-failed), then the job's own runbook |
 | A cron's heartbeat is missing or stale | The CI liveness sweep, every 3 h, fails red in GitHub Actions | [Cron runs missing or stuck in flight on `/admin/system`](#cron-runs-missing-or-stuck-in-flight-on-adminsystem) |
 | "Logpush job disabled" email | Cloudflare | [Logpush job disabled](#logpush-job-disabled) |
-| Promote strand audit fails red | GitHub Actions, daily | `CATALOG_RUNBOOKS.md` "Promote strand audit is red" |
-| Stripe reconcile changed subscriptions email | The Worker, daily | `SUBSCRIPTION_RUNBOOKS.md` "Stripe reconcile changed subscriptions" |
+| Promote strand audit fails red | GitHub Actions, daily | `docs/runbooks/catalog.md` "Promote strand audit is red" |
+| Stripe reconcile changed subscriptions email | The Worker, daily | `docs/runbooks/subscriptions.md` "Stripe reconcile changed subscriptions" |
 | Data-quality WARN findings, a skipped retention prune, Algolia drift, moderation backlog | The daily digests and PostHog dashboards. Not paged | [Data quality job failed or not running](#data-quality-job-failed-or-not-running), [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running), [Algolia index drift](#algolia-index-drift), [Moderation queue backlog](#moderation-queue-backlog) |
 
 ### A scheduled job failed
@@ -1269,7 +1269,7 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
-> records** (AECI-1455). It has its own section: [Review-app mirror drift](./CATALOG_RUNBOOKS.md#review-app-mirror-drift).
+> records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
 
 **First checks**
 
@@ -2084,7 +2084,7 @@ indistinguishable from our side. The `INDEXNOW_KEY` value is also **unrecoverabl
 `wrangler secret list` and `gh secret list` both return names only, and the SSR route serves
 the file solely at the exact `/{key}.txt` path, so the URL cannot be built without already
 knowing the key. **The Bing Webmaster Tools IndexNow panel is not a recovery route** either;
-IndexNow never requires registering a key with Bing (`launch-cutover-runbook.md` §2a).
+IndexNow never requires registering a key with Bing (`docs/runbooks/launch-cutover.md` §2a).
 
 Rotation is the only way to a known value, and it is cheap — IndexNow supports it by design:
 
@@ -2224,7 +2224,7 @@ published 2,000 calls a day per property.
 
 **What is safe to ignore.** A failed or halted run never deletes a row it did not inspect, and it
 never closes a row on a failed page fetch. The cost of a dead run is a longer list, not lost work.
-The manual fallback is step 0 of `docs/gsc-reindex-playbook.md`.
+The manual fallback is step 0 of `docs/runbooks/gsc-reindex.md`.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
@@ -2319,7 +2319,7 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 6. A company that got a seat back before the run is not due. The seat return clears `claim_ended_at`, the hold and the removed stamp, and the logos stay. That is correct.
 7. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 
-An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK.md` §6a.
+An objection from a logo owner is a different path: `docs/runbooks/listing-submissions.md` §6a.
 
 ## Acceptance evidence removal (AECI-1636)
 
@@ -2341,6 +2341,8 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 
 ## Runbooks kept in other files
 
-- **Promote, the strand audit, retractions, the ownership mirror, removal requests, slug renames:** [`CATALOG_RUNBOOKS.md`](./CATALOG_RUNBOOKS.md).
-- **Subscriptions, Stripe billing, pilot and granted terms, ending a vendor:** [`SUBSCRIPTION_RUNBOOKS.md`](./SUBSCRIPTION_RUNBOOKS.md).
-- **Legal events with a deadline (data breach, accessibility demand letter, subpoena, litigation hold):** [`LEGAL_RUNBOOKS.md`](./LEGAL_RUNBOOKS.md).
+The index of every runbook is [`README.md`](./README.md).
+
+- **Promote, the strand audit, retractions, the ownership mirror, removal requests, slug renames:** [`catalog.md`](./catalog.md).
+- **Subscriptions, Stripe billing, pilot and granted terms, ending a vendor:** [`subscriptions.md`](./subscriptions.md).
+- **Legal events with a deadline (data breach, accessibility demand letter, subpoena, litigation hold):** [`legal.md`](./legal.md).

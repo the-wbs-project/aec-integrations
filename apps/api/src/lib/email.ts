@@ -4140,7 +4140,7 @@ export function sendCronJobFailedAlert(
   if (opts.detail !== undefined) {
     facts.push(['Detail', clipped(JSON.stringify(opts.detail), CRON_FAILURE_DETAIL_MAX_CHARS)]);
   }
-  facts.push(['Runbook', 'docs/RUNBOOKS.md, "A scheduled job failed"']);
+  facts.push(['Runbook', 'docs/runbooks/alerts.md, "A scheduled job failed"']);
   const intro =
     `The scheduled job ${opts.job} failed and will not retry. ` +
     'It sends this once per day for each different reason.';

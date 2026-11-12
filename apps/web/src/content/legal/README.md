@@ -233,7 +233,7 @@ When a change materially affects users, see §27.4 and the next section.
 ## Runbooks behind these promises (AECI-1622, AECI-1674)
 
 Some sentences here are promises about what we do when something happens. The procedure for each is in
-`docs/LEGAL_RUNBOOKS.md`. Change the runbook when the promise changes.
+`docs/runbooks/legal.md`. Change the runbook when the promise changes.
 
 | Promise | Document and section | Runbook |
 |---|---|---|
