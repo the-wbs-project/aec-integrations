@@ -1548,7 +1548,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 - The company is the product's `is_primary` vendor, else any `product_vendors` row (lowest vendor id). That is the vendor `GET /api/products/:slug` returns as `vendor`.
 - The row stores `target_type = 'vendor'` and that vendor's id. The product id goes to `vendor_requests.context_product_id`.
-- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Type it in instead".
+- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Ask us to add it instead" ("Type it in instead" until AECI-1705).
 - The `vendor_request.created` audit row and the genesis transition carry `target_type: 'vendor'`, the company's `slug`, `context_product_id` and `context_product_slug` (`null` on a company-page claim).
 - The Linear issue and `claim-submitted-alert` name the company as the target and add a "Came from" line with the product.
 - The §7.2 duplicate probe keys on the company, so a product-page claim and a company-page claim on one company dedupe together. A claim stored before migration 0076 keeps its product target and does not match a new one.
