@@ -2848,8 +2848,9 @@ create index license_grants_account_idx on license_grants(billing_account_id);
 One version of the Vendor Terms or the Managed plan agreement that an operator published on
 `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
 ADR 0054). A row is the record that the version was announced: its summary, the operator's two
-answers, and the fingerprint of the PDF a customer can save. Publishing sends nothing. The
-change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader accounts
+answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
+its change-notice email (AECI-1620) and records the fan-out here. The acceptance screen
+(AECI-1677) and reader accounts
 (AECI-1637) read the row later.
 
 ```sql
@@ -2867,8 +2868,8 @@ create table legal_versions (
   pdf_bytes integer not null,      -- at most 5 MB
   published_by text not null,      -- a profiles.id; NO FK
   published_at text not null,      -- ISO-8601
-  notice_enqueued_at text,         -- NULL until AECI-1620 records its fan-out
-  notice_vendor_count integer      -- NULL until AECI-1620 records its fan-out
+  notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
+  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620)
 );
 
 create unique index legal_versions_document_version_key on legal_versions(document, version);
@@ -2876,12 +2877,19 @@ create unique index legal_versions_document_version_key on legal_versions(docume
 
 - **The one writer.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
   the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
-  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing updates or
-  deletes a row in this issue. AECI-1620 will fill the two `notice_*` columns.
+  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing deletes a row.
 - **`summary_json` is unescaped plain text.** Each bullet is one line with no control, format
   (zero-width, bidi) or U+2028/U+2029 characters (`LEGAL_SUMMARY_FORBIDDEN_CHARS`), but it is
   stored as typed, `<` and `&` included. Every renderer (the admin page, the AECI-1620 email, a
-  vendor screen) must escape it for its medium. Never insert it as HTML.
+  vendor screen) must escape it for its medium. Never insert it as HTML. The notice email escapes
+  each bullet with `escapeHtml` in its HTML part and writes it as-is in its text part.
+- **The notice outcome (AECI-1620).** The only update. After a material publish, and on each
+  `POST /api/admin/legal-versions/:id/notice` re-send, the same file writes `notice_enqueued_at`
+  and `notice_vendor_count` with a `legal_version.notice_queued` or `legal_version.notice_resent`
+  audit row in one `db.batch`. Both NULL: no fan-out recorded (a non-material version always).
+  `notice_enqueued_at` set: every company was queued then. `notice_enqueued_at` NULL with a count:
+  the fan-out stopped after that many companies, and `/admin/legal` says so. What was actually
+  sent lives in `notification_sends` (§9.9), keyed per address and company, not here.
 - **Not typed by the operator.** `version` and `effective_at` come from
   `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
 - **The two flags are the operator's answers.** `material` and `requires_acceptance` have no

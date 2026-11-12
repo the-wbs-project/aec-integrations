@@ -3,14 +3,15 @@
  * §8.6i, ADR 0054): the reads of `legal_versions` and the check of the CI-built PDF in
  * `UPLOADS`.
  *
- * The one writer is `routes/admin-legal-versions.ts`. The change-notice email
- * (AECI-1620) and the acceptance screen (AECI-1677) will read through here.
+ * The one writer is `routes/admin-legal-versions.ts` (the insert, and the two notice
+ * outcome columns). The change-notice consumer (`lib/legal-notice.ts`, AECI-1620) reads
+ * through here, and the acceptance screen (AECI-1677) will.
  *
  * ── THE PDF IS FIXED AT PUBLISH ──────────────────────────────────────────────────
  * `legal-pdf.yml` renders the version file and uploads it to `legal/<slug>/v<version>.pdf`,
  * and refuses to overwrite an object that exists. The publish reads the object once and
- * records the sha256 and size of the exact bytes it read. Any later reader (the AECI-1620
- * notice) must re-hash and compare, so a changed file is detected rather than sent.
+ * records the sha256 and size of the exact bytes it read. Any later reader must re-hash
+ * and compare (`loadVerifiedLegalPdf`), so a changed file is detected rather than sent.
  */
 
 import {
@@ -99,6 +100,16 @@ export async function readLegalPdf(
   bucket: LegalPdfBucket | undefined,
   key: string,
 ): Promise<LegalPdfRead> {
+  const read = await readLegalPdfBytes(bucket, key);
+  if (!read.ok) return read;
+  return { ok: true, bytes: read.bytes.length, sha256: await sha256OfBytes(read.bytes) };
+}
+
+/** {@link readLegalPdf}'s checks, keeping the bytes. */
+async function readLegalPdfBytes(
+  bucket: LegalPdfBucket | undefined,
+  key: string,
+): Promise<{ ok: true; bytes: Uint8Array<ArrayBuffer> } | { ok: false; problem: LegalPdfProblem }> {
   if (!bucket) return { ok: false, problem: 'unbound' };
   const head = await bucket.head(key);
   if (!head) return { ok: false, problem: 'missing' };
@@ -110,5 +121,34 @@ export async function readLegalPdf(
   // The object may have been replaced between `head` and `get`.
   if (bytes.length > LEGAL_PDF_MAX_BYTES) return { ok: false, problem: 'too_large' };
   if (!PDF_MAGIC.every((b, i) => bytes[i] === b)) return { ok: false, problem: 'not_pdf' };
-  return { ok: true, bytes: bytes.length, sha256: await sha256OfBytes(bytes) };
+  return { ok: true, bytes };
+}
+
+/** Why the notice consumer refused a stored PDF. */
+export type VerifiedLegalPdfProblem = LegalPdfProblem | 'hash_mismatch';
+
+/**
+ * The published PDF of `row`, only when its bytes still hash to the recorded
+ * `pdf_sha256` (AECI-1620). A changed, missing or oversized file is refused, so the
+ * notice never attaches a copy other than the one the publish recorded. Throws only
+ * when R2 itself throws.
+ */
+export async function loadVerifiedLegalPdf(
+  bucket: LegalPdfBucket | undefined,
+  row: Pick<LegalVersionRow, 'pdfKey' | 'pdfSha256'>,
+): Promise<
+  { ok: true; bytes: Uint8Array<ArrayBuffer> } | { ok: false; problem: VerifiedLegalPdfProblem }
+> {
+  const read = await readLegalPdfBytes(bucket, row.pdfKey);
+  if (!read.ok) return read;
+  if ((await sha256OfBytes(read.bytes)) !== row.pdfSha256) {
+    return { ok: false, problem: 'hash_mismatch' };
+  }
+  return read;
+}
+
+/** One published version by id, or null. */
+export async function loadLegalVersionById(db: Db, id: string): Promise<LegalVersionRow | null> {
+  const row = await db.query.legalVersions.findFirst({ where: eq(legalVersions.id, id) });
+  return row ?? null;
 }

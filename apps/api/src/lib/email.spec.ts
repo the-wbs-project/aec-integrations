@@ -52,6 +52,10 @@ import {
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendRenewalCancelledEmail,
+  sendLegalTermsChangeEmail,
+  bytesToBase64,
+  legalNoticeAttachmentName,
+  type LegalTermsChangeSubject,
   sendLandingFeedbackNotification,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
@@ -4629,5 +4633,203 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
       'suppressed',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── AECI-1620: attachments and `legal-terms-change` ─────────────────────────
+
+describe('attachments on the transactional send (AECI-1620)', () => {
+  const PDF_B64 = bytesToBase64(new TextEncoder().encode('%PDF-1.7\nx\n%%EOF\n'));
+  const ATTACHED = {
+    to: 'seat@vendor.example',
+    subject: 'S',
+    template: 'legal-terms-change' as const,
+    text: 'Body',
+    attachments: [{ filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64 }],
+  };
+
+  it('passes the file to Resend as base64 that decodes to a PDF, with no bcc', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(
+      fakeContext({ EMAIL_BCC: 'ops@aecintegrations.com' }),
+      ATTACHED,
+    );
+    expect(outcome).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = lastBody(fetchSpy) as {
+      bcc?: unknown;
+      attachments: { filename: string; content: string }[];
+    };
+    expect(body.bcc).toBeUndefined();
+    expect(body.attachments).toEqual([
+      { filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64 },
+    ]);
+    expect(atob(body.attachments[0]!.content).startsWith('%PDF-')).toBe(true);
+  });
+
+  it('sends the separate operator copy without the file', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext({ EMAIL_BCC: 'ops@aecintegrations.com' }), {
+      ...ATTACHED,
+      operatorCopy: { notification: 'mailing-list-welcome-operator-copy', text: 'Copy body' },
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const copy = JSON.parse(String((fetchSpy.mock.calls[1]![1] as RequestInit).body)) as Record<
+      string,
+      unknown
+    >;
+    expect(copy.subject).toBe('COPY: S');
+    expect(copy).not.toHaveProperty('attachments');
+    expect(copy).not.toHaveProperty('bcc');
+  });
+
+  it('hashes the attachment into the Idempotency-Key', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const key = async (content: string) => {
+      fetchSpy.mockClear();
+      await sendTransactionalEmail(fakeContext(), {
+        ...ATTACHED,
+        attachments: [{ filename: 'a.pdf', content }],
+        dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:h',
+      });
+      return new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers).get(
+        'Idempotency-Key',
+      );
+    };
+    expect(await key('JVBERi0x')).not.toBe(await key('JVBERi0y'));
+  });
+
+  it('gives a send with an attachment a longer timeout', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext(), ATTACHED);
+    await sendTransactionalEmail(fakeContext(), { ...ATTACHED, attachments: undefined });
+    expect(timeout.mock.calls.map((c) => c[0])).toEqual([30_000, 5000]);
+  });
+
+  it('encodes a large file in chunks without overflowing the stack', () => {
+    const big = new Uint8Array(5 * 1024 * 1024 + 7).map((_, i) => i % 251);
+    const b64 = bytesToBase64(big);
+    expect(b64.length).toBe(Math.ceil(big.length / 3) * 4);
+    expect(Buffer.from(b64, 'base64').equals(Buffer.from(big))).toBe(true);
+  });
+});
+
+describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const base: LegalTermsChangeSubject = {
+    to: 'seat@vendor.example',
+    document: 'vendor_terms',
+    version: '1.4',
+    effectiveDay: '2027-01-15',
+    summary: ['The <b>liability</b> cap changes & more.', 'Notices go to the seat.'],
+    closing: 'vendor-terms',
+    expeditedReason: null,
+    vendorSlug: 'bentley',
+    pdfBase64: 'JVBERi0=',
+    dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:h',
+    entity: { type: 'legal_version', id: 'lv1' },
+  };
+  const render = async (over: Partial<LegalTermsChangeSubject> = {}, env: Partial<Env> = {}) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLegalTermsChangeEmail(
+      fakeContext({ ...SITE, SUPPORT_EMAIL: 'support@aecintegrations.com', ...env }),
+      { ...base, ...over },
+    );
+    const body = lastBody(fetchSpy) as Record<string, unknown> & {
+      attachments: { filename: string }[];
+    };
+    return { outcome, body, text: String(body.text), html: String(body.html) };
+  };
+
+  it('carries the four parts, the heading and the footer note, with no em dash', async () => {
+    const { outcome, body, text, html } = await render();
+    expect(outcome).toBe('sent');
+    expect(body.subject).toBe('Version 1.4 of the Vendor Terms takes effect on January 15, 2027');
+    expect(text.startsWith('A new version of the Vendor Terms\n')).toBe(true);
+    expect(text).toContain(
+      'Version 1.4 of the AEC Integrations Vendor Terms takes effect on January 15, 2027. Until then the current version applies.',
+    );
+    expect(text).toContain('What changes:\n\n- The <b>liability</b> cap changes & more.');
+    expect(text).toMatch(
+      /Read version 1\.4: https:\/\/www\.aecintegrations\.com\/legal\/vendor-terms\/v1\.4\?/,
+    );
+    expect(text).toContain('A PDF copy is attached so you can save it.');
+    expect(text).toContain(
+      'If you keep using the portal after January 15, 2027, the new version applies to your company. If you do not agree, give up your claim before that date.',
+    );
+    expect(text).toContain('It is a legal notice, so it has no unsubscribe link.');
+    expect(body.attachments[0]!.filename).toBe('aeci-vendor-terms-v1.4.pdf');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    expect(body.headers).toBeUndefined();
+    // Escaped in HTML.
+    expect(html).toContain('The &lt;b&gt;liability&lt;/b&gt; cap changes &amp; more.');
+    expect(html).not.toContain('<b>liability</b>');
+    expect(`${text}${html}${String(body.subject)}`).not.toMatch(/—/);
+    // No portal button without an acceptance.
+    expect(text).not.toContain('Open the vendor portal');
+  });
+
+  it('Vendor Terms needing acceptance asks an owner seat and links the company portal', async () => {
+    const { text } = await render({ closing: 'vendor-terms-accept' });
+    expect(text).toContain(
+      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal. Until an owner seat accepts, the version your company last accepted keeps applying.',
+    );
+    expect(text).toMatch(
+      /Open the vendor portal: https:\/\/www\.aecintegrations\.com\/vendor\/bentley\?/,
+    );
+  });
+
+  it.each([
+    ['law', 'This version takes effect in less than 30 days because the law requires the change.'],
+    ['error', 'This version takes effect in less than 30 days because it corrects an error.'],
+  ] as const)('adds the %s expedited sentence before the closing', async (reason, sentence) => {
+    const { text } = await render({ expeditedReason: reason });
+    expect(text.indexOf(sentence)).toBeGreaterThan(text.indexOf('A PDF copy'));
+    expect(text.indexOf(sentence)).toBeLessThan(text.indexOf('If you keep using'));
+  });
+
+  it('Managed plan: no acceptance binds at the next renewal or purchase', async () => {
+    const { body, text } = await render({ document: 'managed_plan', closing: 'managed-binds' });
+    expect(body.subject).toBe(
+      'Version 1.4 of the Managed plan agreement takes effect on January 15, 2027',
+    );
+    expect(text).toContain(
+      'It applies from your next renewal or your next purchase, whichever comes first.',
+    );
+    expect(text).toContain('/legal/managed-plan-agreement/v1.4?');
+    expect(body.attachments[0]!.filename).toBe('aeci-managed-plan-agreement-v1.4.pdf');
+    expect(text).not.toContain('Open the vendor portal');
+  });
+
+  it('Managed plan, monthly, needs acceptance: asks, with no cancel wording', async () => {
+    const { text } = await render({ document: 'managed_plan', closing: 'managed-monthly-accept' });
+    expect(text).toContain(
+      'For this change we ask an owner seat at your company to accept version 1.4 in the vendor portal.',
+    );
+    expect(text).toContain('Open the vendor portal');
+    expect(text).not.toMatch(/cancel|end at the end|not renew|charge/i);
+  });
+
+  it('the expedited sentence never rides a Managed plan notice', async () => {
+    const { text } = await render({
+      document: 'managed_plan',
+      closing: 'managed-binds',
+      expeditedReason: 'law',
+    });
+    expect(text).not.toContain('less than 30 days');
+  });
+
+  it('is suppressed for an outside address on demo, like every external email', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    expect(await sendLegalTermsChangeEmail(fakeContext({ ...SITE, ENV: 'demo' }), base)).toBe(
+      'suppressed',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('names the attachment from the document slug', () => {
+    expect(legalNoticeAttachmentName('vendor_terms', '1.4')).toBe('aeci-vendor-terms-v1.4.pdf');
   });
 });

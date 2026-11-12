@@ -913,6 +913,24 @@ export const NOTIFICATIONS = {
       "Tells a vendor's seats and its billing email that its monthly or annual card billing is cancelled, the date it ends, and that no further charge will be made.",
     note: 'Always on: the record a vendor holds of its own cancel. The portal route and the email route (an operator cancels at period end in Stripe) both arrive as cancel_at_period_end, so one sync sends for both. An immediate cancel (a refund, a ban) sets no such flag and does not send it. A past_due Stripe subscription says Stripe may still retry the unpaid invoice.',
   },
+  'legal-terms-change': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/legal-versions (a material version, post-commit) and POST /api/admin/legal-versions/:id/notice (the re-send), each enqueuing one message per company on aeci-legal-notice-{env}; the queue consumer sends (lib/legal-notice.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per address per company per version: key legal-terms-change:{document}:{version}:{vendorId}:{recipient hash}. A failed send releases its key, so a queue retry or an admin re-send reaches only the addresses not yet sent. An address that is a seat or billing email of two companies gets one notice per company.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
+    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. The sent and failed counts show on /admin/legal.',
+  },
   'license-unassigned-reminder': {
     channel: 'email',
     audience: 'external',

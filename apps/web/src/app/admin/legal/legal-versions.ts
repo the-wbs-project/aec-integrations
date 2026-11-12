@@ -27,6 +27,7 @@ import {
   type AdminLegalVersionsResponse,
   type LegalAgreementDocument,
   type LegalExpeditedReason,
+  type LegalVersion,
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
@@ -89,6 +90,25 @@ export function summaryProblem(bullets: readonly string[]): string | null {
   return $localize`:@@admin.legal.summary.invalid:Check the summary. Each line must be plain text.`;
 }
 
+/**
+ * Where a published version's change notice stands (AECI-1620), read from the two outcome
+ * columns as `LegalVersionSchema` documents them:
+ *
+ *   - `none`: not a material change, so it has no notice.
+ *   - `queued`: every affected company was queued.
+ *   - `incomplete`: the fan-out stopped part way; `notice_vendor_count` were queued.
+ *   - `unrecorded`: no outcome yet. Still queuing, or the outcome write failed.
+ */
+export type NoticeState = 'none' | 'queued' | 'incomplete' | 'unrecorded';
+
+export function noticeState(
+  p: Pick<LegalVersion, 'material' | 'notice_enqueued_at' | 'notice_vendor_count'>,
+): NoticeState {
+  if (!p.material) return 'none';
+  if (p.notice_enqueued_at) return 'queued';
+  return p.notice_vendor_count === null ? 'unrecorded' : 'incomplete';
+}
+
 /** A byte count, in the largest unit that keeps it readable. */
 export function humanBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) {
@@ -113,6 +133,11 @@ export function humanBytes(bytes: number): string {
  * and the summary is valid. "Needs acceptance: Yes" can only be picked once "material"
  * is Yes. A published card shows what was recorded. The effective date is read-only: it
  * comes from the upcoming map. The text itself is not edited here.
+ *
+ * A published material card also shows its change notice (AECI-1620): whether it was
+ * queued and when, for how many companies, the sent and failed counts from
+ * `notification_sends`, and "Send the notice again" with its own confirmation, under the
+ * same dialog rules as the publish.
  *
  * ─── Why it confirms ─────────────────────────────────────────────────────────
  * A publish cannot be undone, so it goes through a dialog that says, in plain words,
@@ -151,8 +176,10 @@ export class AdminLegalVersions {
   /** The last failed publish, per document, shown on the card outside the dialog. */
   protected readonly cardErrors = signal<Partial<Record<LegalAgreementDocument, string>>>({});
 
-  /** The entry the open dialog would publish. */
+  /** The entry the open dialog acts on. */
   protected readonly pending = signal<AdminLegalUpcomingEntry | null>(null);
+  /** What the open dialog confirms: the publish, or a notice re-send (AECI-1620). */
+  protected readonly dialogMode = signal<'publish' | 'resend'>('publish');
   protected readonly submitting = signal(false);
   protected readonly failedMessage = signal('');
   /** After a publish: the card whose heading takes focus once the dialog has closed. */
@@ -240,8 +267,58 @@ export class AdminLegalVersions {
   protected openPublish(entry: AdminLegalUpcomingEntry): void {
     if (!this.canPublish(entry.document)) return;
     this.failedMessage.set('');
+    this.dialogMode.set('publish');
     this.pending.set(entry);
     this.dialog()?.open();
+  }
+
+  /** A published material version whose notice can go again: on, and not yet in effect. */
+  protected canResend(entry: AdminLegalUpcomingEntry): boolean {
+    const p = entry.published;
+    return this.publishEnabled() && !!p?.material && Date.parse(p.effective_at) > Date.now();
+  }
+
+  /** Open the re-send confirmation. From a click handler only. */
+  protected openResend(entry: AdminLegalUpcomingEntry): void {
+    if (!this.canResend(entry)) return;
+    this.failedMessage.set('');
+    this.dialogMode.set('resend');
+    this.pending.set(entry);
+    this.dialog()?.open();
+  }
+
+  protected async confirmResend(): Promise<void> {
+    const entry = this.pending();
+    const id = entry?.published?.id;
+    if (!entry || !id || this.submitting()) return;
+    this.submitting.set(true);
+    this.failedMessage.set('');
+    this.cardErrors.update((e) => ({ ...e, [entry.document]: undefined }));
+    try {
+      await this.api.resendNotice(id);
+      this.focusAfterClose = entry.document;
+      const title = this.documentTitle(entry.document);
+      const version = entry.version;
+      this.liveMessage.set(
+        $localize`:@@admin.legal.announce.resent:The notice for version ${version}:VERSION: of the ${title}:TITLE: is queued again.`,
+      );
+      await this.load();
+      this.submitting.set(false);
+      afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
+    } catch (err) {
+      const message = messageForError(err);
+      this.submitting.set(false);
+      this.failedMessage.set(message);
+      this.cardErrors.update((e) => ({ ...e, [entry.document]: message }));
+      // A 503 recorded the partial outcome, and a 409 or 422 may mean the row moved.
+      if (err instanceof HttpErrorResponse && [409, 422, 503].includes(err.status)) {
+        void this.load();
+      }
+    }
+  }
+
+  protected noticeState(entry: AdminLegalUpcomingEntry): NoticeState {
+    return entry.published ? noticeState(entry.published) : 'none';
   }
 
   /** Cancel. Refused while the request is in flight. */
@@ -330,6 +407,13 @@ export class AdminLegalVersions {
     return humanBytes(bytes);
   }
 
+  /** "1 company" / "N companies". */
+  protected companyCount(n: number): string {
+    return n === 1
+      ? $localize`:@@admin.legal.notice.oneCompany:1 company`
+      : $localize`:@@admin.legal.notice.companies:${n}:N: companies`;
+  }
+
   /** The first 12 characters of a hash, enough to compare by eye. */
   protected shortHash(hash: string): string {
     return hash.slice(0, 12);
@@ -388,6 +472,14 @@ function messageForError(err: unknown): string {
           : $localize`:@@admin.legal.error.window:This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.`;
       case 'LEGAL_PDF_MISSING':
         return $localize`:@@admin.legal.error.pdf:No valid PDF is stored for this version. Run the legal PDF workflow for it, then publish again.`;
+      case 'LEGAL_NOTICE_NOT_MATERIAL':
+        return $localize`:@@admin.legal.error.notMaterial:This version is not a material change, so it has no notice to send.`;
+      case 'LEGAL_NOTICE_TOO_LATE':
+        return $localize`:@@admin.legal.error.tooLate:This version has already taken effect, so the notice can no longer be sent.`;
+      case 'LEGAL_NOTICE_ENQUEUE_FAILED':
+        return $localize`:@@admin.legal.error.enqueue:The notice was not queued for every company. The card shows how far it got. Send it again.`;
+      case 'NOT_FOUND':
+        return $localize`:@@admin.legal.error.notFound:This version is no longer recorded. Reload the page.`;
     }
     if (err.status === 400) {
       return $localize`:@@admin.legal.error.invalid:The server refused the answers or the summary. Check them and try again.`;

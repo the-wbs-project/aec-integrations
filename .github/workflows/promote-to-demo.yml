@@ -559,6 +559,9 @@ jobs:
           # AECI-1418: the ownership message to the review app. Producer AND
           # consumer = API Worker.
           create_queue aeci-ownership-sync-demo
+          # AECI-1620: the change notice for a published legal version. Producer AND
+          # consumer = API Worker.
+          create_queue aeci-legal-notice-demo
 
       # ADR 0016 / AECI-256: apply the app DB's D1 schema to the demo D1
       # (aeci-app-demo) and reconcile the taxonomy reference data BEFORE the API

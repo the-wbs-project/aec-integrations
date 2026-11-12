@@ -10,8 +10,9 @@
  * the queue gives native retries, and the same queue can be fed by a future
  * manual/REST producer to force a run on demand. The job queues are bound per-env in
  * `wrangler.jsonc` (deployed tiers only — NOT the base block, so local dev
- * carries no job queues; the AECI-1418 ownership-sync queue is the one local queue,
- * and `queue()` routes it by name before the job path). Not every job has a queue:
+ * carries no job queues; the AECI-1418 ownership-sync and AECI-1620 legal-notice
+ * queues are the local ones, and `queue()` routes each by name before the job path).
+ * Not every job has a queue:
  * `queueForJob` marks twelve as queue-less by design, each with its reason, and
  * those always run inline on every tier. A queue-backed job runs inline only when
  * its binding is absent. That is expected on local `wrangler dev`, where it keeps a
@@ -225,6 +226,11 @@ import {
 } from './lib/retention-prune';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
 import { deliverOwnershipSync, isOwnershipSyncQueue } from './lib/ownership-sync';
+import {
+  deliverLegalNotice,
+  isLegalNoticeQueue,
+  type LegalNoticeMessage,
+} from './lib/legal-notice';
 import {
   runVendorSnapshot,
   snapshotDayFor,
@@ -3589,7 +3595,7 @@ export function normalizeJobMessage(
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,
-  ScheduledJobMessageInput | OwnershipSyncMessage
+  ScheduledJobMessageInput | OwnershipSyncMessage | LegalNoticeMessage
 > = async (batch, env, ctx) => {
   // AECI-1418: the ownership queue is not a scheduled-job queue. Routed by queue NAME
   // before the job path, so its messages never reach `normalizeJobMessage` and a job
@@ -3598,6 +3604,14 @@ export const queue: ExportedHandlerQueueHandler<
   if (isOwnershipSyncQueue(batch.queue)) {
     for (const message of batch.messages) {
       await deliverOwnershipSync(env, ctx, message);
+    }
+    return;
+  }
+  // AECI-1620: the legal change notice, routed by queue NAME the same way.
+  // `deliverLegalNotice` acks or retries each message itself and does not throw.
+  if (isLegalNoticeQueue(batch.queue)) {
+    for (const message of batch.messages) {
+      await deliverLegalNotice(env, ctx, message);
     }
     return;
   }

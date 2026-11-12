@@ -2,10 +2,12 @@
  * `/admin/legal` publish (AECI-1688). Source of truth: `docs/ADMIN_PANEL_SPEC.md` §5.22,
  * `docs/API_CONTRACTS.md` §6.10 "Legal versions", `STAGE_1_SPEC.md` §27.5, ADR 0054.
  *
- *   GET  /api/admin/legal-versions   every upcoming version and its published row
- *   POST /api/admin/legal-versions   publish one upcoming version
+ *   GET  /api/admin/legal-versions              every upcoming version, its published row
+ *                                               and its notice's send counts
+ *   POST /api/admin/legal-versions              publish one upcoming version
+ *   POST /api/admin/legal-versions/:id/notice   send the change notice again (AECI-1620)
  *
- * Both behind `requireAdmin()` in `index.ts`. The POST also carries `rateLimit('write')`
+ * All behind `requireAdmin()` in `index.ts`. The two POSTs also carry `rateLimit('write')`
  * after the guard (`waf-rate-limits.md` §6.2). The GET is a read: no audit row, no limiter.
  *
  * ─── The POST, in order ───────────────────────────────────────────────────────
@@ -25,9 +27,25 @@
  *      the upcoming map's entry, never from the request. Its sha256 is recorded.
  *   5. ONE `db.batch`: the `legal_versions` insert and its `legal_version.published` audit
  *      row (§26.1). A lost race on the unique `(document, version)` index is the same 409.
- *   6. Post-commit, in `waitUntil`: the audit forward. Nothing else. The publish sends no
- *      email and enqueues nothing (AECI-1620 adds the notice). No cache purge: no public
- *      page reads `legal_versions`.
+ *   6. Post-commit: the audit forward. Then, for a MATERIAL version only, in `waitUntil`:
+ *      the change-notice fan-out (`fanOutLegalNotice`, AECI-1620), one queue message per
+ *      affected company, and ONE `db.batch` that records its outcome on the row
+ *      (`notice_enqueued_at`, `notice_vendor_count`) with a `legal_version.notice_queued`
+ *      audit row. A non-material version enqueues nothing and both columns stay NULL. A
+ *      failed audience read or queue send leaves `notice_enqueued_at` NULL with the count
+ *      queued so far, which `/admin/legal` shows as "did not finish". No cache purge: no
+ *      public page reads `legal_versions`.
+ *
+ * ─── The re-send, in order ────────────────────────────────────────────────────
+ *
+ *   0. `LEGAL_PUBLISH_ENABLED`, as above (409 `LEGAL_PUBLISH_DISABLED`).
+ *   1. The row exists (404 `NOT_FOUND`), is material (409 `LEGAL_NOTICE_NOT_MATERIAL`)
+ *      and has not taken effect (422 `LEGAL_NOTICE_TOO_LATE`: the email says it has not).
+ *   2. The fan-out, awaited, then ONE `db.batch`: the outcome columns and the
+ *      `legal_version.notice_resent` audit row. Safe to repeat: each address's send is
+ *      keyed with the company id in `notification_sends`, so no address gets two.
+ *   3. An incomplete fan-out is recorded first, then answered 503
+ *      `LEGAL_NOTICE_ENQUEUE_FAILED`. A complete one answers 200 with the row.
  */
 
 import {
@@ -39,6 +57,7 @@ import {
   LEGAL_NOTICE_WINDOW_DAYS,
   PublishLegalVersionRequestSchema,
   PublishLegalVersionResponseSchema,
+  ResendLegalNoticeResponseSchema,
   legalEffectiveAtMs,
   legalPdfKey,
   type AdminLegalUpcomingEntry,
@@ -47,21 +66,29 @@ import {
   type LegalAgreementUpcomingVersion,
   type LegalNoticeWindowReason,
   type PublishLegalVersionResponse,
+  type ResendLegalNoticeResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
-import { getDb } from '../db/client';
+import { getDb, type Db } from '../db/client';
 import { legalVersions } from '../db/schema';
 import type { Env } from '../env';
-import { ApiError } from '../errors';
+import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  fanOutLegalNotice,
+  loadNoticeSendCounts,
+  noticeOutcomeColumns,
+  type LegalNoticeFanOut,
+} from '../lib/legal-notice';
+import {
   loadLegalVersion,
+  loadLegalVersionById,
   readLegalPdf,
   toLegalVersion,
   type LegalPdfProblem,
@@ -75,6 +102,10 @@ type LegalContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 export const LEGAL_VERSION_PUBLISHED_ACTION = 'legal_version.published';
 /** `audit_log.entity_type` of a publish. */
 export const LEGAL_VERSION_ENTITY_TYPE = 'legal_version';
+/** `audit_log.action` of the publish's notice fan-out outcome (AECI-1620). */
+export const LEGAL_VERSION_NOTICE_QUEUED_ACTION = 'legal_version.notice_queued';
+/** `audit_log.action` of an admin re-send of the notice (AECI-1620). */
+export const LEGAL_VERSION_NOTICE_RESENT_ACTION = 'legal_version.notice_resent';
 
 const AUDIT_SOURCE = 'admin-legal-versions';
 const DAY_MS = 86_400_000;
@@ -116,8 +147,16 @@ export function createAdminLegalVersionsHandler(
                 entries.map((e) => e.document),
               ),
             );
+    const shown = entries.flatMap(({ document, upcoming: u }) => {
+      const row = rows.find((r) => r.document === document && r.version === u.version);
+      return row ? [row] : [];
+    });
+    const counts = await loadNoticeSendCounts(
+      db,
+      shown.map((r) => r.id),
+    );
     const upcoming: AdminLegalUpcomingEntry[] = entries.map(({ document, upcoming: u }) => {
-      const row = rows.find((r) => r.document === document && r.version === u.version) ?? null;
+      const row = shown.find((r) => r.document === document && r.version === u.version) ?? null;
       const at = legalEffectiveAtMs(u.effectiveOn);
       return {
         document,
@@ -126,6 +165,7 @@ export function createAdminLegalVersionsHandler(
         effective_at: Number.isNaN(at) ? '' : new Date(at).toISOString(),
         current_version: LEGAL_AGREEMENT_CURRENT_VERSIONS[document],
         published: row ? toLegalVersion(row) : null,
+        notice_sends: row ? (counts.get(row.id) ?? null) : null,
       };
     });
     const body: AdminLegalVersionsResponse = {
@@ -292,11 +332,136 @@ export function createPublishLegalVersionHandler(
 
     // ── 6. Post-commit ───────────────────────────────────────────────────────
     forwardAuditBatch(c, [entry], [], AUDIT_SOURCE);
+    if (row.material) {
+      c.executionCtx.waitUntil(
+        recordNoticeFanOut(c, db, row, LEGAL_VERSION_NOTICE_QUEUED_ACTION, clock).catch(
+          (error: unknown) => {
+            // The fan-out never throws; only the outcome batch can. The row then keeps
+            // both columns NULL, which the page shows as "not recorded": send again.
+            console.error(
+              `admin-legal-versions: the notice outcome for ${row.id} was not recorded:`,
+              error instanceof Error ? error.message : String(error),
+            );
+          },
+        ),
+      );
+    }
 
     const body: PublishLegalVersionResponse = { legal_version: toLegalVersion(row) };
     validateResponseInDev(c.env, () => {
       PublishLegalVersionResponseSchema.parse(body);
     });
     return json(body, { status: 201 });
+  };
+}
+
+// ─── The change notice (AECI-1620) ────────────────────────────────────────────
+
+/**
+ * Fan the notice out, then record the outcome on the row with its audit row in ONE
+ * `db.batch`. The fan-out never throws. The batch can, and the caller decides what that
+ * means. Returns the fan-out and the row as written.
+ */
+async function recordNoticeFanOut(
+  c: LegalContext,
+  db: Db,
+  row: LegalVersionRow,
+  action: typeof LEGAL_VERSION_NOTICE_QUEUED_ACTION | typeof LEGAL_VERSION_NOTICE_RESENT_ACTION,
+  clock: () => Date,
+): Promise<{ fan: LegalNoticeFanOut; updated: LegalVersionRow }> {
+  const session = c.get('auth');
+  const fan = await fanOutLegalNotice(
+    { env: c.env, ctx: c.executionCtx, request: c.req.raw },
+    db,
+    row,
+    clock(),
+  );
+  const now = clock();
+  const columns = noticeOutcomeColumns(fan, now);
+  const entry: AuditLogEntry = {
+    actorId: session.userId,
+    actorType: auditActorType(session),
+    action,
+    entityType: LEGAL_VERSION_ENTITY_TYPE,
+    entityId: row.id,
+    beforeState: {
+      notice_enqueued_at: row.noticeEnqueuedAt ?? null,
+      notice_vendor_count: row.noticeVendorCount ?? null,
+    },
+    afterState: {
+      notice_enqueued_at: columns.noticeEnqueuedAt,
+      notice_vendor_count: columns.noticeVendorCount,
+      audience: fan.total,
+      complete: fan.complete,
+      failure: fan.failure,
+    },
+    metadata: { source: AUDIT_SOURCE, document: row.document, version: row.version },
+  };
+  await db.batch([
+    db.update(legalVersions).set(columns).where(eq(legalVersions.id, row.id)),
+    auditInsert(db, entry),
+  ] as BatchTuple);
+  forwardAuditBatch(c, [entry], [], AUDIT_SOURCE);
+  return { fan, updated: { ...row, ...columns } };
+}
+
+/** `POST /api/admin/legal-versions/:id/notice`: send the change notice again. */
+export function createResendLegalNoticeHandler(
+  dbFor: DbFactory = getDb,
+  deps: Pick<AdminLegalVersionsDeps, 'now'> = {},
+): (c: LegalContext) => Promise<Response> {
+  const clock = deps.now ?? (() => new Date());
+  return async (c) => {
+    // ── 0. The tier's switch ──────────────────────────────────────────────────
+    if (!legalPublishEnabled(c.env)) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.LEGAL_PUBLISH_DISABLED,
+        'Sending a legal notice is turned off on this tier (LEGAL_PUBLISH_ENABLED).',
+      );
+    }
+    // ── 1. A material version that has not taken effect ───────────────────────
+    const id = c.req.param('id') ?? '';
+    const { db } = writeDb(c, dbFor);
+    const row = id ? await loadLegalVersionById(db, id) : null;
+    if (!row) throw notFoundError('legal_version', { id });
+    if (!row.material) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.LEGAL_NOTICE_NOT_MATERIAL,
+        `Version ${row.version} of ${row.document} is not a material change, so it has no notice.`,
+      );
+    }
+    if (row.effectiveAt <= clock().getTime()) {
+      throw new ApiError(
+        422,
+        ApiErrorCode.LEGAL_NOTICE_TOO_LATE,
+        `Version ${row.version} of ${row.document} has already taken effect.`,
+      );
+    }
+
+    // ── 2. Fan out, then record ──────────────────────────────────────────────
+    const { fan, updated } = await recordNoticeFanOut(
+      c,
+      db,
+      row,
+      LEGAL_VERSION_NOTICE_RESENT_ACTION,
+      clock,
+    );
+
+    // ── 3. Answer ────────────────────────────────────────────────────────────
+    if (!fan.complete) {
+      throw new ApiError(
+        503,
+        ApiErrorCode.LEGAL_NOTICE_ENQUEUE_FAILED,
+        `The notice was queued for ${fan.queued} of ${fan.total ?? 'an unknown number of'} companies. Send it again.`,
+        { details: { queued: fan.queued, total: fan.total, failure: fan.failure } },
+      );
+    }
+    const body: ResendLegalNoticeResponse = { legal_version: toLegalVersion(updated) };
+    validateResponseInDev(c.env, () => {
+      ResendLegalNoticeResponseSchema.parse(body);
+    });
+    return json(body);
   };
 }

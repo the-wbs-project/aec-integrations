@@ -3409,6 +3409,47 @@ dry run prints the vendors. The script writes nothing to D1. It needs
 `--local --apply` is refused: the local queue lives inside `wrangler dev`, so approve a claim
 locally instead.
 
+## A legal change notice did not go out
+
+Not a paging alert. Use this when a published material version's card on `/admin/legal` says
+the notice did not finish or has no outcome, when "Failed attempts" stays above zero an hour
+after the publish, or when a company says it never got the notice (AECI-1620,
+`VENDOR_SIGNUP_PROCESS.md` §3 step 12).
+
+**Read the card first.** It shows the queue outcome from the row and the send counts from
+`notification_sends`.
+
+| The card says | Meaning | Do |
+|---|---|---|
+| Queued for N companies, failed attempts 0 | Every company was queued and every send so far went | Nothing. Sends finish within minutes |
+| Did not finish, after queuing N | The audience read or a `sendBatch` failed part way (`aeci.legal_notice.enqueue{outcome:failed}`), or `LEGAL_NOTICE_QUEUE` is unbound (`outcome:unbound`) | Press "Send the notice again". An unbound queue means a deploy missed the binding: check `wrangler-legal-notice.spec.ts` and the tier's deploy |
+| No outcome recorded | Still queuing, or the outcome write failed after the queue took the messages | Refresh after a minute. If it stays, send again |
+| Failed attempts above 0 and not falling | Resend refused sends, or the queue dropped a message after its last retry | Read the logs below, fix the cause, then send again |
+
+**Read the logs.** In PostHog Logs, search `aeci.legal_notice`. Each error names the
+`legal_version_id`, the `vendor_id` and the version. The last attempt says "the message is
+dropped".
+
+| Log | Meaning | Do |
+|---|---|---|
+| `the published PDF was refused (hash_mismatch)` | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
+| `(missing)` or `(unbound)` | The PDF or the bucket is gone on this tier | Restore it, then send again |
+| `the seat email lookup is unavailable` | Supabase Auth was down or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent for that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
+| `PUBLIC_SITE_URL unset` | The version link cannot be built | Set the var, deploy, send again |
+| `some sends failed` | Resend answered non-2xx for some addresses | Check Resend status and the domain, then send again |
+
+**Send again is always safe.** It re-reads the audience and queues every company. Each address
+is keyed `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address
+already reached for that company gets nothing. It refuses once the version has taken effect,
+because the email says it has not. A notice that never reached a company before the effective
+date is a legal question for Chris, not a re-send.
+
+**What went to one address.** Hash the address and read the ledger:
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, outcome, dedupe_key FROM notification_sends WHERE notification_id = 'legal-terms-change' AND recipient_hash = 'HASH' ORDER BY created_at DESC LIMIT 20"
+```
+
 ## Review-app mirror drift
 
 Pages through the existing `data-quality-error` alert. Use this when the daily

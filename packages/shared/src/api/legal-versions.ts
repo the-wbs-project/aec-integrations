@@ -7,14 +7,17 @@ import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from './agr
  * `DATABASE_SCHEMA.md` §8.6i (`legal_versions`), `API_CONTRACTS.md` §6.10 "Legal
  * versions", `ADMIN_PANEL_SPEC.md` §5.22, ADR 0054.
  *
- *   GET  /api/admin/legal-versions   behind `requireAdmin()`. A read: never rate-limited.
- *   POST /api/admin/legal-versions   behind `requireAdmin()` then `rateLimit('write')`.
+ *   GET  /api/admin/legal-versions             behind `requireAdmin()`. A read: never rate-limited.
+ *   POST /api/admin/legal-versions             behind `requireAdmin()` then `rateLimit('write')`.
+ *   POST /api/admin/legal-versions/:id/notice  the same guard and limiter (AECI-1620).
  *
  * Publishing records one version listed in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, with
- * its summary, its two operator-set flags and the hash of its CI-built PDF. It sends
- * nothing and enqueues nothing. The change-notice email (AECI-1620), the acceptance
- * screen (AECI-1677) and reader accounts (AECI-1637) read the row later. The effective
- * date is never typed: it comes from the upcoming map.
+ * its summary, its two operator-set flags and the hash of its CI-built PDF. After the
+ * row commits, a material version enqueues its change notice (`legal-terms-change`,
+ * AECI-1620), one message per affected company, and records the outcome on the row.
+ * The `/notice` route sends it again. The acceptance screen (AECI-1677) and reader
+ * accounts (AECI-1637) read the row later. The effective date is never typed: it comes
+ * from the upcoming map.
  */
 
 /** Bullets per summary. */
@@ -42,6 +45,12 @@ export const LEGAL_DOCUMENT_SLUGS = {
 export function legalPdfKey(document: LegalAgreementDocument, version: string): string {
   return `legal/${LEGAL_DOCUMENT_SLUGS[document]}/v${version}.pdf`;
 }
+
+/** document → its title, as the change-notice email names it (AECI-1620). */
+export const LEGAL_DOCUMENT_TITLES = {
+  vendor_terms: 'Vendor Terms',
+  managed_plan: 'Managed plan agreement',
+} as const satisfies Record<LegalAgreementDocument, string>;
 
 /** `/legal/<slug>/v<version>`, site-relative: the version's own page. */
 export function legalVersionPagePath(document: LegalAgreementDocument, version: string): string {
@@ -170,7 +179,17 @@ export const LegalVersionSchema = z.object({
   pdf_bytes: z.number().int().nonnegative(),
   published_by: z.string(),
   published_at: z.string(),
-  /** Filled by the change-notice issue (AECI-1620). Null until then. */
+  /**
+   * The change-notice fan-out (AECI-1620), as the last publish or re-send left it:
+   *
+   *   - both null: no fan-out recorded. A non-material version never has one. A material
+   *     one is still queuing, or its outcome write failed: send it again.
+   *   - `notice_enqueued_at` set: every affected company was queued at that time, and
+   *     `notice_vendor_count` is how many (0 when there was no one to notify).
+   *   - `notice_enqueued_at` null and `notice_vendor_count` set: the fan-out did NOT
+   *     finish. The count is the companies queued before the audience read or a queue
+   *     send failed (0 when nothing was queued). Send it again.
+   */
   notice_enqueued_at: z.string().nullable(),
   notice_vendor_count: z.number().int().nonnegative().nullable(),
 });
@@ -181,6 +200,30 @@ export const PublishLegalVersionResponseSchema = z.object({
   legal_version: LegalVersionSchema,
 });
 export type PublishLegalVersionResponse = z.infer<typeof PublishLegalVersionResponseSchema>;
+
+/**
+ * The change notice's `notification_sends` rows for one version (AECI-1620), counted by
+ * outcome: one row per send attempt per address. A `failed` attempt that a retry then
+ * sent counts once in each. `duplicate` rows (a re-send that found the address already
+ * reached) are not counted.
+ */
+export const LegalNoticeSendCountsSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  /** Timed out or threw: the mail may have gone. The key stays held, so no retry. */
+  unknown: z.number().int().nonnegative(),
+  /** The tier delivery policy held it (an outside address off production). */
+  suppressed: z.number().int().nonnegative(),
+  /** No Resend key or sender on the tier. */
+  skipped: z.number().int().nonnegative(),
+});
+export type LegalNoticeSendCounts = z.infer<typeof LegalNoticeSendCountsSchema>;
+
+/** `POST /api/admin/legal-versions/:id/notice` → 200. The request has no body. */
+export const ResendLegalNoticeResponseSchema = z.object({
+  legal_version: LegalVersionSchema,
+});
+export type ResendLegalNoticeResponse = z.infer<typeof ResendLegalNoticeResponseSchema>;
 
 /** One upcoming entry on `/admin/legal`, with its published row when there is one. */
 export const AdminLegalUpcomingEntrySchema = z.object({
@@ -193,6 +236,8 @@ export const AdminLegalUpcomingEntrySchema = z.object({
   /** The current version it replaces. */
   current_version: z.string(),
   published: LegalVersionSchema.nullable(),
+  /** The notice's `notification_sends` rows by outcome. Null when nothing is published. */
+  notice_sends: LegalNoticeSendCountsSchema.nullable(),
 });
 export type AdminLegalUpcomingEntry = z.infer<typeof AdminLegalUpcomingEntrySchema>;
 

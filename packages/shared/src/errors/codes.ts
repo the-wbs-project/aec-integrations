@@ -324,6 +324,15 @@ export const ApiErrorCode = {
   LEGAL_VERSION_EXISTS: 'LEGAL_VERSION_EXISTS',
   LEGAL_NOTICE_WINDOW: 'LEGAL_NOTICE_WINDOW',
   LEGAL_PDF_MISSING: 'LEGAL_PDF_MISSING',
+  // AECI-1620 notice re-send (`POST /api/admin/legal-versions/:id/notice`), after the
+  // `LEGAL_PUBLISH_DISABLED` gate and a 404 for an unknown id. `LEGAL_NOTICE_NOT_MATERIAL`
+  // (409): the version is not a material change, so it has no notice. `LEGAL_NOTICE_TOO_LATE`
+  // (422): the version has already taken effect, and the notice would say it has not.
+  // `LEGAL_NOTICE_ENQUEUE_FAILED` (503): the audience read or a queue send failed. The
+  // partial outcome IS recorded on the row with its audit row; send again to finish.
+  LEGAL_NOTICE_NOT_MATERIAL: 'LEGAL_NOTICE_NOT_MATERIAL',
+  LEGAL_NOTICE_TOO_LATE: 'LEGAL_NOTICE_TOO_LATE',
+  LEGAL_NOTICE_ENQUEUE_FAILED: 'LEGAL_NOTICE_ENQUEUE_FAILED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

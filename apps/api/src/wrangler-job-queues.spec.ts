@@ -15,8 +15,11 @@ const RAW = readFileSync(join(__dirname, '..', 'wrangler.jsonc'), 'utf8');
 
 const CONSUMERS = [...RAW.matchAll(/"queue":\s*"(aeci-[^"]+)"[^}]*?"max_retries":\s*(\d+)/g)]
   .map((m) => ({ queue: m[1]!, maxRetries: Number(m[2]) }))
-  // The ownership-sync queue is not a scheduled-job queue and has its own retry budget.
-  .filter((c) => !c.queue.startsWith('aeci-ownership-sync-'));
+  // The ownership-sync and legal-notice queues are not scheduled-job queues and have
+  // their own retry budgets (their own wrangler specs pin them).
+  .filter(
+    (c) => !c.queue.startsWith('aeci-ownership-sync-') && !c.queue.startsWith('aeci-legal-notice-'),
+  );
 
 describe('scheduled-job queue consumers', () => {
   it('finds the consumers it means to check', () => {
