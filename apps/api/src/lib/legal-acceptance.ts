@@ -13,8 +13,12 @@
  *   2. `legal_versions.effective_at`, for a published version (AECI-1688). Publishing
  *      needs an upcoming file with its effective date filled, so a row is final text.
  * The effective moment is 12:00 UTC of the effective day (`legalEffectiveAtMs`). A final
- * version is IN FORCE once that moment has passed. An agreement is in force when any
- * version of it is.
+ * version is IN FORCE once that moment has come (`legalMomentReached`, the one comparison
+ * in `@aeci/shared/api/legal-in-force`, AECI-1689). An agreement is in force when any
+ * version of it is. A published upcoming version is the same version the legal page and
+ * a new acceptance switch to at that moment (`legalAgreementVersionInForce`): both need
+ * its row and both use the one comparison. `legal-in-force.spec.ts` holds the two
+ * together across the moment.
  *
  * ── THE INVARIANT: NOTHING IN FORCE, NOTHING PENDING ─────────────────────────────
  * While no version of an agreement is in force, nothing is pending for it, in either
@@ -43,12 +47,15 @@
 
 import {
   compareLegalVersions,
-  legalAgreementEffectiveOn,
   legalEffectiveAtMs,
+  legalMomentReached,
   legalVersionPagePath,
   LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_AGREEMENT_EFFECTIVE_ON,
+  LEGAL_IN_FORCE_MAPS,
+  legalPublishedRowMismatched,
   type LegalAgreementDocument,
+  type LegalInForceMaps,
   type VendorLegalPending,
 } from '@aeci/shared';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -83,9 +90,21 @@ export interface LegalAcceptanceInputs {
   monthlyCard: boolean;
 }
 
+/** The code map of effective days (`LEGAL_AGREEMENT_EFFECTIVE_ON`, injectable by specs). */
+function effectiveOnMap(
+  document: LegalAgreementDocument,
+  maps: LegalInForceMaps,
+): Readonly<Record<string, string | null>> {
+  return (maps.agreementEffectiveOn ?? LEGAL_AGREEMENT_EFFECTIVE_ON)[document];
+}
+
 /** Whether the code map lists `version` as a draft: present, and `null`. */
-function isDraftInCode(document: LegalAgreementDocument, version: string): boolean {
-  const map = LEGAL_AGREEMENT_EFFECTIVE_ON[document] as Record<string, string | null>;
+function isDraftInCode(
+  document: LegalAgreementDocument,
+  version: string,
+  maps: LegalInForceMaps,
+): boolean {
+  const map = effectiveOnMap(document, maps);
   return Object.hasOwn(map, version) && map[version] === null;
 }
 
@@ -93,16 +112,23 @@ function isDraftInCode(document: LegalAgreementDocument, version: string): boole
  * The effective moment of a final version, epoch ms, or `null` for a draft or a version
  * nothing dates. A `legal_versions` row wins over the code map: they agree once the bump
  * lands, and before it only the row knows.
+ *
+ * AECI-1689: a row for the document's UPCOMING version is final only when its moment is
+ * the manifest's (`legalPublishedRowMismatched`). A date moved after the publish leaves a
+ * row the legal page and every new stamp ignore, so this module ignores it too: nothing
+ * becomes in force, nothing is required. `maps` is injected by specs only.
  */
 export function effectiveAtMsOf(
   document: LegalAgreementDocument,
   version: string,
   published: readonly PublishedVersionLite[],
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): number | null {
-  if (isDraftInCode(document, version)) return null;
+  if (isDraftInCode(document, version, maps)) return null;
   const row = published.find((r) => r.document === document && r.version === version);
+  if (row && legalPublishedRowMismatched(row, maps)) return null;
   if (row) return Number.isFinite(row.effectiveAt) ? row.effectiveAt : null;
-  const day = legalAgreementEffectiveOn(document, version);
+  const day = effectiveOnMap(document, maps)[version] ?? null;
   if (!day) return null;
   const ms = legalEffectiveAtMs(day);
   return Number.isNaN(ms) ? null : ms;
@@ -112,14 +138,15 @@ export function effectiveAtMsOf(
 export function finalVersions(
   document: LegalAgreementDocument,
   published: readonly PublishedVersionLite[],
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): { version: string; effectiveAt: number }[] {
   const versions = new Set<string>([
-    ...Object.keys(LEGAL_AGREEMENT_EFFECTIVE_ON[document]),
+    ...Object.keys(effectiveOnMap(document, maps)),
     ...published.filter((r) => r.document === document).map((r) => r.version),
   ]);
   const out: { version: string; effectiveAt: number }[] = [];
   for (const version of versions) {
-    const at = effectiveAtMsOf(document, version, published);
+    const at = effectiveAtMsOf(document, version, published, maps);
     if (at !== null) out.push({ version, effectiveAt: at });
   }
   return out.sort((a, b) => compareLegalVersions(b.version, a.version));
@@ -130,9 +157,10 @@ export function inForceVersions(
   document: LegalAgreementDocument,
   published: readonly PublishedVersionLite[],
   nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): string[] {
-  return finalVersions(document, published)
-    .filter((v) => v.effectiveAt <= nowMs)
+  return finalVersions(document, published, maps)
+    .filter((v) => legalMomentReached(v.effectiveAt, nowMs))
     .map((v) => v.version);
 }
 
@@ -142,12 +170,13 @@ export function acceptanceCovers(
   version: string,
   accepted: readonly AcceptedVersionLite[],
   published: readonly PublishedVersionLite[],
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): boolean {
   return accepted.some(
     (a) =>
       a.document === document &&
       compareLegalVersions(a.version, version) >= 0 &&
-      effectiveAtMsOf(document, a.version, published) !== null,
+      effectiveAtMsOf(document, a.version, published, maps) !== null,
   );
 }
 
@@ -159,12 +188,13 @@ export function requiredVendorTermsVersion(
   published: readonly PublishedVersionLite[],
   accepted: readonly AcceptedVersionLite[],
   nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): string | null {
-  const inForce = inForceVersions('vendor_terms', published, nowMs);
+  const inForce = inForceVersions('vendor_terms', published, nowMs, maps);
   const oldest = inForce.at(-1);
   const newest = inForce[0];
   if (oldest === undefined || newest === undefined) return null;
-  return acceptanceCovers('vendor_terms', oldest, accepted, published) ? null : newest;
+  return acceptanceCovers('vendor_terms', oldest, accepted, published, maps) ? null : newest;
 }
 
 function pendingItem(
@@ -173,15 +203,16 @@ function pendingItem(
   mode: VendorLegalPending['mode'],
   published: readonly PublishedVersionLite[],
   nowMs: number,
+  maps: LegalInForceMaps,
 ): VendorLegalPending {
-  const at = effectiveAtMsOf(document, version, published) ?? nowMs;
+  const at = effectiveAtMsOf(document, version, published, maps) ?? nowMs;
   const row = published.find((r) => r.document === document && r.version === version);
   return {
     document,
     version,
     mode,
     effective_at: new Date(at).toISOString(),
-    in_force: at <= nowMs,
+    in_force: legalMomentReached(at, nowMs),
     summary: row ? summaryOf(row) : [],
     page_path: legalVersionPagePath(document, version),
   };
@@ -191,13 +222,14 @@ function pendingItem(
 function newestNeedingAcceptance(
   document: LegalAgreementDocument,
   published: readonly PublishedVersionLite[],
+  maps: LegalInForceMaps,
 ): string | null {
   const rows = published
     .filter(
       (r) =>
         r.document === document &&
         r.requiresAcceptance &&
-        effectiveAtMsOf(document, r.version, published) !== null,
+        effectiveAtMsOf(document, r.version, published, maps) !== null,
     )
     .sort((a, b) => compareLegalVersions(b.version, a.version));
   return rows[0]?.version ?? null;
@@ -211,26 +243,27 @@ function newestNeedingAcceptance(
 export function pendingAcceptances(
   input: LegalAcceptanceInputs,
   nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): VendorLegalPending[] {
   const { published, accepted } = input;
   const out: VendorLegalPending[] = [];
   for (const document of LEGAL_AGREEMENT_DOCUMENTS) {
-    if (inForceVersions(document, published, nowMs).length === 0) continue;
+    if (inForceVersions(document, published, nowMs, maps).length === 0) continue;
     if (document === 'vendor_terms') {
-      const required = requiredVendorTermsVersion(published, accepted, nowMs);
+      const required = requiredVendorTermsVersion(published, accepted, nowMs, maps);
       if (required !== null) {
-        out.unshift(pendingItem(document, required, 'required', published, nowMs));
+        out.unshift(pendingItem(document, required, 'required', published, nowMs, maps));
         continue;
       }
     }
     if (document === 'managed_plan' && !input.monthlyCard) continue;
-    const needing = newestNeedingAcceptance(document, published);
-    if (needing !== null && !acceptanceCovers(document, needing, accepted, published)) {
+    const needing = newestNeedingAcceptance(document, published, maps);
+    if (needing !== null && !acceptanceCovers(document, needing, accepted, published, maps)) {
       // Offer the newest final version, which is at or after the one that needs acceptance:
       // a later version that needs none may already be in force, and accepting the
       // superseded text would leave the owner on a version nobody applies (AECI-1677 review).
-      const offered = finalVersions(document, published)[0]?.version ?? needing;
-      out.push(pendingItem(document, offered, 'optional', published, nowMs));
+      const offered = finalVersions(document, published, maps)[0]?.version ?? needing;
+      out.push(pendingItem(document, offered, 'optional', published, nowMs, maps));
     }
   }
   return out;

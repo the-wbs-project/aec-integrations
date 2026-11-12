@@ -78,7 +78,10 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  *
  * A page rendered near a legal notice's window boundary gets a shorter TTL
- * (`capTtlAtLegalNoticeBoundary`, AECI-1592, `CACHE_STRATEGY.md` §4).
+ * (`capTtlAtLegalNoticeBoundary`, AECI-1592, `CACHE_STRATEGY.md` §4). Every page
+ * also ends at the next effective moment of an upcoming legal version, and a
+ * `/legal/*` page is cached for a minute when the in-force read failed
+ * (`legalPageTtl`, AECI-1689).
  */
 
 import {
@@ -107,6 +110,8 @@ import type { Context } from 'hono';
 
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
 import { LISTING_CACHE_KEY_PARAMS } from './app/core/listing-cache-key-params';
+import { nextLegalEffectiveMomentMs } from './app/legal/legal-in-force-state';
+import { LEGAL_UPCOMING, type LegalUpcomingEntry } from './app/legal/legal-manifest';
 import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-posthog';
@@ -374,11 +379,72 @@ export function capTtlAtLegalNoticeBoundary(
   nowMs: number,
   notices = LEGAL_NOTICES,
 ): CacheTtl {
-  const boundary = nextLegalNoticeBoundaryMs(nowMs, notices);
-  if (boundary === null) return ttl;
-  const seconds = Math.max(1, Math.floor((boundary - nowMs) / 1000));
+  return capTtlAt(ttl, nowMs, nextLegalNoticeBoundaryMs(nowMs, notices));
+}
+
+/** Both TTLs end at `boundaryMs` when it is sooner than they would. */
+function capTtlAt(ttl: CacheTtl, nowMs: number, boundaryMs: number | null): CacheTtl {
+  if (boundaryMs === null) return ttl;
+  const seconds = Math.max(1, Math.floor((boundaryMs - nowMs) / 1000));
   if (seconds >= ttl.edge && seconds >= ttl.browser) return ttl;
   return { ...ttl, edge: Math.min(ttl.edge, seconds), browser: Math.min(ttl.browser, seconds) };
+}
+
+/**
+ * AECI-1689 — the TTL of a `/legal/*` page whose in-force read failed: the page shows
+ * the old version as current (fail safe), so it must not stay in the edge cache or a
+ * browser for the day the route allows. A minute at the edge, never in the browser.
+ */
+export const LEGAL_UNCERTAIN_TTL: CacheTtl = { edge: 60, browser: 0 };
+
+/**
+ * AECI-1689 — an upcoming legal version becomes current at its effective moment with no
+ * write and no deploy, so no purge can run. Every cacheable page's edge and browser TTLs
+ * end at the next moment when it is sooner, like the notice boundary
+ * (`capTtlAtLegalNoticeBoundary`). Only the last TTL-length before a moment is affected.
+ * `CACHE_STRATEGY.md` §4.
+ */
+export function capTtlAtLegalEffectiveMoment(
+  ttl: CacheTtl,
+  nowMs: number,
+  upcoming: readonly LegalUpcomingEntry[] = LEGAL_UPCOMING,
+): CacheTtl {
+  return capTtlAt(ttl, nowMs, nextLegalEffectiveMomentMs(nowMs, upcoming));
+}
+
+/** Whether a locale-stripped path is a `/legal/*` page. */
+function isLegalPath(path: string): boolean {
+  return path === '/legal' || path.startsWith('/legal/');
+}
+
+/**
+ * The TTL a cacheable page leaves with: the notice boundary cap and the effective-moment
+ * cap on every page, and on a `/legal/*` page {@link LEGAL_UNCERTAIN_TTL} when the render
+ * could not read whether an upcoming agreement version was published.
+ */
+export function legalPageTtl(
+  ttl: CacheTtl,
+  path: string,
+  nowMs: number,
+  uncertain: boolean,
+  upcoming: readonly LegalUpcomingEntry[] = LEGAL_UPCOMING,
+  notices = LEGAL_NOTICES,
+): CacheTtl {
+  // Every cacheable page, not only `/legal/*`: the claim box on
+  // `/vendor-program/list-your-product`, the claim pages and the docs name or link legal
+  // versions too, and no list of such pages stays complete (AECI-1689 review). Each page
+  // expires once per moment, only in the last TTL-length before it.
+  const capped = capTtlAtLegalEffectiveMoment(
+    capTtlAtLegalNoticeBoundary(ttl, nowMs, notices),
+    nowMs,
+    upcoming,
+  );
+  if (!uncertain || !isLegalPath(path)) return capped;
+  return {
+    ...capped,
+    edge: Math.min(capped.edge, LEGAL_UNCERTAIN_TTL.edge),
+    browser: Math.min(capped.browser, LEGAL_UNCERTAIN_TTL.browser),
+  };
 }
 
 type RoutePattern = {
@@ -1437,10 +1503,11 @@ async function handleSsr(
     : rendered;
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   // `start` was read before the render. A clock read after it could put a page
-  // rendered just before a boundary on a full TTL past that boundary.
+  // rendered just before a boundary on a full TTL past that boundary. Every page also
+  // ends at the next legal effective moment (AECI-1689).
   const response = withCacheHeaders(
     transformed,
-    capTtlAtLegalNoticeBoundary(ttl, start),
+    legalPageTtl(ttl, localePath, start, reqCtx.legalStateUncertain),
     tagInputs,
   );
   emitRenderMetric(response.status);

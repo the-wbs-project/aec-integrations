@@ -684,3 +684,40 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
     expect(ctx.api.list).toHaveBeenCalledTimes(2);
   });
 });
+
+// AECI-1689 review: a row published with one date while the upcoming entry now names
+// another never takes effect anywhere. The card says so in plain words.
+describe('AdminLegalVersions: a date moved after the publish (AECI-1689)', () => {
+  it('shows the alert with both dates', async () => {
+    const { el } = await setup({
+      data: {
+        publish_enabled: true,
+        upcoming: [
+          entry({
+            effective_on: '2027-04-15',
+            effective_at: '2027-04-15T12:00:00.000Z',
+            published: published({ effective_at: '2027-03-31T12:00:00.000Z' }),
+          }),
+        ],
+      },
+    });
+    const alert = card(el, 'vendor_terms').querySelector('[data-testid="legal-card-date-moved"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(text(alert)).toBe(
+      'This version was published with March 31, 2027 but the upcoming entry now says April 15, 2027. It will not take effect. Move the entry back, or contact engineering.',
+    );
+  });
+
+  it('shows nothing when the dates agree, or before a publish', async () => {
+    const { el } = await setup({
+      data: {
+        publish_enabled: true,
+        upcoming: [
+          entry({ published: published() }),
+          entry({ document: 'managed_plan', version: '1.2' }),
+        ],
+      },
+    });
+    expect(el.querySelector('[data-testid="legal-card-date-moved"]')).toBeNull();
+  });
+});

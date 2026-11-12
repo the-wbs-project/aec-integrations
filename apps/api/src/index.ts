@@ -212,6 +212,7 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
+import { createLegalPublishedHandler } from './routes/legal-published';
 import {
   createLinearWebhookHandler,
   createResendWebhookHandler,
@@ -489,6 +490,11 @@ phase28.get('/api/sitemap.xml', createSitemapFragmentHandler());
 // `home.*` keys (filled daily by 4.3). Never live-aggregates; a sparse cache
 // returns empty-but-valid defaults, never a 500.
 phase28.get('/api/stats/home', createStatsHomeHandler());
+
+// AECI-1689 — which upcoming agreement version was published, once its effective moment
+// has come, plus this Worker's clock. Public and a read: no auth, no rate limit. The legal
+// pages and the claim box read it so they show the version the API stamps.
+phase28.get('/api/legal/published', createLegalPublishedHandler());
 
 // Vendor requests (AECI-128): claim and correction form submissions. Public (no
 // auth). An anonymous claim is parked until its emailed link is clicked (AECI-1435).

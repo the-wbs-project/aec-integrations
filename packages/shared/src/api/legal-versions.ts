@@ -347,3 +347,30 @@ export const AdminLegalVersionsResponseSchema = z.object({
   upcoming: z.array(AdminLegalUpcomingEntrySchema),
 });
 export type AdminLegalVersionsResponse = z.infer<typeof AdminLegalVersionsResponseSchema>;
+
+/**
+ * One published version as the public read reports it (AECI-1689): the document, the
+ * version and its effective moment, nothing else. Only a version whose moment has come is
+ * listed, so the read says nothing the legal page itself does not.
+ */
+export const LegalPublishedVersionSchema = z.object({
+  document: LegalAgreementDocumentSchema,
+  version: z.string(),
+  /** ISO timestamp of the effective moment, 12:00 UTC of the effective day. */
+  effective_at: z.string(),
+});
+export type LegalPublishedVersion = z.infer<typeof LegalPublishedVersionSchema>;
+
+/**
+ * `GET /api/legal/published` (AECI-1689). Public and a read: no auth, no rate limit,
+ * `Cache-Control: no-store`. The legal pages and the claim box ask it which upcoming
+ * agreement version has been published, so they agree with the API on the version in
+ * force (`legalVersionsInForce`). `now` is the API's clock, so a browser deciding on an
+ * in-app navigation never reads its own clock.
+ */
+export const LegalPublishedResponseSchema = z.object({
+  /** ISO timestamp: the API Worker's clock at the read. */
+  now: z.string(),
+  published: z.array(LegalPublishedVersionSchema),
+});
+export type LegalPublishedResponse = z.infer<typeof LegalPublishedResponseSchema>;

@@ -31,6 +31,7 @@ export * from './https-url';
 export * from './indexnow-runner';
 export * from './landing';
 export * from './legal-acceptance';
+export * from './legal-in-force';
 export * from './legal-versions';
 export * from './license-grants';
 export * from './license-release-requests';

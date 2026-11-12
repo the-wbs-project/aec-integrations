@@ -33,8 +33,10 @@
  *      (`notice_enqueued_at`, `notice_vendor_count`) with a `legal_version.notice_queued`
  *      audit row. A non-material version enqueues nothing and both columns stay NULL. A
  *      failed audience read or queue send leaves `notice_enqueued_at` NULL with the count
- *      queued so far, which `/admin/legal` shows as "did not finish". No cache purge: no
- *      public page reads `legal_versions`.
+ *      queued so far, which `/admin/legal` shows as "did not finish". No cache purge. Since
+ *      AECI-1689 the legal pages read the row (`GET /api/legal/published`), but only from
+ *      its effective moment, and a page's TTL already ends at that moment. A publish is
+ *      refused once the moment has passed, so it can never change a cached page.
  *
  * ─── The re-send, in order ────────────────────────────────────────────────────
  *

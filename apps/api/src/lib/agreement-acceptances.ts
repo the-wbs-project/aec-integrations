@@ -19,17 +19,21 @@
  * `forwardAuditLog` it in `waitUntil` after the commit.
  *
  * ── VERSION GATE ───────────────────────────────────────────────────────────────
- * A vendor may only accept the CURRENT version of an agreement. A stale or unknown
- * version (a form loaded before a bump, a forged body) is refused with
- * `400 VALIDATION_FAILED` before any statement exists. The current versions are
- * `LEGAL_AGREEMENT_CURRENT_VERSIONS` in `@aeci/shared`.
+ * A vendor may only accept the version of an agreement IN FORCE at request time. A stale
+ * or unknown version (a form loaded before a bump or a switch, a forged body) is refused
+ * with `400 VALIDATION_FAILED` before any statement exists. Since AECI-1689 the caller
+ * passes that version (`inForce`, read by `loadLegalInForce` in `lib/legal-in-force.ts`):
+ * a published upcoming version is in force from its effective moment, before bump day.
+ * Without it, the gate uses the version in force with no publish known, which is the
+ * build's current version (`legalAgreementVersionInForce` in `@aeci/shared`).
  *
  * One exception (AECI-1500, ruling R1 on AECI-1339): the Stripe checkout webhook
  * passes `allowSupersededVersion`. It records the version the Checkout page showed,
  * which a bump may have superseded by the time Stripe delivers the event. The vendor
  * did accept that version, and a webhook must never fail for good. The version must
- * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`), and only `source: 'checkout'`
- * may use the option.
+ * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`) or the upcoming one, which a
+ * switch may have put in force before bump day (`isRecordableLegalAgreementVersion`), and
+ * only `source: 'checkout'` may use the option.
  *
  * A second exception (AECI-1615): a `grant` acceptance passes `pinnedVersion`, the
  * version the grant pinned at create. The version must equal it, current or not, so the
@@ -86,12 +90,13 @@ import {
   AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
   type AgreementAcceptanceMethod,
-  isKnownLegalAgreementVersion,
   isKnownLegalPolicyVersion,
   isKnownPlansPageVersion,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  isRecordableLegalAgreementVersion,
   LEGAL_AGREEMENT_DOCUMENTS,
-  LEGAL_POLICY_CURRENT_VERSIONS,
+  legalAgreementVersionInForce,
+  legalVersionsInForce,
+  type LegalInForceVersions,
   plansPageSha256,
   type AgreementAcceptanceSource,
   type LegalAgreementDocument,
@@ -163,9 +168,15 @@ export interface AcceptanceSigner {
 export interface AgreementAcceptanceParams {
   /** Validated at runtime: a webhook may hand over a string from Stripe metadata. */
   document: LegalAgreementDocument | string;
-  /** Must equal `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]`, unless
-   *  `allowSupersededVersion` is set. */
+  /** Must equal the version in force (`inForce`), unless `allowSupersededVersion`,
+   *  `grant` or `portalVersion` is set. */
   version: string;
+  /**
+   * AECI-1689: the agreement versions in force at request time (`loadLegalInForce`).
+   * Every request path passes it. Absent (a spec, a caller with no D1 read), the gate
+   * uses the version in force with no publish known: the build's current version.
+   */
+  inForce?: LegalInForceVersions | null;
   /**
    * Accept any KNOWN version of the document, not only the current one (module header,
    * ruling R1). Only for `source: 'checkout'`: any other source with it set is refused.
@@ -245,11 +256,17 @@ export interface AcceptancePolicyVersions {
   reviewGuidelines: string;
 }
 
-/** The policy versions the claim box names today (`LEGAL_POLICY_CURRENT_VERSIONS`). */
-export function currentPolicyVersions(): AcceptancePolicyVersions {
+/**
+ * The policy versions the claim box names at request time: the ones in force
+ * (`inForce`, AECI-1689). A policy switches on its date alone, so without `inForce` the
+ * answer is computed from the clock with no D1 read.
+ */
+export function currentPolicyVersions(
+  inForce: LegalInForceVersions = legalVersionsInForce([], Date.now()),
+): AcceptancePolicyVersions {
   return {
-    listingAccuracy: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
-    reviewGuidelines: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+    listingAccuracy: inForce.policies.listing_accuracy,
+    reviewGuidelines: inForce.policies.review_guidelines,
   };
 }
 
@@ -293,12 +310,14 @@ export function uncheckedBoxFor(document: LegalAgreementDocument): AcceptanceChe
  * The claim box for a claim-path acceptance of vendor terms `version`. A confirmed
  * anonymous claim carries the SUBMIT's version (AECI-1435), and the label is part of the
  * text it quotes, so a submit under an older version may have shown an older label. Only
- * the current version's label is known here, so any other version records NULL.
+ * the label of the version in force (`inForce`, AECI-1689) is known here, so any other
+ * version records NULL.
  */
-export function claimBoxFor(version: string): AcceptanceCheckbox | null {
-  return version === LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms
-    ? uncheckedBoxFor('vendor_terms')
-    : null;
+export function claimBoxFor(
+  version: string,
+  inForce: LegalInForceVersions = legalVersionsInForce([], Date.now()),
+): AcceptanceCheckbox | null {
+  return version === inForce.agreements.vendor_terms ? uncheckedBoxFor('vendor_terms') : null;
 }
 
 /** The `grant`-source columns (AECI-1615). */
@@ -352,7 +371,8 @@ export function agreementAcceptanceStatements(
   if (!isSource(p.source)) {
     throw validationFailed('source', `Unknown acceptance source: ${p.source}`);
   }
-  const current = LEGAL_AGREEMENT_CURRENT_VERSIONS[p.document];
+  const current =
+    p.inForce?.agreements[p.document] ?? legalAgreementVersionInForce(p.document, [], Date.now());
   if ((p.source === 'grant') !== Boolean(p.grant)) {
     throw validationFailed('source', 'Only a grant acceptance carries grant fields');
   }
@@ -376,7 +396,7 @@ export function agreementAcceptanceStatements(
     }
     if (
       p.version !== p.grant.pinnedVersion ||
-      !isKnownLegalAgreementVersion(p.document, p.version)
+      !isRecordableLegalAgreementVersion(p.document, p.version)
     ) {
       throw validationFailed(
         'version',
@@ -387,7 +407,7 @@ export function agreementAcceptanceStatements(
     if (p.source !== 'checkout') {
       throw validationFailed('source', 'Only a checkout acceptance may record an older version');
     }
-    if (!isKnownLegalAgreementVersion(p.document, p.version)) {
+    if (!isRecordableLegalAgreementVersion(p.document, p.version)) {
       throw validationFailed(
         'version',
         `Version ${p.version} of ${p.document} was never published (current: ${current})`,

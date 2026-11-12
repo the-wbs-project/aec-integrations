@@ -144,3 +144,17 @@ for customers, or what file they would be sent.
 - The PDF in R2 must never be replaced after publish. The workflow refuses, and a manual
   `wrangler r2 object put` would be caught only by a reader that re-hashes, which every reader
   of the PDF must do.
+- **Extended by AECI-1689 (2026-11-12).** The row is also what lets an agreement's upcoming
+  version become current at its effective moment with no deploy: the legal pages, new claims,
+  checkouts and grants all switch to it then, and never without it
+  (`packages/shared/src/api/legal-in-force.ts`). The pages have no database, so they learn it
+  from `GET /api/legal/published`, which lists a row only once its moment has come. A publish
+  still purges nothing, because every `/legal/*` TTL ends at the moment and a publish after the
+  moment is refused (`docs/CACHE_STRATEGY.md` §4). The bump-day change becomes cleanup with no
+  deadline. `LEGAL_PUBLISH_ENABLED` therefore also gates each agreement's first switch.
+- **A published date is fixed (AECI-1689 review).** A row switches only when its moment is the
+  upcoming entry's. If a commit moves the entry's `effectiveOn` after the publish, the row is in
+  force nowhere: the page, the stamps and the acceptance screen all ignore it
+  (`legalPublishedRowMismatched`), so the site never splits. No spec can see D1, so the guard is
+  the rule in the legal README (a wrong date is a new version), the `/admin/legal` card alert and
+  the `legal_agreement_date_moved` digest check.

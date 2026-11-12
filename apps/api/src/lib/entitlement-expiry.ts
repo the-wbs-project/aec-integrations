@@ -70,7 +70,6 @@
  * a batch failure is logged and skipped so one bad term cannot end the sweep.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
@@ -84,6 +83,7 @@ import {
   type ExpiryNoticeOutcome,
 } from './entitlement-expiry-metrics';
 import { parseRecipients, type EmailContext, type EmailOutcome } from './email';
+import { loadLegalInForce } from './legal-in-force';
 import { expiryNoticeStampStatements, LICENSE_ENTITY_TYPE } from './license';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
@@ -345,9 +345,16 @@ function productNamesOf(json: string): string[] {
  * backlog, and a warned term (now fully stamped) drops to the back of tomorrow's
  * window. The `ends_at` key still orders within each group.
  */
-async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringTerm[]> {
+async function loadExpiring(
+  db: Db,
+  horizonIso: string,
+  limit: number,
+  now: Date,
+): Promise<ExpiringTerm[]> {
   const unstamped = sql<number>`sum(case when ${licenses.expiryNoticeSentAt} is null then 1 else 0 end)`;
-  const currentTerms = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+  // AECI-1689: the version a renewal would bind is the one in force at the sweep, a
+  // published upcoming version from its moment, so the notice's "new version" line holds.
+  const currentTerms = (await loadLegalInForce(db, now)).agreements.managed_plan;
   const termsMismatched = sql<number>`sum(case when ${licenses.termsVersion} is not null and ${licenses.termsVersion} <> ${currentTerms} then 1 else 0 end)`;
   const rows = (await db
     .select({
@@ -651,7 +658,7 @@ export async function runEntitlementExpirySweep(
 
   const horizonIso = new Date(nowMs + warningDays * DAY_MS).toISOString();
   // One over the cap, so "there was more" is detectable without a second query.
-  const terms = await loadExpiring(db, horizonIso, cap + 1);
+  const terms = await loadExpiring(db, horizonIso, cap + 1, now);
 
   const pending: Array<{ term: ExpiringTerm; daysRemaining: number }> = [];
   for (const term of terms) {

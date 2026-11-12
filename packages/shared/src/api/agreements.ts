@@ -31,10 +31,15 @@ export const AgreementAcceptanceSourceSchema = z.enum(AGREEMENT_ACCEPTANCE_SOURC
 export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSourceSchema>;
 
 /**
- * The current version of each agreement. An acceptance of any other version is refused
- * with `VALIDATION_FAILED`. Keep it a plain object literal: a web spec (E2.3, AECI-1361)
- * asserts each value equals the `version` frontmatter of the agreement's Markdown under
+ * The BUILD's current version of each agreement: the current file's frontmatter
+ * `version`. Keep it a plain object literal: a web spec (E2.3, AECI-1361) asserts each
+ * value equals the `version` frontmatter of the agreement's Markdown under
  * `apps/web/src/content/legal/`. Bump the Markdown and this map in the same change.
+ *
+ * **Not "the version in force now" (AECI-1689).** A published upcoming version replaces
+ * it at its effective moment with no deploy. Every reader that stamps or shows the
+ * current version asks `legalAgreementVersionInForce` (`./legal-in-force`), and
+ * `legal-current-readers.spec.ts` fails on any other reader.
  */
 export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
   vendor_terms: '1.3',
@@ -58,7 +63,10 @@ export interface LegalAgreementUpcomingVersion {
  * change that adds the upcoming file, and remove it in the bump-day change. Empty
  * today. The admin publish (`/api/admin/legal-versions`, AECI-1688) reads it: only the
  * version listed here can be published, on its `effectiveOn` day at 12:00 UTC
- * (`legalEffectiveAtMs`). The text-hash spec skips the upcoming file.
+ * (`legalEffectiveAtMs`). Since AECI-1689 the version becomes the one in force at that
+ * moment, with no deploy, but only once it has a `legal_versions` row
+ * (`legalAgreementVersionInForce`). So from the change that adds it, it needs its
+ * `LEGAL_AGREEMENT_TEXT_SHA256` entry: `agreement-text-hash.spec.ts` requires it.
  */
 export const LEGAL_AGREEMENT_UPCOMING_VERSIONS: Readonly<
   Partial<Record<LegalAgreementDocument, LegalAgreementUpcomingVersion>>
@@ -139,8 +147,9 @@ export type AgreementAcceptanceMethod = z.infer<typeof AgreementAcceptanceMethod
 
 /**
  * The SHA-256 (lowercase hex) of the exact bytes of each published version's Markdown
- * (AECI-1615, counsel Q5): the current file under `apps/web/src/content/legal/` and each
- * archive under `apps/web/src/content/legal/versions/`. The API Worker cannot read the
+ * (AECI-1615, counsel Q5): the current file under `apps/web/src/content/legal/`, each
+ * archive under `apps/web/src/content/legal/versions/`, and since AECI-1689 the upcoming
+ * file there, which can be in force before bump day. The API Worker cannot read the
  * Markdown, so a `grant` acceptance stamps `text_sha256` from here.
  * `agreement-text-hash.spec.ts` recomputes every value from the files and fails on drift:
  * an edit to a published agreement's text changes its hash, so it needs a version bump
@@ -193,14 +202,27 @@ export const LEGAL_POLICY_DOCUMENTS = ['listing_accuracy', 'review_guidelines'] 
 export type LegalPolicyDocument = (typeof LEGAL_POLICY_DOCUMENTS)[number];
 
 /**
- * The current version of each policy. Keep it a plain object literal: a web spec
+ * The BUILD's current version of each policy. Keep it a plain object literal: a web spec
  * (`legal-page.component.spec.ts`) asserts each value equals the `version` frontmatter of
  * `listing-accuracy-policy.md` / `review-guidelines.md`. Bump both in the same change.
+ * Like the agreement map, it is not "the version in force now": readers ask
+ * `legalPolicyVersionInForce` (AECI-1689).
  */
 export const LEGAL_POLICY_CURRENT_VERSIONS = {
   listing_accuracy: '1.0',
   review_guidelines: '1.0',
 } as const satisfies Record<LegalPolicyDocument, string>;
+
+/**
+ * The version of each policy that is published but not yet in force, if any
+ * (AECI-1689). Mirrors the `listing-accuracy` and `review-guidelines` entries of the web
+ * manifest `LEGAL_UPCOMING`, and `legal-page.component.spec.ts` pins the two equal. A
+ * policy has no publish record, so the entry switches on its date alone: the version is
+ * in force from 12:00 UTC of `effectiveOn` (`legalPolicyVersionInForce`). Empty today.
+ */
+export const LEGAL_POLICY_UPCOMING_VERSIONS: Readonly<
+  Partial<Record<LegalPolicyDocument, LegalAgreementUpcomingVersion>>
+> = {};
 
 /** Every version of each policy that was ever current, oldest first. A claim may record
  *  any of them: a submit made before a bump is confirmed with the versions it showed. */
@@ -259,14 +281,6 @@ export function isKnownLegalAgreementVersion(
   version: string,
 ): boolean {
   return (LEGAL_AGREEMENT_KNOWN_VERSIONS[document] as readonly string[]).includes(version);
-}
-
-/** Whether `version` is the current version of `document`. */
-export function isCurrentLegalAgreementVersion(
-  document: LegalAgreementDocument,
-  version: string,
-): boolean {
-  return LEGAL_AGREEMENT_CURRENT_VERSIONS[document] === version;
 }
 
 /**

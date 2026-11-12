@@ -137,6 +137,8 @@ On November 12, 2026 **AECI-1363** applied legal branch 5 (change list section 1
 
 **Open item for the legal stream (AECI-1363): the IP address and browser on a portal acceptance.** The acceptance screen records no IP address or browser, because the Privacy Policy's "Agreement acceptance records" names them only "for a claim or an in-portal acceptance of a granted subscription". If the legal stream widens that sentence to cover the acceptance screen, flip `PORTAL_RECORDS_EVIDENCE` to `true` in `apps/api/src/lib/agreement-acceptances.ts` in the same change, and update its spec.
 
+**Open item for the legal stream (AECI-1363): does a policy change need the Vendor Terms email?** Since AECI-1689 the Listing Accuracy Policy and the Review Guidelines switch to an upcoming version on its date alone, with the site-wide notice band as their notice. The Vendor Terms make both policies "part of these terms" and promise an email 30 days before "we change these terms". Whether a policy change is therefore a change to the Vendor Terms, and needs that email, is a legal question that predates AECI-1689. Answer it before the first policy change after an effective date goes out.
+
 **Open item for the legal stream (AECI-1363): the first in-force version is a new version number.** The code requires it (the draft versions are pinned undated). It stands pending the legal stream's confirmation.
 
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
@@ -189,7 +191,8 @@ Every version has a stable URL. The repo is private, so git history is not the p
   2027"). The page opens with "This version takes effect on <date>. Until then the current
   version applies.", linking the current page. It is noindex, canonicalises to the current
   page, gets the egress `X-Robots-Tag`, and is not in `sitemap.xml`, the same as an archive. It
-  keeps the static `/legal/*` TTL with no purge, because the bump-day deploy replaces it.
+  keeps the static `/legal/*` TTL with no purge. That TTL ends at the effective moment, when the
+  page switches by itself (next section).
 - **The current page announces it, not the current file.** While an entry is listed, `/legal/<slug>`
   and the current version at its own address show "Version X takes effect on <date>. Read version
   X.", linking the upcoming page. `LegalPage` builds that line from the manifest. **Announcing a
@@ -214,9 +217,11 @@ Every version has a stable URL. The repo is private, so git history is not the p
   text rather than redirecting, because a notice must link a fixed copy.
 - For the vendor terms and the Managed plan agreement, `LEGAL_AGREEMENT_UPCOMING_VERSIONS`
   (`packages/shared/src/api/agreements.ts`) mirrors the upcoming entry as
-  `{ version, effectiveOn }`. A spec checks the two are equal. `agreement-text-hash.spec.ts`
-  skips the upcoming file in `versions/`, because no one has accepted it yet. Its hash is added
-  on bump day.
+  `{ version, effectiveOn }`. For the Listing Accuracy Policy and the Review Guidelines,
+  `LEGAL_POLICY_UPCOMING_VERSIONS` (same file) does the same, because a claim records their
+  versions. Specs check each mirror equals the manifest. `agreement-text-hash.spec.ts` requires
+  the upcoming agreement file's hash in `LEGAL_AGREEMENT_TEXT_SHA256` from the change that adds
+  it, because the version can be in force, and stamped, before bump day (AECI-1689).
 - Every current file **ends with** `## Change history`: one list line per version, naming
   `Version X.Y` once. Give the effective date, or say "draft, never in force" for a version that
   never took effect. A superseded version's line links its archive URL and gives its superseded
@@ -229,7 +234,9 @@ Every version has a stable URL. The repo is private, so git history is not the p
   - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.
   ```
 
-  An upcoming version gets no line until bump day, when it becomes "this version".
+  An upcoming version gets no line in the current file. Its own file carries its final change
+  history: "this version", then the old current version linked and superseded on the effective
+  date. The registry checks that history as if the file were current (AECI-1689).
 
 - The registry (`app/legal/legal-versions.ts`) checks all of this at module init. It throws, and
   fails `ng test`, on any of these:
@@ -242,9 +249,44 @@ Every version has a stable URL. The repo is private, so git history is not the p
   - an upcoming version not later than the current one, an `effectiveOn` that is not a real
     `YYYY-MM-DD` day, or an `effective_date` that is not that day written out;
   - an archived version not listed, with its link and superseded date, in the change history;
-  - a listed version or link that does not resolve.
+  - a listed version or link that does not resolve;
+  - an upcoming file whose own change history, read as current, breaks any of the last two: the
+    old current version must be listed with its link and the effective date as its superseded
+    date.
 - No check reads the clock. An upcoming entry whose date has passed still builds, so `main`
-  never turns red on a date. What happens on the date is AECI-1689.
+  never turns red on a date. The site switches on the date by itself (next section), and
+  `scripts/legal-upcoming-overdue.mjs` prints a CI warning, never a failure, once an entry is more
+  than 14 days past its moment.
+
+### The effective date switches by itself (AECI-1689)
+
+From the effective moment, 12:00 UTC of `effectiveOn`, an upcoming version is the current one
+with no deploy. One rule decides it everywhere: `legalAgreementVersionInForce` and
+`legalPolicyVersionInForce` (`packages/shared/src/api/legal-in-force.ts`).
+
+- **The Vendor Terms and the Managed plan agreement switch only once published.** The upcoming
+  version needs a `legal_versions` row with the same effective moment ("Publishing an upcoming
+  agreement version" below). A row means its change notice went out. No row, no switch, on any
+  surface, ever: the page keeps the old version current and keeps saying "takes effect on
+  <date>", and new claims and checkouts keep stamping the old version. Publishing is refused in
+  demo and production while `LEGAL_PUBLISH_ENABLED` is `"false"`, so each agreement's first
+  effective date waits for that release.
+- **The Terms, the Privacy Policy, the Review Guidelines and the Listing Accuracy Policy switch on
+  their date alone.** They have no publish record. The manifest entry is a reviewed commit, and
+  their notice is the site-wide band in `notices.json`.
+- **What switches.** `/legal/<slug>` serves the new text as current. `/legal/<slug>/v<new>` is the
+  current version at its own address. `/legal/<slug>/v<old>` serves the old text, superseded on
+  the effective date. The announcement and the extra Change history line stop. A new claim,
+  listing request, checkout or grant stamps the new version, its text hash and, for a policy,
+  its version on the claim row. The 45-day renewal notice compares against it.
+- **How the pages know.** The legal pages have no database. Once an agreement's moment has come,
+  the SSR Worker reads `GET /api/legal/published` over the service binding, decides, and hands
+  the browser the same answer. If that read fails, the page shows the old version and is cached
+  for a minute (`docs/CACHE_STRATEGY.md` §4). Every cacheable page's cache ends at the moment, the
+  claim box and the docs included, so no purge is needed.
+- **A daily warning.** The data-quality digest lists `legal_agreement_unpublished` when an upcoming
+  agreement version is 30 days or less from its moment, or past it, with no publish. Publish it or
+  move the date.
 
 **When to bump.** Once a version is in force (`effective_date` set), any text change is a new
 version: bump and archive. While a document is still a draft that never took effect, a wording
@@ -318,7 +360,9 @@ steps in this order.
    the day you expect to deploy. Write its `## Change history` as it will read once it is current:
    the new version is "this version", and the old one links `/legal/<slug>/v<old>` with the
    effective date as its superseded date. The file then moves unchanged on bump day, so the text
-   published ahead is the text that takes effect.
+   published ahead is the text that takes effect. **For an agreement, the date is fixed once the
+   version is published** (next section): never edit its `effectiveOn` after that. A wrong date
+   means a new version.
 2. **Register it in the same branch.**
    - Add `{ slug, version, effectiveOn: 'YYYY-MM-DD' }` to `LEGAL_UPCOMING` in
      `app/legal/legal-manifest.ts`. This alone puts the announcement on the current page.
@@ -326,37 +370,56 @@ steps in this order.
    - For the vendor terms or the Managed plan agreement, add the same `{ version, effectiveOn }` to
      `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (`packages/shared/src/api/agreements.ts`).
    - Do **not** edit the current `<name>.md`.
+   - For the vendor terms or the Managed plan agreement, add the file's hash to
+     `LEGAL_AGREEMENT_TEXT_SHA256` under the new version (`agreement-text-hash.spec.ts` prints it
+     when it is missing). For the Listing Accuracy Policy or the Review Guidelines, add the same
+     `{ version, effectiveOn }` to `LEGAL_POLICY_UPCOMING_VERSIONS`.
    - If the change is material, add the `notices.json` entry (next section).
 3. **Merge and deploy to production** at least 31 days before the effective date. The page goes
-   live at `/legal/<slug>/v<new>`.
-4. **Bump day, on the effective date, in one change:**
+   live at `/legal/<slug>/v<new>`. For an agreement, publish it next ("Publishing an upcoming
+   agreement version" below): without a publish it never switches.
+4. **On the effective moment, nothing to do.** At 12:00 UTC of the effective day the site switches
+   to the new version by itself ("The effective date switches by itself" above). Check
+   `/legal/<slug>` shows the new version after the moment.
+5. **Clean up within two weeks, in one change.** For a version that switched, it changes no page
+   and no stamp: the switch already shows exactly what this change builds
+   (`legal-bump-equivalence.spec.ts`). Run these steps in order:
+   - **First, for the vendor terms or the Managed plan agreement, confirm the switch happened.**
+     `/admin/legal` on production must show the version published with the same effective date
+     as the entry (no "will not take effect" alert), and its change notice delivered. If it does
+     not, do NOT clean up: this change would make the version current with no notice sent. Move
+     the effective date instead, and publish.
    - Move `versions/<slug>/v<new>.md` into `<name>.md` byte for byte, and delete the `versions/`
      file. Its change history was written in step 1, so nothing in it changes.
    - Archive the old current text unchanged at `versions/<slug>/v<old>.md`, with a `LEGAL_ARCHIVES`
      entry whose `supersededOn` is the effective date. Fix the imports in `legal-content.ts`.
    - Remove the `LEGAL_UPCOMING` entry, and the `LEGAL_AGREEMENT_UPCOMING_VERSIONS` entry if there
      is one.
-   - Leave the version's `notices.json` entry in place. The band runs through the whole effective
-     day. `legal-notices.spec.ts` accepts a notice for the version that is now current.
+   - If this lands on the effective day itself, leave the version's `notices.json` entry in place:
+     the band runs through that whole day, and `legal-notices.spec.ts` accepts a notice for the
+     version that is now current. On any later day, remove it here (step 6).
    - Set the slug's `LEGAL_CURRENT_VERSIONS` entry to the new version. The notice's link
      `/legal/<slug>/v<new>` then keeps serving the same text as the current version, and
      `/legal/<slug>/v<old>` serves the archive.
    - For the vendor terms or the Managed plan agreement, set `LEGAL_AGREEMENT_CURRENT_VERSIONS` to
-     the new version, append it to `LEGAL_AGREEMENT_KNOWN_VERSIONS`, and add its
-     `LEGAL_AGREEMENT_TEXT_SHA256` entry.
+     the new version and append it to `LEGAL_AGREEMENT_KNOWN_VERSIONS`. Its
+     `LEGAL_AGREEMENT_TEXT_SHA256` entry is already there from step 2, and the file moved byte for
+     byte, so it does not change.
    - In the same file, add the new version to `LEGAL_AGREEMENT_EFFECTIVE_ON` with its
      `effectiveOn` day (`'YYYY-MM-DD'`), the day its `effective_date` writes out (AECI-1677). This
      is how the API knows the version is in force. Never date a version listed there as `null`:
      each was accepted as a draft. `agreements.spec.ts` and `legal-page.component.spec.ts` fail
      until the entry matches the file.
    - For the Listing Accuracy Policy or the Review Guidelines, set `LEGAL_POLICY_CURRENT_VERSIONS`
-     to the new version and append it to `LEGAL_POLICY_KNOWN_VERSIONS` (same file). A claim
-     records those two versions. The Terms and the Privacy Policy have no shared map.
-5. **Deploy the bump the same day.** Nothing switches on the date by itself yet, so until this
-   deploy the old version stays current on the site. AECI-1689 removes that deadline. No spec fails
-   when the date passes, so CI will not remind you.
+     to the new version, append it to `LEGAL_POLICY_KNOWN_VERSIONS`, and remove its
+     `LEGAL_POLICY_UPCOMING_VERSIONS` entry (same file). A claim records those two versions. The
+     Terms and the Privacy Policy have no shared map.
+   - Deploy it through the normal release. There is no deadline: no spec fails when the date
+     passes. More than 14 days after the moment, the `Legal bump reminder` CI step prints a
+     warning on every run until this lands. It never fails a check.
 6. **Once the effective day is over, remove the `notices.json` entry.** The band closed at the end of
-   that day (UTC), so a closed entry renders nothing. This is tidying.
+   that day (UTC), so a closed entry renders nothing. This is tidying, and can ride the cleanup
+   change in step 5.
 
 ## Publishing an upcoming agreement version (AECI-1688)
 
@@ -364,7 +427,9 @@ For the Vendor Terms and the Managed plan agreement only. Publishing records the
 D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, two answers the
 operator gives, and the fingerprint of a PDF a customer can save. A material version's publish
 also emails the change notice (`legal-terms-change`, AECI-1620) to every affected company. The
-acceptance screen (AECI-1677) and reader accounts (AECI-1637) read the record too. ADR 0054 is
+acceptance screen (AECI-1677) and reader accounts (AECI-1637) read the record too. Since AECI-1689
+the record is also what lets the version become current at its moment: an unpublished agreement
+version never switches. ADR 0054 is
 the decision. Run the steps in this order, once per tier.
 
 1. **Commit the upcoming file and its manifest entries.** Steps 1 and 2 of "Announcing a new
@@ -408,6 +473,13 @@ the decision. Run the steps in this order, once per tier.
    `aeci-uploads-demo` for those tiers) followed by the key `legal/vendor-terms/v1.4.pdf`, which is
    `legal/<slug>/v<version>.pdf` for the version you printed. It needs Cloudflare credentials for
    the AEC account with R2 write access.
+
+   **After publishing, never move the effective date either.** The row records the moment. If a
+   later commit changes the `effectiveOn` of `LEGAL_UPCOMING` or `LEGAL_AGREEMENT_UPCOMING_VERSIONS`,
+   the row no longer matches and the version takes effect NOWHERE: the page keeps the old version,
+   new acceptances keep stamping it, and the acceptance screen asks nothing (AECI-1689). The card on
+   `/admin/legal` then says so, and the digest lists `legal_agreement_date_moved`. Move the entry back
+   to the published date. A different date needs a new version, announced and published again.
 
    **After publishing, never replace the stored PDF.** The `legal_versions` row records its sha256,
    and every reader of the file re-hashes it. A replaced file no longer matches the record. If the
@@ -479,7 +551,7 @@ Each entry:
 - Nothing has to happen on either boundary. Every page's cache TTL ends at the boundary
   (`docs/CACHE_STRATEGY.md` §4).
 - Remove the entry once the effective day is over (step 6 above). The band runs through that day,
-  so do not remove it in the same-day bump. A closed entry renders nothing.
+  so do not remove it before the day is over. A closed entry renders nothing.
 - `summary` is content, like the Markdown body, so it is not extracted into `messages.xlf`.
 
 ## Open Government Licence attribution (AECI-1310)

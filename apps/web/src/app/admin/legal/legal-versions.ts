@@ -308,6 +308,19 @@ export class AdminLegalVersions {
     return this.publishEnabled() && !!p?.material && !this.inEffect(entry);
   }
 
+  /**
+   * AECI-1689: the version was published with one effective moment and the upcoming entry
+   * now names another. Such a row is in force nowhere (`legalPublishedRowMismatched`).
+   */
+  protected dateMoved(entry: AdminLegalUpcomingEntry): boolean {
+    const p = entry.published;
+    return (
+      !!p &&
+      entry.effective_at !== '' &&
+      Date.parse(p.effective_at) !== Date.parse(entry.effective_at)
+    );
+  }
+
   /** The published version's effective moment has passed: no notice can go any more. */
   protected inEffect(entry: AdminLegalUpcomingEntry): boolean {
     const p = entry.published;

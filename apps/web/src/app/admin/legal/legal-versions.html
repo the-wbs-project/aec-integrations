@@ -109,6 +109,20 @@
       }
     </div>
 
+    <!-- AECI-1689: a published row whose moment is not the upcoming entry's never takes
+         effect anywhere. Say so loudly; the fix is in code, not on this page. -->
+    @if (dateMoved(entry) && entry.published; as p) {
+    <p
+      data-testid="legal-card-date-moved"
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-3 text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.legal.dateMoved"
+    >
+      This version was published with {{ p.effective_at | date: 'longDate' : 'UTC' }} but the
+      upcoming entry now says {{ entry.effective_at | date: 'longDate' : 'UTC' }}. It will not take
+      effect. Move the entry back, or contact engineering.
+    </p>
+    }
     <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
       <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.effective">
         Takes effect

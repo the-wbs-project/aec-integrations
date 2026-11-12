@@ -1544,7 +1544,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
-*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions (`LEGAL_POLICY_CURRENT_VERSIONS`) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
+*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions in force (`legalPolicyVersionInForce`; before AECI-1689 the build constant `LEGAL_POLICY_CURRENT_VERSIONS`) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
 
@@ -7137,6 +7137,23 @@ Errors: `LEGAL_PUBLISH_DISABLED` (409); `MALFORMED_REQUEST` (400); `VALIDATION_F
 `LEGAL_PDF_MISSING` (409); `RATE_LIMITED` (429). The re-send adds `NOT_FOUND` (404),
 `LEGAL_NOTICE_NOT_MATERIAL` (409), `LEGAL_NOTICE_TOO_LATE` (422) and
 `LEGAL_NOTICE_ENQUEUE_FAILED` (503).
+
+#### Published legal versions: `GET /api/legal/published` (AECI-1689)
+
+Public, no auth. A read: no audit row, never rate-limited. `Cache-Control: private, no-store`
+(the `json()` default), because the body carries the API's clock. Contract:
+`LegalPublishedResponseSchema` in `packages/shared/src/api/legal-versions.ts`:
+`{ now, published: [{ document, version, effective_at }] }`. `now` is the API Worker's clock as
+an ISO timestamp. `published` lists a `legal_versions` row only when it names the version in
+`LEGAL_AGREEMENT_UPCOMING_VERSIONS` for its document, its `effective_at` equals that entry's
+moment (12:00 UTC of `effectiveOn`), and that moment has come. So it says nothing the legal page
+does not show from that moment. No query runs while no upcoming agreement's moment has come, so
+with an empty map it never touches D1. Readers: the SSR Worker's legal resolver over the service
+binding, and the browser on an in-app navigation and in the claim box
+(`apps/web/src/app/legal/legal-in-force.resolver.ts`, `legal-in-force-client.ts`). Both decide
+with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`), the rule the API
+stamps by, using this `now`, never the browser's clock. Errors: none of its own; a D1 failure is
+the central `500`.
 
 #### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
 
