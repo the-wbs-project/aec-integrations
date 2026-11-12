@@ -9,7 +9,10 @@
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
   VendorAgreementAcceptancesResponseSchema,
+  plansPageSha256,
 } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -17,7 +20,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { billingAccounts, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import { agreementAcceptanceStatements, uncheckedBoxFor } from '../lib/agreement-acceptances';
+import {
+  agreementAcceptanceStatements,
+  currentPolicyVersions,
+  uncheckedBoxFor,
+} from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -67,6 +74,7 @@ async function seed(): Promise<{ claimId: string; checkoutId: string; foreignId:
     vendorId: VENDOR,
     acceptedAt: '2026-10-01T00:00:00.000Z',
     requestHeaders: new Headers({ 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'UA/1' }),
+    policyVersions: currentPolicyVersions(),
     actorType: 'user',
   });
   const checkout = agreementAcceptanceStatements(t.db, {
@@ -79,6 +87,7 @@ async function seed(): Promise<{ claimId: string; checkoutId: string; foreignId:
     stripeCheckoutSessionId: 'cs_test_1',
     acceptedAt: '2026-10-05T00:00:00.000Z',
     checkbox: uncheckedBoxFor('managed_plan'),
+    plansVersion: PLANS_PAGE_CURRENT_VERSION,
     actorType: 'system',
   });
   const foreign = agreementAcceptanceStatements(t.db, {
@@ -135,11 +144,23 @@ describe('GET /api/vendor/billing/acceptances', () => {
       // AECI-1615 ruling 16: the box shown is the vendor's own evidence, so it is read back.
       checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
       checkbox_default_unticked: true,
+      // AECI-1619: the label text and the Plans page the checkout was given under.
+      checkbox_label: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+      plans_page_version: PLANS_PAGE_CURRENT_VERSION,
+      plans_page_sha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+      listing_accuracy_version: null,
+      review_guidelines_version: null,
     });
     // A row with no box recorded reads back null, not false.
     expect(parsed.acceptances[1]).toMatchObject({
       checkbox_label_sha256: null,
       checkbox_default_unticked: null,
+      checkbox_label: null,
+      // AECI-1619: the claim names the policy versions, and no Plans page.
+      listing_accuracy_version: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+      review_guidelines_version: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+      plans_page_version: null,
+      plans_page_sha256: null,
     });
     for (const row of (body as { acceptances: Record<string, unknown>[] }).acceptances) {
       expect(row).not.toHaveProperty('ip');

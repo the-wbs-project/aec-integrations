@@ -39,6 +39,13 @@
  * in a `## Related` list, when a single-page section has more than one page,
  * when two pages share a path, when an intro is declared for a section with no
  * index page, or when a General page or intro links into the vendor guide.
+ *
+ * **Versioned pages (AECI-1619).** A page listed in `DOCS_PAGE_VERSIONS` (only
+ * Plans) must carry frontmatter `version` equal to its current version, and a
+ * `## Versions` section just before `## Related` that lists every known version
+ * once, each linking its snapshot route (`<path>/v<version>`) and giving its
+ * recorded date. A page not listed there may not carry `version`. The checks
+ * mirror `checkChangeHistory` in `legal/legal-versions.ts`.
  */
 import signingInMd from '../../content/docs/account/signing-in.md';
 import yourDataMd from '../../content/docs/account/your-data.md';
@@ -70,6 +77,11 @@ import seatMd from '../../content/docs/vendors/your-seat.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { pathForcesNoindex } from './docs-indexing';
 import { type DocsBlock, type DocsHeading, renderDocsBody } from './docs-markdown';
+import {
+  PLANS_PAGE_CURRENT_VERSION,
+  PLANS_PAGE_KNOWN_VERSIONS,
+  PLANS_PAGE_RECORDED_ON,
+} from './plans-versions';
 
 export type { DocsBlock, DocsHeading, DocsWidget } from './docs-markdown';
 
@@ -137,6 +149,8 @@ export interface DocsPage {
    * its rail and a sticky bar on phones (`shared/plan-cta/plan-cta.ts`). Only Plans does.
    */
   readonly cta?: 'managed';
+  /** Frontmatter `version`, on a page in `DOCS_PAGE_VERSIONS` only (Plans, AECI-1619). */
+  readonly version?: string;
 }
 
 /** A section's optional landing copy, rendered on its index page. */
@@ -298,10 +312,117 @@ const SECTION_INTROS: Readonly<Partial<Record<DocsSectionId, string>>> = {
   vendors: vendorGuideIntroMd,
 };
 
+/** A docs page served as dated versions (AECI-1619). */
+export interface DocsPageVersions {
+  readonly current: string;
+  /** Oldest first. The current one is last. */
+  readonly known: readonly string[];
+  /** version → "Month D, YYYY", the date its `## Versions` line gives. */
+  readonly recordedOn: Readonly<Record<string, string>>;
+}
+
+/** Versioned docs pages, keyed `<section>/<slug>`. Only Plans (counsel ruling 16). */
+export const DOCS_PAGE_VERSIONS: Readonly<Record<string, DocsPageVersions>> = {
+  'vendors/plans': {
+    current: PLANS_PAGE_CURRENT_VERSION,
+    known: PLANS_PAGE_KNOWN_VERSIONS,
+    recordedOn: PLANS_PAGE_RECORDED_ON,
+  },
+};
+
+const VERSIONS_HEADING_TEXT = 'Versions';
+const LISTED_VERSION_RE = /\bVersion (\d+\.\d+)\b/g;
+const LINK_RE = /\]\(([^)\s]+)\)/g;
+
+/**
+ * The list items of the `## Versions` section, or `undefined` when the page has
+ * no such section. The section runs from its heading to the next `h1` / `h2`.
+ */
+export function docsVersionsItems(body: string): string[] | undefined {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${VERSIONS_HEADING_TEXT}`);
+  if (start === -1) return undefined;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,2}\s/.test(line));
+  return (end === -1 ? rest : rest.slice(0, end))
+    .filter((line) => /^\s*[-*]\s/.test(line))
+    .map((line) => line.trim());
+}
+
+/** Throws unless a versioned page's frontmatter and `## Versions` section agree with its registry entry. */
+function checkDocsVersions(
+  where: string,
+  path: string,
+  frontmatterVersion: string | undefined,
+  body: string,
+  h2s: readonly DocsHeading[],
+  versions: DocsPageVersions | undefined,
+): void {
+  if (!versions) {
+    if (frontmatterVersion !== undefined) {
+      throw new Error(
+        `Docs page "${where}" has a frontmatter version but is not in DOCS_PAGE_VERSIONS`,
+      );
+    }
+    return;
+  }
+  if (frontmatterVersion !== versions.current) {
+    throw new Error(
+      `Docs page "${where}" frontmatter version "${frontmatterVersion}" is not the current version ${versions.current}`,
+    );
+  }
+  if (h2s.at(-2)?.text !== VERSIONS_HEADING_TEXT) {
+    throw new Error(`Docs page "${where}" needs a "## Versions" section just before "## Related"`);
+  }
+  const items = docsVersionsItems(body) ?? [];
+  const listed = new Map<string, string>();
+  for (const item of items) {
+    const named = Array.from(item.matchAll(LISTED_VERSION_RE), (m) => m[1]);
+    if (named.length !== 1) {
+      throw new Error(
+        `Docs page "${where}" versions line must name exactly one "Version X.Y": "${item}"`,
+      );
+    }
+    const version = named[0];
+    if (listed.has(version)) throw new Error(`Docs page "${where}" lists version ${version} twice`);
+    if (!versions.known.includes(version)) {
+      throw new Error(
+        `Docs page "${where}" lists version ${version}, which is not a known version`,
+      );
+    }
+    const archive = `${path}/v${version}`;
+    const hrefs = Array.from(item.matchAll(LINK_RE), (m) => m[1]);
+    if (!hrefs.includes(archive)) {
+      throw new Error(
+        `Docs page "${where}" versions line for ${version} does not link to ${archive}`,
+      );
+    }
+    for (const href of hrefs) {
+      if (href.startsWith(`${path}/`) && href !== archive) {
+        throw new Error(
+          `Docs page "${where}" versions line links to ${href}, which does not resolve`,
+        );
+      }
+    }
+    const recorded = versions.recordedOn[version];
+    if (!recorded || !item.includes(recorded)) {
+      throw new Error(
+        `Docs page "${where}" versions line for ${version} does not give its recorded date "${recorded ?? '(none in the registry)'}"`,
+      );
+    }
+    listed.set(version, item);
+  }
+  for (const version of versions.known) {
+    if (!listed.has(version))
+      throw new Error(`Docs page "${where}" does not list version ${version}`);
+  }
+}
+
 function buildPage(
   section: DocsSectionId,
   meta: DocsSectionMeta,
   { slug, source }: RawDocsPage,
+  pageVersions: Readonly<Record<string, DocsPageVersions>>,
 ): DocsPage {
   const { data, body } = parseFrontmatter(source);
   if (data['section'] !== section) {
@@ -319,10 +440,20 @@ function buildPage(
   if (h2s.at(-1)?.text !== 'Related') {
     throw new Error(`Docs page "${section}/${slug}" does not end in a "## Related" list`);
   }
+  const path = meta.singlePage ? `/docs/${section}` : `/docs/${section}/${slug}`;
+  checkDocsVersions(
+    `${section}/${slug}`,
+    path,
+    data['version'],
+    body,
+    h2s,
+    pageVersions[`${section}/${slug}`],
+  );
   return {
     section,
     slug,
-    path: meta.singlePage ? `/docs/${section}` : `/docs/${section}/${slug}`,
+    path,
+    ...(data['version'] === undefined ? {} : { version: data['version'] }),
     title: data['title'] ?? '',
     description: data['description'] ?? '',
     order,
@@ -421,6 +552,9 @@ export function buildDocsManifest(
   pagesBySection: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage[]>>>,
   introsBySection: Readonly<Partial<Record<DocsSectionId, string>>> = {},
   crossGuideAllowlist: readonly string[] = GENERAL_TO_VENDOR_LINK_ALLOWLIST,
+  // Empty by default, so a fixture manifest may reuse a real slug such as `plans`.
+  // The real manifest passes `DOCS_PAGE_VERSIONS`.
+  pageVersions: Readonly<Record<string, DocsPageVersions>> = {},
 ): DocsManifest {
   const sections: DocsSection[] = [];
   const introLinks = new Map<DocsSectionId, readonly string[]>();
@@ -432,7 +566,7 @@ export function buildDocsManifest(
     if (sectionMeta.singlePage && raw.length > 1) {
       throw new Error(`Docs section "${id}" is single-page but registers ${raw.length} pages`);
     }
-    const pages = raw.map((page) => buildPage(id, sectionMeta, page));
+    const pages = raw.map((page) => buildPage(id, sectionMeta, page, pageVersions));
     const seen = new Map<number, string>();
     for (const page of pages) {
       const clash = seen.get(page.order);
@@ -484,7 +618,13 @@ export function buildDocsManifest(
   return { sections, pages: sections.flatMap((section) => section.pages) };
 }
 
-const MANIFEST = buildDocsManifest(SECTION_META, SECTION_PAGES, SECTION_INTROS);
+const MANIFEST = buildDocsManifest(
+  SECTION_META,
+  SECTION_PAGES,
+  SECTION_INTROS,
+  GENERAL_TO_VENDOR_LINK_ALLOWLIST,
+  DOCS_PAGE_VERSIONS,
+);
 
 /** Sections with at least one page, in section order. Empty sections never appear. */
 export const DOCS_SECTIONS: readonly DocsSection[] = MANIFEST.sections;

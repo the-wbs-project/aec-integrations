@@ -9,6 +9,7 @@ import {
   AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -268,7 +269,8 @@ describe('POST /api/vendor/billing/checkout', () => {
       cancel_url: `${SITE}/vendor/acme/billing?checkout=cancelled`,
       client_reference_id: account,
       // AECI-1617/1625: the signer is on the session only, never the subscription.
-      metadata: { ...metadata, signer_title: 'CEO' },
+      // AECI-1619: so is the Plans page version the session was opened under.
+      metadata: { ...metadata, plans_version: PLANS_PAGE_CURRENT_VERSION, signer_title: 'CEO' },
       subscription_data: { metadata },
       consent_collection: { terms_of_service: 'required' },
       custom_text: {
@@ -588,6 +590,7 @@ describe('POST /api/vendor/billing/checkout', () => {
         vendor_id: VENDOR,
         profile_id: profile,
         terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+        plans_version: PLANS_PAGE_CURRENT_VERSION,
         ...signer,
       },
       created: Math.floor(Date.now() / 1000),
@@ -638,6 +641,40 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_title', 'aeci-expire-cs_title');
     expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_legal', 'aeci-expire-cs_legal');
     expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  // AECI-1619: a paid session's acceptance records the Plans page it was opened under.
+  it('expires an open session that names another or no Plans version, then opens a new one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    const legacy = openSession(account, 'cs_legacy');
+    delete legacy.metadata!['plans_version'];
+    stripe = fakeStripe({
+      listOpenCheckoutSessions: vi.fn(async () =>
+        ok([
+          legacy,
+          openSession(account, 'cs_other', {
+            signer: { signer_title: 'CEO', plans_version: '0.9' },
+          }),
+        ]),
+      ),
+    });
+
+    const { status } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
+
+    expect(status).toBe(200);
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_legacy', 'aeci-expire-cs_legacy');
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_other', 'aeci-expire-cs_other');
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
+    const [params] = stripe.createCheckoutSession.mock.calls[0]! as unknown as [
+      StripeCreateCheckoutSessionParams,
+    ];
+    expect(params.metadata).toMatchObject({ plans_version: PLANS_PAGE_CURRENT_VERSION });
+    expect(params.subscription_data?.metadata).not.toHaveProperty('plans_version');
   });
 
   // AECI-1596: the session's disclosure names a renewal date.

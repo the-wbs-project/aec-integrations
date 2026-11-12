@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 10, 2026
+last_updated: November 11, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -99,7 +99,7 @@ Owners see a **Billing** tab in the vendor portal. Members do not. It has these 
 - **Pay by card**, or **Your Stripe plan** once you have one. It shows how many subscriptions it holds, whether it is billed yearly or monthly, and when it renews or ends. **Add subscriptions** and **Manage billing in Stripe** are here.
 - **At a glance.** A card that counts your live subscriptions: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many subscriptions come off at renewal, when either count is above zero.
 - **Subscriptions.** One subscription covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A subscription with no product reads **In pool, not assigned**. A monthly subscription paid by card has no end date.
-- **Agreements.** The agreements your company accepted, with who accepted each one and when, and the signer's name, title and the company's legal name where we recorded them.
+- **Agreements.** The agreements your company accepted, with who accepted each one and when, and the signer's name, title and the company's legal name where we recorded them. A claim also shows the versions of the Listing Accuracy Policy and the Review Guidelines it accepted. A checkout or a granted subscription links the version of the [Plans](/docs/vendors/plans) page recorded when it was accepted.
 
 ### Accept a subscription we grant
 

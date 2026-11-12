@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: November 4, 2026
+last_updated: November 11, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
@@ -24,7 +24,7 @@ The form asks for:
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
 - **Title.** Your job title or role at the company.
 - **Company legal name.** The company's full legal name. We fill in the name on the listing, and you can change it.
-- **I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.** You must tick this box to send a claim. It links to the [Vendor Terms](/legal/vendor-terms). Above the box is a short summary of the liability limits in those terms. We record your name, your title, the company's legal name and the version you accepted, with the time you confirmed the claim.
+- **I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.** You must tick this box to send a claim. It links to the [Vendor Terms](/legal/vendor-terms). Above the box is a short summary of the liability limits in those terms. Below it, a line names the versions of the Listing Accuracy Policy and the Review Guidelines, which the Vendor Terms include. We record your name, your title, the company's legal name, the version you accepted and the two policy versions, with the time you confirmed the claim.
 
 Choose **Send claim**. We then email that address a link, and the form asks you to check your inbox. Your claim is not sent until you open the email, click **Confirm your claim**, and choose **Confirm and send** on the page it opens. The link works for 7 days and only once. If it does not arrive, check your spam folder, or send the claim again. If you got a link for a claim you did not send, ignore it: nothing happens unless someone clicks.
 

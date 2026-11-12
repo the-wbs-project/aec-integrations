@@ -22,7 +22,7 @@ import type {
 } from '@aeci/shared';
 
 import { formatTermDate } from '../../shared/term-date/format-term-date';
-import { acceptanceHref } from '../components/vendor-agreement-href';
+import { acceptanceHref, plansSnapshotHref } from '../components/vendor-agreement-href';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLegalNameForm } from '../components/vendor-billing-legal-name-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
@@ -47,6 +47,30 @@ interface AcceptanceRow {
   readonly acceptedLabel: string;
   /** A `grant` acceptance (AECI-1615): where and how it was given. `null` otherwise. */
   readonly grantLabel: string | null;
+  /** A claim's incorporated policy versions (AECI-1619). `null` unless both are recorded. */
+  readonly policiesLabel: string | null;
+  /** A checkout or grant row's recorded Plans page (AECI-1619). `null` when none is recorded. */
+  readonly plansPage: { readonly label: string; readonly href: string | null } | null;
+}
+
+/** "Policies: Listing Accuracy Policy 1.0, Review Guidelines 1.0" on a claim row (AECI-1619). */
+function policiesLabel(acceptance: VendorAgreementAcceptance): string | null {
+  const listing = acceptance.listing_accuracy_version;
+  const reviews = acceptance.review_guidelines_version;
+  if (listing === null || reviews === null) return null;
+  return $localize`:@@vendor.billing.agreements.policies:Policies: Listing Accuracy Policy ${listing}:LISTING_ACCURACY:, Review Guidelines ${reviews}:REVIEW_GUIDELINES:`;
+}
+
+/** "Plans page 1.0", linked to that version's snapshot, on a checkout or grant row (AECI-1619). */
+function plansPage(
+  acceptance: VendorAgreementAcceptance,
+): { readonly label: string; readonly href: string | null } | null {
+  const version = acceptance.plans_page_version;
+  if (version === null) return null;
+  return {
+    label: $localize`:@@vendor.billing.agreements.plansPage:Plans page ${version}:VERSION:`,
+    href: plansSnapshotHref(version),
+  };
 }
 
 /** The note under a grant acceptance's document: the source and the method. */
@@ -519,6 +543,29 @@ function documentLabel(document: string): string {
                           >{{ grantLabel }}</span
                         >
                       }
+                      @if (row.policiesLabel; as policies) {
+                        <span
+                          class="block text-xs text-(--text-secondary)"
+                          data-testid="acceptance-policies"
+                          >{{ policies }}</span
+                        >
+                      }
+                      @if (row.plansPage; as plans) {
+                        @if (plans.href; as plansHref) {
+                          <a
+                            [routerLink]="plansHref"
+                            class="block w-fit text-xs text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                            data-testid="acceptance-plans-page"
+                            >{{ plans.label }}</a
+                          >
+                        } @else {
+                          <span
+                            class="block text-xs text-(--text-secondary)"
+                            data-testid="acceptance-plans-page"
+                            >{{ plans.label }}</span
+                          >
+                        }
+                      }
                     </th>
                     <td class="py-3 pe-4 tabular-nums">
                       @if (row.href; as href) {
@@ -614,6 +661,8 @@ export class VendorBillingSection {
       href: acceptanceHref(acceptance.document, acceptance.version),
       acceptedLabel: formatTermDate(acceptance.accepted_at, this.locale),
       grantLabel: grantAcceptanceLabel(acceptance),
+      policiesLabel: policiesLabel(acceptance),
+      plansPage: plansPage(acceptance),
     })),
   );
 

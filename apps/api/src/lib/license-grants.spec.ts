@@ -3,6 +3,7 @@
  * specs cover the HTTP answers; this one pins the batch the activation builds.
  */
 
+import { PLANS_PAGE_CURRENT_VERSION, plansPageSha256 } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { agreementAcceptances, licenseGrants, licenses, profiles, vendors } from '../db/schema';
@@ -98,7 +99,13 @@ describe('activateLicenseGrantStatements', () => {
     const [grant] = await t.db.select().from(licenseGrants);
     expect(grant).toMatchObject({ status: 'accepted', acceptanceId: batch.acceptanceId });
     const [acceptance] = await t.db.select().from(agreementAcceptances);
-    expect(acceptance).toMatchObject({ id: batch.acceptanceId, licenseGrantId: GRANT });
+    expect(acceptance).toMatchObject({
+      id: batch.acceptanceId,
+      licenseGrantId: GRANT,
+      // AECI-1619: the Plans page current at activation.
+      plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+      plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+    });
     expect(await t.db.select().from(licenses)).toHaveLength(3);
   });
 

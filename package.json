@@ -31,6 +31,7 @@
     "docs:linear": "node scripts/mirror-docs-to-linear.mjs",
     "docs:notifications": "pnpm --filter @aeci/api run docs:notifications",
     "docs:notifications:check": "pnpm --filter @aeci/api run docs:notifications:check",
+    "docs:plans-snapshot": "pnpm --filter @aeci/web run docs:plans-snapshot",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm run test:unit && pnpm run test:integration",

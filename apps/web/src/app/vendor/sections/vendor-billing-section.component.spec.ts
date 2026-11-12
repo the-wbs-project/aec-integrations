@@ -11,6 +11,7 @@ import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ACCEPTANCES_FIXTURE,
   VENDOR_BILLING_FIXTURE,
+  VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE,
   VENDOR_ME_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -109,6 +110,33 @@ describe('VendorBillingSection', () => {
     // A th centres by default, and text-start on the table does not reach it.
     for (const th of headers) expect(th.classList).toContain('text-start');
     expect(table.querySelector('tbody th[scope="row"]')?.textContent).toContain('Vendor terms');
+  });
+
+  // AECI-1619 (counsel Q14, ruling 16): a claim names its policy versions, and a checkout
+  // or grant links the Plans page it recorded.
+  it("shows a claim's policy versions and a checkout's Plans page link", async () => {
+    getAcceptances.mockResolvedValue({
+      acceptances: [
+        VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE,
+        ...VENDOR_ACCEPTANCES_FIXTURE,
+        { ...VENDOR_ACCEPTANCES_FIXTURE[0]!, id: 'legacy', review_guidelines_version: null },
+      ],
+    });
+    const fixture = await create();
+    const el = fixture.nativeElement as HTMLElement;
+    const [checkout, claim, legacy] = [...el.querySelectorAll('[data-testid="acceptance-row"]')];
+
+    const plans = checkout!.querySelector('a[data-testid="acceptance-plans-page"]');
+    expect(plans?.textContent?.trim()).toBe('Plans page 1.0');
+    expect(plans?.getAttribute('href')).toBe('/docs/vendors/plans/v1.0');
+    expect(checkout!.querySelector('[data-testid="acceptance-policies"]')).toBeNull();
+
+    expect(claim!.querySelector('[data-testid="acceptance-policies"]')?.textContent?.trim()).toBe(
+      'Policies: Listing Accuracy Policy 1.0, Review Guidelines 1.0',
+    );
+    expect(claim!.querySelector('[data-testid="acceptance-plans-page"]')).toBeNull();
+    // Both versions or none: a row missing one names neither.
+    expect(legacy!.querySelector('[data-testid="acceptance-policies"]')).toBeNull();
   });
 
   it('shows an owner the intro and a Learn more link to the Billing page (AECI-1400)', async () => {

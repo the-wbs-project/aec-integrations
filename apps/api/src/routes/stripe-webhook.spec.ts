@@ -11,6 +11,8 @@ import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
 } from '@aeci/shared';
 import { eq, isNull } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -291,6 +293,51 @@ describe('events', () => {
       signerTitle: null,
       companyLegalName: null,
     });
+  });
+
+  // AECI-1619: the Plans page version round-trips from the session onto the row.
+  it('copies a known plans_version from the session and stamps its snapshot hash (AECI-1619)', async () => {
+    await post(
+      event('checkout.session.completed', {
+        id: 'cs_test_1',
+        mode: 'subscription',
+        customer: 'cus_1',
+        subscription: SUB,
+        customer_details: { email: 'buyer@acme.example' },
+        metadata: { ...stripeSub.metadata, plans_version: PLANS_PAGE_CURRENT_VERSION },
+      }),
+    );
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+      plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+      checkboxLabel: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+      listingAccuracyVersion: null,
+      reviewGuidelinesVersion: null,
+    });
+  });
+
+  it('a session from before plans_version, or naming an unknown one, records NULL (AECI-1619)', async () => {
+    await post(checkoutEvent());
+    await post(
+      event(
+        'checkout.session.completed',
+        {
+          id: 'cs_test_2',
+          mode: 'subscription',
+          customer: 'cus_1',
+          subscription: SUB,
+          customer_details: { email: 'buyer@acme.example' },
+          metadata: { ...stripeSub.metadata, plans_version: '9.9' },
+        },
+        'evt_unknown_plans',
+      ),
+    );
+    const rows = await t.db.select().from(agreementAcceptances);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toMatchObject({ plansPageVersion: null, plansPageSha256: null });
+    }
   });
 
   it('checkout.session.completed: acceptance, customer link, licenses and the email', async () => {

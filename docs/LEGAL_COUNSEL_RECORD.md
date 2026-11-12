@@ -199,7 +199,7 @@ A signed deal that names the agreement version can be sufficient acceptance on i
 - R4. One reminder goes out 7 days after the grant.
 - R5. A qualifying signed deal activates the grant at once, with no click.
 - R6. A ban-term product licensed before the accept gets its subscription unassigned in the pool, with a warning.
-- Ruling 16. Every acceptance row stores which checkbox was shown: the label's hash and whether it started unticked. Claim, checkout and portal grant rows write both. A signed deal writes neither, and so does a claim confirmed under an older vendor terms version.
+- Ruling 16. Every acceptance row stores which checkbox was shown: the label's hash and whether it started unticked. Claim, checkout and portal grant rows write both. A signed deal writes neither, and so does a claim confirmed under an older vendor terms version. *Built 2026-11-11 (AECI-1619):* after the 2026-11-11 ruling 16 below, each row also stores the label text itself, beside its hash.
 
 No prune deletes an acceptance or a grant row. A grant acceptance is kept at least five years from the day the grant's last subscription ends. A subscription ends at its lapse, revoke, release or Terminate, whichever comes first, so the scheduled end date alone does not set the floor. A grant never accepted is kept five years from its withdraw or expiry. The store is append-only in D1, not cryptographically tamper-evident. The Privacy Policy draft now says a grant acceptance records the IP address and browser.
 
@@ -443,6 +443,8 @@ Questions: (a) Are hyperlinked policies incorporated clearly enough to bind a ve
 (c) A Plans page link works for detail, not as the only statement of the bargain. It is marketing copy you can edit at will, so a capability dropped mid-term becomes a breach and a deceptive practice argument. List the core inclusions in the agreement or checkout record, seats, edit rights, term, price, headline features, and incorporate a dated snapshot of the Plans page into the acceptance record. Later changes apply at renewal.
 
 **What we did:** Policies incorporated by version in the checkbox documents; precedence limited to direct conflicts with named carve-outs; core inclusions listed; Plans snapshot in the acceptance record. Text branch 1; build AECI-1619.
+
+*Built 2026-11-11 (AECI-1619).* A line under the claim box names the Listing Accuracy Policy and the Review Guidelines with their versions, and the claim's acceptance row records both versions. The Plans page now has a version. Each version is kept as a dated snapshot file at `/docs/vendors/plans/v<version>`. A checkout or grant acceptance records the Plans version and a SHA-256 of that snapshot. Any change to the page, a capability or a price is a new version. The Managed plan agreement 1.1 now lists the core inclusions in "What a subscription is and does", edited in place without a bump. Counsel review of that sentence is pending on AECI-1363 (`DATABASE_SCHEMA.md` §8.6d).
 
 ### Q15. Conspicuous formatting for the liability cap and disclaimers
 
@@ -1086,7 +1088,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 13. **Jury waiver (Q35).** Mutual jury-trial waiver in the Managed plan agreement and the Vendor Terms only, not the Terms of Service.
 14. **Connector-delivered integrations (2026-11-09).** Claim, edit and contest are open to every claimed owner, with no Managed gate (AECI-1663, text item 12.17).
 15. **Tamper-evident acceptance record (AECI-1615 review, 2026-11-11).** Yes: a nightly export of acceptance and grant rows to a versioned R2 bucket with a running hash. Not yet built.
-16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row stores the label text itself, not a hash, and a flag that the box started unticked. Not yet built.
+16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row stores the label text itself, not a hash, and a flag that the box started unticked. Built 2026-11-11 (AECI-1619): `checkbox_label` holds the text, and the hash column stays beside it.
 17. **Retention clause in text item 13.5 (2026-11-11).** Yes: 'or five years after a granted subscription ends, if later'.
 18. **Direction of the liability cap (Q39, 2026-11-11).** One-way: the cap and the lost-profits exclusion limit what we can owe, not what the vendor owes (items 13.6 and 13.7).
 19. **Jury waiver acknowledgment (Q39, 2026-11-11).** No separate acknowledgment beyond the labelled bold paragraph and the required box.

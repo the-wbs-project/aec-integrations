@@ -90,6 +90,8 @@ import {
 import {
   agreementAcceptanceStatements,
   claimBoxFor,
+  currentPolicyVersions,
+  type AcceptancePolicyVersions,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
@@ -356,7 +358,12 @@ export interface CreateRequestOptions {
   requestId?: string;
   /** The vendor terms evidence captured at submit: the version shown, the IP and the
    *  user agent. The acceptance's time is the confirm's. */
-  acceptance?: { version: string; evidence: AcceptanceRequestEvidence };
+  acceptance?: {
+    version: string;
+    /** AECI-1619: the policy versions stored at submit, or null on a legacy row. */
+    policyVersions: AcceptancePolicyVersions | null;
+    evidence: AcceptanceRequestEvidence;
+  };
   /** Statements appended to the batch (the confirmed-row update and its audit row),
    *  and their audit entries for the post-commit forward. */
   extra?: { stmts: BatchStmt[]; auditEntries: AuditLogEntry[] };
@@ -465,6 +472,10 @@ async function createRequest(
           checkbox: claimBoxFor(
             opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
           ),
+          // AECI-1619: the policy versions the box named. A confirm carries the submit's.
+          policyVersions: opts.acceptance
+            ? opts.acceptance.policyVersions
+            : currentPolicyVersions(),
           actorId: null,
           actorType: 'user',
         })

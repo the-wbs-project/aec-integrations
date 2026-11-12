@@ -51,6 +51,9 @@ import {
   EMPTY_CONTESTABLE_FIELDS,
   EMPTY_SIDE_LINKS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
 } from '@aeci/shared';
 
 /**
@@ -2571,5 +2574,33 @@ export const VENDOR_ACCEPTANCES_FIXTURE: readonly VendorAgreementAcceptance[] = 
     // The claim form's vendor terms box (ruling 16).
     checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
     checkbox_default_unticked: true,
+    // AECI-1619: the label text, and the policy versions the claim box named.
+    checkbox_label: AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+    listing_accuracy_version: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+    review_guidelines_version: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+    plans_page_version: null,
+    plans_page_sha256: null,
   },
 ];
+
+/**
+ * A card checkout's Managed plan acceptance (AECI-1619): the box's label, and the Plans
+ * page version and snapshot hash current at checkout. Not in `VENDOR_ACCEPTANCES_FIXTURE`,
+ * so the specs that count that list keep one row. The preview dashboard lists it.
+ */
+export const VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE: VendorAgreementAcceptance = {
+  ...VENDOR_ACCEPTANCES_FIXTURE[0]!,
+  id: '00000000-0000-4000-8000-0000000054b2',
+  document: 'managed_plan',
+  version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+  source: 'checkout',
+  stripe_checkout_session_id: 'cs_test_preview_0001',
+  accepted_at: '2026-11-10T16:20:00.000Z',
+  checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
+  checkbox_default_unticked: true,
+  checkbox_label: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+  listing_accuracy_version: null,
+  review_guidelines_version: null,
+  plans_page_version: PLANS_PAGE_CURRENT_VERSION,
+  plans_page_sha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+};

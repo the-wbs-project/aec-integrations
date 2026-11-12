@@ -43,7 +43,9 @@
  * `aria-current="page"`. On the General guide it starts at "Help center". On
  * the vendor guide it starts at the vendor guide itself, which is also its one
  * section. On an article the trail stops at the section, as DeepWiki's does,
- * and the right side shows the page's pre-formatted "Last updated" line.
+ * and the right side shows the page's pre-formatted "Last updated" line. A
+ * recorded Plans version (`/docs/vendors/plans/v1.0`, AECI-1619) is in its page's
+ * guide, and its trail runs to the page, then names the version.
  *
  * Static, SSR-safe and edge-cached with its children: every value here comes
  * from the bundled manifest and the URL, never from the visitor. Light only.
@@ -337,7 +339,26 @@ export function locate(
   sections: readonly DocsSection[] = DOCS_SECTIONS,
 ): DocsLocation {
   const home = $localize`:@@app.docs.breadcrumbs.helpCenter:Help center`;
-  const page = sections.flatMap((entry) => entry.pages).find((entry) => entry.path === path);
+  const pages = sections.flatMap((entry) => entry.pages);
+  const page = pages.find((entry) => entry.path === path);
+  // A recorded version of a page (`/docs/vendors/plans/v1.0`, AECI-1619) sits in
+  // that page's guide. Its trail runs to the page, then names the version.
+  const versionOf = page
+    ? undefined
+    : pages.find((entry) => entry.version !== undefined && path.startsWith(`${entry.path}/v`));
+  const owner = versionOf && sections.find((entry) => entry.id === versionOf.section);
+  if (versionOf && owner) {
+    const version = path.slice(versionOf.path.length + 2);
+    const trail: Crumb[] = [
+      { label: owner.label, path: owner.path },
+      { label: versionOf.title, path: versionOf.path },
+      { label: $localize`:@@app.docs.breadcrumbs.version:Version ${version}:VERSION:` },
+    ];
+    return {
+      guide: owner.guide,
+      crumbs: owner.guide === 'vendor' ? trail : [{ label: home, path: '/docs' }, ...trail],
+    };
+  }
   const section = page
     ? sections.find((entry) => entry.id === page.section)
     : sections.find((entry) => entry.hasIndex && entry.path === path);
