@@ -94,6 +94,7 @@ import {
   type StripeSubscriptionStatus,
 } from './stripe';
 import { effectiveAtMsOf } from './legal-acceptance';
+import { loadLegalInForce } from './legal-in-force';
 import { fetchAuthUserEmails } from './supabase-admin';
 import {
   firstUncoveredVersion,
@@ -235,6 +236,13 @@ export interface SubscriptionSyncContext {
    * catch-up. Absent: the versions are left alone.
    */
   renewalVersions?: ReadonlyMap<string, string>;
+  /**
+   * The version a renewal grants when no license on the subscription was live: the version
+   * in force at the charge moment (AECI-1690). Such a renewal re-creates the subscriptions,
+   * which is closest to a new purchase, so neither the original checkout's metadata nor a
+   * sibling applies.
+   */
+  freshTermsVersion?: string;
   /** `stripeLicenseIds` for the delta. */
   grantLicenseIds: readonly string[];
   noCarryProductIds?: ReadonlySet<string>;
@@ -308,7 +316,9 @@ export function syncSubscriptionLicensesStatements(
       ctx.vendorLicenses
         .filter((l) => l.endedAt === null && l.stripeSubscriptionId === sub.id)
         .map((l) => renewalVersions?.get(l.id) ?? l.termsVersion),
-    ) ?? metadataVersion;
+    ) ??
+    (mode === 'live' ? ctx.freshTermsVersion : undefined) ??
+    metadataVersion;
   return syncStripeLicensesStatements(db, {
     vendorId: ctx.vendorId,
     now: ctx.now,
@@ -372,7 +382,7 @@ export function renewalVersionsFor(
     if (catchUp) {
       const began = Date.parse(l.startsAt);
       if (!Number.isFinite(began) || began >= periodStartMs) continue;
-      const at = effectiveAtMsOf('managed_plan', next, binding.published);
+      const at = effectiveAtMsOf('managed_plan', next, binding.published, binding.maps);
       if (at === null || at > periodStartMs) continue;
     }
     out.set(l.id, next);
@@ -660,6 +670,12 @@ export async function runStripeSubscriptionSync(
     renewalVersions = binding
       ? renewalVersionsFor(sub.id, vendorLicenses, binding, moment.getTime(), catchUp)
       : new Map();
+    // A renewal with nothing live re-creates the subscriptions: the version in force at the
+    // charge, through the one rule, as a new purchase would stamp.
+    const freshTermsVersion =
+      renewing && live.length === 0
+        ? (await loadLegalInForce(db, moment, opts.legalMaps)).agreements.managed_plan
+        : undefined;
     // A catch-up that moves nothing is no renewal at all.
     if (catchUp && renewalVersions.size === 0) binding = null;
     caughtUp = catchUp && binding !== null;
@@ -672,6 +688,7 @@ export async function runStripeSubscriptionSync(
       now: nowIso,
       source: opts.source,
       ...(binding ? { renewalVersions } : {}),
+      ...(freshTermsVersion !== undefined ? { freshTermsVersion } : {}),
       grantLicenseIds,
       noCarryProductIds,
       extraMetadata: opts.extraMetadata,
@@ -816,7 +833,7 @@ function stateTermsVersion(state: unknown): string | null | undefined {
  */
 export function unacceptedTermsCrossed(
   auditEntries: readonly AuditLogEntry[],
-  binding: Pick<LoadedTermsBinding, 'published' | 'accepted'>,
+  binding: Pick<LoadedTermsBinding, 'published' | 'accepted'> & { maps?: LegalInForceMaps },
   boundBefore: string | null,
 ): string | null {
   for (const entry of auditEntries) {
@@ -824,7 +841,13 @@ export function unacceptedTermsCrossed(
     if (!after) continue;
     const before = entry.beforeState ? (stateTermsVersion(entry.beforeState) ?? null) : boundBefore;
     if (before === after) continue;
-    const crossed = firstUncoveredVersion(before, after, binding.published, binding.accepted);
+    const crossed = firstUncoveredVersion(
+      before,
+      after,
+      binding.published,
+      binding.accepted,
+      binding.maps,
+    );
     if (crossed) return crossed;
   }
   return null;

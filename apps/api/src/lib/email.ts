@@ -1739,7 +1739,7 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
     case 'vendor-terms':
       return `If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
     case 'vendor-terms-accept':
-      return `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the version your company last accepted keeps applying.`;
+      return `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.`;
     case 'managed-monthly-accept':
       return `For this change we ask an owner seat at your company to accept version ${version} in the vendor portal.`;
     case 'managed-binds':

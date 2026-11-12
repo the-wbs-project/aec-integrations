@@ -753,7 +753,7 @@ function newVersionReader(
         .sort(compareLegalVersions);
       const binds = moving[0];
       // A draft in code never has a row, so nothing is read for it.
-      if (binds === undefined || isDraftInCode('managed_plan', binds)) return null;
+      if (binds === undefined || isDraftInCode('managed_plan', binds, maps)) return null;
       let entry = byVersion.get(binds);
       if (!entry) {
         entry = load(binds);

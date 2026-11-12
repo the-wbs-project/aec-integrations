@@ -1212,6 +1212,24 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
     expect(rows.map((r) => r.termsVersion)).toEqual(['1.2', '1.2']);
   });
 
+  it('a renewal with no live license grants the version in force at the charge, not the metadata', async () => {
+    await publish(false);
+    await seedLicense('l-1', {
+      endsAt: null,
+      termsVersion: '1.1',
+      endedAt: '2027-02-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
+    // The metadata still names the original checkout's 1.1; 1.2 is in force at the charge.
+    await run(periodSub('month', MOMENT + 86_400_000, 1), {
+      renewal: true,
+      now: AFTER,
+      legalMaps: MAPS,
+    });
+    const live = (await allLicenses()).filter((l) => l.endedAt === null);
+    expect(live.map((l) => l.termsVersion)).toEqual(['1.2']);
+  });
+
   it('a new checkout keeps the version it was sold under', async () => {
     const sub = periodSub('month', MOMENT, 1);
     await run(sub, { now: AFTER, legalMaps: MAPS });

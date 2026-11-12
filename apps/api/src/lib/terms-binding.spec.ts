@@ -318,6 +318,70 @@ describe('loadTermsBinding on D1 (AECI-1690)', () => {
   });
 });
 
+describe('a published row whose date moved after the publish (AECI-1689 mismatch)', () => {
+  // The manifest says 1.3 takes effect 2027-03-01. The row says 2027-02-01: the date moved
+  // after the publish, so the row is final nowhere and 1.3 is in force nowhere.
+  const m = maps('1.2', { version: '1.3', effectiveOn: '2027-03-01' });
+  const moved = row('1.3', '2027-02-01', true);
+  const at = MOMENT + 10 * DAY;
+
+  it('annual and monthly: nothing binds and nothing is withheld', () => {
+    for (const interval of ['year', 'month'] as const) {
+      expect(bind({ maps: m, interval, published: [moved], renewalAtMs: at })).toEqual({
+        version: '1.2',
+        withheld: null,
+        unannounced: null,
+      });
+    }
+    expect(firstUncoveredVersion('1.2', '1.3', [moved], [], m)).toBeNull();
+  });
+
+  describe('on D1', () => {
+    let t: TestDb;
+    const VENDOR = '11111111-1111-4111-8111-111111111111';
+    beforeEach(async () => {
+      t = await makeTestDb();
+      await t.db.insert(vendors).values({ id: VENDOR, slug: 'acme', companyName: 'Acme' });
+      await t.db.insert(legalVersions).values({
+        document: 'managed_plan',
+        version: '1.3',
+        effectiveAt: legalEffectiveAtMs('2027-02-01'),
+        summaryJson: '[]',
+        material: true,
+        requiresAcceptance: true,
+        pdfKey: 'legal/managed-plan-agreement/v1.3.pdf',
+        pdfSha256: '0'.repeat(64),
+        pdfBytes: 10,
+        publishedBy: 'admin',
+        publishedAt: LONG_AGO,
+      });
+      // An acceptance of 1.3 exists, but it is never read: no version needs one.
+      await t.db.insert(agreementAcceptances).values({
+        id: crypto.randomUUID(),
+        document: 'managed_plan',
+        version: '1.3',
+        source: 'portal',
+        email: 'owner@acme.example',
+        vendorId: VENDOR,
+        acceptedAt: LONG_AGO,
+      });
+    });
+    afterEach(() => t.dispose());
+
+    it.each(['month', 'year'] as const)('%s: keeps 1.2, reads no acceptance', async (interval) => {
+      const b = await loadTermsBinding(t.db, {
+        vendorId: VENDOR,
+        interval,
+        renewalAt: new Date(at),
+        boundVersions: ['1.2'],
+        maps: m,
+      });
+      expect(b.bindFrom('1.2')).toEqual({ version: '1.2', withheld: null, unannounced: null });
+      expect(b.accepted).toEqual([]);
+    });
+  });
+});
+
 describe('no Stripe write on the terms path (AECI-1690)', () => {
   const src = (file: string) => readFileSync(join(process.cwd(), 'src', 'lib', file), 'utf8');
 

@@ -269,7 +269,8 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
      reconcile completes a charge whose `invoice.paid` was missed, by the same rule;
    - never lower than the version a subscription carries; a new checkout, a grant, a complimentary
      or a pilot subscription are not renewals and keep their own rules. A subscription that began
-     in the current period is not rebound by the reconcile.
+     in the current period is not rebound by the reconcile. A renewal that finds no live
+     subscription re-creates them on the version in force at the charge, as a new purchase would.
    `aeci.billing.unaccepted_terms_charge` is a tripwire for a charge that still left a subscription on
    an unaccepted version (`RUNBOOKS.md` "Unaccepted terms charge"). An opt-out is a cancel at period
    end, by the owner in the portal or by an operator on request (`RUNBOOKS.md` "Stripe: annual

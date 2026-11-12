@@ -138,7 +138,7 @@ function lowestTermsVersion(versions: readonly (string | null)[]): string | null
 function codeVersions(maps: LegalInForceMaps): string[] {
   const upcoming = maps.agreementUpcoming[DOC];
   return [
-    ...(LEGAL_AGREEMENT_KNOWN_VERSIONS[DOC] as readonly string[]),
+    ...((maps.agreementKnown ?? LEGAL_AGREEMENT_KNOWN_VERSIONS)[DOC] as readonly string[]),
     maps.agreementCurrent[DOC],
     ...(upcoming ? [upcoming.version] : []),
   ];
@@ -159,11 +159,19 @@ function rowOf(version: string, published: readonly PublishedVersionLite[]) {
   return published.find((r) => r.document === DOC && r.version === version);
 }
 
-/** Whether `version` has a published, final row that needs an acceptance. */
-function needsAcceptance(version: string, published: readonly PublishedVersionLite[]): boolean {
+/**
+ * Whether `version` has a published, final row that needs an acceptance. A row whose date
+ * moved after the publish (`legalPublishedRowMismatched`) is not final (`effectiveAtMsOf`,
+ * AECI-1689), so it never needs one: it is in force nowhere.
+ */
+function needsAcceptance(
+  version: string,
+  published: readonly PublishedVersionLite[],
+  maps: LegalInForceMaps,
+): boolean {
   return (
     rowOf(version, published)?.requiresAcceptance === true &&
-    effectiveAtMsOf(DOC, version, published) !== null
+    effectiveAtMsOf(DOC, version, published, maps) !== null
   );
 }
 
@@ -211,7 +219,8 @@ export function firstUncoveredVersion(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): string | null {
   for (const v of versionsBetween(allVersions(maps, published), from, to)) {
-    if (needsAcceptance(v, published) && !acceptanceCovers(DOC, v, accepted, published)) return v;
+    if (needsAcceptance(v, published, maps) && !acceptanceCovers(DOC, v, accepted, published, maps))
+      return v;
   }
   return null;
 }
@@ -232,8 +241,8 @@ export function bindTermsVersion(input: TermsBindingInput): TermsBinding {
     }
     if (
       input.interval === 'month' &&
-      needsAcceptance(v, published) &&
-      !acceptanceCovers(DOC, v, accepted, published)
+      needsAcceptance(v, published, maps) &&
+      !acceptanceCovers(DOC, v, accepted, published, maps)
     ) {
       return { version: last, withheld: v, unannounced: null };
     }
@@ -253,7 +262,7 @@ export function termsRowsMayMatter(
   return (
     legalInForceNeedsPublished(atMs, maps) ||
     versionsBetween(codeVersions(maps), lowest, maps.agreementCurrent[DOC]).some(
-      (v) => !isDraftInCode(DOC, v),
+      (v) => !isDraftInCode(DOC, v, maps),
     )
   );
 }
@@ -290,6 +299,8 @@ export interface LoadedTermsBinding {
   accepted: readonly TermsAcceptedRow[];
   /** The bind for a license carrying `version`. */
   bindFrom(version: string | null): TermsBinding;
+  /** The maps it was decided with, for a caller that dates a version (`effectiveAtMsOf`). */
+  maps: LegalInForceMaps;
 }
 
 /**
@@ -309,7 +320,7 @@ export async function loadTermsBinding(
   const needAccepted =
     req.interval === 'month' &&
     versionsBetween(allVersions(maps, published), lowest, target).some((v) =>
-      needsAcceptance(v, published),
+      needsAcceptance(v, published, maps),
     );
   const accepted: TermsAcceptedRow[] = needAccepted
     ? await db
@@ -332,6 +343,7 @@ export async function loadTermsBinding(
   return {
     published,
     accepted,
+    maps,
     bindFrom: (version) =>
       bindTermsVersion({
         interval: req.interval,

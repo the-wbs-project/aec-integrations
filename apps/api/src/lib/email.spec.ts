@@ -4773,7 +4773,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
   it('Vendor Terms needing acceptance asks an owner seat and links the company portal', async () => {
     const { text } = await render({ closing: 'vendor-terms-accept' });
     expect(text).toContain(
-      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal. Until an owner seat accepts, the version your company last accepted keeps applying.',
+      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.',
     );
     expect(text).toMatch(
       /Open the vendor portal: https:\/\/www\.aecintegrations\.com\/vendor\/bentley\?/,

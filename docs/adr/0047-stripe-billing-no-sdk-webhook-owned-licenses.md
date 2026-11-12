@@ -55,6 +55,8 @@ The Worker has constraints that shape the answers. It holds about six pending co
    | Subscriptions on one Stripe subscription that carry different versions | Each walks from its own version: on 1.2 and 1.4 with 1.3 unaccepted, the first stays on 1.2 and the second on 1.4. |
    | Any case | Never lower than the version the subscription carries. Version order is numeric. |
    | New checkout | Not a renewal: the version in force at request time (AECI-1689). |
+   | A renewal on a Stripe subscription with no live subscription left | It re-creates them, which is closest to a new purchase: the version in force at the charge moment (`loadLegalInForce`), not the original checkout's metadata. |
+   | A published row whose date moved after the publish (`legalPublishedRowMismatched`, AECI-1689) | In force nowhere: it never binds and never withholds. |
    | Subscriptions added to a live Stripe subscription | The highest version its live subscriptions carry, not the original checkout's metadata. No acceptance is recorded: the add is a quantity change. |
    | Grant, complimentary, pilot | Not Stripe, untouched: a grant keeps its grant-date version for its term (AECI-1615). |
 
