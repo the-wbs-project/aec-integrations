@@ -1882,6 +1882,27 @@ export interface EntitlementExpirySubject {
   renewingLicenseCount: number;
   /** A license accepted an older Managed plan agreement version (decision 9). */
   termsChange: boolean;
+  /**
+   * The published Managed plan agreement version this renewal binds, when it differs from
+   * the version the renewing subscriptions carry (AECI-1690, the agreement's "Changes to
+   * this agreement"). Absent: no published version binds, and only the `termsChange`
+   * line shows.
+   */
+  newVersion?: RenewalNoticeVersion;
+}
+
+/** A new agreement version in the renewal notice (AECI-1690). */
+export interface RenewalNoticeVersion {
+  version: string;
+  /** `YYYY-MM-DD`, the UTC day of its effective moment. */
+  effectiveDay: string;
+  /** Whether that moment has already come at the send. Decides the tense only. */
+  inForce: boolean;
+  /** The summary bullets, plain text as stored. Escaped in the HTML part. */
+  summary: readonly string[];
+  /** The PDF, base64, after its hash matched the published row. `null`: no attachment,
+   *  and the notice says nothing of one. */
+  pdfBase64: string | null;
 }
 
 /** "in 30 days" / "today" / "30 days ago" — the admin body's term phrase. */
@@ -1998,9 +2019,25 @@ export function sendEntitlementExpiringEmail(
       : renewing > 0
         ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your subscriptions, reply to this email.`
         : `${release} Or reply to this email to reduce your subscriptions.`;
-  // Decision 9: a new agreement version binds at the next renewal, announced here.
-  const terms = opts.termsChange
-    ? `A new version of the Managed plan agreement applies from ${date}.`
+  // Decision 9: a new agreement version binds at the next renewal, announced here. A
+  // published version gets the full block below instead (AECI-1690).
+  const newVersion = opts.newVersion ?? null;
+  const terms =
+    opts.termsChange && !newVersion
+      ? `A new version of the Managed plan agreement applies from ${date}.`
+      : null;
+  // AECI-1690, "Changes to this agreement": the notice names the version and its effective
+  // date, summarizes every material change, links the archived text of that version, and
+  // attaches a copy. The link is the fixed copy, never the living page.
+  const versionUrl =
+    newVersion && site
+      ? `${site}${legalVersionPagePath('managed_plan', newVersion.version)}`
+      : null;
+  const versionLead = newVersion
+    ? `Version ${newVersion.version} of the Managed plan agreement ${newVersion.inForce ? 'took' : 'takes'} effect on ${formatLongDay(newVersion.effectiveDay)}. It applies to your subscriptions from the renewal on ${date}.`
+    : null;
+  const versionPdf = newVersion?.pdfBase64
+    ? `A PDF copy of version ${newVersion.version} is attached so you can save it.`
     : null;
   const stance =
     "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
@@ -2010,9 +2047,30 @@ export function sendEntitlementExpiringEmail(
   // House layout: the portal is the one button, the plans page and the agreement stay
   // inline links, and the stance moves to the small print.
   const render = (link: LinkTagger): EmailContent => {
-    const paragraphs = [lead, coverage, ask, onEnd, ...(reduce ? [reduce] : [])];
-    const text = [...paragraphs];
-    const html = paragraphs.map(escapeHtml);
+    const text = [lead];
+    const html = [escapeHtml(lead)];
+    // AECI-1690: the new version comes straight after the lead, before the price.
+    if (newVersion && versionLead) {
+      text.push(versionLead);
+      html.push(escapeHtml(versionLead));
+      if (newVersion.summary.length > 0) {
+        const bullets = bulletBlock(newVersion.summary);
+        text.push('What changes:', bullets.text);
+        html.push(escapeHtml('What changes:'), bullets.html);
+      }
+      if (versionUrl) {
+        const tagged = link(versionUrl);
+        text.push(`Read version ${newVersion.version}: ${tagged}`);
+        html.push(inlineLink(tagged, `Read version ${newVersion.version}`));
+      }
+      if (versionPdf) {
+        text.push(versionPdf);
+        html.push(escapeHtml(versionPdf));
+      }
+    }
+    const paragraphs = [coverage, ask, onEnd, ...(reduce ? [reduce] : [])];
+    text.push(...paragraphs);
+    html.push(...paragraphs.map(escapeHtml));
     if (terms) {
       if (agreementPage) {
         const tagged = link(agreementPage);
@@ -2041,12 +2099,26 @@ export function sendEntitlementExpiringEmail(
     );
   };
 
+  const pdfBase64 = newVersion?.pdfBase64 ?? null;
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'entitlement-expiring',
     subject,
     render,
     ...(support ? { replyTo: support } : {}),
+    // A send with an attachment blind-copies no one, so the operator gets a separate
+    // `COPY:` with the same body and no attachment (AECI-1690).
+    ...(newVersion && pdfBase64
+      ? {
+          attachments: [
+            {
+              filename: legalNoticeAttachmentName('managed_plan', newVersion.version),
+              content: pdfBase64,
+            },
+          ],
+          operatorCopy: { notification: 'entitlement-expiring-operator-copy', render },
+        }
+      : {}),
   });
 }
 
@@ -4270,6 +4342,9 @@ export interface StripeReconcileChangeSummary {
   acceptanceBackfilled: boolean;
   /** The run set the empty billing email to the buyer's, as the checkout webhook would. */
   billingEmailBackfilled: boolean;
+  /** The Managed plan agreement version the monthly catch-up bound (AECI-1690). Absent or
+   *  `null`: none. */
+  termsBound?: string | null;
 }
 
 /**
@@ -4300,6 +4375,12 @@ export function sendStripeReconcileAlert(
       }
       if (r.billingEmailBackfilled) {
         detail.push(['Billing email', 'set from the Checkout Session']);
+      }
+      if (r.termsBound) {
+        detail.push([
+          'Agreement version',
+          `bound to ${r.termsBound}: a missed monthly renewal, or an acceptance after the charge`,
+        ]);
       }
       if (base && r.vendorId) {
         detail.push([

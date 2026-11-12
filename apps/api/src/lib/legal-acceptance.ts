@@ -98,11 +98,12 @@ function effectiveOnMap(
   return (maps.agreementEffectiveOn ?? LEGAL_AGREEMENT_EFFECTIVE_ON)[document];
 }
 
-/** Whether the code map lists `version` as a draft: present, and `null`. */
-function isDraftInCode(
+/** Whether the code map lists `version` as a draft: present, and `null`. A draft is never
+ *  final, so it never needs an acceptance (the renewal bind, `lib/terms-binding.ts`). */
+export function isDraftInCode(
   document: LegalAgreementDocument,
   version: string,
-  maps: LegalInForceMaps,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): boolean {
   const map = effectiveOnMap(document, maps);
   return Object.hasOwn(map, version) && map[version] === null;

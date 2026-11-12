@@ -151,6 +151,8 @@ export type StripeSubscription = {
   items: { data: StripeSubscriptionItem[]; has_more?: boolean };
   /** Unix seconds. Only on API versions before 2025-03-31.basil. */
   current_period_end?: number;
+  /** Unix seconds. Only on API versions before 2025-03-31.basil. */
+  current_period_start?: number;
   latest_invoice?: string | StripeInvoice | null;
   /**
    * Set when an update sent with `payment_behavior=pending_if_incomplete` is waiting on
@@ -296,6 +298,12 @@ export function subscriptionInterval(sub: StripeSubscription): StripeRecurringIn
  */
 export function subscriptionCurrentPeriodEnd(sub: StripeSubscription): number | null {
   return firstItem(sub)?.current_period_end ?? sub.current_period_end ?? null;
+}
+
+/** `current_period_start` in Unix seconds, read as {@link subscriptionCurrentPeriodEnd}. The
+ *  moment a renewal charge binds an agreement version at (AECI-1690). */
+export function subscriptionCurrentPeriodStart(sub: StripeSubscription): number | null {
+  return firstItem(sub)?.current_period_start ?? sub.current_period_start ?? null;
 }
 
 /** The subscription id an invoice belongs to, from either API-version location. */

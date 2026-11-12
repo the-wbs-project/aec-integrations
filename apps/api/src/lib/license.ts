@@ -685,8 +685,9 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
   /** The new reference. Absent = leave alone; `null` clears it. */
   reference?: string | null;
   /**
-   * The Managed agreement version to bind (AECI-1500, ruling R1): a Stripe renewal
-   * binds the CURRENT version to every license it renews. Absent = leave alone.
+   * The Managed agreement version to bind (AECI-1500, ruling R1): a Stripe renewal binds
+   * the version `loadTermsBinding` decided (AECI-1690) to every license it renews. Absent =
+   * leave alone.
    */
   termsVersion?: string | null;
   /**
@@ -1402,10 +1403,12 @@ export interface SyncStripeLicensesParams extends LicenseWriteContext {
   quantity: number;
   /** Annual: the period end. Monthly: `null`. Read on `live` only. */
   endsAt: string | Date | null;
-  /** The version a NEW license records: the subscription metadata's `terms_version`. */
+  /** The version a NEW license records: the renewal's bound version, else the version
+   *  the subscription's live licenses carry, else the subscription metadata's
+   *  `terms_version` (AECI-1690, `lib/stripe-licenses.ts`). */
   termsVersion: string | null;
-  /** A renewal (`invoice.paid` with `billing_reason = subscription_cycle`) binds this
-   *  version to every license it keeps (ruling R1). Absent: versions are left alone. */
+  /** A renewal binds this version to every license it keeps (ruling R1, AECI-1690:
+   *  `loadTermsBinding` decides it). Absent: versions are left alone. */
   renewalTermsVersion?: string;
   /** The subscription's `cancel_at_period_end`. `null` leaves every cancel flag as it
    *  is (the ban hook's own cancel, `lib/stripe-licenses.ts`). */

@@ -763,6 +763,30 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         termsChange: true,
       }),
   },
+  // AECI-1690: the renewal notice with a new agreement version and its PDF sends the
+  // operator a separate COPY: (no bcc on an attachment send).
+  'entitlement-expiring-operator-copy': {
+    links: true,
+    send: (c) =>
+      sendEntitlementExpiringEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        periodEndDay: '2027-11-01',
+        daysRemaining: 45,
+        licenseCount: 1,
+        productNames: ['MicroStation'],
+        sources: ['stripe'],
+        renewingLicenseCount: 1,
+        termsChange: true,
+        newVersion: {
+          version: '1.2',
+          effectiveDay: '2027-10-01',
+          inForce: false,
+          summary: ['The refund window is 30 days.'],
+          pdfBase64: 'JVBERi0xLjQK',
+        },
+      }),
+  },
   'licenses-granted': {
     links: true,
     send: (c) =>

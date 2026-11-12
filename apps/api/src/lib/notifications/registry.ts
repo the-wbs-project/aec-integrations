@@ -803,8 +803,23 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary:
-      "The 45-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), the charge when card subscriptions renew, any new Managed plan agreement version, and how to opt out or reduce. A card term the vendor cancelled reads as ending, with no further charge.",
-    note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
+      "The 45-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), the charge when card subscriptions renew, any new Managed plan agreement version, and how to opt out or reduce. A card term the vendor cancelled reads as ending, with no further charge. When a published agreement version binds at the renewal, the notice names it and its effective date, lists its summary, links /legal/managed-plan-agreement/v<version> and attaches its PDF.",
+    note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16). The PDF is attached only when its bytes match the published hash. A missing or changed file sends the notice without it and logs an error naming the version (AECI-1690). A send with the PDF blind-copies no one, so the operator gets entitlement-expiring-operator-copy instead.",
+  },
+  'entitlement-expiring-operator-copy': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: { kind: 'cron', ref: '0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts)' },
+    envRule: 'any-tier',
+    dedupe:
+      'Sent only after an entitlement-expiring send with the agreement PDF attached was sent.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
+    summary:
+      'Sends the EMAIL_BCC list a COPY: of a renewal notice that carries a new Managed plan agreement version, without the PDF.',
+    note: 'AECI-1690. Not counted in aeci.email.send. A failed copy only warns. Always on as an entry: the support-copy switch is its control, not a switch of its own.',
   },
   'entitlement-expiring-admin': {
     channel: 'email',

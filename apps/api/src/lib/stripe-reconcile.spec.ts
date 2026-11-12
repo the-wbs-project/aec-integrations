@@ -6,8 +6,11 @@
 
 import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_IN_FORCE_MAPS,
+  legalEffectiveAtMs,
   PLANS_PAGE_CURRENT_VERSION,
   plansPageSha256,
+  type LegalInForceMaps,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +19,7 @@ import {
   agreementAcceptances,
   auditLog,
   billingAccounts,
+  legalVersions,
   licenses,
   profiles,
   vendors,
@@ -222,9 +226,13 @@ function deps(stripe: StripeClient | null): StripeReconcileDeps {
   };
 }
 
-async function reconcile(stripe: StripeClient | null, env: Env = ENV) {
+async function reconcile(
+  stripe: StripeClient | null,
+  env: Env = ENV,
+  over: Partial<StripeReconcileDeps> = {},
+) {
   const { c, settle } = emailContext(env);
-  const result = await runStripeReconcile(c, t.db, deps(stripe));
+  const result = await runStripeReconcile(c, t.db, { ...deps(stripe), ...over });
   await settle();
   return result;
 }
@@ -293,6 +301,7 @@ describe('runStripeReconcile', () => {
             banCancelledNow: false,
             acceptanceBackfilled: false,
             billingEmailBackfilled: false,
+            termsBound: null,
           },
         ],
         dedupeKey: stripeReconcileAlertKey('2026-10-29', [SUB]),
@@ -748,5 +757,115 @@ describe('runStripeReconcile', () => {
 
     await expect(reconcile(client)).rejects.toThrow(/list subscriptions/);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+// ─── AECI-1690: the monthly catch-up ─────────────────────────────────────────
+
+describe('runStripeReconcile: the monthly agreement-version catch-up (AECI-1690)', () => {
+  const MOMENT = legalEffectiveAtMs('2027-03-01');
+  const MAPS = {
+    ...LEGAL_IN_FORCE_MAPS,
+    agreementCurrent: { ...LEGAL_IN_FORCE_MAPS.agreementCurrent, managed_plan: '1.1' },
+    agreementUpcoming: { managed_plan: { version: '1.2', effectiveOn: '2027-03-01' } },
+  } satisfies LegalInForceMaps;
+  const RUN_AT = new Date(MOMENT + 3 * 86_400_000);
+
+  function monthly(startMs: number): StripeSubscription {
+    const start = Math.floor(startMs / 1000);
+    const sub = subscription({ quantity: 1 });
+    sub.metadata = { ...sub.metadata, terms_version: '1.1' };
+    sub.items.data[0] = {
+      ...sub.items.data[0]!,
+      price: { id: 'price_m', recurring: { interval: 'month' } },
+      current_period_start: start,
+      current_period_end: start + 30 * 86_400,
+    };
+    return sub;
+  }
+
+  async function publish(requiresAcceptance: boolean) {
+    await t.db.insert(legalVersions).values({
+      document: 'managed_plan',
+      version: '1.2',
+      effectiveAt: MOMENT,
+      summaryJson: '[]',
+      material: true,
+      requiresAcceptance,
+      pdfKey: 'legal/managed-plan-agreement/v1.2.pdf',
+      pdfSha256: '0'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: 'admin',
+      publishedAt: '2027-01-15T00:00:00.000Z',
+    });
+  }
+
+  const versionOf = async (id: string) =>
+    (await t.db.select().from(licenses).where(eq(licenses.id, id)))[0]!.termsVersion;
+  const run = (stripe: StripeClient) => reconcile(stripe, ENV, { now: RUN_AT, legalMaps: MAPS });
+
+  it("is a no-op with today's data: no version above the bound, nothing changes", async () => {
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const stripe = fakeStripe([monthly(NOW.getTime())]);
+    const result = await reconcile(stripe.client);
+    expect(result).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+    expect(stripe.updates).toEqual([]);
+  });
+
+  it('never binds a draft mid-period: a monthly license on 1.0 waits for its next charge', async () => {
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.0' });
+    const stripe = fakeStripe([monthly(NOW.getTime())]);
+    expect(await reconcile(stripe.client)).toMatchObject({ counts: { changed: 0 } });
+    expect(await versionOf(id)).toBe('1.0');
+  });
+
+  it('binds a version a missed monthly invoice.paid should have bound, once', async () => {
+    await publish(false);
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const stripe = fakeStripe([monthly(MOMENT + 86_400_000)]);
+
+    const first = await run(stripe.client);
+    expect(first).toMatchObject({ counts: { changed: 1, termsBound: 1, granted: 0 } });
+    expect(await versionOf(id)).toBe('1.2');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.rows[0]).toMatchObject({ termsBound: '1.2' });
+
+    // Idempotent: a second run (a queue retry) finds the licenses bound.
+    const second = await run(stripe.client);
+    expect(second).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(stripe.updates).toEqual([]);
+  });
+
+  it('a period that started before the moment binds nothing', async () => {
+    await publish(false);
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const stripe = fakeStripe([monthly(MOMENT - 1000)]);
+    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+  });
+
+  it('withholds an unaccepted version every day, and binds it once an owner accepts', async () => {
+    await publish(true);
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const stripe = fakeStripe([monthly(MOMENT + 86_400_000)]);
+
+    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+
+    await t.db.insert(agreementAcceptances).values({
+      id: crypto.randomUUID(),
+      document: 'managed_plan',
+      version: '1.2',
+      source: 'portal',
+      email: 'owner@acme.example',
+      vendorId: VENDOR_ID,
+      acceptedAt: RUN_AT.toISOString(),
+    });
+    expect(await run(stripe.client)).toMatchObject({ counts: { termsBound: 1 } });
+    expect(await versionOf(id)).toBe('1.2');
+    // Never a Stripe write for terms: no cancel, no pause, no metadata.
+    expect(stripe.updates).toEqual([]);
+    expect(stripe.cancels).toEqual([]);
   });
 });

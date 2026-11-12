@@ -22,6 +22,16 @@
  * A caller can put statements FIRST in that batch (`prefix`): the webhook's
  * `stripe_events` ledger INSERT, the checkout acceptance and the customer link.
  *
+ * ── THE AGREEMENT VERSION A CHARGE BINDS (AECI-1690) ───────────────────────────
+ * A renewal binds the version `loadTermsBinding` (`lib/terms-binding.ts`) decides at the
+ * new period's start: annual, the version in force then; monthly, the same unless a
+ * version on the way needs an acceptance the company has not given, and then the licenses
+ * keep what they carry. Nothing here cancels, pauses or updates the Stripe subscription
+ * for terms (`terms-binding.spec.ts` pins that). A license added to a live subscription
+ * takes the version its siblings carry ({@link boundTermsVersion}). After a monthly
+ * charge, `aeci.billing.unaccepted_terms_charge` fires if the batch still left a license on
+ * an unaccepted version. It is a tripwire and should never fire.
+ *
  * ── THE BAN (AECI-1589, ruled 2026-11-03) ──────────────────────────────────────
  * A termination (AECI-1623) ends every license at once
  * (`end_reason = 'banned'`), then {@link stripeBanCancelNowHook} cancels now, with no
@@ -42,14 +52,14 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import type { LegalInForceMaps } from '@aeci/shared';
 import { licensePlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, vendors } from '../db/schema';
 import type { Env } from '../env';
-import { logToPosthog } from '../posthog';
+import { logToPosthog, submitCount } from '../posthog';
 import { emailLicensesGranted, type SendLicensesGranted } from '../routes/admin-licenses';
 import { type BatchStmt, type BatchTuple } from './audit';
 import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
@@ -75,6 +85,7 @@ import { forwardAuditBatch } from './moderation-forward';
 import {
   stripeId,
   subscriptionCurrentPeriodEnd,
+  subscriptionCurrentPeriodStart,
   subscriptionInterval,
   subscriptionQuantity,
   StripeTransientError,
@@ -82,7 +93,16 @@ import {
   type StripeSubscription,
   type StripeSubscriptionStatus,
 } from './stripe';
+import { effectiveAtMsOf } from './legal-acceptance';
 import { fetchAuthUserEmails } from './supabase-admin';
+import {
+  firstUncoveredVersion,
+  highestTermsVersion,
+  loadTermsBinding,
+  UNACCEPTED_TERMS_CHARGE_METRIC,
+  type LoadedTermsBinding,
+  type TermsBinding,
+} from './terms-binding';
 import { uuidv5 } from './uuidv5';
 import { vendorBanDead, vendorNotBanDeadSentinel } from './vendor-handback';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
@@ -207,10 +227,14 @@ export interface SubscriptionSyncContext {
   now: string | Date;
   /** `metadata.source` on every audit row. */
   source: string;
-  /** A renewal (`invoice.paid`, `subscription_cycle`): bind the current Managed plan
-   *  agreement version to every license kept (ruling R1). The sync also treats an
-   *  annual period end moving forward as one ({@link annualPeriodMovedForward}). */
-  renewal?: boolean;
+  /**
+   * Set on a renewal charge: the Managed plan agreement version it binds to every license
+   * kept, as {@link loadTermsBinding} decided it (AECI-1690). The caller decides what is a
+   * renewal: `invoice.paid` with `subscription_cycle`, an annual period end moving forward
+   * ({@link annualPeriodMovedForward}), or the reconcile's monthly catch-up. Absent: the
+   * versions are left alone.
+   */
+  renewalBinding?: TermsBinding;
   /** `stripeLicenseIds` for the delta. */
   grantLicenseIds: readonly string[];
   noCarryProductIds?: ReadonlySet<string>;
@@ -270,15 +294,16 @@ export function syncSubscriptionLicensesStatements(
 ): StripeSyncBatch | null {
   const mode = stripeSyncMode(sub.status);
   if (mode === null) return null;
-  const current = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
   const metadataVersion = sub.metadata?.terms_version?.trim() || null;
   const endsAt = subscriptionEndsAt(sub);
-  // A renewal binds the current version. The webhook says so on `invoice.paid`
-  // (`subscription_cycle`); any other caller (the reconcile, a `subscription.updated`)
-  // sees it as an annual period end moving forward (AECI-1503).
-  const renewal =
-    ctx.renewal === true ||
-    (mode === 'live' && annualPeriodMovedForward(sub.id, endsAt, ctx.vendorLicenses));
+  // AECI-1690: a renewal binds what `loadTermsBinding` decided, never a build constant.
+  const renewalVersion = mode === 'live' ? (ctx.renewalBinding?.version ?? null) : null;
+  // A license added to a subscription that already has live licenses (the add route raises
+  // the quantity) takes the version they are bound to, so one subscription is never on two
+  // versions. The metadata holds the version of the ORIGINAL checkout. A new checkout is a
+  // new subscription with no live license yet, so it keeps the version it was sold under.
+  const grantVersion =
+    renewalVersion ?? boundTermsVersion(sub.id, ctx.vendorLicenses) ?? metadataVersion;
   return syncStripeLicensesStatements(db, {
     vendorId: ctx.vendorId,
     now: ctx.now,
@@ -292,12 +317,52 @@ export function syncSubscriptionLicensesStatements(
     mode,
     quantity: subscriptionQuantity(sub),
     endsAt,
-    termsVersion: renewal ? current : metadataVersion,
-    ...(renewal ? { renewalTermsVersion: current } : {}),
+    termsVersion: grantVersion,
+    ...(renewalVersion !== null ? { renewalTermsVersion: renewalVersion } : {}),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     grantLicenseIds: ctx.grantLicenseIds,
     noCarryProductIds: ctx.noCarryProductIds,
   });
+}
+
+/** The highest `terms_version` on the subscription's live licenses, or `null`. */
+export function boundTermsVersion(
+  subscriptionId: string,
+  vendorLicenses: readonly LicenseBefore[],
+): string | null {
+  return highestTermsVersion(
+    vendorLicenses
+      .filter((l) => l.endedAt === null && l.stripeSubscriptionId === subscriptionId)
+      .map((l) => l.termsVersion),
+  );
+}
+
+/** Whether binding `version` changes a live license on the subscription. */
+function bindingMoves(
+  subscriptionId: string,
+  version: string | null,
+  vendorLicenses: readonly LicenseBefore[],
+): boolean {
+  if (version === null) return false;
+  return vendorLicenses.some(
+    (l) =>
+      l.endedAt === null &&
+      l.stripeSubscriptionId === subscriptionId &&
+      (l.termsVersion ?? null) !== version,
+  );
+}
+
+/** Whether the bound version is final and in force at `periodStartMs` (its own moment). */
+function periodStartedInForce(binding: LoadedTermsBinding, periodStartMs: number): boolean {
+  if (binding.version === null) return false;
+  const at = effectiveAtMsOf('managed_plan', binding.version, binding.published);
+  return at !== null && at <= periodStartMs;
+}
+
+/** The renewal moment: the current period's start, else `now`. */
+function renewalMoment(sub: StripeSubscription, nowIso: string): Date {
+  const start = subscriptionCurrentPeriodStart(sub);
+  return start === null ? new Date(nowIso) : new Date(start * 1000);
 }
 
 // ─── The entry point ─────────────────────────────────────────────────────────
@@ -329,8 +394,20 @@ export interface StripeSyncRunOptions {
   /** `metadata.source` on every audit row, and the log source. */
   source: string;
   now?: Date;
-  /** See {@link SubscriptionSyncContext.renewal}. */
+  /** A renewal charge (`invoice.paid`, `subscription_cycle`): bind the version
+   *  {@link loadTermsBinding} decides at the period start. An annual period end moving
+   *  forward counts as one whatever this says ({@link annualPeriodMovedForward}). */
   renewal?: boolean;
+  /**
+   * The daily reconcile (AECI-1690): a monthly renewal is invisible to
+   * {@link annualPeriodMovedForward}, so on a live monthly subscription work out what the
+   * current period's charge binds, and bind it when it moves a license. That catches a
+   * missed `invoice.paid` and an owner acceptance that came after the charge withheld a
+   * version. A no-op when nothing moves.
+   */
+  monthlyCatchUp?: boolean;
+  /** The in-force maps (`LEGAL_IN_FORCE_MAPS` when absent). Injected by specs. */
+  legalMaps?: LegalInForceMaps;
   extraMetadata?: Record<string, unknown>;
   /**
    * Built once the outcome and the target are known, and re-built on a re-plan. The
@@ -364,6 +441,9 @@ export interface StripeSyncRunResult {
   verifiedFlipped: boolean;
   /** The prefix's audit rows plus the sync's, as committed. */
   auditEntries: AuditLogEntry[];
+  /** The version the reconcile's monthly catch-up bound
+   *  ({@link StripeSyncRunOptions.monthlyCatchUp}), or `null`. */
+  termsCaughtUp: string | null;
 }
 
 const noopSendEnded: SendManagedEnded = async () => 'skipped';
@@ -450,6 +530,7 @@ export async function runStripeSubscriptionSync(
     ended: [],
     carried: [],
     verifiedFlipped: false,
+    termsCaughtUp: null,
   };
 
   if (!target) {
@@ -465,7 +546,10 @@ export async function runStripeSubscriptionSync(
     return { ...empty, outcome: 'unlinked', auditEntries: prefix?.audits ?? [] };
   }
 
-  // Every attempt assigns all three before the loop can exit.
+  // Every attempt assigns all six before the loop can exit.
+  let binding: LoadedTermsBinding | null;
+  let boundBefore: string | null;
+  let caughtUp: boolean;
   let batch: StripeSyncBatch | null;
   let prefix: SyncPrefix;
   let outcome: StripeSyncOutcome;
@@ -519,6 +603,45 @@ export async function runStripeSubscriptionSync(
         })
       : new Set<string>();
 
+    // AECI-1690: what this charge binds. Read only on a renewal, or on the reconcile's
+    // monthly catch-up, and then only when a published version can change the answer.
+    const monthly = subscriptionInterval(sub) !== 'year';
+    const renewing =
+      mode === 'live' &&
+      (opts.renewal === true ||
+        annualPeriodMovedForward(sub.id, subscriptionEndsAt(sub), vendorLicenses));
+    const catchUp =
+      !renewing &&
+      mode === 'live' &&
+      monthly &&
+      opts.monthlyCatchUp === true &&
+      subscriptionCurrentPeriodStart(sub) !== null;
+    boundBefore = boundTermsVersion(sub.id, vendorLicenses);
+    binding =
+      renewing || catchUp
+        ? await loadTermsBinding(db, {
+            vendorId: target.vendorId,
+            interval: monthly ? 'month' : 'year',
+            renewalAt: renewalMoment(sub, nowIso),
+            boundVersion: boundBefore,
+            ...(opts.legalMaps ? { maps: opts.legalMaps } : {}),
+          })
+        : null;
+    // A catch-up binds only a version whose effective moment the current period started at
+    // or after, and only when it moves a license: otherwise it is no renewal at all. A draft
+    // has no moment, so today (every version a draft) it never binds mid-period.
+    if (
+      catchUp &&
+      binding &&
+      !(
+        bindingMoves(sub.id, binding.version, vendorLicenses) &&
+        periodStartedInForce(binding, renewalMoment(sub, nowIso).getTime())
+      )
+    ) {
+      binding = null;
+    }
+    caughtUp = catchUp && binding !== null;
+
     batch = syncSubscriptionLicensesStatements(db, sub, {
       vendorId: target.vendorId,
       billingAccountId: target.billingAccountId,
@@ -526,7 +649,7 @@ export async function runStripeSubscriptionSync(
       vendorWasVerified: wasVerified,
       now: nowIso,
       source: opts.source,
-      renewal: opts.renewal,
+      ...(binding ? { renewalBinding: binding } : {}),
       grantLicenseIds,
       noCarryProductIds,
       extraMetadata: opts.extraMetadata,
@@ -593,6 +716,12 @@ export async function runStripeSubscriptionSync(
   const committed = batch;
   const audits = [...prefix.audits, ...(committed?.auditEntries ?? [])];
   forwardAuditBatch(c, audits, [], opts.source);
+  // AECI-1690 tripwire: a monthly charge must never leave a license on a version that
+  // needs an acceptance the company has not given. With the bind right it never fires.
+  if (binding && committed && subscriptionInterval(sub) !== 'year') {
+    const crossed = unacceptedTermsCrossed(committed.auditEntries, binding, boundBefore);
+    if (crossed) reportUnacceptedTermsCharge(c, opts.source, sub.id, target, crossed);
+  }
 
   const result: StripeSyncRunResult = {
     outcome,
@@ -602,6 +731,8 @@ export async function runStripeSubscriptionSync(
     carried: committed?.carried ?? [],
     verifiedFlipped: committed?.verifiedFlipped ?? false,
     auditEntries: audits,
+    termsCaughtUp:
+      caughtUp && committed && committed.stmts.length > 0 ? (binding?.version ?? null) : null,
   };
   if (committed && committed.stmts.length > 0) {
     c.executionCtx.waitUntil(afterCommit(c, db, sub, target, committed, opts));
@@ -644,6 +775,61 @@ async function banDeadRun(
   forwardAuditBatch(c, prefix.audits, [], opts.source);
   warn(c, opts.source, 'aeci.stripe.sync.ban_dead_cancelled', sub.id);
   return { ...empty, outcome: 'ban-dead', auditEntries: prefix.audits };
+}
+
+/** One license audit row's `terms_version`. `undefined`: the state does not record one. */
+function stateTermsVersion(state: unknown): string | null | undefined {
+  if (!state || typeof state !== 'object' || !('terms_version' in state)) return undefined;
+  const v = (state as { terms_version: unknown }).terms_version;
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * The first version a committed batch moved a license across that needs an acceptance no
+ * acceptance covers, or `null` (AECI-1690). It reads the batch's own license audit rows,
+ * so it checks what was written, not what the bind meant to write. A new license (no
+ * before state) counts from `boundBefore`, the version the subscription carried before.
+ */
+export function unacceptedTermsCrossed(
+  auditEntries: readonly AuditLogEntry[],
+  binding: Pick<LoadedTermsBinding, 'published' | 'accepted'>,
+  boundBefore: string | null,
+): string | null {
+  for (const entry of auditEntries) {
+    const after = stateTermsVersion(entry.afterState);
+    if (!after) continue;
+    const before = entry.beforeState ? (stateTermsVersion(entry.beforeState) ?? null) : boundBefore;
+    if (before === after) continue;
+    const crossed = firstUncoveredVersion(before, after, binding.published, binding.accepted);
+    if (crossed) return crossed;
+  }
+  return null;
+}
+
+/** The {@link UNACCEPTED_TERMS_CHARGE_METRIC} warn log and count. Never throws. */
+function reportUnacceptedTermsCharge(
+  c: EmailContext,
+  source: string,
+  subscriptionId: string,
+  target: StripeSubscriptionTarget,
+  version: string,
+): void {
+  try {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: UNACCEPTED_TERMS_CHARGE_METRIC,
+      source,
+      stripe_subscription_id: subscriptionId,
+      vendor_id: target.vendorId,
+      billing_account_id: target.billingAccountId,
+      terms_version: version,
+    });
+    submitCount(c.executionCtx, c.env, c.req.raw, UNACCEPTED_TERMS_CHARGE_METRIC, 1, [
+      `source:${source}`,
+    ]);
+  } catch {
+    // Telemetry must never change the outcome.
+  }
 }
 
 /** The purge and the emails. Never throws: the licenses have changed whatever happens. */

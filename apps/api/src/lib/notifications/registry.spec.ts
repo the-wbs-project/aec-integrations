@@ -51,8 +51,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * then `portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci`: 92.
  * AECI-1615 added `license-grant-pending` and `license-grant-pending-reminder`: 94.
  * AECI-1620 added `legal-terms-change`: 95.
+ * AECI-1690 added `entitlement-expiring-operator-copy`: 96.
  */
-const EXPECTED_COUNT = 95;
+const EXPECTED_COUNT = 96;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -107,7 +108,7 @@ describe('notification registry shape', () => {
       // `portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci`. AECI-1615
       // added `license-grant-pending` and `license-grant-pending-reminder`. AECI-1620 added
       // `legal-terms-change`.
-      email: 56,
+      email: 57,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 33,
