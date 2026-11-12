@@ -11,6 +11,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminLegalAcceptancesResponse,
   AdminLegalVersionsResponse,
   PublishLegalVersionRequest,
   PublishLegalVersionResponse,
@@ -43,6 +44,13 @@ export class AdminLegalApi {
         `/api/admin/legal-versions/${encodeURIComponent(id)}/notice`,
         {},
       ),
+    );
+  }
+
+  /** `GET /api/admin/legal-acceptances` (AECI-1677): who has accepted each final version. */
+  acceptances(): Promise<AdminLegalAcceptancesResponse> {
+    return firstValueFrom(
+      this.http.get<AdminLegalAcceptancesResponse>('/api/admin/legal-acceptances'),
     );
   }
 }

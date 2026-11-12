@@ -57,6 +57,20 @@ export function legalVersionPagePath(document: LegalAgreementDocument, version: 
   return `/legal/${LEGAL_DOCUMENT_SLUGS[document]}/v${version}`;
 }
 
+/**
+ * Order two version strings by number, part by part: `-1`, `0` or `1`. `'1.10'` is
+ * after `'1.9'`. A part that is not a number reads as 0.
+ */
+export function compareLegalVersions(a: string, b: string): number {
+  const pa = a.split('.').map((p) => Number.parseInt(p, 10) || 0);
+  const pb = b.split('.').map((p) => Number.parseInt(p, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**

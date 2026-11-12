@@ -353,7 +353,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
 | `NOTIFICATION_NOT_PAUSABLE` | 400 | `PUT /api/admin/email/switches/:key` asked to pause an entry the notification registry marks always on (AECI-1224): a seat invite, a claim or review decision, the account-deleted confirmation, a deadline email, or anything not sent through `lib/email.ts`. Resuming one is allowed. `field: 'key'` |
 | `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
-| `LEGAL_PUBLISH_DISABLED` | 409 | `POST /api/admin/legal-versions` (AECI-1688) and its `/:id/notice` re-send (AECI-1620) on a tier whose `LEGAL_PUBLISH_ENABLED` var is not `"true"`: demo and production until AECI-1677 turns production on. Checked first, before the body. Nothing is written |
+| `LEGAL_PUBLISH_DISABLED` | 409 | `POST /api/admin/legal-versions` (AECI-1688) and its `/:id/notice` re-send (AECI-1620) on a tier whose `LEGAL_PUBLISH_ENABLED` var is not `"true"`: demo and production until every issue on the legal gate list has shipped and the release that sets the first effective date turns them on (AECI-1677). Checked first, before the body. Nothing is written |
 | `LEGAL_VERSION_NOT_UPCOMING` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the `version` is not the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. `field: 'version'`. Nothing is written |
 | `LEGAL_VERSION_EXISTS` | 409 | `POST /api/admin/legal-versions` (AECI-1688) when a `legal_versions` row exists for that document and version. Also the loser of two publishes racing on the unique index `legal_versions_document_version_key`: the batch rolls back and answers this, never a `500`. `field: 'version'` |
 | `LEGAL_NOTICE_WINDOW` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the version takes effect (12:00 UTC of its `effectiveOn` day) less than 30 days from now. A Vendor Terms version with an `expedited_reason` (`law` or `error`) only has to be in the future. `field: 'version'`. `details.reason` is `passed` (the moment is not in the future: move the date, an expedited reason does not help) or `too_soon` (inside 30 days: move the date, or expedite a Vendor Terms change). Nothing is written |
@@ -361,6 +361,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_NOT_MATERIAL` | 409 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) for a version published as not material: it has no notice. Nothing is written |
 | `LEGAL_NOTICE_TOO_LATE` | 422 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) once the version's `effective_at` has passed: the email says the version has not taken effect yet. Nothing is written |
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
+| `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
+| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -7136,6 +7138,20 @@ Errors: `LEGAL_PUBLISH_DISABLED` (409); `MALFORMED_REQUEST` (400); `VALIDATION_F
 `LEGAL_NOTICE_NOT_MATERIAL` (409), `LEGAL_NOTICE_TOO_LATE` (422) and
 `LEGAL_NOTICE_ENQUEUE_FAILED` (503).
 
+#### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
+
+`requireAdmin()` only. A read: no audit row, never rate-limited. Contract:
+`packages/shared/src/api/legal-acceptance.ts` (`AdminLegalAcceptancesResponseSchema`). One
+entry per FINAL version of each agreement (dated in `LEGAL_AGREEMENT_EFFECTIVE_ON`, or with a
+`legal_versions` row), newest first per document: `effective_at`, `in_force`, `published`,
+`requires_acceptance` (null without a row), `audience`, `accepted_count`, `not_yet_count`,
+and `not_yet[]` (`vendor_id`, `slug`, `company_name`, by name with `compareText`). Vendor
+Terms count every vendor with a seat (`claimed`). The Managed plan agreement counts vendors
+with a live monthly card subscription (`monthly_card`). A company counts as accepted when it
+holds an acceptance of a final version at or after this one, from any source. A draft
+acceptance never counts. `versions` is empty while no version is final, which is today. One
+`db.batch` of four reads.
+
 #### `POST /api/admin/field-overrides`, `POST /api/admin/field-overrides/:id/lift` and `GET /api/admin/vendors/:id/field-overrides` (AECI-1237)
 
 AECi corrects one factual field on a vendor-held record and locks it, so a later vendor write cannot undo it, and lifts the lock later. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5, ADR 0039. Schemas: `packages/shared/src/api/field-overrides.ts`. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
@@ -10544,6 +10560,47 @@ export const VendorProductRequestSchema = z.object({
 **The list** is every request of the caller's vendor, whichever seat asked. It re-reads when the `notifications` scope of `GET /api/vendor/updates` moves, because every decision writes its portal row (`STAGE_2_REALTIME_SPEC.md` §2.3).
 
 **The decision** reads on `GET /api/vendor/notifications` as `{ kind: 'product_request', id, event: 'added' | 'already_listed' | 'declined', request_id, request_name, product: { slug, name } | null, context_product: { slug, name } | null, reason: string | null, created_at }`. `product` is the linked catalog product, `null` on `declined`. `reason` is the decline reason, `null` otherwise.
+
+#### Legal acceptance — `GET` + `POST /api/vendor/legal-acceptance` (AECI-1677)
+
+The portal's acceptance screen (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). Contract:
+`packages/shared/src/api/legal-acceptance.ts`. The decision: `lib/legal-acceptance.ts`.
+
+```ts
+// GET → 200 VendorLegalAcceptanceResponse, any seat, never rate-limited
+{ blocked: boolean, can_accept: boolean,
+  pending: Array<{ document, version, mode: 'required' | 'optional', effective_at, in_force,
+                   summary: string[], page_path: '/legal/<slug>/v<version>' }>,
+  owner_names: string[],                     // member seat while blocked, else []
+  signer: { name, title, legal_name } | null, // owner seat with something pending; name null: ask it
+  stripe_billing: boolean }                  // owner seat: the company has a Stripe customer
+// POST — strict body. requireVendor({ allowTermsPending: true }), rateLimit('write'), owner seat
+{ document, version, accepted: true, signer_title (1..100), company_legal_name (1..200),
+  signer_name? (1..200) }                    // used only when no name is on file for the seat
+// 201: { document, version, accepted_at, state: VendorLegalAcceptanceResponse }
+```
+
+A version is in force from 12:00 UTC of its effective day (`LEGAL_AGREEMENT_EFFECTIVE_ON`, else
+`legal_versions.effective_at`). Nothing in force means `pending: []` and `blocked: false` for
+every seat. `required`: Vendor Terms only, the company holds no acceptance of a final version
+at or after the oldest in force; the item names the newest in force. `optional`: a covered
+company and the newest published version with `requires_acceptance`, for owner seats; the
+Managed plan agreement only with a live monthly card subscription. Owner seats get the
+`required` item first, then any `optional` ones. Member seats get only the `required` item.
+
+The POST checks, in order: the owner seat (`403 FORBIDDEN`), the body (`400`), the item must
+be in the pending list computed now (`422 LEGAL_ACCEPTANCE_NOT_PENDING`), then a signer name:
+the seat's display name, else its claim's, else `signer_name`, else `400 VALIDATION_FAILED` on
+`signer_name`. The `optional` item is the newest final version at or after the newest one that
+needs acceptance. Then ONE
+`db.batch`: the `portal` acceptance row and its `agreement.accepted` audit row. The row stores
+the box label `portalAcceptanceLabel(document, version, vendors.company_name)` with its
+SHA-256 and the unticked flag, the signer, the policy versions (Vendor Terms) or the Plans page
+version (Managed plan), and no IP or user agent (`PORTAL_RECORDS_EVIDENCE`). No purge, no
+email, no subscription change.
+
+Errors: `FORBIDDEN` (403); `VENDOR_SUSPENDED` (403); `MALFORMED_REQUEST` (400);
+`VALIDATION_FAILED` (400); `LEGAL_ACCEPTANCE_NOT_PENDING` (422); `RATE_LIMITED` (429).
 
 #### Early unassign — `POST /api/vendor/licenses/:id/release-request`
 

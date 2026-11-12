@@ -24,8 +24,9 @@ export type LegalAgreementDocument = z.infer<typeof LegalAgreementDocumentSchema
 
 /** `agreement_acceptances.source`: where the acceptance was given. No CHECK either.
  *  `grant` (AECI-1615): an owner seat accepted a granted subscription in the portal, or
- *  AECi recorded a signed deal that accepts it. */
-export const AGREEMENT_ACCEPTANCE_SOURCES = ['claim', 'checkout', 'grant'] as const;
+ *  AECi recorded a signed deal that accepts it. `portal` (AECI-1677): an owner seat
+ *  accepted a newer version of an agreement on the portal's acceptance screen. */
+export const AGREEMENT_ACCEPTANCE_SOURCES = ['claim', 'checkout', 'grant', 'portal'] as const;
 export const AgreementAcceptanceSourceSchema = z.enum(AGREEMENT_ACCEPTANCE_SOURCES);
 export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSourceSchema>;
 
@@ -76,6 +77,55 @@ export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
   vendor_terms: ['1.0', '1.1', '1.2', '1.3'],
   managed_plan: ['1.0', '1.1'],
 } as const satisfies Record<LegalAgreementDocument, readonly string[]>;
+
+/**
+ * The day each known version of each agreement takes effect, `YYYY-MM-DD` read as UTC,
+ * or `null` for a draft that never took effect (AECI-1677). The effective moment is
+ * 12:00 UTC of that day (`legalEffectiveAtMs`). This map is how the API Worker knows a
+ * version is in force: it cannot read the Markdown, whose frontmatter `effective_date`
+ * is the source. `legal-page.component.spec.ts` (apps/web) asserts every entry equals
+ * that version's frontmatter, the current file and each archive.
+ *
+ * **A draft version is never in force, and stays `null` for good.** Every acceptance of
+ * the versions listed `null` today was given while the page said "draft, not yet in
+ * force" (counsel Q42), so none of them may ever count as an acceptance of a version in
+ * force. `agreements.spec.ts` pins those entries `null`. The effective-date change must
+ * therefore bump the version: make the final text a new version with its own entry here.
+ * Keep it a plain object literal. Add the new version's entry when you append it to
+ * `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
+ *
+ * Today every entry is `null`: no agreement is in force, so the acceptance screen never
+ * shows and nothing is blocked (`apps/api/src/lib/legal-acceptance.ts`).
+ */
+export const LEGAL_AGREEMENT_EFFECTIVE_ON = {
+  vendor_terms: { '1.0': null, '1.1': null, '1.2': null, '1.3': null },
+  managed_plan: { '1.0': null, '1.1': null },
+} as const satisfies Record<LegalAgreementDocument, Record<string, string | null>>;
+
+/** The effective day of one version, or `null` for a draft or a version this map lacks. */
+export function legalAgreementEffectiveOn(
+  document: LegalAgreementDocument,
+  version: string,
+): string | null {
+  return (LEGAL_AGREEMENT_EFFECTIVE_ON[document] as Record<string, string | null>)[version] ?? null;
+}
+
+/**
+ * The label beside the box on the portal's acceptance screen (AECI-1677), as the server
+ * records it. The claim box's wording (`AGREEMENT_CHECKBOX_LABELS`), adapted to name the
+ * version and the company. `companyName` is `vendors.company_name`, which the screen shows
+ * above the box. The web label (`@@vendor.legalAccept.label.*`) renders this exact text
+ * in en-US: `vendor-legal-acceptance.component.spec.ts` holds the two together.
+ */
+export function portalAcceptanceLabel(
+  document: LegalAgreementDocument,
+  version: string,
+  companyName: string,
+): string {
+  return document === 'vendor_terms'
+    ? `I have read and accept the Vendor Terms, version ${version}, on behalf of ${companyName}, and I am authorized to bind that company.`
+    : `I have read and accept the Managed plan agreement, version ${version}, on behalf of ${companyName}.`;
+}
 
 /**
  * How a `grant` acceptance was given (AECI-1615, `agreement_acceptances.method`). No CHECK.

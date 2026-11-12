@@ -333,6 +333,15 @@ export const ApiErrorCode = {
   LEGAL_NOTICE_NOT_MATERIAL: 'LEGAL_NOTICE_NOT_MATERIAL',
   LEGAL_NOTICE_TOO_LATE: 'LEGAL_NOTICE_TOO_LATE',
   LEGAL_NOTICE_ENQUEUE_FAILED: 'LEGAL_NOTICE_ENQUEUE_FAILED',
+  // AECI-1677 the portal acceptance screen (`API_CONTRACTS.md` §4, §6.14 "Legal
+  // acceptance"). `LEGAL_ACCEPTANCE_REQUIRED` (403): a vendor write while the Vendor Terms
+  // are in force and the company holds no acceptance of a version in force (ruling 24).
+  // `details` names the document and version to accept. `LEGAL_ACCEPTANCE_NOT_PENDING`
+  // (422): `POST /api/vendor/legal-acceptance` named a version this company cannot accept
+  // right now: not in force and not a published version that needs acceptance, or
+  // already accepted. Nothing is written on either.
+  LEGAL_ACCEPTANCE_REQUIRED: 'LEGAL_ACCEPTANCE_REQUIRED',
+  LEGAL_ACCEPTANCE_NOT_PENDING: 'LEGAL_ACCEPTANCE_NOT_PENDING',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

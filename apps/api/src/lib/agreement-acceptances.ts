@@ -35,9 +35,20 @@
  * version the grant pinned at create. The version must equal it, current or not, so the
  * grant-date version keeps governing after a bump.
  *
+ * A third (AECI-1677): a `portal` acceptance passes `portalVersion`, the version
+ * `lib/legal-acceptance.ts` found pending for the company right now. That may be a
+ * published version not yet current in code, or one in force through a `legal_versions`
+ * row before the bump deploy. The version must equal it, and only `source: 'portal'` may
+ * pass it. This module stays synchronous, so the caller does that read.
+ *
  * ── IP AND USER AGENT ──────────────────────────────────────────────────────────
  * Recorded on the claim path and on a portal grant accept (AECI-1615,
- * `method: 'portal_checkbox'`), whose request comes from the owner's browser. The
+ * `method: 'portal_checkbox'`), whose request comes from the owner's browser. NOT on
+ * a `portal` acceptance (AECI-1677), though it comes from the owner's browser too: the
+ * Privacy Policy's "Agreement acceptance records" names the IP address and browser only
+ * "for a claim or an in-portal acceptance of a granted subscription". Recording them here
+ * waits for that sentence to change (`docs/LEGAL_IMPACT_REVIEW.md` §3). Flip
+ * `PORTAL_RECORDS_EVIDENCE` in the same change. The
  * checkout acceptance is written from the Stripe webhook, whose request comes from
  * Stripe, so its `CF-Connecting-IP` would be Stripe's address. A signed-deal grant is
  * recorded from the admin's browser, not the signer's. Those two store NULL for both
@@ -102,6 +113,12 @@ export const AGREEMENT_LINKED_ACTION = 'agreement.linked';
 
 /** `audit_log.entity_type`; `entity_id` is the acceptance id. */
 export const AGREEMENT_ACCEPTANCE_ENTITY_TYPE = 'agreement_acceptance';
+
+/**
+ * Whether a `portal` acceptance stores the IP address and browser (module header). False
+ * until the Privacy Policy names this acceptance. `agreement-acceptances.spec.ts` pins it.
+ */
+export const PORTAL_RECORDS_EVIDENCE = false;
 
 /** The longest user agent stored. Longer strings are cut, never refused. */
 export const USER_AGENT_MAX_LENGTH = 512;
@@ -191,19 +208,27 @@ export interface AgreementAcceptanceParams {
    */
   grant?: AcceptanceGrantFields | null;
   /**
+   * AECI-1677: the version `lib/legal-acceptance.ts` found pending for this company,
+   * required with `source: 'portal'` and refused with any other source. Replaces the
+   * current-version gate: `version` must equal it.
+   */
+  portalVersion?: string | null;
+  /**
    * AECI-1615 ruling 16: the checkbox the acceptance was given on. Pass it only when
    * the caller knows the exact label shown. Absent (a signed deal) writes NULL to both
    * columns.
    */
   checkbox?: AcceptanceCheckbox | null;
   /**
-   * AECI-1619: the policy versions the claim box named. Claim only: any other source
+   * AECI-1619: the policy versions the claim box named. Claim only, and since AECI-1677
+   * a `portal` acceptance of the Vendor Terms, which incorporate them: any other source
    * with it set is refused. Absent or null writes NULL (a legacy pending claim).
    */
   policyVersions?: AcceptancePolicyVersions | null;
   /**
-   * AECI-1619: the Plans page version current at acceptance. Checkout and grant only:
-   * a claim with it set is refused. The builder stamps `plans_page_sha256` from it.
+   * AECI-1619: the Plans page version current at acceptance. Checkout and grant only,
+   * and since AECI-1677 a `portal` acceptance of the Managed plan agreement: any other
+   * with it set is refused. The builder stamps `plans_page_sha256` from it.
    * Absent or null writes NULL to both (a checkout session from before the metadata).
    */
   plansVersion?: string | null;
@@ -331,7 +356,21 @@ export function agreementAcceptanceStatements(
   if ((p.source === 'grant') !== Boolean(p.grant)) {
     throw validationFailed('source', 'Only a grant acceptance carries grant fields');
   }
-  if (p.grant) {
+  const portalVersion = p.portalVersion ?? null;
+  if ((p.source === 'portal') !== (portalVersion !== null)) {
+    throw validationFailed('source', 'Only a portal acceptance names its pending version');
+  }
+  if (portalVersion !== null) {
+    if (p.allowSupersededVersion) {
+      throw validationFailed('source', 'A portal acceptance names its pending version instead');
+    }
+    if (p.version !== portalVersion) {
+      throw validationFailed(
+        'version',
+        `Version ${p.version} of ${p.document} is not the version waiting for acceptance (${portalVersion})`,
+      );
+    }
+  } else if (p.grant) {
     if (p.allowSupersededVersion) {
       throw validationFailed('source', 'A grant acceptance pins its version instead');
     }
@@ -362,8 +401,11 @@ export function agreementAcceptanceStatements(
   }
   const policyVersions = p.policyVersions ?? null;
   if (policyVersions) {
-    if (p.source !== 'claim') {
-      throw validationFailed('policy_versions', 'Only a claim acceptance records policy versions');
+    if (p.source !== 'claim' && !(p.source === 'portal' && p.document === 'vendor_terms')) {
+      throw validationFailed(
+        'policy_versions',
+        'Only a claim or a portal Vendor Terms acceptance records policy versions',
+      );
     }
     if (!isKnownLegalPolicyVersion('listing_accuracy', policyVersions.listingAccuracy)) {
       throw validationFailed(
@@ -380,10 +422,14 @@ export function agreementAcceptanceStatements(
   }
   const plansVersion = p.plansVersion ?? null;
   if (plansVersion !== null) {
-    if (p.source !== 'checkout' && p.source !== 'grant') {
+    if (
+      p.source !== 'checkout' &&
+      p.source !== 'grant' &&
+      !(p.source === 'portal' && p.document === 'managed_plan')
+    ) {
       throw validationFailed(
         'plans_version',
-        'Only a checkout or grant acceptance records the Plans page',
+        'Only a checkout, grant or portal Managed plan acceptance records the Plans page',
       );
     }
     if (!isKnownPlansPageVersion(plansVersion)) {
@@ -403,7 +449,9 @@ export function agreementAcceptanceStatements(
 
   // The claim path and a portal grant accept come from the accepting person's browser.
   const recordsEvidence =
-    p.source === 'claim' || (p.source === 'grant' && p.grant?.method === 'portal_checkbox');
+    p.source === 'claim' ||
+    (p.source === 'grant' && p.grant?.method === 'portal_checkbox') ||
+    (p.source === 'portal' && PORTAL_RECORDS_EVIDENCE);
   const evidence = !recordsEvidence
     ? { ip: null, userAgent: null }
     : p.evidence

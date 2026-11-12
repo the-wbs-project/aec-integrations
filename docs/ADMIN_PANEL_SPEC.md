@@ -2301,6 +2301,24 @@ page uses `/admin/email`'s heading row, live region, bordered cards, button reci
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Legal versions".
 
+### 5.22a Who has accepted (AECI-1677, 2026-11-12)
+
+A section at the foot of `/admin/legal`, in its own component (`legal-acceptance-status.ts`),
+apart from the publish cards and from the change-notice section AECI-1620 added. It lists every
+FINAL version of each agreement: dated in code (`LEGAL_AGREEMENT_EFFECTIVE_ON`) or published.
+Each card names the version, "In force since {date}." or "Takes effect on {date}.", whether it is
+published and needs acceptance, the **Accepted** and **Not yet** counts, and the companies not yet
+counted, each linked to `/admin/vendors/:id`. The effective-date change reads it to list who the
+acceptance screen will block (ruling 24).
+
+Vendor Terms count every vendor with a seat. The Managed plan agreement counts vendors with a live
+monthly card subscription. A company counts as accepted when it holds an acceptance of a final
+version at or after this one. An acceptance of a draft never counts. While no version is final,
+which is today, the section says "No version is in force, dated or published yet, so nothing is
+counted. The acceptance screen shows to no one." It loads in `afterNextRender` from
+`GET /api/admin/legal-acceptances`, a read with no limiter. It adds no write, so §2's count is
+unchanged.
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
@@ -2387,6 +2405,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/email/sends` | §5.14 list — **SHIPPED (AECI-1223)** | `PageQuerySchema` (default `perPage` 25) + `?template=&outcome=&delivery=&from=&to=`. Ordered `created_at DESC, id DESC`. Each row carries its latest delivery event and its resolved `entity.admin_path`. **An `address` parameter is a `400 ADDRESS_NOT_ALLOWED_IN_URL`**, so an address can never reach a request URL. Bare `paginatedResponseSchema` plus `generated_at` |
 | `GET /api/admin/email/switches` | §5.14 sending switches — **AECI-1224** | Every `email` and `email+portal` registry entry plus the reserved `support-copy` key, each with `pausable`, `enabled` and who changed it last. `support_copy_configured` says whether `EMAIL_BCC` is set on this tier, never its value. One `SELECT` over `notification_settings`. A missing row reads as enabled. No audit row, no `rateLimit()` (a read). Contract in `packages/shared/src/api/admin-email.ts` |
 | `PUT /api/admin/email/switches/:key` | §5.14 pause or resume — **AECI-1224** | **A write.** Body `{ enabled, reason? }`, strict. An unknown key is a 404. `enabled: false` on a non-pausable entry is **`400 NOTIFICATION_NOT_PAUSABLE`**. Naming the current state is a 200 with `changed: false` and no write. Otherwise ONE `db.batch`: a race sentinel on the state just read (**`409 NOTIFICATION_SWITCH_CHANGED`** when another tab moved it), the upsert, and the `notification_settings.updated` audit row (actor, key, `before_state`/`after_state` `{ enabled }`, tier, reason). Post-commit PostHog forward. Carries `rateLimit('write')` after `requireAdmin()`. No purge: no public page reads the table |
+| `GET /api/admin/legal-acceptances` | §5.22a who has accepted — **AECI-1677** | Per final agreement version: accepted and not-yet counts and the companies not yet counted. One `db.batch` of four reads. No audit row, no `rateLimit()` (a read). Contract in `packages/shared/src/api/legal-acceptance.ts` |
 | `GET /api/admin/legal-versions` | §5.22 legal versions — **AECI-1688** | One entry per document in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, with its effective moment (12:00 UTC) and its `legal_versions` row or null, plus `publish_enabled` for the tier. Since AECI-1620 each published entry also carries `notice_sends`, its `legal-terms-change` ledger rows counted by outcome (one grouped `SELECT` on `notification_sends`). No audit row, no `rateLimit()` (a read). Contract in `packages/shared/src/api/legal-versions.ts` |
 | `POST /api/admin/legal-versions` | §5.22 publish — **AECI-1688** | **A write.** Strict body `{ document, version, material, requires_acceptance, summary[], expedited_reason? }`. Checks in order: the tier switch (**`409 LEGAL_PUBLISH_DISABLED`**), the body (400), upcoming (**`422 LEGAL_VERSION_NOT_UPCOMING`**), not yet published (**`409 LEGAL_VERSION_EXISTS`**), 30-day window unless an expedited Vendor Terms change still in the future (**`422 LEGAL_NOTICE_WINDOW`**), the PDF in `UPLOADS` (**`409 LEGAL_PDF_MISSING`**). Then ONE `db.batch`: the insert and the `legal_version.published` audit row; a unique-index race is the same 409. Post-commit: the audit forward, then, for a material version only (AECI-1620), in `waitUntil`: one `aeci-legal-notice-{env}` message per affected company (`sendBatch`, chunks of 100) and ONE `db.batch` with the outcome columns and a `legal_version.notice_queued` audit row. No purge. Carries `rateLimit('write')` after `requireAdmin()` |
 | `POST /api/admin/legal-versions/:id/notice` | §5.22 notice re-send — **AECI-1620** | **A write.** No body. Checks in order: the tier switch (**`409 LEGAL_PUBLISH_DISABLED`**), the row (404 `NOT_FOUND`), material (**`409 LEGAL_NOTICE_NOT_MATERIAL`**), not yet in effect (**`422 LEGAL_NOTICE_TOO_LATE`**). Re-reads the audience and re-enqueues every company not yet `delivered` in `legal_notice_deliveries`, then ONE `db.batch`: the outcome columns and the `legal_version.notice_resent` audit row. Safe to repeat: each address is keyed with its company id in `notification_sends`. An incomplete fan-out is recorded, then answered **`503 LEGAL_NOTICE_ENQUEUE_FAILED`**. Carries `rateLimit('write')` after `requireAdmin()`. Contract in `packages/shared/src/api/legal-versions.ts` |

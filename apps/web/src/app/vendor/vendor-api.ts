@@ -21,6 +21,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AcceptLegalVersionRequest,
+  AcceptLegalVersionResponse,
+  VendorLegalAcceptanceResponse,
   AcceptSeatClaimResponse,
   GetVendorIntegrationThreadsResponse,
   GetVendorThreadByIdResponse,
@@ -300,6 +303,22 @@ export class VendorApi {
         `/api/vendor/license-grants/${encodeURIComponent(grantId)}/accept`,
         body,
       ),
+    );
+  }
+
+  /** `GET /api/vendor/legal-acceptance` (AECI-1677): what this session must or may accept
+   *  on the acceptance screen. Any seat. */
+  getLegalAcceptance(): Promise<VendorLegalAcceptanceResponse> {
+    return firstValueFrom(
+      this.http.get<VendorLegalAcceptanceResponse>('/api/vendor/legal-acceptance'),
+    );
+  }
+
+  /** `POST /api/vendor/legal-acceptance` (AECI-1677): an owner seat accepts one pending
+   *  version. `422 LEGAL_ACCEPTANCE_NOT_PENDING` means this tab is out of date. */
+  acceptLegalVersion(body: AcceptLegalVersionRequest): Promise<AcceptLegalVersionResponse> {
+    return firstValueFrom(
+      this.http.post<AcceptLegalVersionResponse>('/api/vendor/legal-acceptance', body),
     );
   }
 

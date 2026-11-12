@@ -299,7 +299,9 @@ export type Env = {
    * `ADMIN_PANEL_SPEC.md` §5.22). Anything else, or absent, is off: every
    * `POST /api/admin/legal-versions` answers `409 LEGAL_PUBLISH_DISABLED` and the GET
    * reports `publish_enabled: false`. `"true"` on local and staging, `"false"` on demo
-   * and production until AECI-1677. Read only through `legalPublishEnabled`
+   * and production until every issue on the legal gate list has shipped. The release that
+   * sets the first effective date turns them on: a passed effective moment blocks vendor
+   * writes until an owner accepts (AECI-1677). Read only through `legalPublishEnabled`
    * (`routes/admin-legal-versions.ts`).
    */
   LEGAL_PUBLISH_ENABLED?: string;

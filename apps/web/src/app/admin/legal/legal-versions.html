@@ -61,7 +61,7 @@
     <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.off.body">
       You can read the versions here, but nothing can be published until the setting
       LEGAL_PUBLISH_ENABLED is turned on. It stays off until every issue on the legal gate list has
-      shipped.
+      shipped. The release that sets the first effective date turns it on.
     </p>
   </div>
   } @for (entry of d.upcoming; track entry.document) {
@@ -605,6 +605,9 @@
     </p>
   </div>
   } }
+
+  <!-- AECI-1677: who has accepted each final version. Its own component and file. -->
+  <aec-admin-legal-acceptance-status />
 
   <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
     <ng-template brnDialogContent>

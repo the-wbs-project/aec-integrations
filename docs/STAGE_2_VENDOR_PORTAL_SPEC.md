@@ -2899,6 +2899,61 @@ The `listing_tier` keeps reading the stored headquarters, so the rule never move
 
 The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 
+### 6.24 The acceptance screen (AECI-1677, 2026-11-12)
+
+Counsel Q42, rulings 24 and 25 and counsel Q3. Vendor Terms 1.3 "Changes to these terms" says a rights-reducing change "applies to your company only after an owner seat accepts it in the portal". This screen is that acceptance. The decision is `apps/api/src/lib/legal-acceptance.ts`. The record is `VENDOR_SIGNUP_PROCESS.md` §4, the routes `API_CONTRACTS.md` §6.14 "Legal acceptance", the guard `AUTH_AND_RLS.md`, the decision ADR 0055.
+
+**In force, and the invariant.** A version is in force from 12:00 UTC of its effective day, read from `LEGAL_AGREEMENT_EFFECTIVE_ON` (code) or `legal_versions.effective_at` (published). While no version of an agreement is in force, nothing is pending for it, for any seat, in either mode. That is the state today. `legal-acceptance.spec.ts`, `vendor-legal-acceptance.spec.ts` and `vendor.authz-matrix.spec.ts` pin it.
+
+**Required mode (ruling 24).** The Vendor Terms are in force and the company holds no acceptance of a final version at or after the oldest version in force. The shell renders the screen in place of the banners, the tab row and the outlet. The header with the company name stays. The API refuses every other vendor write with `403 LEGAL_ACCEPTANCE_REQUIRED` (two exceptions: the accept, and the Stripe portal link). Reads stay open. Any owner seat accepts the newest version in force for the company. The listing stays claimed, and no deadline ends the claim.
+
+**Optional mode (ruling 25, counsel Q3).** The company is covered, and the newest published version with `requires_acceptance` is not. The version offered is the newest final version, which is at or after that one, so an owner never accepts a text a later version already replaced. Owner seats see the screen above the tab row, with "Not now". "Not now" hides that version for the browser session (`sessionStorage`). It comes back on the next visit in a new session. For the Managed plan agreement, only owner seats of a company with a live monthly card subscription are asked (a Stripe license with no `ends_at` and no `ended_at`). Member seats are never asked.
+
+**What the screen shows.** The document title and version, the "What changes" bullets when the version has a `legal_versions` row (rendered as text, because they are stored unescaped), a link to the fixed copy `/legal/<slug>/v<version>` that opens in a new tab, "Your title" and "Company legal name" (pre-filled from the seat's claim and `vendors.legal_name`, both required, both recorded on the acceptance row only), and the claim form's required, unticked box. Dates use `formatTermDate`, as the Billing tab does.
+
+**Copy, en-US.**
+
+| State | Text |
+|---|---|
+| Required, owner: heading | Accept the Vendor Terms, version {v} |
+| Required, owner: lead | Version {v} of the Vendor Terms took effect on {date}. Your company has not accepted a version that is in force yet, so the portal opens once an owner seat accepts this one. Any owner seat can accept for {company}. |
+| Required: listing line | Your listing stays claimed in the meantime. There is no deadline. |
+| Required, owner with Stripe billing: in the side panel | You can still manage or cancel your billing. Button: Manage billing in Stripe (Opening Stripe… while it runs). On failure: We could not open Stripe just now. Try again in a moment. |
+| Required, owner: aside | What happens when an owner accepts. The portal opens for every seat at {company}. We record the owner's name and title, the company's legal name, the time and the version. Owner seats can see the record on the Billing tab. Questions about these terms go to support@aecintegrations.com. |
+| Required, member: heading | An owner needs to accept the Vendor Terms |
+| Required, member: lead | Version {v} of the Vendor Terms took effect on {date}. An owner seat at {company} needs to accept it before the portal opens. A member seat cannot accept for the company. |
+| Required, member: owners | The owners at your company are {names}. / The owner at your company is {name}. / Your company has no owner seat that can sign in. Write to support@aecintegrations.com and we will help. |
+| Required, member: button | Check again. Then "No owner has accepted yet. Check again after an owner accepts." or "We could not check just now. Try again in a moment." |
+| Optional: heading | {Document}, version {v}, is ready for you to accept |
+| Optional, Vendor Terms: lead | Version {v} of the Vendor Terms takes effect on {date}. (took effect, once in force) This version changes the liability, indemnity, disputes or content license sections in a way that reduces your rights. That change applies to {company} only after an owner seat accepts it. Until then the earlier version applies to you. |
+| Optional, Managed plan: lead | Version {v} of the Managed plan agreement takes effect on {date}. Because your company pays monthly, we ask an owner seat to accept it here. |
+| Optional: note | We record your name and title, the company's legal name, the time and the version. Owner seats can see the record on the Billing tab. |
+| Optional: dismiss | Not now. You can keep using the portal. We ask again on your next visit. |
+| Link | Read version {v} of the {Document} (opens in a new tab) |
+| Name field, only when none is on file | Your name. We have no name on file for your seat. We record it with your acceptance. |
+| Box, Vendor Terms | I have read and accept the Vendor Terms, version {v}, on behalf of {company}, and I am authorized to bind that company. |
+| Box, Managed plan | I have read and accept the Managed plan agreement, version {v}, on behalf of {company}. |
+| Button | Accept version {v} (Recording… while it runs) |
+| After accept: heading | You accepted the {Document}, version {v} |
+| After accept: body | We recorded the acceptance for {company} on {date}. The portal is now open for every seat. (The second sentence only when the accept lifted a block.) Close this message. |
+| Errors | Enter your name, up to 200 characters. / This version is no longer waiting for your acceptance. Another owner may have accepted it. We reloaded what you need to accept. / Only an owner seat can accept for the company. Ask an owner at your company to accept. / Enter your title, up to 100 characters. / Enter the company's legal name, up to 200 characters. / Tick the box to accept this version. / Too many changes in a short time. Try again in a minute. / We could not record your acceptance. Nothing was saved. Try again. |
+
+The box label and the server's recorded label are one sentence (`portalAcceptanceLabel`). `vendor-legal-acceptance.component.spec.ts` holds them equal.
+
+**After an accept.** The confirmation renders above the portal, takes the focus and is announced once through the portal's live region. In required mode the tabs return under it. "Close this message" moves the focus to the page `h1`, which carries `tabindex="-1"` for that.
+
+**The signer's name.** The record holds the signer's name. The screen pre-fills nothing for it: the server takes the seat's display name, else its own claim's name. When it has neither (an invited owner with no name), the read says so (`signer.name` null), the screen asks "Your name", and the POST refuses a missing one with `400` on `signer_name`.
+
+**Billing while blocked.** An owner seat of a company with a Stripe customer sees "Manage billing in Stripe" on the required screen. It calls `POST /api/vendor/billing/portal`, which passes a blocked company, so an owner can still manage or cancel without accepting first.
+
+**A block that starts mid-session.** A version can take effect while a seat has the portal open. Its next write answers `403 LEGAL_ACCEPTANCE_REQUIRED`. One interceptor on the `/vendor/:vendorSlug` route (`vendor-legal-required.ts`) hears it for any `/api/vendor/*` call and re-reads the state, so the required screen replaces the tabs.
+
+**Optional prompts wait for the client.** SSR never renders an optional prompt. It renders once the browser has read this session's dismissals, so a dismissed prompt never flashes on a reload. The required screen does not wait: SSR renders it.
+
+**Fail open in the shell.** `vendorLegalResolver` reads the state beside `vendorMeResolver`, so SSR renders the gate with no flash of tabs. A failed read resolves `null`, which shows no screen. The server-side write block is the gate that cannot be skipped. `/vendor` is never edge-cached, and the state service is provided by the page, never at root, so no per-seat state reaches a cached page.
+
+**Preview.** `/preview/vendor-dashboard?fixture=<key>`: `legal-required` (owner), `legal-required-member`, `legal-optional-terms`, `legal-optional-managed`, `legal-accepted`. The fixtures use Vendor Terms 1.3 and Managed plan agreement 1.1, because their fixed copies are real pages, so "Read version" resolves. In production a draft is never in force.
+
 ## 7. Moderation escalation — ban gate (AECI-524)
 
 **The gate check ships with §4** (`banned_at` → 403 in the guard, ahead of the role check). This section owns the ban **action** + policy.
