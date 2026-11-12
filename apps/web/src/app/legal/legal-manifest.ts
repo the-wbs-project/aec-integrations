@@ -1,22 +1,27 @@
 /**
- * Legal document manifest (AECI-1361). The `.md`-free half of the legal
- * registry: which slugs exist, which file backs each, and which superseded
- * versions are archived at `/legal/<slug>/v<version>`.
+ * Legal document manifest (AECI-1361, AECI-1610). The `.md`-free half of the
+ * legal registry: which slugs exist, which file backs each, which superseded
+ * versions are archived at `/legal/<slug>/v<version>`, which versions not yet in
+ * force are published at the same kind of URL, and which version is current.
  *
  * It imports nothing at runtime, so three readers can take it without pulling
  * the Markdown or `marked` into their bundles:
  *
- *   1. `app.routes.ts` generates one explicit route per archived version.
- *   2. `docs/docs-indexing.ts` puts every archive URL in `NOINDEX_PATH_PREFIXES`,
- *      so the SSR egress stamps `X-Robots-Tag` on it in every env. (The sitemap
- *      lists legal pages by hand and never lists an archive.)
+ *   1. `app.routes.ts` generates one explicit route per archived or upcoming
+ *      version, and one for the fixed address of each current version
+ *      (`LEGAL_CURRENT_VERSIONS`).
+ *   2. `docs/docs-indexing.ts` puts every archive, upcoming and fixed current URL
+ *      in `NOINDEX_PATH_PREFIXES`, so the SSR egress stamps `X-Robots-Tag` on it in
+ *      every env. (The sitemap lists legal pages by hand and never lists one.)
  *   3. `legal-versions.ts` checks the bundled sources against it at module init.
  *
  * Adding an archive: copy the superseded file unchanged to
  * `src/content/legal/versions/<slug>/v<version>.md`, add its entry below, import
  * it in `legal-content.ts`, and add its line to the current file's
  * `## Change history`. The registry throws at module init if any of the four
- * disagree. `apps/web/src/content/legal/README.md` has the full workflow.
+ * disagree. An upcoming version follows the same steps with a `LEGAL_UPCOMING`
+ * entry instead of a `LEGAL_ARCHIVES` one.
+ * `apps/web/src/content/legal/README.md` has the full workflow.
  */
 
 /** Public route slug for a legal page (`/legal/<slug>`). */
@@ -79,12 +84,18 @@ export function legalPath(slug: LegalSlug): string {
   return `/legal/${slug}`;
 }
 
-/** An archived version's path: `/legal/<slug>/v<version>`. */
+/**
+ * A version's own path: `/legal/<slug>/v<version>`. The same shape for an
+ * archived, an upcoming and the current version.
+ */
 export function legalArchivePath(slug: LegalSlug, version: string): string {
   return `/legal/${slug}/v${version}`;
 }
 
-/** The archive file under `src/content/legal/`: `versions/<slug>/v<version>.md`. */
+/**
+ * A non-current version's file under `src/content/legal/`, archived or upcoming:
+ * `versions/<slug>/v<version>.md`.
+ */
 export function legalArchiveFile(slug: LegalSlug, version: string): string {
   return `versions/${slug}/v${version}.md`;
 }
@@ -95,9 +106,69 @@ export const LEGAL_ARCHIVE_PATHS: readonly string[] = LEGAL_ARCHIVES.map((entry)
 );
 
 /**
- * Every URL that renders a version not yet in force (AECI-1592). Empty until the
- * upcoming-version page ships. A legal notice must link to the new version, so
+ * The current version of each document: the current file's frontmatter
+ * `version`. Mirrored here so the routes can serve the current version at its
+ * own `/legal/<slug>/v<version>` address without importing the Markdown
+ * (AECI-1610). A change notice links that address. On bump day the upcoming file
+ * becomes the current one and its `versions/` copy is removed, so without this
+ * route the link in every notice already shown would 404 from the effective date
+ * on. `buildLegalVersions` throws when an entry here disagrees with the
+ * frontmatter, so the bump-day change must move both.
+ */
+export const LEGAL_CURRENT_VERSIONS: Readonly<Record<LegalSlug, string>> = {
+  terms: '1.1',
+  privacy: '1.1',
+  'review-guidelines': '1.0',
+  'listing-accuracy': '1.0',
+  'vendor-terms': '1.3',
+  'managed-plan-agreement': '1.1',
+};
+
+/**
+ * The fixed address of each current version (AECI-1610). It serves the current
+ * text: `noindex`, canonical to `/legal/<slug>`, out of the sitemap. Once a later
+ * version supersedes it, the same URL serves the archived copy instead.
+ */
+export const LEGAL_CURRENT_VERSION_PATHS: readonly string[] = LEGAL_SLUGS.map((slug) =>
+  legalArchivePath(slug, LEGAL_CURRENT_VERSIONS[slug]),
+);
+
+/**
+ * One version not yet in force (AECI-1610, `STAGE_1_SPEC.md` §27.3). Its text is
+ * committed before its effective date at `versions/<slug>/v<version>.md`, the
+ * same slot an archive uses, and is served at `/legal/<slug>/v<version>`.
+ *
+ * Status comes from this entry, never from a frontmatter flag: the same file is
+ * "upcoming" while it is listed here and "current" once the bump-day change
+ * moves it to `<name>.md` and deletes the entry. The file's frontmatter
+ * `effective_date` is the display label for `effectiveOn` ("Month D, YYYY");
+ * `buildLegalVersions` throws when the two disagree.
+ */
+export interface LegalUpcomingEntry {
+  readonly slug: LegalSlug;
+  readonly version: string;
+  /** The day it takes effect: `YYYY-MM-DD`, read as UTC. */
+  readonly effectiveOn: string;
+}
+
+/**
+ * Every version not yet in force. Empty until a change is announced. The vendor
+ * terms and Managed plan agreement entries are mirrored in
+ * `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (`@aeci/shared/api/agreements`), and
+ * `legal-page.component.spec.ts` pins the two equal.
+ */
+export const LEGAL_UPCOMING: readonly LegalUpcomingEntry[] = [];
+
+/** The URL of each upcoming entry: `/legal/<slug>/v<version>`. */
+export function legalUpcomingPaths(entries: readonly LegalUpcomingEntry[]): string[] {
+  return entries.map((entry) => legalArchivePath(entry.slug, entry.version));
+}
+
+/**
+ * Every URL that renders a version not yet in force (AECI-1592, AECI-1610),
+ * derived from `LEGAL_UPCOMING`. Held out of the index and the sitemap, like the
+ * archives. A legal notice must link to the new version, so
  * `legal-notices.spec.ts` fails on any entry in `notices.json` whose URL is not
  * listed here.
  */
-export const LEGAL_UPCOMING_PATHS: readonly string[] = [];
+export const LEGAL_UPCOMING_PATHS: readonly string[] = legalUpcomingPaths(LEGAL_UPCOMING);

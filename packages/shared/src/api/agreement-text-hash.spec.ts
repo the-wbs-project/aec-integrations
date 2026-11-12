@@ -19,6 +19,7 @@ import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
   LEGAL_AGREEMENT_TEXT_SHA256,
+  LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   legalAgreementTextSha256,
   type LegalAgreementDocument,
   PLANS_PAGE_CURRENT_VERSION,
@@ -46,9 +47,14 @@ describe.each(Object.keys(FILES) as LegalAgreementDocument[])('%s text hashes', 
     expect(legalAgreementTextSha256(document, version)).toBe(sha256(join(LEGAL, current)));
   });
 
+  // An upcoming version (AECI-1610) shares the `versions/` folder but is not yet
+  // accepted at, so it has no hash until bump day makes it current.
   it('records every archived version from its archive file', () => {
     const dir = join(LEGAL, 'versions', archive);
-    const archived = readdirSync(dir).filter((f) => /^v[\d.]+\.md$/.test(f));
+    const upcoming = LEGAL_AGREEMENT_UPCOMING_VERSIONS[document]?.version;
+    const archived = readdirSync(dir).filter(
+      (f) => /^v[\d.]+\.md$/.test(f) && f !== `v${upcoming}.md`,
+    );
     expect(archived.length).toBeGreaterThan(0);
     for (const file of archived) {
       const version = file.slice(1, -3);

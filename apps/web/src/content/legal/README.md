@@ -145,6 +145,8 @@ Every version has a stable URL. The repo is private, so git history is not the p
 | What                | Where                                   | URL                          |
 | ------------------- | --------------------------------------- | ---------------------------- |
 | Current version     | `<name>.md` (this folder)               | `/legal/<slug>`              |
+| Current version, at its own address | `<name>.md` (this folder) | `/legal/<slug>/v<version>` |
+| Upcoming version    | `versions/<slug>/v<version>.md`         | `/legal/<slug>/v<version>`   |
 | Superseded version  | `versions/<slug>/v<version>.md`         | `/legal/<slug>/v<version>`   |
 
 - An archive file is the superseded version's **final text, copied unchanged**, frontmatter
@@ -159,6 +161,31 @@ Every version has a stable URL. The repo is private, so git history is not the p
   routes and holds them out of the index (`NOINDEX_PATH_PREFIXES`).
 - An archive page opens with "This is version X, superseded on <date>. Read the current version."
   It is noindex, canonicalises to the current page, and is not in `sitemap.xml`.
+- An **upcoming version** (AECI-1610) is a version committed before it takes effect. It uses
+  the same `versions/` slot and URL as an archive. Its entry in `LEGAL_UPCOMING`
+  (`app/legal/legal-manifest.ts`) is `{ slug, version, effectiveOn: 'YYYY-MM-DD' }`, and
+  `LEGAL_UPCOMING_PATHS` derives from it. **The manifest entry is what makes it upcoming, not a
+  frontmatter flag.** A flag would have to be edited out of the text on bump day, and the text
+  must stay as published. The file's `effective_date` is `effectiveOn` written out ("March 31,
+  2027"). The page opens with "This version takes effect on <date>. Until then the current
+  version applies.", linking the current page. It is noindex, canonicalises to the current
+  page, gets the egress `X-Robots-Tag`, and is not in `sitemap.xml`, the same as an archive. It
+  keeps the static `/legal/*` TTL with no purge, because the bump-day deploy replaces it.
+- The **current version is served at its own address** too, `/legal/<slug>/v<version>`
+  (AECI-1610). A change notice links that address, and on bump day the upcoming file moves into
+  `<name>.md`. Without this route the link in every notice already shown would 404 from the
+  effective date. So one address serves one version for life: upcoming, then current, then
+  archived. The routes read the current version from `LEGAL_CURRENT_VERSIONS`
+  (`app/legal/legal-manifest.ts`), because they cannot import the Markdown. The page serves the
+  current text and opens with "This address always shows version X. For the version that
+  currently applies, see <document title>.", linking `/legal/<slug>`. It does not say the
+  version is in force, because a draft's own text says it is not. It is noindex, canonicalises
+  to `/legal/<slug>`, gets the egress `X-Robots-Tag`, and is not in `sitemap.xml`. It serves the
+  text rather than redirecting, because a notice must link a fixed copy.
+- For the vendor terms and the Managed plan agreement, `LEGAL_AGREEMENT_UPCOMING_VERSIONS`
+  (`packages/shared/src/api/agreements.ts`) mirrors the upcoming entry as
+  `{ version, effectiveOn }`. A spec checks the two are equal. `agreement-text-hash.spec.ts`
+  skips the upcoming file, because no one has accepted it yet.
 - Every current file **ends with** `## Change history`: one list line per version, naming
   `Version X.Y` once. Give the effective date, or say "draft, never in force" for a version that
   never took effect. A superseded version's line links its archive URL and gives its superseded
@@ -171,15 +198,34 @@ Every version has a stable URL. The repo is private, so git history is not the p
   - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.
   ```
 
-- The registry (`app/legal/legal-versions.ts`) checks all of this at module init. A version
-  collision, a filename/frontmatter mismatch, an archive missing from the manifest, an archive not
-  listed in the change history, or a listed version or link that does not resolve throws and
-  fails `ng test`.
+  An upcoming version's line links its URL, for example
+  `- [Version 1.2](/legal/terms/v1.2): takes effect March 31, 2027.`
+
+- The registry (`app/legal/legal-versions.ts`) checks all of this at module init. It throws, and
+  fails `ng test`, on any of these:
+  - a version collision, or a file in both manifests;
+  - a filename/frontmatter mismatch;
+  - a `versions/` file missing from both `LEGAL_ARCHIVES` and `LEGAL_UPCOMING`, or an entry with
+    no file;
+  - a `LEGAL_CURRENT_VERSIONS` entry that is not the current file's `version`;
+  - an upcoming version not later than the current one, an `effectiveOn` that is not a real
+    `YYYY-MM-DD` day, or an `effective_date` that is not that day written out;
+  - an archived or upcoming version not listed, with its link, in the change history;
+  - a listed version or link that does not resolve.
+- No check reads the clock. An upcoming entry whose date has passed still builds, so `main`
+  never turns red on a date. What happens on the date is AECI-1689.
 
 **When to bump.** Once a version is in force (`effective_date` set), any text change is a new
 version: bump and archive. While a document is still a draft that never took effect, a wording
 fix may be made in place without a bump; update `last_updated`. AECI-1361 did this for the four
 launch documents when it replaced the "public commit log" sentence.
+
+**Open question: the change-history line edits the current file.** The registry requires the
+current file to list an upcoming version. That changes the current file's bytes. For the two
+agreements, `LEGAL_AGREEMENT_TEXT_SHA256` holds the hash of those bytes, and a grant acceptance
+already stamped with the old hash would no longer match the file (`agreement-text-hash.spec.ts`
+fails until the hash is updated). Whether that line needs a bump, or should live outside the
+hashed text, is not decided. Raise it with Chris before the first upcoming agreement version.
 
 **When the change materially affects how we use personal data, add the notice first.** Add the entry to
 `notices.json` and deploy it at least 31 days before the effective date. If that date is missed, move
@@ -228,7 +274,46 @@ To change a legal document:
 6. **Merge** — the new version goes live on the next deploy.
 7. **Close the Linear issue** — link the merged PR and note the effective date.
 
-When a change materially affects users, see §27.4 and the next section.
+When a change materially affects users, see §27.4 and the next two sections.
+
+## Announcing a new version before it takes effect (spec §27.3, AECI-1610)
+
+Use this when a version is published ahead of its effective date, so a notice can link it. Run the
+steps in this order.
+
+1. **Prepare the text on a branch.** Copy the current `<name>.md` to `versions/<slug>/v<new>.md` and
+   make the change there. Set `version` to the new version, `effective_date` to the effective day
+   written out ("March 31, 2027"), and `last_updated`. Pick an effective date at least 31 days after
+   the day you expect to deploy.
+2. **Register it in the same branch.**
+   - Add `{ slug, version, effectiveOn: 'YYYY-MM-DD' }` to `LEGAL_UPCOMING` in
+     `app/legal/legal-manifest.ts`.
+   - Import the file in `app/legal/legal-content.ts` and add it to `ARCHIVE_SOURCES`.
+   - For the vendor terms or the Managed plan agreement, add the same `{ version, effectiveOn }` to
+     `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (`packages/shared/src/api/agreements.ts`). Read the open
+     question above first.
+   - Add the upcoming line, with its link, to the current file's `## Change history`.
+   - If the change is material, add the `notices.json` entry (next section).
+3. **Merge and deploy to production** at least 31 days before the effective date. The page goes
+   live at `/legal/<slug>/v<new>`.
+4. **Bump day, on the effective date, in one change:**
+   - Move the text of `versions/<slug>/v<new>.md` into `<name>.md`, and delete the `versions/` file.
+   - Archive the old current text unchanged at `versions/<slug>/v<old>.md`, with a `LEGAL_ARCHIVES`
+     entry whose `supersededOn` is the effective date. Fix the imports in `legal-content.ts`.
+   - Remove the `LEGAL_UPCOMING` entry, and the `LEGAL_AGREEMENT_UPCOMING_VERSIONS` entry if there
+     is one.
+   - Remove the version's `notices.json` entry if it has one. A notice whose link is no longer in
+     `LEGAL_UPCOMING_PATHS` fails `legal-notices.spec.ts`.
+   - Set the slug's `LEGAL_CURRENT_VERSIONS` entry to the new version. The notice's link
+     `/legal/<slug>/v<new>` then keeps serving the same text as the current version, and
+     `/legal/<slug>/v<old>` serves the archive.
+   - For an agreement, set `LEGAL_AGREEMENT_CURRENT_VERSIONS` to the new version, append it to
+     `LEGAL_AGREEMENT_KNOWN_VERSIONS`, and add its `LEGAL_AGREEMENT_TEXT_SHA256` entry.
+   - Fix the `## Change history` lines: the new version is "this version", the old one links its
+     archive with its superseded date.
+5. **Deploy the bump the same day.** Nothing switches on the date by itself yet, so until this
+   deploy the old version stays current on the site. AECI-1689 removes that deadline. No spec fails
+   when the date passes, so CI will not remind you.
 
 ## Site-wide notice of a material change (spec §27.4, AECI-1592)
 
@@ -236,10 +321,11 @@ The Privacy Policy promises a notice on every page for 30 days before a material
 naming what changes and linking to the new version. `LegalNoticeBand` (`app/legal/legal-notice-band.ts`)
 renders it from `notices.json` in this folder. The file ships as `[]`.
 
-**No notice entry without an upcoming-version URL in the manifest.** A notice links to the new version
-at `/legal/<slug>/v<version>`, and nothing renders a version that is not yet in force today. That page
-is **AECI-1610**. It adds the URL to `LEGAL_UPCOMING_PATHS` (`app/legal/legal-manifest.ts`), and
-`legal-notices.spec.ts` fails on any entry whose URL is not listed. This gates the first notice. It does
+**No notice entry without an upcoming version in the manifest.** A notice links to the new version
+at `/legal/<slug>/v<version>`, the upcoming page ("Announcing a new version before it takes effect"
+above, AECI-1610). `LEGAL_UPCOMING_PATHS` (`app/legal/legal-manifest.ts`) derives from the
+`LEGAL_UPCOMING` entries, and `legal-notices.spec.ts` fails on any notice whose URL is not listed. Add
+the upcoming version and its notice in the same change, and remove the notice on bump day. This does
 not gate a document's first effective date.
 
 Each entry:
@@ -262,7 +348,8 @@ Each entry:
   shortens the 30 days, so move the effective date instead.
 - Nothing has to happen on either boundary. Every page's cache TTL ends at the boundary
   (`docs/CACHE_STRATEGY.md` §4).
-- Remove an entry once it has closed. A closed entry renders nothing, so this is only tidying.
+- Remove the entry in the bump-day change (step 4 above). It must go then, because its link leaves
+  `LEGAL_UPCOMING_PATHS`. A closed entry renders nothing.
 - `summary` is content, like the Markdown body, so it is not extracted into `messages.xlf`.
 
 ## Open Government Licence attribution (AECI-1310)

@@ -5,17 +5,29 @@ import { describe, expect, it } from 'vitest';
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
   type LegalAgreementDocument,
   type LegalPolicyDocument,
 } from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
-import { LegalPage } from './legal-page';
-import { type LegalSlug, LEGAL_SLUGS, currentLegalVersion, getLegalVersion } from './legal-content';
-import { LEGAL_ARCHIVES } from './legal-manifest';
+import { LEGAL_DOC_LOOKUP, type LegalDocLookup, LegalPage } from './legal-page';
+import {
+  type LegalDoc,
+  type LegalSlug,
+  LEGAL_SLUGS,
+  currentLegalVersion,
+  getLegalDoc,
+  getLegalVersion,
+} from './legal-content';
+import { LEGAL_ARCHIVES, LEGAL_CURRENT_VERSIONS, LEGAL_UPCOMING } from './legal-manifest';
 
-function render(slug: LegalSlug, version?: string): { host: HTMLElement; title: Title } {
+function render(
+  slug: LegalSlug,
+  version?: string,
+  lookup?: LegalDocLookup,
+): { host: HTMLElement; title: Title } {
   // Reset first so a test can render several slugs in sequence (each needs a
   // fresh, not-yet-instantiated module).
   TestBed.resetTestingModule();
@@ -26,6 +38,7 @@ function render(slug: LegalSlug, version?: string): { host: HTMLElement; title: 
         provide: ActivatedRoute,
         useValue: { snapshot: { data: version === undefined ? { slug } : { slug, version } } },
       },
+      ...(lookup ? [{ provide: LEGAL_DOC_LOOKUP, useValue: lookup }] : []),
     ],
   });
   const fixture = TestBed.createComponent(LegalPage);
@@ -409,6 +422,111 @@ describe('LegalPage', () => {
       }
       expect(getLegalVersion('terms', '9.9')).toBeUndefined();
     });
+
+    it('an archived page carries neither the upcoming nor the own-address line', () => {
+      const { host } = render('vendor-terms', '1.2');
+      expect(host.querySelector('[data-testid="legal-superseded"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+      expect(host.querySelector('[data-testid="legal-fixed-current"]')).toBeNull();
+    });
+  });
+
+  // A change notice links /legal/<slug>/v<version>, which must keep serving that
+  // text once it is the current version.
+  describe('the current version at its own address (AECI-1610)', () => {
+    it('renders the current text with the address line, noindex, canonical to the current page', () => {
+      const current = currentLegalVersion('managed-plan-agreement');
+      const { host } = render('managed-plan-agreement', current);
+      const line = host.querySelector('[data-testid="legal-fixed-current"]');
+      expect(line?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        `This address always shows version ${current}. For the version that currently applies, see Managed Plan Agreement.`,
+      );
+      expect(line?.textContent).not.toMatch(/in force/i);
+      expect(line?.querySelector('a')?.getAttribute('href')).toBe('/legal/managed-plan-agreement');
+      expect(getLegalVersion('managed-plan-agreement', current)).toBe(
+        getLegalDoc('managed-plan-agreement'),
+      );
+      expect(host.querySelector('article.aec-prose')?.textContent).toContain('Change history');
+      expect(host.querySelector('[data-testid="legal-superseded"]')).toBeNull();
+      expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+      expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
+        /\/legal\/managed-plan-agreement$/,
+      );
+      expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe(
+        'noindex',
+      );
+    });
+
+    it('every current version resolves at its own address', () => {
+      for (const slug of LEGAL_SLUGS) {
+        expect(getLegalVersion(slug, LEGAL_CURRENT_VERSIONS[slug]), slug).toBe(getLegalDoc(slug));
+      }
+    });
+
+    it('the current page carries no address line', () => {
+      const { host } = render('managed-plan-agreement');
+      expect(host.querySelector('[data-testid="legal-fixed-current"]')).toBeNull();
+    });
+  });
+
+  // The real manifest has no upcoming entry, so these render a fixture through
+  // LEGAL_DOC_LOOKUP. `legal-versions.spec.ts` covers the builder side, the
+  // change-history line included.
+  describe('upcoming versions (AECI-1610)', () => {
+    const UPCOMING_DOC: LegalDoc = {
+      slug: 'vendor-terms',
+      frontmatter: {
+        title: 'Vendor Terms',
+        version: '9.0',
+        effectiveDate: 'March 31, 2027',
+        lastUpdated: 'February 1, 2027',
+      },
+      html: '<h2>What changes</h2><p>New text.</p>',
+      effectiveOn: '2027-03-31',
+    };
+    const lookup: LegalDocLookup = {
+      current: getLegalDoc,
+      version: (slug, version) =>
+        slug === 'vendor-terms' && version === '9.0'
+          ? UPCOMING_DOC
+          : getLegalVersion(slug, version),
+    };
+
+    it('opens with the effective date and links the current version', () => {
+      const { host } = render('vendor-terms', '9.0', lookup);
+      const opener = host.querySelector('[data-testid="legal-upcoming"]');
+      expect(opener?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'This version takes effect on March 31, 2027. Until then the current version applies.',
+      );
+      expect(opener?.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms');
+      expect(host.querySelector('[data-testid="legal-superseded"]')).toBeNull();
+      expect(host.querySelector('[data-testid="legal-fixed-current"]')).toBeNull();
+      expect(host.textContent).toContain('Version 9.0');
+      expect(host.textContent).toContain('Effective March 31, 2027');
+      expect(host.querySelector('article.aec-prose')?.textContent).toContain('New text.');
+    });
+
+    it('sets robots noindex and canonicalises to the current version', () => {
+      render('vendor-terms', '9.0', lookup);
+      expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe(
+        'noindex',
+      );
+      const link = document.head.querySelector('link[rel="canonical"]');
+      expect(link?.getAttribute('href')).toMatch(/\/legal\/vendor-terms$/);
+    });
+
+    it('the current page carries no upcoming opener', () => {
+      const { host } = render('vendor-terms', undefined, lookup);
+      expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+    });
+
+    it('every real upcoming entry resolves to its text with the effective day', () => {
+      for (const { slug, version, effectiveOn } of LEGAL_UPCOMING) {
+        const doc = getLegalVersion(slug, version);
+        expect(doc?.frontmatter.version, `${slug} ${version}`).toBe(version);
+        expect(doc?.effectiveOn).toBe(effectiveOn);
+      }
+    });
   });
 
   describe('## Change history (AECI-1361)', () => {
@@ -455,6 +573,23 @@ describe('LegalPage', () => {
       for (const [policy, version] of Object.entries(LEGAL_POLICY_CURRENT_VERSIONS)) {
         expect(currentLegalVersion(slugFor[policy as LegalPolicyDocument]), policy).toBe(version);
       }
+    });
+
+    // AECI-1610: later API work reads the upcoming agreement versions from the
+    // shared map. It must equal the web manifest's entries for the two agreements.
+    it('the shared upcoming agreement map equals the LEGAL_UPCOMING agreement entries', () => {
+      const documentFor: Partial<Record<LegalSlug, LegalAgreementDocument>> = {
+        'vendor-terms': 'vendor_terms',
+        'managed-plan-agreement': 'managed_plan',
+      };
+      const fromManifest: Partial<
+        Record<LegalAgreementDocument, { version: string; effectiveOn: string }>
+      > = {};
+      for (const { slug, version, effectiveOn } of LEGAL_UPCOMING) {
+        const document = documentFor[slug];
+        if (document) fromManifest[document] = { version, effectiveOn };
+      }
+      expect(LEGAL_AGREEMENT_UPCOMING_VERSIONS).toEqual(fromManifest);
     });
 
     it('currentLegalVersion reads the frontmatter', () => {

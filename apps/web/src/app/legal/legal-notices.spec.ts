@@ -13,8 +13,10 @@ import { parseFrontmatter } from './legal-frontmatter';
 import {
   LEGAL_SLUGS,
   LEGAL_SOURCE_FILES,
+  LEGAL_UPCOMING,
   LEGAL_UPCOMING_PATHS,
   type LegalSlug,
+  legalUpcomingPaths,
 } from './legal-manifest';
 import {
   LEGAL_NOTICES,
@@ -134,8 +136,29 @@ describe('validateLegalNotices', () => {
     ]);
   });
 
-  // The gate on `notices.json`. It also holds the first notice back until the
-  // upcoming-version page fills `LEGAL_UPCOMING_PATHS`.
+  // AECI-1610: the upcoming paths come from the `LEGAL_UPCOMING` manifest, so a
+  // notice needs a manifest entry for its version, not only a path in a list.
+  it('accepts a notice whose version has a LEGAL_UPCOMING entry, and refuses it without one', () => {
+    const entry = { slug: 'privacy', version: '1.2', effectiveOn: '2027-03-31' } as const;
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, legalUpcomingPaths([entry]))).toEqual([]);
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, legalUpcomingPaths([]))).toEqual([
+      'privacy@1.2: /legal/privacy/v1.2 is not in LEGAL_UPCOMING_PATHS',
+    ]);
+    expect(
+      validateLegalNotices(
+        [NOTICE],
+        REAL_TITLES,
+        legalUpcomingPaths([{ ...entry, version: '1.3' }]),
+      ),
+    ).toEqual(['privacy@1.2: /legal/privacy/v1.2 is not in LEGAL_UPCOMING_PATHS']);
+  });
+
+  it('LEGAL_UPCOMING_PATHS is the paths of LEGAL_UPCOMING', () => {
+    expect(LEGAL_UPCOMING_PATHS).toEqual(legalUpcomingPaths(LEGAL_UPCOMING));
+  });
+
+  // The gate on `notices.json`: every real notice must link an upcoming version
+  // the manifest lists.
   it('passes on the real entries', () => {
     expect(validateLegalNotices(LEGAL_NOTICES, REAL_TITLES, LEGAL_UPCOMING_PATHS)).toEqual([]);
   });

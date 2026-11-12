@@ -7,7 +7,13 @@ import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './accessibility/accessibility
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
-import { LEGAL_ARCHIVES, legalArchivePath } from './legal/legal-manifest';
+import {
+  LEGAL_ARCHIVES,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_SLUGS,
+  LEGAL_UPCOMING,
+  legalArchivePath,
+} from './legal/legal-manifest';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { productsIndexResolver } from './products/products-index.resolver';
@@ -647,7 +653,16 @@ export const routes: Routes = [
   // `**` 404). Same LegalPage, same `/legal/*` cache rules. The page sets
   // `robots: noindex` and a canonical to the current version; the SSR egress
   // stamps `X-Robots-Tag` (`NOINDEX_PATH_PREFIXES`); the sitemap leaves them out.
-  ...LEGAL_ARCHIVES.map(
+  // AECI-1610 — versions not yet in force (`LEGAL_UPCOMING`) at the same kind of
+  // URL with the same noindex treatment, and the current version of each document
+  // at its own address (`LEGAL_CURRENT_VERSIONS`). A change notice links
+  // `/legal/<slug>/v<version>`, so that link keeps serving the same text once the
+  // version becomes current, rather than a 404.
+  ...[
+    ...LEGAL_ARCHIVES,
+    ...LEGAL_UPCOMING,
+    ...LEGAL_SLUGS.map((slug) => ({ slug, version: LEGAL_CURRENT_VERSIONS[slug] })),
+  ].map(
     ({ slug, version }): Route => ({
       path: legalArchivePath(slug, version).slice(1),
       loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),

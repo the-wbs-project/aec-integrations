@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
 import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../app/accessibility/accessibility-published';
-import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
+import {
+  LEGAL_ARCHIVE_PATHS,
+  LEGAL_CURRENT_VERSION_PATHS,
+  LEGAL_UPCOMING_PATHS,
+} from '../app/legal/legal-manifest';
 import {
   buildSitemapXml,
   staticSitemapEntries,
@@ -133,6 +137,19 @@ describe('staticSitemapEntries', () => {
       ).toBe(false);
     }
     expect(entries.some((e) => /\/legal\/[^/]+\/v\d/.test(e.loc))).toBe(false);
+  });
+
+  // The upcoming manifest is empty today, so its loop guards the day it is not.
+  // The pattern check above holds for both: no `/legal/<slug>/v<version>` is listed.
+  it('leaves out every upcoming legal version and every current version own address (AECI-1610)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    expect(LEGAL_CURRENT_VERSION_PATHS.length).toBeGreaterThan(0);
+    for (const path of [...LEGAL_UPCOMING_PATHS, ...LEGAL_CURRENT_VERSION_PATHS]) {
+      expect(
+        entries.some((e) => e.loc.endsWith(path)),
+        path,
+      ).toBe(false);
+    }
   });
 
   // The docs paths here come from a stand-in; `docs-content.component.spec.ts` pins the
