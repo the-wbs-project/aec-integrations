@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { type Route, Router, Routes } from '@angular/router';
+import { type Route, Router, Routes, type UrlSegment } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
@@ -7,7 +7,7 @@ import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './accessibility/accessibility
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
-import { LEGAL_ARCHIVES, legalArchivePath } from './legal/legal-manifest';
+import { legalVersionMatcher } from './legal/legal-version-matcher';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { productsIndexResolver } from './products/products-index.resolver';
@@ -641,19 +641,26 @@ export const routes: Routes = [
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'managed-plan-agreement' },
   },
-  // AECI-1361 — superseded versions at `/legal/<slug>/v<version>`, one explicit
-  // route per entry in the `.md`-free `LEGAL_ARCHIVES` manifest (still no
-  // `legal/:slug` param route, so an unknown slug or version falls through to the
-  // `**` 404). Same LegalPage, same `/legal/*` cache rules. The page sets
-  // `robots: noindex` and a canonical to the current version; the SSR egress
+  // AECI-1361, AECI-1610 — every version with a page at `/legal/<slug>/v<version>`:
+  // each archive (`LEGAL_ARCHIVES`), each version not yet in force (`LEGAL_UPCOMING`)
+  // and each current version at its own address (`LEGAL_CURRENT_VERSIONS`). A
+  // change notice links that address, so it keeps serving the same text once the
+  // version becomes current. One route: the matcher reads the URL shape only, and
+  // the guard lazy-loads the version lists (`legal-version-route.ts`), so they stay
+  // out of the initial bundle. An unknown slug or version fails the guard and falls
+  // through to the `**` 404. Same LegalPage, same `/legal/*` cache rules. The page
+  // sets `robots: noindex` and a canonical to the current version; the SSR egress
   // stamps `X-Robots-Tag` (`NOINDEX_PATH_PREFIXES`); the sitemap leaves them out.
-  ...LEGAL_ARCHIVES.map(
-    ({ slug, version }): Route => ({
-      path: legalArchivePath(slug, version).slice(1),
-      loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
-      data: { slug, version },
-    }),
-  ),
+  {
+    matcher: legalVersionMatcher,
+    canMatch: [
+      (_route: Route, segments: UrlSegment[]) =>
+        import('./legal/legal-version-route').then((m) =>
+          m.servesLegalVersion(segments[1].path, segments[2].path.slice(1)),
+        ),
+    ],
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+  },
   // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
   // behind `ngDevMode` so the optimized build folds this to `[]` and never
   // references the chunk: `@angular/build` substitutes the literal `false` when

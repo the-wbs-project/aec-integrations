@@ -39,7 +39,12 @@ import vendorTermsV1_0Md from '../../content/legal/versions/vendor-terms/v1.0.md
 import vendorTermsV1_1Md from '../../content/legal/versions/vendor-terms/v1.1.md';
 import vendorTermsV1_2Md from '../../content/legal/versions/vendor-terms/v1.2.md';
 import termsV1_0Md from '../../content/legal/versions/terms/v1.0.md';
-import { LEGAL_ARCHIVES, type LegalSlug } from './legal-manifest';
+import {
+  LEGAL_ARCHIVES,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_UPCOMING,
+  type LegalSlug,
+} from './legal-manifest';
 import { type LegalVersion, buildLegalVersions } from './legal-versions';
 
 export { LEGAL_SLUGS, type LegalSlug } from './legal-manifest';
@@ -64,6 +69,11 @@ export interface LegalDoc {
    * next version replaced it. Absent on the current version.
    */
   readonly supersededOn?: string;
+  /**
+   * Set on an upcoming version only (AECI-1610): the day it takes effect,
+   * `YYYY-MM-DD`. Its display label is `frontmatter.effectiveDate`.
+   */
+  readonly effectiveOn?: string;
 }
 
 // The current text of each document (`LEGAL_SOURCE_FILES` names the files).
@@ -76,8 +86,9 @@ const CURRENT_SOURCES: Record<LegalSlug, string> = {
   'managed-plan-agreement': managedPlanAgreementMd,
 };
 
-// Every archived version, keyed by its path under `src/content/legal/`. Must
-// match `LEGAL_ARCHIVES` one to one; `buildLegalVersions` throws otherwise.
+// Every archived and upcoming version, keyed by its path under
+// `src/content/legal/`. Must match `LEGAL_ARCHIVES` plus `LEGAL_UPCOMING` one to
+// one; `buildLegalVersions` throws otherwise.
 const ARCHIVE_SOURCES: Record<string, string> = {
   'versions/terms/v1.0.md': termsV1_0Md,
   'versions/privacy/v1.0.md': privacyV1_0Md,
@@ -100,6 +111,7 @@ function renderVersion(v: LegalVersion): LegalDoc {
     },
     html,
     ...(v.supersededOn === undefined ? {} : { supersededOn: v.supersededOn }),
+    ...(v.effectiveOn === undefined ? {} : { effectiveOn: v.effectiveOn }),
   };
 }
 
@@ -107,6 +119,8 @@ const VERSIONS = buildLegalVersions({
   current: CURRENT_SOURCES,
   archives: ARCHIVE_SOURCES,
   manifest: LEGAL_ARCHIVES,
+  upcoming: LEGAL_UPCOMING,
+  currentVersions: LEGAL_CURRENT_VERSIONS,
 });
 
 // slug → version → rendered doc. Rendered once per isolate, at module init.
@@ -131,7 +145,7 @@ export function getLegalDoc(slug: string): LegalDoc | undefined {
 }
 
 /**
- * Returns one version of a known slug, current or archived, or `undefined` when
+ * Returns one version of a known slug, current, archived or upcoming, or `undefined` when
  * the slug or the version is unknown.
  */
 export function getLegalVersion(slug: string, version: string): LegalDoc | undefined {

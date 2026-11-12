@@ -41,6 +41,27 @@ export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
 } as const satisfies Record<LegalAgreementDocument, string>;
 
 /**
+ * A version of an agreement whose text is published but not yet in force
+ * (AECI-1610). `effectiveOn` is the day it takes effect, `YYYY-MM-DD` read as UTC.
+ */
+export interface LegalAgreementUpcomingVersion {
+  readonly version: string;
+  readonly effectiveOn: string;
+}
+
+/**
+ * The version of each agreement that is published but not yet in force, if any.
+ * The web manifest `LEGAL_UPCOMING` (`apps/web/src/app/legal/legal-manifest.ts`) is
+ * the source: `legal-page.component.spec.ts` asserts this map equals its
+ * `vendor-terms` and `managed-plan-agreement` entries. Add an entry here in the same
+ * change that adds the upcoming file, and remove it in the bump-day change. Empty
+ * today. No runtime code reads it yet. The text-hash spec skips the upcoming file.
+ */
+export const LEGAL_AGREEMENT_UPCOMING_VERSIONS: Readonly<
+  Partial<Record<LegalAgreementDocument, LegalAgreementUpcomingVersion>>
+> = {};
+
+/**
  * Every version of each agreement that was ever current, oldest first. The current
  * version is always the last entry (`agreements.spec.ts`). Only the Stripe checkout
  * webhook reads it (AECI-1500, ruling R1 on AECI-1339): the acceptance records the

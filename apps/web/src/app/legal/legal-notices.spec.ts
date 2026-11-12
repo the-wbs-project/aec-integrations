@@ -11,10 +11,14 @@ import { describe, expect, it } from 'vitest';
 
 import { parseFrontmatter } from './legal-frontmatter';
 import {
+  LEGAL_CURRENT_VERSIONS,
   LEGAL_SLUGS,
   LEGAL_SOURCE_FILES,
+  LEGAL_UPCOMING,
   LEGAL_UPCOMING_PATHS,
   type LegalSlug,
+  type LegalUpcomingEntry,
+  legalUpcomingPaths,
 } from './legal-manifest';
 import {
   LEGAL_NOTICES,
@@ -49,8 +53,15 @@ const NOTICE: LegalNotice = {
 const OPENS = Date.UTC(2027, 2, 1);
 const CLOSES = Date.UTC(2027, 3, 1);
 
-function problems(notice: Partial<LegalNotice>, upcoming = ['/legal/privacy/v1.2']): string[] {
-  return validateLegalNotices([{ ...NOTICE, ...notice }], REAL_TITLES, upcoming);
+const ENTRY: LegalUpcomingEntry = { slug: 'privacy', version: '1.2', effectiveOn: '2027-03-31' };
+
+/** By default the notice has a matching `LEGAL_UPCOMING` entry, so one field is under test. */
+function problems(notice: Partial<LegalNotice>, upcoming?: LegalUpcomingEntry[]): string[] {
+  const merged = { ...NOTICE, ...notice };
+  const entries = upcoming ?? [
+    { slug: merged.slug, version: merged.version, effectiveOn: merged.effectiveDate },
+  ];
+  return validateLegalNotices([merged], REAL_TITLES, entries);
 }
 
 describe('legalNoticeWindow', () => {
@@ -123,20 +134,50 @@ describe('validateLegalNotices', () => {
     ['an empty summary', { summary: '  ' }, 'summary is empty'],
     ['a long summary', { summary: 'x'.repeat(201) }, 'longer than 200'],
   ])('refuses %s', (_label, notice, message) => {
-    expect(
-      problems(notice, ['/legal/privacy/v1.2', `/legal/${notice.slug}/v${notice.version}`]).join(),
-    ).toContain(message);
+    expect(problems(notice).join()).toContain(message);
   });
 
   it('refuses a duplicate', () => {
-    expect(validateLegalNotices([NOTICE, NOTICE], REAL_TITLES, ['/legal/privacy/v1.2'])).toEqual([
+    expect(validateLegalNotices([NOTICE, NOTICE], REAL_TITLES, [ENTRY])).toEqual([
       'privacy@1.2: listed twice',
     ]);
   });
 
-  // The gate on `notices.json`. It also holds the first notice back until the
-  // upcoming-version page fills `LEGAL_UPCOMING_PATHS`.
+  // AECI-1610: a notice needs a `LEGAL_UPCOMING` entry for its version, on the
+  // same effective day.
+  it('accepts a notice whose LEGAL_UPCOMING entry matches, and refuses one without an entry', () => {
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, [ENTRY])).toEqual([]);
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, [{ ...ENTRY, version: '1.3' }])).toEqual([
+      'privacy@1.2: /legal/privacy/v1.2 is not in LEGAL_UPCOMING_PATHS',
+    ]);
+  });
+
+  it('refuses a notice whose effectiveDate is not the entry effectiveOn', () => {
+    expect(
+      validateLegalNotices([NOTICE], REAL_TITLES, [{ ...ENTRY, effectiveOn: '2027-04-01' }]),
+    ).toEqual([
+      'privacy@1.2: effectiveDate 2027-03-31 is not the LEGAL_UPCOMING effectiveOn 2027-04-01',
+    ]);
+  });
+
+  // The band runs through the effective day, after the same-day bump removed the
+  // upcoming entry. The notice stays valid while its version is the current one.
+  it('accepts a notice for the version now current, after the bump', () => {
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, [], { privacy: '1.2' })).toEqual([]);
+    expect(validateLegalNotices([NOTICE], REAL_TITLES, [], { privacy: '1.1' })).toEqual([
+      'privacy@1.2: /legal/privacy/v1.2 is not in LEGAL_UPCOMING_PATHS',
+    ]);
+  });
+
+  it('LEGAL_UPCOMING_PATHS is the paths of LEGAL_UPCOMING', () => {
+    expect(LEGAL_UPCOMING_PATHS).toEqual(legalUpcomingPaths(LEGAL_UPCOMING));
+  });
+
+  // The gate on `notices.json`: every real notice must link an upcoming version
+  // the manifest lists.
   it('passes on the real entries', () => {
-    expect(validateLegalNotices(LEGAL_NOTICES, REAL_TITLES, LEGAL_UPCOMING_PATHS)).toEqual([]);
+    expect(
+      validateLegalNotices(LEGAL_NOTICES, REAL_TITLES, LEGAL_UPCOMING, LEGAL_CURRENT_VERSIONS),
+    ).toEqual([]);
   });
 });

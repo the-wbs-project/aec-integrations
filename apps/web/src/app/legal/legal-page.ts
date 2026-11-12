@@ -11,6 +11,30 @@
  * stamps `X-Robots-Tag` on it (`NOINDEX_PATH_PREFIXES`), and the sitemap leaves
  * it out. Same cache rules as the current page.
  *
+ * **Upcoming versions (AECI-1610, §27.3).** A route whose version is in
+ * `LEGAL_UPCOMING` renders the text before it takes effect, at the same kind of
+ * URL. It opens with "This version takes effect on <date>. Until then the current
+ * version applies.", linking the current page, and is held out of the index the
+ * same way as an archive: `robots: noindex`, canonical to the current page, the
+ * egress `X-Robots-Tag`, and no sitemap entry. It stays on the static `/legal/*`
+ * TTL with no purge: the bump-day deploy replaces it.
+ *
+ * **The current version at its own address (AECI-1610, §27.3).** A route whose
+ * version is the current one (`LEGAL_CURRENT_VERSIONS`) renders the current text
+ * at `/legal/<slug>/v<version>`, the URL a change notice links. It says that this
+ * address always shows that version and links `/legal/<slug>`. It never says the
+ * version is in force: a draft's own text says whether it is. It is held out of
+ * the index like an archive, so the link in a notice keeps serving that version's
+ * text after bump day, and serves the archived copy once a later version
+ * supersedes it.
+ *
+ * **The announcement of an upcoming version (AECI-1610, §27.3).** The current
+ * page, and the current version at its own address, say "Version X takes effect
+ * on <date>. Read version X." for each `LEGAL_UPCOMING` entry of the slug, linking
+ * the upcoming page. It is chrome built from the manifest, not Markdown, so
+ * announcing a version never edits the current file (for an agreement, its hashed
+ * text). It depends on the build alone, so the cached HTML stays visitor-neutral.
+ *
  * **Static + edge-cache / SSR-safe.** No data fetch and no per-visitor state —
  * the Markdown is bundled at build time and parsed once per isolate
  * (`legal-content.ts`), so the HTML is identical on the SSR Worker and after
@@ -28,13 +52,51 @@
  * `.aec-prose` block in `styles.css`. Layout mirrors `/about`: a warm Bone
  * (`accent-warm`) hero band, body measure capped at 70ch. Light theme only.
  */
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, InjectionToken, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { type LegalDoc, type LegalSlug, getLegalDoc, getLegalVersion } from './legal-content';
-import { legalPath } from './legal-manifest';
+import {
+  LEGAL_UPCOMING,
+  type LegalUpcomingEntry,
+  legalArchivePath,
+  legalPath,
+} from './legal-manifest';
+import { legalDateLabel } from './legal-versions';
+
+/** How the page finds its document. A token so a spec can render a fixture. */
+export interface LegalDocLookup {
+  current(slug: string): LegalDoc | undefined;
+  version(slug: string, version: string): LegalDoc | undefined;
+}
+
+/**
+ * The bundled registry by default. The real manifest has no upcoming entry, so
+ * `legal-page.component.spec.ts` provides a fixture through this token.
+ */
+export const LEGAL_DOC_LOOKUP = new InjectionToken<LegalDocLookup>('LEGAL_DOC_LOOKUP', {
+  providedIn: 'root',
+  factory: () => ({ current: getLegalDoc, version: getLegalVersion }),
+});
+
+/**
+ * The upcoming manifest the current page announces (`LEGAL_UPCOMING` by default).
+ * A token so a spec can announce a fixture entry.
+ */
+export const LEGAL_UPCOMING_ENTRIES = new InjectionToken<readonly LegalUpcomingEntry[]>(
+  'LEGAL_UPCOMING_ENTRIES',
+  { providedIn: 'root', factory: () => LEGAL_UPCOMING },
+);
+
+/** One upcoming version as the current page announces it. */
+interface LegalAnnouncement {
+  readonly version: string;
+  /** `effectiveOn` written out ("March 31, 2027"). */
+  readonly effectiveDate: string;
+  readonly path: string;
+}
 
 interface LegalChrome {
   readonly title: string;
@@ -127,6 +189,53 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
                 >
               </p>
             }
+            <!-- AECI-1610: a version not yet in force says so first, and links to
+                 the text that applies until then. -->
+            @if (doc.effectiveOn) {
+              <p
+                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+                data-testid="legal-upcoming"
+                i18n="@@app.legal.upcoming"
+              >
+                This version takes effect on {{ doc.frontmatter.effectiveDate }}. Until then
+                <a class="font-medium text-(--accent-primary) underline" [routerLink]="currentPath"
+                  >the current version</a
+                >
+                applies.
+              </p>
+            }
+            <!-- AECI-1610: the current version at its own address names the version
+                 it always shows, and links the page that follows the current one.
+                 It does not say the version is in force: a draft is not. -->
+            @if (fixedCurrent) {
+              <p
+                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+                data-testid="legal-fixed-current"
+                i18n="@@app.legal.fixedCurrent"
+              >
+                This address always shows version {{ doc.frontmatter.version }}. For the version
+                that currently applies, see
+                <a
+                  class="font-medium text-(--accent-primary) underline"
+                  [routerLink]="currentPath"
+                  >{{ doc.frontmatter.title }}</a
+                >.
+              </p>
+            }
+            <!-- AECI-1610: the current text announces each upcoming version from the
+                 manifest, so announcing one never edits the current Markdown. -->
+            @for (next of announcements; track next.version) {
+              <p
+                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+                data-testid="legal-upcoming-announcement"
+                i18n="@@app.legal.upcomingAnnouncement"
+              >
+                Version {{ next.version }} takes effect on {{ next.effectiveDate }}.
+                <a class="font-medium text-(--accent-primary) underline" [routerLink]="next.path"
+                  >Read version {{ next.version }}.</a
+                >
+              </p>
+            }
           </div>
         </div>
       </section>
@@ -134,6 +243,20 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
       <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose. -->
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
         <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
+        <!-- AECI-1610: the body ends with "## Change history" (the registry
+             checks it is the last section), and the current files promise that
+             every version is listed there. So an upcoming version is listed here,
+             right after it, from the manifest, without editing the Markdown. -->
+        @if (announcements.length > 0) {
+          <ul class="aec-prose max-w-[70ch]" data-testid="legal-upcoming-history">
+            @for (next of announcements; track next.version) {
+              <li i18n="@@app.legal.upcomingHistoryLine">
+                <a [routerLink]="next.path">Version {{ next.version }}</a
+                >: takes effect on {{ next.effectiveDate }}.
+              </li>
+            }
+          </ul>
+        }
       </div>
     </div>
   `,
@@ -141,15 +264,27 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
 export class LegalPage {
   private readonly route = inject(ActivatedRoute);
   private readonly meta = inject(MetaService);
+  private readonly lookup = inject(LEGAL_DOC_LOOKUP);
+  private readonly upcoming = inject(LEGAL_UPCOMING_ENTRIES);
 
   protected readonly doc: LegalDoc;
-  /** The current version's path: the canonical, and the archive notice's link. */
+  /** The current version's path: the canonical, and every callout's link. */
   protected readonly currentPath: string;
+  /** The current version served at its own `/v<version>` address (AECI-1610). */
+  protected readonly fixedCurrent: boolean;
+  /** Upcoming versions announced on the current text; empty on any other page. */
+  protected readonly announcements: readonly LegalAnnouncement[];
 
   constructor() {
-    const slug = this.route.snapshot.data['slug'] as LegalSlug;
-    const version = this.route.snapshot.data['version'] as string | undefined;
-    const doc = version === undefined ? getLegalDoc(slug) : getLegalVersion(slug, version);
+    // A `/legal/<slug>` route names its slug in `data`; the one
+    // `/legal/<slug>/v<version>` route passes both as path params (AECI-1610).
+    const { data, paramMap } = this.route.snapshot;
+    const slug = (data['slug'] ?? paramMap?.get('slug')) as LegalSlug;
+    const version = (data['version'] ?? paramMap?.get('version') ?? undefined) as
+      | string
+      | undefined;
+    const doc =
+      version === undefined ? this.lookup.current(slug) : this.lookup.version(slug, version);
     if (!doc) {
       // Programming error: a route was registered with a slug or version that
       // has no backing document. The routes are generated from the registry
@@ -158,15 +293,28 @@ export class LegalPage {
     }
     this.doc = doc;
     this.currentPath = legalPath(slug);
+    this.fixedCurrent =
+      version !== undefined && doc.supersededOn === undefined && doc.effectiveOn === undefined;
+    const showsCurrent = version === undefined || this.fixedCurrent;
+    this.announcements = showsCurrent
+      ? this.upcoming
+          .filter((entry) => entry.slug === slug)
+          .map((entry) => ({
+            version: entry.version,
+            // The registry has already refused an invalid `effectiveOn`.
+            effectiveDate: legalDateLabel(entry.effectiveOn) ?? entry.effectiveOn,
+            path: legalArchivePath(slug, entry.version),
+          }))
+      : [];
 
     const chrome = chromeForSlug(slug);
     this.meta.setStaticPageMeta({
       title: chrome.title,
       description: chrome.description,
-      // An archived version canonicalises to the current one and stays out of
-      // the index (AECI-1361).
+      // Every `/v<version>` address, archived (AECI-1361), upcoming or current
+      // (AECI-1610), canonicalises to the current page and stays out of the index.
       canonical: canonicalUrl(this.currentPath),
-      noindex: doc.supersededOn !== undefined,
+      noindex: version !== undefined,
     });
   }
 }

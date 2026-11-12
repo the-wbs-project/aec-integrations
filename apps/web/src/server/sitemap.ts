@@ -88,7 +88,9 @@ export async function staticSitemapEntries(
     // yearly changefreq. Their canonicals are self-referential against the same
     // serving origin, so sitemap `<loc>` ⇄ page canonical stay consistent.
     // Current versions only: an archived `/legal/<slug>/v<version>` is noindex
-    // and canonicalises here, so it is never listed (AECI-1361).
+    // and canonicalises here, so it is never listed (AECI-1361). Nor is an
+    // upcoming version or the current version's own address at the same kind of
+    // URL (AECI-1610).
     { loc: `${base}/legal/terms`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
