@@ -1,8 +1,8 @@
 ---
 title: Vendor Terms
-version: 1.2
+version: 1.3
 effective_date:
-last_updated: November 9, 2026
+last_updated: November 12, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -24,7 +24,7 @@ The claim form has a required box that reads: "I have read and accept the Vendor
 
 When you claim, you do not have a seat yet. So we record your acceptance against you as the claimant: your name, your title, the company's legal name, your email address and your claim request. We also record the time, the version of these terms and of the two policies, and your IP address and browser. Once we approve the claim, the same acceptance is recorded against your seat.
 
-We keep the acceptance record for as long as the company has a vendor account, and after that for as long as we need it as evidence. Your email address, the time and the version are kept even if you later ask us to delete your account. The IP address and browser are deleted 90 days after acceptance. Owner seats can see their company's acceptance records, without the IP address and browser.
+We keep the acceptance record for as long as the company has a vendor account, and after that for as long as we need it as evidence. Your name, your title, the company's legal name, your email address, the time and the version are kept even if you later ask us to delete your account. The IP address and browser are deleted 90 days after acceptance. Owner seats can see their company's acceptance records, without the IP address and browser.
 
 ## Who may claim
 
@@ -106,7 +106,7 @@ Information we show you in the portal about how your listings perform is for you
 
 ## Disclaimers and liability
 
-**THE PORTAL AND THE SERVICE ARE PROVIDED "AS IS", WITHOUT WARRANTIES OF ANY KIND.** The disclaimers and limits on liability in our [Terms of Service](/legal/terms) apply to your use of the portal. **Our total liability to you under these terms, other than under the [Managed plan agreement](/legal/managed-plan-agreement), is limited to one hundred US dollars. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible. Neither the cap nor the exclusion of lost profits or indirect or consequential loss in this section applies to our infringement of your intellectual property, our breach of a confidentiality duty we owe you in writing, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law, and that exclusion applies only to claims against us.**
+**THE PORTAL AND THE SERVICE ARE PROVIDED "AS IS", WITHOUT WARRANTIES OF ANY KIND.** The disclaimers and limits on liability in our [Terms of Service](/legal/terms) apply to your use of the portal. **Our total liability to you under these terms, other than under the [Managed plan agreement](/legal/managed-plan-agreement), is limited to one hundred US dollars. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible. Neither the cap nor the exclusion of lost profits or indirect or consequential loss in this section applies to our infringement of your intellectual property, our breach of a confidentiality duty we owe you in writing, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law. This section limits what we can owe you. It does not limit what you owe us.**
 
 ## Indemnity
 
@@ -118,17 +118,17 @@ If you have a problem with us, contact us first at the address below. Most issue
 
 These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there.
 
-**Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.**
+**Jury trial waiver. Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.**
 
 ## Changes to these terms
 
 We may update these terms. Each version is numbered and dated at the top of this page. We record which version you accepted.
 
-When we change these terms, we email every seat at the company and the billing email at least 30 days before the new version takes effect, unless the change is required by law or fixes an error, in which case it may take effect sooner. The email names the version and its effective date, summarizes every material change, links the archived text, and attaches a copy you can save. If you keep using the portal after the effective date, the new version applies to you. If you do not agree, give up your claim before that date.
+When we change these terms, we email every seat at the company and the billing email at least 30 days before the new version takes effect, unless the change is required by law or fixes an error, in which case it may take effect sooner. The email names the version and its effective date, summarizes every material change, links the archived text, and attaches a copy you can save. If you keep using the portal after the effective date, the new version applies to you. If you do not agree, give up your claim before that date. A change that reduces your rights under the liability, indemnity, disputes or content license sections applies to your company only after an owner seat accepts it in the portal. Until then the earlier version applies to you.
 
 ## General terms
 
-These terms, the [Terms of Service](/legal/terms) and, where you hold subscriptions, the [Managed plan agreement](/legal/managed-plan-agreement) are the whole agreement between you and us about the vendor portal. We read them together first. Only where they directly conflict on the same subject does the Managed plan agreement win for subscriptions and billing, then these terms, then the Terms of Service. Nothing in the Managed plan agreement overrides the content license, intellectual property, disclaimers, liability limits, indemnity, governing law or disputes sections of these terms or the Terms of Service. The Listing Accuracy Policy and the Review Guidelines rank below these terms.
+These terms, the [Terms of Service](/legal/terms) and, where you hold subscriptions, the [Managed plan agreement](/legal/managed-plan-agreement) are the whole agreement between you and us about the vendor portal. We read them together first. Only where they directly conflict on the same subject does the Managed plan agreement win for subscriptions and billing, then these terms, then the Terms of Service. The Managed plan agreement's own refund, suspension, limit of liability and disputes sections govern claims under that agreement. For everything else, nothing in the Managed plan agreement overrides the content license, intellectual property, disclaimers, liability limits, indemnity, governing law or disputes sections of these terms or the Terms of Service. The Listing Accuracy Policy and the Review Guidelines rank below these terms.
 
 We send notices to the email address on your seat and, for billing, to the company's billing email. A notice counts as received when we send it to that address. Keep it current. You send notices to us at the address under Contact.
 
@@ -144,6 +144,7 @@ Written notices to us go to The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stua
 
 ## Change history
 
-- **Version 1.2** (this version): draft, not yet in force. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial. An owner seat may change the company's legal name, and the claim form no longer asks for your role. After a second drafting pass: written notices go to our postal address or support email, and the confidentiality carve-out names a written duty we owe you.
+- **Version 1.3** (this version): draft, not yet in force. After counsel's later answers: the acceptance record keeps your name, your title and the company's legal name after account deletion, the liability section says it limits only what we can owe you, the jury trial waiver is labelled, the Managed plan agreement's own refund, suspension, liability and disputes sections govern claims under it, and a change that reduces your rights in named sections applies to your company only after an owner seat accepts it in the portal.
+- [Version 1.2](/legal/vendor-terms/v1.2): draft, never in force. Two claims were accepted under it on November 11, 2026. Superseded November 12, 2026. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial. An owner seat may change the company's legal name, and the claim form no longer asks for your role. After a second drafting pass: written notices go to our postal address or support email, and the confidentiality carve-out names a written duty we owe you.
 - [Version 1.1](/legal/vendor-terms/v1.1): draft, never in force. One claim was accepted under it on November 5, 2026. Superseded November 7, 2026. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

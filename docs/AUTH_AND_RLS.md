@@ -1182,7 +1182,7 @@ FK to `profiles`, so the table above does not list it and the erasure batch writ
 statement for it. The row survives the person's erasure unchanged, because it is the
 evidence that the agreement was accepted. Vendor Terms "Accepting these terms" states this
 retention. Since Vendor Terms 1.2 (2026-11-07) it also says the IP address and browser are
-deleted 90 days after acceptance. The daily `acceptance-evidence-removal` job does that (AECI-1636, 2026-11-10): it nulls `ip` and `user_agent` and stamps `evidence_removed_at`, for an erased person's rows too. The rest of the row stays. The claim's own `submitter_title` and `company_legal_name` stay too, like the
+deleted 90 days after acceptance. Since Vendor Terms 1.3 (2026-11-12, item 13.5c) it names the signer's name, title and the company's legal name among what is kept. The daily `acceptance-evidence-removal` job does that (AECI-1636, 2026-11-10): it nulls `ip` and `user_agent` and stamps `evidence_removed_at`, for an erased person's rows too. The rest of the row stays. The claim's own `submitter_title` and `company_legal_name` stay too, like the
 rest of the row.
 
 **`vendors.legal_name` is company data, so erasure leaves it alone (AECI-1625).** The column holds the company's legal name, not a person's data. It is not in the register above, and the erasure batch writes no statement for it. A checkout acceptance copies the name onto its own row, which survives as the paragraph above says.
