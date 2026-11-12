@@ -24,6 +24,7 @@ import { Analytics } from '../analytics/analytics';
 import { VendorApi } from './vendor-api';
 import { VENDOR_ME_FIXTURE } from './vendor-fixtures';
 import type { VendorSuspendedGate } from './vendor-gate';
+import { VendorLegalAcceptanceState } from './vendor-legal-acceptance-state';
 import { VendorLiveSync } from './vendor-live-sync';
 import { VendorPage } from './vendor-page';
 import { VendorPortalStore } from './vendor-portal-store';
@@ -66,7 +67,12 @@ async function create(me: VendorMeResponse | VendorSuspendedGate | null) {
   // The live sync holds a timer and polls; it is not what this spec is about.
   TestBed.overrideComponent(VendorPage, {
     set: {
-      providers: [VendorPortalStore, { provide: VendorLiveSync, useValue: { start: vi.fn() } }],
+      providers: [
+        VendorPortalStore,
+        { provide: VendorLiveSync, useValue: { start: vi.fn() } },
+        // AECI-1677: the acceptance screen's state, provided beside the store.
+        VendorLegalAcceptanceState,
+      ],
     },
   });
 

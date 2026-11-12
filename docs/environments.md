@@ -181,8 +181,12 @@ no preflight, no web var. `apps/api/src/wrangler-legal-publish.spec.ts` pins the
 | **Demo** | `"false"` |
 | **Production** | `"false"` |
 
-It keeps publishing from becoming a way around the legal README's list of issues that must ship
-before any effective date. AECI-1677 turns production on, and edits the spec in the same change.
+Demo and production stay `"false"` until every issue on the legal README's gate list has
+shipped. The release that sets the first effective date turns both on. The reason is the
+acceptance screen (AECI-1677): once a published version's effective moment passes, every claimed
+vendor's writes are blocked until an owner seat accepts. The change-notice email (AECI-1620) has
+shipped, so a publish now tells vendors before that moment. Production mirrors demo, so both flip
+together, and `apps/api/src/wrangler-legal-publish.spec.ts` is edited in the same change.
 
 **The PDF workflow.** `.github/workflows/legal-pdf.yml` (dispatch only, from `main` only, `CICD_PLAN.md` §11a-ter)
 prints one version and uploads it to `aeci-uploads-<env>` at `legal/<slug>/v<version>.pdf`. It

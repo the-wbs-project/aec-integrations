@@ -78,6 +78,11 @@ import {
 } from './routes/admin-licenses';
 import { createAcceptLicenseGrantHandler } from './routes/vendor-license-grants';
 import {
+  createAcceptLegalVersionHandler,
+  createVendorLegalAcceptanceHandler,
+} from './routes/vendor-legal-acceptance';
+import { createAdminLegalAcceptancesHandler } from './routes/admin-legal-acceptances';
+import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
   createReturnRecordsHandler,
@@ -203,6 +208,7 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
+import { createLegalPublishedHandler } from './routes/legal-published';
 import {
   createLinearWebhookHandler,
   createResendWebhookHandler,
@@ -480,6 +486,11 @@ phase28.get('/api/sitemap.xml', createSitemapFragmentHandler());
 // `home.*` keys (filled daily by 4.3). Never live-aggregates; a sparse cache
 // returns empty-but-valid defaults, never a 500.
 phase28.get('/api/stats/home', createStatsHomeHandler());
+
+// AECI-1689 — which upcoming agreement version was published, once its effective moment
+// has come, plus this Worker's clock. Public and a read: no auth, no rate limit. The legal
+// pages and the claim box read it so they show the version the API stamps.
+phase28.get('/api/legal/published', createLegalPublishedHandler());
 
 // Vendor requests (AECI-128): claim and correction form submissions. Public (no
 // auth). An anonymous claim is parked until its emailed link is clicked (AECI-1435).
@@ -1288,6 +1299,9 @@ authAdmin.post(
   rateLimit('write'),
   createResendLegalNoticeHandler(),
 );
+// §5.22a / AECI-1677 — who has accepted each final agreement version, and who has not.
+// A read: no audit, no limiter.
+authAdmin.get('/api/admin/legal-acceptances', requireAdmin(), createAdminLegalAcceptancesHandler());
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
@@ -1327,6 +1341,22 @@ authVendor.post(
   createUploadLogoHandler('vendor'),
 );
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
+// AECI-1677 (rulings 24 and 25): the portal's acceptance screen. The GET is a read: any
+// seat, never rate-limited. The POST is an owner's accept: `requireVendor()` with
+// `allowTermsPending`, because a blocked company must still reach it, then the limiter,
+// then `requireSeatOwner()` inside the handler. Every OTHER vendor write is refused with
+// `403 LEGAL_ACCEPTANCE_REQUIRED` by the guard while the company is blocked.
+authVendor.get(
+  '/api/vendor/legal-acceptance',
+  requireVendor(),
+  createVendorLegalAcceptanceHandler(),
+);
+authVendor.post(
+  '/api/vendor/legal-acceptance',
+  requireVendor({ allowTermsPending: true }),
+  rateLimit('write'),
+  createAcceptLegalVersionHandler(),
+);
 authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
 // AECI-1217 / `STAGE_2_PAID_TIERS_SPEC.md` §13.10: the checklist reads. Seat-only on
 // every plan, and never rate-limited (reads). The product read proves ownership in
@@ -1863,8 +1893,9 @@ authVendor.post(
 );
 authVendor.post(
   '/api/vendor/billing/portal',
-  // AECI-1623: the one route a suspended vendor's seat may reach (ruling 6).
-  requireVendor({ allowSuspended: true }),
+  // AECI-1623: the one route a suspended vendor's seat may reach (ruling 6). AECI-1677:
+  // and a company that must accept the Vendor Terms first can still cancel by itself.
+  requireVendor({ allowSuspended: true, allowTermsPending: true }),
   rateLimit('write'),
   createStripePortalHandler(),
 );

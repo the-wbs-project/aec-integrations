@@ -86,6 +86,13 @@
  * seeded grant for the `200`, refuses a member seat with `403`, and answers the other
  * vendor's owner with the unknown-id `404`.
  *
+ * AECI-1677 adds `GET` and `POST /api/vendor/legal-acceptance`, the acceptance screen. The
+ * read takes every guard cell. The accept is an owner-seat route registered with
+ * `allowTermsPending`. With nothing in force its granted-seat cell meets `422
+ * LEGAL_ACCEPTANCE_NOT_PENDING`. Its own describe puts a Vendor Terms version in force:
+ * then every other vendor write answers `403 LEGAL_ACCEPTANCE_REQUIRED`, every read still
+ * answers, the accept and the Stripe portal pass the guard, and the accept lifts the block.
+ *
  * AECI-1501 adds the three Stripe routes (checkout, licenses/add, portal). The harness
  * has no Stripe client, so a granted owner passes every guard and meets `503
  * STRIPE_UNAVAILABLE`, the tier gate (`vendor-billing-stripe.spec.ts` covers the rest).
@@ -114,6 +121,7 @@ import {
   billingAccounts,
   claims,
   integrations,
+  legalVersions,
   licenseGrants,
   licenses,
   productRequests,
@@ -192,6 +200,10 @@ import {
 } from './vendor-licenses';
 import { createVendorLicenseReleaseRequestHandler } from './vendor-license-release';
 import { createAcceptLicenseGrantHandler } from './vendor-license-grants';
+import {
+  createAcceptLegalVersionHandler,
+  createVendorLegalAcceptanceHandler,
+} from './vendor-legal-acceptance';
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import {
@@ -594,9 +606,21 @@ function makeApp() {
     requireVendor(guard),
     createAddStripeLicensesHandler(t.factory, () => null),
   );
+  // AECI-1677 — the read is any seat's. The accept passes a blocked company through the
+  // guard (`allowTermsPending`), and the owner rule is inside the handler.
+  app.get(
+    '/api/vendor/legal-acceptance',
+    requireVendor(guard),
+    createVendorLegalAcceptanceHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/legal-acceptance',
+    requireVendor({ ...guard, allowTermsPending: true }),
+    createAcceptLegalVersionHandler(t.factory),
+  );
   app.post(
     '/api/vendor/billing/portal',
-    requireVendor({ ...guard, allowSuspended: true }),
+    requireVendor({ ...guard, allowSuspended: true, allowTermsPending: true }),
     createStripePortalHandler(t.factory, () => null),
   );
   // AECI-1373 — seat; the owner rule is inside the handler. The limiter is not under
@@ -650,7 +674,8 @@ function makeApp() {
 }
 
 async function tokenFor(sub: string): Promise<string> {
-  return jwks.mintToken({ sub, supabaseUrl: SUPABASE_URL });
+  // An email claim, as a real session carries: an acceptance records it (AECI-1677).
+  return jwks.mintToken({ sub, supabaseUrl: SUPABASE_URL, email: `${sub.slice(-3)}@seat.example` });
 }
 
 /** Success payloads and the error envelope share this alias so the deny cells
@@ -687,6 +712,21 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/billing/acceptances', method: 'GET' },
   // AECI-1387 — owner seats only.
   { path: '/api/vendor/billing', method: 'GET' },
+  // AECI-1677 — any seat reads. The accept is owner-only, and with nothing in force
+  // nothing is pending, so the granted owner passes every guard and meets the 422.
+  { path: '/api/vendor/legal-acceptance', method: 'GET' },
+  {
+    path: '/api/vendor/legal-acceptance',
+    method: 'POST',
+    body: {
+      document: 'vendor_terms',
+      version: '1.3',
+      accepted: true,
+      signer_title: 'CEO',
+      company_legal_name: 'Autodesk, Inc.',
+    },
+    ok: 422,
+  },
   // AECI-1417 — owner seats only. An unknown proposal id is the decisions' 404.
   { path: '/api/vendor/proposals', method: 'GET' },
   { path: `/api/vendor/proposals/${uuid(990)}/accept`, method: 'POST', ok: 404 },
@@ -936,7 +976,100 @@ describe('/api/vendor/* — a suspended vendor (AECI-1623)', () => {
     const source = readFileSync(join(process.cwd(), 'src/index.ts'), 'utf8');
     expect(source.match(/allowSuspended/g)).toHaveLength(1);
     expect(source).toMatch(
-      /'\/api\/vendor\/billing\/portal',[^;]*requireVendor\(\{ allowSuspended: true \}\)/,
+      /'\/api\/vendor\/billing\/portal',[^;]*requireVendor\(\{ allowSuspended: true, allowTermsPending: true \}\)/,
+    );
+  });
+});
+
+// AECI-1677 (ruling 24): the Vendor Terms are in force and a company holds no acceptance of
+// a version in force. The portal opens only the acceptance screen, and the guard refuses
+// every other vendor write. Version 1.4 is put in force by a `legal_versions` row: every
+// version in code is a draft today.
+describe('/api/vendor/* — a company that must accept the Vendor Terms (AECI-1677)', () => {
+  const PASSES = new Set(['/api/vendor/legal-acceptance', '/api/vendor/billing/portal']);
+  const inForce = () =>
+    t.db.insert(legalVersions).values({
+      document: 'vendor_terms',
+      version: '1.4',
+      effectiveAt: Date.parse('2026-01-15T12:00:00.000Z'),
+      summaryJson: '["A change."]',
+      material: true,
+      requiresAcceptance: false,
+      pdfKey: 'legal/vendor-terms/v1.4.pdf',
+      pdfSha256: 'a'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: ADMIN,
+      publishedAt: '2025-12-01T00:00:00.000Z',
+    });
+  const WRITES = ROUTES.filter((r) => r.method !== 'GET' && !PASSES.has(r.path));
+  const READS = ROUTES.filter((r) => r.method === 'GET');
+
+  it.each(WRITES)(
+    '$method $path answers 403 LEGAL_ACCEPTANCE_REQUIRED',
+    async ({ path, method, body }) => {
+      await inForce();
+      const { status, body: res } = await call(path, method, SEAT_A, body);
+      expect(status).toBe(403);
+      expect(res.error.code).toBe(ApiErrorCode.LEGAL_ACCEPTANCE_REQUIRED);
+      expect(res.error.details).toEqual({ document: 'vendor_terms', version: '1.4' });
+    },
+  );
+
+  it.each(READS)('$method $path still answers', async ({ path, method, ok }) => {
+    await inForce();
+    expect((await call(path, method, SEAT_A)).status).toBe(ok ?? 200);
+  });
+
+  it('the accept and the Stripe portal pass the guard, and the accept lifts the block', async () => {
+    await inForce();
+    expect((await call('/api/vendor/billing/portal', 'POST', SEAT_A)).status).toBe(503);
+    const patch = () => call('/api/vendor/profile', 'PATCH', SEAT_A, { description: 'edited' });
+    expect((await patch()).status).toBe(403);
+    const accepted = await call('/api/vendor/legal-acceptance', 'POST', SEAT_A, {
+      document: 'vendor_terms',
+      version: '1.4',
+      accepted: true,
+      signer_title: 'CEO',
+      company_legal_name: 'Autodesk, Inc.',
+      // SEAT_A has no display name and no claim on file, so it types its name.
+      signer_name: 'Ada Seat',
+    });
+    expect(accepted.status).toBe(201);
+    expect((await patch()).status).toBe(200);
+    // Vendor B never accepted, so it is still blocked: the block is per company.
+    expect(
+      (await call('/api/vendor/profile', 'PATCH', SEAT_B, { description: 'edited' })).status,
+    ).toBe(403);
+  });
+
+  it('a member seat cannot accept, and a banned seat is refused first', async () => {
+    await inForce();
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const body = {
+      document: 'vendor_terms',
+      version: '1.4',
+      accepted: true,
+      signer_title: 'CEO',
+      company_legal_name: 'Autodesk, Inc.',
+    };
+    expect((await call('/api/vendor/legal-acceptance', 'POST', SEAT_A, body)).status).toBe(403);
+    const banned = await call('/api/vendor/legal-acceptance', 'POST', SEAT_BANNED, body);
+    expect(banned.status).toBe(403);
+    expect(banned.body.error.message).toBe('Portal abuse');
+  });
+
+  it('with nothing in force, no write is blocked (the invariant)', async () => {
+    for (const { path, method, body, ok } of WRITES.slice(0, 3)) {
+      expect((await call(path, method, SEAT_A, body)).status).toBe(ok ?? 200);
+    }
+  });
+
+  // The exception is a source fact: exactly two routes pass a blocked company through.
+  it('only the accept and POST /api/vendor/billing/portal set allowTermsPending', () => {
+    const source = readFileSync(join(process.cwd(), 'src/index.ts'), 'utf8');
+    expect(source.match(/allowTermsPending: true/g)).toHaveLength(2);
+    expect(source).toMatch(
+      /'\/api\/vendor\/legal-acceptance',\s*requireVendor\(\{ allowTermsPending: true \}\),\s*rateLimit\('write'\),\s*createAcceptLegalVersionHandler/,
     );
   });
 });

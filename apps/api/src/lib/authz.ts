@@ -74,10 +74,24 @@ import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, profiles, vendors, vendorSuspensions } from '../db/schema';
+import {
+  agreementAcceptances,
+  billingAccounts,
+  legalVersions,
+  licenses,
+  profiles,
+  vendors,
+  vendorSuspensions,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
+import {
+  publishedVersionsSelect,
+  requiredVendorTermsVersion,
+  type AcceptedVersionLite,
+  type PublishedVersionLite,
+} from './legal-acceptance';
 import type { MissingProfileHook } from './profile-provisioning';
 import { extractBearer, unauthenticated, verifySupabaseJwt } from './user-auth';
 
@@ -223,6 +237,14 @@ export type AuthzOptions = {
    */
   allowSuspended?: boolean;
   /**
+   * Let a WRITE through while the company must accept the Vendor Terms (AECI-1677,
+   * ruling 24). Every other vendor write answers `403 LEGAL_ACCEPTANCE_REQUIRED` then.
+   * Exactly two routes set it: `POST /api/vendor/legal-acceptance`, the accept itself,
+   * and `POST /api/vendor/billing/portal`, so a company can still cancel by itself.
+   * `vendor.authz-matrix.spec.ts` pins that. Reads are never blocked.
+   */
+  allowTermsPending?: boolean;
+  /**
    * Opt-in self-heal for a verified token with no `profiles` row (AECI-770). When
    * set, the guard calls it once and re-reads the profile; a row that is still
    * missing 401s as before. Absent (the default for every guard but
@@ -325,7 +347,13 @@ type VendorProfileAuthz = ProfileAuthz & {
   licenseRows: readonly SessionLicense[];
   /** The vendor's open suspension (AECI-1623), or null. */
   suspension: { slug: string; companyName: string } | null;
+  /** AECI-1677: the Vendor Terms rows the write gate reads. Null on a read, or on a
+   *  write route that opted out (`allowTermsPending`). */
+  terms: { published: PublishedVersionLite[]; accepted: AcceptedVersionLite[] } | null;
 };
+
+/** Methods that never change state, so the Vendor Terms gate never reads for them. */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
  * The most recently ended license per (billing account, assigned product), as a
@@ -365,9 +393,36 @@ const isLatestEndedInGroup = sql`${licenses.endedAt} = (
  * owner's account stays Free for this vendor. So nothing here reads another
  * vendor's licenses, not even a product id.
  */
-async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileAuthz | undefined> {
+async function findVendorProfile(
+  db: Db,
+  userId: string,
+  termsGate: boolean,
+): Promise<VendorProfileAuthz | undefined> {
   const sessionVendor = sql`(SELECT ${profiles.vendorId} FROM ${profiles} WHERE ${profiles.id} = ${userId})`;
-  const [profileRows, licenseRows, suspensionRows] = await db.batch([
+  // Statements 4 and 5 (AECI-1677), on a write only: the Vendor Terms rows of
+  // `legal_versions`, and this vendor's Vendor Terms acceptances (its own rows and those
+  // filed under one of its billing accounts, `acceptancesOfVendor`). Same round trip.
+  const termsStatements = termsGate
+    ? ([
+        publishedVersionsSelect(db).where(eq(legalVersions.document, 'vendor_terms')),
+        db
+          .select({
+            document: agreementAcceptances.document,
+            version: agreementAcceptances.version,
+          })
+          .from(agreementAcceptances)
+          .where(
+            and(
+              eq(agreementAcceptances.document, 'vendor_terms'),
+              or(
+                eq(agreementAcceptances.vendorId, sessionVendor),
+                sql`${agreementAcceptances.billingAccountId} IN (SELECT ${billingAccounts.id} FROM ${billingAccounts} WHERE ${billingAccounts.vendorId} = ${sessionVendor})`,
+              ),
+            ),
+          ),
+      ] as const)
+    : ([] as const);
+  const [profileRows, licenseRows, suspensionRows, termsPublished, termsAccepted] = await db.batch([
     db
       .select({
         role: profiles.role,
@@ -403,9 +458,22 @@ async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileA
         and(eq(vendorSuspensions.vendorId, sessionVendor), isNull(vendorSuspensions.resolvedAt)),
       )
       .limit(1),
+    ...termsStatements,
   ]);
   const profile = profileRows[0];
-  return profile ? { ...profile, licenseRows, suspension: suspensionRows[0] ?? null } : undefined;
+  return profile
+    ? {
+        ...profile,
+        licenseRows,
+        suspension: suspensionRows[0] ?? null,
+        terms: termsGate
+          ? {
+              published: (termsPublished ?? []) as PublishedVersionLite[],
+              accepted: (termsAccepted ?? []) as AcceptedVersionLite[],
+            }
+          : null,
+      }
+    : undefined;
 }
 
 /** The latest of a set of ended licenses by parsed `ended_at`. An unparseable stamp
@@ -600,9 +668,14 @@ function createAuthzMiddleware(
     // zero added latency, zero regression surface. Do not "simplify" this to
     // always read licenses.
     const { db } = (options.dbFor ?? getDb)(c.env);
+    // AECI-1677: the Vendor Terms gate reads only on a write a route has not opted out of.
+    const termsGate =
+      requiredRole === 'vendor_admin' &&
+      !SAFE_METHODS.has(c.req.method.toUpperCase()) &&
+      !options.allowTermsPending;
     const readProfile = (): Promise<ProfileAuthz | undefined> =>
       requiredRole === 'vendor_admin'
-        ? findVendorProfile(db, user.userId)
+        ? findVendorProfile(db, user.userId, termsGate)
         : db.query.profiles.findFirst({
             columns: { role: true, vendorId: true, bannedAt: true, banReason: true },
             where: eq(profiles.id, user.userId),
@@ -655,6 +728,23 @@ function createAuthzMiddleware(
           'This vendor account is suspended. Check the notice we emailed to your owner seats.',
           { details },
         );
+      }
+      // AECI-1677 (ruling 24): while the Vendor Terms are in force and the company holds no
+      // acceptance of a version in force, the portal opens only the acceptance screen, and
+      // every vendor write but the accept and the Stripe portal link is refused here. Reads
+      // stay open, so the screen and its context still load. Nothing in force means no
+      // block (`lib/legal-acceptance.ts`).
+      const terms = (profile as VendorProfileAuthz).terms;
+      if (terms) {
+        const version = requiredVendorTermsVersion(terms.published, terms.accepted, Date.now());
+        if (version !== null) {
+          throw new ApiError(
+            403,
+            ApiErrorCode.LEGAL_ACCEPTANCE_REQUIRED,
+            'An owner seat at your company needs to accept the Vendor Terms in the portal first.',
+            { details: { document: 'vendor_terms', version } },
+          );
+        }
       }
     }
 

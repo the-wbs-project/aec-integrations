@@ -17,11 +17,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import {
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  REQUEST_CONFIRMATION_DAYS,
-  type RequestConfirmationKind,
-} from '@aeci/shared';
+import { REQUEST_CONFIRMATION_DAYS, type RequestConfirmationKind } from '@aeci/shared';
 import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -35,6 +31,7 @@ import {
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { sendClaimConfirmEmail, type ClaimConfirmSubject, type EmailContext } from './email';
 import { sha256Hex } from './hash';
+import { loadLegalInForce } from './legal-in-force';
 import { forwardAuditBatch, type ForwardContext } from './moderation-forward';
 
 /** How long the emailed link works. Ruled 2026-10-21 (Chris). The shared constant. */
@@ -203,6 +200,9 @@ export async function createPendingConfirmation(
   const id = crypto.randomUUID();
   const token = newConfirmationToken();
   const acceptance = p.acceptance ?? true;
+  // AECI-1689: the versions in force at submit, the ones the visitor's page showed.
+  // AECI-1705: a listing request records no acceptance, so it needs no read.
+  const inForce = acceptance ? await loadLegalInForce(db, now) : null;
   const built = pendingConfirmationStatements(db, {
     id,
     kind: p.kind,
@@ -211,12 +211,12 @@ export async function createPendingConfirmation(
     tokenHash: await confirmationTokenHash(token),
     email: p.email,
     payload: p.payload,
-    // The version the visitor saw. Re-checked at confirm, where a bump in between
-    // refuses the acceptance (`agreementAcceptanceStatements`).
-    termsVersion: acceptance ? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms : '',
+    // The version the visitor saw. Re-checked at confirm, where a bump or a switch in
+    // between refuses the acceptance (`agreementAcceptanceStatements`).
+    termsVersion: inForce ? inForce.agreements.vendor_terms : '',
     // AECI-1619: the policy versions the box named beside the terms, for the same row.
-    policyVersions: acceptance ? currentPolicyVersions() : null,
-    evidence: acceptance
+    policyVersions: inForce ? currentPolicyVersions(inForce) : null,
+    evidence: inForce
       ? acceptanceRequestEvidence(c.req.raw.headers)
       : { ip: null, userAgent: null },
     now,

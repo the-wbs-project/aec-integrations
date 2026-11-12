@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_EFFECTIVE_ON,
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
+  LEGAL_POLICY_UPCOMING_VERSIONS,
   type LegalAgreementDocument,
   type LegalPolicyDocument,
 } from '@aeci/shared/api/agreements';
@@ -38,6 +40,7 @@ function render(
   version?: string,
   lookup?: LegalDocLookup,
   upcoming?: readonly LegalUpcomingEntry[],
+  legalSwitched?: boolean,
 ): { host: HTMLElement; title: Title } {
   // Reset first so a test can render several slugs in sequence (each needs a
   // fresh, not-yet-instantiated module).
@@ -47,7 +50,14 @@ function render(
       provideRouter([]),
       {
         provide: ActivatedRoute,
-        useValue: { snapshot: { data: version === undefined ? { slug } : { slug, version } } },
+        useValue: {
+          snapshot: {
+            data: {
+              ...(version === undefined ? { slug } : { slug, version }),
+              ...(legalSwitched === undefined ? {} : { legalSwitched }),
+            },
+          },
+        },
       },
       ...(lookup ? [{ provide: LEGAL_DOC_LOOKUP, useValue: lookup }] : []),
       ...(upcoming ? [{ provide: LEGAL_UPCOMING_ENTRIES, useValue: upcoming }] : []),
@@ -619,6 +629,56 @@ describe('LegalPage', () => {
       expect(announcement(render('vendor-terms').host)).toBeNull();
     });
 
+    // AECI-1689: from its moment (and, for an agreement, its publish) the upcoming
+    // version is current with no deploy. The resolver decides `legalSwitched`.
+    describe('once the upcoming version is in force (AECI-1689)', () => {
+      const current = currentLegalVersion('vendor-terms');
+
+      it('/legal/<slug> serves the new text as current: no opener, no announcement', () => {
+        const { host, title } = render('vendor-terms', undefined, lookup, [ENTRY], true);
+        expect(host.textContent).toContain('Version 9.0');
+        expect(host.querySelector('article.aec-prose')?.innerHTML).toContain('New text.');
+        expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+        expect(announcement(host)).toBeNull();
+        expect(host.querySelector('[data-testid="legal-upcoming-history"]')).toBeNull();
+        expect(host.querySelector('[data-testid="legal-fixed-current"]')).toBeNull();
+        expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+        expect(title.getTitle()).toContain('Vendor Terms');
+      });
+
+      it('/legal/<slug>/v<new> is the current version at its own address', () => {
+        const { host } = render('vendor-terms', '9.0', lookup, [ENTRY], true);
+        expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+        expect(host.querySelector('[data-testid="legal-fixed-current"]')?.textContent).toContain(
+          'always shows version 9.0',
+        );
+        expect(
+          document.head.querySelector('meta[name="robots"]')?.getAttribute('content'),
+        ).toContain('noindex');
+      });
+
+      it('/legal/<slug>/v<old> serves the old text, superseded on the effective date', () => {
+        const { host } = render('vendor-terms', current, lookup, [ENTRY], true);
+        const notice = host.querySelector('[data-testid="legal-superseded"]');
+        expect(notice?.textContent?.replace(/\s+/g, ' ')).toContain(
+          `This is version ${current}, superseded on March 31, 2027.`,
+        );
+        expect(host.querySelector('[data-testid="legal-fixed-current"]')).toBeNull();
+        expect(announcement(host)).toBeNull();
+      });
+
+      it('before the moment (not switched) nothing changes', () => {
+        const before = render('vendor-terms', undefined, lookup, [ENTRY], false).host;
+        expect(before.textContent).toContain(`Version ${current}`);
+        expect(announcement(before)).not.toBeNull();
+        expect(
+          render('vendor-terms', '9.0', lookup, [ENTRY], false).host.querySelector(
+            '[data-testid="legal-upcoming"]',
+          ),
+        ).not.toBeNull();
+      });
+    });
+
     it('every real upcoming entry resolves to its text with the effective day', () => {
       for (const { slug, version, effectiveOn } of LEGAL_UPCOMING) {
         const doc = getLegalVersion(slug, version);
@@ -689,6 +749,54 @@ describe('LegalPage', () => {
         if (document) fromManifest[document] = { version, effectiveOn };
       }
       expect(LEGAL_AGREEMENT_UPCOMING_VERSIONS).toEqual(fromManifest);
+    });
+
+    // AECI-1689: a claim records the policy versions in force, so the API reads the
+    // upcoming policy versions from the shared map. It must equal the web manifest.
+    it('the shared upcoming policy map equals the LEGAL_UPCOMING policy entries', () => {
+      const policyFor: Partial<Record<LegalSlug, LegalPolicyDocument>> = {
+        'listing-accuracy': 'listing_accuracy',
+        'review-guidelines': 'review_guidelines',
+      };
+      const fromManifest: Partial<
+        Record<LegalPolicyDocument, { version: string; effectiveOn: string }>
+      > = {};
+      for (const { slug, version, effectiveOn } of LEGAL_UPCOMING) {
+        const policy = policyFor[slug];
+        if (policy) fromManifest[policy] = { version, effectiveOn };
+      }
+      expect(LEGAL_POLICY_UPCOMING_VERSIONS).toEqual(fromManifest);
+    });
+
+    // AECI-1677: the API Worker knows a version is in force from this shared map, because
+    // it cannot read the Markdown. Each entry must equal that version's frontmatter
+    // `effective_date`: blank is `null` (a draft), else the same day written out.
+    it('the shared effective-day map equals the effective_date of every agreement version', () => {
+      const slugFor: Record<LegalAgreementDocument, LegalSlug> = {
+        vendor_terms: 'vendor-terms',
+        managed_plan: 'managed-plan-agreement',
+      };
+      const writtenOut = (day: string) =>
+        new Date(`${day}T12:00:00.000Z`).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        });
+      let checked = 0;
+      for (const [document, versions] of Object.entries(LEGAL_AGREEMENT_EFFECTIVE_ON)) {
+        for (const [version, day] of Object.entries(versions as Record<string, string | null>)) {
+          const doc = getLegalVersion(slugFor[document as LegalAgreementDocument], version);
+          if (!doc) continue;
+          checked += 1;
+          expect(
+            doc.frontmatter.effectiveDate,
+            `${document} ${version}: LEGAL_AGREEMENT_EFFECTIVE_ON must equal this file's effective_date. If this version was accepted as a draft, ship the final text as a new version number instead (see the legal README, "Bump day")`,
+          ).toBe(day === null ? '' : writtenOut(day));
+        }
+      }
+      // The current version of each agreement always has a page.
+      expect(checked).toBeGreaterThanOrEqual(2);
     });
 
     it('currentLegalVersion reads the frontmatter', () => {

@@ -435,6 +435,8 @@ export class BillingLicensesTable {
         return $localize`:@@admin.vendors.billing.acceptSource.checkout:Stripe checkout`;
       case 'grant':
         return $localize`:@@admin.vendors.billing.acceptSource.grant:Grant`;
+      case 'portal':
+        return $localize`:@@admin.vendors.billing.acceptSource.portal:Acceptance screen`;
       default:
         return source;
     }

@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
  * (or, worse, a later edit copies "true" into production). This pins the value per block.
  *
  * Production and demo stay "false" until the legal README's "must ship before any
- * effective date" list has shipped. AECI-1677 flips production, and edits this spec in
- * the same change.
+ * effective date" list has shipped. The release that sets the first effective date flips
+ * demo and production, and edits this spec in the same change (AECI-1677: a passed
+ * effective moment blocks vendor writes until an owner accepts).
  */
 const raw = readFileSync(join(__dirname, '../wrangler.jsonc'), 'utf8');
 type Block = { vars?: Record<string, string> };

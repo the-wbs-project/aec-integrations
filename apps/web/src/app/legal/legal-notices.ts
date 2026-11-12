@@ -111,7 +111,7 @@ export function nextLegalNoticeBoundaryMs(
  * has no upcoming entry has no page, which would break the promise to link to it,
  * and a notice must name the same effective day as the entry (AECI-1610).
  * `currentVersions` is `LEGAL_CURRENT_VERSIONS`: the band runs through the
- * effective day, after the same-day bump has removed the upcoming entry, so a
+ * effective day, which the bump-day cleanup may land within, so a
  * notice for the version now current is allowed until it is tidied away.
  */
 export function validateLegalNotices(

@@ -2299,7 +2299,7 @@ export const agreementAcceptances = sqliteTable(
     document: text('document').notNull(),
     /** The version accepted, e.g. `'1.0'`. Must be current at write time. */
     version: text('version').notNull(),
-    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout` | `grant`. No CHECK. */
+    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout` | `grant` | `portal`. No CHECK. */
     source: text('source').notNull(),
     email: text('email').notNull(),
     /** A `profiles.id`, NO FK. Null at claim time until E3 fills it at approval. */

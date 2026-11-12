@@ -1759,7 +1759,7 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
   `CREATE INDEX`.
 - **The policy versions (AECI-1619, counsel Q14; migration `0118`, plain `ADD COLUMN`s).**
   The submit stores the Listing Accuracy Policy and Review Guidelines versions the claim box
-  named (`LEGAL_POLICY_CURRENT_VERSIONS`). The confirm copies them into the acceptance row
+  named: the versions in force at submit (`legalPolicyVersionInForce`, AECI-1689). The confirm copies them into the acceptance row
   (§8.6d). A row written before the columns holds NULL in both, and its acceptance records
   NULL rather than a version the code cannot prove.
 - **A listing request holds no terms evidence (AECI-1705).** Its form shows no vendor terms
@@ -2337,7 +2337,7 @@ create table agreement_acceptances (
   id text primary key,
   document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
   version text not null,           -- must be current at write time; a grant row: the grant's pinned version
-  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant'; NO CHECK
+  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant' | 'portal'; NO CHECK
   email text not null,             -- the accepting person; kept as evidence
   profile_id text,                 -- a profiles.id; NO FK; null at claim time
   vendor_id text,                  -- a vendors.id; NO FK
@@ -2411,6 +2411,9 @@ create unique index agreement_acceptances_stripe_session_key
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
   `400 VALIDATION_FAILED`. A `grant` row passes the grant's pinned version instead, which must
   equal `version`, current or not (AECI-1615). Grant fields on any other source are refused.
+  A `portal` row (AECI-1677) passes `portalVersion`, the version `lib/legal-acceptance.ts`
+  found pending for the company, which must equal `version`: a published version not yet
+  current in code, or one in force through its `legal_versions` row. Only `portal` may pass it.
 - **IP and user agent on the claim path and the portal grant accept.** The helper reads
   `CF-Connecting-IP` and `User-Agent` from the request's headers and cuts the user agent to
   512 characters. *Corrected 2026-11-10 (AECI-1615):* a `portal_checkbox` grant row records
@@ -2447,9 +2450,9 @@ create unique index agreement_acceptances_stripe_session_key
   snapshot file, `apps/web/src/content/docs/vendors/versions/plans/v<version>.md`
   (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). The constants live in
   `packages/shared/src/api/agreements.ts`. The builder refuses with `400 VALIDATION_FAILED`:
-  - `policyVersions` on any source other than `claim`;
+  - `policyVersions` on any source other than `claim` or a `portal` Vendor Terms row (AECI-1677);
   - a policy version not in `LEGAL_POLICY_KNOWN_VERSIONS`;
-  - `plansVersion` on any source other than `checkout` or `grant`;
+  - `plansVersion` on any source other than `checkout`, `grant` or a `portal` Managed plan row;
   - a Plans version not in `PLANS_PAGE_KNOWN_VERSIONS`.
 
   Both parameters are optional, and absent or null writes NULL. A known older version passes,
@@ -2471,7 +2474,19 @@ create unique index agreement_acceptances_stripe_session_key
   `packages/shared/src/audit-vendor-actions.ts` as an aeci-override action with `receipt`
   false. The `accepted_at`, `email`, `ip` and `user_agent` columns are never touched.
 - **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
-  change must never recreate the table (`docs/migrations.md` §0).
+  change must never recreate the table (`docs/migrations.md` §0). So AECI-1677's `portal`
+  source needed no migration.
+- **`portal` rows (AECI-1677 — 2026-11-12, no migration).** An owner seat's accept on the
+  portal's acceptance screen (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). The row carries the
+  seat's email and profile, `vendor_id`, the vendor's `billing_account_id` when one exists,
+  the signer's name, the typed title and legal name, the label (`portalAcceptanceLabel`, the
+  claim wording naming the version and the company) with its SHA-256 and
+  `checkbox_default_unticked = 1`, the two policy versions on a Vendor Terms row and the Plans
+  page version on a Managed plan row. `ip` and `user_agent` stay NULL
+  (`PORTAL_RECORDS_EVIDENCE = false`): the Privacy Policy names them only for a claim and a
+  portal grant accept. Its `agreement.accepted` audit row is in the same `db.batch`. An
+  acceptance of a draft version (`LEGAL_AGREEMENT_EFFECTIVE_ON` entry `null`) never counts
+  as an acceptance of a version in force.
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
   has nothing to null and leaves the row, email, IP and user agent included
   (`AUTH_AND_RLS.md` §8). The IP and user agent still go at 90 days (AECI-1636, below). No FK to `vendors` either, so a vendor retraction never cascades
@@ -2920,7 +2935,12 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   `packages/shared/src/api/legal-versions.ts`, and a CHECK change on D1 is a table recreate
   (`docs/migrations.md` §0). The migration is one `CREATE TABLE` and one `CREATE UNIQUE INDEX`,
   guarded by `src/test/migration-0119.spec.ts`.
-- **Readers.** `GET /api/admin/legal-versions`. No public page reads it, so a write purges nothing.
+- **Readers.** `GET /api/admin/legal-versions`, the acceptance screen (AECI-1677), and since
+  AECI-1689 the version-in-force read (`apps/api/src/lib/legal-in-force.ts`): a published
+  upcoming agreement version is the one a new acceptance stamps from its effective moment, and
+  `GET /api/legal/published` tells the legal pages so. A write still purges nothing: the read lists
+  a row only from its moment, a page's TTL ends at that moment, and a publish is refused once the
+  moment has passed (`docs/CACHE_STRATEGY.md` §4).
 - **Retention.** Kept. Not in `PRUNABLE` (`lib/retention-prune.ts`).
 - **`notice_vendor_count` is kept, not derived** (AECI-1620 review). It is the number of companies
   the LAST fan-out queued: everyone on a publish, only those not yet delivered on a re-send. The
