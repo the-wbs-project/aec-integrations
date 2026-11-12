@@ -2245,6 +2245,15 @@ routine. Five means something the API waits on has stalled. The web Worker only 
 
 ### History
 
+**2026-11-11 16:55:35 to 16:56:12 UTC:** the first stall with traces. Five catalog reads waited 18 to
+37 s. Every D1 call started in that window returned in the same millisecond, 16:56:12.12, with
+`outcome: ok`. Server time stayed under 8 ms, each call made 1 attempt per statement, and all were
+served by the primary in EWR (ENAM). Read replication is off on prod D1, so no replica was involved. No
+D1 call completed during the 37 s. API isolates in IAD and SIN both stalled, so it was the database
+path, not one isolate. No deploy since 2026-11-09 and no matching status incident. Three web visitors
+gave up and cancelled. Closest to row 1 of the table, but with no retries. Sent to Cloudflare support
+(case 02428986, AECI-1686).
+
 **2026-11-03 03:31 to 03:34 UTC:** six API requests waited up to 102 s, and the five still open released
 within 300 ms. D1 analytics show zero queries for 03:32 and 03:33, and the slowest query in the window
 took 60 ms. No deploy within the hour and no matching status incident. Cause unknown, because no trace
