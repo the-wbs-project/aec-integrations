@@ -16,9 +16,14 @@
  * without pulling server-only code or Markdown into either.
  */
 import {
-  LEGAL_ARCHIVE_PATHS,
-  LEGAL_CURRENT_VERSION_PATHS,
-  LEGAL_UPCOMING_PATHS,
+  LEGAL_ARCHIVES,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_SLUGS,
+  LEGAL_UPCOMING,
+  type LegalArchiveEntry,
+  type LegalSlug,
+  type LegalUpcomingEntry,
+  legalArchivePath,
 } from '../legal/legal-manifest';
 import { PLANS_ARCHIVE_PATHS } from './plans-versions';
 
@@ -50,11 +55,30 @@ import { PLANS_ARCHIVE_PATHS } from './plans-versions';
  * search push never list them either.
  */
 export const NOINDEX_PATH_PREFIXES: readonly string[] = [
-  ...LEGAL_ARCHIVE_PATHS,
-  ...LEGAL_UPCOMING_PATHS,
-  ...LEGAL_CURRENT_VERSION_PATHS,
+  ...legalNoindexPaths(LEGAL_ARCHIVES, LEGAL_UPCOMING, LEGAL_CURRENT_VERSIONS),
   ...PLANS_ARCHIVE_PATHS,
 ];
+
+/**
+ * The legal `/v<version>` addresses held out of the index, from the three manifest lists:
+ * every archive, every upcoming version, every current version's own address. A function
+ * so `legal-bump-equivalence.spec.ts` (AECI-1689) can derive the set for a fixture
+ * registry before and after its bump with this exact code.
+ */
+export function legalNoindexPaths(
+  archives: readonly LegalArchiveEntry[],
+  upcoming: readonly LegalUpcomingEntry[],
+  current: Readonly<Partial<Record<LegalSlug, string>>>,
+): string[] {
+  return [
+    ...archives.map((a) => legalArchivePath(a.slug, a.version)),
+    ...upcoming.map((u) => legalArchivePath(u.slug, u.version)),
+    ...LEGAL_SLUGS.flatMap((slug) => {
+      const version = current[slug];
+      return version === undefined ? [] : [legalArchivePath(slug, version)];
+    }),
+  ];
+}
 
 /**
  * Whether a locale-stripped pathname is held out of the index in every env.

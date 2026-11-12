@@ -9,6 +9,7 @@ import {
   legalPath,
   type LegalSlug,
 } from '../../legal/legal-manifest';
+import type { LegalVersionLists } from '../../legal/legal-version-route';
 
 /** `agreement_acceptances.document` to its public `/legal/*` slug. */
 const DOCUMENT_SLUG: Readonly<Record<string, LegalSlug>> = {
@@ -29,15 +30,23 @@ const DOCUMENT_SLUG: Readonly<Record<string, LegalSlug>> = {
  * The Billing tab's acceptances table links each accepted version through this, and
  * the pending-grant card (AECI-1615) links the version a grant pins.
  */
-export function acceptanceHref(document: string, version: string): string | null {
+export function acceptanceHref(
+  document: string,
+  version: string,
+  lists: LegalVersionLists = {
+    archives: LEGAL_ARCHIVES,
+    current: LEGAL_CURRENT_VERSIONS,
+    upcoming: LEGAL_UPCOMING,
+  },
+): string | null {
   const slug = DOCUMENT_SLUG[document];
   if (!slug) return null;
-  const upcoming = LEGAL_UPCOMING.find((u) => u.slug === slug);
-  if (LEGAL_CURRENT_VERSIONS[slug] === version) {
+  const upcoming = lists.upcoming.find((u) => u.slug === slug);
+  if (lists.current[slug] === version) {
     return upcoming ? legalArchivePath(slug, version) : legalPath(slug);
   }
   return upcoming?.version === version ||
-    LEGAL_ARCHIVES.some((a) => a.slug === slug && a.version === version)
+    lists.archives.some((a) => a.slug === slug && a.version === version)
     ? legalArchivePath(slug, version)
     : null;
 }

@@ -36,7 +36,11 @@ import { errorHandler } from '../errors';
 import { createLegalPublishedHandler } from '../routes/legal-published';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { agreementAcceptanceStatements, claimBoxFor } from './agreement-acceptances';
-import { inForceVersions } from './legal-acceptance';
+import {
+  inForceVersions,
+  pendingAcceptances,
+  requiredVendorTermsVersion,
+} from './legal-acceptance';
 import { loadLegalInForce, loadLegalPublishedLite } from './legal-in-force';
 
 const DAY = '2027-03-31';
@@ -189,6 +193,18 @@ describe('a published upcoming agreement version (invariant 3)', () => {
   });
 });
 
+async function readRows() {
+  return t.db
+    .select({
+      document: legalVersions.document,
+      version: legalVersions.version,
+      effectiveAt: legalVersions.effectiveAt,
+      requiresAcceptance: legalVersions.requiresAcceptance,
+      summaryJson: legalVersions.summaryJson,
+    })
+    .from(legalVersions);
+}
+
 describe('the acceptance screen agrees (invariant 4)', () => {
   it('finds the stamped version newest in force, and nothing before the moment', async () => {
     await publish();
@@ -201,9 +217,44 @@ describe('the acceptance screen agrees (invariant 4)', () => {
         summaryJson: legalVersions.summaryJson,
       })
       .from(legalVersions);
-    expect(inForceVersions('vendor_terms', rows, BEFORE.getTime())).toEqual([]);
-    expect(inForceVersions('vendor_terms', rows, AT.getTime())[0]).toBe(
+    expect(inForceVersions('vendor_terms', rows, BEFORE.getTime(), MAPS)).toEqual([]);
+    expect(inForceVersions('vendor_terms', rows, AT.getTime(), MAPS)[0]).toBe(
       (await loadLegalInForce(t.db, AT, MAPS)).agreements.vendor_terms,
     );
+  });
+
+  // A date moved after the publish: the row's moment is not the manifest's. The page and
+  // every stamp ignore the row, so the acceptance screen must too, or it would block every
+  // vendor while the page still says "takes effect" on the new date (AECI-1689 review).
+  it('a row whose moment is not the manifest moment is in force nowhere', async () => {
+    const MOVED: LegalInForceMaps = {
+      ...MAPS,
+      agreementUpcoming: { vendor_terms: { version: '1.4', effectiveOn: '2027-04-15' } },
+    };
+    await publish({ requiresAcceptance: true });
+    const rows = await readRows();
+    const laterThanBoth = Date.parse('2027-05-01T00:00:00Z');
+    for (const now of [AT.getTime(), laterThanBoth]) {
+      expect(inForceVersions('vendor_terms', rows, now, MOVED)).toEqual([]);
+      expect(requiredVendorTermsVersion(rows, [], now, MOVED)).toBeNull();
+      expect(
+        pendingAcceptances({ published: rows, accepted: [], monthlyCard: true }, now, MOVED),
+      ).toEqual([]);
+      expect((await loadLegalInForce(t.db, new Date(now), MOVED)).agreements.vendor_terms).toBe(
+        '1.3',
+      );
+      const res = await readPublic(new Date(now), MOVED);
+      expect(res.published).toEqual([]);
+      expect(
+        legalAgreementVersionInForce(
+          'vendor_terms',
+          legalPublishedLiteOf(res.published),
+          now,
+          MOVED,
+        ),
+      ).toBe('1.3');
+    }
+    // The same row with the manifest's moment does require acceptance.
+    expect(requiredVendorTermsVersion(rows, [], AT.getTime(), MAPS)).toBe('1.4');
   });
 });

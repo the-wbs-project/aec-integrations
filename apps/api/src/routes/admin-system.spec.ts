@@ -334,6 +334,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'field_hide_decision_overdue',
       // AECI-1689 — an upcoming agreement version due within 30 days with no publish.
       'legal_agreement_unpublished',
+      // AECI-1689 review — a published agreement row whose date the entry no longer names.
+      'legal_agreement_date_moved',
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live
       // record. Skipped here: the test env sets no ownership receiver.
       'review_mirror_drift',

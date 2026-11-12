@@ -137,6 +137,8 @@ On November 12, 2026 **AECI-1363** applied legal branch 5 (change list section 1
 
 **Open item for the legal stream (AECI-1363): the IP address and browser on a portal acceptance.** The acceptance screen records no IP address or browser, because the Privacy Policy's "Agreement acceptance records" names them only "for a claim or an in-portal acceptance of a granted subscription". If the legal stream widens that sentence to cover the acceptance screen, flip `PORTAL_RECORDS_EVIDENCE` to `true` in `apps/api/src/lib/agreement-acceptances.ts` in the same change, and update its spec.
 
+**Open item for the legal stream (AECI-1363): does a policy change need the Vendor Terms email?** Since AECI-1689 the Listing Accuracy Policy and the Review Guidelines switch to an upcoming version on its date alone, with the site-wide notice band as their notice. The Vendor Terms make both policies "part of these terms" and promise an email 30 days before "we change these terms". Whether a policy change is therefore a change to the Vendor Terms, and needs that email, is a legal question that predates AECI-1689. Answer it before the first policy change after an effective date goes out.
+
 **Open item for the legal stream (AECI-1363): the first in-force version is a new version number.** The code requires it (the draft versions are pinned undated). It stands pending the legal stream's confirmation.
 
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
@@ -280,8 +282,8 @@ with no deploy. One rule decides it everywhere: `legalAgreementVersionInForce` a
 - **How the pages know.** The legal pages have no database. Once an agreement's moment has come,
   the SSR Worker reads `GET /api/legal/published` over the service binding, decides, and hands
   the browser the same answer. If that read fails, the page shows the old version and is cached
-  for a minute (`docs/CACHE_STRATEGY.md` §4). The page's cache ends at the moment, so no purge is
-  needed.
+  for a minute (`docs/CACHE_STRATEGY.md` §4). Every cacheable page's cache ends at the moment, the
+  claim box and the docs included, so no purge is needed.
 - **A daily warning.** The data-quality digest lists `legal_agreement_unpublished` when an upcoming
   agreement version is 30 days or less from its moment, or past it, with no publish. Publish it or
   move the date.
@@ -358,7 +360,9 @@ steps in this order.
    the day you expect to deploy. Write its `## Change history` as it will read once it is current:
    the new version is "this version", and the old one links `/legal/<slug>/v<old>` with the
    effective date as its superseded date. The file then moves unchanged on bump day, so the text
-   published ahead is the text that takes effect.
+   published ahead is the text that takes effect. **For an agreement, the date is fixed once the
+   version is published** (next section): never edit its `effectiveOn` after that. A wrong date
+   means a new version.
 2. **Register it in the same branch.**
    - Add `{ slug, version, effectiveOn: 'YYYY-MM-DD' }` to `LEGAL_UPCOMING` in
      `app/legal/legal-manifest.ts`. This alone puts the announcement on the current page.
@@ -377,9 +381,14 @@ steps in this order.
 4. **On the effective moment, nothing to do.** At 12:00 UTC of the effective day the site switches
    to the new version by itself ("The effective date switches by itself" above). Check
    `/legal/<slug>` shows the new version after the moment.
-5. **Clean up within two weeks, in one change.** It changes no page and no stamp: the switch
-   already shows exactly what this change builds (`legal-bump-equivalence.spec.ts`). Run these
-   steps in order:
+5. **Clean up within two weeks, in one change.** For a version that switched, it changes no page
+   and no stamp: the switch already shows exactly what this change builds
+   (`legal-bump-equivalence.spec.ts`). Run these steps in order:
+   - **First, for the vendor terms or the Managed plan agreement, confirm the switch happened.**
+     `/admin/legal` on production must show the version published with the same effective date
+     as the entry (no "will not take effect" alert), and its change notice delivered. If it does
+     not, do NOT clean up: this change would make the version current with no notice sent. Move
+     the effective date instead, and publish.
    - Move `versions/<slug>/v<new>.md` into `<name>.md` byte for byte, and delete the `versions/`
      file. Its change history was written in step 1, so nothing in it changes.
    - Archive the old current text unchanged at `versions/<slug>/v<old>.md`, with a `LEGAL_ARCHIVES`
@@ -464,6 +473,13 @@ the decision. Run the steps in this order, once per tier.
    `aeci-uploads-demo` for those tiers) followed by the key `legal/vendor-terms/v1.4.pdf`, which is
    `legal/<slug>/v<version>.pdf` for the version you printed. It needs Cloudflare credentials for
    the AEC account with R2 write access.
+
+   **After publishing, never move the effective date either.** The row records the moment. If a
+   later commit changes the `effectiveOn` of `LEGAL_UPCOMING` or `LEGAL_AGREEMENT_UPCOMING_VERSIONS`,
+   the row no longer matches and the version takes effect NOWHERE: the page keeps the old version,
+   new acceptances keep stamping it, and the acceptance screen asks nothing (AECI-1689). The card on
+   `/admin/legal` then says so, and the digest lists `legal_agreement_date_moved`. Move the entry back
+   to the published date. A different date needs a new version, announced and published again.
 
    **After publishing, never replace the stored PDF.** The `legal_versions` row records its sha256,
    and every reader of the file re-hashes it. A replaced file no longer matches the record. If the

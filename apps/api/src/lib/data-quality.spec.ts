@@ -48,6 +48,7 @@ import {
   checkDuplicateProducts,
   checkDuplicateVendors,
   checkLandingCfCoverage,
+  checkLegalAgreementDateMoved,
   checkLegalAgreementUnpublished,
   checkLicenseMirrorDrift,
   checkLogo404Sample,
@@ -730,6 +731,52 @@ describe('checkLegalAgreementUnpublished', () => {
 
   it('is registered at warn severity: never a seed obligation', () => {
     expect(CHECKS.find((c) => c.id === 'legal_agreement_unpublished')?.severity).toBe('warn');
+  });
+});
+
+describe('checkLegalAgreementDateMoved (AECI-1689)', () => {
+  const ADMIN = '00000000-0000-4000-8000-000000000b02';
+  const maps = (effectiveOn: string): LegalInForceMaps => ({
+    ...LEGAL_IN_FORCE_MAPS,
+    agreementUpcoming: { vendor_terms: { version: '1.4', effectiveOn } },
+  });
+  const publishFor = async (effectiveAt: number) => {
+    await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
+    await t.db.insert(legalVersions).values({
+      document: 'vendor_terms',
+      version: '1.4',
+      effectiveAt,
+      summaryJson: '[]',
+      material: true,
+      requiresAcceptance: true,
+      pdfKey: 'legal/vendor-terms/v1.4.pdf',
+      pdfSha256: 'a'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: ADMIN,
+      publishedAt: '2027-02-01T00:00:00.000Z',
+    });
+  };
+
+  it("is clean with today's empty upcoming map, and reads nothing", async () => {
+    const noDb = new Proxy({} as typeof t.db, {
+      get() {
+        throw new Error('read D1');
+      },
+    });
+    expect((await checkLegalAgreementDateMoved(noDb)).lines).toEqual([]);
+  });
+
+  it('lists a row published for another date than the entry', async () => {
+    await publishFor(Date.UTC(2027, 2, 31, 12));
+    const { lines } = await checkLegalAgreementDateMoved(t.db, maps('2027-04-15'));
+    expect(lines).toEqual([
+      'vendor_terms 1.4 was published for 2027-03-31 but the upcoming entry says 2027-04-15: it will not take effect. Move the entry back, or make the new date a new version.',
+    ]);
+    expect((await checkLegalAgreementDateMoved(t.db, maps('2027-03-31'))).lines).toEqual([]);
+  });
+
+  it('is registered at warn severity', () => {
+    expect(CHECKS.find((c) => c.id === 'legal_agreement_date_moved')?.severity).toBe('warn');
   });
 });
 

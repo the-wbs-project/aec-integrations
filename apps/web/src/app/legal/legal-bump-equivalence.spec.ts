@@ -33,6 +33,8 @@ import {
   type LegalUpcomingEntry,
   legalArchivePath,
 } from './legal-manifest';
+import { legalNoindexPaths, pathForcesNoindex } from '../docs/docs-indexing';
+import { acceptanceHref } from '../vendor/components/vendor-agreement-href';
 import { renderLegalVersion } from './legal-render';
 import { servesLegalVersion, type LegalVersionLists } from './legal-version-route';
 import { type LegalVersionSources, buildLegalVersions } from './legal-versions';
@@ -150,13 +152,9 @@ function listsOf(sources: LegalVersionSources): LegalVersionLists {
   };
 }
 
-/** The `/v<version>` paths held out of the index, as `docs-indexing.ts` derives them. */
-function noindexPaths(lists: LegalVersionLists, slugs: readonly LegalSlug[]): string[] {
-  return [
-    ...lists.archives.map((a) => legalArchivePath(a.slug, a.version)),
-    ...lists.upcoming.map((u) => legalArchivePath(u.slug, u.version)),
-    ...slugs.map((s) => legalArchivePath(s, lists.current[s])),
-  ].sort();
+/** The `/v<version>` paths held out of the index, by the real `docs-indexing.ts` code. */
+function noindexPaths(sources: LegalVersionSources): string[] {
+  return legalNoindexPaths(sources.manifest, sources.upcoming ?? [], sources.currentVersions ?? {});
 }
 
 const SLUGS: readonly LegalSlug[] = ['vendor-terms', 'listing-accuracy'];
@@ -226,12 +224,36 @@ describe('past its moment, the announced build equals the bumped build', () => {
   });
 
   it('the same addresses are held out of the index', () => {
-    expect(noindexPaths(listsOf(ANNOUNCED), SLUGS)).toEqual(
-      expect.arrayContaining(noindexPaths(listsOf(BUMPED), SLUGS)),
+    expect([...noindexPaths(ANNOUNCED)].sort()).toEqual([...noindexPaths(BUMPED)].sort());
+    for (const slug of SLUGS) {
+      for (const version of VERSIONS[slug]) {
+        const url = version === undefined ? `/legal/${slug}` : legalArchivePath(slug, version);
+        expect(pathForcesNoindex(url, noindexPaths(ANNOUNCED)), url).toBe(
+          pathForcesNoindex(url, noindexPaths(BUMPED)),
+        );
+      }
+    }
+  });
+
+  // The one link that differs, on purpose. Before the cleanup an acceptance of 1.4 links
+  // its own address, because `/legal/vendor-terms` could still show 1.3 to a page built
+  // before the moment; after it, the current page. Both serve the same 1.4 text, and the
+  // own address stays noindex with a canonical to `/legal/vendor-terms`, so nothing a
+  // reader or a search engine sees changes.
+  it('acceptanceHref: /v1.4 before the cleanup, /legal/vendor-terms after, the same text', () => {
+    expect(acceptanceHref('vendor_terms', '1.4', listsOf(ANNOUNCED))).toBe(
+      '/legal/vendor-terms/v1.4',
     );
-    expect(noindexPaths(listsOf(BUMPED), SLUGS)).toEqual(
-      expect.arrayContaining(noindexPaths(listsOf(ANNOUNCED), SLUGS)),
+    expect(acceptanceHref('vendor_terms', '1.4', listsOf(BUMPED))).toBe('/legal/vendor-terms');
+    expect(resolveLegalView('vendor-terms', '1.4', announced, UPCOMING, true)!.doc).toEqual(
+      resolveLegalView('vendor-terms', undefined, bumped, [], false)!.doc,
     );
+    // Every other version links the same address both ways.
+    for (const v of ['1.2', '1.3']) {
+      expect(acceptanceHref('vendor_terms', v, listsOf(ANNOUNCED))).toBe(
+        acceptanceHref('vendor_terms', v, listsOf(BUMPED)),
+      );
+    }
   });
 
   it.each([MOMENT, MOMENT + 13 * 86_400_000])(
@@ -265,6 +287,17 @@ describe('before the moment, or with no publish, nothing changes', () => {
       policies: { listing_accuracy: '1.0', review_guidelines: '1.0' },
     });
     expect(nextLegalEffectiveMomentMs(MOMENT - 1, UPCOMING)).toBe(MOMENT);
+  });
+
+  // AECI-1689 review: a date moved after the publish. The row names 1.4 with the old
+  // moment and the entry a new one: nothing switches, before or after either moment.
+  it('a row whose moment is not the entry moment never switches the page', () => {
+    const vt = UPCOMING[0]!;
+    const moved = [{ document: 'vendor_terms', version: '1.4', effectiveAt: MOMENT - 86_400_000 }];
+    for (const now of [MOMENT - 86_400_000, MOMENT, MOMENT + 365 * 86_400_000]) {
+      expect(legalEntrySwitched(vt, moved, now)).toBe(false);
+      expect(legalVersionsInForce(moved, now, MAPS_ANNOUNCED).agreements.vendor_terms).toBe('1.3');
+    }
   });
 
   it('an unpublished agreement never switches; the policy switches on its date', () => {

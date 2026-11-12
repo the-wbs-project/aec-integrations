@@ -34,6 +34,7 @@
 import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_DOCUMENTS,
+  LEGAL_AGREEMENT_EFFECTIVE_ON,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
@@ -102,6 +103,12 @@ export interface LegalInForceMaps {
   readonly policyUpcoming: Readonly<
     Partial<Record<LegalPolicyDocument, LegalAgreementUpcomingVersion>>
   >;
+  /** `LEGAL_AGREEMENT_KNOWN_VERSIONS`. Absent: the shared constant. */
+  readonly agreementKnown?: Readonly<Record<LegalAgreementDocument, readonly string[]>>;
+  /** `LEGAL_AGREEMENT_EFFECTIVE_ON`. Absent: the shared constant. */
+  readonly agreementEffectiveOn?: Readonly<
+    Record<LegalAgreementDocument, Readonly<Record<string, string | null>>>
+  >;
 }
 
 /** The shared constants. The one place outside `agreements.ts` that reads them. */
@@ -110,7 +117,25 @@ export const LEGAL_IN_FORCE_MAPS: LegalInForceMaps = {
   agreementUpcoming: LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   policyCurrent: LEGAL_POLICY_CURRENT_VERSIONS,
   policyUpcoming: LEGAL_POLICY_UPCOMING_VERSIONS,
+  agreementKnown: LEGAL_AGREEMENT_KNOWN_VERSIONS,
+  agreementEffectiveOn: LEGAL_AGREEMENT_EFFECTIVE_ON,
 };
+
+/**
+ * Whether a `legal_versions` row disagrees with the manifest: it names the document's
+ * upcoming version but with another effective moment (the date was moved after the
+ * publish). Such a row is in force NOWHERE: not on the page, not in a stamp, not on the
+ * acceptance screen (`apps/api/src/lib/legal-acceptance.ts`). A row for a version with no
+ * upcoming entry (already bumped, or stray) is not judged here.
+ */
+export function legalPublishedRowMismatched(
+  row: LegalPublishedLite,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): boolean {
+  const upcoming = maps.agreementUpcoming[row.document as LegalAgreementDocument];
+  if (!upcoming || upcoming.version !== row.version) return false;
+  return row.effectiveAt !== legalEffectiveAtMs(upcoming.effectiveOn);
+}
 
 /** The version of an agreement in force at `nowMs`, given its published rows. */
 export function legalAgreementVersionInForce(
@@ -176,6 +201,26 @@ export function legalInForceNeedsPublished(
 }
 
 /**
+ * The next effective moment after `nowMs` of any upcoming agreement or policy entry, or
+ * `null`. A browser answer is good until then (`LegalInForceClient`).
+ */
+export function legalNextEffectiveMomentMs(
+  nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): number | null {
+  let next: number | null = null;
+  for (const u of [
+    ...Object.values(maps.agreementUpcoming),
+    ...Object.values(maps.policyUpcoming),
+  ]) {
+    if (!u) continue;
+    const at = legalEffectiveAtMs(u.effectiveOn);
+    if (Number.isFinite(at) && at > nowMs && (next === null || at < next)) next = at;
+  }
+  return next;
+}
+
+/**
  * Whether an acceptance may record `version` of `document` without being the one in force
  * right now: it was ever current (`LEGAL_AGREEMENT_KNOWN_VERSIONS`), or it is the upcoming
  * version, which a switch may have put in force before bump day appends it there. The
@@ -188,7 +233,8 @@ export function isRecordableLegalAgreementVersion(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): boolean {
   return (
-    (LEGAL_AGREEMENT_KNOWN_VERSIONS[document] as readonly string[]).includes(version) ||
-    maps.agreementUpcoming[document]?.version === version
+    (
+      (maps.agreementKnown ?? LEGAL_AGREEMENT_KNOWN_VERSIONS)[document] as readonly string[]
+    ).includes(version) || maps.agreementUpcoming[document]?.version === version
   );
 }

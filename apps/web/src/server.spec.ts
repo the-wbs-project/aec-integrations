@@ -417,16 +417,41 @@ describe('legal effective-moment TTL (AECI-1689)', () => {
     expect(capTtlAtLegalEffectiveMoment(STATIC_TTL, moment - MINUTE, [])).toBe(STATIC_TTL);
   });
 
-  it('applies to /legal/* only; other pages keep only the notice cap', () => {
-    expect(
-      legalPageTtl(STATIC_TTL, '/legal/vendor-terms', moment - MINUTE, false, [entry], []),
-    ).toEqual({
+  // The claim box, the claim pages and the docs name legal versions too, so the cap is
+  // on every cacheable page (AECI-1689 review).
+  it.each([
+    '/legal/vendor-terms',
+    '/vendor-program/list-your-product',
+    '/vendor-program',
+    '/docs/vendors/plans',
+    '/about',
+  ])('caps %s at the next moment', (path) => {
+    expect(legalPageTtl(STATIC_TTL, path, moment - MINUTE, false, [entry], [])).toEqual({
       edge: 60,
       browser: 60,
     });
-    expect(legalPageTtl(STATIC_TTL, '/about', moment - MINUTE, false, [entry], [])).toBe(
-      STATIC_TTL,
-    );
+  });
+
+  it('only a /legal/* page takes the uncertain TTL', () => {
+    expect(legalPageTtl(STATIC_TTL, '/about', moment + MINUTE, true, [entry], [])).toBe(STATIC_TTL);
+  });
+
+  it("the cacheable branch keeps /vendor-program/list-your-product on its route TTL with today's empty manifest", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(moment - 10 * MINUTE);
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html></html>')) });
+      const res = await app.fetch(
+        new Request('https://www.aecintegrations.com/vendor-program/list-your-product'),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      // The real manifest is empty today, so the real TTL is the route's.
+      expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failed in-force read caches the page for a minute at the edge and never in the browser', () => {

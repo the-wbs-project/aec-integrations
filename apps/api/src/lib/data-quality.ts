@@ -44,6 +44,7 @@ import {
   LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_IN_FORCE_MAPS,
   legalEffectiveAtMs,
+  legalPublishedRowMismatched,
   type LegalInForceMaps,
   OWNERSHIP_VERSIONS_MAX_IDS,
   OwnershipVersionsResponseSchema,
@@ -1316,6 +1317,46 @@ export async function checkLegalAgreementUnpublished(
   return { lines };
 }
 
+/**
+ * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms or Managed plan
+ * agreement row for the upcoming version whose effective moment is not the upcoming
+ * entry's, because the date was moved after the publish. The row is in force nowhere
+ * (`legalPublishedRowMismatched`): the page never switches, no stamp moves, the acceptance
+ * screen asks nothing. Move the entry back to the published date, or make the new date a
+ * new version. `warn`, and a seeded database has no upcoming entry, so it is clean.
+ */
+export async function checkLegalAgreementDateMoved(
+  db: Db,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): Promise<CheckFinding> {
+  const entries = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
+    const upcoming = maps.agreementUpcoming[document];
+    return upcoming ? [{ document, upcoming }] : [];
+  });
+  if (entries.length === 0) return { lines: [] };
+  const rows = await db
+    .select({
+      document: legalVersions.document,
+      version: legalVersions.version,
+      effectiveAt: legalVersions.effectiveAt,
+    })
+    .from(legalVersions)
+    .where(
+      inArray(
+        legalVersions.document,
+        entries.map((e) => e.document),
+      ),
+    );
+  const lines = rows
+    .filter((r) => legalPublishedRowMismatched(r, maps))
+    .map((r) => {
+      const entry = entries.find((e) => e.document === r.document)!;
+      const published = new Date(r.effectiveAt).toISOString().slice(0, 10);
+      return `${r.document} ${r.version} was published for ${published} but the upcoming entry says ${entry.upcoming.effectiveOn}: it will not take effect. Move the entry back, or make the new date a new version.`;
+    });
+  return { lines };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -1483,6 +1524,14 @@ export const CHECKS: CheckSpec[] = [
     // seeded database has no upcoming entry. A warning, not a seed obligation.
     severity: 'warn',
     run: ({ db, now }) => checkLegalAgreementUnpublished(db, now),
+  },
+  {
+    id: 'legal_agreement_date_moved',
+    label: 'Published agreement versions whose upcoming entry now names another date',
+    // `warn`: the row is ignored everywhere, so nothing false is stamped. Not a seed
+    // obligation: a seeded database has no upcoming entry.
+    severity: 'warn',
+    run: ({ db }) => checkLegalAgreementDateMoved(db),
   },
   {
     id: 'review_mirror_drift',
