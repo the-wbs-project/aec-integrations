@@ -51,7 +51,7 @@ import {
   type LegalAgreementDocument,
   type VendorLegalPending,
 } from '@aeci/shared';
-import { and, eq, isNull, isNotNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { agreementAcceptances, billingAccounts, legalVersions, licenses } from '../db/schema';
@@ -251,14 +251,14 @@ export function publishedVersionsSelect(db: Db) {
     .from(legalVersions);
 }
 
-/** A live monthly card subscription: a Stripe license with no scheduled and no stored end. */
+/**
+ * A live monthly card subscription: a Stripe license with no scheduled and no stored end.
+ * The same test as the change-notice email's `liveSubscriptionKinds` (`lib/legal-notice.ts`),
+ * so the companies the email tells "an owner seat will be asked to accept" are the ones the
+ * screen asks.
+ */
 export function liveMonthlyCardWhere() {
-  return and(
-    eq(licenses.source, 'stripe'),
-    isNull(licenses.endsAt),
-    isNull(licenses.endedAt),
-    isNotNull(licenses.stripeSubscriptionId),
-  );
+  return and(eq(licenses.source, 'stripe'), isNull(licenses.endsAt), isNull(licenses.endedAt));
 }
 
 /** Read everything {@link pendingAcceptances} needs for one vendor, in one batch. */

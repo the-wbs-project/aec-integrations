@@ -2304,7 +2304,7 @@ The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Legal versions".
 ### 5.22a Who has accepted (AECI-1677, 2026-11-12)
 
 A section at the foot of `/admin/legal`, in its own component (`legal-acceptance-status.ts`),
-apart from the publish cards and from the change-notice section AECI-1620 adds. It lists every
+apart from the publish cards and from the change-notice section AECI-1620 added. It lists every
 FINAL version of each agreement: dated in code (`LEGAL_AGREEMENT_EFFECTIVE_ON`) or published.
 Each card names the version, "In force since {date}." or "Takes effect on {date}.", whether it is
 published and needs acceptance, the **Accepted** and **Not yet** counts, and the companies not yet
