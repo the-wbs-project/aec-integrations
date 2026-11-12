@@ -101,7 +101,6 @@ import {
   loadTermsBinding,
   UNACCEPTED_TERMS_CHARGE_METRIC,
   type LoadedTermsBinding,
-  type TermsBinding,
 } from './terms-binding';
 import { uuidv5 } from './uuidv5';
 import { vendorBanDead, vendorNotBanDeadSentinel } from './vendor-handback';
@@ -228,13 +227,14 @@ export interface SubscriptionSyncContext {
   /** `metadata.source` on every audit row. */
   source: string;
   /**
-   * Set on a renewal charge: the Managed plan agreement version it binds to every license
-   * kept, as {@link loadTermsBinding} decided it (AECI-1690). The caller decides what is a
-   * renewal: `invoice.paid` with `subscription_cycle`, an annual period end moving forward
-   * ({@link annualPeriodMovedForward}), or the reconcile's monthly catch-up. Absent: the
-   * versions are left alone.
+   * Set on a renewal charge: per license id, the Managed plan agreement version it binds,
+   * as {@link loadTermsBinding} decided it from that license's own version (AECI-1690,
+   * {@link renewalVersionsFor}). A license not in the map keeps its version. The caller
+   * decides what is a renewal: `invoice.paid` with `subscription_cycle`, an annual period
+   * end moving forward ({@link annualPeriodMovedForward}), or the reconcile's monthly
+   * catch-up. Absent: the versions are left alone.
    */
-  renewalBinding?: TermsBinding;
+  renewalVersions?: ReadonlyMap<string, string>;
   /** `stripeLicenseIds` for the delta. */
   grantLicenseIds: readonly string[];
   noCarryProductIds?: ReadonlySet<string>;
@@ -297,13 +297,18 @@ export function syncSubscriptionLicensesStatements(
   const metadataVersion = sub.metadata?.terms_version?.trim() || null;
   const endsAt = subscriptionEndsAt(sub);
   // AECI-1690: a renewal binds what `loadTermsBinding` decided, never a build constant.
-  const renewalVersion = mode === 'live' ? (ctx.renewalBinding?.version ?? null) : null;
+  const renewalVersions = mode === 'live' ? ctx.renewalVersions : undefined;
   // A license added to a subscription that already has live licenses (the add route raises
-  // the quantity) takes the version they are bound to, so one subscription is never on two
-  // versions. The metadata holds the version of the ORIGINAL checkout. A new checkout is a
-  // new subscription with no live license yet, so it keeps the version it was sold under.
+  // the quantity) takes the highest version they carry after this batch, so it never
+  // carries more than its siblings. The metadata holds the version of the ORIGINAL checkout.
+  // A new checkout is a new subscription with no live license yet, so it keeps the version
+  // it was sold under.
   const grantVersion =
-    renewalVersion ?? boundTermsVersion(sub.id, ctx.vendorLicenses) ?? metadataVersion;
+    highestTermsVersion(
+      ctx.vendorLicenses
+        .filter((l) => l.endedAt === null && l.stripeSubscriptionId === sub.id)
+        .map((l) => renewalVersions?.get(l.id) ?? l.termsVersion),
+    ) ?? metadataVersion;
   return syncStripeLicensesStatements(db, {
     vendorId: ctx.vendorId,
     now: ctx.now,
@@ -318,7 +323,9 @@ export function syncSubscriptionLicensesStatements(
     quantity: subscriptionQuantity(sub),
     endsAt,
     termsVersion: grantVersion,
-    ...(renewalVersion !== null ? { renewalTermsVersion: renewalVersion } : {}),
+    ...(renewalVersions && renewalVersions.size > 0
+      ? { renewalTermsVersions: renewalVersions }
+      : {}),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     grantLicenseIds: ctx.grantLicenseIds,
     noCarryProductIds: ctx.noCarryProductIds,
@@ -337,26 +344,40 @@ export function boundTermsVersion(
   );
 }
 
-/** Whether binding `version` changes a live license on the subscription. */
-function bindingMoves(
+/**
+ * Per live license on the subscription, the version a charge at `periodStartMs` moves it
+ * to: each walks from its own version and none is lowered (AECI-1690). A license that does
+ * not move is left out.
+ *
+ * `catchUp` (the reconcile's monthly catch-up) completes only a bind the charge should have
+ * made: the license existed before the period started (its `starts_at` is earlier), so the
+ * current period is not its first, and the version took effect at or before the period
+ * start. `starts_at` is D1's own record of when the license began, set by the grant, so a
+ * brand-new subscription and a mid-period add both read as "began this period" whatever
+ * Stripe's `start_date` says. A draft has no effective moment and never binds this way.
+ */
+export function renewalVersionsFor(
   subscriptionId: string,
-  version: string | null,
   vendorLicenses: readonly LicenseBefore[],
-): boolean {
-  if (version === null) return false;
-  return vendorLicenses.some(
-    (l) =>
-      l.endedAt === null &&
-      l.stripeSubscriptionId === subscriptionId &&
-      (l.termsVersion ?? null) !== version,
-  );
-}
-
-/** Whether the bound version is final and in force at `periodStartMs` (its own moment). */
-function periodStartedInForce(binding: LoadedTermsBinding, periodStartMs: number): boolean {
-  if (binding.version === null) return false;
-  const at = effectiveAtMsOf('managed_plan', binding.version, binding.published);
-  return at !== null && at <= periodStartMs;
+  binding: LoadedTermsBinding,
+  periodStartMs: number,
+  catchUp: boolean,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const l of vendorLicenses) {
+    if (l.endedAt !== null || l.stripeSubscriptionId !== subscriptionId) continue;
+    const own = l.termsVersion ?? null;
+    const next = binding.bindFrom(own).version;
+    if (next === null || next === own) continue;
+    if (catchUp) {
+      const began = Date.parse(l.startsAt);
+      if (!Number.isFinite(began) || began >= periodStartMs) continue;
+      const at = effectiveAtMsOf('managed_plan', next, binding.published);
+      if (at === null || at > periodStartMs) continue;
+    }
+    out.set(l.id, next);
+  }
+  return out;
 }
 
 /** The renewal moment: the current period's start, else `now`. */
@@ -400,10 +421,12 @@ export interface StripeSyncRunOptions {
   renewal?: boolean;
   /**
    * The daily reconcile (AECI-1690): a monthly renewal is invisible to
-   * {@link annualPeriodMovedForward}, so on a live monthly subscription work out what the
-   * current period's charge binds, and bind it when it moves a license. That catches a
-   * missed `invoice.paid` and an owner acceptance that came after the charge withheld a
-   * version. A no-op when nothing moves.
+   * {@link annualPeriodMovedForward}, so on an `active` subscription known to be monthly,
+   * complete the bind the current period's charge should have made: a missed
+   * `invoice.paid`. It counts only acceptances recorded by the period start, so a click
+   * after the charge binds at the next charge, never mid-period. A license that began in
+   * this period (a new checkout, an add) is not rebound ({@link renewalVersionsFor}). A
+   * no-op when nothing moves.
    */
   monthlyCatchUp?: boolean;
   /** The in-force maps (`LEGAL_IN_FORCE_MAPS` when absent). Injected by specs. */
@@ -546,8 +569,9 @@ export async function runStripeSubscriptionSync(
     return { ...empty, outcome: 'unlinked', auditEntries: prefix?.audits ?? [] };
   }
 
-  // Every attempt assigns all six before the loop can exit.
+  // Every attempt assigns all seven before the loop can exit.
   let binding: LoadedTermsBinding | null;
+  let renewalVersions: Map<string, string>;
   let boundBefore: string | null;
   let caughtUp: boolean;
   let batch: StripeSyncBatch | null;
@@ -605,6 +629,8 @@ export async function runStripeSubscriptionSync(
 
     // AECI-1690: what this charge binds. Read only on a renewal, or on the reconcile's
     // monthly catch-up, and then only when a published version can change the answer.
+    // An unknown interval reads as monthly on a renewal (the stricter rule: it needs the
+    // click), but the catch-up runs only on an `active` subscription known to be monthly.
     const monthly = subscriptionInterval(sub) !== 'year';
     const renewing =
       mode === 'live' &&
@@ -612,34 +638,30 @@ export async function runStripeSubscriptionSync(
         annualPeriodMovedForward(sub.id, subscriptionEndsAt(sub), vendorLicenses));
     const catchUp =
       !renewing &&
-      mode === 'live' &&
-      monthly &&
       opts.monthlyCatchUp === true &&
+      sub.status === 'active' &&
+      subscriptionInterval(sub) === 'month' &&
       subscriptionCurrentPeriodStart(sub) !== null;
+    const live = vendorLicenses.filter(
+      (l) => l.endedAt === null && l.stripeSubscriptionId === sub.id,
+    );
     boundBefore = boundTermsVersion(sub.id, vendorLicenses);
+    const moment = renewalMoment(sub, nowIso);
     binding =
-      renewing || catchUp
+      (renewing || catchUp) && live.length > 0
         ? await loadTermsBinding(db, {
             vendorId: target.vendorId,
             interval: monthly ? 'month' : 'year',
-            renewalAt: renewalMoment(sub, nowIso),
-            boundVersion: boundBefore,
+            renewalAt: moment,
+            boundVersions: live.map((l) => l.termsVersion ?? null),
             ...(opts.legalMaps ? { maps: opts.legalMaps } : {}),
           })
         : null;
-    // A catch-up binds only a version whose effective moment the current period started at
-    // or after, and only when it moves a license: otherwise it is no renewal at all. A draft
-    // has no moment, so today (every version a draft) it never binds mid-period.
-    if (
-      catchUp &&
-      binding &&
-      !(
-        bindingMoves(sub.id, binding.version, vendorLicenses) &&
-        periodStartedInForce(binding, renewalMoment(sub, nowIso).getTime())
-      )
-    ) {
-      binding = null;
-    }
+    renewalVersions = binding
+      ? renewalVersionsFor(sub.id, vendorLicenses, binding, moment.getTime(), catchUp)
+      : new Map();
+    // A catch-up that moves nothing is no renewal at all.
+    if (catchUp && renewalVersions.size === 0) binding = null;
     caughtUp = catchUp && binding !== null;
 
     batch = syncSubscriptionLicensesStatements(db, sub, {
@@ -649,7 +671,7 @@ export async function runStripeSubscriptionSync(
       vendorWasVerified: wasVerified,
       now: nowIso,
       source: opts.source,
-      ...(binding ? { renewalBinding: binding } : {}),
+      ...(binding ? { renewalVersions } : {}),
       grantLicenseIds,
       noCarryProductIds,
       extraMetadata: opts.extraMetadata,
@@ -732,7 +754,9 @@ export async function runStripeSubscriptionSync(
     verifiedFlipped: committed?.verifiedFlipped ?? false,
     auditEntries: audits,
     termsCaughtUp:
-      caughtUp && committed && committed.stmts.length > 0 ? (binding?.version ?? null) : null,
+      caughtUp && committed && committed.stmts.length > 0
+        ? highestTermsVersion(renewalVersions.values())
+        : null,
   };
   if (committed && committed.stmts.length > 0) {
     c.executionCtx.waitUntil(afterCommit(c, db, sub, target, committed, opts));

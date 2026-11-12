@@ -1087,7 +1087,7 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
     return { client, calls };
   }
 
-  async function publish(requiresAcceptance: boolean) {
+  async function publish(requiresAcceptance: boolean, publishedAt = '2026-12-01T00:00:00.000Z') {
     await t.db.insert(legalVersions).values({
       document: 'managed_plan',
       version: '1.2',
@@ -1099,7 +1099,7 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
       pdfSha256: '0'.repeat(64),
       pdfBytes: 10,
       publishedBy: 'admin',
-      publishedAt: '2027-01-15T00:00:00.000Z',
+      publishedAt,
     });
   }
 
@@ -1189,6 +1189,19 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
     expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
   });
 
+  it('annual (D2): a version published inside the 45-day notice window waits a term', async () => {
+    const start = MOMENT + 1000;
+    // Published 44 days before the renewal: not in that renewal's notice.
+    await publish(false, new Date(start - 44 * 86_400_000).toISOString());
+    await seedLicense('l-1', { termsVersion: '1.1', endsAt: '2027-02-02T12:00:00.000Z' });
+    await run(periodSub('year', start), { now: AFTER, legalMaps: MAPS });
+    expect(await licenseOf('l-1')).toMatchObject({ termsVersion: '1.1' });
+    // The following renewal binds it.
+    const next = start + 365 * 86_400_000;
+    await run(periodSub('year', next), { now: new Date(next + 1000), legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+  });
+
   it('a subscription added to a live plan takes the version its licenses carry', async () => {
     await seedLicense('l-1', { endsAt: null, termsVersion: '1.2' });
     // The metadata still names the original checkout's 1.1.
@@ -1205,23 +1218,43 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
     expect((await allLicenses()).map((r) => r.termsVersion)).toEqual(['1.1']);
   });
 
-  it('the tripwire fires when a charge leaves a license on an unaccepted version', async () => {
-    await publish(true);
-    // A mixed subscription: one license already on 1.2 (set by hand), one on 1.1. The
-    // renewal never lowers, so it moves l-1 across the unaccepted 1.2, and says so.
-    await seedLicense('l-1', { endsAt: null, termsVersion: '1.1' });
+  it('mixed: licenses on 1.2 and 1.4 with 1.3 unaccepted each keep their version, no tripwire', async () => {
+    // 1.3 is the build version and needs acceptance; 1.4 is upcoming, without the flag.
+    const mixed = {
+      ...LEGAL_IN_FORCE_MAPS,
+      agreementCurrent: { ...LEGAL_IN_FORCE_MAPS.agreementCurrent, managed_plan: '1.3' },
+      agreementUpcoming: { managed_plan: { version: '1.4', effectiveOn: '2027-03-01' } },
+    } satisfies LegalInForceMaps;
+    const row = (version: string, effectiveOn: string, requiresAcceptance: boolean) => ({
+      document: 'managed_plan',
+      version,
+      effectiveAt: legalEffectiveAtMs(effectiveOn),
+      summaryJson: '[]',
+      material: true,
+      requiresAcceptance,
+      pdfKey: `legal/managed-plan-agreement/v${version}.pdf`,
+      pdfSha256: '0'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: 'admin',
+      publishedAt: '2026-11-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(legalVersions)
+      .values([row('1.3', '2027-01-01', true), row('1.4', '2027-03-01', false)]);
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.2' });
     await seedLicense('l-2', {
       endsAt: null,
-      termsVersion: '1.2',
+      termsVersion: '1.4',
       createdAt: '2020-01-02T00:00:00.000Z',
     });
     await run(periodSub('month', MOMENT + 86_400_000, 2), {
       renewal: true,
       now: AFTER,
-      legalMaps: MAPS,
+      legalMaps: mixed,
     });
-    expect(metricCalls()).toHaveLength(1);
-    expect(metricCalls()[0]![5]).toEqual(['source:stripe-webhook']);
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+    expect((await licenseOf('l-2')).termsVersion).toBe('1.4');
+    expect(metricCalls()).toEqual([]);
   });
 
   it('unacceptedTermsCrossed reads the written versions, a grant from the prior bound', () => {
@@ -1232,6 +1265,7 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
         effectiveAt: MOMENT,
         requiresAcceptance: true,
         summaryJson: '[]',
+        publishedAt: '2026-12-01T00:00:00.000Z',
       },
     ];
     const entry = (before: string | null, after: string) =>
@@ -1245,7 +1279,10 @@ describe('the agreement version a renewal binds (AECI-1690)', () => {
     expect(
       unacceptedTermsCrossed(
         [entry('1.1', '1.2')],
-        { published, accepted: [{ document: 'managed_plan', version: '1.2' }] },
+        {
+          published,
+          accepted: [{ document: 'managed_plan', version: '1.2', acceptedAt: AFTER.toISOString() }],
+        },
         null,
       ),
     ).toBeNull();

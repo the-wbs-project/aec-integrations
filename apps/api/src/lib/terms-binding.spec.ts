@@ -1,7 +1,7 @@
 /**
  * AECI-1690: which Managed plan agreement version a charge binds. One test per row of the
- * rules table (`docs/adr/0047-stripe-billing-no-sdk-webhook-owned-licenses.md`, "Renewal
- * binds the bound version"), time stepped across the 12:00 UTC effective moment, then the
+ * rules table (`docs/adr/0047-stripe-billing-no-sdk-webhook-owned-licenses.md` decision 9),
+ * time stepped across the 12:00 UTC effective moment and the 45-day notice line, then the
  * loader's reads on the real migrations, then the guard that the terms path never touches
  * a Stripe subscription.
  */
@@ -15,21 +15,26 @@ import {
   legalEffectiveAtMs,
   type LegalInForceMaps,
 } from '@aeci/shared';
+import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Db } from '../db/client';
 import { agreementAcceptances, billingAccounts, legalVersions, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import type { PublishedVersionLite } from './legal-acceptance';
 import {
-  annualBoundVersion,
+  announcedForRenewal,
   bindTermsVersion,
   firstUncoveredVersion,
   loadTermsBinding,
+  RENEWAL_NOTICE_DAYS,
+  type TermsAcceptedRow,
   type TermsBindingInput,
+  type TermsPublishedRow,
 } from './terms-binding';
 
 const MS = 1;
+const DAY = 86_400_000;
+const LONG_AGO = '2026-01-01T00:00:00.000Z';
 
 /** In-force maps with `current` as the build version and an optional upcoming one. */
 function maps(current: string, upcoming?: { version: string; effectiveOn: string }) {
@@ -40,18 +45,25 @@ function maps(current: string, upcoming?: { version: string; effectiveOn: string
   } satisfies LegalInForceMaps;
 }
 
-function row(version: string, effectiveOn: string, requiresAcceptance: boolean) {
+function row(
+  version: string,
+  effectiveOn: string,
+  requiresAcceptance: boolean,
+  publishedAt = LONG_AGO,
+): TermsPublishedRow {
   return {
     document: 'managed_plan',
     version,
     effectiveAt: legalEffectiveAtMs(effectiveOn),
     requiresAcceptance,
     summaryJson: '[]',
-  } satisfies PublishedVersionLite;
+    publishedAt,
+  };
 }
 
-const accepted = (...versions: string[]) =>
-  versions.map((version) => ({ document: 'managed_plan', version }));
+const accepted = (version: string, acceptedAt = LONG_AGO): TermsAcceptedRow[] => [
+  { document: 'managed_plan', version, acceptedAt },
+];
 
 const MOMENT = legalEffectiveAtMs('2027-03-01');
 const BEFORE = MOMENT - MS;
@@ -75,19 +87,39 @@ describe('the rules table (AECI-1690)', () => {
     expect(bind({ maps: upcoming13, interval: 'year', published, renewalAtMs: BEFORE })).toEqual({
       version: '1.2',
       withheld: null,
+      unannounced: null,
     });
     expect(bind({ maps: upcoming13, interval: 'year', published })).toEqual({
       version: '1.3',
       withheld: null,
+      unannounced: null,
     });
-    expect(annualBoundVersion(published, MOMENT, '1.2', upcoming13)).toBe('1.3');
   });
 
   it('annual: an upcoming version with no published row never binds', () => {
-    expect(bind({ maps: upcoming13, interval: 'year' })).toEqual({
+    expect(bind({ maps: upcoming13, interval: 'year' }).version).toBe('1.2');
+  });
+
+  it('annual (D2): published 45 days before the renewal binds, 44 days before does not', () => {
+    expect(RENEWAL_NOTICE_DAYS).toBe(EXPIRY_WARNING_DAYS);
+    const at = MOMENT + 10 * DAY;
+    const iso = (days: number) => new Date(at - days * DAY).toISOString();
+    const on45 = [row('1.3', '2027-03-01', false, iso(45))];
+    const on44 = [row('1.3', '2027-03-01', false, iso(44))];
+    expect(bind({ maps: upcoming13, interval: 'year', published: on45, renewalAtMs: at })).toEqual({
+      version: '1.3',
+      withheld: null,
+      unannounced: null,
+    });
+    expect(bind({ maps: upcoming13, interval: 'year', published: on44, renewalAtMs: at })).toEqual({
       version: '1.2',
       withheld: null,
+      unannounced: '1.3',
     });
+    expect(announcedForRenewal('1.3', on45, at)).toBe(true);
+    expect(announcedForRenewal('1.3', on44, at)).toBe(false);
+    // The 45-day rule is annual only: a monthly charge has its 30-day email.
+    expect(bind({ maps: upcoming13, published: on44, renewalAtMs: at }).version).toBe('1.3');
   });
 
   it('monthly, no requires_acceptance: binds from the first charge at or after the moment', () => {
@@ -96,24 +128,37 @@ describe('the rules table (AECI-1690)', () => {
     expect(bind({ maps: upcoming13, published, renewalAtMs: MOMENT })).toEqual({
       version: '1.3',
       withheld: null,
+      unannounced: null,
     });
   });
 
   it('monthly, requires_acceptance and an acceptance of it or a later version: binds it', () => {
     const published = [row('1.3', '2027-03-01', true), row('1.4', '2027-02-01', false)];
-    expect(bind({ maps: upcoming13, published, accepted: accepted('1.3') })).toEqual({
-      version: '1.3',
-      withheld: null,
-    });
+    expect(bind({ maps: upcoming13, published, accepted: accepted('1.3') }).version).toBe('1.3');
     // 1.4 is final (it has a row), so its acceptance covers 1.3.
     expect(bind({ maps: upcoming13, published, accepted: accepted('1.4') }).version).toBe('1.3');
   });
 
   it('monthly, requires_acceptance and no acceptance: the licenses keep their version', () => {
     const published = [row('1.3', '2027-03-01', true)];
-    expect(bind({ maps: upcoming13, published })).toEqual({ version: '1.2', withheld: '1.3' });
+    expect(bind({ maps: upcoming13, published })).toEqual({
+      version: '1.2',
+      withheld: '1.3',
+      unannounced: null,
+    });
     // An acceptance of an earlier version covers nothing above it.
     expect(bind({ maps: upcoming13, published, accepted: accepted('1.2') }).withheld).toBe('1.3');
+  });
+
+  it('monthly (D1): an acceptance recorded after the renewal moment waits for the next charge', () => {
+    const published = [row('1.3', '2027-03-01', true)];
+    const late = accepted('1.3', new Date(MOMENT + 1000).toISOString());
+    expect(bind({ maps: upcoming13, published, accepted: late }).withheld).toBe('1.3');
+    expect(
+      bind({ maps: upcoming13, published, accepted: late, renewalAtMs: MOMENT + 30 * DAY }).version,
+    ).toBe('1.3');
+    const atTheMoment = accepted('1.3', new Date(MOMENT).toISOString());
+    expect(bind({ maps: upcoming13, published, accepted: atTheMoment }).version).toBe('1.3');
   });
 
   it('mixed: a later version without the flag never carries an unaccepted change past the click', () => {
@@ -121,16 +166,19 @@ describe('the rules table (AECI-1690)', () => {
     // without the flag, and in force. Both are in force at the charge.
     const m = maps('1.3', { version: '1.4', effectiveOn: '2027-03-01' });
     const published = [row('1.3', '2027-01-01', true), row('1.4', '2027-03-01', false)];
-    const at = MOMENT + 86_400_000;
+    const at = MOMENT + DAY;
     expect(bind({ maps: m, published, renewalAtMs: at })).toEqual({
       version: '1.2',
       withheld: '1.3',
+      unannounced: null,
     });
-    // Once an owner accepts 1.3, the next charge binds 1.4.
-    expect(bind({ maps: m, published, renewalAtMs: at, accepted: accepted('1.3') })).toEqual({
-      version: '1.4',
-      withheld: null,
-    });
+    // Once an owner accepts 1.3 (before the charge), the charge binds 1.4.
+    expect(bind({ maps: m, published, renewalAtMs: at, accepted: accepted('1.3') }).version).toBe(
+      '1.4',
+    );
+    // Each license walks from its own version: one already on 1.4 stays there, and one on
+    // 1.2 stays on 1.2. Neither crosses the unaccepted 1.3.
+    expect(bind({ maps: m, published, renewalAtMs: at, boundVersion: '1.4' }).version).toBe('1.4');
   });
 
   it('mixed: binds the highest version below the first uncovered one', () => {
@@ -141,7 +189,8 @@ describe('the rules table (AECI-1690)', () => {
       row('1.4', '2027-01-01', true),
       row('1.5', '2027-03-01', false),
     ];
-    expect(bind({ maps: m, published })).toEqual({ version: '1.3', withheld: '1.4' });
+    expect(bind({ maps: m, published }).version).toBe('1.3');
+    expect(bind({ maps: m, published }).withheld).toBe('1.4');
     expect(firstUncoveredVersion('1.2', '1.5', published, [], m)).toBe('1.4');
     expect(firstUncoveredVersion('1.4', '1.5', published, [], m)).toBeNull();
   });
@@ -160,10 +209,7 @@ describe('the rules table (AECI-1690)', () => {
   it('a draft version in code never needs an acceptance, even with a flagged row', () => {
     // Managed plan 1.1 is `null` in LEGAL_AGREEMENT_EFFECTIVE_ON: a draft for good.
     const published = [row('1.1', '2027-01-01', true)];
-    expect(bind({ maps: maps('1.1'), published, boundVersion: '1.0' })).toEqual({
-      version: '1.1',
-      withheld: null,
-    });
+    expect(bind({ maps: maps('1.1'), published, boundVersion: '1.0' }).version).toBe('1.1');
   });
 });
 
@@ -190,10 +236,13 @@ describe("today's data (AECI-1690)", () => {
       vendorId: 'v1',
       interval: i,
       renewalAt: new Date('2026-11-12T12:00:00.000Z'),
-      boundVersion: b,
+      boundVersions: [b, '1.1'],
     });
-    expect(result.version).toBe(LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan);
-    expect(result.withheld).toBeNull();
+    expect(result.bindFrom(b)).toEqual({
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      withheld: null,
+      unannounced: null,
+    });
   });
 });
 
@@ -201,7 +250,14 @@ describe('loadTermsBinding on D1 (AECI-1690)', () => {
   let t: TestDb;
   const VENDOR = '11111111-1111-4111-8111-111111111111';
   const m = maps('1.3', { version: '1.4', effectiveOn: '2027-03-01' });
-  const at = new Date(MOMENT + 86_400_000);
+  const at = new Date(MOMENT + DAY);
+  const req = {
+    vendorId: VENDOR,
+    interval: 'month' as const,
+    renewalAt: at,
+    boundVersions: ['1.2', '1.4'],
+    maps: m,
+  };
 
   beforeEach(async () => {
     t = await makeTestDb();
@@ -226,56 +282,39 @@ describe('loadTermsBinding on D1 (AECI-1690)', () => {
   });
   afterEach(() => t.dispose());
 
-  it('withholds 1.3 without an acceptance, then binds 1.4 once an owner accepts 1.3', async () => {
-    const req = {
-      vendorId: VENDOR,
-      interval: 'month' as const,
-      renewalAt: at,
-      boundVersion: '1.2',
-      maps: m,
-    };
-    expect(await loadTermsBinding(t.db, req)).toMatchObject({ version: '1.2', withheld: '1.3' });
-    await t.db.insert(agreementAcceptances).values({
+  const acceptAt = (version: string, document: string, acceptedAt: string) =>
+    t.db.insert(agreementAcceptances).values({
       id: crypto.randomUUID(),
-      document: 'managed_plan',
-      version: '1.3',
+      document,
+      version,
       source: 'portal',
       email: 'owner@acme.example',
       vendorId: VENDOR,
-      acceptedAt: '2027-03-05T00:00:00.000Z',
+      acceptedAt,
     });
-    expect(await loadTermsBinding(t.db, req)).toMatchObject({ version: '1.4', withheld: null });
+
+  it('per license: 1.2 stays 1.2 and 1.4 stays 1.4 while 1.3 is unaccepted', async () => {
+    const b = await loadTermsBinding(t.db, req);
+    expect(b.bindFrom('1.2')).toMatchObject({ version: '1.2', withheld: '1.3' });
+    expect(b.bindFrom('1.4')).toMatchObject({ version: '1.4', withheld: null });
+  });
+
+  it('an acceptance before the charge binds 1.4; one after it waits (D1)', async () => {
+    await acceptAt('1.3', 'managed_plan', new Date(at.getTime() + 1000).toISOString());
+    expect((await loadTermsBinding(t.db, req)).bindFrom('1.2').version).toBe('1.2');
+    const next = { ...req, renewalAt: new Date(at.getTime() + 30 * DAY) };
+    expect((await loadTermsBinding(t.db, next)).bindFrom('1.2').version).toBe('1.4');
   });
 
   it('an acceptance of the other agreement covers nothing', async () => {
-    await t.db.insert(agreementAcceptances).values({
-      id: crypto.randomUUID(),
-      document: 'vendor_terms',
-      version: '1.9',
-      source: 'portal',
-      email: 'owner@acme.example',
-      vendorId: VENDOR,
-      acceptedAt: '2027-03-05T00:00:00.000Z',
-    });
-    const r = await loadTermsBinding(t.db, {
-      vendorId: VENDOR,
-      interval: 'month',
-      renewalAt: at,
-      boundVersion: '1.2',
-      maps: m,
-    });
-    expect(r).toMatchObject({ version: '1.2', withheld: '1.3' });
+    await acceptAt('1.9', 'vendor_terms', '2027-01-05T00:00:00.000Z');
+    expect((await loadTermsBinding(t.db, req)).bindFrom('1.2').withheld).toBe('1.3');
   });
 
   it('annual binds 1.4 with no acceptance read', async () => {
-    const r = await loadTermsBinding(t.db, {
-      vendorId: VENDOR,
-      interval: 'year',
-      renewalAt: at,
-      boundVersion: '1.2',
-      maps: m,
-    });
-    expect(r).toMatchObject({ version: '1.4', withheld: null, accepted: [] });
+    const b = await loadTermsBinding(t.db, { ...req, interval: 'year' });
+    expect(b.bindFrom('1.2').version).toBe('1.4');
+    expect(b.accepted).toEqual([]);
   });
 });
 

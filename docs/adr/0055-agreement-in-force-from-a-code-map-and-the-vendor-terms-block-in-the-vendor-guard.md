@@ -53,7 +53,8 @@ A bug in any of these locks every vendor out of the portal. Today no document is
   and a read failure never hides the portal.
 - What happens to a monthly subscription without the Managed plan click is not decided here.
   AECI-1690 decided it in ADR 0047 decision 9: the charge does not bind the version, and the
-  subscriptions keep the version last accepted. Nothing is cancelled.
+  version the subscriptions are on keeps applying. Nothing is cancelled. A click binds at the
+  next charge.
 - **The block covers only routes behind the vendor guard.** Account settings, the seat-invite
   accept (`POST /api/seat-invites/:token/accept`) and claim requests sit outside it and stay
   open. That is deliberate: they act for a person, not as the company under the Vendor Terms.

@@ -2805,10 +2805,10 @@ email from the Checkout Session, as the webhook would. Either backfill counts as
 email lists it under "Acceptance" or "Billing email". When it moves a term to a new period end, it binds the
 agreement version a renewal binds, as the webhook does (ADR 0047 decision 9). So a grant in the email
 needs no manual acceptance fix. On a monthly Stripe subscription it also binds a later Managed plan
-agreement version the current period's charge binds (AECI-1690). The email lists that under
-"Agreement version", and `job_runs.detail` counts it as `termsBound`. That is a missed monthly
-`invoice.paid`, or an owner who accepted a version after the charge withheld it. The second needs
-no webhook fix. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
+agreement version the current period's charge should have bound (AECI-1690). The email lists
+that under "Agreement version", and `job_runs.detail` counts it as `termsBound`. That is a missed
+monthly `invoice.paid`: treat it as a missed webhook. An owner's click after a charge never shows
+here, because it binds at the next charge. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
 Stripe's own failed-payment email still went.
 
 **`outcome:skipped`** means `STRIPE_SECRET_KEY` is unset on the tier. That is expected on local dev
@@ -2825,8 +2825,8 @@ deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being 
 agreement version that needs acceptance (`requires_acceptance`), and no acceptance of the company
 covers it (AECI-1690, ADR 0047 decision 9). The bind is built to hold such a version back, so this
 is a tripwire. The usual cause is a Stripe subscription whose subscriptions carried two versions
-before the charge, for example one set by hand, so the renewal moved the lower one up to the higher.
-Nothing was cancelled, and the customer was charged at the price they agreed. The log names
+before the charge. Each subscription walks from its own version, so even that should not cross
+the click. A firing therefore means a bug in the bind, or a version set by hand. Nothing was cancelled, and the customer was charged at the price they agreed. The log names
 `stripe_subscription_id`, `vendor_id`, `billing_account_id` and `terms_version`.
 
 1. **Read the subscriptions.** Run the first query under "Stripe reconcile changed subscriptions" with

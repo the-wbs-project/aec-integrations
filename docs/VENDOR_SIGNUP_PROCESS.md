@@ -243,7 +243,8 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    or counting dispute. When card subscriptions renew, the email also states the charge. A card term the
    vendor already cancelled reads as ending, with no further charge.
    *As built 2026-11-12 (AECI-1690):* when the renewal binds a published Managed plan agreement version
-   above what a renewing subscription carries, the email names the version and its effective date,
+   above what a renewing subscription carries (the same per-subscription bind the renewal runs, so a
+   version published less than 45 days before the date is not named), the email names the version and its effective date,
    lists its summary, links the fixed copy `/legal/managed-plan-agreement/v<version>` and attaches the
    PDF, straight after the opening line. The PDF is re-hashed against the published row first. A
    missing or changed file sends the email without the attachment and its sentence, and logs an
@@ -256,14 +257,19 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    The reconcile does the same if that event is missed.
    *As built 2026-11-12 (AECI-1690):* which version binds is `loadTermsBinding`
    (`lib/terms-binding.ts`), at the new period's start, 12:00 UTC effective moments:
-   - annual: the version in force at that moment;
-   - monthly: the same, unless a published version on the way, from the one the subscription carries
-     up to the one in force, has `requires_acceptance` and no acceptance of the company covers it.
-     Then the subscription binds the highest version below the first such one, and keeps charging.
-     Nothing is cancelled, paused or changed in Stripe. Once an owner seat accepts, the next charge
-     or the daily reconcile binds it;
+   - each subscription walks from its own version, so one is never carried past a version
+     because a sibling is on a later one;
+   - annual: the version in force at that moment, if it was published at least 45 days before
+     the renewal (so that renewal's notice announced it). A version published later binds at the
+     following renewal;
+   - monthly: the same moment, but the walk stops below the first published version that has
+     `requires_acceptance` and that no acceptance recorded by the period start covers. The
+     subscription keeps charging on the version it is on. Nothing is cancelled, paused or changed
+     in Stripe. Once an owner seat accepts, the next charge binds it, never mid-period. The daily
+     reconcile completes a charge whose `invoice.paid` was missed, by the same rule;
    - never lower than the version a subscription carries; a new checkout, a grant, a complimentary
-     or a pilot subscription are not renewals and keep their own rules.
+     or a pilot subscription are not renewals and keep their own rules. A subscription that began
+     in the current period is not rebound by the reconcile.
    `aeci.billing.unaccepted_terms_charge` is a tripwire for a charge that still left a subscription on
    an unaccepted version (`RUNBOOKS.md` "Unaccepted terms charge"). An opt-out is a cancel at period
    end, by the owner in the portal or by an operator on request (`RUNBOOKS.md` "Stripe: annual
@@ -455,7 +461,7 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 
 - **In force.** A version is final when it has an effective day: `LEGAL_AGREEMENT_EFFECTIVE_ON` in `packages/shared` (mirrored from each version's frontmatter `effective_date`, pinned by a web spec), or a published `legal_versions` row. It is in force from 12:00 UTC of that day (`legalEffectiveAtMs`). Today every entry is `null` and no row exists, so nothing is in force, and the screen shows to no one. The draft versions (Vendor Terms 1.0 to 1.3, Managed plan agreement 1.0 and 1.1) stay `null` for good, so the effective-date change must bump to a new version.
 - **Required (ruling 24).** The Vendor Terms are in force and the company holds no acceptance of a version in force. An acceptance of a draft never counts. The portal opens only the screen until one owner seat accepts the newest version in force, for the company. The listing stays claimed. No deadline ends the claim. A member seat sees who the owners are.
-- **Optional (ruling 25, counsel Q3).** A covered company and a published version with `requires_acceptance`: owner seats are asked to accept the newest final version at or after it, and may choose "Not now" for the browser session. Until an owner accepts, the earlier version applies. For the Managed plan agreement, only companies with a live monthly card subscription are asked. The screen only records the click. It changes no subscription and says nothing about what happens without an acceptance. *Since AECI-1690:* a monthly charge binds the version only once the click covers it, and without one the subscriptions keep the version they carry (§3 step 9).
+- **Optional (ruling 25, counsel Q3).** A covered company and a published version with `requires_acceptance`: owner seats are asked to accept the newest final version at or after it, and may choose "Not now" for the browser session. Until an owner accepts, the earlier version applies. For the Managed plan agreement, only companies with a live monthly card subscription are asked. The screen only records the click. It changes no subscription and says nothing about what happens without an acceptance. *Since AECI-1690:* a monthly charge binds the version only once a click recorded before that charge covers it, and without one the subscriptions keep the version they are on (§3 step 9). A click mid-period binds at the next charge.
 - **The record.** Source `portal`. The same columns as a claim: email, profile, signer name (the seat's display name, else its claim's, else typed on the screen; the write refuses a missing one), the title and legal name typed on the screen, time, version, the box label (the claim wording naming the version and the company, `portalAcceptanceLabel`) with its hash, and the unticked flag. A Vendor Terms row adds the two policy versions, a Managed plan row the Plans page version. **No IP address or browser yet:** the Privacy Policy names them only "for a claim or an in-portal acceptance of a granted subscription", so `PORTAL_RECORDS_EVIDENCE` is false until that sentence changes. The 90-day removal job covers the row whenever it does hold them.
 
 ## 5. Epics

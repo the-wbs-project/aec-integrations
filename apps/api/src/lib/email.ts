@@ -4379,7 +4379,7 @@ export function sendStripeReconcileAlert(
       if (r.termsBound) {
         detail.push([
           'Agreement version',
-          `bound to ${r.termsBound}: a missed monthly renewal, or an acceptance after the charge`,
+          `bound to ${r.termsBound}: a monthly renewal the webhook missed`,
         ]);
       }
       if (base && r.vendorId) {

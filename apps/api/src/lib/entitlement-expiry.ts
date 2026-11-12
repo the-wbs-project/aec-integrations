@@ -74,8 +74,9 @@
  * The Managed plan agreement's "Changes to this agreement" promises that this notice
  * names a new version and its effective date, summarizes every material change, links
  * the archived text of that version, and attaches a copy. When card subscriptions in the
- * term renew, the version that renewal binds (`annualBoundVersion`, the version in force at
- * `ends_at`) is above what one of them carries, and that version has a `legal_versions`
+ * term renew, the version that renewal binds (`bindTermsVersion`, the same call the renewal
+ * makes: in force at `ends_at`, published at least 45 days ahead, walked per carried
+ * version) is above what one of them carries, and that version has a `legal_versions`
  * row, the vendor copy carries the block (`newVersion`). The PDF is read and re-hashed
  * against the row once per version per run (`loadVerifiedLegalPdf`). A missing or changed
  * file sends the notice without the attachment and its sentence, and logs
@@ -83,7 +84,7 @@
  * a draft in code has no row, so with today's data nothing extra is read.
  */
 
-import { compareLegalVersions, type LegalInForceMaps, type LegalPublishedLite } from '@aeci/shared';
+import { compareLegalVersions, type LegalInForceMaps } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
@@ -104,12 +105,17 @@ import {
   type RenewalNoticeVersion,
 } from './email';
 import { isDraftInCode } from './legal-acceptance';
-import { loadLegalInForce, loadLegalPublishedLite } from './legal-in-force';
+import { loadLegalInForce } from './legal-in-force';
 import { loadLegalVersion, loadVerifiedLegalPdf, summaryOf } from './legal-versions';
 import { expiryNoticeStampStatements, LICENSE_ENTITY_TYPE } from './license';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
-import { annualBoundVersion } from './terms-binding';
+import {
+  bindTermsVersion,
+  loadTermsPublished,
+  termsRowsMayMatter,
+  type TermsPublishedRow,
+} from './terms-binding';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, products, vendors } from '../db/schema';
@@ -667,7 +673,7 @@ function newVersionReader(
   horizonIso: string,
   maps: LegalInForceMaps | undefined,
 ): (term: ExpiringTerm) => Promise<RenewalNoticeVersion | null> {
-  let published: Promise<LegalPublishedLite[]> | null = null;
+  let published: Promise<TermsPublishedRow[]> | null = null;
   const byVersion = new Map<string, Promise<RenewalNoticeVersion | null>>();
   const logError = (message: string, fields: Record<string, unknown>) => {
     try {
@@ -719,14 +725,35 @@ function newVersionReader(
   return async (term) => {
     if (term.renewingLicenseCount === 0) return null;
     const endsAtMs = Date.parse(term.endsAt);
-    // The lowest version a renewing license carries: the bind moves it if it moves any.
-    const lowest = [...term.renewingVersions].sort(compareLegalVersions)[0] ?? null;
+    const carried = [...term.renewingVersions].sort(compareLegalVersions);
+    const lowest = carried[0] ?? null;
     if (lowest === null || !Number.isFinite(endsAtMs)) return null;
     try {
-      published ??= loadLegalPublishedLite(db, Date.parse(horizonIso), maps);
-      const binds = annualBoundVersion(await published, endsAtMs, lowest, maps);
+      // The rows are read once a run, and only when a walk can need them.
+      const rows = termsRowsMayMatter(endsAtMs, lowest, maps)
+        ? await (published ??= loadTermsPublished(db))
+        : [];
+      // The bind itself, per carried version, as the renewal will run it: annual, at
+      // `ends_at`, with the 45-day announcement rule. The notice names the version every
+      // moving subscription reaches at least, so it never claims more than the bind does.
+      const moving = carried
+        .map((v) => ({
+          from: v,
+          to: bindTermsVersion({
+            interval: 'year',
+            renewalAtMs: endsAtMs,
+            boundVersion: v,
+            published: rows,
+            accepted: [],
+            ...(maps ? { maps } : {}),
+          }).version,
+        }))
+        .filter((m): m is { from: string; to: string } => m.to !== null && m.to !== m.from)
+        .map((m) => m.to)
+        .sort(compareLegalVersions);
+      const binds = moving[0];
       // A draft in code never has a row, so nothing is read for it.
-      if (binds === lowest || isDraftInCode('managed_plan', binds)) return null;
+      if (binds === undefined || isDraftInCode('managed_plan', binds)) return null;
       let entry = byVersion.get(binds);
       if (!entry) {
         entry = load(binds);

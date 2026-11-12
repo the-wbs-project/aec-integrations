@@ -796,7 +796,7 @@ describe('runStripeReconcile: the monthly agreement-version catch-up (AECI-1690)
       pdfSha256: '0'.repeat(64),
       pdfBytes: 10,
       publishedBy: 'admin',
-      publishedAt: '2027-01-15T00:00:00.000Z',
+      publishedAt: '2026-12-01T00:00:00.000Z',
     });
   }
 
@@ -845,14 +845,7 @@ describe('runStripeReconcile: the monthly agreement-version catch-up (AECI-1690)
     expect(await versionOf(id)).toBe('1.1');
   });
 
-  it('withholds an unaccepted version every day, and binds it once an owner accepts', async () => {
-    await publish(true);
-    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
-    const stripe = fakeStripe([monthly(MOMENT + 86_400_000)]);
-
-    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
-    expect(await versionOf(id)).toBe('1.1');
-
+  async function acceptAt(acceptedAt: string) {
     await t.db.insert(agreementAcceptances).values({
       id: crypto.randomUUID(),
       document: 'managed_plan',
@@ -860,12 +853,71 @@ describe('runStripeReconcile: the monthly agreement-version catch-up (AECI-1690)
       source: 'portal',
       email: 'owner@acme.example',
       vendorId: VENDOR_ID,
-      acceptedAt: RUN_AT.toISOString(),
+      acceptedAt,
     });
-    expect(await run(stripe.client)).toMatchObject({ counts: { termsBound: 1 } });
+  }
+
+  it('D1: an acceptance after the period start waits for the next period; nothing binds mid-period', async () => {
+    await publish(true);
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const periodStart = MOMENT + 86_400_000;
+    const stripe = fakeStripe([monthly(periodStart)]);
+
+    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+
+    // The owner accepts mid-period: the reconcile does not bind it in this period.
+    await acceptAt(RUN_AT.toISOString());
+    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+
+    // The next period started after the acceptance. Its invoice.paid was missed, so the
+    // reconcile completes that bind.
+    const next = periodStart + 30 * 86_400_000;
+    stripe.byId.set(SUB, monthly(next));
+    const later = await reconcile(stripe.client, ENV, {
+      now: new Date(next + 3 * 86_400_000),
+      legalMaps: MAPS,
+    });
+    expect(later).toMatchObject({ counts: { termsBound: 1 } });
     expect(await versionOf(id)).toBe('1.2');
     // Never a Stripe write for terms: no cancel, no pause, no metadata.
     expect(stripe.updates).toEqual([]);
     expect(stripe.cancels).toEqual([]);
+  });
+
+  it('completes a missed charge whose acceptance came before the period start', async () => {
+    await publish(true);
+    await acceptAt(new Date(MOMENT).toISOString());
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const stripe = fakeStripe([monthly(MOMENT + 86_400_000)]);
+    expect(await run(stripe.client)).toMatchObject({ counts: { termsBound: 1 } });
+    expect(await versionOf(id)).toBe('1.2');
+  });
+
+  it("a new subscription's first period is not a renewal: a checkout straddling the moment keeps its version", async () => {
+    await publish(false);
+    // Checkout opened at 11:50 UTC on the effective day stamped 1.1. Payment at 12:05
+    // started the period after the moment, and the webhook granted the license then.
+    const paidAt = MOMENT + 5 * 60_000;
+    const id = await seedStripeLicense(SUB, {
+      endsAt: null,
+      termsVersion: '1.1',
+      startsAt: new Date(paidAt + 2000).toISOString(),
+    });
+    const stripe = fakeStripe([monthly(paidAt)]);
+    expect(await run(stripe.client)).toMatchObject({ counts: { changed: 0, termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
+  });
+
+  it('runs only on an active subscription with a known monthly interval', async () => {
+    await publish(false);
+    const id = await seedStripeLicense(SUB, { endsAt: null, termsVersion: '1.1' });
+    const pastDue = { ...monthly(MOMENT + 86_400_000), status: 'past_due' as const };
+    expect(await run(fakeStripe([pastDue]).client)).toMatchObject({ counts: { termsBound: 0 } });
+    const unknown = monthly(MOMENT + 86_400_000);
+    unknown.items.data[0] = { ...unknown.items.data[0]!, price: { id: 'price_x' } };
+    expect(await run(fakeStripe([unknown]).client)).toMatchObject({ counts: { termsBound: 0 } });
+    expect(await versionOf(id)).toBe('1.1');
   });
 });

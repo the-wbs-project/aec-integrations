@@ -41,19 +41,24 @@ The Worker has constraints that shape the answers. It holds about six pending co
 
 9. **Renewal binds the bound version.** *Added 2026-11-12 (AECI-1690, counsel Q3).* A subscription row carries the Managed plan agreement version it is bound to (`licenses.terms_version`). Until AECI-1690 a renewal bound the build's current version, whatever its effective date, its flags or what the company had accepted. Now the one sync binds what `loadTermsBinding` (`lib/terms-binding.ts`) decides at the renewal moment, the new period's start, by the in-force rule of AECI-1689 (12:00 UTC of the effective day, a published row for an upcoming version):
 
+   Each subscription walks from its OWN version, oldest first, and stops below the first version it may not pass. One subscription is never moved further than its own walk allows because a sibling carries a later version.
+
    | Case | What binds |
    |---|---|
-   | Annual renewal | The version in force at the renewal moment. |
+   | Annual renewal | The version in force at the renewal moment, if that renewal's notice announced it: its `legal_versions.published_at` is at least 45 days before the renewal moment (`RENEWAL_NOTICE_DAYS`, the notice job's own `EXPIRY_WARNING_DAYS`). |
+   | Annual, a version published inside those 45 days | Not at this renewal. The subscriptions keep their version for this term and take it at the following renewal. The 45-day notice makes the same call (`bindTermsVersion`), so it never announces a version the renewal will not bind. A version with no row (none was published, as before AECI-1688) binds as before. |
    | Monthly charge, the newer version in force has no `requires_acceptance` | That version, from the first charge at or after its effective moment. |
-   | Monthly charge, a newer version has `requires_acceptance` and an acceptance covers it (that version or a later final one, any source, AECI-1677) | That version. |
+   | Monthly charge, a newer version has `requires_acceptance` and an acceptance recorded at or before the renewal moment covers it (that version or a later final one, any source, AECI-1677) | That version. |
+   | An acceptance recorded after the renewal moment | Counts from the next charge. Nothing binds mid-period. |
    | Monthly charge, a newer version has `requires_acceptance` and no acceptance covers it | Nothing new. The subscriptions keep the version they carry and keep charging. Nothing is cancelled, paused or changed in Stripe. |
    | A later version without the flag sits above an unaccepted one that has it | Neither. The bind is the highest version below the first uncovered one. |
+   | Subscriptions on one Stripe subscription that carry different versions | Each walks from its own version: on 1.2 and 1.4 with 1.3 unaccepted, the first stays on 1.2 and the second on 1.4. |
    | Any case | Never lower than the version the subscription carries. Version order is numeric. |
    | New checkout | Not a renewal: the version in force at request time (AECI-1689). |
-   | Subscriptions added to a live Stripe subscription | The version its live subscriptions carry, not the original checkout's metadata. No acceptance is recorded: the add is a quantity change. |
+   | Subscriptions added to a live Stripe subscription | The highest version its live subscriptions carry, not the original checkout's metadata. No acceptance is recorded: the add is a quantity change. |
    | Grant, complimentary, pilot | Not Stripe, untouched: a grant keeps its grant-date version for its term (AECI-1615). |
 
-   A monthly renewal moves no date, so `annualPeriodMovedForward` cannot see one. The daily reconcile passes `monthlyCatchUp`: on a live monthly subscription it works out what the current period's charge binds, and binds it when that moves a subscription and the version took effect at or before the period start. A draft has no effective moment, so it is never bound mid-period. That repairs a missed `invoice.paid`, and binds a version an owner accepted after the charge withheld it. It is idempotent and reads nothing with today's data. After a monthly charge, `aeci.billing.unaccepted_terms_charge` fires if the committed batch still moved a subscription across a version that needs an acceptance nobody gave. It is a tripwire and should never fire.
+   A monthly renewal moves no date, so `annualPeriodMovedForward` cannot see one. The daily reconcile passes `monthlyCatchUp`. On an `active` Stripe subscription whose interval is known to be `month`, it completes the bind the current period's charge should have made: a missed `invoice.paid`. It uses only the acceptances recorded by the period start, and only versions that took effect by then, so a click after the charge waits for the next one. A subscription whose `starts_at` is at or after the period start began this period (a new checkout, or an add) and is not rebound: `starts_at` is D1's own record of when the row began, which covers a checkout that straddles an effective moment and a mid-period add alike, whatever Stripe's `start_date` says. A draft has no effective moment, so it is never bound this way. It is idempotent and reads nothing with today's data. After a monthly charge, `aeci.billing.unaccepted_terms_charge` fires if the committed batch still moved a subscription across a version that needs an acceptance nobody gave. It is a tripwire and should never fire.
 
    Declined: the automatic period-end cancel of a monthly subscription without the click (the first AECI-1620 build). Chris ruled against it. The "Changes to this agreement" sentence that promises it is replaced in the legal stream (AECI-1363), and the first effective date waits for that text (`apps/web/src/content/legal/README.md`).
 

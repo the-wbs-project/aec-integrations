@@ -1201,7 +1201,7 @@ describe('a published Managed plan version that binds at the renewal (AECI-1690)
   const PDF = new TextEncoder().encode('%PDF-1.7\nversion 1.2\n%%EOF\n');
   const KEY = 'legal/managed-plan-agreement/v1.2.pdf';
 
-  async function publish(sha256: string) {
+  async function publish(sha256: string, publishedAt = '2027-01-15T00:00:00.000Z') {
     await t.db.insert(legalVersions).values({
       document: 'managed_plan',
       version: '1.2',
@@ -1213,7 +1213,7 @@ describe('a published Managed plan version that binds at the renewal (AECI-1690)
       pdfSha256: sha256,
       pdfBytes: PDF.length,
       publishedBy: 'admin',
-      publishedAt: '2027-01-15T00:00:00.000Z',
+      publishedAt,
     });
   }
 
@@ -1286,6 +1286,34 @@ describe('a published Managed plan version that binds at the renewal (AECI-1690)
     await publish(await sha256OfBytes(PDF.slice()));
     const seen = await sweepWith({ UPLOADS: await bucket() }, null);
     expect(seen[0]!.newVersion).toBeUndefined();
+  });
+
+  it('D2: a version published 45 days before the renewal is announced', async () => {
+    const sha = await sha256OfBytes(PDF.slice());
+    const day = 86_400_000;
+    await publish(sha, new Date(Date.parse(ENDS) - 45 * day).toISOString());
+    expect((await sweepWith({ UPLOADS: await bucket() }))[0]!.newVersion?.version).toBe('1.2');
+  });
+
+  it('D2: a version published 44 days before the renewal is not announced as binding', async () => {
+    const sha = await sha256OfBytes(PDF.slice());
+    const day = 86_400_000;
+    await publish(sha, new Date(Date.parse(ENDS) - 44 * day).toISOString());
+    expect((await sweepWith({ UPLOADS: await bucket() }))[0]!.newVersion).toBeUndefined();
+  });
+
+  it('names no more than the bind does: a license already on the version adds nothing', async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    await seedLicense({
+      id: '55555555-5555-4555-8555-555555555555',
+      source: 'stripe',
+      termsVersion: '1.2',
+      endsAt: ENDS,
+      reference: null,
+    });
+    const seen = await sweepWith({ UPLOADS: await bucket() });
+    // The 1.1 license moves to 1.2; the one on 1.2 stays. The notice names 1.2.
+    expect(seen[0]!.newVersion?.version).toBe('1.2');
   });
 
   it('a term the vendor cancelled renews nothing, so nothing binds', async () => {

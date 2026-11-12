@@ -71,10 +71,12 @@
  * `subscription_cycle` path binds: the version `loadTermsBinding` decides at the period
  * start (AECI-1690, `lib/terms-binding.ts`).
  *
- * A monthly renewal moves no date, so the run passes `monthlyCatchUp`. On a live monthly
- * subscription the sync works out what the current period's charge binds. When that moves
- * a license (a missed `invoice.paid` after a version took effect, or an owner who accepted
- * a version after the charge withheld it), the sync binds it and the change counts as
+ * A monthly renewal moves no date, so the run passes `monthlyCatchUp`. On an `active`
+ * subscription known to be monthly, the sync completes the bind the current period's charge
+ * should have made and did not: a missed `invoice.paid` after a version took effect. It
+ * counts only acceptances recorded at or before the period start, so an owner who clicks
+ * mid-period is bound at the next charge. A license that began in this period (a new
+ * checkout, or an add) keeps the version it was sold under. The change counts as
  * `termsBound`. Nothing moves with today's data, and no read runs. A second run finds the
  * licenses bound and does nothing. The run never updates a Stripe subscription for terms.
  *
@@ -184,7 +186,7 @@ export interface StripeReconcileCounts {
   /** Empty billing emails the run set to the buyer's from the Checkout Session. */
   billingEmailsBackfilled: number;
   /** Monthly subscriptions whose licenses the catch-up bound to a later agreement version
-   *  (AECI-1690): a missed `invoice.paid`, or an acceptance after the charge. */
+   *  (AECI-1690): a monthly `invoice.paid` the webhook missed. */
   termsBound: number;
   /** Synced, but no billing account matched. */
   unlinked: number;
