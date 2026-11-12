@@ -37,6 +37,7 @@ import {
   AGREEMENT_ACCEPTANCE_ENTITY_TYPE,
   AGREEMENT_ACCEPTED_ACTION,
   AGREEMENT_LINKED_ACTION,
+  PORTAL_RECORDS_EVIDENCE,
   USER_AGENT_MAX_LENGTH,
   acceptanceRequestEvidence,
   agreementAcceptanceStatements,
@@ -642,6 +643,58 @@ describe('agreementAcceptanceStatements', () => {
         () => agreementAcceptanceStatements(t.db, grantAcceptance({ grant: null })),
         'source',
       );
+    });
+  });
+
+  describe('a portal acceptance (AECI-1677)', () => {
+    const portal = (over: Partial<AgreementAcceptanceParams> = {}): AgreementAcceptanceParams =>
+      claim({ source: 'portal', version: '1.4', portalVersion: '1.4', ...over });
+
+    it('records a version not current in code when it is the pending one, with no IP or browser', async () => {
+      const out = agreementAcceptanceStatements(
+        t.db,
+        portal({ policyVersions: currentPolicyVersions() }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ source: 'portal', version: '1.4', ip: null, userAgent: null });
+      expect(PORTAL_RECORDS_EVIDENCE).toBe(false);
+    });
+
+    it('refuses a version that is not the pending one, and a pending version on another source', () => {
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, portal({ portalVersion: '1.5' })),
+        'version',
+      );
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, portal({ portalVersion: null })),
+        'source',
+      );
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, claim({ portalVersion: '1.4' })),
+        'source',
+      );
+    });
+
+    it('takes policy versions for the Vendor Terms only, and the Plans page for the Managed plan only', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            portal({ document: 'managed_plan', policyVersions: currentPolicyVersions() }),
+          ),
+        'policy_versions',
+      );
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, portal({ plansVersion: '1.0' })),
+        'plans_version',
+      );
+      expect(() =>
+        agreementAcceptanceStatements(
+          t.db,
+          portal({ document: 'managed_plan', plansVersion: '1.0' }),
+        ),
+      ).not.toThrow();
     });
   });
 

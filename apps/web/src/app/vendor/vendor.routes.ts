@@ -1,6 +1,7 @@
 import type { Routes } from '@angular/router';
 
 import { vendorHomeRedirectGuard } from './vendor-home-redirect.guard';
+import { vendorLegalResolver } from './vendor-legal.resolver';
 import { vendorMeResolver } from './vendor-me.resolver';
 
 /**
@@ -241,7 +242,8 @@ export const VENDOR_ROUTES: Routes = [
   {
     path: ':vendorSlug',
     loadComponent: () => import('./vendor-page').then((m) => m.VendorPage),
-    resolve: { me: vendorMeResolver },
+    // AECI-1677: the acceptance screen's state, beside `me`, so SSR knows the gate.
+    resolve: { me: vendorMeResolver, legal: vendorLegalResolver },
     children: VENDOR_SECTION_ROUTES,
   },
 ];

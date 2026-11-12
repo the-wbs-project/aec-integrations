@@ -606,6 +606,9 @@
   </div>
   } }
 
+  <!-- AECI-1677: who has accepted each final version. Its own component and file. -->
+  <aec-admin-legal-acceptance-status />
+
   <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
     <ng-template brnDialogContent>
       @if (pending(); as p) {

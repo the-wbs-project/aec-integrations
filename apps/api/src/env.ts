@@ -298,8 +298,8 @@ export type Env = {
    * `"true"` lets an admin publish a legal version on this tier (AECI-1688,
    * `ADMIN_PANEL_SPEC.md` §5.22). Anything else, or absent, is off: every
    * `POST /api/admin/legal-versions` answers `409 LEGAL_PUBLISH_DISABLED` and the GET
-   * reports `publish_enabled: false`. `"true"` on local and staging, `"false"` on demo
-   * and production until AECI-1677. Read only through `legalPublishEnabled`
+   * reports `publish_enabled: false`. `"true"` on every tier since AECI-1677
+   * (demo and production were `"false"` until the acceptance screen existed). Read only through `legalPublishEnabled`
    * (`routes/admin-legal-versions.ts`).
    */
   LEGAL_PUBLISH_ENABLED?: string;

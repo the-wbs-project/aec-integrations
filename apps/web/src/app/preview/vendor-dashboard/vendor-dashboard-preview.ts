@@ -9,6 +9,14 @@ import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-in
 import { VENDOR_EDIT_FORM_START_OPEN } from '../../vendor/components/vendor-integration-edit-form';
 import { VENDOR_RETIRE_CONFIRM_START_OPEN } from '../../vendor/components/vendor-owned-retire';
 import { VendorApi } from '../../vendor/vendor-api';
+import { VendorLegalAcceptanceState } from '../../vendor/vendor-legal-acceptance-state';
+import {
+  LEGAL_NOTHING_PENDING_FIXTURE,
+  LEGAL_OPTIONAL_MANAGED_FIXTURE,
+  LEGAL_OPTIONAL_TERMS_FIXTURE,
+  LEGAL_REQUIRED_MEMBER_FIXTURE,
+  LEGAL_REQUIRED_OWNER_FIXTURE,
+} from '../../vendor/vendor-legal-fixtures';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
@@ -46,7 +54,12 @@ type FixtureKey =
   | 'mixed'
   | 'product-ended'
   | 'removal-election'
-  | 'member';
+  | 'member'
+  | 'legal-required'
+  | 'legal-required-member'
+  | 'legal-optional-terms'
+  | 'legal-optional-managed'
+  | 'legal-accepted';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
   'verified',
@@ -62,6 +75,11 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'product-ended',
   'removal-election',
   'member',
+  'legal-required',
+  'legal-required-member',
+  'legal-optional-terms',
+  'legal-optional-managed',
+  'legal-accepted',
 ];
 
 /** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
@@ -125,6 +143,8 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     PreviewVendorApi,
     { provide: VendorApi, useExisting: PreviewVendorApi },
     VendorPortalStore,
+    // AECI-1677: the acceptance screen's state, seeded per fixture below.
+    VendorLegalAcceptanceState,
     // AECI-1011: `?create=open` renders the "Add an integration" form open on first
     // paint, so the design detector (which reads only the first render) sees it. Use
     // it on a child route, e.g. `products/summit-model-coordination/integrations`:
@@ -207,6 +227,7 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
 export class VendorDashboardPreview {
   private readonly previewApi = inject(PreviewVendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly legal = inject(VendorLegalAcceptanceState);
 
   protected readonly concept = signal<Concept>(
     inject(ActivatedRoute).snapshot.queryParamMap.get('concept') === 'b' ? 'b' : 'a',
@@ -248,6 +269,12 @@ export class VendorDashboardPreview {
     // AECI-1424: the far-term vendor seen from a member seat (seat_owner false), so
     // the owner-only surfaces (Add a product, proposal decisions) show their member state.
     { key: 'member', label: 'Active · member seat' },
+    // AECI-1677 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.24): the acceptance screen.
+    { key: 'legal-required', label: 'Terms · must accept (owner)' },
+    { key: 'legal-required-member', label: 'Terms · must accept (member)' },
+    { key: 'legal-optional-terms', label: 'Terms · may accept' },
+    { key: 'legal-optional-managed', label: 'Managed plan · may accept' },
+    { key: 'legal-accepted', label: 'Terms · just accepted' },
   ];
 
   /**
@@ -300,6 +327,7 @@ export class VendorDashboardPreview {
       case 'removal-election':
         return VENDOR_ME_REMOVAL_ELECTION_FIXTURE;
       case 'member':
+      case 'legal-required-member':
         return MEMBER_SEAT_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
@@ -328,6 +356,23 @@ export class VendorDashboardPreview {
 
   /** The downgraded vendor keeps its seats: clearing an entitlement does not
    *  revoke them (§5.2), and the preview has to show that it doesn't. */
+  /** AECI-1677: the acceptance screen's state per fixture. Every other fixture has
+   *  nothing pending, as every vendor does today. */
+  private readonly activeLegal = computed(() => {
+    switch (this.fixture()) {
+      case 'legal-required':
+        return LEGAL_REQUIRED_OWNER_FIXTURE;
+      case 'legal-required-member':
+        return LEGAL_REQUIRED_MEMBER_FIXTURE;
+      case 'legal-optional-terms':
+        return LEGAL_OPTIONAL_TERMS_FIXTURE;
+      case 'legal-optional-managed':
+        return LEGAL_OPTIONAL_MANAGED_FIXTURE;
+      default:
+        return LEGAL_NOTHING_PENDING_FIXTURE;
+    }
+  });
+
   private readonly activeSeats = computed(() =>
     this.fixture() === 'unverified' ||
     this.fixture() === 'connector-seat' ||
@@ -354,7 +399,22 @@ export class VendorDashboardPreview {
       const me = this.activeMe();
       const seats = this.activeSeats();
       const checklist = this.activeChecklist();
+      const legal = this.activeLegal();
+      const justAccepted = this.fixture() === 'legal-accepted';
       untracked(() => {
+        this.previewApi.setLegalFixture(legal);
+        this.legal.seed(legal);
+        this.legal.clearConfirmation();
+        if (justAccepted) {
+          // The state just before: a blocked owner, so the confirmation says it opened.
+          this.legal.seed(LEGAL_REQUIRED_OWNER_FIXTURE);
+          this.legal.accepted({
+            document: 'vendor_terms',
+            version: '1.3',
+            accepted_at: '2026-12-16T15:04:00.000Z',
+            state: LEGAL_NOTHING_PENDING_FIXTURE,
+          });
+        }
         this.previewApi.setFixture(me, seats, undefined, checklist);
         this.store.seed(me);
         // A new fixture is a different vendor: re-read any checklist on screen.

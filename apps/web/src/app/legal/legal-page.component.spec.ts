@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_EFFECTIVE_ON,
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
   type LegalAgreementDocument,
@@ -689,6 +690,36 @@ describe('LegalPage', () => {
         if (document) fromManifest[document] = { version, effectiveOn };
       }
       expect(LEGAL_AGREEMENT_UPCOMING_VERSIONS).toEqual(fromManifest);
+    });
+
+    // AECI-1677: the API Worker knows a version is in force from this shared map, because
+    // it cannot read the Markdown. Each entry must equal that version's frontmatter
+    // `effective_date`: blank is `null` (a draft), else the same day written out.
+    it('the shared effective-day map equals the effective_date of every agreement version', () => {
+      const slugFor: Record<LegalAgreementDocument, LegalSlug> = {
+        vendor_terms: 'vendor-terms',
+        managed_plan: 'managed-plan-agreement',
+      };
+      const writtenOut = (day: string) =>
+        new Date(`${day}T12:00:00.000Z`).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        });
+      let checked = 0;
+      for (const [document, versions] of Object.entries(LEGAL_AGREEMENT_EFFECTIVE_ON)) {
+        for (const [version, day] of Object.entries(versions as Record<string, string | null>)) {
+          const doc = getLegalVersion(slugFor[document as LegalAgreementDocument], version);
+          if (!doc) continue;
+          checked += 1;
+          expect(doc.frontmatter.effectiveDate, `${document} ${version}`).toBe(
+            day === null ? '' : writtenOut(day),
+          );
+        }
+      }
+      // The current version of each agreement always has a page.
+      expect(checked).toBeGreaterThanOrEqual(2);
     });
 
     it('currentLegalVersion reads the frontmatter', () => {

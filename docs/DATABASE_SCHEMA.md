@@ -2325,7 +2325,7 @@ create table agreement_acceptances (
   id text primary key,
   document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
   version text not null,           -- must be current at write time; a grant row: the grant's pinned version
-  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant'; NO CHECK
+  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant' | 'portal'; NO CHECK
   email text not null,             -- the accepting person; kept as evidence
   profile_id text,                 -- a profiles.id; NO FK; null at claim time
   vendor_id text,                  -- a vendors.id; NO FK
@@ -2398,6 +2398,9 @@ create unique index agreement_acceptances_stripe_session_key
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
   `400 VALIDATION_FAILED`. A `grant` row passes the grant's pinned version instead, which must
   equal `version`, current or not (AECI-1615). Grant fields on any other source are refused.
+  A `portal` row (AECI-1677) passes `portalVersion`, the version `lib/legal-acceptance.ts`
+  found pending for the company, which must equal `version`: a published version not yet
+  current in code, or one in force through its `legal_versions` row. Only `portal` may pass it.
 - **IP and user agent on the claim path and the portal grant accept.** The helper reads
   `CF-Connecting-IP` and `User-Agent` from the request's headers and cuts the user agent to
   512 characters. *Corrected 2026-11-10 (AECI-1615):* a `portal_checkbox` grant row records
@@ -2434,9 +2437,9 @@ create unique index agreement_acceptances_stripe_session_key
   snapshot file, `apps/web/src/content/docs/vendors/versions/plans/v<version>.md`
   (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). The constants live in
   `packages/shared/src/api/agreements.ts`. The builder refuses with `400 VALIDATION_FAILED`:
-  - `policyVersions` on any source other than `claim`;
+  - `policyVersions` on any source other than `claim` or a `portal` Vendor Terms row (AECI-1677);
   - a policy version not in `LEGAL_POLICY_KNOWN_VERSIONS`;
-  - `plansVersion` on any source other than `checkout` or `grant`;
+  - `plansVersion` on any source other than `checkout`, `grant` or a `portal` Managed plan row;
   - a Plans version not in `PLANS_PAGE_KNOWN_VERSIONS`.
 
   Both parameters are optional, and absent or null writes NULL. A known older version passes,
@@ -2458,7 +2461,19 @@ create unique index agreement_acceptances_stripe_session_key
   `packages/shared/src/audit-vendor-actions.ts` as an aeci-override action with `receipt`
   false. The `accepted_at`, `email`, `ip` and `user_agent` columns are never touched.
 - **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
-  change must never recreate the table (`docs/migrations.md` §0).
+  change must never recreate the table (`docs/migrations.md` §0). So AECI-1677's `portal`
+  source needed no migration.
+- **`portal` rows (AECI-1677 — 2026-11-12, no migration).** An owner seat's accept on the
+  portal's acceptance screen (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). The row carries the
+  seat's email and profile, `vendor_id`, the vendor's `billing_account_id` when one exists,
+  the signer's name, the typed title and legal name, the label (`portalAcceptanceLabel`, the
+  claim wording naming the version and the company) with its SHA-256 and
+  `checkbox_default_unticked = 1`, the two policy versions on a Vendor Terms row and the Plans
+  page version on a Managed plan row. `ip` and `user_agent` stay NULL
+  (`PORTAL_RECORDS_EVIDENCE = false`): the Privacy Policy names them only for a claim and a
+  portal grant accept. Its `agreement.accepted` audit row is in the same `db.batch`. An
+  acceptance of a draft version (`LEGAL_AGREEMENT_EFFECTIVE_ON` entry `null`) never counts
+  as an acceptance of a version in force.
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
   has nothing to null and leaves the row, email, IP and user agent included
   (`AUTH_AND_RLS.md` §8). The IP and user agent still go at 90 days (AECI-1636, below). No FK to `vendors` either, so a vendor retraction never cascades

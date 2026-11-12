@@ -75,6 +75,10 @@ function plansPage(
 
 /** The note under a grant acceptance's document: the source and the method. */
 function grantAcceptanceLabel(acceptance: VendorAgreementAcceptance): string | null {
+  // AECI-1677: an owner accepted a newer version on the portal's acceptance screen.
+  if (acceptance.source === 'portal') {
+    return $localize`:@@vendor.billing.acceptance.portal:Accepted in the portal`;
+  }
   if (acceptance.source !== 'grant') return null;
   switch (acceptance.method) {
     case 'portal_checkbox':
