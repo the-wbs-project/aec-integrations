@@ -70,6 +70,10 @@ for customers, or what file they would be sent.
      agreements promise.
    - **Never a partial company.** Seat addresses come from `fetchAuthUserEmailsResult`. An
      unavailable lookup retries the message instead of acking it with seats missing.
+   - **Never after the effective moment.** The email says the current version applies until
+     the date, so a message that arrives at or after `effective_at` sends nothing, is acked
+     with an error log, and clears `notice_enqueued_at` with a system
+     `legal_version.notice_expired` audit row, so the page shows the notice as not completed.
    - **Re-send.** `POST /api/admin/legal-versions/:id/notice` re-reads the audience and
      re-enqueues every company, then writes the outcome with a `legal_version.notice_resent`
      audit row in one batch. The keys make it safe. It is the recovery for a failed queue and for

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Db } from '../db/client';
 import {
+  auditLog,
   billingAccounts,
   legalVersions,
   licenses,
@@ -43,6 +44,7 @@ import {
   legalNoticeRetryDelaySeconds,
   legalNoticeVendorIds,
   LEGAL_NOTICE_MAX_RETRIES,
+  LEGAL_VERSION_NOTICE_EXPIRED_ACTION,
   type FetchSeatEmailsResult,
 } from './legal-notice';
 import { sha256OfBytes, type LegalVersionRow } from './legal-versions';
@@ -65,6 +67,8 @@ const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}
 const V1 = u(1);
 const V2 = u(2);
 const V3 = u(3);
+/** Before every seeded effective moment, so no spec depends on the real clock. */
+const NOW = new Date('2026-11-20T00:00:00.000Z');
 const PDF = new TextEncoder().encode('%PDF-1.7\nterms\n%%EOF\n');
 
 let t: TestDb;
@@ -188,6 +192,7 @@ async function deliver(
     bucket?: R2Bucket;
     send?: ReturnType<typeof sendSpy>;
     attempts?: number;
+    now?: Date;
     fetchSeatEmails?: FetchSeatEmailsResult;
   } = {},
 ) {
@@ -201,7 +206,12 @@ async function deliver(
     { ...baseEnv(bucket), ...opts.env } as Env,
     fakeExecutionContext(),
     message,
-    { dbFor: t.factory, fetchSeatEmails: opts.fetchSeatEmails ?? seatEmails, send: spy.send },
+    {
+      dbFor: t.factory,
+      fetchSeatEmails: opts.fetchSeatEmails ?? seatEmails,
+      send: spy.send,
+      now: () => opts.now ?? NOW,
+    },
   );
   return { message, ...spy };
 }
@@ -415,6 +425,49 @@ describe('deliverLegalNotice', () => {
     expect(again.message.ack).toHaveBeenCalledTimes(1);
   });
 
+  it('sends nothing after the effective moment, acks, and marks the notice not completed once', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedSeat(u(11), V1);
+    const row = await seedVersion({
+      noticeEnqueuedAt: '2026-11-12T00:00:00.000Z',
+      noticeVendorCount: 5,
+    });
+    const late = new Date(row.effectiveAt);
+
+    const first = await deliver(row, V1, { now: late });
+    expect(first.send).not.toHaveBeenCalled();
+    expect(first.message.ack).toHaveBeenCalledTimes(1);
+    expect(first.message.retry).not.toHaveBeenCalled();
+    expect(errorLogs()).toContainEqual(
+      expect.objectContaining({ legal_version_id: row.id, vendor_id: V1 }),
+    );
+    const [after] = await t.db.select().from(legalVersions);
+    expect(after).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: 5 });
+    const audits = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === LEGAL_VERSION_NOTICE_EXPIRED_ACTION,
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actorType: 'system', entityId: row.id });
+
+    // A second late message for the same version writes nothing more.
+    const second = await deliver(after!, V1, { now: late });
+    expect(second.send).not.toHaveBeenCalled();
+    expect(second.message.ack).toHaveBeenCalledTimes(1);
+    expect(
+      (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === LEGAL_VERSION_NOTICE_EXPIRED_ACTION,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('still sends one millisecond before the effective moment', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    const row = await seedVersion();
+    const { send, message } = await deliver(row, V1, { now: new Date(row.effectiveAt - 1) });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(message.ack).toHaveBeenCalledTimes(1);
+  });
+
   it('acks and drops an unknown version, a non-material one and a malformed body', async () => {
     await seedVendor(V1, 'a', 'billing@a.example');
     const ghost = { id: u(999), pdfKey: 'legal/vendor-terms/v9.pdf' };
@@ -432,7 +485,7 @@ describe('deliverLegalNotice', () => {
       baseEnv(makeFakeR2Bucket() as unknown as R2Bucket),
       fakeExecutionContext(),
       bad,
-      { dbFor: t.factory },
+      { dbFor: t.factory, now: () => NOW },
     );
     expect(bad.ack).toHaveBeenCalledTimes(1);
   });
@@ -458,6 +511,7 @@ describe('deliverLegalNotice', () => {
         dbFor: t.factory,
         fetchSeatEmails: seatEmails,
         send: sendLegalTermsChangeEmail,
+        now: () => NOW,
       });
       expect(message.ack).toHaveBeenCalledTimes(1);
     };

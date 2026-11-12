@@ -196,7 +196,16 @@
         Queued for {{ companyCount(p.notice_vendor_count ?? 0) }} on {{ p.notice_enqueued_at | date:
         'longDate' : 'UTC' }} at {{ p.notice_enqueued_at | date: 'HH:mm' : 'UTC' }} UTC.
       </p>
-      } @case ('incomplete') {
+      } @case ('incomplete') { @if (inEffect(entry)) {
+      <p
+        data-testid="legal-notice-incomplete"
+        class="text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.legal.notice.incompleteInEffect"
+      >
+        The notice was not completed before this version took effect. Some companies may not have
+        been notified. The counts below show what was sent.
+      </p>
+      } @else {
       <p
         data-testid="legal-notice-incomplete"
         class="text-sm font-medium text-(--text-primary)"
@@ -205,7 +214,7 @@
         The notice did not finish queuing. It stopped after queuing {{
         companyCount(p.notice_vendor_count ?? 0) }}. Send it again to reach the rest.
       </p>
-      } @case ('unrecorded') {
+      } } @case ('unrecorded') {
       <p
         data-testid="legal-notice-unrecorded"
         class="text-sm font-medium text-(--text-primary)"

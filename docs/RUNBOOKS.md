@@ -3435,6 +3435,7 @@ dropped".
 | `the published PDF was refused (hash_mismatch)` | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
 | `(missing)` or `(unbound)` | The PDF or the bucket is gone on this tier | Restore it, then send again |
 | `the seat email lookup is unavailable` | Supabase Auth was down or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent for that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
+| `the version is already in effect` | A retry reached the company after the effective moment. Nothing was sent, because the email would say the old version still applies. The card now says the notice was not completed | A legal question for Chris: those companies had no notice from us |
 | `PUBLIC_SITE_URL unset` | The version link cannot be built | Set the var, deploy, send again |
 | `some sends failed` | Resend answered non-2xx for some addresses | Check Resend status and the domain, then send again |
 

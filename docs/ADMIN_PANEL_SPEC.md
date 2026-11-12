@@ -2243,7 +2243,10 @@ of its SHA-256, and the summary as recorded.
 non-material version says no notice is sent. A material one shows one of three states, read
 from `notice_enqueued_at` and `notice_vendor_count`: queued for N companies at a time (UTC);
 did not finish, with the N companies queued before the failure; or no outcome recorded yet
-(still queuing, or the outcome write failed). Below it, the `notice_sends` counts: sent and
+(still queuing, or the outcome write failed). Once the version is in effect, "did not finish"
+reads "not completed before this version took effect" instead: the queue consumer sends nothing
+from the effective moment on and clears `notice_enqueued_at` when a late message arrives, and no
+re-send is offered. Below it, the `notice_sends` counts: sent and
 failed always, and "outcome unknown", "held by this tier's email rules" and "skipped" when not
 zero. A failed count is attempts, so an address that failed once and then went counts in both.
 "Send the notice again" opens its own confirmation, which says the notice is queued again for

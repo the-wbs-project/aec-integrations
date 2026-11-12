@@ -483,6 +483,9 @@ describe('noticeState (AECI-1620)', () => {
 
 describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
   const COUNTS = { sent: 12, failed: 2, unknown: 0, suppressed: 3, skipped: 0 };
+  /** A published row far in the future, so the re-send stays open whatever today is. */
+  const future = (over: Partial<LegalVersion> = {}) =>
+    published({ effective_at: '2099-01-15T12:00:00.000Z', ...over });
   const withRow = (row: LegalVersion, over: Partial<AdminLegalVersionsResponse> = {}) => ({
     publish_enabled: true,
     upcoming: [entry({ published: row, notice_sends: COUNTS })],
@@ -498,7 +501,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
   it('shows a queued notice with its time, company count and send counts', async () => {
     const ctx = await setup({
       data: withRow(
-        published({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 1 }),
+        future({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 1 }),
       ),
     });
     const n = notice(ctx.el);
@@ -511,29 +514,39 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
   });
 
   it('says plainly when the fan-out did not finish', async () => {
-    const ctx = await setup({ data: withRow(published({ notice_vendor_count: 100 })) });
+    const ctx = await setup({ data: withRow(future({ notice_vendor_count: 100 })) });
     expect(text(notice(ctx.el).querySelector('[data-testid="legal-notice-incomplete"]'))).toBe(
       'The notice did not finish queuing. It stopped after queuing 100 companies. Send it again to reach the rest.',
     );
   });
 
+  it('says the notice was not completed once the version is in effect, and offers no re-send', async () => {
+    const ctx = await setup({
+      data: withRow(future({ effective_at: '2020-01-01T12:00:00.000Z', notice_vendor_count: 5 })),
+    });
+    expect(text(notice(ctx.el).querySelector('[data-testid="legal-notice-incomplete"]'))).toBe(
+      'The notice was not completed before this version took effect. Some companies may not have been notified. The counts below show what was sent.',
+    );
+    expect(resendButton(ctx.el).disabled).toBe(true);
+  });
+
   it('has no notice block actions on a non-material version', async () => {
     const ctx = await setup({
-      data: withRow(published({ material: false, requires_acceptance: false })),
+      data: withRow(future({ material: false, requires_acceptance: false })),
     });
     expect(text(notice(ctx.el))).toContain('Not a material change, so no notice is sent.');
     expect(resendButton(ctx.el)).toBeNull();
   });
 
   it('turns the button off, and says why, when sending is off on the tier', async () => {
-    const ctx = await setup({ data: withRow(published(), { publish_enabled: false }) });
+    const ctx = await setup({ data: withRow(future(), { publish_enabled: false }) });
     expect(resendButton(ctx.el).disabled).toBe(true);
     expect(text(notice(ctx.el))).toContain('Sending is turned off on this tier.');
   });
 
   it('turns the button off once the version has taken effect', async () => {
     const ctx = await setup({
-      data: withRow(published({ effective_at: '2020-01-01T12:00:00.000Z' })),
+      data: withRow(future({ effective_at: '2020-01-01T12:00:00.000Z' })),
     });
     expect(resendButton(ctx.el).disabled).toBe(true);
     expect(text(notice(ctx.el))).toContain(
@@ -544,7 +557,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
   it('confirms, cannot close mid-request, then re-sends and moves focus to the heading', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    const ctx = await setup({ data: withRow(published({ notice_vendor_count: 4 })), resend: gate });
+    const ctx = await setup({ data: withRow(future({ notice_vendor_count: 4 })), resend: gate });
     resendButton(ctx.el).click();
     await ctx.rerender();
     const d = dialogEl()!;
@@ -580,7 +593,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
 
   it('shows an enqueue failure in the dialog and on the card, and reloads', async () => {
     const ctx = await setup({
-      data: withRow(published({ notice_vendor_count: 4 })),
+      data: withRow(future({ notice_vendor_count: 4 })),
       resend: new HttpErrorResponse({
         status: 503,
         error: { error: { code: 'LEGAL_NOTICE_ENQUEUE_FAILED', message: 'x' } },

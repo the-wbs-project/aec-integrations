@@ -42,17 +42,33 @@
  * last attempt logs an error naming the version and the company. The `/admin/legal`
  * counts show the shortfall, and "Send the notice again" re-enqueues every company: the
  * keys stop a second email to any address already reached.
+ *
+ * ── NEVER AFTER THE EFFECTIVE MOMENT ───────────────────────────────────────────
+ * The email says "Until then the current version applies", which is false once the
+ * version is in effect. A message that arrives at or after `effective_at` sends nothing,
+ * logs an error naming the version and the company, is acked, and clears
+ * `notice_enqueued_at` (`markNoticeExpired`, with a system audit row) so `/admin/legal`
+ * shows the notice as not completed. The re-send route refuses then too.
  */
 
 import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { LegalExpeditedReason, LegalNoticeSendCounts } from '@aeci/shared';
 import { and, count, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, notificationSends, profiles, vendors } from '../db/schema';
+import {
+  billingAccounts,
+  legalVersions,
+  licenses,
+  notificationSends,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { logToPosthog, submitCount } from '../posthog';
+import { auditInsert, type BatchTuple } from './audit';
 import {
   loadVendorBillingEmails,
   mergeRecipientAddresses,
@@ -378,11 +394,60 @@ export interface LegalNoticeDeps {
   dbFor?: DbFactory;
   fetchSeatEmails?: FetchSeatEmailsResult;
   send?: SendLegalTermsChange;
+  now?: () => Date;
+}
+
+/** `audit_log.action` when a message arrives after the version took effect (system actor). */
+export const LEGAL_VERSION_NOTICE_EXPIRED_ACTION = 'legal_version.notice_expired';
+
+/**
+ * A message arrived after the effective moment, so its company got no notice. Clear
+ * `notice_enqueued_at` (the count stays) so `/admin/legal` shows the notice as not
+ * completed, with a system audit row in one batch. Only the first late message for a
+ * version writes: the update is guarded on `notice_enqueued_at IS NOT NULL`, and a row
+ * already cleared is left alone. Throws only on a D1 error.
+ */
+export async function markNoticeExpired(
+  db: Db,
+  row: Pick<
+    LegalVersionRow,
+    'id' | 'document' | 'version' | 'noticeEnqueuedAt' | 'noticeVendorCount'
+  >,
+  now: Date,
+): Promise<boolean> {
+  if (row.noticeEnqueuedAt === null) return false;
+  const entry: AuditLogEntry = {
+    actorId: null,
+    actorType: 'system',
+    action: LEGAL_VERSION_NOTICE_EXPIRED_ACTION,
+    entityType: LEGAL_NOTICE_ENTITY_TYPE,
+    entityId: row.id,
+    beforeState: {
+      notice_enqueued_at: row.noticeEnqueuedAt,
+      notice_vendor_count: row.noticeVendorCount ?? null,
+    },
+    afterState: { notice_enqueued_at: null, notice_vendor_count: row.noticeVendorCount ?? null },
+    metadata: {
+      source: 'legal-notice',
+      document: row.document,
+      version: row.version,
+      at: now.toISOString(),
+    },
+  };
+  await db.batch([
+    db
+      .update(legalVersions)
+      .set({ noticeEnqueuedAt: null })
+      .where(and(eq(legalVersions.id, row.id), isNotNull(legalVersions.noticeEnqueuedAt))),
+    auditInsert(db, entry),
+  ] as BatchTuple);
+  return true;
 }
 
 /** `aeci.legal_notice.delivery{outcome}`. */
 type DeliveryOutcome =
   | 'sent'
+  | 'too_late'
   | 'partial_retry'
   | 'no_recipients'
   | 'invalid'
@@ -405,6 +470,7 @@ export async function deliverLegalNotice(
   deps: LegalNoticeDeps = {},
 ): Promise<void> {
   const dbFor = deps.dbFor ?? getDb;
+  const clock = deps.now ?? (() => new Date());
   const fetchSeatEmails = strictSeatEmails(deps.fetchSeatEmails ?? fetchAuthUserEmailsResult);
   const send = deps.send ?? sendLegalTermsChangeEmail;
   const request = new Request('https://aeci-api/queue/legal-notice');
@@ -448,6 +514,27 @@ export async function deliverLegalNotice(
     if (!row.material) {
       metric('not_material');
       log('warn', 'aeci.legal_notice: the version is not material; dropped', versionIds);
+      message.ack();
+      return;
+    }
+    if (row.effectiveAt <= clock().getTime()) {
+      // The email says "Until then the current version applies", which is false from the
+      // effective moment on. Send nothing, and mark the notice not completed so the page
+      // shows it. The re-send route refuses here too (LEGAL_NOTICE_TOO_LATE).
+      metric('too_late');
+      log(
+        'error',
+        'aeci.legal_notice: the version is already in effect; nothing sent, the message is dropped',
+        versionIds,
+      );
+      try {
+        await markNoticeExpired(db, row, clock());
+      } catch (error) {
+        log('error', 'aeci.legal_notice: could not mark the notice not completed', {
+          ...versionIds,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       message.ack();
       return;
     }

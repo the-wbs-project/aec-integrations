@@ -2888,7 +2888,9 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   and `notice_vendor_count` with a `legal_version.notice_queued` or `legal_version.notice_resent`
   audit row in one `db.batch`. Both NULL: no fan-out recorded (a non-material version always).
   `notice_enqueued_at` set: every company was queued then. `notice_enqueued_at` NULL with a count:
-  the fan-out stopped after that many companies, and `/admin/legal` says so. What was actually
+  the fan-out stopped after that many companies, and `/admin/legal` says so. The queue consumer
+  also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
+  message arrives after `effective_at`, because it then sends nothing. What was actually
   sent lives in `notification_sends` (§9.9), keyed per address and company, not here.
 - **Not typed by the operator.** `version` and `effective_at` come from
   `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.

@@ -275,7 +275,13 @@ export class AdminLegalVersions {
   /** A published material version whose notice can go again: on, and not yet in effect. */
   protected canResend(entry: AdminLegalUpcomingEntry): boolean {
     const p = entry.published;
-    return this.publishEnabled() && !!p?.material && Date.parse(p.effective_at) > Date.now();
+    return this.publishEnabled() && !!p?.material && !this.inEffect(entry);
+  }
+
+  /** The published version's effective moment has passed: no notice can go any more. */
+  protected inEffect(entry: AdminLegalUpcomingEntry): boolean {
+    const p = entry.published;
+    return !!p && Date.parse(p.effective_at) <= Date.now();
   }
 
   /** Open the re-send confirmation. From a click handler only. */
