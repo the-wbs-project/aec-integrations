@@ -17,6 +17,8 @@ import {
   expectConsoleClean,
   waitForHydrationSettle,
 } from './console-capture';
+import { untilHydrated } from './hydration';
+import { LEGAL_CURRENT_VERSIONS } from '../src/app/legal/legal-manifest';
 
 const PAGES = [
   {
@@ -226,5 +228,36 @@ test.describe('/legal/terms/v1.0 — archived version (AECI-1361)', () => {
   test('the current page links the archive from its change history', async ({ request }) => {
     const html = await (await request.get('/legal/terms')).text();
     expect(html).toContain('href="/legal/terms/v1.0"');
+  });
+});
+
+// AECI-1610 — a change notice links `/legal/<slug>/v<version>`, so the current
+// version is served at its own address too. The version comes from the manifest.
+test.describe('the current Vendor Terms at their own address (AECI-1610)', () => {
+  const VERSION = LEGAL_CURRENT_VERSIONS['vendor-terms'];
+  const OWN = `/legal/vendor-terms/v${VERSION}`;
+
+  test('returns 200 with X-Robots-Tag noindex and a canonical to /legal/vendor-terms', async ({
+    request,
+  }) => {
+    const res = await request.get(OWN, { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
+    expect(res.headers()['x-robots-tag']).toBe('noindex, nofollow');
+    const html = await res.text();
+    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    expect(html).toMatch(/<link[^>]+rel="canonical"[^>]+href="[^"]*\/legal\/vendor-terms"/);
+  });
+
+  test('says which version the address shows, without calling it in force', async ({ page }) => {
+    await page.goto(OWN);
+    const callout = page.getByTestId('legal-fixed-current');
+    await expect(callout).toContainText(`This address always shows version ${VERSION}.`);
+    await expect(callout).not.toContainText(/in force/i);
+    const link = callout.getByRole('link', { name: 'Vendor Terms' });
+    await untilHydrated(link);
+    await link.click();
+    await expect(page).toHaveURL(/\/legal\/vendor-terms$/);
+    await expect(page.getByTestId('legal-fixed-current')).toHaveCount(0);
   });
 });

@@ -1,16 +1,17 @@
 /**
- * Legal document manifest (AECI-1361, AECI-1610). The `.md`-free half of the
- * legal registry: which slugs exist, which file backs each, which superseded
- * versions are archived at `/legal/<slug>/v<version>`, which versions not yet in
- * force are published at the same kind of URL, and which version is current.
+ * Legal version manifest (AECI-1361, AECI-1610). The `.md`-free half of the
+ * legal registry: which superseded versions are archived at
+ * `/legal/<slug>/v<version>`, which versions not yet in force are published at
+ * the same kind of URL, and which version is current. The slugs, files and path
+ * helpers live in `legal-slugs.ts` and are re-exported here.
  *
- * It imports nothing at runtime, so three readers can take it without pulling
- * the Markdown or `marked` into their bundles:
+ * It imports nothing at runtime but `legal-slugs.ts`, so its readers can take it
+ * without pulling the Markdown or `marked` into their bundles. No eager module
+ * imports it, so the version lists load with the legal page, not on every page:
  *
- *   1. `app.routes.ts` generates one explicit route per archived or upcoming
- *      version, and one for the fixed address of each current version
- *      (`LEGAL_CURRENT_VERSIONS`).
- *   2. `docs/docs-indexing.ts` puts every archive, upcoming and fixed current URL
+ *   1. `legal-version-route.ts` decides, behind the one `/legal/<slug>/v<version>`
+ *      route in `app.routes.ts`, whether a version is served.
+ *   2. `docs/docs-indexing.ts` puts every archive, upcoming and current-version URL
  *      in `NOINDEX_PATH_PREFIXES`, so the SSR egress stamps `X-Robots-Tag` on it in
  *      every env. (The sitemap lists legal pages by hand and never lists one.)
  *   3. `legal-versions.ts` checks the bundled sources against it at module init.
@@ -23,28 +24,16 @@
  * entry, and never edits the current file: `LegalPage` announces it.
  * `apps/web/src/content/legal/README.md` has the full workflow.
  */
+import { type LegalSlug, LEGAL_SLUGS, legalArchivePath } from './legal-slugs';
 
-/** Public route slug for a legal page (`/legal/<slug>`). */
-export type LegalSlug =
-  | 'terms'
-  | 'privacy'
-  | 'review-guidelines'
-  | 'listing-accuracy'
-  | 'vendor-terms'
-  | 'managed-plan-agreement';
-
-/** slug → the long §27.1 filename under `src/content/legal/`, in canonical order. */
-export const LEGAL_SOURCE_FILES: Readonly<Record<LegalSlug, string>> = {
-  terms: 'terms-of-service.md',
-  privacy: 'privacy-policy.md',
-  'review-guidelines': 'review-guidelines.md',
-  'listing-accuracy': 'listing-accuracy-policy.md',
-  'vendor-terms': 'vendor-terms.md',
-  'managed-plan-agreement': 'managed-plan-agreement.md',
-};
-
-/** Every legal slug, in canonical order. */
-export const LEGAL_SLUGS = Object.keys(LEGAL_SOURCE_FILES) as readonly LegalSlug[];
+export {
+  LEGAL_SLUGS,
+  LEGAL_SOURCE_FILES,
+  type LegalSlug,
+  legalArchiveFile,
+  legalArchivePath,
+  legalPath,
+} from './legal-slugs';
 
 /** One superseded version, archived unchanged under `versions/<slug>/`. */
 export interface LegalArchiveEntry {
@@ -78,27 +67,6 @@ export const LEGAL_ARCHIVES: readonly LegalArchiveEntry[] = [
   // 1.2 acceptances (November 11, 2026), so 1.2 could not change in place.
   { slug: 'vendor-terms', version: '1.2', supersededOn: 'November 12, 2026' },
 ];
-
-/** The current version's path. */
-export function legalPath(slug: LegalSlug): string {
-  return `/legal/${slug}`;
-}
-
-/**
- * A version's own path: `/legal/<slug>/v<version>`. The same shape for an
- * archived, an upcoming and the current version.
- */
-export function legalArchivePath(slug: LegalSlug, version: string): string {
-  return `/legal/${slug}/v${version}`;
-}
-
-/**
- * A non-current version's file under `src/content/legal/`, archived or upcoming:
- * `versions/<slug>/v<version>.md`.
- */
-export function legalArchiveFile(slug: LegalSlug, version: string): string {
-  return `versions/${slug}/v${version}.md`;
-}
 
 /** Every archive URL. Held out of the index and the sitemap. */
 export const LEGAL_ARCHIVE_PATHS: readonly string[] = LEGAL_ARCHIVES.map((entry) =>

@@ -425,6 +425,22 @@ describe('buildLegalVersions with an upcoming version', () => {
     );
   });
 
+  it('throws on a second upcoming entry for the same document', () => {
+    const second: LegalUpcomingEntry = { ...UPCOMING, version: '1.3', effectiveOn: '2027-06-30' };
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]: upcomingFile(),
+            'versions/terms/v1.3.md': upcomingFile('1.3', 'June 30, 2027'),
+          },
+          upcoming: [UPCOMING, second],
+        }),
+      ),
+    ).toThrow(/terms already has upcoming version 1.2/);
+  });
+
   // Announcing a version must not edit the current file: for an agreement that
   // would change the hashed text of a version in force. `LegalPage` announces it.
   it('builds with the current file unchanged: its change history need not list it', () => {

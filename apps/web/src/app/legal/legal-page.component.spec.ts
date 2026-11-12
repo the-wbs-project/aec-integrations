@@ -1,5 +1,5 @@
 import { Title } from '@angular/platform-browser';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import {
@@ -551,6 +551,56 @@ describe('LegalPage', () => {
       expect(line?.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms/v9.0');
       // The body is the current Markdown, untouched by the announcement.
       expect(host.querySelector('article.aec-prose')?.innerHTML).toBe(plainBody);
+    });
+
+    // The current files promise every version is listed under Change history, the
+    // body's last section. The page lists the upcoming one right after it.
+    it('the current page lists the upcoming version right after the Change history', () => {
+      const { host } = render('vendor-terms', undefined, lookup, [ENTRY]);
+      const article = host.querySelector('article.aec-prose')!;
+      expect(h2s(article).at(-1)).toBe('Change history');
+      const list = host.querySelector('[data-testid="legal-upcoming-history"]');
+      expect(article.nextElementSibling).toBe(list);
+      const item = list?.querySelector('li');
+      expect(item?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Version 9.0: takes effect on March 31, 2027.',
+      );
+      expect(item?.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms/v9.0');
+      expect(item?.querySelector('a')?.textContent?.trim()).toBe('Version 9.0');
+    });
+
+    it('lists nothing after the body without an upcoming entry, or on an archive', () => {
+      expect(
+        render('vendor-terms').host.querySelector('[data-testid="legal-upcoming-history"]'),
+      ).toBeNull();
+      expect(
+        render('vendor-terms', '1.2', lookup, [ENTRY]).host.querySelector(
+          '[data-testid="legal-upcoming-history"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('reads slug and version from path params on the one version route', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                data: {},
+                paramMap: convertToParamMap({ slug: 'vendor-terms', version: '1.2' }),
+              },
+            },
+          },
+        ],
+      });
+      const fixture = TestBed.createComponent(LegalPage);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="legal-superseded"]')).not.toBeNull();
+      expect(host.textContent).toContain('Version 1.2');
     });
 
     it('the current version at its own address announces it too', () => {

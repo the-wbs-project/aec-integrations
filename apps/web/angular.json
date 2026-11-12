@@ -145,10 +145,19 @@
                 // lazy: `PreStableScrollReset` must subscribe from the root component
                 // before the first client navigation, or the scroll reset it restores
                 // is lost. No other module entered the initial set.
+                //
+                // AECI-1610 (2026-11-12): raised 1.07MB -> 1.08MB. Measured locally
+                // with `ng build`: `main` at 1,069,020 B, this branch at 1,069,120 B,
+                // against 1,070,000 B. Under 1kB of headroom, and CI measures ~1kB
+                // more than local (the AECI-955 note), so the next eager byte fails
+                // the build. This change itself adds ~100 B eager: the
+                // `/legal/<slug>/v<version>` URL matcher and a lazy `canMatch`. It
+                // moved the legal version lists out of the initial bundle (they now
+                // load with the legal page), which offset the rest of its growth.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.07MB"
+                  "maximumError": "1.08MB"
                 },
                 {
                   "type": "anyComponentStyle",

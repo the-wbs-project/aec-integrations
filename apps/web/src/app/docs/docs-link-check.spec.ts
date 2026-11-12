@@ -83,6 +83,19 @@ describe('appRoutePatterns', () => {
       /matcher/,
     );
   });
+
+  it('expands a matcher route the caller knows into the exact paths it serves', async () => {
+    const matcher = () => null;
+    const other = () => null;
+    const known = (route: { matcher?: unknown }) =>
+      route.matcher === matcher ? ['/legal/terms/v1.0'] : undefined;
+    await expect(appRoutePatterns([{ matcher, loadComponent: page }], '', known)).resolves.toEqual([
+      '/legal/terms/v1.0',
+    ]);
+    await expect(
+      appRoutePatterns([{ matcher: other, loadComponent: page }], '', known),
+    ).rejects.toThrow(/matcher/);
+  });
 });
 
 describe('matchesRoutePattern', () => {

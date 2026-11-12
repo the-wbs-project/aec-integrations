@@ -243,6 +243,20 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
       <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose. -->
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
         <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
+        <!-- AECI-1610: the body ends with "## Change history" (the registry
+             checks it is the last section), and the current files promise that
+             every version is listed there. So an upcoming version is listed here,
+             right after it, from the manifest, without editing the Markdown. -->
+        @if (announcements.length > 0) {
+          <ul class="aec-prose max-w-[70ch]" data-testid="legal-upcoming-history">
+            @for (next of announcements; track next.version) {
+              <li i18n="@@app.legal.upcomingHistoryLine">
+                <a [routerLink]="next.path">Version {{ next.version }}</a
+                >: takes effect on {{ next.effectiveDate }}.
+              </li>
+            }
+          </ul>
+        }
       </div>
     </div>
   `,
@@ -262,8 +276,13 @@ export class LegalPage {
   protected readonly announcements: readonly LegalAnnouncement[];
 
   constructor() {
-    const slug = this.route.snapshot.data['slug'] as LegalSlug;
-    const version = this.route.snapshot.data['version'] as string | undefined;
+    // A `/legal/<slug>` route names its slug in `data`; the one
+    // `/legal/<slug>/v<version>` route passes both as path params (AECI-1610).
+    const { data, paramMap } = this.route.snapshot;
+    const slug = (data['slug'] ?? paramMap?.get('slug')) as LegalSlug;
+    const version = (data['version'] ?? paramMap?.get('version') ?? undefined) as
+      | string
+      | undefined;
     const doc =
       version === undefined ? this.lookup.current(slug) : this.lookup.version(slug, version);
     if (!doc) {

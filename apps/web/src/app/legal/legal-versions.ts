@@ -25,6 +25,7 @@
  *     the current file's frontmatter version;
  *   - a `versions/` file with no `LEGAL_ARCHIVES` or `LEGAL_UPCOMING` entry, or an
  *     entry with no file;
+ *   - a second upcoming entry for the same document;
  *   - an upcoming entry that is not later than the current version, has an
  *     invalid `effectiveOn`, or whose file's `effective_date` label is not that
  *     day;
@@ -184,6 +185,13 @@ export function buildLegalVersions(sources: LegalVersionSources): LegalVersionMa
     const where = `LEGAL_UPCOMING ${entry.slug} ${entry.version}`;
     if (upcomingKeys.has(file)) fail(`version collision: ${where} is listed twice`);
     if (manifestKeys.has(file)) fail(`version collision: ${where} is also in LEGAL_ARCHIVES`);
+    // One per document: the page announces one, and the shared agreement map
+    // (`LEGAL_AGREEMENT_UPCOMING_VERSIONS`) holds one per agreement.
+    for (const other of upcomingKeys.values()) {
+      if (other.slug === entry.slug) {
+        fail(`${where}: ${entry.slug} already has upcoming version ${other.version}`);
+      }
+    }
     const set = sets.get(entry.slug);
     if (!set) fail(`${where} has no current document`);
     if (!VERSION_RE.test(entry.version)) fail(`${where} has an invalid version`);
