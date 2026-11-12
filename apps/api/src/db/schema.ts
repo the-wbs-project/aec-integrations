@@ -2425,6 +2425,41 @@ export const legalVersions = sqliteTable(
 );
 
 /**
+ * Where each company's change notice stands (AECI-1620, `DATABASE_SCHEMA.md` §8.6j). One row
+ * per published version and company, written by `lib/legal-notice.ts`: `queued` just before
+ * the company's message is sent to `aeci-legal-notice-{env}`, then `delivered` when the
+ * consumer finished every recipient, or a terminal `no_recipients`, `dropped` (with
+ * `last_reason`) or `expired`. `/admin/legal` counts and lists them, and the re-send skips
+ * `delivered` companies.
+ *
+ * LOG-CLASS (ADR 0022, amendment 2026-11-12): the publish and the re-send that cause these
+ * writes carry their own `audit_log` rows, and a row only records how a send went. No
+ * CHECK (Zod owns `status`), no FK (a log row outlives its subjects), no prune: one row per
+ * company per version is the record of a legal notice.
+ */
+export const legalNoticeDeliveries = sqliteTable(
+  'legal_notice_deliveries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** A `legal_versions.id`. No FK. */
+    legalVersionId: text('legal_version_id').notNull(),
+    /** A `vendors.id`. No FK. */
+    vendorId: text('vendor_id').notNull(),
+    /** `LEGAL_NOTICE_DELIVERY_STATUSES`. No CHECK. */
+    status: text('status').notNull(),
+    /** `message.attempts` of the last consumer run for this company; 0 until one runs. */
+    attempts: integer('attempts').notNull().default(0),
+    /** `LEGAL_NOTICE_DELIVERY_REASONS`: why the last attempt did not deliver. NULL otherwise. */
+    lastReason: text('last_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('legal_notice_deliveries_version_vendor_key').on(t.legalVersionId, t.vendorId),
+  ],
+);
+
+/**
  * Stripe webhook events (AECI-1500, E9.2 of the AECI-1339 epic; `DATABASE_SCHEMA.md`
  * §8.6g). One row per Stripe event the webhook handled: the dedup ledger, exactly like
  * `promote_jobs` for promote. The INSERT is the FIRST statement of the handler's
@@ -5948,6 +5983,7 @@ export const schema = {
   licenseGrants,
   agreementAcceptances,
   legalVersions,
+  legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,

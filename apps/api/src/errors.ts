@@ -29,6 +29,8 @@ type ResourceKind =
   // A license grant (AECI-1615). On the vendor accept route, another vendor's grant
   // answers this too, indistinguishable from an unknown id.
   | 'license_grant'
+  // A published legal version on the notice re-send (AECI-1620). Admin-only.
+  | 'legal_version'
   | 'vendor_suspension'
   | 'abuse_cost_entry'
   | 'product'

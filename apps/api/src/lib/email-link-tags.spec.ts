@@ -66,6 +66,7 @@ import {
   sendVendorTerminatedEmail,
   sendPaymentFailedEmail,
   sendRenewalCancelledEmail,
+  sendLegalTermsChangeEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
   sendProductRequestDecidedEmail,
@@ -784,6 +785,23 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         endDay: '2027-11-01',
         licenseCount: 2,
         interval: 'year',
+      }),
+  },
+  'legal-terms-change': {
+    links: true,
+    send: (c) =>
+      sendLegalTermsChangeEmail(c, {
+        to: 'billing@vendor.example',
+        document: 'vendor_terms',
+        version: '1.4',
+        effectiveDay: '2027-01-15',
+        summary: ['The liability section changes.'],
+        closing: 'vendor-terms-accept',
+        expeditedReason: null,
+        vendorSlug: 'bentley',
+        pdfBase64: 'JVBERi0=',
+        dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:abc',
+        entity: { type: 'legal_version', id: 'lv1' },
       }),
   },
   'payment-failed': {

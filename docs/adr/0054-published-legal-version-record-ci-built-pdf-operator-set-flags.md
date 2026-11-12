@@ -1,8 +1,8 @@
 # ADR 0054: A published legal version is a D1 record, its PDF is built in CI and fixed by hash, and its flags are the operator's
 
-- Status: Accepted. Built as AECI-1688 (step 2 of the change-notice rebuild).
+- Status: Accepted. Built as AECI-1688 (step 2 of the change-notice rebuild). Extended by AECI-1620 (step 3, decision 7: the notice).
 - Date: 2026-11-12
-- Issue: AECI-1688. Counsel's Q3 answer of 2026-11-05 (what a change notice must carry). Built on AECI-1610 (upcoming versions and their pages).
+- Issue: AECI-1688, AECI-1620. Counsel's Q3 answer of 2026-11-05 (what a change notice must carry). Built on AECI-1610 (upcoming versions and their pages).
 - Relates to: ADR 0016 (`db.batch`), ADR 0022 (audit in the same batch), ADR 0026 (rate limits on writes); `STAGE_1_SPEC.md` §27.3 to §27.5, `ADMIN_PANEL_SPEC.md` §5.22, `DATABASE_SCHEMA.md` §8.6i, `API_CONTRACTS.md` §6.10 "Legal versions", the legal `README.md`
 
 ## Context
@@ -44,8 +44,65 @@ for customers, or what file they would be sent.
 5. **Publishing is switched per tier.** `LEGAL_PUBLISH_ENABLED` is `"true"` on local and staging,
    `"false"` on demo and production, so a publish cannot stand in for the legal README's list of
    issues that must ship before any effective date. AECI-1677 turns production on.
-6. **This step sends nothing.** No email, no queue message, no purge. AECI-1620 adds the notice
-   fan-out and fills `notice_enqueued_at` and `notice_vendor_count`.
+6. **The publish alone sends nothing.** AECI-1688 added no email, queue message or purge.
+   AECI-1620 added the notice, decision 7.
+7. **The change notice (AECI-1620, 2026-11-12).**
+   - **A queue, one message per company.** After a material publish commits, inside `waitUntil`,
+     the route reads the audience and `sendBatch`es one `{ legalVersionId, vendorId }` message per
+     company onto `aeci-legal-notice-{env}`, in chunks of 100. The same Worker consumes it. A
+     non-material version enqueues nothing. Vendor Terms: every company with an unbanned seat,
+     to every seat and the billing email. Managed plan: every company with a live subscription of
+     any source, to the owner seats and the billing email. A grant or complimentary company gets
+     it as information (ruled by Chris).
+   - **The outcome is on the row.** The fan-out's result lands in `notice_enqueued_at` (set only
+     when every company was queued) and `notice_vendor_count` (how many were), with a
+     `legal_version.notice_queued` audit row in one batch. A failed audience read or queue send
+     leaves `notice_enqueued_at` NULL with the partial count, so `/admin/legal` says the send did
+     not finish.
+   - **The dedupe key holds the company id.** Each address is reserved in `notification_sends`
+     as `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`. An address that is
+     the billing email of two companies gets one notice per company, because each is that
+     company's notice. A `failed` send releases its key and the message retries, so the retry
+     reaches only the failed addresses.
+   - **The hash is checked at send time.** The consumer reads the PDF once per message and
+     compares its sha256 with `pdf_sha256`. A mismatch, a missing file or a missing site URL sends
+     nothing and retries: an email without the fixed copy or the link would not be the notice the
+     agreements promise.
+   - **Never a partial company.** Seat addresses come from `fetchAuthUserEmailsResult`. An
+     unavailable lookup retries the message instead of acking it with seats missing.
+   - **Never after the effective moment.** The email says the current version applies until
+     the date, so a message that arrives at or after `effective_at` sends nothing, is acked
+     with an error log, and clears `notice_enqueued_at` with a system
+     `legal_version.notice_expired` audit row, so the page shows the notice as not completed.
+   - **A delivery row per company, not a counter** (review of 2026-11-12). Five consumer paths
+     end before any send and so leave no `notification_sends` row, and the queue drops a
+     message after its last retry, so counting ledger rows could not show who was missed.
+     `legal_notice_deliveries` holds one row per version and company: `queued`, then
+     `delivered`, `no_recipients`, `dropped` (with the reason) or `expired`. `/admin/legal` counts
+     them and lists every company not reached by name and reason. It is log-class under ADR
+     0022's 2026-11-12 amendment. `notice_vendor_count` stays, as the last fan-out's queued
+     count. Second review: the upsert is sized from its measured parameter count (12 rows, 89
+     of D1's 100); a fan-out whose rows could not be written reports itself incomplete; only
+     the consumer's `delivered` write may replace `delivered`; a late company with no row is
+     still recorded `expired`; from the effective moment every `queued` row reads as not
+     reached, and before it one untouched for two hours is listed as stale; a `delivered` row
+     carries `outcome_unknown` or `held_by_tier` and the page lists those companies as "to
+     check".
+   - **Address counts by latest outcome.** The page counts each address once, by its latest
+     ledger row for the version, so a failure that a retry fixed stops counting as failing.
+   - **Re-send.** `POST /api/admin/legal-versions/:id/notice` re-reads the audience and
+     re-enqueues every company not yet `delivered`, then writes the outcome with a
+     `legal_version.notice_resent` audit row in one batch. The keys make it safe. It is the
+     recovery for a failed queue and for a message the queue dropped after three retries (no
+     dead-letter queue, like every other queue here). It refuses a non-material version and one
+     already in effect, and its outcome UPDATE (like the publish's) is guarded on
+     `effective_at > now`, so a fan-out that ends after the moment cannot overwrite the expiry.
+   - **A company on both monthly and other subscriptions** gets the monthly acceptance ask and
+     one more sentence: the version applies to its other subscriptions from the next renewal or
+     purchase.
+   - **The copy restates the agreements and goes no further.** The Managed plan acceptance ask to
+     monthly card customers says nothing about what happens without an acceptance, because that
+     sentence of the agreement is being rewritten by the legal stream.
 
 7. **A wrong PDF is fixed before publish, never after.** The run keeps the PDF as an artifact and
    names the commit, slug, version and env in its summary. The operator opens it and checks that
@@ -64,6 +121,14 @@ for customers, or what file they would be sent.
 - **One "material" checkbox, ticked by default.** An unthinking click would have recorded a
   material change. Two questions with no default force a decision on each.
 - **Midnight UTC.** See decision 4.
+- **Send the notice inline from the publish request** (AECI-1620). A company can hold many
+  seats, each send can carry a 5 MB PDF, and a request has a connection and time budget. The
+  queue spreads the work and gives retries.
+- **One notice per address across companies** (the first build's key, without the company id).
+  The second company's notice would never be sent, so that company would have no notice of its
+  own terms.
+- **Ack a message when the seat lookup is degraded** (the first build). The missing seats would
+  never be told.
 - **A CHECK on `document` or `expedited_reason`.** A CHECK change on D1 is a table recreate. Zod
   owns the vocabulary, the house rule for enum-like text.
 

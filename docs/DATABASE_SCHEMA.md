@@ -143,6 +143,7 @@ Tables grouped by domain:
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
 - `legal_versions` — one announced version of the Vendor Terms or the Managed plan agreement: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688)
+- `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -2848,8 +2849,9 @@ create index license_grants_account_idx on license_grants(billing_account_id);
 One version of the Vendor Terms or the Managed plan agreement that an operator published on
 `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
 ADR 0054). A row is the record that the version was announced: its summary, the operator's two
-answers, and the fingerprint of the PDF a customer can save. Publishing sends nothing. The
-change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader accounts
+answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
+its change-notice email (AECI-1620) and records the fan-out here. The acceptance screen
+(AECI-1677) and reader accounts
 (AECI-1637) read the row later.
 
 ```sql
@@ -2867,8 +2869,8 @@ create table legal_versions (
   pdf_bytes integer not null,      -- at most 5 MB
   published_by text not null,      -- a profiles.id; NO FK
   published_at text not null,      -- ISO-8601
-  notice_enqueued_at text,         -- NULL until AECI-1620 records its fan-out
-  notice_vendor_count integer      -- NULL until AECI-1620 records its fan-out
+  notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
+  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620)
 );
 
 create unique index legal_versions_document_version_key on legal_versions(document, version);
@@ -2876,12 +2878,21 @@ create unique index legal_versions_document_version_key on legal_versions(docume
 
 - **The one writer.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
   the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
-  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing updates or
-  deletes a row in this issue. AECI-1620 will fill the two `notice_*` columns.
+  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing deletes a row.
 - **`summary_json` is unescaped plain text.** Each bullet is one line with no control, format
   (zero-width, bidi) or U+2028/U+2029 characters (`LEGAL_SUMMARY_FORBIDDEN_CHARS`), but it is
   stored as typed, `<` and `&` included. Every renderer (the admin page, the AECI-1620 email, a
-  vendor screen) must escape it for its medium. Never insert it as HTML.
+  vendor screen) must escape it for its medium. Never insert it as HTML. The notice email escapes
+  each bullet with `escapeHtml` in its HTML part and writes it as-is in its text part.
+- **The notice outcome (AECI-1620).** The only update. After a material publish, and on each
+  `POST /api/admin/legal-versions/:id/notice` re-send, the same file writes `notice_enqueued_at`
+  and `notice_vendor_count` with a `legal_version.notice_queued` or `legal_version.notice_resent`
+  audit row in one `db.batch`. Both NULL: no fan-out recorded (a non-material version always).
+  `notice_enqueued_at` set: every company was queued then. `notice_enqueued_at` NULL with a count:
+  the fan-out stopped after that many companies, and `/admin/legal` says so. The queue consumer
+  also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
+  message arrives after `effective_at`, because it then sends nothing. What was actually
+  sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
 - **Not typed by the operator.** `version` and `effective_at` come from
   `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
 - **The two flags are the operator's answers.** `material` and `requires_acceptance` have no
@@ -2895,6 +2906,65 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   guarded by `src/test/migration-0119.spec.ts`.
 - **Readers.** `GET /api/admin/legal-versions`. No public page reads it, so a write purges nothing.
 - **Retention.** Kept. Not in `PRUNABLE` (`lib/retention-prune.ts`).
+- **`notice_vendor_count` is kept, not derived** (AECI-1620 review). It is the number of companies
+  the LAST fan-out queued: everyone on a publish, only those not yet delivered on a re-send. The
+  per-company totals on `/admin/legal` come from `legal_notice_deliveries` (§8.6j). The column
+  stays because it is what tells "did not finish" apart from "no fan-out recorded" when
+  `notice_enqueued_at` is NULL.
+
+### 8.6j `legal_notice_deliveries` (AECI-1620, migration `0120_fat_mephistopheles`)
+
+Where each company's change notice for a published version stands. One row per version and
+company, written by `apps/api/src/lib/legal-notice.ts` (`ADMIN_PANEL_SPEC.md` §5.22, ADR 0054
+decision 7).
+
+```sql
+create table legal_notice_deliveries (
+  id integer primary key autoincrement,
+  legal_version_id text not null,   -- a legal_versions.id; NO FK
+  vendor_id text not null,          -- a vendors.id; NO FK
+  status text not null,             -- LEGAL_NOTICE_DELIVERY_STATUSES; NO CHECK
+  attempts integer not null default 0, -- message.attempts of the last consumer run; 0 until one runs
+  last_reason text,                 -- LEGAL_NOTICE_DELIVERY_REASONS; why the last attempt did not deliver
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index legal_notice_deliveries_version_vendor_key
+  on legal_notice_deliveries (legal_version_id, vendor_id);
+```
+
+- **States.** `queued`: written by the fan-out just before the company's queue message is sent;
+  a retry keeps it `queued` and records the attempt and its reason. `delivered`: the consumer
+  finished every recipient (sent, already sent, `unknown`, or held by the tier's delivery policy).
+  It carries `last_reason = 'outcome_unknown'` when any address's send ended `unknown` (in this
+  attempt or, read from the ledger, an earlier one), else `held_by_tier` when any address was
+  suppressed by the tier's email rules, else NULL.
+  `no_recipients`: no seat or billing address to send to. `dropped`: the last retry failed, with
+  the reason (`send_failed`, `email_not_configured`, `pdf_refused`, `no_site_url`,
+  `seats_unavailable`, `read_failed`), or the company could not be queued (`enqueue_failed`).
+  `expired` (`in_effect`): still `queued`, or arriving with no row, when a message arrived after
+  the effective moment.
+- **Writes.** Upserts on `(legal_version_id, vendor_id)`. No write but the consumer's own
+  `delivered` moves a `delivered` row (the conflict update is guarded on `status <> 'delivered'`),
+  so a late failure from an older message never undoes it, and a re-send queues only companies
+  not `delivered`. Each write is its own statement, outside any audited batch. A failed write
+  logs an error naming the version and never stops a send, and a fan-out whose rows failed reports
+  itself incomplete (`delivery_record`), leaving `notice_enqueued_at` NULL.
+- **D1 limits.** A multi-row upsert binds 7 values per row plus 5 for the conflict update
+  (4 without the guard), measured with `toSQL()`. `DELIVERY_UPSERT_CHUNK` is 12 rows, 89
+  parameters, under D1's 100. A spec pins the measured count, so a new column fails it.
+- **Read rules.** From the effective moment on, the page counts and lists every row still
+  `queued` as not reached (`in_effect`). Before it, a `queued` row with no update for two hours
+  (the retries take about one) is listed as stale.
+- **Log-class** (ADR 0022, amendment 2026-11-12): the publish, each fan-out outcome and the
+  expiry carry their own `audit_log` rows. No CHECK and no FK, the house rule.
+- **Readers.** `GET /api/admin/legal-versions` (`notice_deliveries`: totals and the first 100
+  companies not reached, by name) and the re-send's skip of delivered companies.
+- **Retention.** Kept. One row per company per version is the record that a legal notice went.
+  Not in `PRUNABLE`.
+- **Migration.** One `CREATE TABLE` and one `CREATE UNIQUE INDEX`, nothing else
+  (`src/test/migration-0120.spec.ts`), so no existing table is recreated (`docs/migrations.md` §0).
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 

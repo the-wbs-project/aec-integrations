@@ -9,8 +9,13 @@
  *      missing, not a PDF or over 5 MB (409).
  *   2. **A publish writes the row and its audit row in ONE batch.** A lost race on the
  *      unique index is a 409, never a 500.
- *   3. **A publish sends nothing and enqueues nothing.** Only the audit forward runs
- *      post-commit.
+ *   3. **Only a material publish enqueues the notice** (AECI-1620): one message per
+ *      company, after the commit, with the outcome and its audit row in one batch. A
+ *      non-material publish enqueues nothing. A failed fan-out leaves
+ *      `notice_enqueued_at` NULL so the page can show it.
+ *   5. **The re-send** refuses in order (gate, unknown id, not material, already in
+ *      effect), records its outcome with a `legal_version.notice_resent` audit row in one
+ *      batch, and answers 503 after recording an incomplete fan-out.
  *   4. **The effective moment is 12:00 UTC** of the upcoming day, for the row and the
  *      window alike.
  */
@@ -21,13 +26,22 @@ import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_PDF_MAX_BYTES,
   PublishLegalVersionResponseSchema,
+  ResendLegalNoticeResponseSchema,
   type LegalAgreementDocument,
   type LegalAgreementUpcomingVersion,
 } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, legalVersions, profiles } from '../db/schema';
+import {
+  auditLog,
+  legalNoticeDeliveries,
+  legalVersions,
+  notificationSends,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -37,10 +51,14 @@ import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { makeFakeR2Bucket, type FakeR2Bucket } from '../test/fake-r2';
 import { fakeExecutionContext } from '../test/helpers';
+import { seedLicense } from '../test/licenses';
 import {
   createAdminLegalVersionsHandler,
   createPublishLegalVersionHandler,
+  createResendLegalNoticeHandler,
   isDuplicateVersionError,
+  LEGAL_VERSION_NOTICE_QUEUED_ACTION,
+  LEGAL_VERSION_NOTICE_RESENT_ACTION,
   LEGAL_VERSION_PUBLISHED_ACTION,
 } from './admin-legal-versions';
 
@@ -75,7 +93,7 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function app(upcoming: Upcoming, factory: DbFactory = t.factory, now = NOW) {
+function app(upcoming: Upcoming, factory: DbFactory = t.factory, now: Date | (() => Date) = NOW) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
@@ -89,25 +107,28 @@ function app(upcoming: Upcoming, factory: DbFactory = t.factory, now = NOW) {
     });
     await next();
   });
-  const deps = { now: () => now, upcoming };
+  const deps = { now: typeof now === 'function' ? now : () => now, upcoming };
   a.get('/api/admin/legal-versions', createAdminLegalVersionsHandler(factory, deps));
   a.post('/api/admin/legal-versions', createPublishLegalVersionHandler(factory, deps));
+  a.post('/api/admin/legal-versions/:id/notice', createResendLegalNoticeHandler(factory, deps));
   return a;
 }
 
 /** The env a publish sees. `queues` stand in for every queue binding, to prove none is used. */
 function envWith(over: Partial<Record<string, unknown>> = {}) {
   const queue = { send: vi.fn(), sendBatch: vi.fn() };
+  const legalQueue = { send: vi.fn(), sendBatch: vi.fn(async (_messages: unknown[]) => undefined) };
   const env = {
     ENV: 'staging',
     LEGAL_PUBLISH_ENABLED: 'true',
     UPLOADS: bucket as unknown as R2Bucket,
     CACHE_PURGE_QUEUE: queue,
     OWNERSHIP_SYNC_QUEUE: queue,
+    LEGAL_NOTICE_QUEUE: legalQueue,
     RESEND_API_KEY: 're_test',
     ...over,
   } as unknown as Env;
-  return { env, queue };
+  return { env, queue, legalQueue: (over.LEGAL_NOTICE_QUEUE as typeof legalQueue) ?? legalQueue };
 }
 
 const body = (over: Record<string, unknown> = {}) => ({
@@ -131,7 +152,7 @@ async function post(
   } = {},
 ) {
   const ctx = fakeExecutionContext();
-  const { env, queue } = envWith(opts.env);
+  const { env, queue, legalQueue } = envWith(opts.env);
   const res = await app(opts.upcoming ?? VT_UPCOMING, opts.factory, opts.now).request(
     '/api/admin/legal-versions',
     {
@@ -143,8 +164,12 @@ async function post(
     ctx,
   );
   await Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map((call) => call[0]));
-  return Object.assign(res, { queue, ctx });
+  return Object.assign(res, { queue, legalQueue, ctx });
 }
+
+/** The `legal_version.published` audit rows: a fan-out adds its own. */
+const publishedAudits = async () =>
+  (await t.db.select().from(auditLog)).filter((a) => a.action === LEGAL_VERSION_PUBLISHED_ACTION);
 
 const codeOf = async (res: Response) =>
   ((await res.clone().json()) as { error: { code: string } }).error.code;
@@ -221,7 +246,7 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_VERSION_EXISTS);
     expect(await t.db.select().from(legalVersions)).toHaveLength(1);
-    expect(await t.db.select().from(auditLog)).toHaveLength(1);
+    expect(await publishedAudits()).toHaveLength(1);
   });
 
   it('answers a lost race on the unique index with 409 LEGAL_VERSION_EXISTS, not 500', async () => {
@@ -233,7 +258,7 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
     expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_VERSION_EXISTS);
     expect(await t.db.select().from(legalVersions)).toHaveLength(1);
     // The batch rolled back whole: the loser's audit row is not there either.
-    expect(await t.db.select().from(auditLog)).toHaveLength(1);
+    expect(await publishedAudits()).toHaveLength(1);
   });
 
   it('checks the published row before the window (409 beats 422)', async () => {
@@ -401,7 +426,7 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
 });
 
 describe('POST /api/admin/legal-versions: the publish', () => {
-  it('writes the row and its audit row, and sends nothing', async () => {
+  it('writes the row and its audit row, then records an empty fan-out', async () => {
     await putPdf();
     const res = await post(
       body({
@@ -430,7 +455,7 @@ describe('POST /api/admin/legal-versions: the publish', () => {
     });
 
     const [row] = await t.db.select().from(legalVersions);
-    const audits = await t.db.select().from(auditLog);
+    const audits = await publishedAudits();
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
       action: LEGAL_VERSION_PUBLISHED_ACTION,
@@ -446,10 +471,11 @@ describe('POST /api/admin/legal-versions: the publish', () => {
       pdf_sha256: row!.pdfSha256,
     });
 
-    // No email, no queue: the only post-commit work is the audit forward.
+    // No company to notify: nothing queued, and the fan-out is recorded as complete.
     expect(res.queue.send).not.toHaveBeenCalled();
     expect(res.queue.sendBatch).not.toHaveBeenCalled();
-    expect(vi.mocked(logBatchToPosthog)).toHaveBeenCalledTimes(1);
+    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
+    expect(row).toMatchObject({ noticeEnqueuedAt: NOW.toISOString(), noticeVendorCount: 0 });
     expect(vi.mocked(logBatchToPosthog).mock.calls[0]?.[3]).toEqual([
       expect.objectContaining({ action: LEGAL_VERSION_PUBLISHED_ACTION, entity_id: row!.id }),
     ]);
@@ -531,5 +557,353 @@ describe('isDuplicateVersionError', () => {
     expect(isDuplicateVersionError(new Error('UNIQUE constraint failed: audit_log.id'))).toBe(
       false,
     );
+  });
+});
+
+// ─── AECI-1620: the change notice ─────────────────────────────────────────────
+
+const V1 = '11111111-1111-4111-8111-000000000001';
+const V2 = '11111111-1111-4111-8111-000000000002';
+const V3 = '11111111-1111-4111-8111-000000000003';
+
+/** Three companies: two with an unbanned seat, one whose only seat is banned. */
+async function seedCompanies(): Promise<void> {
+  await t.db.insert(vendors).values([
+    { id: V1, slug: 'one', companyName: 'One', verified: true, maintainedBy: 'vendor' },
+    { id: V2, slug: 'two', companyName: 'Two', verified: true, maintainedBy: 'vendor' },
+    { id: V3, slug: 'three', companyName: 'Three', verified: true, maintainedBy: 'vendor' },
+  ]);
+  await t.db.insert(profiles).values([
+    { id: crypto.randomUUID(), role: 'vendor_admin', vendorId: V1, seatOwner: true },
+    { id: crypto.randomUUID(), role: 'vendor_admin', vendorId: V2 },
+    {
+      id: crypto.randomUUID(),
+      role: 'vendor_admin',
+      vendorId: V3,
+      bannedAt: '2026-11-01T00:00:00.000Z',
+    },
+  ]);
+}
+
+const queuedVendorIds = (q: { sendBatch: ReturnType<typeof vi.fn> }) =>
+  q.sendBatch.mock.calls.flatMap(([msgs]) =>
+    (msgs as { body: { vendorId: string } }[]).map((m) => m.body.vendorId),
+  );
+
+describe('POST /api/admin/legal-versions: the notice fan-out', () => {
+  it('queues one message per Vendor Terms company with an unbanned seat, and records it', async () => {
+    await putPdf();
+    await seedCompanies();
+    const res = await post(body());
+    expect(res.status).toBe(201);
+
+    expect(queuedVendorIds(res.legalQueue)).toEqual([V1, V2]);
+    const [row] = await t.db.select().from(legalVersions);
+    expect(res.legalQueue.sendBatch.mock.calls[0]?.[0]).toEqual([
+      { body: { legalVersionId: row!.id, vendorId: V1, enqueuedAt: NOW.toISOString() } },
+      { body: { legalVersionId: row!.id, vendorId: V2, enqueuedAt: NOW.toISOString() } },
+    ]);
+    expect(row).toMatchObject({ noticeEnqueuedAt: NOW.toISOString(), noticeVendorCount: 2 });
+    const queuedAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === LEGAL_VERSION_NOTICE_QUEUED_ACTION,
+    );
+    expect(queuedAudit).toMatchObject({ entityId: row!.id, actorId: ADMIN });
+    expect(queuedAudit?.afterState).toMatchObject({ complete: true, notice_vendor_count: 2 });
+  });
+
+  it('queues Managed plan companies with a live subscription of any source', async () => {
+    const MP_KEY = 'legal/managed-plan-agreement/v1.2.pdf';
+    await putPdf(PDF, MP_KEY);
+    await seedCompanies();
+    await seedLicense(t.db, V1, { source: 'stripe' });
+    await seedLicense(t.db, V3, { source: 'complimentary', endsAt: '2027-06-01T00:00:00.000Z' });
+    await seedLicense(t.db, V2, { source: 'invoice', endedAt: '2026-10-01T00:00:00.000Z' });
+    const res = await post(body({ document: 'managed_plan', version: '1.2' }), {
+      upcoming: { managed_plan: { version: '1.2', effectiveOn: FAR_DAY } },
+    });
+    expect(res.status).toBe(201);
+    // V2's only subscription ended; V3 is a grant-style complimentary account, still told.
+    expect(queuedVendorIds(res.legalQueue)).toEqual([V1, V3]);
+  });
+
+  it('chunks at 100 messages per sendBatch', async () => {
+    await putPdf();
+    const ids = Array.from(
+      { length: 205 },
+      (_, i) => `22222222-2222-4222-8222-${String(i).padStart(12, '0')}`,
+    );
+    await t.db
+      .insert(vendors)
+      .values(
+        ids.map((id, i) => ({ id, slug: `v${i}`, companyName: `V${i}`, maintainedBy: 'vendor' })),
+      );
+    await t.db
+      .insert(profiles)
+      .values(ids.map((vendorId) => ({ id: crypto.randomUUID(), role: 'vendor_admin', vendorId })));
+    const res = await post(body());
+    expect(res.legalQueue.sendBatch.mock.calls.map(([m]) => (m as unknown[]).length)).toEqual([
+      100, 100, 5,
+    ]);
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row?.noticeVendorCount).toBe(205);
+  });
+
+  it('enqueues nothing for a non-material version', async () => {
+    await putPdf();
+    await seedCompanies();
+    const res = await post(body({ material: false, requires_acceptance: false }));
+    expect(res.status).toBe(201);
+    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: null });
+    expect(await t.db.select().from(auditLog)).toHaveLength(1);
+  });
+
+  it('leaves notice_enqueued_at NULL with the partial count when a chunk fails', async () => {
+    await putPdf();
+    await seedCompanies();
+    const failing = {
+      send: vi.fn(),
+      sendBatch: vi.fn(async () => {
+        throw new Error('queue down');
+      }),
+    };
+    const res = await post(body(), { env: { LEGAL_NOTICE_QUEUE: failing } });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: 0 });
+    const queuedAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === LEGAL_VERSION_NOTICE_QUEUED_ACTION,
+    );
+    expect(queuedAudit?.afterState).toMatchObject({ complete: false, failure: 'send_batch' });
+  });
+
+  it('records an unbound queue as not finished', async () => {
+    await putPdf();
+    await seedCompanies();
+    await post(body(), { env: { LEGAL_NOTICE_QUEUE: undefined } });
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: 0 });
+  });
+});
+
+describe('POST /api/admin/legal-versions/:id/notice', () => {
+  async function resend(
+    id: string,
+    opts: { env?: Partial<Record<string, unknown>>; now?: Date | (() => Date) } = {},
+  ) {
+    const ctx = fakeExecutionContext();
+    const { env, legalQueue } = envWith(opts.env);
+    const res = await app(VT_UPCOMING, t.factory, opts.now).request(
+      `/api/admin/legal-versions/${id}/notice`,
+      { method: 'POST' },
+      env,
+      ctx,
+    );
+    await Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map((call) => call[0]));
+    return Object.assign(res, { legalQueue });
+  }
+  const published = async (over: Record<string, unknown> = {}) => {
+    await putPdf();
+    await post(body(over), { env: { LEGAL_NOTICE_QUEUE: undefined } });
+    const [row] = await t.db.select().from(legalVersions);
+    return row!;
+  };
+  const resentAudits = async () =>
+    (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === LEGAL_VERSION_NOTICE_RESENT_ACTION,
+    );
+
+  it('refuses when publishing is off (409), before reading the row', async () => {
+    const res = await resend('nope', { env: { LEGAL_PUBLISH_ENABLED: 'false' } });
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_PUBLISH_DISABLED);
+  });
+
+  it('answers 404 for an unknown id', async () => {
+    const res = await resend('00000000-0000-4000-8000-00000000dead');
+    expect(res.status).toBe(404);
+    expect(await codeOf(res)).toBe(ApiErrorCode.NOT_FOUND);
+  });
+
+  it('refuses a non-material version (409 LEGAL_NOTICE_NOT_MATERIAL) and writes nothing', async () => {
+    const row = await published({ material: false });
+    const res = await resend(row.id);
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_NOTICE_NOT_MATERIAL);
+    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
+    expect(await resentAudits()).toEqual([]);
+  });
+
+  it('refuses once the version is in effect (422 LEGAL_NOTICE_TOO_LATE)', async () => {
+    const row = await published();
+    const res = await resend(row.id, { now: new Date('2026-12-27T12:00:00.000Z') });
+    expect(res.status).toBe(422);
+    expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_NOTICE_TOO_LATE);
+    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the audience, re-enqueues and audits in one batch with the outcome', async () => {
+    // Published before any company existed: an empty, complete fan-out.
+    const row = await published();
+    expect(row).toMatchObject({ noticeEnqueuedAt: NOW.toISOString(), noticeVendorCount: 0 });
+    await seedCompanies();
+
+    const res = await resend(row.id);
+    expect(res.status).toBe(200);
+    const out = ResendLegalNoticeResponseSchema.parse(await res.json());
+    expect(out.legal_version).toMatchObject({
+      notice_enqueued_at: NOW.toISOString(),
+      notice_vendor_count: 2,
+    });
+    expect(queuedVendorIds(res.legalQueue)).toEqual([V1, V2]);
+    const [after] = await t.db.select().from(legalVersions);
+    expect(after).toMatchObject({ noticeEnqueuedAt: NOW.toISOString(), noticeVendorCount: 2 });
+    const audits = await resentAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      entityId: row.id,
+      actorId: ADMIN,
+      entityType: 'legal_version',
+    });
+    expect(audits[0]?.beforeState).toEqual({
+      notice_enqueued_at: NOW.toISOString(),
+      notice_vendor_count: 0,
+    });
+    expect(audits[0]?.afterState).toMatchObject({ complete: true, notice_vendor_count: 2 });
+  });
+
+  it('records an incomplete fan-out, then answers 503 LEGAL_NOTICE_ENQUEUE_FAILED', async () => {
+    const row = await published();
+    await seedCompanies();
+    const res = await resend(row.id, { env: { LEGAL_NOTICE_QUEUE: undefined } });
+    expect(res.status).toBe(503);
+    expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_NOTICE_ENQUEUE_FAILED);
+    const audits = await resentAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.afterState).toMatchObject({ complete: false, failure: 'unbound' });
+  });
+
+  it('does not stamp "queued" over the expired mark when the moment passes mid-fan-out', async () => {
+    // Race order: the re-send passes its check before the effective moment, the consumer
+    // then marks the notice expired (notice_enqueued_at NULL), and the fan-out finishes
+    // after the moment. The guarded UPDATE must leave the column NULL.
+    const row = await published();
+    await seedCompanies();
+    await t.db
+      .update(legalVersions)
+      .set({ noticeEnqueuedAt: null })
+      .where(eq(legalVersions.id, row.id));
+    const before = new Date(row.effectiveAt - 60_000);
+    const after = new Date(row.effectiveAt + 1);
+    let calls = 0;
+    const clock = () => (++calls === 1 ? before : after);
+
+    const res = await resend(row.id, { now: clock });
+    expect(res.status).toBe(200);
+    const [stored] = await t.db.select().from(legalVersions);
+    expect(stored?.noticeEnqueuedAt).toBeNull();
+    const audits = await resentAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.afterState).toMatchObject({ outcome_written: false });
+  });
+
+  it('re-enqueues only the companies not yet delivered', async () => {
+    const row = await published();
+    await seedCompanies();
+    const ts = NOW.toISOString();
+    await t.db.insert(legalNoticeDeliveries).values({
+      legalVersionId: row.id,
+      vendorId: V1,
+      status: 'delivered',
+      attempts: 1,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    const res = await resend(row.id);
+    expect(res.status).toBe(200);
+    expect(queuedVendorIds(res.legalQueue)).toEqual([V2]);
+  });
+
+  it('rolls the outcome back with its audit row when the audit insert fails', async () => {
+    const row = await published();
+    await seedCompanies();
+    t.raw.prepare('DROP TABLE audit_log').run();
+    const res = await resend(row.id, { now: new Date('2026-11-13T12:00:00.000Z') });
+    expect(res.status).toBe(500);
+    // The update did not land alone: the row still shows the publish's outcome.
+    const [after] = await t.db.select().from(legalVersions);
+    expect(after).toMatchObject({ noticeEnqueuedAt: NOW.toISOString(), noticeVendorCount: 0 });
+  });
+});
+
+describe('GET /api/admin/legal-versions: notice counts', () => {
+  it('counts the notice sends of the published row by outcome, and ignores duplicates', async () => {
+    await putPdf();
+    await post(body());
+    const [row] = await t.db.select().from(legalVersions);
+    const base = {
+      notificationId: 'legal-terms-change',
+      tier: 'staging',
+      entityType: 'legal_version',
+      entityId: row!.id,
+    };
+    await t.db.insert(notificationSends).values([
+      { ...base, recipientHash: 'a', outcome: 'sent' },
+      { ...base, recipientHash: 'b', outcome: 'sent' },
+      { ...base, recipientHash: 'c', outcome: 'failed' },
+      { ...base, recipientHash: 'd', outcome: 'suppressed' },
+      { ...base, recipientHash: 'a', outcome: 'duplicate' },
+      { ...base, entityId: 'other', recipientHash: 'e', outcome: 'sent' },
+    ]);
+    const res = await app(VT_UPCOMING).request(
+      '/api/admin/legal-versions',
+      {},
+      envWith().env,
+      fakeExecutionContext(),
+    );
+    const out = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(out.upcoming[0]?.notice_sends).toEqual({
+      sent: 2,
+      failed: 1,
+      unknown: 0,
+      suppressed: 1,
+      skipped: 0,
+    });
+  });
+
+  it('is null for an unpublished entry', async () => {
+    const res = await app(VT_UPCOMING).request(
+      '/api/admin/legal-versions',
+      {},
+      envWith().env,
+      fakeExecutionContext(),
+    );
+    const out = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(out.upcoming[0]?.notice_sends).toBeNull();
+    expect(out.upcoming[0]?.notice_deliveries).toBeNull();
+  });
+
+  it('carries the per-company delivery record of the published row', async () => {
+    await putPdf();
+    await seedCompanies();
+    await post(body());
+    const res = await app(VT_UPCOMING).request(
+      '/api/admin/legal-versions',
+      {},
+      envWith().env,
+      fakeExecutionContext(),
+    );
+    const out = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(out.upcoming[0]?.notice_deliveries).toEqual({
+      total: 2,
+      delivered: 0,
+      pending: 2,
+      not_reached: 0,
+      not_reached_companies: [],
+      delivered_to_check: 0,
+      delivered_to_check_companies: [],
+      stale_companies: [],
+    });
   });
 });

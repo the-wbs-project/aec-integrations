@@ -41,7 +41,7 @@ does not restate those terms.
 | 6 | Subscriptions have a **source**: Stripe, invoice (PO or bespoke deal, recorded by AECi with an invoice reference and end date), or complimentary (pilot, end date, no card). |
 | 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. *Now stated in `PRICING_RULES.md` §2.* |
 | 8 | Payment is **Stripe** (Checkout launched from our portal, Stripe Billing for renewals, card by default, Stripe invoice on request). The founding discount is a Stripe coupon. A pilot is a complimentary subscription, not a coupon. The per-vendor price override is retired. *Discounts: `PRICING_RULES.md` §3.* |
-| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. |
+| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. *As built 2026-11-12 (AECI-1620):* publishing a material version also sends its own change notice at publish, at least 30 days ahead, to the owner seats and billing email of every company with a live subscription (§3 step 12). |
 | 10 | Only owner seats buy. One Stripe customer per billing account; a second purchase changes quantity. |
 | 11 | A subscription, once assigned, stays on its product until renewal. Unassigning early is a request to AECi, approved in the admin panel. A vendor may flag a product "release subscription at renewal" for a sunsetting product. |
 | 12 | Fewer subscriptions than assigned products at renewal: the vendor chooses before the date, else oldest assignment keeps the subscription and we email. |
@@ -268,6 +268,37 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     paid subscription (by card) in the admin panel does not work: the next sync grants it back. No dispute
     event is handled, so a chargeback is not automated. An operator who wants the products on Free
     cancels the Stripe subscription, which ends the subscriptions for good rather than until settled.
+12. **A new agreement version.** *As built 2026-11-12 (AECI-1620, counsel Q3).* An operator
+    publishes the version on `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22) at least 30 days before it
+    takes effect. When it is a material change, the publish queues the change notice
+    `legal-terms-change`, one message per affected company on `aeci-legal-notice-{env}`
+    (`apps/api/src/lib/legal-notice.ts`). A non-material version sends nothing.
+    - **Who.** Vendor Terms: every company with an unbanned seat, to every unbanned seat and the
+      billing email. Managed plan agreement: every company with a live subscription of any source
+      (card, invoice, complimentary, an activated grant), to the owner seats and the billing email.
+      A grant or complimentary company gets it as information (ruled by Chris).
+    - **What.** The version and its effective date, the summary bullets, a link to
+      `/legal/<slug>/v<version>` and the PDF attached as `aeci-<slug>-v<version>.pdf`. The closing line
+      follows the agreement's "Changes" section: Vendor Terms bind on continued use unless the claim
+      is given up, or wait for an owner seat's acceptance when the version needs it. A Managed plan
+      version applies from the next renewal or purchase. When it needs acceptance, a company with a
+      live monthly card subscription is asked for an owner seat's acceptance in the portal, and the
+      email says nothing about what happens without one. An expedited Vendor Terms version says why
+      it is sooner.
+    - **Safe to repeat.** Each address is keyed
+      `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address shared by
+      two companies gets one notice per company and never two for one. The PDF is re-hashed on every
+      message and a mismatch sends nothing. A seat-email lookup that is unavailable retries the
+      message. Each company has a delivery row (`legal_notice_deliveries`): the page shows how many
+      were queued, delivered, not yet delivered and not reached, and lists every company not
+      reached by name and reason. "Send the notice again" queues only the companies not yet
+      delivered (`RUNBOOKS.md` "A legal change notice did not go out").
+    - **A company on both kinds of subscription.** When a Managed plan version needs acceptance
+      and the company holds a live monthly card subscription and other ones too, the email adds:
+      "For your other subscriptions it applies from your next renewal or your next purchase,
+      whichever comes first."
+    - The 45-day renewal notice of step 8 still carries "any terms change". The acceptance screen and
+      renewal binding are AECI-1677 and AECI-1690.
 
 ## 3a. Flow chart
 

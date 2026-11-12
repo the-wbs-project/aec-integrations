@@ -341,9 +341,10 @@ steps in this order.
 
 For the Vendor Terms and the Managed plan agreement only. Publishing records the announcement in
 D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, two answers the
-operator gives, and the fingerprint of a PDF a customer can save. It sends nothing yet. The
-change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader accounts
-(AECI-1637) read the record. ADR 0054 is the decision. Run the steps in this order, once per tier.
+operator gives, and the fingerprint of a PDF a customer can save. A material version's publish
+also emails the change notice (`legal-terms-change`, AECI-1620) to every affected company. The
+acceptance screen (AECI-1677) and reader accounts (AECI-1637) read the record too. ADR 0054 is
+the decision. Run the steps in this order, once per tier.
 
 1. **Commit the upcoming file and its manifest entries.** Steps 1 and 2 of "Announcing a new
    version before it takes effect" above: `versions/<slug>/v<new>.md` with its `effective_date`
@@ -394,7 +395,21 @@ change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader ac
    need acceptance?" (no default; acceptance needs a material change), write one summary line
    per change (1 to 10 lines, each up to 300 characters, plain text with no tabs or hidden
    characters), and give an expedited reason only for a Vendor Terms version inside 30 days. The
-   confirmation says what each answer causes. A publish cannot be undone.
+   confirmation says what each answer causes. A publish cannot be undone. The summary lines go
+   into the email word for word.
+6. **Check the change notice on the card** (material versions only), after a minute and a
+   Refresh. It should say "The last send queued N companies". The Vendor Terms notice goes to
+   every unbanned seat and the billing email of every company with a seat. The Managed plan
+   notice goes to the owner seats and the billing email of every company with a live
+   subscription, grants and complimentary included. Each email carries the version and date, the
+   summary, a link to `/legal/<slug>/v<version>` and the PDF. Over the next hour "Delivered"
+   should reach "Companies queued" and "Not yet delivered" should reach 0. Every company listed
+   under "Companies not reached" has its reason beside it. Fix the cause and press "Send the
+   notice again": it queues only the companies not yet delivered and never emails an address
+   twice for one company. `docs/RUNBOOKS.md` "A legal change notice did not go out" has
+   the checks. Staging delivers every notice to the support inbox, so a staging publish is the
+   rehearsal. A notice can only go before the effective moment: after it, the re-send is
+   refused and a queued retry sends nothing.
 
 The publish refuses, in this order: publishing off on the tier (`LEGAL_PUBLISH_ENABLED`), a
 version that is not the upcoming one, a version already published, an effective moment that has

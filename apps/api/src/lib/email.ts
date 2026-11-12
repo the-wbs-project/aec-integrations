@@ -80,10 +80,15 @@
 
 import {
   CLAIM_OWNER_REVIEW_DAYS,
+  LEGAL_DOCUMENT_SLUGS,
+  LEGAL_DOCUMENT_TITLES,
   REQUEST_CONFIRMATION_DAYS,
   claimOwnerReviewDeadline,
+  legalVersionPagePath,
   orderedPairSlugs,
   type AttestationDetector,
+  type LegalAgreementDocument,
+  type LegalExpeditedReason,
   type RequestKind,
   type RequestTargetType,
 } from '@aeci/shared';
@@ -197,6 +202,34 @@ const OPERATOR_COPY_TOKEN = 'operator-copy';
 /** Cap on how long we wait for Resend before giving up (resolves to `'unknown'`). */
 const TIMEOUT_MS = 5000;
 
+/**
+ * The cap for a send that carries an attachment (AECI-1620). A PDF of up to 5 MB is about
+ * 6.7 MB of base64 to upload, which the 5-second cap would turn into `unknown`.
+ */
+const ATTACHMENT_TIMEOUT_MS = 30_000;
+
+/** A file attached to a send (AECI-1620): its name and its bytes as base64. */
+export interface EmailAttachment {
+  filename: string;
+  /** Base64 of the file's bytes (`bytesToBase64`). */
+  content: string;
+}
+
+/**
+ * Base64 of raw bytes, encoded in chunks (AECI-1620). One `String.fromCharCode(...bytes)`
+ * over a 5 MB file overflows the call stack. Each chunk is a multiple of 3 bytes, so the
+ * per-chunk encodings join with no padding in the middle.
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+  // 24,576 arguments per `fromCharCode` call, well under every engine's argument limit.
+  const CHUNK = 3 * 8192;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(btoa(String.fromCharCode(...bytes.subarray(i, i + CHUNK))));
+  }
+  return parts.join('');
+}
+
 /** A rendered email body: the text part and, usually, the HTML part. */
 export interface EmailContent {
   text: string;
@@ -247,6 +280,14 @@ type SendInput = SendBody & {
    * operator `COPY:` of an unsubscribable send.
    */
   replyTo?: string;
+  /**
+   * Files to attach (AECI-1620), passed to Resend as `attachments`. The `Idempotency-Key`
+   * hashes the whole request body, attachments included. A send with an attachment never
+   * blind-copies the operator: a bcc is the same message and would carry the file. When
+   * `operatorCopy` is set it sends the separate operator `COPY:` instead, after the
+   * recipient's send lands, and that copy never carries the attachment.
+   */
+  attachments?: readonly EmailAttachment[];
   /**
    * Send no operator copy (AECI-1435). For a mail whose body holds a single-use
    * credential, such as the `claim-confirm` link: a blind copy in the support inbox
@@ -340,17 +381,24 @@ export async function sendTransactionalEmail(
   // message, so the operator's copy would carry the recipient's one-click opt-out.
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
+  // AECI-1620: the same reasoning for an attachment. The file goes to the recipient
+  // alone, and the operator copy, when the template passes one, is a separate message.
+  const attachments = input.attachments?.length ? input.attachments : null;
+  const separateCopy = unsubscribable || attachments !== null;
 
   const requestBody = (content: EmailContent): string =>
     JSON.stringify({
       from,
       to: envelopeTo,
-      ...(unsubscribable ? {} : bccField(c.env, [input.to], supportCopy)),
+      ...(separateCopy ? {} : bccField(c.env, [input.to], supportCopy)),
       subject,
       ...(input.replyTo ? { reply_to: input.replyTo } : {}),
       text: content.text,
       ...(content.html ? { html: content.html } : {}),
       ...(input.headers ? { headers: input.headers } : {}),
+      ...(attachments
+        ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })) }
+        : {}),
       tags: resendTags(c.env, input.template),
     });
 
@@ -396,7 +444,7 @@ export async function sendTransactionalEmail(
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(attachments ? ATTACHMENT_TIMEOUT_MS : TIMEOUT_MS),
     });
 
     // An unread body holds its connection, which deadlocks a cron that sends a run
@@ -426,7 +474,11 @@ export async function sendTransactionalEmail(
     return 'unknown';
   }
   await finalizeSend(db, reservation.rowId, { outcome: 'sent', providerMessageId });
-  if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input, switches);
+  // `sendOperatorCopy` sends nothing when the template passed no `operatorCopy` body,
+  // and its message never carries the attachment.
+  if (unsubscribable || (attachments && !input.withholdOperatorCopy)) {
+    await sendOperatorCopy(c, apiKey, from, input, switches);
+  }
   return 'sent';
 }
 
@@ -437,8 +489,9 @@ function renderBody(body: SendBody, link: LinkTagger): EmailContent {
 }
 
 /**
- * The operator's copy of a send that carries `List-Unsubscribe`, as its own message
- * to the `EMAIL_BCC` list. The subject is prefixed `COPY: `. It has no unsubscribe
+ * The operator's copy of a send that carries `List-Unsubscribe` or an attachment
+ * (AECI-1620), as its own message to the `EMAIL_BCC` list. It never carries the
+ * attachment. The subject is prefixed `COPY: `. It has no unsubscribe
  * headers, and its body is the template's `operatorCopy`, rendered with a dud token,
  * so nothing in the operator's inbox can opt the real recipient out. Sent only after
  * the recipient's send succeeded. Never throws, and a failure only warns: the copy
@@ -1618,6 +1671,178 @@ export function sendAttestationOpsDigestEmail(
     subject: `[AECi] ${heading}`,
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
+  });
+}
+
+// ─── Legal change notices (AECI-1620) ────────────────────────────────────────
+
+/**
+ * The closing line of a change notice (AECI-1620 scope, item 7):
+ *
+ *   - `vendor-terms`: Vendor Terms, no acceptance needed. Continued use binds.
+ *   - `vendor-terms-accept`: Vendor Terms that need an owner seat's acceptance (Vendor
+ *     Terms 1.3 "Changes to these terms"). Adds the portal button.
+ *   - `managed-binds`: a Managed plan version with no acceptance, and the acceptance case
+ *     for every company that is not on a live monthly card subscription.
+ *   - `managed-monthly-accept`: a Managed plan version that needs acceptance, to a company
+ *     with a live monthly card subscription. Adds the portal button. It says nothing about
+ *     what happens without an acceptance: that sentence of the agreement is being rewritten.
+ */
+export type LegalTermsChangeClosing =
+  | 'vendor-terms'
+  | 'vendor-terms-accept'
+  | 'managed-binds'
+  | 'managed-monthly-accept';
+
+/** What `legal-terms-change` needs for one recipient. */
+export interface LegalTermsChangeSubject {
+  to: string;
+  document: LegalAgreementDocument;
+  version: string;
+  /** `YYYY-MM-DD`, the day it takes effect (12:00 UTC). */
+  effectiveDay: string;
+  /** The published bullets, plain text. Escaped here. */
+  summary: readonly string[];
+  closing: LegalTermsChangeClosing;
+  /** The row's `expedited_reason`. Only a Vendor Terms version carries one. */
+  expeditedReason: LegalExpeditedReason | null;
+  /** The company's portal is `/vendor/{slug}`. Null falls back to `/vendor`. */
+  vendorSlug: string | null;
+  /**
+   * `managed-monthly-accept` only: the company also holds subscriptions that are not
+   * monthly card ones (annual, invoice, complimentary, a grant). Adds one sentence after the
+   * acceptance ask saying the version applies to those from the next renewal or purchase.
+   */
+  otherSubscriptions?: boolean;
+  /** The published PDF, already checked against its hash, as base64. */
+  pdfBase64: string;
+  dedupeKey: string;
+  entity: LedgerEntity;
+}
+
+/** `aeci-<slug>-v<version>.pdf`, the attachment's file name. */
+export function legalNoticeAttachmentName(
+  document: LegalAgreementDocument,
+  version: string,
+): string {
+  return `aeci-${LEGAL_DOCUMENT_SLUGS[document]}-v${version}.pdf`;
+}
+
+const LEGAL_EXPEDITED_SENTENCE: Record<LegalExpeditedReason, string> = {
+  law: 'This version takes effect in less than 30 days because the law requires the change.',
+  error: 'This version takes effect in less than 30 days because it corrects an error.',
+};
+
+/** The closing line per case. Each one restates the agreement; none goes past it. */
+function legalClosingLine(closing: LegalTermsChangeClosing, version: string, date: string): string {
+  switch (closing) {
+    case 'vendor-terms':
+      return `If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
+    case 'vendor-terms-accept':
+      return `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the version your company last accepted keeps applying.`;
+    case 'managed-monthly-accept':
+      return `For this change we ask an owner seat at your company to accept version ${version} in the vendor portal.`;
+    case 'managed-binds':
+      return 'It applies from your next renewal or your next purchase, whichever comes first.';
+  }
+}
+
+/** A bullet list block: `- item` lines in text, a `<ul>` in HTML. Items are escaped. */
+function bulletBlock(items: readonly string[]): { text: string; html: string } {
+  return {
+    text: items.map((item) => `- ${item}`).join('\n'),
+    html:
+      '<ul style="margin:0;padding-left:20px">' +
+      items.map((item) => `<li style="margin:0 0 6px">${escapeHtml(item)}</li>`).join('') +
+      '</ul>',
+  };
+}
+
+/**
+ * `legal-terms-change` (AECI-1620, counsel Q3): the change notice for a published version
+ * of the Vendor Terms or the Managed plan agreement. Both agreements' "Changes" sections
+ * promise four things, so this always carries all four: the version and its effective
+ * date, the summary of every material change, the absolute link to that fixed version,
+ * and the PDF attached. The consumer (`lib/legal-notice.ts`) refuses to call it without a
+ * site URL or a PDF that matches its published hash.
+ *
+ * Not pausable and no unsubscribe: it is a legal notice. It passes no `operatorCopy`, so
+ * the attachment-bearing send copies no one. Replies go to `SUPPORT_EMAIL`.
+ */
+export function sendLegalTermsChangeEmail(
+  c: EmailContext,
+  opts: LegalTermsChangeSubject,
+): Promise<EmailOutcome> {
+  const title = LEGAL_DOCUMENT_TITLES[opts.document];
+  const date = formatLongDay(opts.effectiveDay);
+  const site = siteUrl(c.env);
+  const versionUrl = site ? `${site}${legalVersionPagePath(opts.document, opts.version)}` : null;
+  const portal = site
+    ? opts.vendorSlug
+      ? `${site}/vendor/${encodeURIComponent(opts.vendorSlug)}`
+      : `${site}/vendor`
+    : null;
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const subject = `Version ${opts.version} of the ${title} takes effect on ${date}`;
+  const heading = `A new version of the ${title}`;
+  const lead = `Version ${opts.version} of the AEC Integrations ${title} takes effect on ${date}. Until then the current version applies.`;
+  const changes = 'What changes:';
+  const bullets = bulletBlock(opts.summary);
+  const pdf = 'A PDF copy is attached so you can save it.';
+  const expedited =
+    opts.document === 'vendor_terms' && opts.expeditedReason
+      ? LEGAL_EXPEDITED_SENTENCE[opts.expeditedReason]
+      : null;
+  const closing = legalClosingLine(opts.closing, opts.version, date);
+  const askToAccept =
+    opts.closing === 'vendor-terms-accept' || opts.closing === 'managed-monthly-accept';
+  const note =
+    "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
+
+  const render = (link: LinkTagger): EmailContent => {
+    const text = [lead, changes, bullets.text];
+    const html = [escapeHtml(lead), escapeHtml(changes), bullets.html];
+    if (versionUrl) {
+      const tagged = link(versionUrl);
+      text.push(`Read version ${opts.version}: ${tagged}`);
+      html.push(inlineLink(tagged, `Read version ${opts.version}`));
+    }
+    const others =
+      opts.closing === 'managed-monthly-accept' && opts.otherSubscriptions
+        ? 'For your other subscriptions it applies from your next renewal or your next purchase, whichever comes first.'
+        : null;
+    const tail = [pdf, ...(expedited ? [expedited] : []), closing, ...(others ? [others] : [])];
+    text.push(...tail);
+    html.push(...tail.map(escapeHtml));
+    return houseBody(
+      {
+        preheader: lead,
+        heading,
+        note,
+        ...(askToAccept && portal
+          ? { cta: { label: 'Open the vendor portal', url: link(portal) } }
+          : {}),
+      },
+      text,
+      html,
+    );
+  };
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'legal-terms-change',
+    subject,
+    render,
+    attachments: [
+      {
+        filename: legalNoticeAttachmentName(opts.document, opts.version),
+        content: opts.pdfBase64,
+      },
+    ],
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
   });
 }
 

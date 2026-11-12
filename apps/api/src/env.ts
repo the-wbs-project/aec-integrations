@@ -1,6 +1,7 @@
 import type { CachePurgeMessage, OwnershipSyncMessage } from '@aeci/shared';
 import type { Pipeline } from 'cloudflare:pipelines';
 
+import type { LegalNoticeMessage } from './lib/legal-notice';
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
 /**
@@ -577,6 +578,16 @@ export type Env = {
    * emits `aeci.ownership_sync.enqueue{outcome:unbound}` and warns.
    */
   OWNERSHIP_SYNC_QUEUE?: Queue<OwnershipSyncMessage>;
+  /**
+   * Producer binding for the legal change notice (AECI-1620, `legal-terms-change`). A
+   * material publish on `/admin/legal` and its re-send route each `sendBatch()` one
+   * {@link LegalNoticeMessage} per affected company here; the same Worker consumes
+   * `aeci-legal-notice-{env}` (`lib/legal-notice.ts`). Declared in all four
+   * `wrangler.jsonc` blocks, local dev included. Absent (unit tests) → the fan-out
+   * counts `aeci.legal_notice.enqueue{outcome:unbound}`, logs an error and leaves
+   * `notice_enqueued_at` NULL.
+   */
+  LEGAL_NOTICE_QUEUE?: Queue<LegalNoticeMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per

@@ -24,12 +24,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminLegalUpcomingEntry,
   AdminLegalVersionsResponse,
+  LegalNoticeDeliveries,
   LegalVersion,
   PublishLegalVersionRequest,
 } from '@aeci/shared';
 
 import { AdminLegalApi } from './admin-legal-api';
-import { AdminLegalVersions, humanBytes, summaryBullets, summaryProblem } from './legal-versions';
+import {
+  AdminLegalVersions,
+  humanBytes,
+  noticeState,
+  summaryBullets,
+  summaryProblem,
+} from './legal-versions';
 
 const ADMIN = '49dd03ee-1111-4000-8000-000000000001';
 
@@ -40,6 +47,8 @@ const entry = (over: Partial<AdminLegalUpcomingEntry> = {}): AdminLegalUpcomingE
   effective_at: '2027-01-15T12:00:00.000Z',
   current_version: '1.3',
   published: null,
+  notice_sends: null,
+  notice_deliveries: null,
   ...over,
 });
 
@@ -84,6 +93,8 @@ interface Opts {
   data?: AdminLegalVersionsResponse;
   /** What `publish` does: resolve, throw, or wait on a promise the test controls. */
   publish?: HttpErrorResponse | Promise<void>;
+  /** What `resendNotice` does (AECI-1620). */
+  resend?: HttpErrorResponse | Promise<void>;
 }
 
 async function setup(opts: Opts = {}) {
@@ -105,6 +116,24 @@ async function setup(opts: Opts = {}) {
         upcoming: data.upcoming.map((e) =>
           e.document === body.document ? { ...e, published: row } : e,
         ),
+      };
+      return { legal_version: row };
+    }),
+    resendNotice: vi.fn(async (id: string) => {
+      if (opts.resend instanceof HttpErrorResponse) throw opts.resend;
+      if (opts.resend) await opts.resend;
+      let row!: LegalVersion;
+      data = {
+        ...data,
+        upcoming: data.upcoming.map((e) => {
+          if (e.published?.id !== id) return e;
+          row = {
+            ...e.published,
+            notice_enqueued_at: '2026-11-13T09:30:00.000Z',
+            notice_vendor_count: 7,
+          };
+          return { ...e, published: row };
+        }),
       };
       return { legal_version: row };
     }),
@@ -284,7 +313,7 @@ describe('AdminLegalVersions', () => {
       'This records version 1.4, which takes effect on January 15, 2027 at 12:00 UTC, with your summary and the stored PDF.',
     );
     expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
-      'You said this is a material change. Once change emails are built, publishing a material change will email every affected company with your summary. For now nothing is sent.',
+      'You said this is a material change. Publishing emails every affected company your summary, a link to this version and its PDF.',
     );
     expect(text(d.querySelector('[data-testid="legal-dialog-acceptance"]'))).toBe(
       'You said it needs acceptance. An owner of each company will have to accept version 1.4 before it applies to that company.',
@@ -438,5 +467,220 @@ describe('AdminLegalVersions', () => {
     expect(text(ctx.el.querySelector('[data-testid="legal-publish-off"]'))).toContain(
       'Publishing is turned off on this tier',
     );
+  });
+});
+
+describe('noticeState (AECI-1620)', () => {
+  it('reads the two outcome columns', () => {
+    expect(noticeState(published({ material: false }))).toBe('none');
+    expect(noticeState(published())).toBe('unrecorded');
+    expect(noticeState(published({ notice_vendor_count: 3 }))).toBe('incomplete');
+    expect(
+      noticeState(
+        published({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 3 }),
+      ),
+    ).toBe('queued');
+  });
+});
+
+describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
+  const COUNTS = { sent: 12, failed: 2, unknown: 0, suppressed: 3, skipped: 0 };
+  /** A published row far in the future, so the re-send stays open whatever today is. */
+  const future = (over: Partial<LegalVersion> = {}) =>
+    published({ effective_at: '2099-01-15T12:00:00.000Z', ...over });
+  const DELIVERIES: LegalNoticeDeliveries = {
+    total: 9,
+    delivered: 5,
+    pending: 1,
+    not_reached: 3,
+    not_reached_companies: [
+      {
+        vendor_id: 'v-a',
+        name: 'Acme Build',
+        slug: 'acme',
+        status: 'dropped',
+        reason: 'pdf_refused',
+      },
+      { vendor_id: 'v-b', name: 'Beam Co', slug: 'beam', status: 'no_recipients', reason: null },
+      { vendor_id: 'v-c', name: null, slug: null, status: 'expired', reason: 'in_effect' },
+    ],
+    delivered_to_check: 2,
+    delivered_to_check_companies: [
+      { vendor_id: 'v-d', name: 'Dome Ltd', slug: 'dome', reason: 'outcome_unknown' },
+      { vendor_id: 'v-e', name: 'Eave Inc', slug: 'eave', reason: 'held_by_tier' },
+    ],
+    stale_companies: [
+      {
+        vendor_id: 'v-f',
+        name: 'Frame Co',
+        slug: 'frame',
+        queued_since: '2026-11-12T10:00:00.000Z',
+      },
+    ],
+  };
+  const withRow = (
+    row: LegalVersion,
+    over: Partial<AdminLegalVersionsResponse> = {},
+    deliveries: LegalNoticeDeliveries | null = DELIVERIES,
+  ) => ({
+    publish_enabled: true,
+    upcoming: [entry({ published: row, notice_sends: COUNTS, notice_deliveries: deliveries })],
+    ...over,
+  });
+
+  it('shows the companies queued, delivered, not yet delivered and not reached, with the list', async () => {
+    const ctx = await setup({
+      data: withRow(
+        future({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 9 }),
+      ),
+    });
+    const n = notice(ctx.el);
+    expect(text(n.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
+      'Companies queued 9 Delivered 5 Not yet delivered 1 Not reached 3',
+    );
+    const items = [...n.querySelectorAll('[data-testid="legal-notice-not-reached"] li')].map(text);
+    expect(items).toEqual([
+      'Acme Build: The stored PDF did not match the published copy.',
+      'Beam Co: No seat or billing email to send to.',
+      'v-c: Still waiting when the version took effect, so it was not sent.',
+    ]);
+    expect([...n.querySelectorAll('[data-testid="legal-notice-stale"] li')].map(text)).toEqual([
+      'Frame Co: Queued for more than two hours. Send the notice again.',
+    ]);
+    expect(text(n)).toContain('Delivered, with an address to check');
+    expect([...n.querySelectorAll('[data-testid="legal-notice-check"] li')].map(text)).toEqual([
+      'Dome Ltd: The email service did not confirm one of its addresses, so that email may not have arrived.',
+      "Eave Inc: One of its addresses was held by this tier's email rules and got nothing.",
+    ]);
+  });
+
+  it('says how many of a long not-reached list it shows', async () => {
+    const ctx = await setup({
+      data: withRow(future({ notice_vendor_count: 9 }), {}, { ...DELIVERIES, not_reached: 250 }),
+    });
+    expect(text(notice(ctx.el))).toContain('The first 3 of 250 are listed.');
+  });
+  const notice = (el: HTMLElement) =>
+    card(el, 'vendor_terms').querySelector<HTMLElement>('[data-testid="legal-notice"]')!;
+  const resendButton = (el: HTMLElement) =>
+    card(el, 'vendor_terms').querySelector<HTMLButtonElement>(
+      '[data-testid="legal-notice-resend"]',
+    )!;
+
+  it('shows a queued notice with its time, company count and send counts', async () => {
+    const ctx = await setup({
+      data: withRow(
+        future({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 1 }),
+      ),
+    });
+    const n = notice(ctx.el);
+    expect(n.getAttribute('data-state')).toBe('queued');
+    expect(text(n)).toContain('The last send queued 1 company on November 12, 2026 at 14:03 UTC.');
+    expect(text(n.querySelector('[data-testid="legal-notice-counts"]'))).toBe(
+      "Addresses sent: 12. Addresses failing: 2. Addresses held by this tier's email rules: 3.",
+    );
+    expect(resendButton(ctx.el).disabled).toBe(false);
+  });
+
+  it('says plainly when the fan-out did not finish', async () => {
+    const ctx = await setup({ data: withRow(future({ notice_vendor_count: 100 })) });
+    expect(text(notice(ctx.el).querySelector('[data-testid="legal-notice-incomplete"]'))).toBe(
+      'The notice did not finish queuing. It stopped after queuing 100 companies. Send it again to reach the rest.',
+    );
+  });
+
+  it('says the notice was not completed once the version is in effect, and offers no re-send', async () => {
+    const ctx = await setup({
+      data: withRow(future({ effective_at: '2020-01-01T12:00:00.000Z', notice_vendor_count: 5 })),
+    });
+    expect(text(notice(ctx.el).querySelector('[data-testid="legal-notice-incomplete"]'))).toBe(
+      'The notice was not completed before this version took effect. Some companies may not have been notified. The counts below show what was sent.',
+    );
+    expect(resendButton(ctx.el).disabled).toBe(true);
+  });
+
+  it('has no notice block actions on a non-material version', async () => {
+    const ctx = await setup({
+      data: withRow(future({ material: false, requires_acceptance: false })),
+    });
+    expect(text(notice(ctx.el))).toContain('Not a material change, so no notice is sent.');
+    expect(resendButton(ctx.el)).toBeNull();
+  });
+
+  it('turns the button off, and says why, when sending is off on the tier', async () => {
+    const ctx = await setup({ data: withRow(future(), { publish_enabled: false }) });
+    expect(resendButton(ctx.el).disabled).toBe(true);
+    expect(text(notice(ctx.el))).toContain('Sending is turned off on this tier.');
+  });
+
+  it('turns the button off once the version has taken effect', async () => {
+    const ctx = await setup({
+      data: withRow(future({ effective_at: '2020-01-01T12:00:00.000Z' })),
+    });
+    expect(resendButton(ctx.el).disabled).toBe(true);
+    expect(text(notice(ctx.el))).toContain(
+      'This version has taken effect, so its notice cannot be sent again.',
+    );
+  });
+
+  it('confirms, cannot close mid-request, then re-sends and moves focus to the heading', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const ctx = await setup({ data: withRow(future({ notice_vendor_count: 4 })), resend: gate });
+    resendButton(ctx.el).click();
+    await ctx.rerender();
+    const d = dialogEl()!;
+    expect(text(d.querySelector('h2'))).toBe(
+      'Send the notice for version 1.4 of the Vendor Terms again?',
+    );
+    expect(text(d.querySelector('[data-testid="legal-resend-dialog"]'))).toContain(
+      'An address that already got this notice for a company is not emailed again.',
+    );
+
+    dialogButton('Send the notice again').click();
+    await ctx.rerender();
+    expect(text(dialogEl())).toContain('Queuing…');
+    expect(dialogButton('Cancel').disabled).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await closeDelay();
+    await ctx.rerender();
+    expect(dialogEl()).not.toBeNull();
+
+    release();
+    await ctx.rerender();
+    await closeDelay();
+    await ctx.rerender();
+    await ctx.rerender();
+    expect(ctx.api.resendNotice).toHaveBeenCalledWith('lv-1');
+    expect(dialogEl()).toBeNull();
+    expect(document.activeElement?.id).toBe('admin-legal-vendor_terms-heading');
+    expect(text(notice(ctx.el))).toContain('The last send queued 7 companies on November 13, 2026');
+    expect(text(ctx.el.querySelector('[role="status"]'))).toBe(
+      'The notice for version 1.4 of the Vendor Terms is queued again.',
+    );
+  });
+
+  it('shows an enqueue failure in the dialog and on the card, and reloads', async () => {
+    const ctx = await setup({
+      data: withRow(future({ notice_vendor_count: 4 })),
+      resend: new HttpErrorResponse({
+        status: 503,
+        error: { error: { code: 'LEGAL_NOTICE_ENQUEUE_FAILED', message: 'x' } },
+      }),
+    });
+    resendButton(ctx.el).click();
+    await ctx.rerender();
+    dialogButton('Send the notice again').click();
+    await ctx.rerender();
+    await ctx.rerender();
+    const expected =
+      'The notice was not queued for every company. The card shows how far it got. Send it again.';
+    expect(text(dialogEl()!.querySelector('[data-testid="legal-dialog-error"]'))).toBe(expected);
+    const cardError = card(ctx.el, 'vendor_terms').querySelector(
+      '[data-testid="legal-card-error"]',
+    );
+    expect(text(cardError)).toBe(expected);
+    expect(cardError?.getAttribute('role')).toBe('alert');
+    expect(ctx.api.list).toHaveBeenCalledTimes(2);
   });
 });

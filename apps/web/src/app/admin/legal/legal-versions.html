@@ -17,8 +17,9 @@
       </h2>
       <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.subheading">
         Record a new version of the Vendor Terms or the Managed plan agreement before it takes
-        effect. Publishing stores your answers, the summary and the PDF fingerprint. It sends no
-        email yet. The text itself is changed in the repository, not here. All times are UTC.
+        effect. Publishing stores your answers, the summary and the PDF fingerprint. A material
+        change is then emailed to every affected company with the PDF attached. The text itself is
+        changed in the repository, not here. All times are UTC.
       </p>
     </div>
     <button
@@ -176,6 +177,199 @@
         <li>{{ bullet }}</li>
         }
       </ul>
+    </div>
+
+    <div
+      data-testid="legal-notice"
+      [attr.data-state]="noticeState(entry)"
+      class="space-y-2 border-t border-(--border-default) pt-4"
+    >
+      <h4 class="text-sm font-bold text-(--text-primary)" i18n="@@admin.legal.notice.heading">
+        Change notice
+      </h4>
+      @switch (noticeState(entry)) { @case ('none') {
+      <p class="text-sm text-(--text-secondary)" i18n="@@admin.legal.notice.none">
+        Not a material change, so no notice is sent.
+      </p>
+      } @case ('queued') {
+      <p class="text-sm text-(--text-primary)" i18n="@@admin.legal.notice.queued">
+        The last send queued {{ companyCount(p.notice_vendor_count ?? 0) }} on {{
+        p.notice_enqueued_at | date: 'longDate' : 'UTC' }} at {{ p.notice_enqueued_at | date:
+        'HH:mm' : 'UTC' }} UTC.
+      </p>
+      } @case ('incomplete') { @if (inEffect(entry)) {
+      <p
+        data-testid="legal-notice-incomplete"
+        class="text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.legal.notice.incompleteInEffect"
+      >
+        The notice was not completed before this version took effect. Some companies may not have
+        been notified. The counts below show what was sent.
+      </p>
+      } @else {
+      <p
+        data-testid="legal-notice-incomplete"
+        class="text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.legal.notice.incomplete"
+      >
+        The notice did not finish queuing. It stopped after queuing {{
+        companyCount(p.notice_vendor_count ?? 0) }}. Send it again to reach the rest.
+      </p>
+      } } @case ('unrecorded') {
+      <p
+        data-testid="legal-notice-unrecorded"
+        class="text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.legal.notice.unrecorded"
+      >
+        No outcome is recorded yet. If Refresh still shows this after a minute, send it again.
+      </p>
+      } } @if (p.material && entry.notice_deliveries; as dl) {
+      <dl
+        data-testid="legal-notice-companies"
+        class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]"
+      >
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesQueued">
+          Companies queued
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.total }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesDelivered">
+          Delivered
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.delivered }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesPending">
+          Not yet delivered
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.pending }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesNotReached">
+          Not reached
+        </dt>
+        <dd class="font-medium text-(--text-primary)">{{ dl.not_reached }}</dd>
+      </dl>
+      @if (dl.not_reached_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.notReachedHeading"
+        >
+          Companies not reached
+        </p>
+        <ul
+          data-testid="legal-notice-not-reached"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.not_reached_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>: {{ notReachedReason(co) }}
+          </li>
+          }
+        </ul>
+        @if (dl.not_reached > dl.not_reached_companies.length) {
+        <p class="text-xs text-(--text-secondary)" i18n="@@admin.legal.notice.notReachedMore">
+          The first {{ dl.not_reached_companies.length }} of {{ dl.not_reached }} are listed.
+        </p>
+        }
+      </div>
+      } @if (dl.stale_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.staleHeading"
+        >
+          Waiting too long
+        </p>
+        <ul
+          data-testid="legal-notice-stale"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.stale_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>:
+            <span i18n="@@admin.legal.notice.staleItem"
+              >Queued for more than two hours. Send the notice again.</span
+            >
+          </li>
+          }
+        </ul>
+      </div>
+      } @if (dl.delivered_to_check_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.checkHeading"
+        >
+          Delivered, with an address to check
+        </p>
+        <ul
+          data-testid="legal-notice-check"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.delivered_to_check_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>: {{ checkReason(co.reason) }}
+          </li>
+          }
+        </ul>
+        @if (dl.delivered_to_check > dl.delivered_to_check_companies.length) {
+        <p class="text-xs text-(--text-secondary)" i18n="@@admin.legal.notice.checkMore">
+          The first {{ dl.delivered_to_check_companies.length }} of {{ dl.delivered_to_check }} are
+          listed.
+        </p>
+        }
+      </div>
+      } } @if (p.material && entry.notice_sends; as s) {
+      <p class="text-sm text-(--text-secondary)" data-testid="legal-notice-counts">
+        <span i18n="@@admin.legal.notice.addresses"
+          >Addresses sent: {{ s.sent }}. Addresses failing: {{ s.failed }}.</span
+        >
+        @if (s.unknown > 0) {
+        <span i18n="@@admin.legal.notice.unknown">
+          Addresses with an unknown outcome: {{ s.unknown }}.</span
+        >
+        } @if (s.suppressed > 0) {
+        <span i18n="@@admin.legal.notice.suppressed">
+          Addresses held by this tier's email rules: {{ s.suppressed }}.</span
+        >
+        } @if (s.skipped > 0) {
+        <span i18n="@@admin.legal.notice.skipped"> Addresses skipped: {{ s.skipped }}.</span>
+        }
+      </p>
+      } @if (p.material) { @if (cardErrors()[entry.document]; as message) {
+      <p
+        data-testid="legal-card-error"
+        class="text-sm font-medium text-(--text-primary)"
+        role="alert"
+      >
+        {{ message }}
+      </p>
+      }
+      <div class="flex flex-wrap items-center gap-3 pt-1">
+        <button
+          type="button"
+          data-testid="legal-notice-resend"
+          (click)="openResend(entry)"
+          [disabled]="!canResend(entry)"
+          [attr.aria-describedby]="canResend(entry) ? null : 'admin-legal-' + entry.document + '-resend-hint'"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          i18n="@@admin.legal.notice.resend"
+        >
+          Send the notice again
+        </button>
+        @if (!canResend(entry)) {
+        <p
+          [id]="'admin-legal-' + entry.document + '-resend-hint'"
+          class="text-xs text-(--text-secondary)"
+        >
+          @if (publishEnabled()) {
+          <span i18n="@@admin.legal.notice.resendHintLate"
+            >This version has taken effect, so its notice cannot be sent again.</span
+          >
+          } @else {
+          <span i18n="@@admin.legal.notice.resendHintOff">Sending is turned off on this tier.</span>
+          }
+        </p>
+        }
+      </div>
+      }
     </div>
     } @else {
     <form
@@ -418,6 +612,29 @@
       <div
         class="fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[min(92vw,34rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
       >
+        @if (dialogMode() === 'resend') {
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.legal.resendDialog.title"
+        >
+          Send the notice for version {{ p.version }} of the {{ documentTitle(p.document) }} again?
+        </h2>
+        <div
+          brnDialogDescription
+          data-testid="legal-resend-dialog"
+          class="mt-2 space-y-2 text-sm leading-relaxed text-(--text-secondary)"
+        >
+          <p i18n="@@admin.legal.resendDialog.body">
+            This reads the list of affected companies again and queues the notice for each one not
+            yet delivered.
+          </p>
+          <p i18n="@@admin.legal.resendDialog.dedupe">
+            An address that already got this notice for a company is not emailed again. Only the
+            addresses that were missed or failed get it.
+          </p>
+        </div>
+        } @else {
         <h2
           brnDialogTitle
           class="text-lg font-bold text-(--text-primary)"
@@ -435,8 +652,8 @@
           </p>
           @if (draft(p.document).material === 'yes') {
           <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialYes">
-            You said this is a material change. Once change emails are built, publishing a material
-            change will email every affected company with your summary. For now nothing is sent.
+            You said this is a material change. Publishing emails every affected company your
+            summary, a link to this version and its PDF.
           </p>
           } @else {
           <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialNo">
@@ -471,7 +688,7 @@
             A publish cannot be undone. Your answers and the summary cannot be changed afterwards.
           </p>
         </div>
-        @if (failedMessage()) {
+        } @if (failedMessage()) {
         <p
           data-testid="legal-dialog-error"
           class="mt-3 text-sm font-medium text-(--text-primary)"
@@ -481,6 +698,21 @@
         </p>
         }
         <div class="mt-5 flex flex-wrap gap-3">
+          @if (dialogMode() === 'resend') {
+          <button
+            type="button"
+            data-testid="legal-resend-confirm"
+            (click)="confirmResend()"
+            [disabled]="submitting()"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            @if (submitting()) {
+            <span i18n="@@admin.legal.resendDialog.working">Queuing…</span>
+            } @else {
+            <span i18n="@@admin.legal.resendDialog.confirm">Send the notice again</span>
+            }
+          </button>
+          } @else {
           <button
             type="button"
             (click)="confirmPublish()"
@@ -493,6 +725,7 @@
             <span i18n="@@admin.legal.dialog.confirm">Publish version {{ p.version }}</span>
             }
           </button>
+          }
           <button
             type="button"
             (click)="cancelPublish()"

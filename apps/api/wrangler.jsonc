@@ -174,7 +174,9 @@
   // deploy.
   // AECI-1418 adds `aeci-ownership-sync-{env}`, which is NOT a scheduled-job queue:
   // routes produce onto it post-commit and this Worker consumes it (`queue()` routes
-  // it by name). It is the one queue the base (local-dev) block also declares. PREREQS:
+  // it by name). The base (local-dev) block declares it too. AECI-1620 adds
+  // `aeci-legal-notice-{env}` on the same pattern: the admin legal publish and re-send
+  // routes produce onto it and this Worker consumes it. PREREQS:
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
   //
@@ -367,19 +369,31 @@
       "simple": { "limit": 30, "period": 60 },
     },
   ],
-  // AECI-1418: the ownership-sync queue, the one queue the local-dev block declares.
+  // AECI-1418: the ownership-sync queue, declared in the local-dev block with AECI-1620's
+  // legal-notice queue.
   // Queue bindings are not inherited into a named env, and this message has no inline
   // fallback, so local dev runs it through a local (Miniflare) queue: a local claim
   // approval enqueues, the local consumer delivers to REVIEW_APP_OWNERSHIP_URL from
   // .dev.vars, or writes an `unconfigured` ledger row when it is unset. The name is
   // local-only; nothing deploys this block.
   "queues": {
-    "producers": [{ "queue": "aeci-ownership-sync-local", "binding": "OWNERSHIP_SYNC_QUEUE" }],
+    "producers": [
+      { "queue": "aeci-ownership-sync-local", "binding": "OWNERSHIP_SYNC_QUEUE" },
+      // AECI-1620: the change notice for a published legal version. Local dev runs it
+      // through a local queue too, so a publish on /admin/legal sends locally.
+      { "queue": "aeci-legal-notice-local", "binding": "LEGAL_NOTICE_QUEUE" },
+    ],
     "consumers": [
       {
         "queue": "aeci-ownership-sync-local",
         "max_batch_size": 1,
         "max_retries": 5,
+        "max_concurrency": 1,
+      },
+      {
+        "queue": "aeci-legal-notice-local",
+        "max_batch_size": 1,
+        "max_retries": 3,
         "max_concurrency": 1,
       },
     ],
@@ -625,6 +639,9 @@
           // AECI-1418: the ownership message to the review app. Producer AND consumer
           // (below): the routes enqueue post-commit, this Worker delivers.
           { "queue": "aeci-ownership-sync-staging", "binding": "OWNERSHIP_SYNC_QUEUE" },
+          // AECI-1620: the change notice for a published legal version. Producer AND
+          // consumer (below): the publish and the re-send enqueue, this Worker delivers.
+          { "queue": "aeci-legal-notice-staging", "binding": "LEGAL_NOTICE_QUEUE" },
         ],
         "consumers": [
           {
@@ -705,6 +722,16 @@
             "queue": "aeci-ownership-sync-staging",
             "max_batch_size": 1,
             "max_retries": 5,
+            "max_concurrency": 1,
+          },
+          // AECI-1620: 3 retries (LEGAL_NOTICE_MAX_RETRIES in lib/legal-notice.ts, pinned
+          // by wrangler-legal-notice.spec.ts), no dead-letter queue, like the job queues.
+          // Safe: each address is keyed in notification_sends, so a retry reaches only the
+          // addresses not yet sent. A dropped message shows in the /admin/legal counts.
+          {
+            "queue": "aeci-legal-notice-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
             "max_concurrency": 1,
           },
         ],
@@ -892,6 +919,9 @@
           // AECI-1418: the ownership message to the review app. Producer AND consumer
           // (below): the routes enqueue post-commit, this Worker delivers.
           { "queue": "aeci-ownership-sync-demo", "binding": "OWNERSHIP_SYNC_QUEUE" },
+          // AECI-1620: the change notice for a published legal version. Producer AND
+          // consumer (below): the publish and the re-send enqueue, this Worker delivers.
+          { "queue": "aeci-legal-notice-demo", "binding": "LEGAL_NOTICE_QUEUE" },
         ],
         "consumers": [
           {
@@ -972,6 +1002,16 @@
             "queue": "aeci-ownership-sync-demo",
             "max_batch_size": 1,
             "max_retries": 5,
+            "max_concurrency": 1,
+          },
+          // AECI-1620: 3 retries (LEGAL_NOTICE_MAX_RETRIES in lib/legal-notice.ts, pinned
+          // by wrangler-legal-notice.spec.ts), no dead-letter queue, like the job queues.
+          // Safe: each address is keyed in notification_sends, so a retry reaches only the
+          // addresses not yet sent. A dropped message shows in the /admin/legal counts.
+          {
+            "queue": "aeci-legal-notice-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
             "max_concurrency": 1,
           },
         ],
@@ -1186,6 +1226,9 @@
           // AECI-1418: the ownership message to the review app. Producer AND consumer
           // (below): the routes enqueue post-commit, this Worker delivers.
           { "queue": "aeci-ownership-sync-production", "binding": "OWNERSHIP_SYNC_QUEUE" },
+          // AECI-1620: the change notice for a published legal version. Producer AND
+          // consumer (below): the publish and the re-send enqueue, this Worker delivers.
+          { "queue": "aeci-legal-notice-production", "binding": "LEGAL_NOTICE_QUEUE" },
         ],
         "consumers": [
           {
@@ -1266,6 +1309,16 @@
             "queue": "aeci-ownership-sync-production",
             "max_batch_size": 1,
             "max_retries": 5,
+            "max_concurrency": 1,
+          },
+          // AECI-1620: 3 retries (LEGAL_NOTICE_MAX_RETRIES in lib/legal-notice.ts, pinned
+          // by wrangler-legal-notice.spec.ts), no dead-letter queue, like the job queues.
+          // Safe: each address is keyed in notification_sends, so a retry reaches only the
+          // addresses not yet sent. A dropped message shows in the /admin/legal counts.
+          {
+            "queue": "aeci-legal-notice-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
             "max_concurrency": 1,
           },
         ],
