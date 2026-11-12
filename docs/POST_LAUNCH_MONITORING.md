@@ -606,7 +606,8 @@ behind it:
 > *(Corrected 2026-09-09, AECI-799: Google does have a **manual** push channel and we
 > use it — URL Inspection → Request Indexing, run by hand after a promote. It reaches
 > a handful of URLs a day at best, so it does not change this paragraph's arithmetic;
-> it does mean "no push channel" was never quite true. See §2a.)*
+> it does mean "no push channel" was never quite true. See §2a. Superseded 2026-09-14
+> (AECI-946): the operator works the `/admin/reindex` worklist daily. See §2a.)*
 > Googlebot spent 260 of its 983 monthly crawls on `/` alone and fetched the
 > sitemap twice.
 >
