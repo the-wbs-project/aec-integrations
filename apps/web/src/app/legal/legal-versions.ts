@@ -29,9 +29,12 @@
  *     invalid `effectiveOn`, or whose file's `effective_date` label is not that
  *     day;
  *   - a `## Change history` problem: the section is missing or not last, an
- *     archived version is not listed with its link and superseded date, an
- *     upcoming version is not listed with its link, the current version is not
- *     listed, or a listed version or link does not resolve.
+ *     archived version is not listed with its link and superseded date, the
+ *     current version is not listed, or a listed version or link does not resolve.
+ *
+ * The change history never has to list an upcoming version: that would edit the
+ * current file, and so an agreement's hashed text, while it is in force.
+ * `LegalPage` announces the upcoming version from the manifest instead.
  *
  * It never reads the clock. An upcoming entry whose effective date has passed
  * still builds: what happens on that date is AECI-1689's.
@@ -295,15 +298,8 @@ function checkChangeHistory(set: LegalVersionSet, knownPaths: ReadonlySet<string
     fail(`${where} change history does not list the current version ${currentVersion}`);
   }
   for (const v of set.versions.values()) {
-    if (v.effectiveOn !== undefined) {
-      const item = listed.get(v.version);
-      const path = legalArchivePath(slug, v.version);
-      if (!item) fail(`${where} change history does not list upcoming version ${v.version}`);
-      if (!item.includes(`](${path})`)) {
-        fail(`${where} change history line for version ${v.version} does not link to ${path}`);
-      }
-      continue;
-    }
+    // An upcoming version is not listed here: listing it would edit the current
+    // file while it is in force. `LegalPage` announces it from the manifest.
     if (v.supersededOn === undefined) continue;
     const item = listed.get(v.version);
     const path = legalArchivePath(slug, v.version);

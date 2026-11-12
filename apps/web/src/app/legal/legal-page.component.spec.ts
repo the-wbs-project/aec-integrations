@@ -12,7 +12,12 @@ import {
 } from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
-import { LEGAL_DOC_LOOKUP, type LegalDocLookup, LegalPage } from './legal-page';
+import {
+  LEGAL_DOC_LOOKUP,
+  LEGAL_UPCOMING_ENTRIES,
+  type LegalDocLookup,
+  LegalPage,
+} from './legal-page';
 import {
   type LegalDoc,
   type LegalSlug,
@@ -21,12 +26,18 @@ import {
   getLegalDoc,
   getLegalVersion,
 } from './legal-content';
-import { LEGAL_ARCHIVES, LEGAL_CURRENT_VERSIONS, LEGAL_UPCOMING } from './legal-manifest';
+import {
+  LEGAL_ARCHIVES,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_UPCOMING,
+  type LegalUpcomingEntry,
+} from './legal-manifest';
 
 function render(
   slug: LegalSlug,
   version?: string,
   lookup?: LegalDocLookup,
+  upcoming?: readonly LegalUpcomingEntry[],
 ): { host: HTMLElement; title: Title } {
   // Reset first so a test can render several slugs in sequence (each needs a
   // fresh, not-yet-instantiated module).
@@ -39,6 +50,7 @@ function render(
         useValue: { snapshot: { data: version === undefined ? { slug } : { slug, version } } },
       },
       ...(lookup ? [{ provide: LEGAL_DOC_LOOKUP, useValue: lookup }] : []),
+      ...(upcoming ? [{ provide: LEGAL_UPCOMING_ENTRIES, useValue: upcoming }] : []),
     ],
   });
   const fixture = TestBed.createComponent(LegalPage);
@@ -518,6 +530,43 @@ describe('LegalPage', () => {
     it('the current page carries no upcoming opener', () => {
       const { host } = render('vendor-terms', undefined, lookup);
       expect(host.querySelector('[data-testid="legal-upcoming"]')).toBeNull();
+    });
+
+    // The announcement is chrome from the manifest, so announcing a version never
+    // edits the current Markdown (an agreement's hashed text).
+    const ENTRY: LegalUpcomingEntry = {
+      slug: 'vendor-terms',
+      version: '9.0',
+      effectiveOn: '2027-03-31',
+    };
+    const ANNOUNCEMENT = 'Version 9.0 takes effect on March 31, 2027. Read version 9.0.';
+    const announcement = (host: HTMLElement) =>
+      host.querySelector('[data-testid="legal-upcoming-announcement"]');
+
+    it('the current page announces the upcoming version and links it', () => {
+      const plainBody = render('vendor-terms').host.querySelector('article.aec-prose')!.innerHTML;
+      const { host } = render('vendor-terms', undefined, lookup, [ENTRY]);
+      const line = announcement(host);
+      expect(line?.textContent?.replace(/\s+/g, ' ').trim()).toBe(ANNOUNCEMENT);
+      expect(line?.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms/v9.0');
+      // The body is the current Markdown, untouched by the announcement.
+      expect(host.querySelector('article.aec-prose')?.innerHTML).toBe(plainBody);
+    });
+
+    it('the current version at its own address announces it too', () => {
+      const current = currentLegalVersion('vendor-terms');
+      const { host } = render('vendor-terms', current, lookup, [ENTRY]);
+      expect(announcement(host)?.textContent?.replace(/\s+/g, ' ').trim()).toBe(ANNOUNCEMENT);
+    });
+
+    it('the upcoming page, an archive and another document do not', () => {
+      expect(announcement(render('vendor-terms', '9.0', lookup, [ENTRY]).host)).toBeNull();
+      expect(announcement(render('vendor-terms', '1.2', lookup, [ENTRY]).host)).toBeNull();
+      expect(announcement(render('terms', undefined, lookup, [ENTRY]).host)).toBeNull();
+    });
+
+    it('no page announces anything with the real, empty manifest', () => {
+      expect(announcement(render('vendor-terms').host)).toBeNull();
     });
 
     it('every real upcoming entry resolves to its text with the effective day', () => {

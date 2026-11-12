@@ -308,18 +308,12 @@ describe('buildLegalVersions with an upcoming version', () => {
   const UPCOMING: LegalUpcomingEntry = { slug: 'terms', version: '1.2', effectiveOn: '2027-03-31' };
   const UPCOMING_FILE = 'versions/terms/v1.2.md';
   const OLD_FILE = '---\ntitle: T\nversion: 1.0\n---\n\nOld body.\n';
-  const UPCOMING_HISTORY = [
-    '- [Version 1.2](/legal/terms/v1.2): takes effect March 31, 2027.',
-    GOOD_HISTORY,
-  ].join('\n');
-
   function upcomingFile(version = '1.2', effective = 'March 31, 2027'): string {
     return `---\ntitle: T\nversion: ${version}\neffective_date: ${effective}\n---\n\nNew body.\n`;
   }
 
   function withUpcoming(overrides: Partial<LegalVersionSources> = {}): LegalVersionSources {
     return sources({
-      current: { terms: doc('1.1', UPCOMING_HISTORY) },
       archives: { 'versions/terms/v1.0.md': OLD_FILE, [UPCOMING_FILE]: upcomingFile() },
       upcoming: [UPCOMING],
       ...overrides,
@@ -408,9 +402,6 @@ describe('buildLegalVersions with an upcoming version', () => {
     expect(() =>
       buildLegalVersions(
         withUpcoming({
-          current: {
-            terms: doc('1.1', `- [Version 1.10](/legal/terms/v1.10): upcoming.\n${GOOD_HISTORY}`),
-          },
           archives: {
             'versions/terms/v1.0.md': OLD_FILE,
             'versions/terms/v1.10.md': upcomingFile('1.10'),
@@ -434,13 +425,12 @@ describe('buildLegalVersions with an upcoming version', () => {
     );
   });
 
-  it('throws when the current change history does not list it, or does not link it', () => {
-    expect(() =>
-      buildLegalVersions(withUpcoming({ current: { terms: doc('1.1', GOOD_HISTORY) } })),
-    ).toThrow(/does not list upcoming version 1.2/);
-    const unlinked = `- Version 1.2: takes effect March 31, 2027.\n${GOOD_HISTORY}`;
-    expect(() =>
-      buildLegalVersions(withUpcoming({ current: { terms: doc('1.1', unlinked) } })),
-    ).toThrow(/line for version 1.2 does not link to \/legal\/terms\/v1.2/);
+  // Announcing a version must not edit the current file: for an agreement that
+  // would change the hashed text of a version in force. `LegalPage` announces it.
+  it('builds with the current file unchanged: its change history need not list it', () => {
+    const plain = sources();
+    const withIt = withUpcoming();
+    expect(withIt.current).toEqual(plain.current);
+    expect(() => buildLegalVersions(withIt)).not.toThrow();
   });
 });

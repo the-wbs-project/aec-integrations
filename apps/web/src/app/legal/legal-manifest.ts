@@ -19,8 +19,8 @@
  * `src/content/legal/versions/<slug>/v<version>.md`, add its entry below, import
  * it in `legal-content.ts`, and add its line to the current file's
  * `## Change history`. The registry throws at module init if any of the four
- * disagree. An upcoming version follows the same steps with a `LEGAL_UPCOMING`
- * entry instead of a `LEGAL_ARCHIVES` one.
+ * disagree. An upcoming version adds its file, its import and a `LEGAL_UPCOMING`
+ * entry, and never edits the current file: `LegalPage` announces it.
  * `apps/web/src/content/legal/README.md` has the full workflow.
  */
 
