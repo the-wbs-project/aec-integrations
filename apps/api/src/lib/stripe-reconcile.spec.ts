@@ -4,7 +4,11 @@
  * Stripe, Resend or GoTrue: the senders record, and PostHog is mocked.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -531,11 +535,33 @@ describe('runStripeReconcile', () => {
         billingAccountId: ACCOUNT,
         stripeCheckoutSessionId: 'cs_1',
         acceptedAt: CREATED_ISO,
+        // AECI-1619: this session predates the plans_version metadata.
+        plansPageVersion: null,
+        plansPageSha256: null,
       });
       const audits = (await t.db.select().from(auditLog)).filter(
         (a) => a.action === 'agreement.accepted',
       );
       expect(audits).toHaveLength(1);
+    });
+
+    it('records the session plans_version and its snapshot hash, as the webhook does (AECI-1619)', async () => {
+      await seedStripeLicense();
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      const base = session();
+      stripe.sessions.set(
+        SUB,
+        session({ metadata: { ...base.metadata, plans_version: PLANS_PAGE_CURRENT_VERSION } }),
+      );
+
+      await reconcile(stripe.client);
+
+      const [row] = await acceptances();
+      expect(row).toMatchObject({
+        stripeCheckoutSessionId: 'cs_1',
+        plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+        plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+      });
     });
 
     it("sets the empty billing email to the buyer's, with its audit row in the same batch", async () => {

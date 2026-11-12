@@ -2,7 +2,7 @@
 
 **Spec:** `STAGE_1_SPEC.md` §21.3 · **Issue:** [AECI-244](https://linear.app/aec-integrations/issue/AECI-244) (Phase 7.10) · **Complements:** the automated axe-core + Lighthouse a11y ≥95 CI gates (AECI-65) — this is the **human layer** those cannot cover.
 
-> **Purpose.** A repeatable procedure for the manual screen-reader + keyboard pass §21.3 requires, so it can be re-run before each launch/major release rather than reinvented. **This is the procedure and a blank log — it records no results itself.** Fill a dated copy of §4 each time you run it; file blocking findings as issues or fix in place. **Results live in `docs/ACCESSIBILITY_AUDIT.md`** — the 2026-09-09 AECI-244 run is the first entry, and §5 below is the tool-assisted pre-pass it introduced.
+> **Purpose.** A repeatable procedure for the manual screen-reader + keyboard pass §21.3 requires, so it can be re-run before each launch/major release rather than reinvented. **This is the procedure and a blank log — it records no results itself.** Fill a dated copy of §4 each time you run it; file blocking findings as issues or fix in place. **Results live in `docs/ACCESSIBILITY_AUDIT.md`** — the 2026-09-09 AECI-244 run is the first entry, and §5 below is the tool-assisted pre-pass it introduced. **The accessibility statement (`/accessibility`, AECI-1673) promises this pass before major releases.** It stays hidden until the first real VoiceOver and NVDA run here (AECI-1687). Changing the cadence is a legal-impact change (`docs/LEGAL_IMPACT_REVIEW.md` §3).
 >
 > **Target:** WCAG 2.1 AA. **Tools:** VoiceOver (macOS Safari), NVDA (Windows Firefox/Chrome), and keyboard-only (no pointer) in each browser.
 

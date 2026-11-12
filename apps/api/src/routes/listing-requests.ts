@@ -55,6 +55,8 @@ import { json } from '../http';
 import {
   agreementAcceptanceStatements,
   claimBoxFor,
+  currentPolicyVersions,
+  type AcceptancePolicyVersions,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
@@ -92,7 +94,12 @@ export interface ListingRequestOptions {
   /** The pending `request_confirmations.id`, used as the `listing_requests.id`. */
   requestId?: string;
   /** The vendor terms evidence captured at submit. */
-  acceptance?: { version: string; evidence: AcceptanceRequestEvidence };
+  acceptance?: {
+    version: string;
+    /** AECI-1619: the policy versions stored at submit, or null on a legacy row. */
+    policyVersions: AcceptancePolicyVersions | null;
+    evidence: AcceptanceRequestEvidence;
+  };
   /** The confirmed-row update and its audit row, appended to the batch. */
   extra?: { stmts: BatchStmt[]; auditEntries: AuditLogEntry[] };
   /** `metadata.confirmation`: `session` for a signed-in match, `email` for a link. */
@@ -170,6 +177,8 @@ export async function submitListingNow(
     checkbox: claimBoxFor(
       opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
     ),
+    // AECI-1619: the policy versions the box named. A confirm carries the submit's.
+    policyVersions: opts.acceptance ? opts.acceptance.policyVersions : currentPolicyVersions(),
     actorId: null,
     actorType: 'user',
   });

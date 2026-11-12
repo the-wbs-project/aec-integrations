@@ -14,7 +14,7 @@ import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AGREEMENT_CHECKBOX_LABELS } from '@aeci/shared';
+import { AGREEMENT_CHECKBOX_LABELS, LEGAL_POLICY_CURRENT_VERSIONS } from '@aeci/shared';
 
 import { Analytics } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
@@ -621,6 +621,16 @@ describe('ClaimDialogFlow', () => {
         text(t.$('label[for="claim-dialog-terms"]')).replace(' (opens in a new tab)', ''),
       ).toBe(AGREEMENT_CHECKBOX_LABELS.vendor_terms.text);
       expect(text(t.$('[data-testid="vendor-terms-short-form"]'))).toContain('limited to $100');
+      // AECI-1619 (counsel Q14): the policy versions the claim records, named beside the box.
+      const policies = t.$('[data-testid="vendor-terms-policies"]')!;
+      expect(text(policies).replaceAll(' (opens in a new tab)', '')).toBe(
+        `The Vendor Terms include the Listing Accuracy Policy, version ${LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy}, and the Review Guidelines, version ${LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines}.`,
+      );
+      expect([...policies.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+        '/legal/listing-accuracy',
+        '/legal/review-guidelines',
+      ]);
+      expect(policies.id).toBe('claim-dialog-terms-policies');
 
       t.fillYou(false);
       const primary = t.$<HTMLButtonElement>('[data-testid="claim-dialog-primary"]')!;
@@ -717,7 +727,7 @@ describe('ClaimDialogFlow', () => {
     const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
     expect(box.checked).toBe(false);
     expect(box.getAttribute('aria-describedby')).toBe(
-      'claim-dialog-terms-short-form claim-dialog-terms-error',
+      'claim-dialog-terms-short-form claim-dialog-terms-policies claim-dialog-terms-error',
     );
     expect(t.$('#claim-dialog-terms-error')).not.toBeNull();
     expect(text(t.host)).not.toContain('Something went wrong');

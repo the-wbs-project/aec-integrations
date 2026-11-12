@@ -42,6 +42,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
     "test:extras": "scripts/run-extra-tests.sh",
+    "docs:plans-snapshot": "UPDATE_PLANS_SNAPSHOT=1 vitest run src/app/docs/plans-snapshot.spec.ts",
     "lighthouse": "lhci autorun --config=../../.lighthouserc.cjs",
     "lint": "eslint . && node scripts/check-source-constraints.mjs",
     "lint:fix": "eslint . --fix",

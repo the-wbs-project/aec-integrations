@@ -6,8 +6,10 @@
  */
 
 import {
+  AGREEMENT_CHECKBOX_LABELS,
   AdminAgreementAcceptancesResponseSchema,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
 } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -16,7 +18,12 @@ import { vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { runAcceptanceEvidenceRemoval } from '../lib/acceptance-evidence-removal';
-import { agreementAcceptanceStatements, listVendorAcceptances } from '../lib/agreement-acceptances';
+import {
+  agreementAcceptanceStatements,
+  claimBoxFor,
+  currentPolicyVersions,
+  listVendorAcceptances,
+} from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -60,6 +67,8 @@ describe('GET /api/admin/vendors/:id/acceptances', () => {
       vendorId: VENDOR,
       acceptedAt: '2026-10-01T00:00:00.000Z',
       requestHeaders: new Headers({ 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'UA/1' }),
+      checkbox: claimBoxFor(LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms),
+      policyVersions: currentPolicyVersions(),
       actorType: 'user',
     });
     const foreign = agreementAcceptanceStatements(t.db, {
@@ -84,6 +93,12 @@ describe('GET /api/admin/vendors/:id/acceptances', () => {
       email: 'owner@acme.com',
       ip: '203.0.113.7',
       user_agent: 'UA/1',
+      // AECI-1619: the stored label text and the policy versions the claim box named.
+      checkbox_label: AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+      listing_accuracy_version: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+      review_guidelines_version: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+      plans_page_version: null,
+      plans_page_sha256: null,
     });
   });
 

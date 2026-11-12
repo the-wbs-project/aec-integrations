@@ -28,12 +28,10 @@
 import { Component, LOCALE_ID, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
-
 import { Analytics, type PlanCtaPage } from '../../analytics/analytics';
-import { formatPlanPrice, planLabel } from '../../vendor/vendor-plan';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
+import { planCardsCopy } from './plan-card-copy';
 import { PORTAL_PATH } from './plan-cta';
 
 @Component({
@@ -44,15 +42,11 @@ import { PORTAL_PATH } from './plan-cta';
     <div class="grid gap-4 sm:grid-cols-2 sm:gap-y-0">
       <section [class]="cardClass + ' p-5'" aria-labelledby="plan-card-free">
         <h3 id="plan-card-free" class="aec-plan-card-name text-(--text-primary)">
-          {{ freeName }}
+          {{ copy.free.name }}
         </h3>
-        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.summary">
-          Keep your listing accurate.
-        </p>
+        <p class="mt-1 text-sm text-(--text-secondary)">{{ copy.free.summary }}</p>
         <p class="mt-4 flex items-baseline gap-1.5 sm:self-end">
-          <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.unit"
-            >Available for all products</span
-          >
+          <span class="text-sm text-(--text-secondary)">{{ copy.free.unit }}</span>
         </p>
         @if (portal()) {
           <a [routerLink]="portalPath" [class]="freeButtonClass" i18n="@@planCta.portal"
@@ -69,14 +63,9 @@ import { PORTAL_PATH } from './plan-cta';
             >Claim your listing</a
           >
         }
-        <p
-          class="mt-5 text-xs font-medium text-(--text-secondary)"
-          i18n="@@app.docs.plans.free.includes"
-        >
-          Includes
-        </p>
+        <p class="mt-5 text-xs font-medium text-(--text-secondary)">{{ copy.free.includes }}</p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
-          @for (item of freeHighlights; track item) {
+          @for (item of copy.free.highlights; track item) {
             <li class="flex gap-2">
               <svg
                 class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
@@ -101,16 +90,12 @@ import { PORTAL_PATH } from './plan-cta';
         aria-labelledby="plan-card-managed"
       >
         <h3 id="plan-card-managed" class="aec-plan-card-name text-(--text-primary)">
-          {{ managedName }}
+          {{ copy.managed.name }}
         </h3>
-        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@app.docs.plans.managed.summary">
-          Tell the full story of each product.
-        </p>
+        <p class="mt-1 text-sm text-(--text-secondary)">{{ copy.managed.summary }}</p>
         <p class="mt-4 flex items-baseline gap-1.5">
-          <span class="aec-plan-price text-(--text-primary)">{{ managedPrice }}</span>
-          <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.managed.unit"
-            >USD a month per product</span
-          >
+          <span class="aec-plan-price text-(--text-primary)">{{ copy.managed.price }}</span>
+          <span class="text-sm text-(--text-secondary)">{{ copy.managed.unit }}</span>
         </p>
         @if (portal()) {
           <a [routerLink]="portalPath" [class]="managedButtonClass" i18n="@@planCta.portal"
@@ -127,14 +112,11 @@ import { PORTAL_PATH } from './plan-cta';
             >Claim your listing</a
           >
         }
-        <p
-          class="mt-5 text-xs font-medium text-(--text-secondary)"
-          i18n="@@app.docs.plans.managed.includes"
-        >
-          Everything in Free, plus
+        <p class="mt-5 text-xs font-medium text-(--text-secondary)">
+          {{ copy.managed.includes }}
         </p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
-          @for (item of managedHighlights; track item) {
+          @for (item of copy.managed.highlights; track item) {
             <li class="flex gap-2">
               <svg
                 class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
@@ -180,24 +162,8 @@ export class PlanCardsComponent {
   /** A signed-in vendor: the claim link becomes "Go to your portal" (spec §5). */
   readonly portal = input(false);
 
-  protected readonly freeName = planLabel('free');
-  protected readonly managedName = planLabel('managed');
-  protected readonly managedPrice = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, this.locale);
-
-  protected readonly freeHighlights: readonly string[] = [
-    $localize`:@@app.docs.plans.free.h1:Keep your company details and logo current`,
-    $localize`:@@app.docs.plans.free.h2:Keep each product's description, website and categories current`,
-    $localize`:@@app.docs.plans.free.h3:Claim and maintain the integrations you build`,
-    $localize`:@@app.docs.plans.free.h4:Invite your colleagues`,
-    $localize`:@@app.docs.plans.free.h5:Answer reviews in public`,
-  ];
-
-  protected readonly managedHighlights: readonly string[] = [
-    $localize`:@@app.docs.plans.managed.h1:"How teams use it", in your own words`,
-    $localize`:@@app.docs.plans.managed.h2:The trades, audiences and phases you serve`,
-    $localize`:@@app.docs.plans.managed.integrationDetail:Integration detail: extra links and the data each integration moves.`,
-    $localize`:@@app.docs.plans.managed.h7:Search engines notified when you update a page`,
-  ];
+  /** Every word on both cards (`plan-card-copy.ts`), shared with the Plans snapshot. */
+  protected readonly copy = planCardsCopy(this.locale);
 
   protected track(plan: 'free' | 'managed'): void {
     this.analytics.planCtaClicked({ plan, placement: 'card', page: this.page() });

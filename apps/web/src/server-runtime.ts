@@ -39,7 +39,7 @@
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
  *   /integrations/:id                       → 301 → its pair page (AECI-294)
- *   /about, /updates, /roadmap, /methodology,
+ *   /about, /updates, /roadmap, /methodology, /accessibility,
  *     /vendor-program[/list-your-product],
  *     /legal/*, /docs[/*]                   → 24hr edge / 1hr  browser
  *
@@ -105,6 +105,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
 import { LISTING_CACHE_KEY_PARAMS } from './app/core/listing-cache-key-params';
 import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
 import type { WebEnv } from './env';
@@ -441,6 +442,13 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // the whole query string (incl. UTM) is dropped from the cache key — the page
   // reads no query params at all. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/methodology', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-1673 — /accessibility, the accessibility statement. Static and
+  // visitor-state-neutral, the /methodology TTL exactly, no `...RESILIENCE`.
+  // Hidden until AECI-1687: while off, the path 404s and must not take a 24h TTL.
+  {
+    match: (p) => p === '/accessibility' && ACCESSIBILITY_STATEMENT_PUBLISHED,
+    ttl: { edge: 86_400, browser: 3_600 },
+  },
   // AECI-1283 — /vendor-program, the public vendor landing page
   // (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2). Static and visitor-neutral (every
   // signed-in variant is applied after hydration), so the /about TTL with no

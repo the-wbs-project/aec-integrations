@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { NOINDEX_PATH_PREFIXES as APP_NOINDEX_PATH_PREFIXES } from '../app/docs/docs-indexing';
+import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
 import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
 import {
   NOINDEX_DIRECTIVE,
@@ -43,6 +44,7 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
       '/vendor-program',
       '/vendor-program/list-your-product',
       '/methodology',
+      '/accessibility',
     ]) {
       expect(pathForcesNoindex(path), path).toBe(false);
     }
@@ -52,6 +54,12 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
     expect(pathForcesNoindex('/legal/terms/v1.0')).toBe(true);
     expect(pathForcesNoindex('/legal/privacy/v1.0')).toBe(true);
     for (const path of LEGAL_ARCHIVE_PATHS) expect(pathForcesNoindex(path), path).toBe(true);
+  });
+
+  it('holds every Plans snapshot page out, and the live Plans page in (AECI-1619)', () => {
+    expect(pathForcesNoindex('/docs/vendors/plans/v1.0')).toBe(true);
+    for (const path of PLANS_ARCHIVE_PATHS) expect(pathForcesNoindex(path), path).toBe(true);
+    expect(pathForcesNoindex('/docs/vendors/plans')).toBe(false);
   });
 
   it('keeps every current legal page indexable, including slugs that share a prefix', () => {
@@ -80,7 +88,8 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
 
   it('is one list, re-exported from the app module (STAGE_2_PRODUCT_DOCS_SPEC.md §3)', () => {
     expect(NOINDEX_PATH_PREFIXES).toBe(APP_NOINDEX_PATH_PREFIXES);
-    // No docs path since AECI-1253. The legal archives are the only entries.
-    expect(NOINDEX_PATH_PREFIXES).toEqual(LEGAL_ARCHIVE_PATHS);
+    // No docs section since AECI-1253. The legal archives and the Plans snapshot
+    // pages (AECI-1619) are the only entries.
+    expect(NOINDEX_PATH_PREFIXES).toEqual([...LEGAL_ARCHIVE_PATHS, ...PLANS_ARCHIVE_PATHS]);
   });
 });

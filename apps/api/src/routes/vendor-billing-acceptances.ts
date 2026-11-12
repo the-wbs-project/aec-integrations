@@ -54,6 +54,13 @@ export function toVendorAcceptance(row: AgreementAcceptanceRow): VendorAgreement
     // AECI-1615 ruling 16: the box the acceptance was given on.
     checkbox_label_sha256: row.checkboxLabelSha256,
     checkbox_default_unticked: row.checkboxDefaultUnticked,
+    // AECI-1619: the label text, the policy versions a claim named, and the Plans page
+    // version a checkout or grant was given under. All the vendor's own evidence.
+    checkbox_label: row.checkboxLabel,
+    listing_accuracy_version: row.listingAccuracyVersion,
+    review_guidelines_version: row.reviewGuidelinesVersion,
+    plans_page_version: row.plansPageVersion,
+    plans_page_sha256: row.plansPageSha256,
   };
 }
 

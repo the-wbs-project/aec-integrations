@@ -2,6 +2,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, input } from '@angular/core';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
+import { LEGAL_POLICY_CURRENT_VERSIONS } from '@aeci/shared/api/agreements';
+
 import { legalPath } from '../legal/legal-manifest';
 import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
@@ -22,6 +24,13 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  * refused the submit on `accepted_terms` (`rejected`, a stale bundle). It is tied to the
  * checkbox with `aria-describedby`. The link opens in a new tab, so a claimant reading
  * the terms does not lose what they typed.
+ *
+ * Under the box, one line names the two policies the Vendor Terms incorporate and the
+ * version of each (AECI-1619, counsel Q14: "The form names their versions beside the
+ * box"). The versions are `LEGAL_POLICY_CURRENT_VERSIONS`, the same constants the claim
+ * route records on the acceptance row, so the line and the record cannot disagree. It is
+ * part of the box's description (`aria-describedby`). Its links open in a new tab, as
+ * the terms link does. The label itself is unchanged: `vendor-terms.md` quotes it.
  */
 @Component({
   selector: 'aec-vendor-terms-box',
@@ -69,6 +78,28 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
         >
       </label>
     </div>
+    <p
+      [id]="policiesId()"
+      class="text-xs leading-relaxed text-(--text-secondary)"
+      data-testid="vendor-terms-policies"
+      i18n="@@requests.terms.policies"
+    >
+      The Vendor Terms include the
+      <a
+        [href]="listingAccuracyHref"
+        target="_blank"
+        rel="noopener"
+        class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >Listing Accuracy Policy<span class="sr-only"> (opens in a new tab)</span></a
+      >, version {{ policyVersions.listing_accuracy }}, and the
+      <a
+        [href]="reviewGuidelinesHref"
+        target="_blank"
+        rel="noopener"
+        class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >Review Guidelines<span class="sr-only"> (opens in a new tab)</span></a
+      >, version {{ policyVersions.review_guidelines }}.
+    </p>
     @if (showError()) {
       <p [id]="errorId()" [class]="errorClass" role="alert" i18n="@@requests.terms.error">
         Tick the box to accept the Vendor Terms and confirm you are authorized to bind this company.
@@ -84,15 +115,21 @@ export class VendorTermsBox {
   readonly rejected = input(false);
 
   protected readonly termsHref = legalPath('vendor-terms');
+  protected readonly listingAccuracyHref = legalPath('listing-accuracy');
+  protected readonly reviewGuidelinesHref = legalPath('review-guidelines');
+  /** The policy versions the line names, and the claim records (AECI-1619). */
+  protected readonly policyVersions = LEGAL_POLICY_CURRENT_VERSIONS;
   protected readonly inputClass = CHOICE_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
 
   protected readonly inputId = computed(() => `${this.idPrefix()}-terms`);
   protected readonly errorId = computed(() => `${this.idPrefix()}-terms-error`);
   protected readonly shortFormId = computed(() => `${this.idPrefix()}-terms-short-form`);
-  protected readonly describedBy = computed(() =>
-    this.showError() ? `${this.shortFormId()} ${this.errorId()}` : this.shortFormId(),
-  );
+  protected readonly policiesId = computed(() => `${this.idPrefix()}-terms-policies`);
+  protected readonly describedBy = computed(() => {
+    const base = `${this.shortFormId()} ${this.policiesId()}`;
+    return this.showError() ? `${base} ${this.errorId()}` : base;
+  });
 
   protected readonly showError = computed(() => {
     const state = this.field()();

@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
   type LegalAgreementDocument,
+  type LegalPolicyDocument,
 } from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
@@ -147,10 +149,14 @@ describe('LegalPage', () => {
     'vendor-terms': GOVERNING_LAW_AGREEMENT,
     'managed-plan-agreement': GOVERNING_LAW_AGREEMENT,
   } as const;
+  // Item 13.8 (legal branch 5) labels the waiver.
   const JURY_WAIVER =
-    'Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.';
-  // Counsel's Q1 follow-up (item 11.19): the exclusion is one-directional in all three.
-  const ONE_DIRECTIONAL = 'and that exclusion applies only to claims against us.';
+    'Jury trial waiver. Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.';
+  // Counsel's Q1 follow-up (item 11.19) made the limit one-directional in all three. Items
+  // 13.6 and 13.7 (legal branch 5) replaced its wording with this pair of sentences.
+  const ONE_DIRECTIONAL =
+    'This section limits what we can owe you. It does not limit what you owe us.';
+  const OLD_ONE_DIRECTIONAL = 'that exclusion applies only to claims against us';
   // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
   const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
 
@@ -177,6 +183,7 @@ describe('LegalPage', () => {
     expect(cap).toContain('is limited to one hundred US dollars.');
     expect(cap).toContain(ONE_DIRECTIONAL);
     expect(article.textContent).not.toContain('This limit covers our liability only');
+    expect(article.textContent).not.toContain(OLD_ONE_DIRECTIONAL);
   });
 
   describe.each(['vendor-terms', 'managed-plan-agreement'] as const)(
@@ -199,6 +206,7 @@ describe('LegalPage', () => {
         expect(article.querySelector('strong')).not.toBeNull();
         expect(article.textContent).toContain(ONE_DIRECTIONAL);
         expect(article.textContent).not.toContain('This limit covers our liability only');
+        expect(article.textContent).not.toContain(OLD_ONE_DIRECTIONAL);
         expect(article.textContent).toContain(RANKING);
         expect(h2s(article)).toContain('Plans never affect ranking or reviews');
         expect(article.textContent?.toLowerCase()).not.toContain('arbitration');
@@ -281,6 +289,41 @@ describe('LegalPage', () => {
     expect(text.toLowerCase()).not.toContain('purchase order');
     // Counsel-open items say "Pending", never a bracketed placeholder.
     expect(text).not.toMatch(/\[[A-Z ]+\]/);
+  });
+
+  // AECI-1619: the agreement states the core of Managed itself, so a change to the Plans
+  // page cannot take away what the buyer accepted. Each phrase is a headline row of the
+  // Plans comparison table (`docs-plans-comparison.ts`).
+  it('managed plan agreement: names each headline Managed inclusion', () => {
+    const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
+    const heading = Array.from(article.querySelectorAll('h2')).find(
+      (h) => h.textContent?.trim() === 'What a subscription is and does',
+    )!;
+    let section = '';
+    for (
+      let el = heading.nextElementSibling;
+      el && el.tagName !== 'H2';
+      el = el.nextElementSibling
+    ) {
+      section += ` ${el.textContent ?? ''}`;
+    }
+    section = section.replace(/\s+/g, ' ');
+    for (const phrase of [
+      "edit the product's Managed fields",
+      '"How teams use it"',
+      'the trades, audiences and phases it serves',
+      'integrations page and API docs',
+      'confirm which data each',
+      'We notify search engines when you update',
+      'A notice does not decide whether or when a search engine crawls, indexes or ranks the page.',
+      'As on every plan, owner seats can also reply to reviews',
+      'reply to reviews',
+      'seats for their colleagues',
+      'for the term you paid for, at the price shown at checkout',
+      'We record the Plans page as it stood when you accepted, with your acceptance record.',
+    ]) {
+      expect(section, phrase).toContain(phrase);
+    }
   });
 
   it('managed plan agreement: the renewal notice lists date, price, count, terms change, opt-out', () => {
@@ -402,9 +445,21 @@ describe('LegalPage', () => {
       }
     });
 
+    // AECI-1619: a claim records the version of each policy the Vendor Terms incorporate,
+    // read from this shared map. A Markdown bump without a map bump fails here.
+    it('the shared policy version map equals the frontmatter of each policy', () => {
+      const slugFor: Record<LegalPolicyDocument, LegalSlug> = {
+        listing_accuracy: 'listing-accuracy',
+        review_guidelines: 'review-guidelines',
+      };
+      for (const [policy, version] of Object.entries(LEGAL_POLICY_CURRENT_VERSIONS)) {
+        expect(currentLegalVersion(slugFor[policy as LegalPolicyDocument]), policy).toBe(version);
+      }
+    });
+
     it('currentLegalVersion reads the frontmatter', () => {
       expect(currentLegalVersion('terms')).toBe('1.1');
-      expect(currentLegalVersion('vendor-terms')).toBe('1.2');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.3');
       expect(currentLegalVersion('managed-plan-agreement')).toBe('1.1');
     });
   });

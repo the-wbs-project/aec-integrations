@@ -14,6 +14,9 @@ import {
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -43,6 +46,8 @@ import {
   loadClaimAcceptanceIds,
   truncateUserAgent,
   claimBoxFor,
+  currentPolicyVersions,
+  storedPolicyVersions,
   uncheckedBoxFor,
   type AgreementAcceptanceParams,
 } from './agreement-acceptances';
@@ -195,14 +200,58 @@ describe('agreementAcceptanceStatements', () => {
       expect(row).toMatchObject({
         checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
         checkboxDefaultUnticked: true,
+        // AECI-1619: the label text itself, beside its hash.
+        checkboxLabel: AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
       });
     });
 
-    it('leaves both NULL when no box is passed, as a signed deal does', async () => {
+    it('leaves all three NULL when no box is passed, as a signed deal does', async () => {
       const { stmts } = agreementAcceptanceStatements(t.db, claim());
       await t.db.batch(stmts as never);
       const [row] = await t.db.select().from(agreementAcceptances);
-      expect(row).toMatchObject({ checkboxLabelSha256: null, checkboxDefaultUnticked: null });
+      expect(row).toMatchObject({
+        checkboxLabelSha256: null,
+        checkboxDefaultUnticked: null,
+        checkboxLabel: null,
+      });
+    });
+
+    // AECI-1619: the label text on each source that shows a box.
+    it('stores the Managed plan label text on a checkout and on a portal grant accept', async () => {
+      const box = uncheckedBoxFor('managed_plan');
+      await t.db.batch(
+        agreementAcceptanceStatements(t.db, checkout({ checkbox: box })).stmts as BatchTuple,
+      );
+      await t.db.batch(
+        agreementAcceptanceStatements(
+          t.db,
+          checkout({
+            source: 'grant',
+            stripeCheckoutSessionId: null,
+            version: '1.0',
+            checkbox: box,
+            grant: {
+              licenseGrantId: 'g-label',
+              grantEndsAt: '2027-06-30T00:00:00.000Z',
+              pinnedVersion: '1.0',
+              method: 'portal_checkbox',
+              textSha256: null,
+              seatRole: 'owner',
+            },
+          }),
+        ).stmts as BatchTuple,
+      );
+      const rows = await t.db.select().from(agreementAcceptances);
+      expect(rows.map((r) => [r.source, r.checkboxLabel]).sort()).toEqual([
+        ['checkout', AGREEMENT_CHECKBOX_LABELS.managed_plan.text],
+        ['grant', AGREEMENT_CHECKBOX_LABELS.managed_plan.text],
+      ]);
+      // The label stays out of the forwarded audit entry: the hash names it.
+      const { auditEntry } = agreementAcceptanceStatements(
+        t.db,
+        checkout({ stripeCheckoutSessionId: 'cs_audit', checkbox: box }),
+      );
+      expect(JSON.stringify(auditEntry)).not.toContain(AGREEMENT_CHECKBOX_LABELS.managed_plan.text);
     });
 
     it('claimBoxFor knows only the current vendor terms label', () => {
@@ -215,6 +264,7 @@ describe('agreementAcceptanceStatements', () => {
 
     it("uncheckedBoxFor names each document's own label", () => {
       expect(uncheckedBoxFor('managed_plan')).toEqual({
+        labelText: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
         labelSha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
         defaultUnticked: true,
       });
@@ -401,6 +451,117 @@ describe('agreementAcceptanceStatements', () => {
   });
 
   // AECI-1615: the grant source.
+  describe('policy versions (AECI-1619, counsel Q14)', () => {
+    it('stores the policy versions on a claim and names them in the audit entry', async () => {
+      const out = agreementAcceptanceStatements(
+        t.db,
+        claim({ policyVersions: currentPolicyVersions() }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({
+        listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+        reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+        plansPageVersion: null,
+        plansPageSha256: null,
+      });
+      expect(out.auditEntry.afterState).toMatchObject({
+        listing_accuracy_version: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+        review_guidelines_version: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+        plans_page_version: null,
+      });
+    });
+
+    it('writes NULL when none is passed, as a legacy pending claim does', async () => {
+      const { stmts } = agreementAcceptanceStatements(t.db, claim({ policyVersions: null }));
+      await t.db.batch(stmts as never);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ listingAccuracyVersion: null, reviewGuidelinesVersion: null });
+    });
+
+    it('is refused on any source but claim', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            checkout({ policyVersions: currentPolicyVersions() }),
+          ),
+        'policy_versions',
+      );
+    });
+
+    it('refuses a version that was never published', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            claim({ policyVersions: { listingAccuracy: '9.9', reviewGuidelines: '1.0' } }),
+          ),
+        'listing_accuracy_version',
+      );
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            claim({ policyVersions: { listingAccuracy: '1.0', reviewGuidelines: '9.9' } }),
+          ),
+        'review_guidelines_version',
+      );
+    });
+
+    it('storedPolicyVersions reads a pending row, and gives null for a legacy one', () => {
+      expect(
+        storedPolicyVersions({ listingAccuracyVersion: '1.0', reviewGuidelinesVersion: '1.0' }),
+      ).toEqual({ listingAccuracy: '1.0', reviewGuidelines: '1.0' });
+      expect(
+        storedPolicyVersions({ listingAccuracyVersion: null, reviewGuidelinesVersion: null }),
+      ).toBeNull();
+    });
+  });
+
+  describe('the Plans page version (AECI-1619, ruling 16)', () => {
+    it('stores the version and stamps its snapshot hash on a checkout', async () => {
+      const out = agreementAcceptanceStatements(
+        t.db,
+        checkout({ plansVersion: PLANS_PAGE_CURRENT_VERSION }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({
+        plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+        plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+        listingAccuracyVersion: null,
+        reviewGuidelinesVersion: null,
+      });
+      expect(row!.plansPageSha256).not.toBeNull();
+      expect(out.auditEntry.afterState).toMatchObject({
+        plans_page_version: PLANS_PAGE_CURRENT_VERSION,
+      });
+    });
+
+    it('writes NULL to both when none is passed, as a legacy checkout session does', async () => {
+      const { stmts } = agreementAcceptanceStatements(t.db, checkout());
+      await t.db.batch(stmts as never);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ plansPageVersion: null, plansPageSha256: null });
+    });
+
+    it('is refused on a claim', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(t.db, claim({ plansVersion: PLANS_PAGE_CURRENT_VERSION })),
+        'plans_version',
+      );
+    });
+
+    it('refuses a version that was never published', () => {
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, checkout({ plansVersion: '9.9' })),
+        'plans_version',
+      );
+    });
+  });
+
   describe('a grant acceptance', () => {
     const grantFields = (over: Record<string, unknown> = {}) => ({
       licenseGrantId: 'g-1',
@@ -438,6 +599,19 @@ describe('agreementAcceptanceStatements', () => {
       });
       expect(out.auditEntry.afterState).toMatchObject({ license_grant_id: 'g-1' });
       expect(JSON.stringify(out.auditEntry)).not.toContain('203.0.113.7');
+    });
+
+    it('stores the Plans version and hash on a grant (AECI-1619)', async () => {
+      const out = agreementAcceptanceStatements(
+        t.db,
+        grantAcceptance({ plansVersion: PLANS_PAGE_CURRENT_VERSION }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({
+        plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+        plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+      });
     });
 
     it('refuses a version other than the pinned one', () => {

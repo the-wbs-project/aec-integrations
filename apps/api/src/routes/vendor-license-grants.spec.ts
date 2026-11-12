@@ -20,6 +20,8 @@ import {
   AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
   LEGAL_AGREEMENT_TEXT_SHA256,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -251,6 +253,12 @@ describe('POST /api/vendor/license-grants/:id/accept', () => {
       // Ruling 16: the Billing tab's box, which always starts unticked.
       checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
       checkboxDefaultUnticked: true,
+      // AECI-1619: the label text, and the Plans page current at activation.
+      checkboxLabel: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+      plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+      plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+      listingAccuracyVersion: null,
+      reviewGuidelinesVersion: null,
       seatRole: 'owner',
       ip: '203.0.113.7',
       userAgent: 'Mozilla/5.0 (Test)',

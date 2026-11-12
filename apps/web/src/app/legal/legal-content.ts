@@ -37,6 +37,7 @@ import managedPlanAgreementV1_0Md from '../../content/legal/versions/managed-pla
 import privacyV1_0Md from '../../content/legal/versions/privacy/v1.0.md';
 import vendorTermsV1_0Md from '../../content/legal/versions/vendor-terms/v1.0.md';
 import vendorTermsV1_1Md from '../../content/legal/versions/vendor-terms/v1.1.md';
+import vendorTermsV1_2Md from '../../content/legal/versions/vendor-terms/v1.2.md';
 import termsV1_0Md from '../../content/legal/versions/terms/v1.0.md';
 import { LEGAL_ARCHIVES, type LegalSlug } from './legal-manifest';
 import { type LegalVersion, buildLegalVersions } from './legal-versions';
@@ -83,6 +84,7 @@ const ARCHIVE_SOURCES: Record<string, string> = {
   'versions/vendor-terms/v1.0.md': vendorTermsV1_0Md,
   'versions/managed-plan-agreement/v1.0.md': managedPlanAgreementV1_0Md,
   'versions/vendor-terms/v1.1.md': vendorTermsV1_1Md,
+  'versions/vendor-terms/v1.2.md': vendorTermsV1_2Md,
 };
 
 function renderVersion(v: LegalVersion): LegalDoc {

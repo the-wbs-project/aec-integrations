@@ -69,6 +69,9 @@ export const LEGAL_ARCHIVES: readonly LegalArchiveEntry[] = [
   // AECI-1363 bumped the Vendor Terms to 1.2: production held a 1.1 acceptance, so
   // counsel's held items could not change 1.1 in place (LEGAL_IMPACT_REVIEW.md §2).
   { slug: 'vendor-terms', version: '1.1', supersededOn: 'November 7, 2026' },
+  // AECI-1363 bumped the Vendor Terms to 1.3 for legal branch 5: production held two
+  // 1.2 acceptances (November 11, 2026), so 1.2 could not change in place.
+  { slug: 'vendor-terms', version: '1.2', supersededOn: 'November 12, 2026' },
 ];
 
 /** The current version's path. */

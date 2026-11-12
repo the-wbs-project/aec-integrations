@@ -994,6 +994,8 @@ What changes in code, all in AECI-1214:
 > - `PATCH /api/vendor/profile` keeps `requireCapability(c, 'profile.edit')`. Every real tier passes it now.
 > - The logo upload checks `product.listing.edit`, then falls back to `profile.edit`. Only a tier the build does not know is refused.
 
+**A move between plans is a Plans version (AECI-1619, 2026-11-11, counsel ruling 16).** Moving a capability between `unclaimed` and `verified` in `TIER_CAPABILITIES`, or changing `MANAGED_LIST_PRICE_CENTS` or `MANAGED_ANNUAL_PRICE_CENTS`, changes the comparison table and prices on `/docs/vendors/plans`. That page is versioned, because a checkout or grant acceptance records its version and snapshot hash (`DATABASE_SCHEMA.md` §8.6d). So the same change must bump the Plans version and write a new snapshot (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). `plans-snapshot.spec.ts` fails until it does. Taking a capability out of Managed may also make the Managed plan agreement's core-inclusions sentence false (`LEGAL_IMPACT_REVIEW.md` §3).
+
 ### 13.4 Firewall rule
 
 **No `listing_tier` input may need a plan to edit.** This joins §3.2 as a fifth assertion in `entitlements.spec.ts`. The test maps each `listing_tier` input to the capability its column map names. It then checks that capability is in `TIER_CAPABILITIES.unclaimed`.

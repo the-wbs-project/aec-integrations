@@ -94,6 +94,9 @@ import type {
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
 import {
+  AGREEMENT_CHECKBOX_LABELS,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
   CreateProductRequestSchema,
   UpdateBillingEmailRequestSchema,
   UpdateVendorLegalNameRequestSchema,
@@ -159,6 +162,7 @@ import {
   VENDOR_SEAT_INVITES_FIXTURE,
   VENDOR_ACCEPTANCES_FIXTURE,
   VENDOR_BILLING_FIXTURE,
+  VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE,
   NOTHING_CHECKED,
   productChecklistFixture,
   vendorChecklistFixture,
@@ -365,6 +369,14 @@ function listItem(
 
 /** The preview's Billing read: the fixture, with card payment switched on so the
  *  "Pay by card" panel renders (AECI-1502). */
+/**
+ * The preview's agreements, newest first: a card checkout of the Managed plan
+ * agreement (with its Plans page, AECI-1619) and the claim's vendor terms.
+ */
+function previewAcceptances(): VendorAgreementAcceptance[] {
+  return clone([VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE, ...VENDOR_ACCEPTANCES_FIXTURE]);
+}
+
 function previewBilling(): VendorBillingResponse {
   return {
     ...clone(VENDOR_BILLING_FIXTURE),
@@ -577,7 +589,7 @@ export class PreviewVendorApi extends VendorApi {
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
     this.billing = previewBilling();
-    this.acceptances = clone([...VENDOR_ACCEPTANCES_FIXTURE]);
+    this.acceptances = previewAcceptances();
     this.proposals = clone([...VENDOR_PROPOSALS_FIXTURE]);
     this.electedAt = new Map();
   }
@@ -689,7 +701,7 @@ export class PreviewVendorApi extends VendorApi {
     return clone(this.billing);
   }
 
-  private acceptances: VendorAgreementAcceptance[] = clone([...VENDOR_ACCEPTANCES_FIXTURE]);
+  private acceptances: VendorAgreementAcceptance[] = previewAcceptances();
 
   override async getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
     return { acceptances: clone(this.acceptances) };
@@ -749,6 +761,13 @@ export class PreviewVendorApi extends VendorApi {
       license_grant_id: grant.id,
       grant_ends_at: grant.ends_at,
       seat_role: 'owner',
+      // AECI-1619: a grant names no policies, and records the Plans page and its box.
+      checkbox_label: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+      checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
+      listing_accuracy_version: null,
+      review_guidelines_version: null,
+      plans_page_version: PLANS_PAGE_CURRENT_VERSION,
+      plans_page_sha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
     });
     return {
       grant_id: grant.id,

@@ -36,7 +36,7 @@ export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSource
  * `apps/web/src/content/legal/`. Bump the Markdown and this map in the same change.
  */
 export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
-  vendor_terms: '1.2',
+  vendor_terms: '1.3',
   managed_plan: '1.1',
 } as const satisfies Record<LegalAgreementDocument, string>;
 
@@ -50,7 +50,7 @@ export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
  * when you bump the map above.
  */
 export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
-  vendor_terms: ['1.0', '1.1', '1.2'],
+  vendor_terms: ['1.0', '1.1', '1.2', '1.3'],
   managed_plan: ['1.0', '1.1'],
 } as const satisfies Record<LegalAgreementDocument, readonly string[]>;
 
@@ -78,17 +78,19 @@ export const LEGAL_AGREEMENT_TEXT_SHA256 = {
     '1.0': '628113b220f006e9918498e538bf6c86e9d69046da70dc32ec4f16d8f8a71d52',
     '1.1': '9ab3fe5b38411a45e2d0c6e5134c4e44fe9b7b44ba385af669901c2e214b1ca0',
     '1.2': '5a9592f8db571b06352dede158bb442c2ebd5a7cc4ad29e8211391577dcae043',
+    '1.3': 'f0b6417d34499357652db3d1e1a5e751412828bda5157044971bb12cf7dfa1ad',
   },
   managed_plan: {
     '1.0': '3f8e28e5e4309330aa9b5f1dd6cc51a572317c6f4691564fbb6f65b23797032d',
-    '1.1': '1682f12d76ee9aa86efae72470707140f0a77fd2118c733b755554d189f4b577',
+    '1.1': '047cfc4f12483336b2c74a6fa1584a5c2e6d635a4d1b31176a043075a07ce0ad',
   },
 } as const satisfies Record<LegalAgreementDocument, Record<string, string>>;
 
 /**
  * The label beside each agreement's acceptance checkbox, and the SHA-256 (lowercase hex,
  * UTF-8) of that exact string (AECI-1615 ruling 16, Chris 2026-11-10). An acceptance row
- * stamps `checkbox_label_sha256` from here as evidence of the box it was given on.
+ * stamps `checkbox_label_sha256` and, since AECI-1619, the text itself (`checkbox_label`)
+ * from here as evidence of the box it was given on.
  *
  * `text` is the en-US source of the web label: the i18n source text of
  * `@@vendor.billing.grantPending.acceptLabel` / `acceptLabelNoLink` (managed plan) and
@@ -107,6 +109,68 @@ export const AGREEMENT_CHECKBOX_LABELS = {
     sha256: '7c53c65e548b7f0b22127e5044b1d5f2c3a4f485e4ac5c3bc3588909d5e38553',
   },
 } as const satisfies Record<LegalAgreementDocument, { text: string; sha256: string }>;
+
+/**
+ * The two policies the Vendor Terms incorporate (AECI-1619, counsel Q14). A claim
+ * acceptance records the version of each that the claim box named
+ * (`agreement_acceptances.listing_accuracy_version` / `review_guidelines_version`).
+ * Only the Vendor Terms incorporate them, so only a claim row carries them.
+ */
+export const LEGAL_POLICY_DOCUMENTS = ['listing_accuracy', 'review_guidelines'] as const;
+export type LegalPolicyDocument = (typeof LEGAL_POLICY_DOCUMENTS)[number];
+
+/**
+ * The current version of each policy. Keep it a plain object literal: a web spec
+ * (`legal-page.component.spec.ts`) asserts each value equals the `version` frontmatter of
+ * `listing-accuracy-policy.md` / `review-guidelines.md`. Bump both in the same change.
+ */
+export const LEGAL_POLICY_CURRENT_VERSIONS = {
+  listing_accuracy: '1.0',
+  review_guidelines: '1.0',
+} as const satisfies Record<LegalPolicyDocument, string>;
+
+/** Every version of each policy that was ever current, oldest first. A claim may record
+ *  any of them: a submit made before a bump is confirmed with the versions it showed. */
+export const LEGAL_POLICY_KNOWN_VERSIONS = {
+  listing_accuracy: ['1.0'],
+  review_guidelines: ['1.0'],
+} as const satisfies Record<LegalPolicyDocument, readonly string[]>;
+
+/** Whether `version` was ever a published version of `policy`. */
+export function isKnownLegalPolicyVersion(policy: LegalPolicyDocument, version: string): boolean {
+  return (LEGAL_POLICY_KNOWN_VERSIONS[policy] as readonly string[]).includes(version);
+}
+
+/**
+ * The Plans page (`/docs/vendors/plans`) as versioned content (AECI-1619, ruling 16). A
+ * checkout or grant acceptance records the version current when it was given
+ * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot
+ * file (`plans_page_sha256`), so the record points at the page as it stood.
+ */
+export const PLANS_PAGE_CURRENT_VERSION = '1.0';
+
+/** Every Plans version that was ever current, oldest first. The current one is last. */
+export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0'] as const;
+
+/**
+ * SHA-256 (lowercase hex) of each Plans version's snapshot file under
+ * `apps/web/src/content/docs/vendors/versions/plans/`. `pnpm docs:plans-snapshot`
+ * writes the current version's file. `agreement-text-hash.spec.ts` (here) and
+ * `plans-snapshot.spec.ts` (web) recompute every hash from its file, so a drift fails.
+ */
+export const PLANS_PAGE_SHA256: Record<string, string> = {
+  '1.0': '49393a154d24095a1ccd8c1db69ca6e3e827e8850bfc93d0182d0d43d0aa375b',
+};
+
+/** Whether `version` was ever a published Plans version. */
+export function isKnownPlansPageVersion(version: string): boolean {
+  return (PLANS_PAGE_KNOWN_VERSIONS as readonly string[]).includes(version);
+}
+
+/** The snapshot hash of one Plans version, or `null` when none is recorded. */
+export function plansPageSha256(version: string): string | null {
+  return PLANS_PAGE_SHA256[version] ?? null;
+}
 
 /** The text hash of one version, or `null` when none is recorded. */
 export function legalAgreementTextSha256(
@@ -173,6 +237,18 @@ export const VendorAgreementAcceptanceSchema = z.object({
   checkbox_label_sha256: z.string().nullable(),
   /** Whether the box started unticked. */
   checkbox_default_unticked: z.boolean().nullable(),
+  // AECI-1619 (ruling 16, counsel Q14). Every one is NULL on a row older than the columns.
+  /** The exact label shown beside the box (`AGREEMENT_CHECKBOX_LABELS[doc].text`). NULL
+   *  on a signed deal and on a claim under an older terms version. */
+  checkbox_label: z.string().nullable(),
+  /** The Listing Accuracy Policy version the claim box named. Claim rows only. */
+  listing_accuracy_version: z.string().nullable(),
+  /** The Review Guidelines version the claim box named. Claim rows only. */
+  review_guidelines_version: z.string().nullable(),
+  /** The Plans page version current at acceptance. Checkout and grant rows only. */
+  plans_page_version: z.string().nullable(),
+  /** SHA-256 of that Plans version's snapshot file (`PLANS_PAGE_SHA256`). */
+  plans_page_sha256: z.string().nullable(),
 });
 export type VendorAgreementAcceptance = z.infer<typeof VendorAgreementAcceptanceSchema>;
 

@@ -1,7 +1,7 @@
 # Legal runbooks
 
-Procedures for a legal event that carries its own deadline: a data breach, an accessibility demand
-letter, a subpoena for a reviewer's identity. No alert pages any of them. Alert runbooks are in
+Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
+report or demand letter, a subpoena for a reviewer's identity. No alert pages any of them. Alert runbooks are in
 [`RUNBOOKS.md`](./RUNBOOKS.md). Subscription and billing procedures are in
 [`SUBSCRIPTION_RUNBOOKS.md`](./SUBSCRIPTION_RUNBOOKS.md). Counsel's answers are verbatim in
 `docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q40, Q41). Where counsel did not say something, these steps say
@@ -119,10 +119,21 @@ and moves forward on every re-send, which is a stretch for "within days". It als
 invited mailbox to use, so a leaked invite link alone opens nothing. Raised as a text item for Chris to
 rule: AECI-1681.
 
+## Accessibility barrier report (AECI-1673)
+
+Use this when someone tells the support inbox (`support@aecintegrations.com`) that something on the site stops them from using it. The statement at `/accessibility` says "We reply within 10 business days." It is hidden until AECI-1687, but treat a barrier report the same way now. Ruling 22 set that window, and a missed self-set deadline is evidence against us (counsel Q40). `STAGE_1_SPEC.md` §27.6 governs the page.
+
+1. Reply within 10 business days of receipt, every time. Count from the day the email arrives. Thank them and restate the barrier as you understand it. Say what happens next. Do not promise a fix date unless you can meet it.
+2. File a Linear issue in the **Bugs** project. Put the page address, the browser and assistive technology, and the reporter's words in it. Never put their email address in it.
+3. If the report needs a workaround to reach the content, such as a review, a correction or a claim, offer to do it for them by email.
+4. When the fix ships, tell the reporter.
+5. A letter that cites the ADA, threatens suit or comes from a lawyer is not a barrier report. Follow [Accessibility demand letter](#accessibility-demand-letter) below: there is no insurer to notify today, so send the hold notice, then retain an attorney. Do not reply to the substance yourself.
+
 ## Accessibility demand letter
 
 A letter, usually from a plaintiff's firm, that says the site is not accessible and asks for money or a
-fix by a date. Counsel (Q40): the ADA probably does not reach a website-only business in the Eleventh
+fix by a date. A plain report of a barrier, with no legal threat, is not one: use
+[Accessibility barrier report](#accessibility-barrier-report-aeci-1673) above. Counsel (Q40): the ADA probably does not reach a website-only business in the Eleventh
 Circuit, but a plaintiff can sue where any reader lives. Treat every letter as real.
 
 1. **Open the Linear issue.** Record the date received, the sender, and the deadline the letter gives.

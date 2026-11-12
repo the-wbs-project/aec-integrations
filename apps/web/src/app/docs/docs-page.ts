@@ -28,8 +28,9 @@
  *
  * **Noindex by path.** The robots meta comes from `pathForcesNoindex`
  * (`docs-indexing.ts`), the same list the egress `X-Robots-Tag` stamp and the
- * sitemap read. It holds no docs path since AECI-1253, so every docs page is
- * indexable. Its only entries are the archived legal versions (AECI-1361).
+ * sitemap read. It holds no docs page since AECI-1253, so every docs page is
+ * indexable. Its entries are the archived legal versions (AECI-1361) and the
+ * recorded Plans versions (AECI-1619, `plans-archive-page.ts`).
  *
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule, `src/content/README.md`). The chrome below is `i18n` /
@@ -48,6 +49,7 @@ import { pathForcesNoindex } from './docs-indexing';
 import type { DocsWidget } from './docs-markdown';
 import { DocsPlansComparisonComponent } from './docs-plans-comparison';
 import { DocsTocComponent } from './docs-toc';
+import { VENDOR_PROGRAM_PATH, plansVendorProgramPointer } from './plans-actions-copy';
 import {
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
@@ -119,14 +121,13 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             <p
               class="mt-6 leading-relaxed text-(--text-secondary)"
               data-testid="docs-plans-vendor-program"
-              i18n="@@app.docs.plans.vendorProgram"
             >
-              For a short overview of what AEC Integrations offers vendors, see
-              <a
-                routerLink="/vendor-program"
+              {{ vendorProgram.before
+              }}<a
+                [routerLink]="vendorProgramPath"
                 class="rounded-sm font-medium text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >the vendor program</a
-              >.
+                >{{ vendorProgram.link }}</a
+              >{{ vendorProgram.after }}
             </p>
             <aec-plan-cta-actions class="mt-6 mb-10" page="docs_plans" />
           } @else if (segment.widget === 'plans-cta') {
@@ -218,6 +219,9 @@ export class DocsPageComponent {
   protected readonly page: DocsPage;
   protected readonly segments: readonly DocsSegment[];
   protected readonly neighbours: { readonly prev?: DocsPage; readonly next?: DocsPage };
+  /** The Plans page's pointer to the vendor program (`plans-actions-copy.ts`, AECI-1619). */
+  protected readonly vendorProgram = plansVendorProgramPointer();
+  protected readonly vendorProgramPath = VENDOR_PROGRAM_PATH;
 
   constructor() {
     const { section, slug } = this.route.snapshot.data as { section: string; slug: string };

@@ -559,15 +559,16 @@
     Showing the newest {{ acceptances().length }}.
   </p>
   }
-  <!-- AECI-1615: the Method and Grant columns widen this table. A narrow screen scrolls
-       it, so the wrapper takes focus to scroll by keyboard (WCAG 2.1.1). -->
+  <!-- AECI-1615: the Method and Grant columns widen this table, and AECI-1619's
+       Checkbox label column more. A narrow screen scrolls it, so the wrapper takes
+       focus to scroll by keyboard (WCAG 2.1.1). -->
   <div
     class="mt-2 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     tabindex="0"
     role="region"
     aria-labelledby="admin-vendor-billing-acceptances"
   >
-    <table class="w-full min-w-[64rem] border-collapse text-sm">
+    <table class="w-full min-w-[80rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.billing.acceptances.caption">
         Agreement acceptances, newest first
       </caption>
@@ -586,6 +587,13 @@
             i18n="@@admin.vendors.billing.acceptances.col.by"
           >
             Accepted by
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.label"
+          >
+            Checkbox label
           </th>
           <th
             scope="col"
@@ -641,8 +649,41 @@
               i18n="@@admin.vendors.billing.acceptances.version"
               >Version {{ a.version }}</span
             >
+            <!-- AECI-1619: the evidence each acceptance carries beside its version. -->
+            @if (policiesLabel(a); as policies) {
+            <span
+              class="block text-xs font-normal text-(--text-secondary)"
+              data-testid="acceptance-policies"
+              >{{ policies }}</span
+            >
+            } @if (plansPage(a); as plans) { @if (plans.href; as plansHref) {
+            <a
+              [routerLink]="plansHref"
+              class="block w-fit text-xs font-normal text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              data-testid="acceptance-plans-page"
+              >{{ plans.label }}</a
+            >
+            } @else {
+            <span
+              class="block text-xs font-normal text-(--text-secondary)"
+              data-testid="acceptance-plans-page"
+              >{{ plans.label }}</span
+            >
+            } }
           </th>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ a.email }}</td>
+          <!-- AECI-1619 (ruling 16): the exact words beside the box, as stored. -->
+          <td
+            class="min-w-[16rem] py-2.5 pe-4 text-xs text-(--text-secondary)"
+            data-testid="acceptance-label"
+          >
+            @if (a.checkbox_label) { {{ a.checkbox_label }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.acceptances.labelNone"
+              >Not recorded</span
+            >
+            }
+          </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-signer">
             @if (a.signer_name || a.signer_title || a.company_legal_name) { @if (a.signer_name) {
             <span class="block">{{ a.signer_name }}</span>

@@ -5,9 +5,15 @@
  */
 import { Component, TemplateRef, provideZonelessChangeDetection, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AdminBillingLicense, AdminVendorBillingResponse } from '@aeci/shared';
+import {
+  AGREEMENT_CHECKBOX_LABELS,
+  type AdminAgreementAcceptance,
+  type AdminBillingLicense,
+  type AdminVendorBillingResponse,
+} from '@aeci/shared';
 
 import {
   BillingLicensesTable,
@@ -72,7 +78,9 @@ function mount(
   state: Partial<{ loading: boolean; failed: boolean }> = {},
 ) {
   TestBed.resetTestingModule();
-  TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+  TestBed.configureTestingModule({
+    providers: [provideZonelessChangeDetection(), provideRouter([])],
+  });
   const fixture = TestBed.createComponent(BillingLicensesTable);
   fixture.componentRef.setInput('billing', billing);
   fixture.componentRef.setInput('loading', state.loading ?? false);
@@ -239,6 +247,11 @@ describe('BillingLicensesTable', () => {
             deal_signed_at: '2026-11-08T00:00:00.000Z',
             checkbox_label_sha256: null,
             checkbox_default_unticked: null,
+            checkbox_label: null,
+            listing_accuracy_version: null,
+            review_guidelines_version: null,
+            plans_page_version: null,
+            plans_page_sha256: null,
             vendor_id: 'v1',
             ip: null,
             user_agent: null,
@@ -363,6 +376,11 @@ describe('BillingLicensesTable', () => {
             deal_signed_at: null,
             checkbox_label_sha256: null,
             checkbox_default_unticked: null,
+            checkbox_label: null,
+            listing_accuracy_version: null,
+            review_guidelines_version: null,
+            plans_page_version: null,
+            plans_page_sha256: null,
             vendor_id: 'v1',
             ip: null,
             user_agent: null,
@@ -408,6 +426,11 @@ describe('BillingLicensesTable', () => {
       deal_signed_at: null,
       checkbox_label_sha256: null,
       checkbox_default_unticked: null,
+      checkbox_label: null,
+      listing_accuracy_version: null,
+      review_guidelines_version: null,
+      plans_page_version: null,
+      plans_page_sha256: null,
       vendor_id: 'v1',
       ip: null,
       user_agent: null,
@@ -435,6 +458,101 @@ describe('BillingLicensesTable', () => {
     expect(ipCell(rows[0])).not.toContain('Not recorded');
     expect(rows[1].textContent).toContain('203.0.113.7');
     expect(rows[1].querySelector('[data-testid="acceptance-ip-removed"]')).toBeNull();
+  });
+
+  // AECI-1619 (ruling 16, counsel Q14): the evidence each acceptance carries.
+  it("shows a claim's policy versions, a checkout's Plans page link and each stored label", () => {
+    const base: AdminAgreementAcceptance = {
+      id: 'x',
+      document: 'vendor_terms',
+      version: '1.2',
+      source: 'claim',
+      email: 'ada@autodesk.com',
+      profile_id: null,
+      billing_account_id: 'ba1',
+      vendor_request_id: null,
+      stripe_checkout_session_id: null,
+      accepted_at: '2026-11-03T00:00:00.000Z',
+      signer_name: null,
+      signer_title: null,
+      company_legal_name: null,
+      method: null,
+      license_grant_id: null,
+      grant_ends_at: null,
+      text_sha256: null,
+      seat_role: null,
+      deal_reference: null,
+      deal_signed_at: null,
+      checkbox_label_sha256: null,
+      checkbox_default_unticked: null,
+      checkbox_label: null,
+      listing_accuracy_version: null,
+      review_guidelines_version: null,
+      plans_page_version: null,
+      plans_page_sha256: null,
+      vendor_id: 'v1',
+      ip: null,
+      user_agent: null,
+      evidence_removed_at: null,
+      created_at: '2026-11-03T00:00:00.000Z',
+    };
+    const { el } = mount(
+      makeBilling({
+        acceptances: [
+          {
+            ...base,
+            id: 'claim',
+            checkbox_label: AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+            listing_accuracy_version: '1.0',
+            review_guidelines_version: '1.0',
+          },
+          {
+            ...base,
+            id: 'checkout',
+            document: 'managed_plan',
+            version: '1.1',
+            source: 'checkout',
+            checkbox_label: AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+            plans_page_version: '1.0',
+            plans_page_sha256: 'abc',
+          },
+          { ...base, id: 'legacy', listing_accuracy_version: '1.0' },
+          { ...base, id: 'unknown-plans', source: 'grant', plans_page_version: '0.9' },
+        ],
+      }),
+    );
+    const section = el.querySelector(
+      'section[aria-labelledby="admin-vendor-billing-acceptances"]',
+    )!;
+    const headers = [...section.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers[2]).toBe('Checkbox label');
+    const [claim, checkout, legacy, unknown] = [...section.querySelectorAll('tbody tr')];
+
+    expect(claim.querySelector('[data-testid="acceptance-policies"]')?.textContent?.trim()).toBe(
+      'Policies: Listing Accuracy Policy 1.0, Review Guidelines 1.0',
+    );
+    expect(claim.querySelector('[data-testid="acceptance-plans-page"]')).toBeNull();
+    expect(claim.querySelector('[data-testid="acceptance-label"]')?.textContent?.trim()).toBe(
+      AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+    );
+
+    const plans = checkout.querySelector('a[data-testid="acceptance-plans-page"]');
+    expect(plans?.textContent?.trim()).toBe('Plans page 1.0');
+    expect(plans?.getAttribute('href')).toBe('/docs/vendors/plans/v1.0');
+    expect(checkout.querySelector('[data-testid="acceptance-policies"]')).toBeNull();
+    expect(checkout.querySelector('[data-testid="acceptance-label"]')?.textContent?.trim()).toBe(
+      AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+    );
+
+    // Only one policy recorded, and no label: nothing is shown but "Not recorded".
+    expect(legacy.querySelector('[data-testid="acceptance-policies"]')).toBeNull();
+    expect(legacy.querySelector('[data-testid="acceptance-label"]')?.textContent).toContain(
+      'Not recorded',
+    );
+    // A version this build has no snapshot for is named, not linked.
+    const unlinked = unknown.querySelector('[data-testid="acceptance-plans-page"]')!;
+    expect(unlinked.tagName).toBe('SPAN');
+    expect(unlinked.textContent?.trim()).toBe('Plans page 0.9');
   });
 
   it('shows the loading and failed states', () => {

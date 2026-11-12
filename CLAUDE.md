@@ -76,7 +76,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
-| Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
+| Legal pages (`/legal/*`): versions, archives, when to bump; the unversioned `/accessibility` statement, hidden until AECI-1687 (§27.6) | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Counsel questions and answers (November 2026 review), Chris's rulings on them | `docs/LEGAL_COUNSEL_RECORD.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
@@ -108,7 +108,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
 | Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
 | Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
-| Legal events with a deadline: data breach, accessibility demand letter, subpoena, litigation hold | `docs/LEGAL_RUNBOOKS.md` |
+| Legal events with a deadline: data breach, accessibility barrier report and demand letter, subpoena, litigation hold | `docs/LEGAL_RUNBOOKS.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |
 | Phase completion checkpoints | `docs/PHASE_{2..8}_COMPLETION.md` |

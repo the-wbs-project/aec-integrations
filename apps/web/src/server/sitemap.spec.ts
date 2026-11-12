@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
+import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
+import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../app/accessibility/accessibility-published';
 import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
 import {
   buildSitemapXml,
@@ -133,6 +135,20 @@ describe('staticSitemapEntries', () => {
     expect(entries.some((e) => /\/legal\/[^/]+\/v\d/.test(e.loc))).toBe(false);
   });
 
+  // The docs paths here come from a stand-in; `docs-content.component.spec.ts` pins the
+  // real `indexableDocsPaths`, which never holds a snapshot page (not a manifest page).
+  it('leaves out every Plans snapshot page (AECI-1619)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    expect(PLANS_ARCHIVE_PATHS.length).toBeGreaterThan(0);
+    for (const path of PLANS_ARCHIVE_PATHS) {
+      expect(
+        entries.some((e) => e.loc.endsWith(path)),
+        path,
+      ).toBe(false);
+    }
+    expect(entries.some((e) => /\/docs\/vendors\/plans\/v\d/.test(e.loc))).toBe(false);
+  });
+
   it('includes /methodology (AECI-804), listed alongside the legal set and the docs', async () => {
     const entries = await staticSitemapEntries(BASE);
     const entry = entries.find((e) => e.loc === 'https://aecintegrations.com/methodology');
@@ -150,6 +166,19 @@ describe('staticSitemapEntries', () => {
         path,
       ).toBeUndefined();
     }
+  });
+
+  it('lists /accessibility (AECI-1673) at the legal-page weight only once published (AECI-1687)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    const entry = entries.find((e) => e.loc === 'https://aecintegrations.com/accessibility');
+    if (!ACCESSIBILITY_STATEMENT_PUBLISHED) {
+      expect(entry).toBeUndefined();
+      return;
+    }
+    expect(entry).toBeDefined();
+    expect(entry?.changefreq).toBe('yearly');
+    expect(entry?.priority).toBe(0.3);
+    expect(entry?.lastmod).toBeUndefined();
   });
 
   it('includes /vendor-program right after /methodology (AECI-1283)', async () => {

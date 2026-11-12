@@ -76,6 +76,7 @@ import {
   AddStripeLicensesResponseSchema,
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  PLANS_PAGE_CURRENT_VERSION,
   StripeCheckoutRequestSchema,
   StripeRedirectResponseSchema,
   type AddStripeLicensesResponse,
@@ -404,8 +405,12 @@ export function createStripeCheckoutHandler(
     // AECI-1625: the title is what the buyer typed on the buy form, and the legal name is
     // `vendors.legal_name` first.
     const signer = await loadCheckoutSigner(db, session.userId, vendorId, payload.signer_title);
+    // AECI-1619 (ruling 16): the Plans page version this checkout was opened under. Like
+    // the signer, it is evidence of this acceptance, so it rides the session only, and the
+    // webhook copies it into the acceptance row with the snapshot's hash.
     const sessionMetadata = {
       ...metadata,
+      plans_version: PLANS_PAGE_CURRENT_VERSION,
       ...(signer.name ? { signer_name: signer.name } : {}),
       ...(signer.title ? { signer_title: signer.title } : {}),
       ...(signer.companyLegalName ? { company_legal_name: signer.companyLegalName } : {}),
@@ -464,7 +469,7 @@ export function createStripeCheckoutHandler(
         payload.interval,
         payload.quantity,
         minuteBucket(now),
-        await signerKey(sessionMetadata),
+        await evidenceKey(sessionMetadata),
       ].join('-'),
     );
     if (!checkout.ok) throw stripeFailed('checkout', checkout);
@@ -483,18 +488,26 @@ function redirectTo(c: VendorContext, url: string): Response {
 /**
  * Whether an open Checkout Session asks for exactly this purchase: one line item with
  * this price and quantity, opened by this owner for this account under the current
- * agreement version, on today's UTC day, naming the same signer. Anything else is
+ * agreement version and Plans page version (AECI-1619), on today's UTC day, naming the
+ * same signer. Anything else is
  * expired, so the terms evidence on a paid session always names the owner who opened it,
  * with the title they typed and the legal name on record now (AECI-1625), and the
  * renewal date it shows is the one the panel showed (AECI-1596).
  */
-/** The session metadata keys that name the signer (AECI-1617). */
-const SIGNER_METADATA_KEYS = ['signer_name', 'signer_title', 'company_legal_name'] as const;
+/** The session metadata keys that name the signer (AECI-1617), and the Plans page version
+ *  the session was opened under (AECI-1619). A reused session must match each one. */
+const EVIDENCE_METADATA_KEYS = [
+  'signer_name',
+  'signer_title',
+  'company_legal_name',
+  'plans_version',
+] as const;
 
-/** A short digest of the signer, so the Checkout idempotency key changes with it. Stripe
- *  refuses a key replayed with different parameters, and the metadata is a parameter. */
-async function signerKey(metadata: StripeMetadata): Promise<string> {
-  const text = SIGNER_METADATA_KEYS.map((key) => metadata[key] ?? '').join('\u0000');
+/** A short digest of the session-only evidence, so the Checkout idempotency key changes
+ *  with it. Stripe refuses a key replayed with different parameters, and the metadata is
+ *  a parameter. */
+async function evidenceKey(metadata: StripeMetadata): Promise<string> {
+  const text = EVIDENCE_METADATA_KEYS.map((key) => metadata[key] ?? '').join('\u0000');
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(digest).slice(0, 6)]
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -519,7 +532,7 @@ function sessionMatches(
     s.metadata?.['billing_account_id'] === metadata['billing_account_id'] &&
     s.metadata?.['profile_id'] === metadata['profile_id'] &&
     s.metadata?.['terms_version'] === metadata['terms_version'] &&
-    SIGNER_METADATA_KEYS.every((key) => (s.metadata?.[key] ?? '') === (metadata[key] ?? ''))
+    EVIDENCE_METADATA_KEYS.every((key) => (s.metadata?.[key] ?? '') === (metadata[key] ?? ''))
   );
 }
 

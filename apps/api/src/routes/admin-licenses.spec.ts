@@ -9,6 +9,8 @@ import {
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_TEXT_SHA256,
+  PLANS_PAGE_CURRENT_VERSION,
+  plansPageSha256,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -379,6 +381,10 @@ describe('POST /api/admin/vendors/:id/licenses: a recorded signed deal (ruling R
       // Ruling 16: a signed deal has no box.
       checkboxLabelSha256: null,
       checkboxDefaultUnticked: null,
+      checkboxLabel: null,
+      // AECI-1619: a signed deal records the Plans page current at activation too.
+      plansPageVersion: PLANS_PAGE_CURRENT_VERSION,
+      plansPageSha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
       // Recorded from the admin's browser, not the signer's.
       ip: null,
       userAgent: null,

@@ -21,6 +21,10 @@ import {
   LEGAL_AGREEMENT_TEXT_SHA256,
   legalAgreementTextSha256,
   type LegalAgreementDocument,
+  PLANS_PAGE_CURRENT_VERSION,
+  PLANS_PAGE_KNOWN_VERSIONS,
+  PLANS_PAGE_SHA256,
+  plansPageSha256,
 } from './agreements';
 
 /** Vitest runs with cwd = packages/shared. */
@@ -71,5 +75,38 @@ describe.each(Object.keys(FILES) as LegalAgreementDocument[])('%s checkbox label
     expect(text).toBe(text.trim());
     expect(text).not.toMatch(/\s{2,}|[[\]()*_]/);
     expect(text).toMatch(/^I have read and accept the .+\.$/);
+  });
+});
+
+// AECI-1619 (ruling 16): a checkout or grant acceptance stamps `plans_page_sha256` from
+// `PLANS_PAGE_SHA256`. Each value must be the hash of that version's snapshot file. The
+// web spec `plans-snapshot.spec.ts` checks the current file still matches the live page.
+describe('Plans page snapshot hashes', () => {
+  const PLANS = join(
+    process.cwd(),
+    '..',
+    '..',
+    'apps',
+    'web',
+    'src',
+    'content',
+    'docs',
+    'vendors',
+    'versions',
+    'plans',
+  );
+
+  it('records every snapshot file, and holds no other version', () => {
+    const files = readdirSync(PLANS).filter((f) => /^v[\d.]+\.md$/.test(f));
+    expect(files.map((f) => f.slice(1, -3)).sort()).toEqual([...PLANS_PAGE_KNOWN_VERSIONS].sort());
+    for (const file of files) {
+      const version = file.slice(1, -3);
+      expect(plansPageSha256(version), file).toBe(sha256(join(PLANS, file)));
+    }
+  });
+
+  it('keys the hashes by exactly the known versions, the current one last', () => {
+    expect(Object.keys(PLANS_PAGE_SHA256).sort()).toEqual([...PLANS_PAGE_KNOWN_VERSIONS].sort());
+    expect(PLANS_PAGE_KNOWN_VERSIONS.at(-1)).toBe(PLANS_PAGE_CURRENT_VERSION);
   });
 });
