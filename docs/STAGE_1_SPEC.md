@@ -2338,6 +2338,8 @@ If a non-developer (e.g. counsel directly) needs to propose changes without work
 
 Not pursued in Stage 1 — counsel-driven changes are expected to be infrequent and not worth admin UI overhead.
 
+*Note 2026-11-12 (AECI-1688): a **publish** page exists now, `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22). It does not edit text, which stays in git as above. For the Vendor Terms and the Managed plan agreement, once an upcoming version's file and manifest entries are committed and deployed and its PDF is uploaded by `.github/workflows/legal-pdf.yml`, an operator records it there: a summary of the changes, whether it is material, and whether it needs acceptance. That writes a `legal_versions` row (`DATABASE_SCHEMA.md` §8.6i) with the PDF's hash. The effective moment is 12:00 UTC of the manifest's day. It refuses a version less than 30 days out, unless a Vendor Terms change expedited for the law or an error. It sends nothing: the notice email is AECI-1620. The `LEGAL_PUBLISH_ENABLED` var keeps it off in demo and production until AECI-1677. ADR 0054 is the decision, and the steps in run order are in `apps/web/src/content/legal/README.md`.*
+
 ### 27.6 Accessibility statement
 
 **Built, not yet published.** `ACCESSIBILITY_STATEMENT_PUBLISHED` (`apps/web/src/app/accessibility/accessibility-published.ts`) is `false` until AECI-1687 runs the first real VoiceOver and NVDA pass. Until then the route, the footer link, the sitemap entry, the cache TTL and the cache tag are all off, and `/accessibility` is a 404. AECI-1687's last step sets the flag to `true`.

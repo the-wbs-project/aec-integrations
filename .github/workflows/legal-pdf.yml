@@ -1,0 +1,181 @@
+# AEC Integrations — print one legal version to a PDF and store it in R2 (AECI-1688, ADR 0054).
+#
+# A change notice must come with a copy of the new version the customer can save. This
+# workflow builds that copy. `apps/web/scripts/legal-pdf.mjs` renders
+# `apps/web/src/content/legal/versions/<slug>/v<version>.md` (or the current file when its
+# version matches) and Playwright Chromium prints it. It fails on a blank
+# `effective_date`. The PDF is kept as a run artifact so the operator can open it, then
+# put in the tier's private uploads bucket at `legal/<slug>/v<version>.pdf`.
+#
+# NEVER OVERWRITES. The publish on `/admin/legal` reads this object and records its
+# sha256, so a re-upload would leave the stored file and the record disagreeing. The
+# upload step checks for the object first and fails if it exists. Run it once per tier,
+# before publishing, from `main` after the text has merged. The operator steps, in run
+# order, are in `apps/web/src/content/legal/README.md` "Publishing an upcoming agreement
+# version".
+#
+# Dispatch only. Inputs: slug (vendor-terms or managed-plan-agreement), version (for
+# example 1.4), env (staging, demo or production). The job runs in the `<env>` GitHub
+# environment, so a production run waits for the `production` environment's required
+# reviewer, like promote-to-prod. Every input reaches a shell only through `env:`, and
+# the first step checks its shape before anything else runs. Later steps use only the
+# values that step derived.
+#
+# Required secrets (the same pair deploy.yml uses):
+#   CLOUDFLARE_API_TOKEN     needs Account → Workers R2 Storage → Edit (CICD_PLAN §7.1)
+#   CLOUDFLARE_ACCOUNT_ID
+
+name: legal-pdf
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Agreement slug, as in /legal/<slug>'
+        required: true
+        type: choice
+        options:
+          - vendor-terms
+          - managed-plan-agreement
+      version:
+        description: 'Version to print (for example 1.4)'
+        required: true
+        type: string
+      env:
+        description: 'Tier whose uploads bucket receives the PDF'
+        required: true
+        type: choice
+        options:
+          - staging
+          - demo
+          - production
+
+# One upload per tier at a time. Never cancel one in flight.
+concurrency:
+  group: legal-pdf-${{ inputs.env }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  pdf:
+    name: Print the PDF and upload it to R2
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment:
+      name: ${{ inputs.env }}
+    env:
+      SLUG: ${{ inputs.slug }}
+      VERSION: ${{ inputs.version }}
+      TIER: ${{ inputs.env }}
+    steps:
+      # Dispatch from `main` only, as promote-to-prod does. The PDF is printed from the
+      # checked-out text and never overwritten, so a run from a feature branch would fix a
+      # copy of unmerged text in R2 for good, and the publish would hash text that differs
+      # from the page production serves.
+      - name: Require dispatch from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::legal-pdf must be dispatched from main (got '$REF'). Re-run it with the branch set to main."
+            exit 1
+          fi
+
+      - name: Check the inputs
+        run: |
+          [[ "$SLUG" =~ ^(vendor-terms|managed-plan-agreement)$ ]] || { echo "::error::slug must be vendor-terms or managed-plan-agreement"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){0,3}$ ]] || { echo "::error::version must look like 1.4"; exit 1; }
+          [[ "$TIER" =~ ^(staging|demo|production)$ ]] || { echo "::error::env must be staging, demo or production"; exit 1; }
+          {
+            echo "PDF_DIR=$RUNNER_TEMP/legal-pdf"
+            echo "PDF_FILE=$RUNNER_TEMP/legal-pdf/$SLUG-v$VERSION.pdf"
+            echo "R2_OBJECT=aeci-uploads-$TIER/legal/$SLUG/v$VERSION.pdf"
+            echo "ARTIFACT_NAME=legal-pdf-$SLUG-v$VERSION-$TIER"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### legal-pdf"
+            echo ""
+            echo "- commit: $GITHUB_SHA"
+            echo "- slug: $SLUG"
+            echo "- version: $VERSION"
+            echo "- env: $TIER"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@"$PNPM_VERSION"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # Same reason as deploy.yml: the runner's Google Chrome apt source can be
+      # mid-mirror-sync and fail `apt-get update`. Chromium's deps never come from it.
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+
+      - name: Print the PDF
+        run: node apps/web/scripts/legal-pdf.mjs "$SLUG" "$VERSION" --out "$PDF_DIR"
+
+      - name: Check it is a PDF of at most 5 MB
+        run: |
+          [[ "$(head -c 5 "$PDF_FILE")" == "%PDF-" ]] || { echo "::error::the file does not start with %PDF-"; exit 1; }
+          size=$(stat -c %s "$PDF_FILE")
+          (( size <= 5242880 )) || { echo "::error::the PDF is $size bytes, over the 5 MB the publish accepts"; exit 1; }
+          echo "- object: $R2_OBJECT, sha256 $(sha256sum "$PDF_FILE" | cut -d' ' -f1), $size bytes" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.PDF_FILE }}
+          if-no-files-found: error
+
+      # Refuse to overwrite. `wrangler r2 object get` exits 0 when the object exists and
+      # prints "The specified key does not exist." when it does not. Any other failure
+      # (a token without R2 access, an API outage) stops the run too: an unknown answer
+      # is never read as "absent".
+      - name: Refuse to overwrite an existing object
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: |
+          set +e
+          out=$(pnpm exec wrangler r2 object get "$R2_OBJECT" --remote --file "$RUNNER_TEMP/existing.pdf" 2>&1)
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then
+            echo "::error::$R2_OBJECT already exists. A published version's PDF is never replaced."
+            exit 1
+          fi
+          if ! grep -q "The specified key does not exist." <<<"$out"; then
+            echo "$out"
+            echo "::error::could not tell whether $R2_OBJECT exists, so nothing was uploaded"
+            exit 1
+          fi
+          echo "$R2_OBJECT does not exist yet."
+
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: >-
+          pnpm exec wrangler r2 object put "$R2_OBJECT"
+          --file "$PDF_FILE"
+          --content-type application/pdf
+          --remote

@@ -1,0 +1,510 @@
+<!--
+  /admin/legal, spec section 5.22. AECI-1688.
+
+  Same idiom as /admin/email: the page heading with Refresh, one polite live region,
+  bordered cards, the console's button styles, and a Spartan dialog to confirm the one
+  consequential write. Every value below is rendered as text.
+-->
+<section aria-labelledby="admin-legal-heading" class="space-y-8">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h2
+        id="admin-legal-heading"
+        class="text-lg font-bold text-(--text-primary)"
+        i18n="@@admin.legal.heading"
+      >
+        Legal versions
+      </h2>
+      <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.subheading">
+        Record a new version of the Vendor Terms or the Managed plan agreement before it takes
+        effect. Publishing stores your answers, the summary and the PDF fingerprint. It sends no
+        email yet. The text itself is changed in the repository, not here. All times are UTC.
+      </p>
+    </div>
+    <button
+      type="button"
+      (click)="refresh()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.legal.refresh"
+    >
+      Refresh
+    </button>
+  </div>
+
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading() && !data()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.legal.loading">Loading versions…</p>
+  } @else if (loadFailed() && !data()) {
+  <div class="space-y-3" role="alert">
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.legal.loadError">
+      We couldn't load the legal versions.
+    </p>
+    <button
+      type="button"
+      (click)="refresh()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.legal.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (data(); as d) { @if (!d.publish_enabled && d.upcoming.length > 0) {
+  <div
+    data-testid="legal-publish-off"
+    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+  >
+    <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.legal.off.title">
+      Publishing is turned off on this tier
+    </p>
+    <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.off.body">
+      You can read the versions here, but nothing can be published until the setting
+      LEGAL_PUBLISH_ENABLED is turned on. It stays off until every issue on the legal gate list has
+      shipped.
+    </p>
+  </div>
+  } @for (entry of d.upcoming; track entry.document) {
+  <section
+    data-testid="legal-card"
+    [attr.data-document]="entry.document"
+    [attr.aria-labelledby]="headingId(entry.document)"
+    class="space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-5"
+  >
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1">
+        <h3
+          [id]="headingId(entry.document)"
+          tabindex="-1"
+          class="text-base font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >
+          <span i18n="@@admin.legal.card.heading"
+            >{{ documentTitle(entry.document) }} version {{ entry.version }}</span
+          >
+        </h3>
+        <p class="text-sm text-(--text-secondary)">
+          <span i18n="@@admin.legal.card.replaces"
+            >Replaces version {{ entry.current_version }}.</span
+          >
+          <a
+            [href]="versionPath(entry)"
+            target="_blank"
+            rel="noopener"
+            class="ms-1 underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.legal.card.readLink">Read version {{ entry.version }}</span
+            ><span class="sr-only" i18n="@@admin.legal.card.newTab"> (opens in a new tab)</span></a
+          >
+        </p>
+      </div>
+      @if (entry.published) {
+      <span class="text-sm font-bold text-(--text-primary)" i18n="@@admin.legal.status.published"
+        >Published</span
+      >
+      } @else {
+      <span
+        class="text-sm font-bold text-(--text-secondary)"
+        i18n="@@admin.legal.status.unpublished"
+        >Not published</span
+      >
+      }
+    </div>
+
+    <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.effective">
+        Takes effect
+      </dt>
+      <dd class="text-(--text-primary)" i18n="@@admin.legal.field.effectiveValue">
+        {{ entry.effective_at | date: 'longDate' : 'UTC' }} at 12:00 UTC
+      </dd>
+      @if (entry.published; as p) {
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.material">
+        Material change
+      </dt>
+      <dd class="text-(--text-primary)">
+        @if (p.material) {
+        <span i18n="@@admin.legal.answer.yes">Yes</span>
+        } @else {
+        <span i18n="@@admin.legal.answer.no">No</span>
+        }
+      </dd>
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.acceptance">
+        Needs acceptance
+      </dt>
+      <dd class="text-(--text-primary)">
+        @if (p.requires_acceptance) {
+        <span i18n="@@admin.legal.answer.yes">Yes</span>
+        } @else {
+        <span i18n="@@admin.legal.answer.no">No</span>
+        }
+      </dd>
+      @if (p.expedited_reason) {
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.expedited">
+        Expedited because
+      </dt>
+      <dd class="text-(--text-primary)">{{ expeditedLabel(p.expedited_reason) }}</dd>
+      }
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.publishedAt">
+        Published
+      </dt>
+      <dd class="text-(--text-primary)">
+        <span i18n="@@admin.legal.publishedAt"
+          >{{ p.published_at | date: 'longDate' : 'UTC' }} at {{ p.published_at | date: 'HH:mm' :
+          'UTC' }} UTC by
+          <a
+            [routerLink]="['/admin/users', p.published_by]"
+            class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            >admin {{ shortId(p.published_by) }}</a
+          ></span
+        >
+      </dd>
+      <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.pdf">PDF</dt>
+      <dd class="text-(--text-primary)" data-testid="legal-pdf">
+        <span i18n="@@admin.legal.pdfLine"
+          >{{ p.pdf_key }}, {{ humanBytes(p.pdf_bytes) }}, SHA-256 {{ shortHash(p.pdf_sha256)
+          }}</span
+        >
+      </dd>
+      }
+    </dl>
+
+    @if (entry.published; as p) {
+    <div class="space-y-1">
+      <p class="text-sm font-bold text-(--text-secondary)" i18n="@@admin.legal.summary.recorded">
+        Summary of changes
+      </p>
+      <ul class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)">
+        @for (bullet of p.summary; track $index) {
+        <li>{{ bullet }}</li>
+        }
+      </ul>
+    </div>
+    } @else {
+    <form
+      novalidate
+      class="space-y-5 border-t border-(--border-default) pt-4"
+      (submit)="$event.preventDefault(); openPublish(entry)"
+    >
+      <fieldset class="space-y-1.5">
+        <legend
+          class="text-sm font-bold text-(--text-primary)"
+          i18n="@@admin.legal.material.legend"
+        >
+          Is this a material change?
+        </legend>
+        <p
+          [id]="'admin-legal-' + entry.document + '-material-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.material.hint"
+        >
+          A material change is summarised for every affected company and announced at least 30 days
+          before it takes effect.
+        </p>
+        <div class="flex flex-wrap gap-5 pt-1">
+          <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+            <input
+              type="radio"
+              [attr.name]="'admin-legal-' + entry.document + '-material'"
+              [attr.id]="'admin-legal-' + entry.document + '-material-yes'"
+              value="yes"
+              [checked]="draft(entry.document).material === 'yes'"
+              [attr.aria-describedby]="'admin-legal-' + entry.document + '-material-hint'"
+              (change)="onMaterial(entry.document, 'yes')"
+              class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            />
+            <span i18n="@@admin.legal.answer.yes">Yes</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+            <input
+              type="radio"
+              [attr.name]="'admin-legal-' + entry.document + '-material'"
+              [attr.id]="'admin-legal-' + entry.document + '-material-no'"
+              value="no"
+              [checked]="draft(entry.document).material === 'no'"
+              [attr.aria-describedby]="'admin-legal-' + entry.document + '-material-hint'"
+              (change)="onMaterial(entry.document, 'no')"
+              class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            />
+            <span i18n="@@admin.legal.answer.no">No</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="space-y-1.5">
+        <legend
+          class="text-sm font-bold text-(--text-primary)"
+          i18n="@@admin.legal.acceptance.legend"
+        >
+          Does it need acceptance?
+        </legend>
+        @if (entry.document === 'vendor_terms') {
+        <p
+          [id]="'admin-legal-' + entry.document + '-acceptance-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.acceptance.hintVendorTerms"
+        >
+          Answer Yes when the change touches liability, indemnity, disputes or the content license.
+          An owner of each company must then accept it before it applies to that company.
+        </p>
+        } @else {
+        <p
+          [id]="'admin-legal-' + entry.document + '-acceptance-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.acceptance.hintManagedPlan"
+        >
+          Answer Yes for a material change to this agreement. Customers who pay monthly must then
+          click to accept it before it applies to them.
+        </p>
+        } @if (draft(entry.document).material !== 'yes') {
+        <p
+          [id]="'admin-legal-' + entry.document + '-acceptance-locked'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.acceptance.locked"
+        >
+          Yes is available once you answer Yes to the first question.
+        </p>
+        }
+        <div class="flex flex-wrap gap-5 pt-1">
+          <label
+            class="flex items-center gap-2 text-sm text-(--text-primary) data-[locked=true]:text-(--text-secondary)"
+            [attr.data-locked]="draft(entry.document).material !== 'yes'"
+          >
+            <input
+              type="radio"
+              [attr.name]="'admin-legal-' + entry.document + '-acceptance'"
+              [attr.id]="'admin-legal-' + entry.document + '-acceptance-yes'"
+              value="yes"
+              [checked]="draft(entry.document).acceptance === 'yes'"
+              [disabled]="draft(entry.document).material !== 'yes'"
+              [attr.aria-describedby]="'admin-legal-' + entry.document + '-acceptance-hint' + (draft(entry.document).material !== 'yes' ? ' admin-legal-' + entry.document + '-acceptance-locked' : '')"
+              (change)="onAcceptance(entry.document, 'yes')"
+              class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed"
+            />
+            <span i18n="@@admin.legal.answer.yes">Yes</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+            <input
+              type="radio"
+              [attr.name]="'admin-legal-' + entry.document + '-acceptance'"
+              [attr.id]="'admin-legal-' + entry.document + '-acceptance-no'"
+              value="no"
+              [checked]="draft(entry.document).acceptance === 'no'"
+              [attr.aria-describedby]="'admin-legal-' + entry.document + '-acceptance-hint'"
+              (change)="onAcceptance(entry.document, 'no')"
+              class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            />
+            <span i18n="@@admin.legal.answer.no">No</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="space-y-1.5">
+        <label
+          [attr.for]="'admin-legal-' + entry.document + '-summary'"
+          class="block text-sm font-bold text-(--text-primary)"
+          i18n="@@admin.legal.summary.label"
+        >
+          Summary of changes
+        </label>
+        <p
+          [id]="'admin-legal-' + entry.document + '-summary-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.summary.hint"
+        >
+          One change per line. Write between 1 and {{ maxBullets }} lines, each up to {{
+          maxBulletLength }} characters. Use plain text, with no tabs or hidden characters. The
+          lines are kept exactly as written.
+        </p>
+        <textarea
+          [id]="'admin-legal-' + entry.document + '-summary'"
+          rows="5"
+          [value]="draft(entry.document).summary"
+          (input)="onSummary(entry.document, $event)"
+          (blur)="onSummaryBlur(entry.document)"
+          [attr.aria-describedby]="'admin-legal-' + entry.document + '-summary-hint admin-legal-' + entry.document + '-summary-count' + (summaryError(entry.document) ? ' admin-legal-' + entry.document + '-summary-error' : '')"
+          [attr.aria-invalid]="summaryError(entry.document) ? 'true' : null"
+          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        ></textarea>
+        <p
+          [id]="'admin-legal-' + entry.document + '-summary-count'"
+          class="text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.summary.count"
+        >
+          {{ bullets(entry.document).length }} of {{ maxBullets }} lines used
+        </p>
+        @if (summaryError(entry.document); as message) {
+        <p
+          [id]="'admin-legal-' + entry.document + '-summary-error'"
+          data-testid="legal-summary-error"
+          class="text-sm font-medium text-(--text-primary)"
+        >
+          {{ message }}
+        </p>
+        }
+      </div>
+
+      @if (entry.document === 'vendor_terms') {
+      <div class="space-y-1.5">
+        <aec-select
+          i18n-label="@@admin.legal.expedited.label"
+          label="Expedited reason"
+          layout="stacked"
+          [options]="expeditedOptions"
+          [value]="draft(entry.document).expedited"
+          idPrefix="admin-legal-expedited"
+          describedBy="admin-legal-expedited-hint"
+          (changed)="onExpedited(entry.document, $event)"
+        />
+        <p
+          id="admin-legal-expedited-hint"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.expedited.hint"
+        >
+          Only for a version that takes effect less than 30 days from now. The Vendor Terms allow
+          that when the law requires the change or when it corrects an error. It is recorded only
+          when the version needs it.
+        </p>
+      </div>
+      } @if (cardErrors()[entry.document]; as message) {
+      <p
+        data-testid="legal-card-error"
+        class="text-sm font-medium text-(--text-primary)"
+        role="alert"
+      >
+        {{ message }}
+      </p>
+      }
+
+      <div class="flex flex-wrap items-center gap-3 pt-1">
+        <button
+          type="submit"
+          [disabled]="!canPublish(entry.document)"
+          [attr.aria-describedby]="canPublish(entry.document) ? null : 'admin-legal-' + entry.document + '-publish-hint'"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span i18n="@@admin.legal.publish">Publish version {{ entry.version }}</span>
+        </button>
+        @if (!canPublish(entry.document)) {
+        <p
+          [id]="'admin-legal-' + entry.document + '-publish-hint'"
+          class="text-xs text-(--text-secondary)"
+        >
+          @if (publishEnabled()) {
+          <span i18n="@@admin.legal.publishHint"
+            >Answer both questions and write the summary to publish.</span
+          >
+          } @else {
+          <span i18n="@@admin.legal.publishHintOff">Publishing is turned off on this tier.</span>
+          }
+        </p>
+        }
+      </div>
+    </form>
+    }
+  </section>
+  } @empty {
+  <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
+    <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.legal.empty.title">
+      No version is waiting to be published
+    </p>
+    <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.empty.body">
+      A version appears here once its text and its upcoming entry are committed, as the legal
+      content README describes.
+    </p>
+  </div>
+  } }
+
+  <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
+    <ng-template brnDialogContent>
+      @if (pending(); as p) {
+      <div
+        class="fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[min(92vw,34rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+      >
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.legal.dialog.title"
+        >
+          Publish version {{ p.version }} of the {{ documentTitle(p.document) }}?
+        </h2>
+        <div
+          brnDialogDescription
+          class="mt-2 space-y-2 text-sm leading-relaxed text-(--text-secondary)"
+        >
+          <p i18n="@@admin.legal.dialog.records">
+            This records version {{ p.version }}, which takes effect on {{ p.effective_at | date:
+            'longDate' : 'UTC' }} at 12:00 UTC, with your summary and the stored PDF.
+          </p>
+          @if (draft(p.document).material === 'yes') {
+          <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialYes">
+            You said this is a material change. Once change emails are built, publishing a material
+            change will email every affected company with your summary. For now nothing is sent.
+          </p>
+          } @else {
+          <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialNo">
+            You said this is not a material change. No company will be emailed about it.
+          </p>
+          } @if (draft(p.document).acceptance === 'yes') { @if (p.document === 'vendor_terms') {
+          <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptVendorTerms">
+            You said it needs acceptance. An owner of each company will have to accept version {{
+            p.version }} before it applies to that company.
+          </p>
+          } @else {
+          <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptManagedPlan">
+            You said it needs acceptance. Customers who pay monthly will have to click to accept
+            version {{ p.version }} before it applies to them.
+          </p>
+          } } @else {
+          <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptNo">
+            You said it does not need acceptance, so no one will be asked to accept it.
+          </p>
+          } @if (p.document === 'vendor_terms' && draft(p.document).expedited === 'law') {
+          <p i18n="@@admin.legal.dialog.expeditedLaw">
+            You gave an expedited reason: the law requires the change. It is recorded only if the
+            version takes effect less than 30 days from now.
+          </p>
+          } @if (p.document === 'vendor_terms' && draft(p.document).expedited === 'error') {
+          <p i18n="@@admin.legal.dialog.expeditedError">
+            You gave an expedited reason: it corrects an error. It is recorded only if the version
+            takes effect less than 30 days from now.
+          </p>
+          }
+          <p class="font-medium text-(--text-primary)" i18n="@@admin.legal.dialog.final">
+            A publish cannot be undone. Your answers and the summary cannot be changed afterwards.
+          </p>
+        </div>
+        @if (failedMessage()) {
+        <p
+          data-testid="legal-dialog-error"
+          class="mt-3 text-sm font-medium text-(--text-primary)"
+          role="alert"
+        >
+          {{ failedMessage() }}
+        </p>
+        }
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            type="button"
+            (click)="confirmPublish()"
+            [disabled]="submitting()"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            @if (submitting()) {
+            <span i18n="@@admin.legal.dialog.working">Publishing…</span>
+            } @else {
+            <span i18n="@@admin.legal.dialog.confirm">Publish version {{ p.version }}</span>
+            }
+          </button>
+          <button
+            type="button"
+            (click)="cancelPublish()"
+            [disabled]="submitting()"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            i18n="@@admin.legal.dialog.cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      }
+    </ng-template>
+  </brn-dialog>
+</section>

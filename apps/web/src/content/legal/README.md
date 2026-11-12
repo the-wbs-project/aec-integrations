@@ -124,6 +124,8 @@ On November 11, 2026 **AECI-1619** rewrote one sentence of the Managed plan agre
 
 On November 12, 2026 **AECI-1363** applied legal branch 5 (change list section 13: counsel's Q38, Q39 and Q42 answers and Chris's rulings 17, 18, 20 and 25). Production held two Vendor Terms 1.2 acceptances, both claims from November 11, 2026, so the rule in `docs/LEGAL_IMPACT_REVIEW.md` §2 bumped the Vendor Terms to **1.3** and archived 1.2 unchanged at `/legal/vendor-terms/v1.2`. The server now stamps 1.3 (`LEGAL_AGREEMENT_CURRENT_VERSIONS`). The Terms, the Privacy Policy, the Managed plan agreement and the Listing Accuracy Policy changed in place, without a bump, because none has an acceptance at its current version. The Managed plan agreement's text hash in `LEGAL_AGREEMENT_TEXT_SHA256` is regenerated for the same reason. The items: the Terms' copyright section promises to notify the poster, takes the counter-notice consent to the sender's own district, restores content between 10 and 14 business days after a counter-notice, and keeps a log of every notice. A copyright notice about a logo is accepted. An acceptance record holds the signer's name and title and the company's legal name, and keeps them after account deletion. Every liability clause says it limits only what we can owe. The jury waiver is labelled. A refund deduction is credited against what the vendor owes for the same breach. The Managed plan agreement's own refund and suspension sections govern claims under it. A rights-reducing Vendor Terms change applies to a company only after an owner seat accepts it in the portal. Two items are ahead of the code. Item 13.3 promises the notice log, which **AECI-1665** builds. Item 13.12 promises the portal acceptance of a rights-reducing change, which **AECI-1677** builds. Both are on the gate list above.
 
+**Publishing is gated too (AECI-1688).** Recording a version on `/admin/legal` is not a way around the list of issues that must ship before any effective date. The API var `LEGAL_PUBLISH_ENABLED` is `"true"` on local and staging and `"false"` on demo and production, and the publish answers `409 LEGAL_PUBLISH_DISABLED` while it is off (`docs/environments.md` "Legal publish per tier"). AECI-1677 turns production on, once the list has shipped.
+
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
 
 On November 7, 2026 the sign-in page redesign added a paragraph to the Privacy Policy's "Cookies and similar technologies": the sign-in page keeps one word in local storage, the method last chosen, to mark it "Last used". It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
@@ -334,6 +336,77 @@ steps in this order.
    when the date passes, so CI will not remind you.
 6. **Once the effective day is over, remove the `notices.json` entry.** The band closed at the end of
    that day (UTC), so a closed entry renders nothing. This is tidying.
+
+## Publishing an upcoming agreement version (AECI-1688)
+
+For the Vendor Terms and the Managed plan agreement only. Publishing records the announcement in
+D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, two answers the
+operator gives, and the fingerprint of a PDF a customer can save. It sends nothing yet. The
+change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader accounts
+(AECI-1637) read the record. ADR 0054 is the decision. Run the steps in this order, once per tier.
+
+1. **Commit the upcoming file and its manifest entries.** Steps 1 and 2 of "Announcing a new
+   version before it takes effect" above: `versions/<slug>/v<new>.md` with its `effective_date`
+   filled, the `LEGAL_UPCOMING` entry, and the same `{ version, effectiveOn }` in
+   `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. The publish reads the version and the day from that map,
+   never from the form. Pick an effective date at least 31 days after the day you expect to
+   publish.
+2. **Deploy** to the tier: staging from `main`, production through `promote-to-prod`. The page
+   lists only versions in the deployed map.
+3. **Run the PDF workflow** for that tier, dispatched from `main`: `.github/workflows/legal-pdf.yml`
+   with the slug, the version and the env (`docs/CICD_PLAN.md` §11a-ter). It refuses any other
+   branch. It prints the version with its title, "Version X, effective <date>", absolute links
+   and a footer with the version's URL and page numbers, and uploads it to
+   `legal/<slug>/v<version>.pdf` in the tier's uploads bucket, `aeci-uploads-<env>`. It fails when
+   `effective_date` is blank. It never overwrites a file that is already there. A production run
+   waits for the `production` reviewer.
+4. **Check the PDF before you publish.** The run's summary names the commit (`github.sha`), the
+   slug, the version, the env, and the stored object's sha256 and size. Confirm that the upcoming
+   file at that commit is the text the tier serves at `/legal/<slug>/v<version>`: the commit must
+   be the one deployed to that tier, or one with the same upcoming file. Then open the PDF. On the
+   run's page in GitHub Actions, the Artifacts section at the bottom holds a zip named
+   `legal-pdf-<slug>-v<version>-<env>` with the PDF in it. From a terminal, the same download is:
+
+   ```bash
+   gh run download 19234567890 --name legal-pdf-vendor-terms-v1.4-staging --dir legal-pdf
+   ```
+
+   Here `19234567890` is the run id from the run's URL, the name is the artifact's (slug
+   `vendor-terms`, version `1.4`, env `staging` in this example), and `legal-pdf` is the folder it
+   is saved to. Read the title, the "Version X, effective <date>" line, the footer and a few links.
+
+   **A wrong PDF found before publishing** is removed and printed again, because the workflow
+   never overwrites. Delete the object from the same tier's bucket, then re-run the workflow:
+
+   ```bash
+   pnpm --filter @aeci/api exec wrangler r2 object delete aeci-uploads-staging/legal/vendor-terms/v1.4.pdf --remote
+   ```
+
+   The path is the bucket `aeci-uploads-staging` (use `aeci-uploads-production` or
+   `aeci-uploads-demo` for those tiers) followed by the key `legal/vendor-terms/v1.4.pdf`, which is
+   `legal/<slug>/v<version>.pdf` for the version you printed. It needs Cloudflare credentials for
+   the AEC account with R2 write access.
+
+   **After publishing, never replace the stored PDF.** The `legal_versions` row records its sha256,
+   and every reader of the file re-hashes it. A replaced file no longer matches the record. If the
+   published text is wrong, that is a new version.
+5. **Publish on `/admin/legal`** on that tier. Answer "Is this a material change?" and "Does it
+   need acceptance?" (no default; acceptance needs a material change), write one summary line
+   per change (1 to 10 lines, each up to 300 characters, plain text with no tabs or hidden
+   characters), and give an expedited reason only for a Vendor Terms version inside 30 days. The
+   confirmation says what each answer causes. A publish cannot be undone.
+
+The publish refuses, in this order: publishing off on the tier (`LEGAL_PUBLISH_ENABLED`), a
+version that is not the upcoming one, a version already published, an effective moment that has
+already passed (move the date; an expedited reason does not help) or is less than 30 days away
+(move the date, or expedite a Vendor Terms change), and a missing, non-PDF or over-5 MB file.
+
+**The effective moment is 12:00 UTC on the `effectiveOn` day.** Not midnight: 00:00 UTC is the
+evening before in the Americas, which would start a version early there and shorten the 30-day
+notice. Noon UTC falls on the named day from UTC-12 to UTC+11. `legalEffectiveAtMs`
+(`packages/shared/src/api/legal-versions.ts`) is the one conversion. It sets
+`legal_versions.effective_at` and measures the 30-day window. Anything else that has to know when
+a version takes effect should call it rather than build its own date.
 
 ## Site-wide notice of a material change (spec §27.4, AECI-1592)
 

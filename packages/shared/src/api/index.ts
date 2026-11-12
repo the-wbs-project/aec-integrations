@@ -30,6 +30,7 @@ export * from './integration-vendor-links';
 export * from './https-url';
 export * from './indexnow-runner';
 export * from './landing';
+export * from './legal-versions';
 export * from './license-grants';
 export * from './license-release-requests';
 export * from './notification-preferences';

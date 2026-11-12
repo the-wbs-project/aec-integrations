@@ -367,6 +367,14 @@ export const routes: Routes = [
         path: 'email',
         loadComponent: () => import('./admin/email/email-activity').then((m) => m.EmailActivity),
       },
+      // AECI-1688 — the legal publish page (`ADMIN_PANEL_SPEC.md` §5.22): record an
+      // upcoming Vendor Terms or Managed plan agreement version. Lazy, one flat child,
+      // no resolver; the parent's `adminSummaryResolver` is the gate.
+      {
+        path: 'legal',
+        loadComponent: () =>
+          import('./admin/legal/legal-versions').then((m) => m.AdminLegalVersions),
+      },
       // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
       // read layer over the connector lane. Two flat children, the
       // same arrangement and the same reason as the vendor pair below: the detail
