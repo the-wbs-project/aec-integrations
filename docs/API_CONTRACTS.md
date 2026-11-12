@@ -4168,7 +4168,7 @@ Plus the shared 401/403 and the `write` rate limit's 429.
 
 #### Suspend and terminate (AECI-1623)
 
-Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The eight writes add `rateLimit('write')` after it. Source of truth: `packages/shared/src/api/admin-vendor-suspension.ts`. Rulings: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15. Operator steps: `RUNBOOKS.md` "Vendor suspension and termination". Every write emits its audit row in the same `db.batch` and forwards it after commit. Every write answers `{ suspension, notice_sent? }` with the `VendorSuspension` it changed, except the read.
+Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The eight writes add `rateLimit('write')` after it. Source of truth: `packages/shared/src/api/admin-vendor-suspension.ts`. Rulings: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15. Operator steps: `SUBSCRIPTION_RUNBOOKS.md` "Vendor suspension and termination". Every write emits its audit row in the same `db.batch` and forwards it after commit. Every write answers `{ suspension, notice_sent? }` with the `VendorSuspension` it changed, except the read.
 
 | Route | Body | Does |
 |---|---|---|
@@ -4253,7 +4253,7 @@ live subscription holds it. The batch also carries the `license.revoked` audit r
 the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
 (`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
 never the internal note). No statement names `products`: the Managed-field content stays.
-A paid subscription can be revoked; its Stripe subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The Stripe subscription still holds the quantity, so the next webhook or reconcile sync grants a new subscription. End paid subscriptions in Stripe (`RUNBOOKS.md` "Stripe: refund a paid subscription").*
+A paid subscription can be revoked; its Stripe subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The Stripe subscription still holds the quantity, so the next webhook or reconcile sync grants a new subscription. End paid subscriptions in Stripe (`SUBSCRIPTION_RUNBOOKS.md` "Stripe: refund a paid subscription").*
 
 **Last live subscription: the mirror guard (AECI-1663, 2026-11-09).** A revoke moves no
 contest. Ruling 14 retired ruling B, so the re-route that ran here from AECI-1092 (moved here

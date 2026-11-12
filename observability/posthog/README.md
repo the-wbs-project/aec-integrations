@@ -22,8 +22,9 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 Every monitor that landed anywhere **other** than a PostHog alert keeps its old Datadog
 threshold in this table, so re-promoting one is a config change and not archaeology.
-`observability/datadog/` was deleted at AECI-651, so this table (mirrored in
-`docs/RUNBOOKS.md`) is the only place those thresholds survive.
+`observability/datadog/` was deleted at AECI-651, so this table is the only place those
+thresholds survive. `docs/RUNBOOKS.md` stopped mirroring it on 2026-11-12 and now indexes the
+current alerts only.
 
 | # | Datadog monitor | Old threshold | New home | Why |
 |---|---|---|---|---|

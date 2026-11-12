@@ -197,6 +197,16 @@ To change a legal document:
 
 When a change materially affects users, see §27.4 and the next section.
 
+## Runbooks behind these promises (AECI-1622, AECI-1674)
+
+Some sentences here are promises about what we do when something happens. The procedure for each is in
+`docs/LEGAL_RUNBOOKS.md`. Change the runbook when the promise changes.
+
+| Promise | Document and section | Runbook |
+|---|---|---|
+| We disclose identifying information only in response to legal process, and tell the user first where the law permits | Privacy Policy "How we share data"; Terms of Service | "Subpoena or legal process for a reviewer's identity" |
+| Single-use links "stop working within days" | Privacy Policy "Edge request log" and "Debugging record" | "Data breach (Fla. Stat. 501.171)", recorded checks |
+
 ## Site-wide notice of a material change (spec §27.4, AECI-1592)
 
 The Privacy Policy promises a notice on every page for 30 days before a material change takes effect,

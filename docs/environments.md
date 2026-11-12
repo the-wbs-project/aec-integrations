@@ -131,7 +131,7 @@ ruled 2026-10-27).
 unsuffixed names `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. No workflow reads those
 names. Re-set them as `STRIPE_SECRET_KEY_STAGING` and `STRIPE_WEBHOOK_SECRET_STAGING`, then
 delete the unsuffixed pair. Until then every staging deploy warns and skips both pushes. It is
-step 1 of `RUNBOOKS.md` "Turning on Stripe in production".
+step 1 of `SUBSCRIPTION_RUNBOOKS.md` "Turning on Stripe in production".
 
 ### Private row threads per tier (AECI-1553)
 
@@ -224,7 +224,7 @@ The next production promote pushes them. Then confirm the Worker holds both name
 pnpm exec wrangler secret list --env production
 ```
 
-To re-send vendors after a rotation, use the production form in `RUNBOOKS.md`
+To re-send vendors after a rotation, use the production form in `CATALOG_RUNBOOKS.md`
 "Ownership records not reaching the review app". It needs Chris's go-ahead on the day.
 
 ## Promotion model
@@ -371,7 +371,7 @@ What happens, in order:
 
 | The promoted range… | Run, before the next 04:00 UTC data-quality run |
 | --- | --- |
-| changes what `buildOwnershipRecordV2` puts in the ownership record, or how its `recordHash` is computed (`REVIEW_APP_PROMOTE_API.md` §4d) | The full ownership re-send, dry run then `--apply`: `RUNBOOKS.md` "Turning on the v2 ownership mirror". Then check the newest `ownership_sync_deliveries` rows are `delivered` / `200`. |
+| changes what `buildOwnershipRecordV2` puts in the ownership record, or how its `recordHash` is computed (`REVIEW_APP_PROMOTE_API.md` §4d) | The full ownership re-send, dry run then `--apply`: `CATALOG_RUNBOOKS.md` "Turning on the v2 ownership mirror". Then check the newest `ownership_sync_deliveries` rows are `delivered` / `200`. |
 
 Skipping the re-send leaves every owned vendor counted by `review_mirror_drift`, which is `error` severity and pages. Nothing re-sends on its own: syncs are queued only by vendor and admin writes and the brand-asset cron. AECI-1633 shipped on 2026-11-06 without the re-send, and the check read 4 for two days until AECI-1650 ran it on 2026-11-09.
 
@@ -1124,7 +1124,7 @@ Since AECI-714 that binding carries **two job kinds**, not one: the product bund
 - [ ] **CLI gotcha:** because the top-level (local) entries carry both `id` and `preview_id` (mirroring `TAXONOMY_KV`), `wrangler kv key …` against them needs an explicit `--preview false` (or `--preview`) or it errors with "has both an `id` and a `preview_id` configured".
 - [x] **Release ordering (cleared 2026-08-13):** the hard cutover meant a review app on the old synchronous `200` contract would break on every promote. Ordering was respected — the review app's AECI-567 (async kick-off/poll/collect) merged 2026-08-12, and prod was promoted to the async API afterwards. Keep the rule in mind for any future promote-contract change: **the review app ships first, then `promote-to-prod`.**
 
-Operating a stuck or failed job: `docs/RUNBOOKS.md` → "Promote job errored or stuck".
+Operating a stuck or failed job: `docs/CATALOG_RUNBOOKS.md` → "Promote job errored or stuck".
 
 ### 3. Cloudflare Access
 

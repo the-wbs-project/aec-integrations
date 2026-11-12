@@ -755,7 +755,7 @@ rename, not a retirement: the rows stay and only the slug changes. An ops script
 (raw SQL skips `$onUpdate`, and the Algolia sync is a delta on it), and writes a
 `vendor.updated` / `product.updated` audit row with the slug in `before_state` /
 `after_state`. It is not a migration because a migration only changes data migrations
-created. The procedure is `docs/RUNBOOKS.md`, "Rename a live slug". Consumers besides
+created. The procedure is `docs/CATALOG_RUNBOOKS.md`, "Rename a live slug". Consumers besides
 the resolvers are the three discovery channels, which all withhold a `from_slug` because a
 URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
 the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for

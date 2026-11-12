@@ -3,7 +3,7 @@
 - Status: Accepted. Built as AECI-1238 PR 1 (the whole-listing hide). Amended 2026-11-09 by AECI-1238 PR 2 (the single-value hide).
 - Date: 2026-11-09
 - Issue: AECI-1238. Counsel's Q20 and Q21 answers (2026-11-04, follow-up 2026-11-05) and Chris's rulings of 2026-11-09.
-- Relates to: ADR 0030 (no delete inferred from absence), ADR 0035 (integration ownership and the lossless retire), ADR 0039 (field corrections), ADR 0042 (record ownership), ADR 0044 (the review mirror); `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6, §11d.6 and §11d.7, `STAGE_1_5_SPEC.md` §13.5, `docs/RUNBOOKS.md` "Removal requests"
+- Relates to: ADR 0030 (no delete inferred from absence), ADR 0035 (integration ownership and the lossless retire), ADR 0039 (field corrections), ADR 0042 (record ownership), ADR 0044 (the review mirror); `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6, §11d.6 and §11d.7, `STAGE_1_5_SPEC.md` §13.5, `docs/CATALOG_RUNBOOKS.md` "Removal requests"
 
 ## Context
 

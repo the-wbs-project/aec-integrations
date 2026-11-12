@@ -1122,7 +1122,7 @@ dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
 - Audit event volume by action type
 
 **Alerts:**
-- **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is the table in `docs/RUNBOOKS.md`
+- **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is `observability/posthog/alerts.json`, indexed to runbooks in `docs/RUNBOOKS.md`
 - First occurrence of new error class
 - Error rate > 1% over 5 minutes *(the Datadog cadence; PostHog alerts evaluate **hourly**, which is the largest accepted degradation in the swap — ADR 0024)*
 - p95 latency > 2s

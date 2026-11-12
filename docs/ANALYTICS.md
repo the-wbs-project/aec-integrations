@@ -618,6 +618,10 @@ is a 400 before that point and writes nothing.
   token. A landing view's verdict arrives later by UPDATE on the D1 row, so it is never in an envelope.
 - `ip_hash` is `HMAC(HMAC(secret, 'YYYY-MM'), ip)`. The same address matches within a UTC month and not
   across months. It is null when the secret or the IP is absent.
+  No month key is stored, so "monthly rotation" destroys nothing: every past month's hash can be
+  recomputed while `PAGE_VIEW_IP_HASH_SECRET` survives. A litigation hold therefore keeps that secret
+  unchanged, and copies the affected objects out of the 400-day lifecycle (`docs/LEGAL_RUNBOOKS.md`
+  "Subpoena or legal process for a reviewer's identity", AECI-1622).
 
 **What is never in it.** `cookie`, `authorization` and every `cf-access-*` header (the
 Cloudflare Access session JWT, user email and service token on gated tiers). Every IP-bearing header

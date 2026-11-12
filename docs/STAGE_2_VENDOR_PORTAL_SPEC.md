@@ -4258,7 +4258,7 @@ Wire shapes and errors: `API_CONTRACTS.md` §4, §6.10 and §6.14. Table: `DATAB
 
 ### 11d.6 The listing hide (AECI-1238 PR 1, built 2026-11-09)
 
-**AECi can take a company or a product off the public site without deleting anything.** The row keeps its data, and a restore puts it back exactly as it was. ADR 0052 records the decision. Counsel's Q20 and Q21 answers set the rules for which requests lead to a hide (`docs/RUNBOOKS.md`, "Removal requests"). A hide is interim. It is not a finding that the listing is false.
+**AECi can take a company or a product off the public site without deleting anything.** The row keeps its data, and a restore puts it back exactly as it was. ADR 0052 records the decision. Counsel's Q20 and Q21 answers set the rules for which requests lead to a hide (`docs/CATALOG_RUNBOOKS.md`, "Removal requests"). A hide is interim. It is not a finding that the listing is false.
 
 **Why a new power.** Before this, every row in D1 was public. `promotion_status` cannot hold a hide, because promote resets it. The Listing Accuracy Policy draft already says "When we remove a listing, we hide it".
 
