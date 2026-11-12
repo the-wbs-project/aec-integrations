@@ -50,13 +50,18 @@ import { ClaimDialogService } from './claim-dialog.service';
         >
           <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-3">
             <div>
-              <!-- AECI-1364: a claim is on the company, named once it is known. -->
+              <!-- AECI-1364: a claim is on the company, named once it is known.
+                   AECI-1705: the typed-in path is a request to be listed, not a claim. -->
               <h2
                 brnDialogTitle
                 class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
                 data-testid="claim-dialog-title"
               >
-                @if (dialog.company(); as company) {
+                @if (dialog.typed()) {
+                  <ng-container i18n="@@claimDialog.title.typed"
+                    >Ask us to list your product</ng-container
+                  >
+                } @else if (dialog.company(); as company) {
                   <ng-container i18n="@@claimDialog.title.company"
                     >Claim {{ company }}</ng-container
                   >
@@ -67,9 +72,19 @@ import { ClaimDialogService } from './claim-dialog.service';
               <p
                 brnDialogDescription
                 class="mt-1 text-sm text-(--text-secondary)"
-                i18n="@@claimDialog.description"
+                data-testid="claim-dialog-description"
               >
-                Claiming is free. We set up your account when we approve your claim.
+                @if (dialog.typed()) {
+                  <ng-container i18n="@@claimDialog.description.typed"
+                    >We'll check it against our listing conditions. If we add it, we'll email you a
+                    link to claim it.</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@claimDialog.description"
+                    >Claiming is free. We set up your account when we approve your
+                    claim.</ng-container
+                  >
+                }
               </p>
             </div>
             <button

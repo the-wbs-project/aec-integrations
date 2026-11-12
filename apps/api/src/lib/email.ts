@@ -84,9 +84,11 @@ import {
   LEGAL_DOCUMENT_TITLES,
   REQUEST_CONFIRMATION_DAYS,
   claimOwnerReviewDeadline,
+  countryName,
   legalVersionPagePath,
   orderedPairSlugs,
   type AttestationDetector,
+  type FoundVia,
   type LegalAgreementDocument,
   type LegalExpeditedReason,
   type RequestKind,
@@ -4452,28 +4454,61 @@ export interface ListingRequestSummary {
   /** Title, else a pre-AECI-1649 role (`claimantTitle`). */
   submitterTitle: string | null;
   submitterLinkedinUrl: string | null;
+  /** AECI-1617: the company's legal name. Null only on a pre-AECI-1617 pending row. */
+  companyLegalName: string | null;
+  /** AECI-1705: ISO 3166-1 alpha-2. Null only on a pending row parked before the field. */
+  companyCountry: string | null;
   /** "Additional comments", `''` when none. */
   body: string;
+  /** AECI-1063: "How did you find AEC Integrations?", null when not answered. */
+  foundVia: string | null;
+  /** AECI-1063: its follow-up answer, null when none. */
+  foundViaDetail: string | null;
+}
+
+/** The "How did you find AEC Integrations?" answers as the form words them (English,
+ *  like every operator email). The web labels are `found-via-labels.ts`. */
+const FOUND_VIA_EMAIL_LABELS: Readonly<Record<FoundVia, string>> = {
+  search: 'Google or another search engine',
+  ai_tool: 'ChatGPT, Claude, Perplexity or another AI tool',
+  linkedin: 'LinkedIn',
+  colleague: 'A colleague or word of mouth',
+  vendor: 'A vendor or software company',
+  event: 'An event or conference',
+  other: 'Something else',
+};
+
+/** A stored found-via answer as one line: the label, then the follow-up if any. */
+function foundViaLine(foundVia: string | null, detail: string | null): string {
+  if (!foundVia) return 'Not answered';
+  const label = FOUND_VIA_EMAIL_LABELS[foundVia as FoundVia] ?? foundVia;
+  return detail ? `${label}: ${detail}` : label;
 }
 
 /**
- * Operator alert: a visitor typed in a product or company we do not list, from the
- * claim dialog (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). To `SUPPORT_EMAIL`,
- * reply-to the submitter, so answering is one click. The CTA opens `/admin/requests`,
- * where the request waits either way, which is why the entry is pausable.
+ * Operator alert: a visitor asked us to add a product or company we do not list, from
+ * the claim dialog or the listing request page (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md`
+ * §15.4). To `SUPPORT_EMAIL`, reply-to the submitter, so answering is one click.
  *
- * Every visitor-typed value is `plain`: the name, the website and the email are typed,
- * not verified, so AECi's markup must never turn them into links in the support inbox
- * (the AECI-1197 rule). The visitor's receipt is `claim-received` (AECI-1366), sent
- * after this alert and bounded per address per day.
+ * **The working record** (AECI-1705). There is no admin queue for listing requests, so
+ * this email carries every field the form collects and has no call to action. Chris's
+ * inbox agent files it in Linear. It is not pausable: a paused alert would leave the
+ * request in D1 with no screen to find it on.
+ *
+ * Every visitor-typed value is `plain`: the name, the website, the email and the rest
+ * are typed, not verified, so AECi's markup must never turn them into links in the
+ * support inbox (the AECI-1197 rule). The visitor's receipt is `claim-received`
+ * (AECI-1366), sent after this alert and bounded per address per day.
  */
 export function sendListingRequestAlert(
   c: EmailContext,
   opts: { request: ListingRequestSummary } & SendDedupe,
 ): Promise<EmailOutcome> {
   const { request } = opts;
-  const base = siteUrl(c.env);
   const host = environmentHost(c.env);
+  const country = request.companyCountry
+    ? `${countryName(request.companyCountry)} (${request.companyCountry})`
+    : '—';
   const rows: EmailTableRow[] = [
     ['Listing', request.listingName, { plain: true }],
     ['Website', request.website, { plain: true }],
@@ -4481,26 +4516,26 @@ export function sendListingRequestAlert(
     ['Name', request.submitterName ?? '—', { plain: true }],
     ['Title', request.submitterTitle ?? '—', { plain: true }],
     ['LinkedIn', request.submitterLinkedinUrl ?? 'not supplied', { plain: true }],
+    ['Company legal name', request.companyLegalName ?? '—', { plain: true }],
+    ['Company country', country, { plain: true }],
     ['Comments', request.body || '(none)', { plain: true }],
+    ['Found us via', foundViaLine(request.foundVia, request.foundViaDetail), { plain: true }],
     ['Request id', request.requestId],
   ];
   if (host) rows.push(['Environment', host]);
 
   const name = subjectSafe(request.listingName);
-  const intro = `${request.submitterEmail} asked us to add ${name}, so they can claim it. Add the listing, then reply to this email to tell them it is ready to claim.`;
-  const shared = (link: LinkTagger) => ({
+  const intro = `${request.submitterEmail} asked us to add ${name}, so they can claim it. Add the listing, then reply to this email.`;
+  const shared = () => ({
     preheader: intro,
     heading: `Listing request: ${name}`,
     table: rows,
-    ...(base
-      ? { cta: { label: 'Open the requests queue', url: link(`${base}/admin/requests`) } }
-      : {}),
   });
   return sendTransactionalEmail(c, {
     to: c.env.SUPPORT_EMAIL ?? '',
     template: 'listing-request-alert',
     subject: `[AECi] Listing request: ${name}`,
-    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    render: () => houseBody(shared(), [intro], [escapeHtml(intro)]),
     replyTo: request.submitterEmail,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
@@ -4549,8 +4584,9 @@ export type ClaimReceivedSubject =
 /**
  * The claimant's receipt (AECI-1366, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3 and §15.4). Sent
  * post-commit to the address typed on a claim or a typed-in listing request. It says what
- * was claimed and what happens next, and links the vendor terms they accepted and the
- * help page. It carries NO link that grants anything: no sign-in link, no portal link,
+ * was claimed and what happens next, and links the help page. A claim's receipt also links
+ * the vendor terms they accepted. A listing request's does not, because it accepts none
+ * (AECI-1705). It carries NO link that grants anything: no sign-in link, no portal link,
  * no token. A claim grants nothing until a person approves it.
  *
  * The address is typed, not verified, so the send is bounded to one per address per UTC
@@ -4572,8 +4608,11 @@ export async function sendClaimReceivedEmail(
 
   const review =
     'A member of our team reviews every claim, and access is never granted automatically. We compare your email domain with the company website and review your LinkedIn profile if you provided one. We will email you at this address with our decision.';
+  // AECI-1705: a listing request grants nothing either way, so its line says so.
   const notYou =
-    'If you did not make this request, you can ignore this email. No account changes unless the claim is approved.';
+    about.kind === 'claim'
+      ? 'If you did not make this request, you can ignore this email. No account changes unless the claim is approved.'
+      : 'If you did not make this request, you can ignore this email. Nothing happens unless we add the listing.';
 
   let heading: string;
   let opening: string;
@@ -4610,15 +4649,20 @@ export async function sendClaimReceivedEmail(
     table: [
       ...table,
       ...(base
-        ? ([
-            ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
-            ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
-            ...(about.kind === 'listing'
-              ? ([
-                  ['Listing conditions', link(`${base}/docs/trust/listing-submissions`)],
-                ] as EmailTableRow[])
-              : []),
-          ] as EmailTableRow[])
+        ? ((about.kind === 'claim'
+            ? [
+                ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
+                ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
+              ]
+            : // AECI-1705: a listing request accepts no terms. The vendor accepts them
+              // when they claim the listing we add.
+              [
+                [
+                  'How claiming works after we add it',
+                  link(`${base}/docs/vendors/claiming-your-listing`),
+                ],
+                ['Listing conditions', link(`${base}/docs/trust/listing-submissions`)],
+              ]) as EmailTableRow[])
         : []),
     ],
   });

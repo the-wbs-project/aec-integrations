@@ -128,6 +128,9 @@ describe('ListYourProductPage', () => {
     expect(LIST_YOUR_PRODUCT_OPENING.start).toBe('typed');
     expect(host.querySelector('aec-claim-dialog-host, brn-dialog')).toBeNull();
     expect(host.querySelector('#claim-dialog-listing-name')).not.toBeNull();
+    // AECI-1705: a request to be listed: the company country, and no vendor terms box.
+    expect(host.querySelector('#claim-dialog-country-trigger')).not.toBeNull();
+    expect(host.querySelector('#claim-dialog-terms')).toBeNull();
     expect(claimDialogStep).toHaveBeenCalledWith({
       step: 'you',
       page: 'list_your_product',

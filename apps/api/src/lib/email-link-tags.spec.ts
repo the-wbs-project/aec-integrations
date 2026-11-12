@@ -339,8 +339,10 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         },
       }),
   },
+  // AECI-1705: no call to action. The alert is the record, and its one site URL is the
+  // typed website, which stays as it came.
   'listing-request-alert': {
-    links: true,
+    links: false,
     verbatim: ['https://sitediary.example.com'],
     send: (c) =>
       sendListingRequestAlert(c, {
@@ -352,7 +354,11 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
           submitterName: 'Pat',
           submitterTitle: 'Founder',
           submitterLinkedinUrl: null,
+          companyLegalName: 'Site Diary Ltd',
+          companyCountry: 'GB',
           body: '',
+          foundVia: null,
+          foundViaDetail: null,
         },
       }),
   },

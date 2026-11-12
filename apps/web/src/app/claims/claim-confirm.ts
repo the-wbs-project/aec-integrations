@@ -303,9 +303,9 @@ function failureStatus(err: unknown): FailureStatus {
                 >
                   That listing is no longer available
                 </h1>
-                <p [class]="body" i18n="@@claimConfirm.gone.body">
+                <p [class]="body" i18n="@@claimConfirm.gone.body.askToAdd">
                   The listing you claimed was removed after you sent the claim, so nothing was sent.
-                  Start again and choose Type it in to name your product or company.
+                  Start again and choose Ask us to add it to name your product or company.
                 </p>
                 <a
                   routerLink="/vendor-program"

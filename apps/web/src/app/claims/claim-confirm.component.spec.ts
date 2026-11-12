@@ -228,7 +228,7 @@ describe('ClaimConfirmPage', () => {
     expect(analytics.claimConfirmed).toHaveBeenCalledWith({ kind: null, outcome: 'not_found' });
   });
 
-  it('says the listing is gone, and points at Type it in', async () => {
+  it('says the listing is gone, and points at Ask us to add it (AECI-1705)', async () => {
     const { fixture, httpMock } = setup('tok-1');
     await answer(
       fixture,
@@ -237,7 +237,7 @@ describe('ClaimConfirmPage', () => {
       { status: 404, statusText: 'Not Found' },
     );
     expect(h1(fixture)).toBe('That listing is no longer available');
-    expect(squash(el(fixture).textContent)).toContain('choose Type it in');
+    expect(squash(el(fixture).textContent)).toContain('choose Ask us to add it');
   });
 
   it('keeps the confirm available with an alert when the request fails', async () => {

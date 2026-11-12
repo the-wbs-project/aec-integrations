@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { IsoCountryCodeSchema } from '../countries';
 import { foundViaFields } from './found-via';
 import { HttpsUrlSchema } from './https-url';
 
@@ -134,8 +135,12 @@ function isLinkedInProfileUrl(value: string): boolean {
  * wire: `source_url` shipped with its endpoint, whereas this field is added to an
  * endpoint already in production, and a body that predates it must still validate.
  * The server stores `''` as NULL either way.
+ *
+ * AECI-1705: these are the identity fields both forms share, with no vendor terms
+ * box. {@link ClaimFormSchema} adds the box. A typed-in listing request
+ * ({@link ListingRequestFormSchema}) does not: it is a request to be listed, not a claim.
  */
-export const ClaimFormSchema = z.object({
+export const ClaimantFormSchema = z.object({
   submitter_name: z
     .string()
     .trim()
@@ -176,17 +181,22 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
-  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3), wording since AECI-1617:
-  // "I have read and accept the Vendor Terms on behalf of the company named above, and I
-  // am authorized to bind that company." Required on every claim and listing request:
-  // missing or `false` is `400 VALIDATION_FAILED` with `field: 'accepted_terms'`. The
-  // version accepted is stamped by the server, never sent by the client.
-  accepted_terms: z.literal(true, {
-    error: 'Confirm you accept the Vendor Terms and are authorized to bind this company.',
-  }),
   // AECI-1063 (`docs/ANALYTICS.md` §11b): optional "How did you find AEC
   // Integrations?" and its follow-up. Both default to `''`, stored as NULL.
   ...foundViaFields,
+});
+
+/** The claim form: the identity fields plus the required vendor terms box. */
+export const ClaimFormSchema = ClaimantFormSchema.extend({
+  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3), wording since AECI-1617:
+  // "I have read and accept the Vendor Terms on behalf of the company named above, and I
+  // am authorized to bind that company." Required on every claim: missing or `false` is
+  // `400 VALIDATION_FAILED` with `field: 'accepted_terms'`. The version accepted is
+  // stamped by the server, never sent by the client. A listing request has no box
+  // (AECI-1705).
+  accepted_terms: z.literal(true, {
+    error: 'Confirm you accept the Vendor Terms and are authorized to bind this company.',
+  }),
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
 /** The wire body before defaults: every defaulted key may be omitted. `accepted_terms`
@@ -236,23 +246,33 @@ export type StoredClaimRequest = z.infer<typeof StoredClaimRequestSchema>;
 // ─── Listing request (a typed-in listing) ────────────────────────────────────
 
 /**
- * "Not listed? Type it in" in the claim dialog (AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). The claim form's fields, unchanged (the same
+ * "Not listed? Ask us to add it" in the claim dialog (AECI-1293, AECI-1705,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). The claimant's identity fields (the same
  * LinkedIn host allowlist, the same optional `body`, here labelled "Additional
- * comments"), plus the listing the visitor typed. There is no target: the product or
- * company is not in the catalog yet, which is the point of the request.
+ * comments"), plus the listing the visitor typed and the company's country. There is
+ * no target: the product or company is not in the catalog yet, which is the point of
+ * the request.
+ *
+ * **No vendor terms box** (AECI-1705). A listing request is a request to be listed, not
+ * a claim, and no listed company exists yet to accept the terms for. The vendor accepts
+ * them when they claim the listing we add. A body that still sends `accepted_terms`
+ * (a bundle loaded before the change) validates, and the key is stripped.
+ *
+ * `company_country` (AECI-1705) is required, an ISO 3166-1 alpha-2 code from
+ * `ISO_COUNTRY_CODES`, to help us check the company is real.
  *
  * `website` is the shared `HttpsUrlSchema` rule (https only, no credentials), capped
- * at 500 like a correction's `source_url`. The admin queue renders it, so the scheme
- * allowlist is what keeps a `javascript:` URL out of an `href`.
+ * at 500 like a correction's `source_url`. The scheme allowlist keeps a
+ * `javascript:` URL out of any `href` built from it.
  */
-export const ListingRequestFormSchema = ClaimFormSchema.extend({
+export const ListingRequestFormSchema = ClaimantFormSchema.extend({
   listing_name: z
     .string()
     .trim()
     .min(1, 'The product or company name is required.')
     .max(200, 'Keep the name under 200 characters.'),
   website: HttpsUrlSchema.max(500, 'Keep the website under 500 characters.'),
+  company_country: IsoCountryCodeSchema,
 });
 export type ListingRequestForm = z.infer<typeof ListingRequestFormSchema>;
 
@@ -261,8 +281,16 @@ export const ListingRequestSchema = ListingRequestFormSchema;
 export type ListingRequest = z.infer<typeof ListingRequestSchema>;
 export type ListingRequestInput = z.input<typeof ListingRequestSchema>;
 
-/** A listing body as `request_confirmations.payload` stores it (see above). */
-export const StoredListingRequestSchema = ListingRequestSchema.extend(storedSignerFields);
+/**
+ * A listing body as `request_confirmations.payload` stores it (see above). A row parked
+ * before AECI-1705 has no `company_country`, and its link stays good for 7 days, so the
+ * confirm takes it and stores NULL. Such a row may also carry `accepted_terms`, which is
+ * stripped: the confirm writes no acceptance for a listing request.
+ */
+export const StoredListingRequestSchema = ListingRequestSchema.extend({
+  ...storedSignerFields,
+  company_country: IsoCountryCodeSchema.optional(),
+});
 export type StoredListingRequest = z.infer<typeof StoredListingRequestSchema>;
 
 // ─── Responses ───────────────────────────────────────────────────────────────

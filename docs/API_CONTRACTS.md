@@ -1550,7 +1550,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 - The company is the product's `is_primary` vendor, else any `product_vendors` row (lowest vendor id). That is the vendor `GET /api/products/:slug` returns as `vendor`.
 - The row stores `target_type = 'vendor'` and that vendor's id. The product id goes to `vendor_requests.context_product_id`.
-- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Type it in instead".
+- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Ask us to add it instead" ("Type it in instead" until AECI-1705).
 - The `vendor_request.created` audit row and the genesis transition carry `target_type: 'vendor'`, the company's `slug`, `context_product_id` and `context_product_slug` (`null` on a company-page claim).
 - The Linear issue and `claim-submitted-alert` name the company as the target and add a "Came from" line with the product.
 - The §7.2 duplicate probe keys on the company, so a product-page claim and a company-page claim on one company dedupe together. A claim stored before migration 0076 keeps its product target and does not match a new one.
@@ -1601,23 +1601,26 @@ Both return `RequestSubmitResponse` (`{ request_id: string; message: string; con
 
 #### `POST /api/requests/listing` (AECI-1293)
 
-"Not listed? Type it in" in the claim dialog, and the same form on `/vendor-program/list-your-product` (AECI-1474, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4 and §2.5): a product or company the catalog does not list, so AECi can add it and then invite the submitter to claim it. Public, no session.
+"Not listed? Ask us to add it" in the claim dialog ("Type it in" until AECI-1705), and the same form on `/vendor-program/list-your-product` (AECI-1474, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4 and §2.5): a product or company the catalog does not list, so AECi can add it and then invite the submitter to claim it. Public, no session.
 
 ```typescript
-export const ListingRequestSchema = ClaimFormSchema.extend({
+export const ListingRequestSchema = ClaimantFormSchema.extend({
   listing_name: z.string().trim().min(1).max(200),
   website: HttpsUrlSchema.max(500), // https only, no credentials
+  company_country: IsoCountryCodeSchema, // AECI-1705: ISO 3166-1 alpha-2, required
 });
-// No target: the listing is not in the catalog yet.
+// No target: the listing is not in the catalog yet. No `accepted_terms` (AECI-1705).
 ```
 
 Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `has_linkedin`, never the typed name, website or email. It held `plan_interest` too until AECI-1365 removed the field. A body that still sends it returns `201` and the key is dropped. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
 
-**As built, AECI-1366 (2026-10-15).** The schema extends `ClaimFormSchema`, so it requires `accepted_terms: true` exactly as the claim does. The batch adds the acceptance row (`listing_request_id` = the new row, `vendor_request_id` null, migration 0078) and its `agreement.accepted` audit row, four statements in all. After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded.
+**As built, AECI-1366 (2026-10-15).** After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded. From AECI-1366 to AECI-1705 the schema extended `ClaimFormSchema` and required `accepted_terms: true`, and the batch added an `agreement_acceptances` row (`listing_request_id` = the new row, migration 0078) and its `agreement.accepted` audit row.
 
-**`found_via` (AECI-1063).** The schema extends `ClaimFormSchema`, so it carries `found_via` and `found_via_detail` with the claim's rules (above). They are stored on `listing_requests.found_via` and `found_via_detail`. The `listing_request.created` audit metadata gains `found_via` (the enum, or `null`), never the detail.
+**As built, AECI-1705 (2026-11-12).** A listing request is a request to be listed, not a claim. The schema extends `ClaimantFormSchema`, the identity fields with no vendor terms box, and requires no `accepted_terms`. A body that still sends it returns `201` and the key is stripped. The batch is the insert and its audit row, two statements, and no acceptance. `company_country` is required: an assigned ISO 3166-1 alpha-2 code (`ISO_COUNTRY_CODES`, `packages/shared/src/countries.ts`), trimmed and upper-cased, stored in `listing_requests.company_country`. A blank, free-text or unassigned value is `400 VALIDATION_FAILED` with `field: 'company_country'`. The alert carries every field the form collects and has no call to action (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4).
 
-**As built, AECI-1435 (2026-10-21).** The listing waits on the emailed link exactly as an anonymous claim does (above). The batch, the alert and the receipt in this section run at confirm, and the row takes the pending id. A signed-in visitor whose verified email is the typed address skips the link. The confirm-path message is "Check your email. Your request is not sent until you click the link we emailed you."
+**`found_via` (AECI-1063).** The schema shares the claim's identity fields, so it carries `found_via` and `found_via_detail` with the claim's rules (above). They are stored on `listing_requests.found_via` and `found_via_detail`. The `listing_request.created` audit metadata gains `found_via` (the enum, or `null`), never the detail.
+
+**As built, AECI-1435 (2026-10-21).** The listing waits on the emailed link exactly as an anonymous claim does (above). The batch, the alert and the receipt in this section run at confirm, and the row takes the pending id. A signed-in visitor whose verified email is the typed address skips the link. The confirm-path message is "Check your email. Your request is not sent until you click the link we emailed you." Since AECI-1705 the pending listing row stores `terms_version = ''` and no IP address, browser or policy versions. The confirm writes no acceptance for a listing, and ignores any such evidence on a row parked before the change.
 
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
 
@@ -1749,7 +1752,7 @@ resolver's gate and the in-shell badge feed.
 | Field | Counts |
 |---|---|
 | `pending_reviews` | `reviews.status = 'pending'` |
-| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, **plus** `listing_requests.status = 'open'` (AECI-1293: the second section of `/admin/requests`, a different table, so still disjoint from claims), **plus** `product_requests.status = 'open'` (AECI-1377: a vendor asking us to add a product, also on `/admin/requests`, another table) |
+| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, **plus** `product_requests.status = 'open'` (AECI-1377: a vendor asking us to add a product, also on `/admin/requests`, another table), **plus** `license_release_requests.status = 'open'` (AECI-1373). Open `listing_requests` were a term from AECI-1293 until AECI-1705 removed their queue |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
 | `pending_review_responses` | `review_responses.status = 'pending'`, vendor replies awaiting pre-moderation (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A sixth count on a different table, so disjoint from the other five. Badges `/admin/review-responses`. Optional on the wire type for deploy skew only |
@@ -1760,9 +1763,9 @@ resolver's gate and the in-shell badge feed.
 client leaves `pending_reindex` out of the header and Operations sums and shows it only on
 the `/admin/reindex` nav entry (`ADMIN_PANEL_SPEC.md` §5.0c). Requests and claims
 are one table split by `kind`, so `pending_requests` counts corrections, never claims; an
-all-kinds count would put every open claim into the total twice. Since AECI-1293 it also
-counts open `listing_requests` rows, the second section of `/admin/requests`, and since
-AECI-1377 open `product_requests` rows, also listed there. `in_review` is
+all-kinds count would put every open claim into the total twice. Since AECI-1377 it also
+counts open `product_requests` rows, also listed there. From AECI-1293 until AECI-1705 it
+counted open `listing_requests` rows too, while `/admin/requests` listed them. `in_review` is
 deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
@@ -2420,46 +2423,14 @@ truthful. Since AECI-1421 the inbound Linear webhook never ends a claim (§6.11)
 `/admin/requests` queue already lists corrections only, so it offers no claim action.
 This is the mirror of the claims endpoint's 422 on a non-claim request.
 
-#### `GET /api/admin/listing-requests` and `PATCH /api/admin/listing-requests/:id` (AECI-1293)
+#### `GET /api/admin/listing-requests` and `PATCH /api/admin/listing-requests/:id` — REMOVED (AECI-1705)
 
-The listing request queue, the second section of `/admin/requests`
-(`VENDOR_PROGRAM_PAGE_SPEC.md` §15.5). Behind `requireAdmin()`. Source of truth:
-`packages/shared/src/api/admin-requests.ts`.
-
-```typescript
-export const ListListingRequestsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['open', 'resolved', 'rejected']).default('open'),
-});
-export const AdminListingRequestSchema = z.object({
-  id: z.string().uuid(),
-  status: z.enum(['open', 'resolved', 'rejected']),
-  listing_name: z.string(),
-  website: z.string(), // https only at submit
-  submitter_email: z.string(),
-  submitter_name: z.string().nullable(),
-  submitter_role: z.string().nullable(),
-  submitter_title: z.string().nullable(), // AECI-1617: claim and listing only; null before the column
-  company_legal_name: z.string().nullable(), // AECI-1617: as above
-  submitter_linkedin_url: z.string().nullable(),
-  // AECI-1365 removed `plan_interest` from this shape.
-  body: z.string(), // "Additional comments", '' when none
-  found_via: FoundViaSchema.nullable(), // AECI-1063, "Found us via"; null = not answered
-  found_via_detail: z.string().nullable(), // AECI-1063; null = none, or erased
-  created_at: z.string().datetime(),
-  resolved_at: z.string().datetime().nullable(),
-  resolved_by: z.string().nullable(), // no FK to profiles
-});
-// GET  → paginatedResponseSchema(AdminListingRequestSchema), newest first, `id` tiebreak.
-// PATCH body: ModerateRequestSchema ({ action: 'resolve' | 'reject', reason? }).
-// PATCH → AdminListingRequest.
-```
-
-A PATCH is one `db.batch`: the guarded `UPDATE … WHERE status = 'open'` and its
-`listing_request.resolved` / `listing_request.rejected` audit row (the reason, when
-given, is in the audit metadata only). Resolving does not create the listing: the
-operator adds it upstream and emails the submitter. Errors: `NOT_FOUND` (unknown id),
-`INVALID_STATE_TRANSITION` (422, not `open`), `VALIDATION_FAILED`. No rate limit and no
-cache purge, like `PATCH /api/admin/requests/:id`.
+AECI-1293 added the listing request queue, the second section of `/admin/requests`, with a
+paginated list and a resolve / reject PATCH (`listing_request.resolved` /
+`listing_request.rejected` audit rows). AECI-1705 (2026-11-12) removed both endpoints, their
+schemas (`ListListingRequestsQuerySchema`, `AdminListingRequestSchema`) and the screen
+section. Listing requests reach the operator by email only: `listing-request-alert` is the
+record (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4, §15.5). Neither path is registered any more.
 
 #### `GET /api/admin/product-requests` and `PATCH /api/admin/product-requests/:id` (AECI-1377)
 

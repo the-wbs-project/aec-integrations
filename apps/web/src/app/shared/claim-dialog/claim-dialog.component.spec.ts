@@ -72,6 +72,29 @@ describe('ClaimDialog', () => {
     expect(service.company()).toBeNull();
   });
 
+  // AECI-1705: the typed-in path is a request to be listed, not a claim.
+  it('titles the typed-in path as a listing request, and resets on the next open', async () => {
+    const service = mount();
+    service.open({ page: 'vendor_program', entry: 'top', start: 'typed' });
+    const fixture = TestBed.createComponent(ClaimDialog);
+    fixture.detectChanges();
+    await stable();
+    fixture.detectChanges();
+    await stable();
+    expect(service.typed()).toBe(true);
+    expect(panel()!.querySelector('h2')!.textContent?.trim()).toBe('Ask us to list your product');
+    expect(
+      panel()!
+        .querySelector('[data-testid="claim-dialog-description"]')!
+        .textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe(
+      "We'll check it against our listing conditions. If we add it, we'll email you a link to claim it.",
+    );
+    service.close();
+    expect(service.typed()).toBe(false);
+  });
+
   it('is a full-screen sheet below sm and a centred panel from sm', async () => {
     const service = mount();
     service.open({ page: 'docs_plans', entry: 'top' });

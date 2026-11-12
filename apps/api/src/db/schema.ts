@@ -1618,8 +1618,10 @@ export const vendorRequests = sqliteTable(
 /**
  * Listing requests (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or
  * company a visitor typed into the claim dialog because it is not in the catalog
- * ("Not listed? Type it in"). The claim form's identity fields and the comments, plus the name and website they typed. Written by
- * `POST /api/requests/listing`, moderated on `/admin/requests`.
+ * ("Not listed? Ask us to add it"). The claimant's identity fields and the comments, plus
+ * the name, website and company country they typed. Written by `POST /api/requests/listing`.
+ * Since AECI-1705 there is no admin screen: the `listing-request-alert` email is the
+ * working record, and the operator works it from the inbox. `status` stays `open`.
  *
  * **Its own table, not a `vendor_requests` kind.** A typed-in listing has no target,
  * and `vendor_requests` has `target_type`/`target_id` NOT NULL plus CHECKs on `kind`
@@ -1629,10 +1631,11 @@ export const vendorRequests = sqliteTable(
  * **Deliberately no FK and no CHECK** (the `field_overrides` precedent below). No FK
  * from `resolved_by` to `profiles`, so the erasure batch has nothing new to null and
  * an admin's id stays on the record, as in audit metadata. No CHECK on `status`: a
- * CHECK change would force a recreate. The moderation handler enforces the vocabulary.
+ * CHECK change would force a recreate. Zod enforced the vocabulary while the admin
+ * moderation endpoint existed (removed by AECI-1705).
  *
- * Domain state (a request): every insert and every status change writes its
- * `audit_log` row in the same `db.batch` (ADR 0022). No `workflow_instances` row: that
+ * Domain state (a request): every insert writes its `audit_log` row in the same
+ * `db.batch` (ADR 0022). No `workflow_instances` row: that
  * table's `workflow_type` is CHECK-constrained, and the audit rows are the history.
  */
 export const listingRequests = sqliteTable(
@@ -1648,6 +1651,10 @@ export const listingRequests = sqliteTable(
     /** AECI-1617: as on `vendor_requests`. NULL on a row stored before these columns. */
     submitterTitle: text('submitter_title'),
     companyLegalName: text('company_legal_name'),
+    /** AECI-1705: the company's country, an ISO 3166-1 alpha-2 code (`ISO_COUNTRY_CODES`).
+     *  Required on the form since then. NULL on an older row, and on one confirmed from a
+     *  link sent before the field. No CHECK: Zod enforces the list (`docs/migrations.md` §0). */
+    companyCountry: text('company_country'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
     // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
@@ -1679,8 +1686,8 @@ export const listingRequests = sqliteTable(
  * **The token is stored hashed.** `token_hash` is the SHA-256 hex of the emailed
  * token, so a read of this table cannot be replayed as a link. `payload` is the
  * validated request body as JSON, nulled on confirm. `terms_version`, `ip` and
- * `user_agent` are the vendor terms evidence captured at submit, written into
- * `agreement_acceptances` at confirm.
+ * `user_agent` are a claim's vendor terms evidence captured at submit, written into
+ * `agreement_acceptances` at confirm. A listing request carries none since AECI-1705.
  *
  * **No FK and no CHECK** (the `listing_requests` precedent). `kind` is `claim` or
  * `listing`, enforced by the handler. A new table, so its migration is a plain
@@ -1703,9 +1710,12 @@ export const requestConfirmations = sqliteTable(
     submitterEmail: text('submitter_email').notNull(),
     /** The validated request body as JSON. NULL once confirmed. */
     payload: text('payload'),
-    /** The vendor terms version shown at submit. */
+    /** The vendor terms version shown at submit. `''` on a listing request since
+     *  AECI-1705: its form shows no terms, and the column is NOT NULL (changing that is
+     *  a recreate). */
     termsVersion: text('terms_version').notNull(),
-    /** `CF-Connecting-IP` at submit, for the acceptance row. */
+    /** `CF-Connecting-IP` at submit, for the acceptance row. NULL on a listing request
+     *  since AECI-1705, which records no acceptance. */
     ip: text('ip'),
     /** The submit's user agent, cut to 512 characters, for the acceptance row. */
     userAgent: text('user_agent'),
@@ -2300,8 +2310,9 @@ export const agreementAcceptances = sqliteTable(
     vendorRequestId: text('vendor_request_id').references(() => vendorRequests.id, {
       onDelete: 'set null',
     }),
-    /** AECI-1366: the typed-in listing request this acceptance was given on (the
-     *  "Not listed? Type it in" path has no claim row). SET NULL, like the claim link. */
+    /** AECI-1366: the typed-in listing request this acceptance was given on (that path
+     *  has no claim row). SET NULL, like the claim link. AECI-1705: no new rows set it,
+     *  because a listing request no longer shows the vendor terms box. */
     listingRequestId: text('listing_request_id').references(() => listingRequests.id, {
       onDelete: 'set null',
     }),

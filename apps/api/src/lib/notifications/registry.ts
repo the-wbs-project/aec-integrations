@@ -381,7 +381,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
     summary:
       'Tells the person who sent a claim or a typed-in listing request that we have it, what they claimed, and what happens next.',
-    note: "Sent after the operator alert, in the same waitUntil, once the request is in: at confirm for an anonymous visitor (AECI-1435), at submit for a signed-in one whose verified email is the typed address. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
+    note: "Sent after the operator alert, in the same waitUntil, once the request is in: at confirm for an anonymous visitor (AECI-1435), at submit for a signed-in one whose verified email is the typed address. No link that grants anything: a claim's links the vendor terms they accepted and the help page. Listing variant (AECI-1705): no terms row, because a listing request accepts no terms, and it links how claiming works after we add the listing and the listing conditions. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim or request was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
   },
   'listing-request-alert': {
     channel: 'email',
@@ -394,11 +394,11 @@ export const NOTIFICATIONS = {
     dedupe: 'Key listing-request-alert:{requestId}, so at most one alert per saved request.',
     ledger: ['notification_sends'],
     optOut: 'none',
-    pausable: true,
+    pausable: false,
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
     summary:
-      'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
-    note: 'The visitor gets claim-received, bounded per address per day (AECI-1366). Pausable: operator alert. The request waits in /admin/requests either way.',
+      'Tells SUPPORT_EMAIL a visitor asked us to add a product or company we do not list, with every field the form collects and reply-to set to them.',
+    note: 'The working record since AECI-1705: there is no admin queue for listing requests, so the email carries every field and has no call to action. Not pausable for the same reason: a paused alert would leave the request with no screen to find it on. The visitor gets claim-received, bounded per address per day (AECI-1366).',
   },
   'product-request-alert': {
     channel: 'email',

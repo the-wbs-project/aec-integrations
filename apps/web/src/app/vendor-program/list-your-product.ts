@@ -7,7 +7,7 @@
  * **Not a dialog (ruling 2026-10-24).** The page embeds the claim dialog's own step
  * component, `ClaimDialogFlow`, with `embedded` set, opened on the typed-in You step
  * (`start: 'typed'`). So it is the same form, the same `POST /api/requests/listing`,
- * the same receipt and the same events as the dialog's "Not listed? Type it in"
+ * the same receipt and the same events as the dialog's "Not listed? Ask us to add it"
  * path. No BrnDialog and no `aec-claim-dialog-host`. Back from the first step goes
  * to the Find step, inline, so a vendor who is listed after all can claim from here.
  *

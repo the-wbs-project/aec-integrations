@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AdminClaimSchema } from './admin-claims';
-import {
-  AdminListingRequestSchema,
-  AdminVendorRequestSchema,
-  ListListingRequestsQuerySchema,
-} from './admin-requests';
+import { AdminVendorRequestSchema } from './admin-requests';
 import {
   claimantTitle,
   ClaimFormSchema,
@@ -27,10 +23,13 @@ const claim = {
   accepted_terms: true,
 };
 
+// AECI-1705: a listing request carries no vendor terms box, and names the company's country.
+const { accepted_terms: _terms, ...claimant } = claim;
 const listing = {
-  ...claim,
+  ...claimant,
   listing_name: 'Site Diary Pro',
   website: 'https://sitediary.example.com',
+  company_country: 'GB',
 };
 
 // AECI-1365 retired the plan question. An old client may still send the key: it
@@ -56,15 +55,21 @@ describe('ClaimFormSchema without the plan question (AECI-1365)', () => {
 describe('accepted_terms (AECI-1366)', () => {
   const { accepted_terms: _omit, ...withoutTerms } = claim;
 
-  it.each([
-    ['ClaimFormSchema', ClaimFormSchema, {}],
-    ['ListingRequestSchema', ListingRequestSchema, listing],
-  ] as const)('%s accepts only the literal true', (_name, schema, extra) => {
-    expect(schema.safeParse({ ...claim, ...extra }).success).toBe(true);
+  it('ClaimFormSchema accepts only the literal true', () => {
+    expect(ClaimFormSchema.safeParse(claim).success).toBe(true);
     for (const value of [false, 'true', 1, null]) {
-      const result = schema.safeParse({ ...claim, ...extra, accepted_terms: value });
+      const result = ClaimFormSchema.safeParse({ ...claim, accepted_terms: value });
       expect(result.success).toBe(false);
       expect(result.error?.issues[0]?.path).toEqual(['accepted_terms']);
+    }
+  });
+
+  // AECI-1705: a listing request is not a claim, so it asks for no terms.
+  it('ListingRequestSchema needs no accepted_terms, and strips one a stale bundle sends', () => {
+    expect(ListingRequestSchema.safeParse(listing).success).toBe(true);
+    for (const value of [true, false]) {
+      const parsed = ListingRequestSchema.parse({ ...listing, accepted_terms: value });
+      expect(parsed).not.toHaveProperty('accepted_terms');
     }
   });
 
@@ -158,37 +163,41 @@ describe('ListingRequestSchema (AECI-1293)', () => {
   });
 });
 
-describe('admin listing request schemas (AECI-1293)', () => {
-  it('defaults the queue to open', () => {
-    expect(ListListingRequestsQuerySchema.parse({}).status).toBe('open');
+// AECI-1705: the company's country, required on a new listing request.
+describe('ListingRequestSchema company_country (AECI-1705)', () => {
+  it('requires it', () => {
+    const { company_country: _c, ...without } = listing;
+    const result = ListingRequestSchema.safeParse(without);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual(['company_country']);
   });
 
-  it('parses a queue row', () => {
-    const row = AdminListingRequestSchema.parse({
-      id: '11111111-2222-4333-8444-555555555555',
-      status: 'open',
-      listing_name: 'Site Diary Pro',
-      website: 'https://sitediary.example.com',
-      submitter_email: 'ada@example.com',
-      submitter_name: 'Ada',
-      submitter_role: 'PM',
-      submitter_title: null,
-      company_legal_name: null,
-      submitter_linkedin_url: null,
-      body: '',
-      found_via: 'ai_tool',
-      found_via_detail: 'aec directory',
-      created_at: '2026-10-12T08:00:00.000Z',
-      resolved_at: null,
-      resolved_by: null,
-    });
-    expect(row).not.toHaveProperty('plan_interest');
-    // AECI-1063: the channel is the enum or null; nothing else parses.
-    expect(row.found_via).toBe('ai_tool');
-    expect(AdminListingRequestSchema.safeParse({ ...row, found_via: 'radio' }).success).toBe(false);
-    expect(AdminListingRequestSchema.safeParse({ ...row, found_via: null }).success).toBe(true);
+  it.each([
+    ['blank', ''],
+    ['free text', 'United Kingdom'],
+    ['an alpha-3 code', 'GBR'],
+    ['an unassigned code', 'ZZ'],
+    ['a reserved code', 'UK'],
+  ])('rejects %s', (_label, company_country) => {
+    expect(ListingRequestSchema.safeParse({ ...listing, company_country }).success).toBe(false);
   });
 
+  it('takes an assigned code, trimmed and upper-cased', () => {
+    expect(
+      ListingRequestSchema.parse({ ...listing, company_country: ' de ' }).company_country,
+    ).toBe('DE');
+  });
+
+  it('a pending payload from before the field still parses at confirm', () => {
+    const { company_country: _c, ...old } = listing;
+    expect(StoredListingRequestSchema.parse({ ...old, accepted_terms: true })).not.toHaveProperty(
+      'accepted_terms',
+    );
+    expect(StoredListingRequestSchema.parse(old).company_country).toBeUndefined();
+  });
+});
+
+describe('admin request schemas', () => {
   it('no longer carries plan_interest on the vendor request row (AECI-1365)', () => {
     expect(AdminVendorRequestSchema.shape).not.toHaveProperty('plan_interest');
   });
@@ -287,7 +296,13 @@ describe('the signer fields', () => {
     const { submitter_title: _t, company_legal_name: _l, ...old } = body;
     expect(ClaimRequestSchema.safeParse(old).success).toBe(false);
     expect(StoredClaimRequestSchema.safeParse(old).success).toBe(true);
-    const listing = { ...old, listing_name: 'Acme Field', website: 'https://acme.example.com' };
+    const { accepted_terms: _a, ...oldListing } = old;
+    const listing = {
+      ...oldListing,
+      listing_name: 'Acme Field',
+      website: 'https://acme.example.com',
+      company_country: 'US',
+    };
     expect(ListingRequestSchema.safeParse(listing).success).toBe(false);
     expect(StoredListingRequestSchema.safeParse(listing).success).toBe(true);
   });
