@@ -2,7 +2,7 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: November 9, 2026
+last_updated: November 12, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -81,7 +81,7 @@ We will **not**:
 
 This independence is deliberate: it is what lets the directory stay useful and trustworthy rather than reflecting only what vendors want shown.
 
-When we remove a listing, we hide it. A hidden listing is taken off the public site and out of search, but its data is kept so it can be restored if the reason for hiding it turns out to be wrong. Hiding is not deletion. We hide a listing, or the contested part of it, while we verify a complaint. We obey a valid court order or lawful government process directed to us. A request to remove a name is answered by this policy. A complaint that a logo or screenshot infringes copyright goes through the copyright notice process in our Terms of Service. A complaint that a logo is the complainant's trademark is answered by this policy, and we remove a logo we sourced ourselves at once when its owner objects. We tell the vendor of a claimed listing when we hide it and why, and it may dispute the decision by writing to us.
+When we remove a listing, we hide it. A hidden listing is taken off the public site and out of search, but its data is kept so it can be restored if the reason for hiding it turns out to be wrong. Hiding is not deletion. We hide a listing, or the contested part of it, while we verify a complaint. We obey a valid court order or lawful government process directed to us. A request to remove a name is answered by this policy. A complaint that a logo or screenshot infringes copyright goes through the copyright notice process in our Terms of Service. A logo can be both a trademark and copyrighted artwork, so we accept a copyright notice about a logo as well. A complaint that a logo is the complainant's trademark is answered by this policy, and we remove a logo we sourced ourselves at once when its owner objects. We tell the vendor of a claimed listing when we hide it and why, and it may dispute the decision by writing to us.
 
 ## Reviews are separate
 
@@ -97,4 +97,4 @@ Corrections and questions: [support@aecintegrations.com](mailto:support@aecinteg
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means. After counsel's follow-up: names how to send a correction, says hiding is not a finding, and defines business days. After a second drafting pass: an integration delivered through a connector can be claimed, edited and contested by its owner on any plan, we give our view on a protest after the owner's reply or its 14 days, sooner only in two named cases that our view states, and a trademark objection to a logo is handled here while a copyright complaint goes through the Terms.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means. After counsel's follow-up: names how to send a correction, says hiding is not a finding, and defines business days. After a second drafting pass: an integration delivered through a connector can be claimed, edited and contested by its owner on any plan, we give our view on a protest after the owner's reply or its 14 days, sooner only in two named cases that our view states, and a trademark objection to a logo is handled here while a copyright complaint goes through the Terms. After counsel's later answers: we accept a copyright notice about a logo as well.
