@@ -2253,7 +2253,13 @@ queued", "Delivered", "Not yet delivered" and "Not reached", then "Companies not
 each by name with its reason in plain words (no seat or billing email; the PDF did not match;
 the email service refused an address; email not set up on the tier; the site address unset;
 seat emails unreadable; a read failed; could not be queued; still waiting when the version took
-effect). The list shows the first 100, and says so when there are more. Then one line of
+effect). The list shows the first 100, and says so when there are more. Once the version is in
+effect, every company still queued counts as not reached and is listed with "Still waiting when
+the version took effect, so it was not sent." Before then, "Waiting too long" lists any company
+queued with no update for two hours, each as "Queued for more than two hours. Send the notice
+again." "Delivered, with an address to check" lists delivered companies where the email
+service did not confirm an address ("…so that email may not have arrived") or the tier's email
+rules held one ("…got nothing"), so a staging or demo result reads honestly. Then one line of
 address counts (`notice_sends`), each address counted once by its latest send: "Addresses sent"
 and "Addresses failing" always, and "with an unknown outcome", "held by this tier's email rules"
 and "skipped" when not zero. A retry that succeeds takes an address out of "failing".

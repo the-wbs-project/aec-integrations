@@ -7047,15 +7047,24 @@ export const AdminLegalUpcomingEntrySchema = z.object({
   notice_deliveries: z.object({
     total: z.number(),          // companies any fan-out tried to queue
     delivered: z.number(),
-    pending: z.number(),        // still queued
-    not_reached: z.number(),    // no_recipients + dropped + expired
+    pending: z.number(),        // still queued before the effective moment; 0 after it
+    not_reached: z.number(),    // no_recipients + dropped + expired, + still queued once in effect
     not_reached_companies: z.array(z.object({   // the first 100, by company name
       vendor_id: z.string(),
       name: z.string().nullable(),
       slug: z.string().nullable(),
-      status: z.enum(['no_recipients', 'dropped', 'expired']),
+      status: z.enum(['no_recipients', 'dropped', 'expired']), // a queued row in effect reads expired
       reason: z.enum(['enqueue_failed', 'send_failed', 'email_not_configured', 'pdf_refused',
         'no_site_url', 'seats_unavailable', 'read_failed', 'in_effect']).nullable(),
+    })),
+    delivered_to_check: z.number(),             // delivered with outcome_unknown or held_by_tier
+    delivered_to_check_companies: z.array(z.object({   // the first 100, by company name
+      vendor_id: z.string(), name: z.string().nullable(), slug: z.string().nullable(),
+      reason: z.enum(['outcome_unknown', 'held_by_tier']),
+    })),
+    stale_companies: z.array(z.object({   // before the effective moment only: queued, no update for 2 h
+      vendor_id: z.string(), name: z.string().nullable(), slug: z.string().nullable(),
+      queued_since: z.string(),           // ISO, the row's last update
     })),
   }).nullable(),
 });

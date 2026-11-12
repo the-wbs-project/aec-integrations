@@ -901,6 +901,9 @@ describe('GET /api/admin/legal-versions: notice counts', () => {
       pending: 2,
       not_reached: 0,
       not_reached_companies: [],
+      delivered_to_check: 0,
+      delivered_to_check_companies: [],
+      stale_companies: [],
     });
   });
 });

@@ -2937,14 +2937,26 @@ create unique index legal_notice_deliveries_version_vendor_key
 - **States.** `queued`: written by the fan-out just before the company's queue message is sent;
   a retry keeps it `queued` and records the attempt and its reason. `delivered`: the consumer
   finished every recipient (sent, already sent, `unknown`, or held by the tier's delivery policy).
+  It carries `last_reason = 'outcome_unknown'` when any address's send ended `unknown` (in this
+  attempt or, read from the ledger, an earlier one), else `held_by_tier` when any address was
+  suppressed by the tier's email rules, else NULL.
   `no_recipients`: no seat or billing address to send to. `dropped`: the last retry failed, with
   the reason (`send_failed`, `email_not_configured`, `pdf_refused`, `no_site_url`,
   `seats_unavailable`, `read_failed`), or the company could not be queued (`enqueue_failed`).
-  `expired` (`in_effect`): still `queued` when a message arrived after the effective moment.
-- **Writes.** Upserts on `(legal_version_id, vendor_id)`. A fan-out never moves a `delivered`
-  row (the conflict update is guarded on `status <> 'delivered'`), and a re-send queues only
-  companies not `delivered`. Each write is its own statement, outside any audited batch, and a
-  failed write logs and never stops a send.
+  `expired` (`in_effect`): still `queued`, or arriving with no row, when a message arrived after
+  the effective moment.
+- **Writes.** Upserts on `(legal_version_id, vendor_id)`. No write but the consumer's own
+  `delivered` moves a `delivered` row (the conflict update is guarded on `status <> 'delivered'`),
+  so a late failure from an older message never undoes it, and a re-send queues only companies
+  not `delivered`. Each write is its own statement, outside any audited batch. A failed write
+  logs an error naming the version and never stops a send, and a fan-out whose rows failed reports
+  itself incomplete (`delivery_record`), leaving `notice_enqueued_at` NULL.
+- **D1 limits.** A multi-row upsert binds 7 values per row plus 5 for the conflict update
+  (4 without the guard), measured with `toSQL()`. `DELIVERY_UPSERT_CHUNK` is 12 rows, 89
+  parameters, under D1's 100. A spec pins the measured count, so a new column fails it.
+- **Read rules.** From the effective moment on, the page counts and lists every row still
+  `queued` as not reached (`in_effect`). Before it, a `queued` row with no update for two hours
+  (the retries take about one) is listed as stale.
 - **Log-class** (ADR 0022, amendment 2026-11-12): the publish, each fan-out outcome and the
   expiry carry their own `audit_log` rows. No CHECK and no FK, the house rule.
 - **Readers.** `GET /api/admin/legal-versions` (`notice_deliveries`: totals and the first 100

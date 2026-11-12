@@ -269,6 +269,53 @@
         </p>
         }
       </div>
+      } @if (dl.stale_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.staleHeading"
+        >
+          Waiting too long
+        </p>
+        <ul
+          data-testid="legal-notice-stale"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.stale_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>:
+            <span i18n="@@admin.legal.notice.staleItem"
+              >Queued for more than two hours. Send the notice again.</span
+            >
+          </li>
+          }
+        </ul>
+      </div>
+      } @if (dl.delivered_to_check_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.checkHeading"
+        >
+          Delivered, with an address to check
+        </p>
+        <ul
+          data-testid="legal-notice-check"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.delivered_to_check_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>: {{ checkReason(co.reason) }}
+          </li>
+          }
+        </ul>
+        @if (dl.delivered_to_check > dl.delivered_to_check_companies.length) {
+        <p class="text-xs text-(--text-secondary)" i18n="@@admin.legal.notice.checkMore">
+          The first {{ dl.delivered_to_check_companies.length }} of {{ dl.delivered_to_check }} are
+          listed.
+        </p>
+        }
+      </div>
       } } @if (p.material && entry.notice_sends; as s) {
       <p class="text-sm text-(--text-secondary)" data-testid="legal-notice-counts">
         <span i18n="@@admin.legal.notice.addresses"

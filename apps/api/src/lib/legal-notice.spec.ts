@@ -38,7 +38,11 @@ import {
 } from './email';
 import { recipientHash } from './hash';
 import {
+  D1_MAX_BOUND_PARAMS,
+  DELIVERY_UPSERT_CHUNK,
   deliverLegalNotice,
+  deliveryUpsertStatement,
+  writeDeliveryRows,
   fanOutLegalNotice,
   loadNoticeDeliveries,
   loadNoticeSendCounts,
@@ -666,7 +670,7 @@ describe('the delivery record', () => {
     expect(rows).toHaveLength(3);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { vendorId: V1, status: 'expired', attempts: 0, lastReason: 'in_effect' },
+        { vendorId: V1, status: 'expired', attempts: 1, lastReason: 'in_effect' },
         { vendorId: V2, status: 'expired', attempts: 0, lastReason: 'in_effect' },
         { vendorId: V3, status: 'delivered', attempts: 1, lastReason: null },
       ]),
@@ -761,7 +765,8 @@ describe('fanOutLegalNotice and the delivery record', () => {
         r(V3, 'delivered'),
         r(u(4), 'queued'),
       ]);
-    expect((await loadNoticeDeliveries(t.db, [row.id])).get(row.id)).toEqual({
+    const oneHourLater = new Date(Date.parse(TS) + 60 * 60 * 1000);
+    expect((await loadNoticeDeliveries(t.db, [row], oneHourLater)).get(row.id)).toEqual({
       total: 4,
       delivered: 1,
       pending: 1,
@@ -770,7 +775,201 @@ describe('fanOutLegalNotice and the delivery record', () => {
         { vendor_id: V2, name: 'Alpha', slug: 'Alpha', status: 'no_recipients', reason: null },
         { vendor_id: V1, name: 'beta', slug: 'beta', status: 'dropped', reason: 'pdf_refused' },
       ],
+      delivered_to_check: 0,
+      delivered_to_check_companies: [],
+      stale_companies: [],
     });
+  });
+});
+
+// ─── Second review (D1 limits, late rows, stale rows, order, flags) ───────────
+
+describe('D1 parameter limits', () => {
+  it.each([true, false])(
+    'the delivery upsert stays under 100 bound parameters at the chunk size (keepDelivered %s)',
+    (keep) => {
+      const ids = Array.from({ length: DELIVERY_UPSERT_CHUNK }, (_, i) => `vendor-${i}`);
+      const stmt = deliveryUpsertStatement(
+        t.db,
+        'lv',
+        ids,
+        { status: 'queued', attempts: 0, lastReason: null },
+        NOW,
+        keep,
+      );
+      const params = stmt.toSQL().params.length;
+      expect(params).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS);
+      // 7 per row plus the conflict update: the measured shape, so a new column fails here.
+      expect(params).toBe(7 * DELIVERY_UPSERT_CHUNK + (keep ? 5 : 4));
+    },
+  );
+
+  it('writes a row for every company of a large audience in one batch', async () => {
+    const ids = Array.from({ length: 205 }, (_, i) => u(1000 + i));
+    await writeDeliveryRows(
+      t.db,
+      'lv',
+      ids,
+      { status: 'queued', attempts: 0, lastReason: null },
+      NOW,
+    );
+    expect(await t.db.select().from(legalNoticeDeliveries)).toHaveLength(205);
+  });
+});
+
+describe('the delivery record, second review', () => {
+  const target = (queue: unknown) => ({
+    env: { LEGAL_NOTICE_QUEUE: queue } as unknown as Env,
+    ctx: { waitUntil: () => {} },
+    request: new Request('https://aeci-api/x'),
+  });
+
+  it('reports the fan-out incomplete when its delivery rows could not be written', async () => {
+    await seedVendor(V1, 'a');
+    await seedSeat(u(11), V1);
+    const row = await seedVersion();
+    // Reads work; the delivery-row batch fails, as a D1 limit or outage would.
+    const failingDb = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === 'batch') {
+          return async () => {
+            throw new Error('too many SQL variables');
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const sendBatch = vi.fn(async (_m: unknown[]) => {});
+    const fan = await fanOutLegalNotice(target({ sendBatch }), failingDb, row, NOW);
+    // The email still goes, but the row will not claim success.
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    expect(fan).toEqual({ total: 1, queued: 1, complete: false, failure: 'delivery_record' });
+    expect(errorLogs()).toContainEqual(expect.objectContaining({ legal_version_id: row.id }));
+  });
+
+  it('records a late company as expired even when it had no row', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    const row = await seedVersion();
+    await deliver(row, V1, { now: new Date(row.effectiveAt + 1) });
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'expired', attempts: 1, lastReason: 'in_effect' },
+    ]);
+  });
+
+  it('never lets a late failure from an older message undo delivered', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    const row = await seedVersion();
+    await deliver(row, V1); // delivered
+    // An older message's last attempt fails afterwards.
+    await deliver(row, V1, {
+      bucket: makeFakeR2Bucket() as unknown as R2Bucket,
+      attempts: LEGAL_NOTICE_MAX_RETRIES + 1,
+    });
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'delivered', attempts: 1, lastReason: null },
+    ]);
+  });
+
+  it('flags delivered with an unknown outcome, including one from an earlier attempt', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    const row = await seedVersion();
+    await deliver(row, V1, { send: sendSpy(() => 'unknown') });
+    expect((await rowsFor())[0]).toMatchObject({
+      status: 'delivered',
+      lastReason: 'outcome_unknown',
+    });
+
+    // A later attempt sees `duplicate`; the ledger still holds the unknown row.
+    await t.db.insert(notificationSends).values({
+      notificationId: 'legal-terms-change',
+      recipientHash: 'h',
+      tier: 'production',
+      outcome: 'unknown',
+      dedupeKey: legalNoticeDedupeKey('vendor_terms', '1.4', V1, 'h'),
+      entityType: 'legal_version',
+      entityId: row.id,
+    });
+    await deliver(row, V1, { send: sendSpy(() => 'duplicate') });
+    expect((await rowsFor())[0]).toMatchObject({
+      status: 'delivered',
+      lastReason: 'outcome_unknown',
+    });
+  });
+
+  it('flags delivered when an address was held by the tier email rules', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedSeat(u(11), V1);
+    const row = await seedVersion();
+    await deliver(row, V1, {
+      send: sendSpy((to) => (to === 'billing@a.example' ? 'suppressed' : 'sent')),
+    });
+    expect((await rowsFor())[0]).toMatchObject({ status: 'delivered', lastReason: 'held_by_tier' });
+  });
+});
+
+describe('loadNoticeDeliveries, second review', () => {
+  const r = (
+    versionId: string,
+    vendorId: string,
+    status: string,
+    lastReason: string | null,
+    at = TS,
+  ) => ({
+    legalVersionId: versionId,
+    vendorId,
+    status,
+    lastReason,
+    createdAt: at,
+    updatedAt: at,
+  });
+
+  it('counts and lists every still-queued company as not reached once the version is in effect', async () => {
+    const row = await seedVersion();
+    await seedVendor(V1, 'Acme');
+    await t.db.insert(legalNoticeDeliveries).values([r(row.id, V1, 'queued', 'send_failed')]);
+    const out = (await loadNoticeDeliveries(t.db, [row], new Date(row.effectiveAt))).get(row.id)!;
+    expect(out).toMatchObject({ pending: 0, not_reached: 1, stale_companies: [] });
+    expect(out.not_reached_companies).toEqual([
+      { vendor_id: V1, name: 'Acme', slug: 'Acme', status: 'expired', reason: 'in_effect' },
+    ]);
+  });
+
+  it('lists a company queued for more than two hours before the moment as stale', async () => {
+    const row = await seedVersion();
+    await seedVendor(V1, 'Old');
+    await seedVendor(V2, 'Fresh');
+    const at = Date.parse('2026-11-20T00:00:00.000Z');
+    await t.db
+      .insert(legalNoticeDeliveries)
+      .values([
+        r(row.id, V1, 'queued', null, new Date(at - 2 * 3600_000 - 1).toISOString()),
+        r(row.id, V2, 'queued', 'send_failed', new Date(at - 3600_000).toISOString()),
+      ]);
+    const out = (await loadNoticeDeliveries(t.db, [row], new Date(at))).get(row.id)!;
+    expect(out.pending).toBe(2);
+    expect(out.stale_companies.map((s) => s.vendor_id)).toEqual([V1]);
+  });
+
+  it('lists delivered companies with an address to check', async () => {
+    const row = await seedVersion();
+    await seedVendor(V1, 'Unsure');
+    await seedVendor(V2, 'Held');
+    await seedVendor(V3, 'Clean');
+    await t.db
+      .insert(legalNoticeDeliveries)
+      .values([
+        r(row.id, V1, 'delivered', 'outcome_unknown'),
+        r(row.id, V2, 'delivered', 'held_by_tier'),
+        r(row.id, V3, 'delivered', null),
+      ]);
+    const out = (await loadNoticeDeliveries(t.db, [row], NOW)).get(row.id)!;
+    expect(out.delivered).toBe(3);
+    expect(out.delivered_to_check).toBe(2);
+    expect(out.delivered_to_check_companies).toEqual([
+      { vendor_id: V2, name: 'Held', slug: 'Held', reason: 'held_by_tier' },
+      { vendor_id: V1, name: 'Unsure', slug: 'Unsure', reason: 'outcome_unknown' },
+    ]);
   });
 });
 

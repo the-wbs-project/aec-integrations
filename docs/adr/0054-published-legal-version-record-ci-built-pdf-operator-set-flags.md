@@ -81,7 +81,13 @@ for customers, or what file they would be sent.
      `delivered`, `no_recipients`, `dropped` (with the reason) or `expired`. `/admin/legal` counts
      them and lists every company not reached by name and reason. It is log-class under ADR
      0022's 2026-11-12 amendment. `notice_vendor_count` stays, as the last fan-out's queued
-     count.
+     count. Second review: the upsert is sized from its measured parameter count (12 rows, 89
+     of D1's 100); a fan-out whose rows could not be written reports itself incomplete; only
+     the consumer's `delivered` write may replace `delivered`; a late company with no row is
+     still recorded `expired`; from the effective moment every `queued` row reads as not
+     reached, and before it one untouched for two hours is listed as stale; a `delivered` row
+     carries `outcome_unknown` or `held_by_tier` and the page lists those companies as "to
+     check".
    - **Address counts by latest outcome.** The page counts each address once, by its latest
      ledger row for the version, so a failure that a retry fixed stops counting as failing.
    - **Re-send.** `POST /api/admin/legal-versions/:id/notice` re-reads the audience and

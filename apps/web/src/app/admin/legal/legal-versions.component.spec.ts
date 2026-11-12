@@ -504,6 +504,19 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
       { vendor_id: 'v-b', name: 'Beam Co', slug: 'beam', status: 'no_recipients', reason: null },
       { vendor_id: 'v-c', name: null, slug: null, status: 'expired', reason: 'in_effect' },
     ],
+    delivered_to_check: 2,
+    delivered_to_check_companies: [
+      { vendor_id: 'v-d', name: 'Dome Ltd', slug: 'dome', reason: 'outcome_unknown' },
+      { vendor_id: 'v-e', name: 'Eave Inc', slug: 'eave', reason: 'held_by_tier' },
+    ],
+    stale_companies: [
+      {
+        vendor_id: 'v-f',
+        name: 'Frame Co',
+        slug: 'frame',
+        queued_since: '2026-11-12T10:00:00.000Z',
+      },
+    ],
   };
   const withRow = (
     row: LegalVersion,
@@ -530,6 +543,14 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
       'Acme Build: The stored PDF did not match the published copy.',
       'Beam Co: No seat or billing email to send to.',
       'v-c: Still waiting when the version took effect, so it was not sent.',
+    ]);
+    expect([...n.querySelectorAll('[data-testid="legal-notice-stale"] li')].map(text)).toEqual([
+      'Frame Co: Queued for more than two hours. Send the notice again.',
+    ]);
+    expect(text(n)).toContain('Delivered, with an address to check');
+    expect([...n.querySelectorAll('[data-testid="legal-notice-check"] li')].map(text)).toEqual([
+      'Dome Ltd: The email service did not confirm one of its addresses, so that email may not have arrived.',
+      "Eave Inc: One of its addresses was held by this tier's email rules and got nothing.",
     ]);
   });
 

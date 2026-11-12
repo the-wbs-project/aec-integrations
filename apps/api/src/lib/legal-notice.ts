@@ -46,7 +46,14 @@
  * with the reason, and the queue then drops the message (no dead-letter queue, like every
  * other queue here). `/admin/legal` counts the rows and lists every company not reached by
  * name and reason, and "Send the notice again" re-enqueues every company not `delivered`.
- * The keys stop a second email to any address already reached.
+ * The keys stop a second email to any address already reached. Only the consumer's own
+ * `delivered` write may replace a `delivered` row, so a late failure never undoes it. A
+ * `delivered` row carries `outcome_unknown` or `held_by_tier` when an address is worth
+ * checking. The page also treats a `queued` row as not reached once the version is in
+ * effect, and lists one untouched for two hours before then as stale. Every multi-row
+ * upsert is sized from its measured parameter count (`DELIVERY_UPSERT_CHUNK`) to stay
+ * under D1's 100 bound parameters, and a fan-out whose rows could not be written reports
+ * itself incomplete so the page says to send again.
  *
  * ── NEVER AFTER THE EFFECTIVE MOMENT ───────────────────────────────────────────
  * The email says "Until then the current version applies", which is false once the
@@ -68,7 +75,19 @@ import {
   type LegalNoticeDeliveryStatus,
   type LegalNoticeSendCounts,
 } from '@aeci/shared';
-import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getDb, type Db } from '../db/client';
@@ -270,8 +289,21 @@ type WaitUntil = { waitUntil(promise: Promise<unknown>): void };
 
 // ─── The per-company delivery record ──────────────────────────────────────────
 
-/** Rows per multi-row upsert: 6 bound values each, under D1's 100-parameter cap. */
-const DELIVERY_UPSERT_CHUNK = 15;
+/** D1's cap on bound parameters in one statement. */
+export const D1_MAX_BOUND_PARAMS = 100;
+/**
+ * Bound values Drizzle emits per row of the delivery upsert: legal_version_id, vendor_id,
+ * status, attempts, last_reason, created_at, updated_at. Measured with `toSQL()`
+ * (`legal-notice.spec.ts`), not counted by hand: the first build assumed 6 and sent 110.
+ */
+const DELIVERY_PARAMS_PER_ROW = 7;
+/** Bound values of the conflict update: status, attempts, last_reason, updated_at, and the
+ *  `status <> 'delivered'` guard. */
+const DELIVERY_CONFLICT_PARAMS = 5;
+/** Rows per upsert: 12 rows is 7 × 12 + 5 = 89 parameters, 11 under the cap. */
+export const DELIVERY_UPSERT_CHUNK = Math.floor(
+  (D1_MAX_BOUND_PARAMS - DELIVERY_CONFLICT_PARAMS - 10) / DELIVERY_PARAMS_PER_ROW,
+);
 
 type DeliveryReason = (typeof LEGAL_NOTICE_DELIVERY_REASONS)[number];
 
@@ -304,39 +336,56 @@ export async function writeDeliveryRows(
   opts: { keepDelivered: boolean } = { keepDelivered: true },
 ): Promise<void> {
   if (vendorIds.length === 0) return;
-  const at = now.toISOString();
   const stmts = [];
   for (let i = 0; i < vendorIds.length; i += DELIVERY_UPSERT_CHUNK) {
-    const chunk = vendorIds.slice(i, i + DELIVERY_UPSERT_CHUNK);
     stmts.push(
-      db
-        .insert(legalNoticeDeliveries)
-        .values(
-          chunk.map((vendorId) => ({
-            legalVersionId,
-            vendorId,
-            status: next.status,
-            attempts: next.attempts ?? 0,
-            lastReason: next.lastReason,
-            createdAt: at,
-            updatedAt: at,
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [legalNoticeDeliveries.legalVersionId, legalNoticeDeliveries.vendorId],
-          set: {
-            status: next.status,
-            ...(next.attempts === undefined ? {} : { attempts: next.attempts }),
-            lastReason: next.lastReason,
-            updatedAt: at,
-          },
-          ...(opts.keepDelivered
-            ? { setWhere: ne(legalNoticeDeliveries.status, 'delivered') }
-            : {}),
-        }),
+      deliveryUpsertStatement(
+        db,
+        legalVersionId,
+        vendorIds.slice(i, i + DELIVERY_UPSERT_CHUNK),
+        next,
+        now,
+        opts.keepDelivered,
+      ),
     );
   }
   await db.batch(stmts as unknown as BatchTuple);
+}
+
+/** One multi-row upsert of the delivery record. Exported so a spec can measure its
+ *  `toSQL().params` at `DELIVERY_UPSERT_CHUNK` rows. */
+export function deliveryUpsertStatement(
+  db: Db,
+  legalVersionId: string,
+  vendorIds: readonly string[],
+  next: { status: LegalNoticeDeliveryStatus; attempts?: number; lastReason: DeliveryReason | null },
+  now: Date,
+  keepDelivered: boolean,
+) {
+  const at = now.toISOString();
+  return db
+    .insert(legalNoticeDeliveries)
+    .values(
+      vendorIds.map((vendorId) => ({
+        legalVersionId,
+        vendorId,
+        status: next.status,
+        attempts: next.attempts ?? 0,
+        lastReason: next.lastReason,
+        createdAt: at,
+        updatedAt: at,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [legalNoticeDeliveries.legalVersionId, legalNoticeDeliveries.vendorId],
+      set: {
+        status: next.status,
+        ...(next.attempts === undefined ? {} : { attempts: next.attempts }),
+        lastReason: next.lastReason,
+        updatedAt: at,
+      },
+      ...(keepDelivered ? { setWhere: ne(legalNoticeDeliveries.status, 'delivered') } : {}),
+    });
 }
 
 /** How a fan-out went. */
@@ -348,8 +397,11 @@ export interface LegalNoticeFanOut {
   queued: number;
   /** Every company was queued. */
   complete: boolean;
-  /** Why it did not complete: `audience_read`, `unbound` or `send_batch`. */
-  failure: 'audience_read' | 'unbound' | 'send_batch' | null;
+  /**
+   * Why it did not complete: `audience_read`, `unbound`, `send_batch`, or `delivery_record`
+   * (every message went, but some delivery rows could not be written).
+   */
+  failure: 'audience_read' | 'unbound' | 'send_batch' | 'delivery_record' | null;
 }
 
 /**
@@ -397,7 +449,12 @@ export async function fanOutLegalNotice(
   }
   if (vendorIds.length === 0) return { total: 0, queued: 0, complete: true, failure: null };
 
-  /** The delivery rows are a record: a failed write logs, and the email still goes. */
+  /**
+   * The delivery rows are a record. A failed write logs an error naming the version and the
+   * email still goes, but the fan-out then reports itself incomplete (`delivery_record`), so
+   * `notice_enqueued_at` stays NULL and the page says to send again, which rewrites the rows.
+   */
+  let recordFailed = false;
   const record = async (ids: readonly string[], status: 'queued' | 'dropped') => {
     try {
       await writeDeliveryRows(
@@ -408,9 +465,10 @@ export async function fanOutLegalNotice(
         now,
       );
     } catch (error) {
+      recordFailed = true;
       logToPosthog(ctx, env, request, {
         level: 'error',
-        message: `aeci.legal_notice: could not record ${ids.length} companies as ${status}`,
+        message: `aeci.legal_notice: could not record ${ids.length} companies as ${status}; send the notice again from /admin/legal`,
         legal_version_id: row.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -446,6 +504,9 @@ export async function fanOutLegalNotice(
     return fail('send_batch', vendorIds.length, queued, error);
   }
   countMetric('ok', queued);
+  if (recordFailed) {
+    return fail('delivery_record', vendorIds.length, queued, 'delivery rows were not written');
+  }
   return { total: vendorIds.length, queued, complete: true, failure: null };
 }
 
@@ -510,60 +571,130 @@ export async function loadNoticeSendCounts(
   return out;
 }
 
-/** How many companies not reached the GET lists by name, per version. */
+/** How many companies each list on the GET names, per version. */
 export const NOT_REACHED_LIST_MAX = 100;
 
-const NOT_REACHED_STATUSES = ['dropped', 'expired', 'no_recipients'] as const;
+/**
+ * A `queued` row untouched for this long before the effective moment has no live message
+ * behind it: the consumer's retries are 10, 20 and 30 minutes apart, about an hour in all,
+ * and each attempt rewrites `updated_at`. Two hours leaves room for a slow queue.
+ */
+export const STALE_QUEUED_MS = 2 * 60 * 60 * 1000;
 
-/** The per-company delivery summary per version id (`LegalNoticeDeliveriesSchema`). */
+const NOT_REACHED_STATUSES = ['dropped', 'expired', 'no_recipients'] as const;
+const CHECK_REASONS = ['outcome_unknown', 'held_by_tier'] as const;
+
+/**
+ * The per-company delivery summary per version (`LegalNoticeDeliveriesSchema`).
+ *
+ * From the effective moment on, a row still `queued` can never be sent (the consumer and
+ * the re-send both refuse), so it counts and lists as not reached, `expired` / `in_effect`.
+ * Before it, a `queued` row untouched for {@link STALE_QUEUED_MS} is listed as stale so the
+ * operator can send again while that still works. `delivered` rows with a reason to check
+ * (an unknown outcome, or an address held by the tier's email rules) are listed too.
+ */
 export async function loadNoticeDeliveries(
   db: Db,
-  legalVersionIds: readonly string[],
+  versions: readonly Pick<LegalVersionRow, 'id' | 'effectiveAt'>[],
+  now: Date,
 ): Promise<Map<string, LegalNoticeDeliveries>> {
   const out = new Map<string, LegalNoticeDeliveries>();
-  for (const id of new Set(legalVersionIds)) {
-    const counts = await db
-      .select({ status: legalNoticeDeliveries.status, n: count() })
+  const named = <T extends object>(
+    r: T & { vendorId: string; name: string | null; slug: string | null },
+  ) => ({
+    vendor_id: r.vendorId,
+    name: r.name ?? null,
+    slug: r.slug ?? null,
+  });
+  const listRows = (where: SQL | undefined) =>
+    db
+      .select({
+        vendorId: legalNoticeDeliveries.vendorId,
+        name: vendors.companyName,
+        slug: vendors.slug,
+        status: legalNoticeDeliveries.status,
+        reason: legalNoticeDeliveries.lastReason,
+        updatedAt: legalNoticeDeliveries.updatedAt,
+      })
       .from(legalNoticeDeliveries)
-      .where(eq(legalNoticeDeliveries.legalVersionId, id))
-      .groupBy(legalNoticeDeliveries.status);
-    const by = (s: string) => counts.find((c) => c.status === s)?.n ?? 0;
-    const notReached = NOT_REACHED_STATUSES.reduce((sum, s) => sum + by(s), 0);
-    const list =
+      .leftJoin(vendors, eq(vendors.id, legalNoticeDeliveries.vendorId))
+      .where(where)
+      .orderBy(textAsc(vendors.companyName), asc(legalNoticeDeliveries.vendorId))
+      .limit(NOT_REACHED_LIST_MAX);
+
+  for (const v of versions) {
+    const inEffect = now.getTime() >= v.effectiveAt;
+    const ofVersion = eq(legalNoticeDeliveries.legalVersionId, v.id);
+    const counts = await db
+      .select({
+        status: legalNoticeDeliveries.status,
+        reason: legalNoticeDeliveries.lastReason,
+        n: count(),
+      })
+      .from(legalNoticeDeliveries)
+      .where(ofVersion)
+      .groupBy(legalNoticeDeliveries.status, legalNoticeDeliveries.lastReason);
+    const by = (s: string) => counts.filter((c) => c.status === s).reduce((a, c) => a + c.n, 0);
+    const queuedNow = by('queued');
+    const notReachedStatuses: string[] = [...NOT_REACHED_STATUSES, ...(inEffect ? ['queued'] : [])];
+    const notReached = notReachedStatuses.reduce((sum, s) => sum + by(s), 0);
+    const toCheck = counts
+      .filter(
+        (c) =>
+          c.status === 'delivered' && (CHECK_REASONS as readonly string[]).includes(c.reason ?? ''),
+      )
+      .reduce((a, c) => a + c.n, 0);
+    const staleCutoff = new Date(now.getTime() - STALE_QUEUED_MS).toISOString();
+
+    const notReachedRows =
       notReached === 0
         ? []
-        : await db
-            .select({
-              vendorId: legalNoticeDeliveries.vendorId,
-              name: vendors.companyName,
-              slug: vendors.slug,
-              status: legalNoticeDeliveries.status,
-              reason: legalNoticeDeliveries.lastReason,
-            })
-            .from(legalNoticeDeliveries)
-            .leftJoin(vendors, eq(vendors.id, legalNoticeDeliveries.vendorId))
-            .where(
-              and(
-                eq(legalNoticeDeliveries.legalVersionId, id),
-                inArray(legalNoticeDeliveries.status, [...NOT_REACHED_STATUSES]),
-              ),
-            )
-            .orderBy(textAsc(vendors.companyName), asc(legalNoticeDeliveries.vendorId))
-            .limit(NOT_REACHED_LIST_MAX);
-    out.set(id, {
+        : await listRows(and(ofVersion, inArray(legalNoticeDeliveries.status, notReachedStatuses)));
+    const checkRows =
+      toCheck === 0
+        ? []
+        : await listRows(
+            and(
+              ofVersion,
+              eq(legalNoticeDeliveries.status, 'delivered'),
+              inArray(legalNoticeDeliveries.lastReason, [...CHECK_REASONS]),
+            ),
+          );
+    const staleRows =
+      inEffect || queuedNow === 0
+        ? []
+        : await listRows(
+            and(
+              ofVersion,
+              eq(legalNoticeDeliveries.status, 'queued'),
+              lt(legalNoticeDeliveries.updatedAt, staleCutoff),
+            ),
+          );
+
+    out.set(v.id, {
       total: counts.reduce((sum, c) => sum + c.n, 0),
       delivered: by('delivered'),
-      pending: by('queued'),
+      pending: inEffect ? 0 : queuedNow,
       not_reached: notReached,
-      not_reached_companies: list.map((r) => ({
-        vendor_id: r.vendorId,
-        name: r.name ?? null,
-        slug: r.slug ?? null,
-        status: r.status as (typeof NOT_REACHED_STATUSES)[number],
-        reason: LegalNoticeDeliveryReasonSchema.safeParse(r.reason).success
-          ? (r.reason as DeliveryReason)
-          : null,
+      not_reached_companies: notReachedRows.map((r) => {
+        // A row still queued at the effective moment was never sent.
+        const expired = r.status === 'queued';
+        return {
+          ...named(r),
+          status: (expired ? 'expired' : r.status) as (typeof NOT_REACHED_STATUSES)[number],
+          reason: expired
+            ? ('in_effect' as const)
+            : LegalNoticeDeliveryReasonSchema.safeParse(r.reason).success
+              ? (r.reason as DeliveryReason)
+              : null,
+        };
+      }),
+      delivered_to_check: toCheck,
+      delivered_to_check_companies: checkRows.map((r) => ({
+        ...named(r),
+        reason: r.reason as (typeof CHECK_REASONS)[number],
       })),
+      stale_companies: staleRows.map((r) => ({ ...named(r), queued_since: r.updatedAt })),
     });
   }
   return out;
@@ -628,6 +759,25 @@ export async function markNoticeExpired(
     auditInsert(db, entry),
   ] as BatchTuple);
   return true;
+}
+
+/**
+ * Whether any send of this company's notice ended `unknown`: its ledger row keeps the
+ * dedupe key, whose prefix is `legal-terms-change:{document}:{version}:{vendorId}:`.
+ * Compared with `substr`, not `LIKE`, so `_` in `vendor_terms` is not a wildcard. Fails
+ * open to false: the flag is advice, the delivery is already settled.
+ */
+async function hasUnknownSend(db: Db, keyPrefix: string): Promise<boolean> {
+  try {
+    const rows = await db.all<{ n: number }>(sql`
+      SELECT count(*) AS n FROM notification_sends
+      WHERE notification_id = ${LEGAL_NOTICE_NOTIFICATION_ID}
+        AND outcome = 'unknown'
+        AND substr(dedupe_key, 1, ${keyPrefix.length}) = ${keyPrefix}`);
+    return Number(rows[0]?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -698,7 +848,11 @@ export async function deliverLegalNotice(
   const ids = { legal_version_id: legalVersionId, vendor_id: vendorId };
 
   let db: Db | null = null;
-  /** Record this company's delivery row. A failed write logs and never blocks the ack. */
+  /**
+   * Record this company's delivery row. A failed write logs an error naming the version and
+   * the company and never blocks the ack. Only the `delivered` write may replace a row that
+   * is already `delivered`: a late failure from an older message must not undo it.
+   */
   const record = async (
     status: LegalNoticeDeliveryStatus,
     lastReason: DeliveryReason | null,
@@ -711,7 +865,7 @@ export async function deliverLegalNotice(
         [vendorId],
         { status, attempts: message.attempts, lastReason },
         clock(),
-        { keepDelivered: false },
+        { keepDelivered: status !== 'delivered' },
       );
     } catch (error) {
       log('error', `aeci.legal_notice: could not record the company as ${status}`, {
@@ -766,6 +920,8 @@ export async function deliverLegalNotice(
         'aeci.legal_notice: the version is already in effect; nothing sent, the message is dropped',
         versionIds,
       );
+      // This company too, even if it has no row yet (its queued write may have failed).
+      await record('expired', 'in_effect');
       try {
         await expireQueuedDeliveries(db, row.id, clock());
         await markNoticeExpired(db, row, clock());
@@ -838,6 +994,8 @@ export async function deliverLegalNotice(
 
     let failed = 0;
     let skipped = 0;
+    let unknown = 0;
+    let held = 0;
     for (const to of addresses) {
       const outcome = await send(c, {
         to,
@@ -856,6 +1014,8 @@ export async function deliverLegalNotice(
       if (outcome === 'failed') failed++;
       // No Resend key or sender on the tier: nothing went, and nothing holds a key.
       if (outcome === 'skipped') skipped++;
+      if (outcome === 'unknown') unknown++;
+      if (outcome === 'suppressed') held++;
     }
     if (failed > 0 || skipped > 0) {
       await failLoud(
@@ -867,8 +1027,13 @@ export async function deliverLegalNotice(
       return;
     }
     // Every recipient is sent, already sent (`duplicate`), may have gone (`unknown`, which
-    // keeps its key) or was held by this tier's delivery policy (`suppressed`).
-    await record('delivered', null);
+    // keeps its key) or was held by this tier's delivery policy (`suppressed`). The last two
+    // are flagged on the row so the page lists the company under "with an address to check".
+    // An `unknown` from an earlier attempt reads as `duplicate` now, so the ledger is asked.
+    const anyUnknown =
+      unknown > 0 ||
+      (await hasUnknownSend(db, legalNoticeDedupeKey(document, row.version, vendorId, '')));
+    await record('delivered', anyUnknown ? 'outcome_unknown' : held > 0 ? 'held_by_tier' : null);
     metric('sent');
     message.ack();
   } catch (error) {

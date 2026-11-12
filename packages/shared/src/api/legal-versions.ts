@@ -247,6 +247,9 @@ export const LEGAL_NOTICE_DELIVERY_REASONS = [
   'seats_unavailable',
   'read_failed',
   'in_effect',
+  // On a `delivered` row: delivered, but an address is worth checking.
+  'outcome_unknown',
+  'held_by_tier',
 ] as const;
 export const LegalNoticeDeliveryReasonSchema = z.enum(LEGAL_NOTICE_DELIVERY_REASONS);
 export type LegalNoticeDeliveryReason = z.infer<typeof LegalNoticeDeliveryReasonSchema>;
@@ -267,12 +270,35 @@ export const LegalNoticeDeliveriesSchema = z.object({
   /** Companies with a delivery row: every company any fan-out tried to queue. */
   total: z.number().int().nonnegative(),
   delivered: z.number().int().nonnegative(),
-  /** Still `queued`: the consumer has not finished them. */
+  /** Still `queued` before the effective moment. 0 once it passes. */
   pending: z.number().int().nonnegative(),
-  /** `no_recipients` + `dropped` + `expired`. */
+  /** `no_recipients` + `dropped` + `expired`, plus every row still `queued` once the version is in effect. */
   not_reached: z.number().int().nonnegative(),
   /** The first 100 not reached, by company name. */
   not_reached_companies: z.array(LegalNoticeNotReachedSchema),
+  /** `delivered` with an address to check: an unknown outcome, or held by the tier's rules. */
+  delivered_to_check: z.number().int().nonnegative(),
+  delivered_to_check_companies: z.array(
+    z.object({
+      vendor_id: z.string(),
+      name: z.string().nullable(),
+      slug: z.string().nullable(),
+      reason: z.enum(['outcome_unknown', 'held_by_tier']),
+    }),
+  ),
+  /**
+   * Before the effective moment only: companies still `queued` with no update for two hours,
+   * longer than the retries explain. Their message is likely gone. First 100, by name.
+   */
+  stale_companies: z.array(
+    z.object({
+      vendor_id: z.string(),
+      name: z.string().nullable(),
+      slug: z.string().nullable(),
+      /** ISO: the row's last update. */
+      queued_since: z.string(),
+    }),
+  ),
 });
 export type LegalNoticeDeliveries = z.infer<typeof LegalNoticeDeliveriesSchema>;
 

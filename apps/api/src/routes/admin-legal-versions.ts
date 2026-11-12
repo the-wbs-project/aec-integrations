@@ -155,7 +155,7 @@ export function createAdminLegalVersionsHandler(
     const shownIds = shown.map((r) => r.id);
     const [counts, deliveries] = await Promise.all([
       loadNoticeSendCounts(db, shownIds),
-      loadNoticeDeliveries(db, shownIds),
+      loadNoticeDeliveries(db, shown, (deps.now ?? (() => new Date()))()),
     ]);
     const upcoming: AdminLegalUpcomingEntry[] = entries.map(({ document, upcoming: u }) => {
       const row = shown.find((r) => r.document === document && r.version === u.version) ?? null;

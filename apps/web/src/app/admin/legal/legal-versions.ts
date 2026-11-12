@@ -442,7 +442,14 @@ export class AdminLegalVersions {
   }
 
   /** A company not reached, by name; its id when the company row is gone. */
-  protected companyName(co: LegalNoticeNotReached): string {
+  /** Why a delivered company is worth checking, in plain words. */
+  protected checkReason(reason: 'outcome_unknown' | 'held_by_tier'): string {
+    return reason === 'outcome_unknown'
+      ? $localize`:@@admin.legal.check.unknown:The email service did not confirm one of its addresses, so that email may not have arrived.`
+      : $localize`:@@admin.legal.check.held:One of its addresses was held by this tier's email rules and got nothing.`;
+  }
+
+  protected companyName(co: Pick<LegalNoticeNotReached, 'name' | 'vendor_id'>): string {
     return co.name ?? co.vendor_id;
   }
 
