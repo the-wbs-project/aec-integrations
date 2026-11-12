@@ -33,8 +33,15 @@ import {
 import { NOINDEX_PATH_PREFIXES, pathForcesNoindex } from './docs-indexing';
 import { appRoutePatterns, findBrokenDocsLinks } from './docs-link-check.harness';
 import { headingSlug } from './docs-markdown';
-import { DocsShellComponent } from './docs-shell';
+import { DocsShellComponent, locate } from './docs-shell';
 import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
+import { getPlansSnapshot } from './plans-archive-content';
+import {
+  PLANS_ARCHIVE_PATHS,
+  PLANS_PAGE_CURRENT_VERSION,
+  PLANS_PAGE_KNOWN_VERSIONS,
+  plansArchivePath,
+} from './plans-versions';
 
 // AECI-1265, AECI-1271: the vendor guide, overview and claiming first. Every
 // page keeps its `/docs/vendors/*` URL.
@@ -493,6 +500,11 @@ describe('docs manifest', () => {
         file: `src/content/docs/${section.id}/_index.md`,
         hrefs: hrefsIn(section.intro!.html),
       })),
+      // AECI-1619: the recorded Plans versions link like the live page.
+      ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => ({
+        file: `src/content/docs/vendors/versions/plans/v${version}.md`,
+        hrefs: hrefsIn(getPlansSnapshot(version)!.html),
+      })),
     ];
     const routePatterns = await appRoutePatterns(routes);
     // A flattening bug must not shrink the table unnoticed: pin one route from
@@ -505,6 +517,9 @@ describe('docs manifest', () => {
       routePatterns,
       docsHeadingIds: (path) => {
         if (path === '/docs') return [];
+        // AECI-1619: a recorded Plans version is served by its own route, not the manifest.
+        const version = PLANS_PAGE_KNOWN_VERSIONS.find((v) => plansArchivePath(v) === path);
+        if (version !== undefined) return headingIdsIn(getPlansSnapshot(version)!.html);
         const html = getDocsPageByPath(path)?.html ?? getDocsSectionIndexByPath(path)?.intro?.html;
         if (html !== undefined) return headingIdsIn(html);
         return getDocsSectionIndexByPath(path) ? [] : undefined;
@@ -825,11 +840,14 @@ describe('indexableDocsPaths', () => {
   });
 
   it('holds no docs path out, and the prefix rule still works for a later entry', () => {
-    // NOINDEX_PATH_PREFIXES holds no docs path since AECI-1253; its only entries
-    // are the archived legal versions (AECI-1361). The explicit-list call pins
-    // the matching rule a later entry would rely on.
+    // NOINDEX_PATH_PREFIXES holds no docs page since AECI-1253; its entries are
+    // the archived legal versions (AECI-1361) and the Plans snapshot pages
+    // (AECI-1619), which are not manifest pages. The explicit-list call pins the
+    // matching rule a later entry would rely on.
     expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
-    expect(NOINDEX_PATH_PREFIXES.filter((prefix) => prefix.startsWith('/docs'))).toEqual([]);
+    expect(NOINDEX_PATH_PREFIXES.filter((prefix) => prefix.startsWith('/docs'))).toEqual(
+      PLANS_ARCHIVE_PATHS,
+    );
     expect(indexableDocsPaths().some((path) => pathForcesNoindex(path))).toBe(false);
   });
 });
@@ -860,7 +878,19 @@ describe('DOCS_ROUTES', () => {
       ...ACCOUNT_SLUGS.map((slug) => `account/${slug}`),
       'vendors',
       ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
+      // AECI-1619: one explicit route per recorded Plans version.
+      ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => `vendors/plans/v${version}`),
     ]);
+  });
+
+  it('serves each Plans version on the archive page with its version (AECI-1619)', () => {
+    for (const version of PLANS_PAGE_KNOWN_VERSIONS) {
+      const route = DOCS_CHILD_ROUTES.find(
+        (entry) => `/docs/${entry.path}` === plansArchivePath(version),
+      );
+      expect(route?.data, version).toEqual({ version });
+      expect(route?.loadComponent, version).toBeDefined();
+    }
   });
 
   it('uses no params, so an unknown /docs path falls through to the 404', () => {
@@ -878,5 +908,118 @@ describe('DOCS_ROUTES', () => {
         empty,
       ).toBe(false);
     }
+  });
+});
+
+// ─── Versioned pages (AECI-1619) ─────────────────────────────────────────────
+
+describe('versioned docs pages (AECI-1619)', () => {
+  const VERSIONS = {
+    'vendors/priced': {
+      current: '1.1',
+      known: ['1.0', '1.1'],
+      recordedOn: { '1.0': 'May 1, 2026', '1.1': 'June 2, 2026' },
+    },
+  };
+  const versioned = (frontVersion: string | undefined, versionsSection: string): string =>
+    [
+      '---',
+      'title: Priced',
+      'description: A page.',
+      'section: vendors',
+      'order: 1',
+      ...(frontVersion === undefined ? [] : [`version: ${frontVersion}`]),
+      'last_updated: October 8, 2026',
+      '---',
+      '',
+      'Body.',
+      '',
+      versionsSection,
+      '## Related',
+      '',
+      '- [Docs](/docs)',
+      '',
+    ].join('\n');
+  const GOOD = [
+    '## Versions',
+    '',
+    '- [Version 1.1](/docs/vendors/priced/v1.1) (this version): recorded June 2, 2026.',
+    '- [Version 1.0](/docs/vendors/priced/v1.0): recorded May 1, 2026.',
+    '',
+  ].join('\n');
+  const build = (source: string) =>
+    buildDocsManifest(FIXTURE_META, { vendors: [raw('priced', source)] }, {}, [], VERSIONS);
+
+  it('builds a page whose Versions section lists every version once with its link and date', () => {
+    expect(build(versioned('1.1', GOOD)).pages[0].version).toBe('1.1');
+    // The rail lists "Versions" like any other h2. Only Related is left out.
+    expect(build(versioned('1.1', GOOD)).pages[0].headings.map((h) => h.text)).toEqual([
+      'Versions',
+    ]);
+  });
+
+  it('throws on a frontmatter version that is not the current one', () => {
+    expect(() => build(versioned('1.0', GOOD))).toThrow(/not the current version 1.1/);
+    expect(() => build(versioned(undefined, GOOD))).toThrow(/not the current version/);
+  });
+
+  it('throws when the Versions section is missing or not just before Related', () => {
+    expect(() => build(versioned('1.1', ''))).toThrow(/needs a "## Versions" section/);
+  });
+
+  it('throws on a missing, repeated, unknown, unlinked or undated version line', () => {
+    const only11 = GOOD.split('\n')
+      .filter((line) => !line.includes('1.0'))
+      .join('\n');
+    expect(() => build(versioned('1.1', only11))).toThrow(/does not list version 1.0/);
+    const twice = GOOD.replace(
+      '- [Version 1.0]',
+      '- [Version 1.1](/docs/vendors/priced/v1.1): June 2, 2026.\n- [Version 1.0]',
+    );
+    expect(() => build(versioned('1.1', twice))).toThrow(/lists version 1.1 twice/);
+    const unknown = `${GOOD}- [Version 2.0](/docs/vendors/priced/v2.0): June 2, 2026.\n`;
+    expect(() => build(versioned('1.1', unknown))).toThrow(/2.0, which is not a known version/);
+    const unlinked = GOOD.replace('(/docs/vendors/priced/v1.0)', '(/docs/vendors/priced)');
+    expect(() => build(versioned('1.1', unlinked))).toThrow(
+      /does not link to \/docs\/vendors\/priced\/v1.0/,
+    );
+    const undated = GOOD.replace('recorded May 1, 2026', 'recorded in May');
+    expect(() => build(versioned('1.1', undated))).toThrow(/recorded date "May 1, 2026"/);
+  });
+
+  it('throws on a version in the frontmatter of a page that is not versioned', () => {
+    expect(() =>
+      buildDocsManifest(
+        FIXTURE_META,
+        { vendors: [raw('priced', versioned('1.1', GOOD))] },
+        {},
+        [],
+        {},
+      ),
+    ).toThrow(/not in DOCS_PAGE_VERSIONS/);
+  });
+
+  it('the live Plans page carries the current version and links every snapshot', () => {
+    const plans = getDocsPage('vendors', 'plans')!;
+    expect(plans.version).toBe(PLANS_PAGE_CURRENT_VERSION);
+    for (const path of PLANS_ARCHIVE_PATHS) expect(plans.links).toContain(path);
+    expect(plans.headings.at(-1)?.text).toBe('Versions');
+  });
+
+  it('keeps the snapshot pages out of the sitemap and the live page in', () => {
+    expect(indexableDocsPaths()).toContain('/docs/vendors/plans');
+    for (const path of PLANS_ARCHIVE_PATHS) expect(indexableDocsPaths()).not.toContain(path);
+    expect(DOCS_PAGES.some((page) => PLANS_ARCHIVE_PATHS.includes(page.path))).toBe(false);
+  });
+
+  it('puts a Plans version page in the vendor guide, its trail ending at the version', () => {
+    const where = locate(plansArchivePath('1.0'));
+    expect(where.guide).toBe('vendor');
+    expect(where.page).toBeUndefined();
+    expect(where.crumbs).toEqual([
+      { label: 'Vendor guide', path: '/docs/vendors' },
+      { label: 'Plans', path: '/docs/vendors/plans' },
+      { label: 'Version 1.0' },
+    ]);
   });
 });

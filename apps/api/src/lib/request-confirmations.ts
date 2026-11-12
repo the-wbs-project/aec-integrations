@@ -26,7 +26,12 @@ import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { requestConfirmations } from '../db/schema';
-import { acceptanceRequestEvidence, type AcceptanceRequestEvidence } from './agreement-acceptances';
+import {
+  acceptanceRequestEvidence,
+  currentPolicyVersions,
+  type AcceptancePolicyVersions,
+  type AcceptanceRequestEvidence,
+} from './agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { sendClaimConfirmEmail, type ClaimConfirmSubject, type EmailContext } from './email';
 import { sha256Hex } from './hash';
@@ -91,6 +96,8 @@ export interface PendingConfirmationParams extends ConfirmationTarget {
   /** The validated request body. */
   payload: unknown;
   termsVersion: string;
+  /** AECI-1619: the policy versions the claim box named at submit. */
+  policyVersions?: AcceptancePolicyVersions | null;
   evidence: AcceptanceRequestEvidence;
   now: Date;
 }
@@ -118,6 +125,8 @@ export function pendingConfirmationStatements(
         submitterEmail: p.email.trim().toLowerCase(),
         payload: JSON.stringify(p.payload),
         termsVersion: p.termsVersion,
+        listingAccuracyVersion: p.policyVersions?.listingAccuracy ?? null,
+        reviewGuidelinesVersion: p.policyVersions?.reviewGuidelines ?? null,
         ip: p.evidence.ip,
         userAgent: p.evidence.userAgent,
         createdAt: p.now.toISOString(),
@@ -197,6 +206,8 @@ export async function createPendingConfirmation(
     // The version the visitor saw. Re-checked at confirm, where a bump in between
     // refuses the acceptance (`agreementAcceptanceStatements`).
     termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    // AECI-1619: the policy versions the box named beside the terms, for the same row.
+    policyVersions: currentPolicyVersions(),
     evidence: acceptanceRequestEvidence(c.req.raw.headers),
     now,
   });

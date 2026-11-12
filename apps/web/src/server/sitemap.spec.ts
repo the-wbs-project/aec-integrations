@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
+import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
 import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
 import {
   buildSitemapXml,
@@ -131,6 +132,20 @@ describe('staticSitemapEntries', () => {
       ).toBe(false);
     }
     expect(entries.some((e) => /\/legal\/[^/]+\/v\d/.test(e.loc))).toBe(false);
+  });
+
+  // The docs paths here come from a stand-in; `docs-content.component.spec.ts` pins the
+  // real `indexableDocsPaths`, which never holds a snapshot page (not a manifest page).
+  it('leaves out every Plans snapshot page (AECI-1619)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    expect(PLANS_ARCHIVE_PATHS.length).toBeGreaterThan(0);
+    for (const path of PLANS_ARCHIVE_PATHS) {
+      expect(
+        entries.some((e) => e.loc.endsWith(path)),
+        path,
+      ).toBe(false);
+    }
+    expect(entries.some((e) => /\/docs\/vendors\/plans\/v\d/.test(e.loc))).toBe(false);
   });
 
   it('includes /methodology (AECI-804), listed alongside the legal set and the docs', async () => {

@@ -56,6 +56,7 @@ import { requestConfirmations } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { storedPolicyVersions } from '../lib/agreement-acceptances';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -137,8 +138,11 @@ export function createConfirmRequestHandler(
       });
     }
 
+    // AECI-1619: the policy versions are the submit's too. A row from before
+    // migration 0118 holds none, and the acceptance records NULL.
     const acceptance = {
       version: row.termsVersion,
+      policyVersions: storedPolicyVersions(row),
       evidence: { ip: row.ip, userAgent: row.userAgent },
     };
 

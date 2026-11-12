@@ -1534,6 +1534,8 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
+*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions (`LEGAL_POLICY_CURRENT_VERSIONS`) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
+
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
 
 - The company is the product's `is_primary` vendor, else any `product_vendors` row (lowest vendor id). That is the vendor `GET /api/products/:slug` returns as `vendor`.
@@ -3467,7 +3469,9 @@ export const AdminAgreementAcceptancesResponseSchema = z.object({
 
 The two checkbox fields (AECI-1615 ruling 16) come through the vendor schema. Claim, checkout
 and portal grant rows carry the label hash and `true`. A signed deal and a row older than the
-columns carry `null` for both.
+columns carry `null` for both. *As built 2026-11-11 (AECI-1619).* The label text, the policy
+versions and the Plans page version and hash come through the vendor schema too (§6.14). The
+admin Billing tab shows the label text in a "Checkbox label" column.
 
 `evidence_removed_at` (AECI-1636, 2026-11-10) is set when the daily
 `acceptance-evidence-removal` job nulled `ip` and `user_agent`, 90 days after `accepted_at`
@@ -3961,8 +3965,9 @@ below describes the activation where it names subscriptions. The deltas:
   `unbannedSeatExistsSentinel`. No subscription, no mirror reconcile, no purge.
 - **Writes with a deal.** The same batch adds `activateLicenseGrantStatements`: the guarded
   flip to `accepted`, the `agreement_acceptances` row (source `grant`, method `signed_deal`,
-  the deal's signer, no IP or user agent, and NULL `checkbox_label_sha256` and
-  `checkbox_default_unticked`, because a deal has no box), the subscriptions as described below with
+  the deal's signer, no IP or user agent, NULL `checkbox_label`, `checkbox_label_sha256` and
+  `checkbox_default_unticked`, because a deal has no box, and `plans_page_version` and
+  `plans_page_sha256` for the Plans version current at activation, AECI-1619), the subscriptions as described below with
   `license_grant_id` set, and `license_grant.accepted`. Purge as below.
 - **Email.** Without a deal, `license-grant-pending` goes to each unbanned owner seat after
   commit, keyed `license-grant-pending:{grant_id}:{profile_id}`. With a deal,
@@ -7256,7 +7261,7 @@ subscription-bearing event re-reads the Stripe subscription from Stripe and runs
 
 | Event | What it does |
 |---|---|
-| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A session that already has its acceptance (the reconcile backfilled it) records none. A backfill that lands mid-flight trips the session's unique key, and the sync re-plans instead of answering `500`. A new subscription sends `licenses-granted` |
+| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata; the session's `plans_version` when it is a known Plans version, else NULL, AECI-1619), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A session that already has its acceptance (the reconcile backfilled it) records none. A backfill that lands mid-flight trips the session's unique key, and the sync re-plans instead of answering `500`. A new subscription sends `licenses-granted` |
 | `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the current version |
 | `invoice.payment_failed` | No subscription change (decision 13). Sends `payment-failed` to the billing email and every unbanned seat, keyed on the invoice id |
 | `customer.subscription.updated` | Syncs: quantity, period end, `cancel_at_period_end` → `vendor-cancelled` |
@@ -8499,7 +8504,8 @@ and the reconcile job (E9.5) closes their gap.
    with `expand[]=data.line_items`). An open session is in neither D1 nor the Stripe subscription
    list, and stays payable for 24 h, so two open sessions could pay for two Stripe subscriptions.
    One whose single line item has this price and quantity, and whose metadata names this
-   account, this owner, the current `terms_version` and the same signer metadata (AECI-1625), and
+   account, this owner, the current `terms_version`, the same signer metadata (AECI-1625) and the
+   current `plans_version` (AECI-1619), and
    which was opened on today's UTC day (its text names a renewal date, AECI-1596), is reused: the route answers its
    `url` and opens nothing. Every other open session is expired
    (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
@@ -8514,6 +8520,10 @@ and the reconcile job (E9.5) closes their gap.
    *As built 2026-11-06 (AECI-1625):* the legal name is `vendors.legal_name`, else the newest
    claim acceptance's. The title is the body's `signer_title`, else this seat's own newest claim
    title. The name is unchanged. `billing_accounts.name` and `company_name` are never read.
+   *As built 2026-11-11 (AECI-1619, ruling 16):* the session's `metadata` also carries
+   `plans_version` (`PLANS_PAGE_CURRENT_VERSION`). Like the signer, it rides the session only,
+   not `subscription_data[metadata]`. The webhook copies it into the acceptance row with the
+   snapshot's hash.
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
@@ -8525,7 +8535,8 @@ and the reconcile job (E9.5) closes their gap.
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
    `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
    `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
-   quantity, the UTC minute and a 12-hex digest of the signer metadata (AECI-1625), because
+   quantity, the UTC minute and a 12-hex digest of the signer metadata and `plans_version`
+   (AECI-1625, AECI-1619; `evidenceKey`), because
    Stripe refuses a key replayed with different parameters. A double click in the same minute replays the same
    session. A later click for the same purchase reuses it through step 4. A click for
    another interval or quantity expires it in step 4 and gets a new key.
@@ -8613,10 +8624,11 @@ export const AcceptLicenseGrantResponseSchema = z.object({
 **One batch** (`activateLicenseGrantStatements`, `lib/license-grants.ts`): the guarded flip to
 `accepted` and its sentinel; the `agreement_acceptances` row (`source = 'grant'`,
 `method = 'portal_checkbox'`, the pinned version, the owner's IP and user agent, `text_sha256`
-from `LEGAL_AGREEMENT_TEXT_SHA256`, `checkbox_label_sha256` of the Managed plan box label with
-`checkbox_default_unticked = 1` (ruling 16: the box always starts unticked and `accepted: true`
-is the tick), `seat_role = 'owner'`, `license_grant_id`, `grant_ends_at`, the
-signer from `loadCheckoutSigner`) and its `agreement.accepted` audit row; the subscriptions through
+from `LEGAL_AGREEMENT_TEXT_SHA256`, `checkbox_label` and `checkbox_label_sha256` of the Managed
+plan box label with `checkbox_default_unticked = 1` (ruling 16: the box always starts unticked
+and `accepted: true` is the tick), `seat_role = 'owner'`, `license_grant_id`, `grant_ends_at`,
+the signer from `loadCheckoutSigner`, and `plans_page_version` and `plans_page_sha256` for the
+Plans version current at activation, AECI-1619) and its `agreement.accepted` audit row; the subscriptions through
 `grantLicensesStatements` with the derived ids and `license_grant_id`; `license_grant.accepted`;
 then `unbannedSeatExistsSentinel`. `starts_at` is the later of the requested start and now. A
 ban-term item is assigned to its product, unless that product already holds a live subscription:
@@ -8686,6 +8698,12 @@ export const VendorAgreementAcceptanceSchema = z.object({
   // AECI-1615 ruling 16: the checkbox shown; both null on a signed deal and on older rows
   checkbox_label_sha256: z.string().nullable(),       // SHA-256 of AGREEMENT_CHECKBOX_LABELS[document].text
   checkbox_default_unticked: z.boolean().nullable(),  // true: the box started unticked
+  // AECI-1619 (ruling 16, counsel Q14); all null on a row older than the columns
+  checkbox_label: z.string().nullable(),              // the exact label text; null with the hash
+  listing_accuracy_version: z.string().nullable(),    // claim rows only
+  review_guidelines_version: z.string().nullable(),   // claim rows only
+  plans_page_version: z.string().nullable(),          // checkout and grant rows only
+  plans_page_sha256: z.string().nullable(),           // SHA-256 of that version's snapshot (PLANS_PAGE_SHA256)
 });
 
 export const VendorAgreementAcceptancesResponseSchema = z.object({
@@ -8693,7 +8711,9 @@ export const VendorAgreementAcceptancesResponseSchema = z.object({
 });
 ```
 
-Ordered `accepted_at DESC, id DESC`, unpaginated. A vendor holds a handful of rows. **Never
+Ordered `accepted_at DESC, id DESC`, unpaginated. A vendor holds a handful of rows. The owner's
+Billing tab shows a claim row's policy versions, and links a checkout or grant row's
+"Plans page {version}" to `/docs/vendors/plans/v<version>` (AECI-1619). **Never
 carries `ip` or `user_agent`.** Those are AECi's evidence, and only the admin read returns
 them. Source of truth: `packages/shared/src/api/agreements.ts`, handler
 `apps/api/src/routes/vendor-billing-acceptances.ts`.

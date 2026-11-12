@@ -8,7 +8,7 @@
  * the same way the visitor gets it.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS, LEGAL_POLICY_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -335,8 +335,15 @@ describe('POST /api/requests/confirm, a claim', () => {
       version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       ip: '198.51.100.7',
       userAgent: 'Mozilla/5.0 (submit)',
+      // AECI-1619: the policy versions stored at submit, carried to the row.
+      listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+      reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
     });
     const [pending] = await t.db.select().from(requestConfirmations);
+    expect(pending).toMatchObject({
+      listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+      reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+    });
     expect(pending!.confirmedAt).toEqual(expect.any(String));
     expect(pending!.payload).toBeNull();
     expect(Date.parse(acceptance!.acceptedAt)).toBeGreaterThanOrEqual(
@@ -641,6 +648,50 @@ describe('the signer fields survive the confirm (AECI-1617)', () => {
       signerName: 'Dana Reyes',
       signerTitle: null,
       companyLegalName: null,
+    });
+  });
+
+  // AECI-1619: a pending row written before migration 0118 holds no policy versions. The
+  // acceptance records NULL rather than versions nobody can prove the form named.
+  async function dropPolicyVersionsFromPending() {
+    const [pending] = await t.db.select().from(requestConfirmations);
+    await t.db
+      .update(requestConfirmations)
+      .set({ listingAccuracyVersion: null, reviewGuidelinesVersion: null })
+      .where(eq(requestConfirmations.id, pending!.id));
+  }
+
+  it('a pending claim from before the policy versions confirms, with NULLs (AECI-1619)', async () => {
+    await submitClaim();
+    await dropPolicyVersionsFromPending();
+    const res = await confirm(tokenFromMail(), noAccount);
+    expect(((await res.json()) as { status: string }).status).toBe('confirmed');
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      listingAccuracyVersion: null,
+      reviewGuidelinesVersion: null,
+    });
+  });
+
+  it('a pending listing from before the policy versions confirms, with NULLs (AECI-1619)', async () => {
+    await submitListing();
+    await dropPolicyVersionsFromPending();
+    await confirm(tokenFromMail());
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      listingRequestId: expect.any(String),
+      listingAccuracyVersion: null,
+      reviewGuidelinesVersion: null,
+    });
+  });
+
+  it('a confirmed listing carries the policy versions stored at submit (AECI-1619)', async () => {
+    await submitListing();
+    await confirm(tokenFromMail());
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+      reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
     });
   });
 

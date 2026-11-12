@@ -11,11 +11,12 @@
  *      (re-exported by `src/server/robots-policy.ts`).
  *   3. `sitemap.xml` leaves out every path it covers (`indexableDocsPaths`).
  *
- * It lives under `src/app/` and imports only the `.md`-free legal manifest, so
- * both the browser bundle and the server can import it without pulling
- * server-only code or Markdown into either.
+ * It lives under `src/app/` and imports only the `.md`-free legal manifest and
+ * Plans version list, so both the browser bundle and the server can import it
+ * without pulling server-only code or Markdown into either.
  */
 import { LEGAL_ARCHIVE_PATHS } from '../legal/legal-manifest';
+import { PLANS_ARCHIVE_PATHS } from './plans-versions';
 
 /**
  * Path prefixes held out of the index in every env. A prefix covers the path
@@ -32,8 +33,17 @@ import { LEGAL_ARCHIVE_PATHS } from '../legal/legal-manifest';
  * `/legal/terms` and `/legal/vendor-terms` stay indexable. The legal page sets
  * its own robots meta, and the sitemap lists legal pages by hand, so only the
  * egress `X-Robots-Tag` stamp reads these entries.
+ *
+ * AECI-1619 adds every Plans snapshot page (`/docs/vendors/plans/v<version>`,
+ * `PLANS_ARCHIVE_PATHS`), the current version's included: each canonicalises to
+ * `/docs/vendors/plans`. Exact paths, so the live Plans page stays indexable.
+ * The snapshot pages are not in the docs manifest, so the sitemap and the docs
+ * search push never list them either.
  */
-export const NOINDEX_PATH_PREFIXES: readonly string[] = [...LEGAL_ARCHIVE_PATHS];
+export const NOINDEX_PATH_PREFIXES: readonly string[] = [
+  ...LEGAL_ARCHIVE_PATHS,
+  ...PLANS_ARCHIVE_PATHS,
+];
 
 /**
  * Whether a locale-stripped pathname is held out of the index in every env.

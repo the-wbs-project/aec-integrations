@@ -30,6 +30,10 @@
  * and `MANAGED_ANNUAL_PRICE_CENTS`, §13.13, E8.2), formatted by the same helper as the
  * portal's plan panel.
  *
+ * The rows and the sort note live in `plans-comparison-groups.ts` and the card words
+ * in `shared/plan-cta/plan-card-copy.ts` (AECI-1619), pure modules the Plans snapshot
+ * (`plans-snapshot.ts`) prints from. A change to any of them is a new Plans version.
+ *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Chrome only, so every string is
  * `$localize`d. Light only. Styled by the unlayered `.aec-plan-*` classes in
@@ -38,126 +42,17 @@
  */
 import { Component, LOCALE_ID, inject } from '@angular/core';
 
-import {
-  type Capability,
-  MANAGED_ANNUAL_PRICE_CENTS,
-  MANAGED_LIST_PRICE_CENTS,
-  TIER_CAPABILITIES,
-} from '@aeci/shared/entitlements';
-
 import type { PlanCtaPage } from '../analytics/analytics';
 import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
-import { formatPlanPrice, planLabel } from '../vendor/vendor-plan';
+import { planLabel } from '../vendor/vendor-plan';
+import { planComparisonGroups, planSortRuleNote } from './plans-comparison-groups';
 
-/** A cell: included, not included, or a value to print (a count, a price). */
-export type PlanCell = boolean | string;
-
-export interface PlanRow {
-  readonly label: string;
-  readonly free: PlanCell;
-  readonly managed: PlanCell;
-}
-
-export interface PlanRowGroup {
-  readonly label: string;
-  readonly rows: readonly PlanRow[];
-}
-
-/** A row gated by capabilities. A plan has it when it holds all of them. */
-function capabilityRow(label: string, ...capabilities: Capability[]): PlanRow {
-  return {
-    label,
-    free: capabilities.every((cap) => TIER_CAPABILITIES.unclaimed.includes(cap)),
-    managed: capabilities.every((cap) => TIER_CAPABILITIES.verified.includes(cap)),
-  };
-}
-
-/** The comparison table, grouped. Exported for the spec. */
-export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
-  const price = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
-  const annualPrice = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return [
-    {
-      label: $localize`:@@app.docs.plans.group.listing:Your listing`,
-      rows: [
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.company:Company details, logo and contact links`,
-          'profile.edit',
-        ),
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.productBasics:Product description, website, logo and categories`,
-          'product.listing.edit',
-          'product.categories.edit',
-        ),
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.usefulness:"How teams use it", in your own words`,
-          'product.usefulness.edit',
-        ),
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.taxonomy:The trades, audiences and phases each product serves`,
-          'product.taxonomy.edit',
-        ),
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.urls:Links to your integrations page and API docs`,
-          'product.edit',
-        ),
-      ],
-    },
-    {
-      label: $localize`:@@app.docs.plans.group.integrations:Integrations`,
-      rows: [
-        {
-          label: $localize`:@@app.docs.plans.row.own:Claim and maintain the integrations you build`,
-          free: true,
-          managed: true,
-        },
-        {
-          label: $localize`:@@app.docs.plans.row.contest:Request a change to an integration you do not own`,
-          free: true,
-          managed: true,
-        },
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.dataFlows:Confirm which data each integration moves`,
-          'attestation.author',
-        ),
-      ],
-    },
-    {
-      label: $localize`:@@app.docs.plans.group.reach:Reviews and search engines`,
-      rows: [
-        capabilityRow(
-          $localize`:@@app.docs.plans.row.reply:Answer reviews in public`,
-          'review.reply',
-        ),
-        {
-          label: $localize`:@@app.docs.plans.row.indexNow:We tell search engines when you update a page`,
-          free: false,
-          managed: true,
-        },
-      ],
-    },
-    {
-      label: $localize`:@@app.docs.plans.group.account:Account and billing`,
-      rows: [
-        {
-          label: $localize`:@@app.docs.plans.row.seats:Seats for your colleagues`,
-          free: true,
-          managed: true,
-        },
-        {
-          label: $localize`:@@app.docs.plans.row.price:Price`,
-          free: formatPlanPrice(0, locale),
-          managed: $localize`:@@app.docs.plans.row.priceManaged:${price}:MONTHLY: USD a month or ${annualPrice}:ANNUAL: USD a year per product`,
-        },
-        {
-          label: $localize`:@@app.docs.plans.row.billing:Billing`,
-          free: $localize`:@@app.docs.plans.row.billingFree:Nothing to pay`,
-          managed: $localize`:@@app.docs.plans.row.billingManaged:By card, monthly or yearly`,
-        },
-      ],
-    },
-  ];
-}
+export {
+  type PlanCell,
+  type PlanRow,
+  type PlanRowGroup,
+  planComparisonGroups,
+} from './plans-comparison-groups';
 
 @Component({
   selector: 'app-docs-plans-comparison',
@@ -166,12 +61,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
   template: `
     <aec-plan-cards [page]="page" />
 
-    <p
-      class="aec-plan-note mt-4 px-4 py-3 text-sm text-(--text-primary)"
-      i18n="@@app.docs.plans.sortRule"
-    >
-      Every listing is sorted by the same published rules. Your plan is not part of that.
-    </p>
+    <p class="aec-plan-note mt-4 px-4 py-3 text-sm text-(--text-primary)">{{ sortRule }}</p>
 
     <div class="mt-8 overflow-x-auto">
       <table class="aec-plan-table w-full text-sm">
@@ -249,4 +139,5 @@ export class DocsPlansComparisonComponent {
   protected readonly freeName = planLabel('free');
   protected readonly managedName = planLabel('managed');
   protected readonly groups = planComparisonGroups(this.locale);
+  protected readonly sortRule = planSortRuleNote();
 }

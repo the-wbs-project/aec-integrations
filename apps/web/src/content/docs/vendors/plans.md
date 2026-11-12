@@ -4,7 +4,8 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: November 5, 2026
+version: 1.0
+last_updated: November 11, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -86,6 +87,12 @@ The portal shows your plan's status, and the end date where there is one. Forty-
 Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your subscriptions run to the end of the month you paid for. An annual subscription runs to its renewal date. If you opt out of renewal, it ends on that date.
 
 Cancel monthly billing in **Manage billing in Stripe** on the Billing tab, or by email to us. To opt out of an annual renewal, an owner cancels it the same way before the renewal date, or you email us. See [Billing](/docs/vendors/billing#renewal-and-cancelling).
+
+## Versions
+
+We record this page as a dated version. A checkout or a granted subscription records the version current when you accepted.
+
+- [Version 1.0](/docs/vendors/plans/v1.0) (this version): recorded November 11, 2026.
 
 ## Related
 

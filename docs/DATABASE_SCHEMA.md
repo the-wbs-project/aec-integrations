@@ -1732,6 +1732,8 @@ create table request_confirmations (
   terms_version   text not null,      -- the vendor_terms version shown at submit
   ip              text,               -- CF-Connecting-IP at submit, for the acceptance
   user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance
+  listing_accuracy_version  text,     -- AECI-1619 (0118): the policy versions the claim box named
+  review_guidelines_version text,     -- AECI-1619 (0118): NULL on a row from before the columns
   created_at      text not null,
   expires_at      text not null,      -- created_at + 7 days, checked in TS
   confirmed_at    text                -- set once, by the confirm that wrote the request
@@ -1745,6 +1747,11 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
   CHECK, a drizzle-kit recreate of a table with FK children, and every reader of that table
   would need a new filter (ADR 0043). Migration `0087` is a plain `CREATE TABLE` and three
   `CREATE INDEX`.
+- **The policy versions (AECI-1619, counsel Q14; migration `0118`, plain `ADD COLUMN`s).**
+  The submit stores the Listing Accuracy Policy and Review Guidelines versions the claim box
+  named (`LEGAL_POLICY_CURRENT_VERSIONS`). The confirm copies them into the acceptance row
+  (§8.6d). A row written before the columns holds NULL in both, and its acceptance records
+  NULL rather than a version the code cannot prove.
 - **The id is the single-use rule.** The confirm inserts the request with this row's id as
   its primary key, so a second confirm trips it and its whole batch rolls back.
 - **No FK and no CHECK**, the `listing_requests` precedent. No FK in or out, so nothing
@@ -2342,7 +2349,13 @@ create table agreement_acceptances (
   -- AECI-1615 ruling 16 (0115): the checkbox shown; both NULL on a signed deal and on older rows
   checkbox_label_sha256 text,      -- SHA-256 of the exact label (AGREEMENT_CHECKBOX_LABELS)
   checkbox_default_unticked integer, -- 1 when the box started unticked; every box does
-  evidence_removed_at text         -- AECI-1636 (0116): when the 90-day sweep nulled ip and user_agent
+  evidence_removed_at text,        -- AECI-1636 (0116): when the 90-day sweep nulled ip and user_agent
+  -- AECI-1619 (0118), plain ADD COLUMNs; all NULL on older rows
+  checkbox_label text,             -- the exact label text checkbox_label_sha256 hashes (ruling 16)
+  listing_accuracy_version text,   -- claim rows only: the Listing Accuracy Policy version the box named
+  review_guidelines_version text,  -- claim rows only: the Review Guidelines version the box named
+  plans_page_version text,         -- checkout and grant rows only: the Plans page version current then
+  plans_page_sha256 text           -- SHA-256 of that version's snapshot file (PLANS_PAGE_SHA256)
 );
 
 create index agreement_acceptances_vendor_idx on agreement_acceptances(vendor_id);
@@ -2395,18 +2408,40 @@ create unique index agreement_acceptances_stripe_session_key
   box, and `checkbox_default_unticked` is 1 when the box started unticked. The labels and their
   hashes are `AGREEMENT_CHECKBOX_LABELS` in `packages/shared/src/api/agreements.ts`, the en-US
   source text of the web labels. Specs hold the hash, the rendered labels and Stripe's message
-  to it. Each path writes:
+  to it. *As built 2026-11-11 (AECI-1619, migration `0118`).* Ruling 16 asks for the label text,
+  not a hash, so `checkbox_label` now stores the text beside its hash. Both come from the same
+  `AGREEMENT_CHECKBOX_LABELS` entry (`uncheckedBoxFor`), and the hash column stays because
+  deployed reads use it. Each path writes:
 
-  | Path | `checkbox_label_sha256` | `checkbox_default_unticked` |
-  |---|---|---|
-  | Claim and listing request (`source = 'claim'`) | the vendor terms label (`@@requests.terms.label`), when the acceptance's version is current. A confirm that carries an older submit's version writes NULL, because that submit may have shown an older label (`claimBoxFor`) | 1, or NULL with the label |
-  | Stripe checkout (`source = 'checkout'`) | the Managed plan sentence, the plain wording of `managedPlanAgreementMessage` beside Stripe's required box | 1 |
-  | Portal grant accept (`source = 'grant'`, `portal_checkbox`) | the Managed plan sentence (`@@vendor.billing.grantPending.acceptLabel`); the request's `accepted: true` is the tick | 1 |
-  | Signed deal (`source = 'grant'`, `signed_deal`) | NULL: there is no box | NULL |
+  | Path | `checkbox_label` and `checkbox_label_sha256` | `checkbox_default_unticked` | Policy versions | `plans_page_version` and `plans_page_sha256` |
+  |---|---|---|---|---|
+  | Claim and listing request (`source = 'claim'`) | the vendor terms label (`@@requests.terms.label`), when the acceptance's version is current. A confirm that carries an older submit's version writes NULL, because that submit may have shown an older label (`claimBoxFor`) | 1, or NULL with the label | the versions the box named. A confirm copies the submit's from `request_confirmations` (§8.1c). A submit from before 0118 writes NULL | NULL |
+  | Stripe checkout (`source = 'checkout'`) | the Managed plan sentence, the plain wording of `managedPlanAgreementMessage` beside Stripe's required box | 1 | NULL | the session's `plans_version` metadata, when it is a known version. A session opened before that metadata writes NULL |
+  | Portal grant accept (`source = 'grant'`, `portal_checkbox`) | the Managed plan sentence (`@@vendor.billing.grantPending.acceptLabel`); the request's `accepted: true` is the tick | 1 | NULL | `PLANS_PAGE_CURRENT_VERSION` at activation |
+  | Signed deal (`source = 'grant'`, `signed_deal`) | NULL: there is no box | NULL | NULL | `PLANS_PAGE_CURRENT_VERSION` at activation |
 
-  A row written before the columns is NULL in both. The daily reconcile's backfilled checkout
+  A row written before the columns is NULL in each of them. The daily reconcile's backfilled checkout
   row writes the same as the webhook. The label is what our client renders. A caller that posts
   to the API without our form is not detectable, and the row records the label we serve.
+- **The policy and Plans versions (AECI-1619, 2026-11-11, counsel Q14 and ruling 16;
+  migration `0118_acceptance_policy_and_plans_versions`, plain `ADD COLUMN`s).** A claim
+  records the versions of the two policies the Vendor Terms incorporate: the Listing Accuracy
+  Policy and the Review Guidelines. The claim box names the same versions on a line beside it.
+  A checkout or grant records the Plans page version current when it was given, and the
+  builder stamps `plans_page_sha256` from `PLANS_PAGE_SHA256`. That hash is of the version's
+  snapshot file, `apps/web/src/content/docs/vendors/versions/plans/v<version>.md`
+  (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). The constants live in
+  `packages/shared/src/api/agreements.ts`. The builder refuses with `400 VALIDATION_FAILED`:
+  - `policyVersions` on any source other than `claim`;
+  - a policy version not in `LEGAL_POLICY_KNOWN_VERSIONS`;
+  - `plansVersion` on any source other than `checkout` or `grant`;
+  - a Plans version not in `PLANS_PAGE_KNOWN_VERSIONS`.
+
+  Both parameters are optional, and absent or null writes NULL. A known older version passes,
+  so a submit made before a policy bump is confirmed with the versions it showed. The webhook
+  and the daily reconcile read the Plans version from the Checkout Session metadata
+  (`checkoutPlansVersion`), and an unknown value there writes NULL rather than failing the
+  event. The audit row carries the three version strings, never the label text.
 - **The signer (AECI-1617 — 2026-11-05, migration `0101`, plain `ADD COLUMN`s).** A claim-path row copies the claimant's name, title and the company's legal name from the form (counsel Q11). A checkout row copies them from the Checkout Session's metadata (`loadCheckoutSigner` at session creation, `VENDOR_SIGNUP_PROCESS.md` §4). *As built 2026-11-06 (AECI-1625).* `loadCheckoutSigner` reads `vendors.legal_name` first, else the newest claim acceptance's legal name. It reads the title the buyer typed on the buy form, else this seat's own newest claim title. An invited seat is no longer NULL on the title, because the buy form requires one. A column is NULL when its source had nothing: a row older than the columns, a pending request from before the fields, a seat with no claim of its own, or a vendor with no claim that recorded a legal name. They appear in both acceptance reads. They are not in the audit row, which is forwarded to PostHog.
 - **Linked at claim approval (AECI-1367 — 2026-10-15).** A claim-time row is written with
   `vendor_request_id` set and `profile_id`, `vendor_id` and `billing_account_id` null.
@@ -2466,12 +2501,15 @@ create unique index agreement_acceptances_stripe_session_key
   no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
-  `id`. Both return the AECI-1615 columns. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
+  `id`. Both return the AECI-1615 columns and, since AECI-1619, the label text and the policy
+  and Plans versions. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
   `user_agent`) and `GET /api/admin/vendors/:id/acceptances` (`API_CONTRACTS.md`).
 - **Domain state, append-only.** Every insert carries its `audit_log` row in the same
   batch: `action = 'agreement.accepted'`, `entity_type = 'agreement_acceptance'`,
   `entity_id` = the acceptance id, `audit_log.vendor_id` = the row's `vendor_id`. The
-  audit row carries no email, IP or user agent, because it is forwarded to PostHog. The
+  audit row carries no email, IP or user agent, because it is forwarded to PostHog. Since
+  AECI-1619 its `afterState` also names the policy and Plans versions, which are not personal
+  data. The
   action is registered in `packages/shared/src/audit-vendor-actions.ts`, not as a vendor
   receipt. Nothing deletes a row. Two writes update one: the claim-approval link
   (`linkClaimAcceptanceStatements`, which fills the ids) and the 90-day evidence removal

@@ -6,7 +6,11 @@ import { By, Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AGREEMENT_CHECKBOX_LABELS, type RequestSubmitResponse } from '@aeci/shared';
+import {
+  AGREEMENT_CHECKBOX_LABELS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  type RequestSubmitResponse,
+} from '@aeci/shared';
 
 import { SessionStatus } from '../auth/session-status';
 
@@ -821,7 +825,8 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     );
     expect(squash(shortForm.textContent)).not.toContain('Terms of Service');
     expect(shortForm.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(box.getAttribute('aria-describedby')).toBe(shortForm.id);
+    const policies = el.querySelector('[data-testid="vendor-terms-policies"]')!;
+    expect(box.getAttribute('aria-describedby')).toBe(`${shortForm.id} ${policies.id}`);
     const link = label.querySelector('a')!;
     expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
     expect(link.getAttribute('target')).toBe('_blank');
@@ -834,6 +839,32 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     await settle();
     fixture.detectChanges();
     expect(button.disabled).toBe(false);
+  });
+
+  // AECI-1619 (counsel Q14): "The form names their versions beside the box." The versions
+  // are the constants the claim route records, so the line and the record agree.
+  it('names both incorporated policies and their versions under the box, the label unchanged', () => {
+    const { el } = setup('vendor', 'claim', 'acme-co');
+    const box = el.querySelector('#claim-terms')!;
+    const policies = el.querySelector('[data-testid="vendor-terms-policies"]')!;
+    expect(squash(policies.textContent).replaceAll(' (opens in a new tab)', '')).toBe(
+      `The Vendor Terms include the Listing Accuracy Policy, version ${LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy}, and the Review Guidelines, version ${LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines}.`,
+    );
+    expect(box.compareDocumentPosition(policies) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const links = [...policies.querySelectorAll('a')];
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/legal/listing-accuracy',
+      '/legal/review-guidelines',
+    ]);
+    for (const a of links) {
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toBe('noopener');
+      expect(a.querySelector('.sr-only')?.textContent).toBe(' (opens in a new tab)');
+    }
+    const label = el.querySelector('label[for="claim-terms"]')!;
+    expect(squash(label.textContent).replace(' (opens in a new tab)', '')).toBe(
+      AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+    );
   });
 
   it('pre-fills the legal name from the company, and sends it as edited with the title (AECI-1617)', async () => {
@@ -871,7 +902,9 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
 
     const box = el.querySelector('#claim-terms') as HTMLInputElement;
     expect(box.getAttribute('aria-invalid')).toBe('true');
-    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-short-form claim-terms-error');
+    expect(box.getAttribute('aria-describedby')).toBe(
+      'claim-terms-short-form claim-terms-policies claim-terms-error',
+    );
     expect(el.querySelector('#claim-terms-error')?.getAttribute('role')).toBe('alert');
     await send(fixture, el);
     expect(api.submitClaim).not.toHaveBeenCalled();
@@ -977,7 +1010,9 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     const box = el.querySelector('#claim-terms') as HTMLInputElement;
     expect(box.checked).toBe(false);
     expect(el.querySelector('#claim-terms-error')).not.toBeNull();
-    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-short-form claim-terms-error');
+    expect(box.getAttribute('aria-describedby')).toBe(
+      'claim-terms-short-form claim-terms-policies claim-terms-error',
+    );
     expect(el.textContent).not.toContain('Something went wrong');
     expect(document.activeElement).toBe(box);
   });

@@ -40,6 +40,7 @@ import {
   ApiErrorCode,
   LicenseGrantItemSchema,
   legalAgreementTextSha256,
+  PLANS_PAGE_CURRENT_VERSION,
   type AdminLicenseGrant,
   type AgreementAcceptanceMethod,
   type LicenseGrantItem,
@@ -404,6 +405,9 @@ export async function activateLicenseGrantStatements(
     // starts unticked (`vendor-pending-grant-card.ts`); the body's `accepted: true` is
     // the tick. A signed deal has no box, so both columns stay NULL.
     checkbox: p.acceptance.method === 'portal_checkbox' ? uncheckedBoxFor(GRANT_AGREEMENT) : null,
+    // AECI-1619 (ruling 16): both methods record the Plans page current at activation,
+    // the page the grant's subscription is described by from that day.
+    plansVersion: PLANS_PAGE_CURRENT_VERSION,
   });
 
   const after: LicenseGrantRow = {

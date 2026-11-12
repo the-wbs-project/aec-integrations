@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
   type LegalAgreementDocument,
+  type LegalPolicyDocument,
 } from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
@@ -283,6 +285,41 @@ describe('LegalPage', () => {
     expect(text).not.toMatch(/\[[A-Z ]+\]/);
   });
 
+  // AECI-1619: the agreement states the core of Managed itself, so a change to the Plans
+  // page cannot take away what the buyer accepted. Each phrase is a headline row of the
+  // Plans comparison table (`docs-plans-comparison.ts`).
+  it('managed plan agreement: names each headline Managed inclusion', () => {
+    const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
+    const heading = Array.from(article.querySelectorAll('h2')).find(
+      (h) => h.textContent?.trim() === 'What a subscription is and does',
+    )!;
+    let section = '';
+    for (
+      let el = heading.nextElementSibling;
+      el && el.tagName !== 'H2';
+      el = el.nextElementSibling
+    ) {
+      section += ` ${el.textContent ?? ''}`;
+    }
+    section = section.replace(/\s+/g, ' ');
+    for (const phrase of [
+      "edit the product's Managed fields",
+      '"How teams use it"',
+      'the trades, audiences and phases it serves',
+      'integrations page and API docs',
+      'confirm which data each',
+      'We notify search engines when you update',
+      'A notice does not decide whether or when a search engine crawls, indexes or ranks the page.',
+      'As on every plan, owner seats can also reply to reviews',
+      'reply to reviews',
+      'seats for their colleagues',
+      'for the term you paid for, at the price shown at checkout',
+      'We record the Plans page as it stood when you accepted, with your acceptance record.',
+    ]) {
+      expect(section, phrase).toContain(phrase);
+    }
+  });
+
   it('managed plan agreement: the renewal notice lists date, price, count, terms change, opt-out', () => {
     const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
     const heading = Array.from(article.querySelectorAll('h2')).find(
@@ -399,6 +436,18 @@ describe('LegalPage', () => {
         expect(currentLegalVersion(slugFor[document as LegalAgreementDocument]), document).toBe(
           version,
         );
+      }
+    });
+
+    // AECI-1619: a claim records the version of each policy the Vendor Terms incorporate,
+    // read from this shared map. A Markdown bump without a map bump fails here.
+    it('the shared policy version map equals the frontmatter of each policy', () => {
+      const slugFor: Record<LegalPolicyDocument, LegalSlug> = {
+        listing_accuracy: 'listing-accuracy',
+        review_guidelines: 'review-guidelines',
+      };
+      for (const [policy, version] of Object.entries(LEGAL_POLICY_CURRENT_VERSIONS)) {
+        expect(currentLegalVersion(slugFor[policy as LegalPolicyDocument]), policy).toBe(version);
       }
     });
 

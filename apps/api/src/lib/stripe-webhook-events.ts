@@ -35,6 +35,7 @@
  * the sync re-plans, the re-read finds the row, and the event still commits.
  */
 
+import { isKnownPlansPageVersion } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
@@ -337,6 +338,12 @@ export interface CheckoutAcceptance {
   skipped: string | null;
 }
 
+/** The session's `plans_version` when it is a published Plans version, else null. */
+export function checkoutPlansVersion(metadata: Record<string, string>): string | null {
+  const version = metadata.plans_version?.trim();
+  return version && isKnownPlansPageVersion(version) ? version : null;
+}
+
 /**
  * The Managed plan agreement acceptance a completed Checkout Session records (ruling R1):
  * the version the Checkout page showed (`terms_version` in the metadata, even if
@@ -384,6 +391,10 @@ export function checkoutAcceptanceStatements(
       // AECI-1615 ruling 16: Stripe's required terms box, which starts unticked, beside
       // `managedPlanAgreementMessage` (the shared sentence with its link).
       checkbox: uncheckedBoxFor('managed_plan'),
+      // AECI-1619: the Plans page version the checkout route wrote into the session. A
+      // session opened before that metadata, or one naming a version never published,
+      // records NULL rather than a version the buyer may not have seen.
+      plansVersion: checkoutPlansVersion(p.metadata),
       actorId: null,
       actorType: 'system',
       vendorPlan: p.vendorPlan,

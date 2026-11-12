@@ -10,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import type {
   AdminAgreementAcceptance,
@@ -21,6 +22,7 @@ import type {
 } from '@aeci/shared';
 
 import { formatTermDate } from '../../shared/term-date/format-term-date';
+import { plansSnapshotHref } from '../../vendor/components/vendor-agreement-href';
 import { seatLabel } from '../seat-label';
 
 /**
@@ -238,7 +240,7 @@ export function toBillingLicenseRow(
 @Component({
   selector: 'aec-billing-licenses-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, RouterLink],
   templateUrl: './billing-licenses-table.html',
 })
 export class BillingLicensesTable {
@@ -360,6 +362,26 @@ export class BillingLicensesTable {
 
   protected methodLabel(method: string | null): string | null {
     return acceptanceMethodLabel(method);
+  }
+
+  /** A claim's incorporated policy versions (AECI-1619), when both are recorded. */
+  protected policiesLabel(a: AdminAgreementAcceptance): string | null {
+    const listing = a.listing_accuracy_version;
+    const reviews = a.review_guidelines_version;
+    if (listing === null || reviews === null) return null;
+    return $localize`:@@admin.vendors.billing.acceptances.policies:Policies: Listing Accuracy Policy ${listing}:LISTING_ACCURACY:, Review Guidelines ${reviews}:REVIEW_GUIDELINES:`;
+  }
+
+  /** A checkout or grant row's recorded Plans page (AECI-1619), linked to its snapshot. */
+  protected plansPage(
+    a: AdminAgreementAcceptance,
+  ): { readonly label: string; readonly href: string | null } | null {
+    const version = a.plans_page_version;
+    if (version === null) return null;
+    return {
+      label: $localize`:@@admin.vendors.billing.acceptances.plansPage:Plans page ${version}:VERSION:`,
+      href: plansSnapshotHref(version),
+    };
   }
 
   protected readonly acceptances = computed<readonly AdminAgreementAcceptance[]>(

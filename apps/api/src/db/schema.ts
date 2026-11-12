@@ -1709,6 +1709,12 @@ export const requestConfirmations = sqliteTable(
     ip: text('ip'),
     /** The submit's user agent, cut to 512 characters, for the acceptance row. */
     userAgent: text('user_agent'),
+    /** AECI-1619 (migration 0118): the Listing Accuracy Policy and Review Guidelines
+     *  versions the claim box named at submit (`LEGAL_POLICY_CURRENT_VERSIONS`), copied
+     *  into the acceptance row at confirm. NULL on a row written before the columns, and
+     *  the acceptance then records NULL rather than a version it cannot prove. */
+    listingAccuracyVersion: text('listing_accuracy_version'),
+    reviewGuidelinesVersion: text('review_guidelines_version'),
     createdAt: createdAt(),
     /** ISO-8601, `created_at` plus 7 days. Checked in TS, not by a CHECK. */
     expiresAt: text('expires_at').notNull(),
@@ -2283,7 +2289,7 @@ export const agreementAcceptances = sqliteTable(
     document: text('document').notNull(),
     /** The version accepted, e.g. `'1.0'`. Must be current at write time. */
     version: text('version').notNull(),
-    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout`. No CHECK. */
+    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout` | `grant`. No CHECK. */
     source: text('source').notNull(),
     email: text('email').notNull(),
     /** A `profiles.id`, NO FK. Null at claim time until E3 fills it at approval. */
@@ -2331,6 +2337,21 @@ export const agreementAcceptances = sqliteTable(
      *  unticked. Both NULL on a signed deal and on a row written before these columns. */
     checkboxLabelSha256: text('checkbox_label_sha256'),
     checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }),
+    /** AECI-1619 (ruling 16, migration 0118): the exact label text beside the box, the
+     *  same string `checkbox_label_sha256` hashes. NULL where the hash is NULL, and on a
+     *  claim under an older terms version, whose label this code no longer holds. */
+    checkboxLabel: text('checkbox_label'),
+    /** AECI-1619 (counsel Q14): the versions of the two policies the Vendor Terms
+     *  incorporate, as the claim box named them (`LEGAL_POLICY_KNOWN_VERSIONS`). Claim
+     *  rows only. NULL on a claim confirmed from a submit made before the columns. */
+    listingAccuracyVersion: text('listing_accuracy_version'),
+    reviewGuidelinesVersion: text('review_guidelines_version'),
+    /** AECI-1619 (ruling 16): the Plans page version current at acceptance, and the
+     *  SHA-256 of that version's snapshot file (`PLANS_PAGE_SHA256`). Checkout and grant
+     *  rows only. NULL on a checkout whose session predates the `plans_version`
+     *  metadata. */
+    plansPageVersion: text('plans_page_version'),
+    plansPageSha256: text('plans_page_sha256'),
     /** AECI-1636 (ruling 11, counsel Q27b): when the daily sweep nulled `ip` and
      *  `user_agent`, 90 days after `accepted_at`. NULL while they are kept, and on a row
      *  that never held either (checkout, signed deal). Lets the admin view tell

@@ -99,6 +99,11 @@ payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a
    rg -n -i '\$25|\$250|25 a month|250 a year' docs apps packages PRODUCT.md
    ```
 
+   The old price stays in the recorded Plans snapshots under
+   `apps/web/src/content/docs/vendors/versions/plans/`. Leave those hits alone: each file is the page
+   an acceptance recorded. The price change bumps the Plans version instead, and
+   `plans-snapshot.spec.ts` fails until it does (AECI-1619).
+
 5. **At most one price change a year.**
 
 ## 7. Decision log
@@ -122,7 +127,8 @@ them (§6 step 4).
 |---|---|
 | `packages/shared/src/entitlements.ts` (`MANAGED_LIST_PRICE_CENTS`, `MANAGED_ANNUAL_PRICE_CENTS`) | The two prices every site string reads |
 | `apps/web/src/app/shared/plan-cta/plan-cta.ts`, `plan-cards.ts` | `/vendor-program` and `/docs/vendors/plans` price, term, refund and FAQ copy |
-| `apps/web/src/app/docs/docs-plans-comparison.ts` | Plan comparison table |
+| `apps/web/src/app/docs/plans-comparison-groups.ts`, rendered by `docs-plans-comparison.ts` | Plan comparison table, price row included (moved by AECI-1619) |
+| `apps/web/src/content/docs/vendors/versions/plans/v<version>.md` | The recorded Plans page. A price change is a new Plans version with a new snapshot, never an edit to an old file (AECI-1619, `STAGE_2_PRODUCT_DOCS_SPEC.md` §4) |
 | `apps/web/src/app/vendor-program/vendor-program.ts` | `/vendor-program` per-product and cancel FAQ, and the plan's structured data (it reads the two constants above) |
 | `apps/web/src/app/vendor/vendor-plan.ts` | Portal plan panel |
 | `apps/web/src/content/docs/vendors/billing.md`, `plans.md`, `overview.md` | Vendor help pages |

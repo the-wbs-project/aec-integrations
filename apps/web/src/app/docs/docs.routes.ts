@@ -15,6 +15,8 @@
  *   - `''`                    the docs home
  *   - `<section>`             the section index, for each section that has one
  *   - `<section>/<slug>`      each article
+ *   - `vendors/plans/v<x>`    each recorded Plans version (AECI-1619), one
+ *                             explicit route per known version, no param
  *
  * `<section>` is the section id. A single-page section (`faq`) has no index: its
  * one page takes the `<section>` path. A section with no pages gets no route at
@@ -24,6 +26,7 @@ import type { Routes } from '@angular/router';
 
 import { DOCS_SECTIONS } from './docs-content';
 import { DocsShellComponent } from './docs-shell';
+import { PLANS_PAGE_KNOWN_VERSIONS, plansArchivePath } from './plans-versions';
 
 const loadPage = () => import('./docs-page').then((m) => m.DocsPageComponent);
 
@@ -63,6 +66,11 @@ export const DOCS_CHILD_ROUTES: Routes = [
       })),
     ];
   }),
+  ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => ({
+    path: plansArchivePath(version).slice('/docs/'.length),
+    loadComponent: () => import('./plans-archive-page').then((m) => m.PlansArchivePageComponent),
+    data: { version },
+  })),
 ];
 
 /**

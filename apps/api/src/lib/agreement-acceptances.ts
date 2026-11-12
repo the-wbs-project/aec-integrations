@@ -49,12 +49,24 @@
  * of the exact label (`AGREEMENT_CHECKBOX_LABELS`), and `checkbox_default_unticked` is 1
  * because every box starts unticked. The claim path shows the vendor terms box; Stripe
  * checkout and the portal grant accept show the Managed plan sentence. A signed deal has
- * no box, so both stay NULL.
+ * no box, so both stay NULL. Since AECI-1619 the row also stores the label text itself
+ * (`checkbox_label`), beside its hash, because ruling 16 asks for the text, not a hash.
+ *
+ * ── POLICY AND PLANS VERSIONS (AECI-1619, counsel Q14, ruling 16) ──────────────
+ * A claim records the versions of the two policies the Vendor Terms incorporate, the
+ * Listing Accuracy Policy and the Review Guidelines (`policyVersions`). Only the claim
+ * path may pass them. A checkout or grant records the Plans page version current when it
+ * was given (`plansVersion`), and this module stamps `plans_page_sha256` from
+ * `PLANS_PAGE_SHA256`. Only those two paths may pass it. Each version must be a KNOWN one,
+ * else `400 VALIDATION_FAILED`. Both are optional: a claim confirmed from a submit made
+ * before the columns, and a checkout whose session predates the metadata, record NULL
+ * rather than a version nobody showed.
  *
  * ── WHAT THE AUDIT ROW CARRIES ─────────────────────────────────────────────────
  * The audit row is forwarded to PostHog, so it carries no email, IP or user agent.
  * Those stay in the acceptance row, which is the evidence. The audit row names the
- * acceptance id, the document, version and source, and the linked ids. The signer's name
+ * acceptance id, the document, version and source, the linked ids, and the policy and
+ * Plans versions (AECI-1619). Not the label text: the hash already names it. The signer's name
  * and title and the company's legal name (AECI-1617) stay out of it for the same reason.
  */
 
@@ -64,8 +76,12 @@ import {
   ApiErrorCode,
   type AgreementAcceptanceMethod,
   isKnownLegalAgreementVersion,
+  isKnownLegalPolicyVersion,
+  isKnownPlansPageVersion,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_DOCUMENTS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  plansPageSha256,
   type AgreementAcceptanceSource,
   type LegalAgreementDocument,
 } from '@aeci/shared';
@@ -180,6 +196,17 @@ export interface AgreementAcceptanceParams {
    * columns.
    */
   checkbox?: AcceptanceCheckbox | null;
+  /**
+   * AECI-1619: the policy versions the claim box named. Claim only: any other source
+   * with it set is refused. Absent or null writes NULL (a legacy pending claim).
+   */
+  policyVersions?: AcceptancePolicyVersions | null;
+  /**
+   * AECI-1619: the Plans page version current at acceptance. Checkout and grant only:
+   * a claim with it set is refused. The builder stamps `plans_page_sha256` from it.
+   * Absent or null writes NULL to both (a checkout session from before the metadata).
+   */
+  plansVersion?: string | null;
   /** `audit_log.actor_id`: a `profiles.id` that exists, or null (anonymous, webhook). */
   actorId?: string | null;
   actorType: AuditLogActorType;
@@ -187,8 +214,40 @@ export interface AgreementAcceptanceParams {
   vendorPlan?: VendorPlanSnapshot | null;
 }
 
+/** The versions of the two policies the Vendor Terms incorporate (AECI-1619). */
+export interface AcceptancePolicyVersions {
+  listingAccuracy: string;
+  reviewGuidelines: string;
+}
+
+/** The policy versions the claim box names today (`LEGAL_POLICY_CURRENT_VERSIONS`). */
+export function currentPolicyVersions(): AcceptancePolicyVersions {
+  return {
+    listingAccuracy: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+    reviewGuidelines: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+  };
+}
+
+/**
+ * The policy versions a pending submit stored (AECI-1619), or null when it stored none.
+ * A row written before migration 0118 holds NULL in both, and the acceptance then
+ * records NULL: the code cannot prove which versions that form named.
+ */
+export function storedPolicyVersions(row: {
+  listingAccuracyVersion: string | null;
+  reviewGuidelinesVersion: string | null;
+}): AcceptancePolicyVersions | null {
+  if (row.listingAccuracyVersion === null || row.reviewGuidelinesVersion === null) return null;
+  return {
+    listingAccuracy: row.listingAccuracyVersion,
+    reviewGuidelines: row.reviewGuidelinesVersion,
+  };
+}
+
 /** The box an acceptance was ticked in (AECI-1615 ruling 16). */
 export interface AcceptanceCheckbox {
+  /** The exact label shown (`AGREEMENT_CHECKBOX_LABELS[document].text`). AECI-1619. */
+  labelText: string;
   /** SHA-256 of the exact label shown (`AGREEMENT_CHECKBOX_LABELS[document].sha256`). */
   labelSha256: string;
   /** Whether the box started unticked. */
@@ -201,7 +260,8 @@ export interface AcceptanceCheckbox {
  * grant accept all do.
  */
 export function uncheckedBoxFor(document: LegalAgreementDocument): AcceptanceCheckbox {
-  return { labelSha256: AGREEMENT_CHECKBOX_LABELS[document].sha256, defaultUnticked: true };
+  const label = AGREEMENT_CHECKBOX_LABELS[document];
+  return { labelText: label.text, labelSha256: label.sha256, defaultUnticked: true };
 }
 
 /**
@@ -300,6 +360,39 @@ export function agreementAcceptanceStatements(
       `Version ${p.version} of ${p.document} is not the current version (${current})`,
     );
   }
+  const policyVersions = p.policyVersions ?? null;
+  if (policyVersions) {
+    if (p.source !== 'claim') {
+      throw validationFailed('policy_versions', 'Only a claim acceptance records policy versions');
+    }
+    if (!isKnownLegalPolicyVersion('listing_accuracy', policyVersions.listingAccuracy)) {
+      throw validationFailed(
+        'listing_accuracy_version',
+        `Version ${policyVersions.listingAccuracy} of the Listing Accuracy Policy was never published`,
+      );
+    }
+    if (!isKnownLegalPolicyVersion('review_guidelines', policyVersions.reviewGuidelines)) {
+      throw validationFailed(
+        'review_guidelines_version',
+        `Version ${policyVersions.reviewGuidelines} of the Review Guidelines was never published`,
+      );
+    }
+  }
+  const plansVersion = p.plansVersion ?? null;
+  if (plansVersion !== null) {
+    if (p.source !== 'checkout' && p.source !== 'grant') {
+      throw validationFailed(
+        'plans_version',
+        'Only a checkout or grant acceptance records the Plans page',
+      );
+    }
+    if (!isKnownPlansPageVersion(plansVersion)) {
+      throw validationFailed(
+        'plans_version',
+        `Version ${plansVersion} of the Plans page was never published`,
+      );
+    }
+  }
   const email = p.email.trim();
   if (!email) throw validationFailed('email', 'An acceptance needs an email');
   const acceptedAtMs = Date.parse(p.acceptedAt);
@@ -345,6 +438,11 @@ export function agreementAcceptanceStatements(
     dealSignedAt: p.grant?.dealSignedAt ?? null,
     checkboxLabelSha256: p.checkbox?.labelSha256 ?? null,
     checkboxDefaultUnticked: p.checkbox ? p.checkbox.defaultUnticked : null,
+    checkboxLabel: p.checkbox?.labelText ?? null,
+    listingAccuracyVersion: policyVersions?.listingAccuracy ?? null,
+    reviewGuidelinesVersion: policyVersions?.reviewGuidelines ?? null,
+    plansPageVersion: plansVersion,
+    plansPageSha256: plansVersion === null ? null : plansPageSha256(plansVersion),
   };
 
   // No email, IP or user agent: this entry is forwarded to PostHog (module header).
@@ -358,6 +456,10 @@ export function agreementAcceptanceStatements(
     vendor_request_id: row.vendorRequestId,
     listing_request_id: row.listingRequestId,
     stripe_checkout_session_id: row.stripeCheckoutSessionId,
+    // AECI-1619. Version strings only, never the label text or any personal data.
+    listing_accuracy_version: row.listingAccuracyVersion,
+    review_guidelines_version: row.reviewGuidelinesVersion,
+    plans_page_version: row.plansPageVersion,
     ...(p.grant
       ? {
           license_grant_id: row.licenseGrantId,
