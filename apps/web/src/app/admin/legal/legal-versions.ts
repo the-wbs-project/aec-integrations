@@ -21,6 +21,7 @@ import {
   LEGAL_SUMMARY_BULLET_MAX,
   LEGAL_SUMMARY_MAX_BULLETS,
   LegalSummarySchema,
+  hasForbiddenSummaryChar,
   legalVersionPagePath,
   type AdminLegalUpcomingEntry,
   type AdminLegalVersionsResponse,
@@ -79,6 +80,11 @@ export function summaryProblem(bullets: readonly string[]): string | null {
     const n = long + 1;
     const max = LEGAL_SUMMARY_BULLET_MAX;
     return $localize`:@@admin.legal.summary.tooLong:Line ${n}:N: is longer than ${max}:MAX: characters.`;
+  }
+  const hidden = bullets.findIndex((b) => hasForbiddenSummaryChar(b));
+  if (hidden >= 0) {
+    const n = hidden + 1;
+    return $localize`:@@admin.legal.summary.hiddenChar:Line ${n}:N: contains a hidden or control character, such as a tab, a zero-width space or a text-direction mark. Retype the line as plain text.`;
   }
   return $localize`:@@admin.legal.summary.invalid:Check the summary. Each line must be plain text.`;
 }
@@ -359,6 +365,13 @@ function errorCode(err: HttpErrorResponse): string | null {
   return typeof body?.error?.code === 'string' ? body.error.code : null;
 }
 
+/** A string field of the error's `details`, when the body carries one. */
+function errorDetail(err: HttpErrorResponse, key: string): string | null {
+  const body = err.error as { error?: { details?: Record<string, unknown> } } | null;
+  const value = body?.error?.details?.[key];
+  return typeof value === 'string' ? value : null;
+}
+
 /** Each failure the operator can act on gets its own sentence. */
 function messageForError(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
@@ -370,7 +383,9 @@ function messageForError(err: unknown): string {
       case 'LEGAL_VERSION_NOT_UPCOMING':
         return $localize`:@@admin.legal.error.notUpcoming:This version is no longer listed as upcoming. Reload the page.`;
       case 'LEGAL_NOTICE_WINDOW':
-        return $localize`:@@admin.legal.error.window:This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.`;
+        return errorDetail(err, 'reason') === 'passed'
+          ? $localize`:@@admin.legal.error.windowPassed:This version's effective date has already passed. Move the effective date in the repository and deploy again. An expedited reason does not help.`
+          : $localize`:@@admin.legal.error.window:This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.`;
       case 'LEGAL_PDF_MISSING':
         return $localize`:@@admin.legal.error.pdf:No valid PDF is stored for this version. Run the legal PDF workflow for it, then publish again.`;
     }

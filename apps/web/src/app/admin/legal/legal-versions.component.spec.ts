@@ -187,6 +187,11 @@ describe('summary helpers', () => {
     );
     expect(summaryProblem(['ok', 'x'.repeat(301)])).toBe('Line 2 is longer than 300 characters.');
     expect(summaryProblem(['ok'])).toBeNull();
+    for (const bad of ['tab\there', 'bidi \u202E', 'zero\u200Bwidth', 'sep\u2028x']) {
+      expect(summaryProblem(['ok', bad])).toBe(
+        'Line 2 contains a hidden or control character, such as a tab, a zero-width space or a text-direction mark. Retype the line as plain text.',
+      );
+    }
   });
 
   it('size a PDF for people', () => {
@@ -354,6 +359,32 @@ describe('AdminLegalVersions', () => {
     expect(c).toBeTruthy();
     expect(text(cardError)).toBe(expected);
     expect(cardError?.getAttribute('role')).toBe('alert');
+  });
+
+  it.each([
+    [
+      'passed',
+      "This version's effective date has already passed. Move the effective date in the repository and deploy again. An expedited reason does not help.",
+    ],
+    [
+      'too_soon',
+      'This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.',
+    ],
+  ])('gives the window advice for reason %s', async (reason, expected) => {
+    const ctx = await setup({
+      publish: new HttpErrorResponse({
+        status: 422,
+        error: { error: { code: 'LEGAL_NOTICE_WINDOW', message: 'x', details: { reason } } },
+      }),
+    });
+    await openDialog(ctx, { material: 'yes', acceptance: 'no' });
+    dialogButton('Publish version').click();
+    await ctx.rerender();
+    await ctx.rerender();
+    expect(text(dialogEl()!.querySelector('[data-testid="legal-dialog-error"]'))).toBe(expected);
+    expect(
+      text(card(ctx.el, 'vendor_terms').querySelector('[data-testid="legal-card-error"]')),
+    ).toBe(expected);
   });
 
   it('publishes the answers, then moves focus to the card heading and shows the record', async () => {

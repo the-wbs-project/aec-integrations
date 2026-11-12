@@ -18,6 +18,8 @@
  *   3. It takes effect at least 30 days from now, else 422 `LEGAL_NOTICE_WINDOW`. A
  *      Vendor Terms version with an expedited reason (`law` or `error`) only has to be
  *      in the future. The reason is recorded only when the window needed it.
+ *      `details.reason` is `passed` (the moment is not in the future: move the date)
+ *      or `too_soon` (inside 30 days: move it, or expedite a Vendor Terms change).
  *   4. The CI-built PDF is in `UPLOADS` at `legal/<slug>/v<version>.pdf`, starts with
  *      `%PDF-` and is at most 5 MB, else 409 `LEGAL_PDF_MISSING`. The key is built from
  *      the upcoming map's entry, never from the request. Its sha256 is recorded.
@@ -43,6 +45,7 @@ import {
   type AdminLegalVersionsResponse,
   type LegalAgreementDocument,
   type LegalAgreementUpcomingVersion,
+  type LegalNoticeWindowReason,
   type PublishLegalVersionResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -217,13 +220,16 @@ export function createPublishLegalVersionHandler(
     const windowMet = effectiveAt - nowMs >= LEGAL_NOTICE_WINDOW_DAYS * DAY_MS;
     const expedited = document === 'vendor_terms' ? (payload.expedited_reason ?? null) : null;
     if (!windowMet && !(expedited && effectiveAt > nowMs)) {
+      // `details.reason` tells the page which advice to give: a date already passed is
+      // only fixed by moving it, while a date inside the window may also be expedited.
+      const reason: LegalNoticeWindowReason = effectiveAt <= nowMs ? 'passed' : 'too_soon';
       throw new ApiError(
         422,
         ApiErrorCode.LEGAL_NOTICE_WINDOW,
-        expedited
-          ? `Version ${version} takes effect on ${upcoming.effectiveOn}, which has passed.`
-          : `Version ${version} takes effect on ${upcoming.effectiveOn}, less than ${LEGAL_NOTICE_WINDOW_DAYS} days away.`,
-        { field: 'version' },
+        reason === 'passed'
+          ? `Version ${version} takes effect on ${upcoming.effectiveOn} at 12:00 UTC, which has already passed. Move the effective date; an expedited reason does not help.`
+          : `Version ${version} takes effect on ${upcoming.effectiveOn} at 12:00 UTC, less than ${LEGAL_NOTICE_WINDOW_DAYS} days away. Move the effective date, or for the Vendor Terms give an expedited reason.`,
+        { field: 'version', details: { reason } },
       );
     }
 

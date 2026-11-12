@@ -4,6 +4,7 @@ import {
   LEGAL_SUMMARY_BULLET_MAX,
   LEGAL_SUMMARY_MAX_BULLETS,
   PublishLegalVersionRequestSchema,
+  hasForbiddenSummaryChar,
   legalEffectiveAtMs,
   legalPdfKey,
   legalVersionPagePath,
@@ -41,6 +42,32 @@ describe('PublishLegalVersionRequestSchema', () => {
     ['a blank bullet', ['  ']],
   ])('refuses %s', (_label, summary) => {
     expect(PublishLegalVersionRequestSchema.safeParse({ ...base, summary }).success).toBe(false);
+  });
+
+  it.each([
+    ['a tab', 'a\tb'],
+    ['a lone carriage return', 'a\rb'],
+    ['a NUL', 'a\u0000b'],
+    ['a zero-width space', 'a\u200Bb'],
+    ['a zero-width joiner', 'a\u200Db'],
+    ['a right-to-left override', 'a\u202Eb'],
+    ['a left-to-right isolate', 'a\u2066b'],
+    ['a byte-order mark', 'a\uFEFFb'],
+    ['a line separator', 'a\u2028b'],
+    ['a paragraph separator', 'a\u2029b'],
+  ])('refuses a bullet holding %s, with a plain-text message', (_label, bullet) => {
+    const r = PublishLegalVersionRequestSchema.safeParse({ ...base, summary: [bullet] });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toMatch(/one line of plain text/);
+    expect(hasForbiddenSummaryChar(bullet)).toBe(true);
+  });
+
+  it('keeps ordinary punctuation, accents and symbols, unescaped', () => {
+    const bullet = 'Fees < $250 & “Managed” café, 100% — no change to § 4.';
+    expect(hasForbiddenSummaryChar(bullet)).toBe(false);
+    expect(PublishLegalVersionRequestSchema.parse({ ...base, summary: [bullet] }).summary).toEqual([
+      bullet,
+    ]);
   });
 
   it('needs both flags answered: neither has a default', () => {

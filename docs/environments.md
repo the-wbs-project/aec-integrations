@@ -183,7 +183,7 @@ no preflight, no web var. `apps/api/src/wrangler-legal-publish.spec.ts` pins the
 It keeps publishing from becoming a way around the legal README's list of issues that must ship
 before any effective date. AECI-1677 turns production on, and edits the spec in the same change.
 
-**The PDF workflow.** `.github/workflows/legal-pdf.yml` (dispatch only, `CICD_PLAN.md` §11a-ter)
+**The PDF workflow.** `.github/workflows/legal-pdf.yml` (dispatch only, from `main` only, `CICD_PLAN.md` §11a-ter)
 prints one version and uploads it to `aeci-uploads-<env>` at `legal/<slug>/v<version>.pdf`. It
 runs in the `<env>` GitHub environment, so a production run waits for the `production` reviewer.
 It needs `CLOUDFLARE_API_TOKEN` with `Workers R2 Storage: Edit` and `CLOUDFLARE_ACCOUNT_ID`, the

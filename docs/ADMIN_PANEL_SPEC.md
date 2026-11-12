@@ -2256,7 +2256,10 @@ acceptance means an owner of each company (Vendor Terms) or each monthly custome
 must accept before the version applies to them. It ends "A publish cannot be undone." While the
 request is in flight the dialog cannot be closed: `disableClose` refuses Escape and the backdrop,
 and Cancel is disabled. A failure shows in the dialog and on the card as an alert, with one
-sentence per refusal code. A 409 reloads the list. After a success the dialog closes, focus moves
+sentence per refusal code. `LEGAL_NOTICE_WINDOW` has two, chosen by `details.reason`: a date
+already passed says to move it and that an expedited reason does not help; a date inside 30 days
+says to move it or, for the Vendor Terms, give an expedited reason. A summary line holding a
+tab, a zero-width or bidi character or a line separator is refused, naming the line. A 409 reloads the list. After a success the dialog closes, focus moves
 to the card heading, and the live region announces the publish.
 
 **Anchor.** The admin console is its own anchor site (`DESIGN.md` "The Anchor-Site Rule"): the

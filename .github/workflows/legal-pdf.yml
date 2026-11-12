@@ -75,6 +75,19 @@ jobs:
       VERSION: ${{ inputs.version }}
       TIER: ${{ inputs.env }}
     steps:
+      # Dispatch from `main` only, as promote-to-prod does. The PDF is printed from the
+      # checked-out text and never overwritten, so a run from a feature branch would fix a
+      # copy of unmerged text in R2 for good, and the publish would hash text that differs
+      # from the page production serves.
+      - name: Require dispatch from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::legal-pdf must be dispatched from main (got '$REF'). Re-run it with the branch set to main."
+            exit 1
+          fi
+
       - name: Check the inputs
         run: |
           [[ "$SLUG" =~ ^(vendor-terms|managed-plan-agreement)$ ]] || { echo "::error::slug must be vendor-terms or managed-plan-agreement"; exit 1; }
@@ -86,6 +99,14 @@ jobs:
             echo "R2_OBJECT=aeci-uploads-$TIER/legal/$SLUG/v$VERSION.pdf"
             echo "ARTIFACT_NAME=legal-pdf-$SLUG-v$VERSION-$TIER"
           } >> "$GITHUB_ENV"
+          {
+            echo "### legal-pdf"
+            echo ""
+            echo "- commit: $GITHUB_SHA"
+            echo "- slug: $SLUG"
+            echo "- version: $VERSION"
+            echo "- env: $TIER"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v5
 
@@ -115,7 +136,7 @@ jobs:
           [[ "$(head -c 5 "$PDF_FILE")" == "%PDF-" ]] || { echo "::error::the file does not start with %PDF-"; exit 1; }
           size=$(stat -c %s "$PDF_FILE")
           (( size <= 5242880 )) || { echo "::error::the PDF is $size bytes, over the 5 MB the publish accepts"; exit 1; }
-          echo "$R2_OBJECT: sha256 $(sha256sum "$PDF_FILE" | cut -d' ' -f1), $size bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- object: $R2_OBJECT, sha256 $(sha256sum "$PDF_FILE" | cut -d' ' -f1), $size bytes" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v6
         with:

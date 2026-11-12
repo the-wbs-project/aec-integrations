@@ -2878,6 +2878,10 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
   `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing updates or
   deletes a row in this issue. AECI-1620 will fill the two `notice_*` columns.
+- **`summary_json` is unescaped plain text.** Each bullet is one line with no control, format
+  (zero-width, bidi) or U+2028/U+2029 characters (`LEGAL_SUMMARY_FORBIDDEN_CHARS`), but it is
+  stored as typed, `<` and `&` included. Every renderer (the admin page, the AECI-1620 email, a
+  vendor screen) must escape it for its medium. Never insert it as HTML.
 - **Not typed by the operator.** `version` and `effective_at` come from
   `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
 - **The two flags are the operator's answers.** `material` and `requires_acceptance` have no

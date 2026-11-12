@@ -19,7 +19,7 @@
 //
 // CI runs it from `.github/workflows/legal-pdf.yml`, which uploads the file to R2
 // for the publish step on `/admin/legal` to hash. The page loads no webfont or
-// network resource, so the run needs only the Chromium binary
+// network resource and runs with JavaScript off, so the run needs only the Chromium binary
 // (`pnpm --filter @aeci/web exec playwright install chromium`).
 //
 // `--content-dir` points at another copy of `src/content/legal/` with the same
@@ -195,7 +195,10 @@ async function main() {
   const file = join(out, `${slug}-v${version}.pdf`);
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage();
+    // No page JavaScript: the print is static HTML. The footer's page numbers come from
+    // Chromium's own header/footer templates, which need no script on the page.
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
     // No network: the page is self-contained.
     await page.route('**/*', (route) => route.abort());
     await page.setContent(html, { waitUntil: 'load' });

@@ -75,6 +75,14 @@ export function legalEffectiveAtMs(effectiveOn: string): number {
 }
 
 /**
+ * `details.reason` on a `422 LEGAL_NOTICE_WINDOW`. `passed`: the effective moment is not in
+ * the future, so only moving the date helps. `too_soon`: it is less than 30 days away, so
+ * move the date or, for the Vendor Terms, give an expedited reason.
+ */
+export const LEGAL_NOTICE_WINDOW_REASONS = ['passed', 'too_soon'] as const;
+export type LegalNoticeWindowReason = (typeof LEGAL_NOTICE_WINDOW_REASONS)[number];
+
+/**
  * Why a Vendor Terms version may take effect inside the notice window
  * (`vendor-terms.md` "Changes"): a change the law requires, or a correction of an error.
  */
@@ -82,13 +90,33 @@ export const LEGAL_EXPEDITED_REASONS = ['law', 'error'] as const;
 export const LegalExpeditedReasonSchema = z.enum(LEGAL_EXPEDITED_REASONS);
 export type LegalExpeditedReason = z.infer<typeof LegalExpeditedReasonSchema>;
 
-/** One bullet: trimmed, 1 to 300 characters, one line. */
+/**
+ * Characters a bullet may not hold: every control character (`\p{Cc}`, which includes CR,
+ * LF and tab), every format character (`\p{Cf}`: zero-width spaces and joiners, the bidi
+ * overrides and isolates, the BOM) and the line and paragraph separators U+2028 and U+2029.
+ * The summary is later rendered in emails and on a vendor screen, where any of these could
+ * hide text, reorder it or break a line.
+ */
+export const LEGAL_SUMMARY_FORBIDDEN_CHARS = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
+
+/** Whether a bullet holds a character {@link LEGAL_SUMMARY_FORBIDDEN_CHARS} refuses. */
+export function hasForbiddenSummaryChar(text: string): boolean {
+  return LEGAL_SUMMARY_FORBIDDEN_CHARS.test(text);
+}
+
+/**
+ * One bullet: trimmed, 1 to 300 characters (UTF-16 code units, as `String.length`
+ * counts), one line of plain text. Stored and returned unescaped: every renderer escapes.
+ */
 export const LegalSummaryBulletSchema = z
   .string()
   .trim()
   .min(1)
   .max(LEGAL_SUMMARY_BULLET_MAX)
-  .refine((s) => !/[\r\n]/.test(s), { message: 'A bullet is one line' });
+  .refine((s) => !hasForbiddenSummaryChar(s), {
+    message:
+      'A bullet is one line of plain text: no line breaks, control characters, invisible formatting characters or line separators',
+  });
 
 /** 1 to 10 bullets. The `/admin/legal` textarea validates with this same schema. */
 export const LegalSummarySchema = z

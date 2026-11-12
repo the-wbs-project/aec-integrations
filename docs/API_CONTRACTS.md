@@ -356,7 +356,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_PUBLISH_DISABLED` | 409 | `POST /api/admin/legal-versions` (AECI-1688) on a tier whose `LEGAL_PUBLISH_ENABLED` var is not `"true"`: demo and production until AECI-1677 turns production on. Checked first, before the body. Nothing is written |
 | `LEGAL_VERSION_NOT_UPCOMING` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the `version` is not the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. `field: 'version'`. Nothing is written |
 | `LEGAL_VERSION_EXISTS` | 409 | `POST /api/admin/legal-versions` (AECI-1688) when a `legal_versions` row exists for that document and version. Also the loser of two publishes racing on the unique index `legal_versions_document_version_key`: the batch rolls back and answers this, never a `500`. `field: 'version'` |
-| `LEGAL_NOTICE_WINDOW` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the version takes effect (12:00 UTC of its `effectiveOn` day) less than 30 days from now. A Vendor Terms version with an `expedited_reason` (`law` or `error`) only has to be in the future. `field: 'version'`. Nothing is written |
+| `LEGAL_NOTICE_WINDOW` | 422 | `POST /api/admin/legal-versions` (AECI-1688) when the version takes effect (12:00 UTC of its `effectiveOn` day) less than 30 days from now. A Vendor Terms version with an `expedited_reason` (`law` or `error`) only has to be in the future. `field: 'version'`. `details.reason` is `passed` (the moment is not in the future: move the date, an expedited reason does not help) or `too_soon` (inside 30 days: move the date, or expedite a Vendor Terms change). Nothing is written |
 | `LEGAL_PDF_MISSING` | 409 | `POST /api/admin/legal-versions` (AECI-1688) when the CI-built PDF at `legal/<slug>/v<version>.pdf` in `UPLOADS` is absent, does not start with `%PDF-`, is over 5 MB, or the bucket is unbound. `details` is `{ pdf_key, problem }`, `problem` one of `missing`, `not_pdf`, `too_large`, `unbound`. Run `legal-pdf.yml` first. Nothing is written |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
@@ -7043,7 +7043,7 @@ export const PublishLegalVersionRequestSchema = z.object({
   version: z.string().trim().min(1).max(20),
   material: z.boolean(),                     // no default: the page asks Yes or No
   requires_acceptance: z.boolean(),          // no default; true needs material: true
-  summary: z.array(z.string().trim().min(1).max(300) /* one line */).min(1).max(10),
+  summary: z.array(z.string().trim().min(1).max(300) /* one line, no \p{Cc}, \p{Cf}, U+2028, U+2029 */).min(1).max(10),
   expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
 }).strict();
 // 201: { legal_version: LegalVersion }
@@ -7057,7 +7057,11 @@ LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body
 MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
 without `material`, an expedited reason on a Managed plan version) is `400 VALIDATION_FAILED`.
 Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
-`409 LEGAL_PDF_MISSING`, in that order. The effective moment is `legalEffectiveAtMs(effectiveOn)`,
+`409 LEGAL_PDF_MISSING`, in that order. The window refusal carries `details.reason`: `passed` or
+`too_soon`, so the page gives the right advice. A bullet holding a control character (tab, CR,
+LF), a format character (zero-width, bidi) or U+2028/U+2029 is a `400`. Summaries are stored and
+returned as unescaped plain text; every renderer escapes them. The 300 limit counts UTF-16 code
+units. The effective moment is `legalEffectiveAtMs(effectiveOn)`,
 12:00 UTC of the day, for the row and the 30-day check alike. An expedited reason is stored only
 when the window needed it, else NULL. The R2 key is built from the upcoming entry after the
 upcoming check, never from the request. The PDF's size is checked on `head` before any download,

@@ -353,23 +353,53 @@ change-notice email (AECI-1620), the acceptance screen (AECI-1677) and reader ac
    publish.
 2. **Deploy** to the tier: staging from `main`, production through `promote-to-prod`. The page
    lists only versions in the deployed map.
-3. **Run the PDF workflow** for that tier: `.github/workflows/legal-pdf.yml` with the slug, the
-   version and the env (`docs/CICD_PLAN.md` §11a-ter). It prints the version with its title,
-   "Version X, effective <date>", absolute links and a footer with the version's URL and page
-   numbers, and uploads it to `legal/<slug>/v<version>.pdf` in the tier's uploads bucket. It fails
-   when `effective_date` is blank, and it refuses to overwrite a file that is already there, so
-   check the run artifact before you publish. A production run waits for the `production`
-   reviewer.
-4. **Publish on `/admin/legal`** on that tier. Answer "Is this a material change?" and "Does it
+3. **Run the PDF workflow** for that tier, dispatched from `main`: `.github/workflows/legal-pdf.yml`
+   with the slug, the version and the env (`docs/CICD_PLAN.md` §11a-ter). It refuses any other
+   branch. It prints the version with its title, "Version X, effective <date>", absolute links
+   and a footer with the version's URL and page numbers, and uploads it to
+   `legal/<slug>/v<version>.pdf` in the tier's uploads bucket, `aeci-uploads-<env>`. It fails when
+   `effective_date` is blank. It never overwrites a file that is already there. A production run
+   waits for the `production` reviewer.
+4. **Check the PDF before you publish.** The run's summary names the commit (`github.sha`), the
+   slug, the version, the env, and the stored object's sha256 and size. Confirm that the upcoming
+   file at that commit is the text the tier serves at `/legal/<slug>/v<version>`: the commit must
+   be the one deployed to that tier, or one with the same upcoming file. Then open the PDF. On the
+   run's page in GitHub Actions, the Artifacts section at the bottom holds a zip named
+   `legal-pdf-<slug>-v<version>-<env>` with the PDF in it. From a terminal, the same download is:
+
+   ```bash
+   gh run download 19234567890 --name legal-pdf-vendor-terms-v1.4-staging --dir legal-pdf
+   ```
+
+   Here `19234567890` is the run id from the run's URL, the name is the artifact's (slug
+   `vendor-terms`, version `1.4`, env `staging` in this example), and `legal-pdf` is the folder it
+   is saved to. Read the title, the "Version X, effective <date>" line, the footer and a few links.
+
+   **A wrong PDF found before publishing** is removed and printed again, because the workflow
+   never overwrites. Delete the object from the same tier's bucket, then re-run the workflow:
+
+   ```bash
+   pnpm --filter @aeci/api exec wrangler r2 object delete aeci-uploads-staging/legal/vendor-terms/v1.4.pdf --remote
+   ```
+
+   The path is the bucket `aeci-uploads-staging` (use `aeci-uploads-production` or
+   `aeci-uploads-demo` for those tiers) followed by the key `legal/vendor-terms/v1.4.pdf`, which is
+   `legal/<slug>/v<version>.pdf` for the version you printed. It needs Cloudflare credentials for
+   the AEC account with R2 write access.
+
+   **After publishing, never replace the stored PDF.** The `legal_versions` row records its sha256,
+   and every reader of the file re-hashes it. A replaced file no longer matches the record. If the
+   published text is wrong, that is a new version.
+5. **Publish on `/admin/legal`** on that tier. Answer "Is this a material change?" and "Does it
    need acceptance?" (no default; acceptance needs a material change), write one summary line
-   per change (1 to 10 lines, each up to 300 characters), and give an expedited reason only for
-   a Vendor Terms version inside 30 days. The confirmation says what each answer causes. A
-   publish cannot be undone.
+   per change (1 to 10 lines, each up to 300 characters, plain text with no tabs or hidden
+   characters), and give an expedited reason only for a Vendor Terms version inside 30 days. The
+   confirmation says what each answer causes. A publish cannot be undone.
 
 The publish refuses, in this order: publishing off on the tier (`LEGAL_PUBLISH_ENABLED`), a
-version that is not the upcoming one, a version already published, an effective moment less
-than 30 days away (unless an expedited Vendor Terms change still in the future), and a missing,
-non-PDF or over-5 MB file.
+version that is not the upcoming one, a version already published, an effective moment that has
+already passed (move the date; an expedited reason does not help) or is less than 30 days away
+(move the date, or expedite a Vendor Terms change), and a missing, non-PDF or over-5 MB file.
 
 **The effective moment is 12:00 UTC on the `effectiveOn` day.** Not midnight: 00:00 UTC is the
 evening before in the Americas, which would start a version early there and shorten the 30-day

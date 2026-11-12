@@ -24,8 +24,9 @@ for customers, or what file they would be sent.
    audit row in one `db.batch`. The unique `(document, version)` index makes a second publish, or
    the loser of a race, a `409`. Nothing edits or deletes a row. The version and its day are read
    from `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, never typed.
-2. **The PDF is built in CI and fixed by its hash.** `legal-pdf.yml` (dispatch only, behind the
-   tier's GitHub environment) prints the version file with Playwright, refuses a blank
+2. **The PDF is built in CI and fixed by its hash.** `legal-pdf.yml` (dispatch only, from `main`
+   only, behind the tier's GitHub environment) prints the version file with Playwright, with page
+   JavaScript off, refuses a blank
    `effective_date`, and uploads to `UPLOADS` at `legal/<slug>/v<version>.pdf`. It refuses to
    overwrite an object that exists. The publish checks the object (present, `%PDF-`, at most
    5 MB, size checked on `head` first) and records the sha256 and size of the exact bytes it read.
@@ -45,6 +46,13 @@ for customers, or what file they would be sent.
    issues that must ship before any effective date. AECI-1677 turns production on.
 6. **This step sends nothing.** No email, no queue message, no purge. AECI-1620 adds the notice
    fan-out and fills `notice_enqueued_at` and `notice_vendor_count`.
+
+7. **A wrong PDF is fixed before publish, never after.** The run keeps the PDF as an artifact and
+   names the commit, slug, version and env in its summary. The operator opens it and checks that
+   the commit's upcoming file is the text the tier serves. A wrong file found before publish is
+   deleted from the tier's bucket (`wrangler r2 object delete`) and the workflow re-run, because the
+   workflow never overwrites. After publish the stored file is never replaced: its hash is on the
+   row. A wrong published text is a new version. The commands are in the legal README.
 
 ## Alternatives rejected
 

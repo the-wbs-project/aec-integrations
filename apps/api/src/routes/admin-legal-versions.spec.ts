@@ -245,14 +245,32 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
     );
   });
 
-  it('refuses a version inside the 30-day window (422 LEGAL_NOTICE_WINDOW)', async () => {
+  it('refuses a version inside the 30-day window (422 LEGAL_NOTICE_WINDOW, reason too_soon)', async () => {
     await putPdf();
     const near: Upcoming = { vendor_terms: { version: '1.4', effectiveOn: NEAR_DAY } };
-    await expectRefused(
-      await post(body(), { upcoming: near }),
-      422,
-      ApiErrorCode.LEGAL_NOTICE_WINDOW,
+    const res = await post(body(), { upcoming: near });
+    await expectRefused(res, 422, ApiErrorCode.LEGAL_NOTICE_WINDOW);
+    const out = (await res.json()) as { error: { message: string; details: { reason: string } } };
+    expect(out.error.details.reason).toBe('too_soon');
+    expect(out.error.message).toMatch(
+      /less than 30 days away\. Move the effective date, or for the Vendor Terms give an expedited reason\./,
     );
+  });
+
+  it('tells a passed date apart (reason passed), with or without an expedited reason', async () => {
+    await putPdf();
+    const past: Upcoming = { vendor_terms: { version: '1.4', effectiveOn: '2026-11-01' } };
+    for (const extra of [{}, { expedited_reason: 'law' }]) {
+      const res = await post(body(extra), { upcoming: past });
+      await expectRefused(res, 422, ApiErrorCode.LEGAL_NOTICE_WINDOW);
+      const out = (await res.json()) as {
+        error: { message: string; details: { reason: string } };
+      };
+      expect(out.error.details.reason).toBe('passed');
+      expect(out.error.message).toMatch(
+        /already passed\. Move the effective date; an expedited reason does not help\./,
+      );
+    }
   });
 
   it('measures the window to 12:00 UTC of the effective day', async () => {
@@ -370,6 +388,10 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
       ['x'.repeat(301)],
       ['two\nlines'],
       ['   '],
+      ['tab\there'],
+      ['bidi \u202E override'],
+      ['zero\u200Bwidth'],
+      ['line\u2028separator'],
     ]) {
       const res = await post(body({ summary }));
       expect(res.status, JSON.stringify(summary).slice(0, 40)).toBe(400);
