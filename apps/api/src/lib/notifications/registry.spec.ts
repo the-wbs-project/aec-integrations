@@ -239,6 +239,8 @@ const ALWAYS_ON = [
   'contest-protest-reply-reminder',
   'entitlement-expiring',
   'legal-terms-change',
+  // AECI-1705: the only record of a listing request.
+  'listing-request-alert',
   'mailing-list-welcome-operator-copy',
   'product-request-decided',
   'review-approved',
@@ -279,9 +281,10 @@ describe('pausable (AECI-1224)', () => {
   // AECI-1503 added `stripe-reconcile-alert`: 22.
   // AECI-1305 added `vendor-claim-nudge`: 23. AECI-1535 added `thread-help-requested`: 24.
   // AECI-1613 added `review-update-submitted` and `review-update-submitted-alert`: 26.
-  it('pauses only what is listed: 26 pausable email entries', () => {
+  // AECI-1705 made `listing-request-alert` always on, because it is the only record: 25.
+  it('pauses only what is listed: 25 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(26);
+    expect(pausable).toHaveLength(25);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

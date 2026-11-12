@@ -137,6 +137,10 @@
       "types": "./src/free-email-domains.ts",
       "default": "./src/free-email-domains.ts"
     },
+    "./countries": {
+      "types": "./src/countries.ts",
+      "default": "./src/countries.ts"
+    },
     "./text-sort": {
       "types": "./src/text-sort.ts",
       "default": "./src/text-sort.ts"

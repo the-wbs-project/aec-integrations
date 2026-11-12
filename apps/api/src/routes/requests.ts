@@ -213,7 +213,7 @@ export interface ClaimTarget {
  * shows is the company the row records. The product comes back as `contextProduct`.
  *
  * A product with no `product_vendors` row has no company to claim. It returns the
- * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Type it in
+ * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Ask us to add it
  * instead" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.2).
  */
 export async function resolveClaimTarget(
@@ -879,7 +879,7 @@ export async function submitClaimNow(
  * Nothing else runs until the link is clicked.
  *
  * The target resolves first on both paths, so a dead listing still answers `404` and
- * the dialog can offer "Type it in instead".
+ * the dialog can offer "Ask us to add it instead".
  */
 export function createClaimSubmitHandler(
   dbFor: DbFactory = getDb,

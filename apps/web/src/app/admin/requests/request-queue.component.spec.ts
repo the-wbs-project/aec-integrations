@@ -67,10 +67,8 @@ function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminV
 interface ApiMock {
   listRequests: ReturnType<typeof vi.fn>;
   moderate: ReturnType<typeof vi.fn>;
-  /** AECI-1293: the second section's list, empty here; pinned in its own spec. */
-  listListingRequests: ReturnType<typeof vi.fn>;
   listProductRequests: ReturnType<typeof vi.fn>;
-  /** AECI-1373: the fourth section's list, empty here; pinned in its own spec. */
+  /** AECI-1373: the third section's list, empty here; pinned in its own spec. */
   listLicenseReleaseRequests: ReturnType<typeof vi.fn>;
 }
 
@@ -82,7 +80,6 @@ function makeApiMock(rows: AdminVendorRequest[], total = rows.length): ApiMock {
       async (id: string, input: { action: string }): Promise<AdminVendorRequest> =>
         makeRequest({ id, status: input.action === 'resolve' ? 'resolved' : 'rejected' }),
     ),
-    listListingRequests: vi.fn(async () => ({ data: [], page: 1, perPage: 100, total: 0 })),
     listProductRequests: vi.fn(async () => ({ data: [], page: 1, perPage: 100, total: 0 })),
     listLicenseReleaseRequests: vi.fn(async () => ({
       data: [],
@@ -371,11 +368,11 @@ describe('RequestQueue', () => {
         ]),
       );
       expect(el.querySelectorAll('h1')).toHaveLength(0);
-      // Corrections, then the AECI-1293 listing requests, the AECI-1377 product
-      // requests and the AECI-1373 early-unassign requests (all empty here).
+      // Corrections, then the AECI-1377 product requests and the AECI-1373
+      // early-unassign requests (both empty here). AECI-1705 removed the listing
+      // requests section.
       expect([...el.querySelectorAll('h2')].map((h) => h.textContent?.trim())).toEqual([
         'Correction requests',
-        'Listing requests',
         'Product requests from vendors',
         'Early-unassign requests',
       ]);
@@ -385,11 +382,11 @@ describe('RequestQueue', () => {
 
     it('gives the filter control an accessible group name', async () => {
       const { el } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
-      // One status group per section: AECI-922 retired the kind filter, AECI-1293
-      // added the listing requests section with its own, AECI-1377 the product
-      // requests section, and AECI-1373 the early-unassign section.
+      // One status group per section: AECI-922 retired the kind filter, AECI-1377
+      // added the product requests section, and AECI-1373 the early-unassign section.
+      // AECI-1705 removed the listing requests section and its group.
       const groups = [...el.querySelectorAll('[role="group"]')];
-      expect(groups).toHaveLength(4);
+      expect(groups).toHaveLength(3);
       for (const g of groups) {
         const labelId = g.getAttribute('aria-labelledby');
         expect(labelId).toBeTruthy();

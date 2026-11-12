@@ -31,13 +31,13 @@ submissions.
 
 | Arrives as | Record | What the operator does |
 |---|---|---|
-| The listing request page (`/vendor-program/list-your-product`, AECI-1474) or the claim dialog's "Not listed? Type it in" path. Both are the same form | A `listing_requests` row, its `listing_request.created` audit row, and the `listing-request-alert` email to support (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) | Work it from the "Listing requests" section of `/admin/requests` (§15.5). Resolve or reject it there. The claimant already has an automatic `claim-received` receipt. |
+| The listing request page (`/vendor-program/list-your-product`, AECI-1474) or the claim dialog's "Not listed? Ask us to add it" path. Both are the same form | A `listing_requests` row, its `listing_request.created` audit row, and the `listing-request-alert` email to support (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) | Work it from the `listing-request-alert` email. It carries every field the form collects, and the inbox agent files it in Linear. There is no admin screen for it since AECI-1705. The claimant already has an automatic `claim-received` receipt. |
 | A cold email | Nothing until you file it | File a Linear issue (below). |
 
 **As built, AECI-1435 (2026-10-21): a request in the queue is from a confirmed address.** An
 anonymous typed-in listing, and an anonymous claim, wait until the typed address clicks the emailed
-confirm link (ADR 0043). Nothing reaches `/admin/requests`, `/admin/claims` or the support inbox
-before that. So the email on a listing request or a claim in the queue has received our mail.
+confirm link (ADR 0043). Nothing reaches `/admin/claims` or the support inbox before that. So the
+email on a listing request alert, or on a claim in the queue, has received our mail.
 It still says nothing about whether the person works at the company: the domain and LinkedIn checks
 are unchanged. A request that was never confirmed is not in any queue, and its pending row is
 deleted after 7 days.
@@ -52,12 +52,13 @@ deleted after 7 days.
 The `REQUEST - ` title prefix is new with this runbook. It is recorded in
 `docs/linear-issue-conventions.md` §3.
 
-The in-app path files no Linear issue by design. §15.4 makes the alert and the admin queue its
-record. Resolving a listing request does not create the listing. You add it upstream in the
-review app, promote it, then email the submitter to finish their claim (§15.5).
+The app files no Linear issue for an in-app listing request. Since AECI-1705 (2026-11-12) the
+`listing-request-alert` email is its record, and the AI agent on the support inbox files it in
+Linear. Nothing in the app creates the listing. You add it upstream in the review app, promote it,
+then reply to the alert, whose reply-to is the submitter, so they can claim it (§15.5).
 
-Rejecting a listing request sends nothing either. The `claim-received` receipt promises an
-explanation, so email the submitter yourself before you reject.
+If we do not add it, the app sends nothing. The `claim-received` receipt promises an explanation,
+so reply to the submitter yourself.
 
 ## 3. The listing decision
 

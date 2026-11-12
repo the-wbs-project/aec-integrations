@@ -1,0 +1,1 @@
+ALTER TABLE `listing_requests` ADD `company_country` text;

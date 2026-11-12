@@ -385,6 +385,14 @@ listing request, whose acceptance names the `listing_requests` row (`listing_req
 in step 1 is `claim-received`, at most one per address per day, with no link that grants anything
 (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).
 
+*As built, AECI-1705 (2026-11-12, Chris's rulings 3 to 6).* The box is on the claim forms only:
+the dialog's found-listing path, the routed claim pages and the drawer. A typed-in listing request
+("Not listed? Ask us to add it") is a request to be listed, not a claim, and no listed company
+exists yet to accept the terms for. It shows no box and writes no acceptance. The vendor accepts
+the terms when they claim the listing we add. The rows written by listing requests before the
+change stay, because `agreement_acceptances` is append-only. The listing request form asks for a
+required "Company country" (ISO 3166-1 alpha-2) instead, to help us check the company is real.
+
 *As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the
 emailed link is confirmed, not at submit. It carries the version shown, the IP and the user agent of
 the submit, kept on the pending `request_confirmations` row, and the confirm time. A terms bump in
@@ -398,7 +406,7 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 
 *As built 2026-11-05 (AECI-1617, counsel Q11 and Q15).* The claim box reads "I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company." It starts unticked, and submit stays disabled until it is ticked, including Continue on the dialog's You step.
 
-- **Signer.** The form requires "Title" and "Company legal name". The legal name is pre-filled from a found listing's company, is editable, and starts blank on a typed-in listing. Both are stored on the claim or listing request. The acceptance row copies them with the claimant's name (`signer_name`, `signer_title`, `company_legal_name`). The columns stay out of the audit row.
+- **Signer.** The form requires "Title" and "Company legal name". The legal name is pre-filled from a found listing's company, is editable, and starts blank on a typed-in listing. Both are stored on the claim or listing request. A claim's acceptance row copies them with the claimant's name (`signer_name`, `signer_title`, `company_legal_name`). The columns stay out of the audit row.
 - **Signer at checkout (ruled 2026-11-05).** The Stripe page has no form, so the checkout route reads the signer before the session opens (`loadCheckoutSigner`) and writes `signer_name`, `signer_title` and `company_legal_name` into the session's metadata only, not the subscription's. The webhook and the reconcile copy them onto the acceptance row. The name is the profile's display name, else the seat's claim. The Managed plan agreement says we record these where we hold them, and the Privacy Policy says we pass them to Stripe with the checkout (items 10.7 and 10.8).
   *As built 2026-11-06 (AECI-1625).* The legal name now has a home, `vendors.legal_name`. The checkout takes it from there, else from the newest claim acceptance that recorded one. It never reads `billing_accounts.name` or `company_name`, because neither is a legal name. The title is what the buyer typed in the required "Your title" field on the buy form (`signer_title`, 1 to 100 characters), else this seat's own newest claim title. The form pre-fills the field from `checkout_signer_title` on `GET /api/vendor/billing`. An invited seat has no claim, so it types the title. A reused open Checkout Session must match the signer metadata too, or it is expired. The Checkout idempotency key gains a 12-hex signer digest.
 - **The legal name field (AECI-1625, 2026-11-06).** Claim approval fills `vendors.legal_name` from the claim's company legal name only while the column is empty. Chris ruled this on AECI-1625, because a later claimant must not undo an owner's or an admin's correction. An owner seat edits it under Billing, beside "Billing email", and an admin edits it on the vendor's Billing tab. Each change writes a `vendor.legal_name_changed` audit row. Promote never writes it.

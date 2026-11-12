@@ -1,8 +1,8 @@
 /**
  * `readAdminQueueCounts` (AECI-922; `ADMIN_PANEL_SPEC.md` §5.0c) against the in-memory
  * D1 harness. Pins the `pending_requests` sum: every section of `/admin/requests` adds
- * its open rows, and a claim never does. AECI-1373 added the fourth term, open
- * early-unassign requests.
+ * its open rows, and a claim never does. AECI-1373 added open early-unassign requests.
+ * AECI-1705 took open listing requests out: they have no screen.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -51,7 +51,7 @@ describe('readAdminQueueCounts: pending_requests', () => {
     });
   });
 
-  it('sums open corrections, listing, product and early-unassign requests, never claims', async () => {
+  it('sums open corrections, product and early-unassign requests, never claims or listing requests', async () => {
     await t.db.insert(vendorRequests).values([
       {
         kind: 'correction',
@@ -85,8 +85,9 @@ describe('readAdminQueueCounts: pending_requests', () => {
     await seedReleaseRequests(['open', 'open', 'approved', 'declined']);
 
     const counts = await readAdminQueueCounts(t.db);
-    // 1 correction + 1 listing + 1 product + 2 open release requests.
-    expect(counts.pending_requests).toBe(5);
+    // 1 correction + 1 product + 2 open release requests. The open listing request is
+    // not counted (AECI-1705).
+    expect(counts.pending_requests).toBe(4);
     expect(counts.pending_claims).toBe(1);
   });
 

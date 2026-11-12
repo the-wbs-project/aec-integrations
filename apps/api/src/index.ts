@@ -97,10 +97,6 @@ import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
 } from './routes/admin-requests';
-import {
-  createAdminListingRequestsListHandler,
-  createModerateListingRequestHandler,
-} from './routes/admin-listing-requests';
 import { createListingRequestHandler } from './routes/listing-requests';
 import { createConfirmRequestHandler } from './routes/request-confirmations';
 import {
@@ -493,7 +489,7 @@ phase28.get('/api/stats/home', createStatsHomeHandler());
 // `routes/requests.ts` and `lib/linear.ts`.
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
-// AECI-1293: "Not listed? Type it in" in the claim dialog, a `listing_requests` row
+// AECI-1293: "Not listed? Ask us to add it" in the claim dialog, a `listing_requests` row
 // (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Under `/api/requests/`, so zone Rule A caps it
 // per IP like the claim route, and like it, it carries no in-Worker bucket
 // (`docs/waf-rate-limits.md` §6.2).
@@ -763,22 +759,11 @@ authAdmin.patch(
   requireAdmin(),
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
 );
-// AECI-1293: the listing request queue, the second section of /admin/requests.
-// Moderation is a resolve/reject with its audit row, like the requests PATCH above,
-// and like it carries no limiter (`docs/waf-rate-limits.md` §6.2).
-authAdmin.get(
-  '/api/admin/listing-requests',
-  requireAdmin(),
-  createAdminListingRequestsListHandler(),
-);
-authAdmin.patch(
-  '/api/admin/listing-requests/:id',
-  requireAdmin(),
-  createModerateListingRequestHandler(),
-);
+// AECI-1705 removed the listing request queue (`GET` and `PATCH
+// /api/admin/listing-requests`). The `listing-request-alert` email is the record.
 // AECI-1377 (§4.7.6): the product request queue on /admin/requests. A decision is
 // one batch with a race sentinel, its audit row and the vendor's portal row; the
-// decision email goes after commit. No limiter, like the listing requests above.
+// decision email goes after commit. No limiter, like the requests PATCH above.
 authAdmin.get(
   '/api/admin/product-requests',
   requireAdmin(),

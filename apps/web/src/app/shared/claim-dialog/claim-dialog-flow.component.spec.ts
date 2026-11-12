@@ -4,7 +4,8 @@
  * removed the plan step), Back, both submit paths, the 404 fallback and the
  * analytics payloads. AECI-1366 adds the vendor terms box, the routed notice and
  * receipt, and the stale-bundle `accepted_terms` 400. AECI-1474 adds the embedded
- * flow that starts on the typed-in step, for the listing request page. The BrnDialog
+ * flow that starts on the typed-in step, for the listing request page. AECI-1705 takes
+ * the vendor terms box off the typed-in path and adds the company country. The BrnDialog
  * shell and the triggers are pinned in `claim-dialog.component.spec.ts`.
  */
 import { HttpErrorResponse } from '@angular/common/http';
@@ -21,6 +22,7 @@ import { SessionStatus } from '../../auth/session-status';
 import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
+import { AecSelect } from '../aec-select/aec-select';
 import { FoundViaField } from '../found-via/found-via-field';
 import { ClaimDialogFlow } from './claim-dialog-flow';
 import {
@@ -127,13 +129,25 @@ function setup(
     host.querySelector<HTMLInputElement>('#claim-dialog-terms')!.click();
     fixture.detectChanges();
   };
-  /** The You step's fields, and the vendor terms box unless `terms` is false. */
-  const fillYou = (terms = true) => {
+  /** AECI-1705: pick the company country on the typed-in path. */
+  const chooseCountry = (code: string) => {
+    const select = fixture.debugElement.query(By.css('aec-company-country-field aec-select'))
+      .componentInstance as AecSelect;
+    select.changed.emit(code);
+    fixture.detectChanges();
+  };
+  /**
+   * The You step's fields. With `complete`, also what the path requires last: the vendor
+   * terms box on a found listing, the company country on the typed-in path (AECI-1705).
+   */
+  const fillYou = (complete = true) => {
     fill('claim-dialog-name', 'Dana Reyes');
     fill('claim-dialog-title', 'VP Partnerships');
     fill('claim-dialog-email', 'dana@acme.example');
     fill('claim-dialog-legal-name', 'Acme, Inc.');
-    if (terms) toggleTerms();
+    if (!complete) return;
+    if (host.querySelector('#claim-dialog-terms')) toggleTerms();
+    else chooseCountry('GB');
   };
   return {
     fixture,
@@ -148,6 +162,7 @@ function setup(
     choose,
     fillYou,
     toggleTerms,
+    chooseCountry,
     answerFoundVia,
     analytics,
     api,
@@ -327,11 +342,18 @@ describe('ClaimDialogFlow', () => {
     expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
   });
 
-  it('keeps "Claim your company" on the typed-in path', () => {
+  it('marks the typed-in path for the shell, and clears it back on Find (AECI-1705)', () => {
     const t = setup({ page: 'vendor_program', entry: 'top' });
-    t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+    const service = TestBed.inject(ClaimDialogService);
+    const link = t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!;
+    expect(text(link.parentElement)).toBe('Not listed? Ask us to add it');
+    expect(service.typed()).toBe(false);
+    link.click();
     t.fixture.detectChanges();
-    expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
+    expect(service.company()).toBeNull();
+    expect(service.typed()).toBe(true);
+    t.back();
+    expect(service.typed()).toBe(false);
   });
 
   it('a chosen listing shows on step 2, and Change returns to search', () => {
@@ -431,12 +453,14 @@ describe('ClaimDialogFlow', () => {
       company_legal_name: 'Acme, Inc.',
       submitter_linkedin_url: '',
       body: '',
-      accepted_terms: true,
       found_via: '',
       found_via_detail: '',
       listing_name: 'Site Diary Pro',
       website: 'https://sitediary.example.com',
+      company_country: 'GB',
     });
+    // AECI-1705: a listing request carries no vendor terms acceptance.
+    expect(t.api.submitListing.mock.calls[0]![0]).not.toHaveProperty('accepted_terms');
     expect(t.api.submitClaim).not.toHaveBeenCalled();
     expect(t.heading()).toBe('Request sent');
     expect(text(t.host)).toContain(
@@ -556,7 +580,9 @@ describe('ClaimDialogFlow', () => {
     await t.primary();
     await t.primary();
     expect(text(t.$('[role="alert"]'))).toContain('That listing is no longer available.');
-    [...t.host.querySelectorAll('button')].find((b) => text(b) === 'Type it in instead')!.click();
+    [...t.host.querySelectorAll('button')]
+      .find((b) => text(b) === 'Ask us to add it instead')!
+      .click();
     t.fixture.detectChanges();
     expect(t.host.querySelector<HTMLInputElement>('#claim-dialog-listing-name')!.value).toBe(
       'Acme Takeoff',
@@ -599,53 +625,91 @@ describe('ClaimDialogFlow', () => {
   });
 
   // ── AECI-1366 ───────────────────────────────────────────────────────────────
-  it.each(['found', 'typed'] as const)(
-    'Continue stays disabled until the vendor terms box is ticked on the %s path (AECI-1617)',
-    async (path) => {
-      const t = setup({ page: 'vendor_program', entry: 'top' });
-      if (path === 'found') t.choose(PRODUCT);
-      else {
-        t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
-        t.fixture.detectChanges();
-        t.fill('claim-dialog-listing-name', 'Site Diary Pro');
-        t.fill('claim-dialog-website', 'https://sitediary.example.com');
-      }
-      const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
-      expect(box.type).toBe('checkbox');
-      expect(box.checked).toBe(false);
-      const link = t.$<HTMLAnchorElement>('label[for="claim-dialog-terms"] a')!;
-      expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
-      expect(link.target).toBe('_blank');
-      // AECI-1615 ruling 16: the shared label whose hash the acceptance row stamps.
-      expect(
-        text(t.$('label[for="claim-dialog-terms"]')).replace(' (opens in a new tab)', ''),
-      ).toBe(AGREEMENT_CHECKBOX_LABELS.vendor_terms.text);
-      expect(text(t.$('[data-testid="vendor-terms-short-form"]'))).toContain('limited to $100');
-      // AECI-1619 (counsel Q14): the policy versions the claim records, named beside the box.
-      const policies = t.$('[data-testid="vendor-terms-policies"]')!;
-      expect(text(policies).replaceAll(' (opens in a new tab)', '')).toBe(
-        `The Vendor Terms include the Listing Accuracy Policy, version ${LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy}, and the Review Guidelines, version ${LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines}.`,
-      );
-      expect([...policies.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-        '/legal/listing-accuracy',
-        '/legal/review-guidelines',
-      ]);
-      expect(policies.id).toBe('claim-dialog-terms-policies');
+  it('Continue stays disabled until the vendor terms box is ticked on a found listing (AECI-1617)', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose(PRODUCT);
+    const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
+    expect(box.type).toBe('checkbox');
+    expect(box.checked).toBe(false);
+    const link = t.$<HTMLAnchorElement>('label[for="claim-dialog-terms"] a')!;
+    expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
+    expect(link.target).toBe('_blank');
+    // AECI-1615 ruling 16: the shared label whose hash the acceptance row stamps.
+    expect(text(t.$('label[for="claim-dialog-terms"]')).replace(' (opens in a new tab)', '')).toBe(
+      AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
+    );
+    expect(text(t.$('[data-testid="vendor-terms-short-form"]'))).toContain('limited to $100');
+    // AECI-1619 (counsel Q14): the policy versions the claim records, named beside the box.
+    const policies = t.$('[data-testid="vendor-terms-policies"]')!;
+    expect(text(policies).replaceAll(' (opens in a new tab)', '')).toBe(
+      `The Vendor Terms include the Listing Accuracy Policy, version ${LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy}, and the Review Guidelines, version ${LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines}.`,
+    );
+    expect([...policies.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '/legal/listing-accuracy',
+      '/legal/review-guidelines',
+    ]);
+    expect(policies.id).toBe('claim-dialog-terms-policies');
 
-      t.fillYou(false);
-      const primary = t.$<HTMLButtonElement>('[data-testid="claim-dialog-primary"]')!;
-      expect(primary.disabled).toBe(true);
-      await t.primary();
-      expect(t.heading()).toBe('About you');
+    t.fillYou(false);
+    const primary = t.$<HTMLButtonElement>('[data-testid="claim-dialog-primary"]')!;
+    expect(primary.disabled).toBe(true);
+    await t.primary();
+    expect(t.heading()).toBe('About you');
 
-      t.toggleTerms();
-      expect(primary.disabled).toBe(false);
-      await t.primary();
-      expect(t.heading()).toBe('Anything to add?');
-      expect(t.api.submitClaim).not.toHaveBeenCalled();
-      expect(t.api.submitListing).not.toHaveBeenCalled();
-    },
-  );
+    t.toggleTerms();
+    expect(primary.disabled).toBe(false);
+    await t.primary();
+    expect(t.heading()).toBe('Anything to add?');
+    expect(t.api.submitClaim).not.toHaveBeenCalled();
+    expect(t.api.submitListing).not.toHaveBeenCalled();
+  });
+
+  // ── AECI-1705: the typed-in path is a request to be listed, not a claim ─────
+  it('the typed-in path has no vendor terms box and requires the company country', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+    t.fixture.detectChanges();
+    t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+    t.fill('claim-dialog-website', 'https://sitediary.example.com');
+    t.fillYou(false);
+
+    expect(t.$('#claim-dialog-terms')).toBeNull();
+    expect(t.$('[data-testid="vendor-terms-short-form"]')).toBeNull();
+    expect(text(t.$('#claim-dialog-country-label'))).toBe('Company country');
+    expect(text(t.$('#claim-dialog-country-trigger'))).toBe('Choose a country');
+
+    // No box to tick, so Continue is on. Pressed with no country, it stays and says why.
+    const primary = t.$<HTMLButtonElement>('[data-testid="claim-dialog-primary"]')!;
+    expect(primary.disabled).toBe(false);
+    await t.primary();
+    expect(t.heading()).toBe('About you');
+    expect(text(t.$('#claim-dialog-country-error'))).toBe("Choose the company's country.");
+    expect(t.$('#claim-dialog-country-trigger')!.getAttribute('aria-describedby')).toBe(
+      'claim-dialog-country-error',
+    );
+    expect(document.activeElement?.id).toBe('claim-dialog-country-trigger');
+
+    t.chooseCountry('DE');
+    expect(t.$('#claim-dialog-country-error')).toBeNull();
+    expect(text(t.$('#claim-dialog-country-trigger'))).toBe('Germany');
+    await t.primary();
+    expect(t.heading()).toBe('Anything to add?');
+    await t.primary();
+    expect(t.api.submitListing).toHaveBeenCalledWith(
+      expect.objectContaining({ company_country: 'DE' }),
+    );
+  });
+
+  it('lists every country by name, sorted, with the code as the value', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top', start: 'typed' });
+    const select = t.fixture.debugElement.query(By.css('aec-company-country-field aec-select'))
+      .componentInstance as AecSelect;
+    const options = select.options();
+    expect(options).toHaveLength(249);
+    const labels = options.map((o) => o.label);
+    expect(labels.slice(0, 2)).toEqual(['Afghanistan', 'Åland Islands']);
+    expect(options.find((o) => o.value === 'US')?.label).toBe('United States');
+  });
 
   it('a company with an owner seat shows the routed notice, then the routed receipt', async () => {
     const t = setup({ page: 'vendor_program', entry: 'top' }, { hasSeats: true });

@@ -62,8 +62,6 @@ type ResourceKind =
   | 'field_override'
   // An AECi value hide (AECI-1238 §11d.7). The caller is an authenticated admin.
   | 'field_hide'
-  // A typed-in listing request on `/admin/requests` (AECI-1293). Admin-only.
-  | 'listing_request'
   // A vendor's product request (AECI-1377). Admin-only on the PATCH.
   | 'product_request'
   // A vendor with no billing account yet, on the admin license grant (AECI-1370).

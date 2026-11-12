@@ -1620,8 +1620,11 @@ it that the column alone does not say:
 ### 8.1a `listing_requests` (AECI-1293)
 
 A product or company a visitor typed into the claim dialog because the catalog does
-not list it (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Written by `POST /api/requests/listing`,
-read and moderated by `/admin/requests` through `/api/admin/listing-requests`.
+not list it (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Written by `POST /api/requests/listing`.
+Read and moderated by `/admin/requests` through `/api/admin/listing-requests` until
+AECI-1705 (2026-11-12) removed that queue. The `listing-request-alert` email is the record
+now, so nothing in the app reads a row back or moves `status` off `open`, except the
+`vendor-claim-nudge` job, which skips an address with an open row.
 
 ```sql
 create table listing_requests (
@@ -1633,6 +1636,7 @@ create table listing_requests (
   submitter_role         text,                  -- legacy (AECI-1649): NULL on new rows
   submitter_title        text,                  -- AECI-1617 (0101): NULL before the column
   company_legal_name     text,                  -- AECI-1617 (0101): NULL before the column
+  company_country        text,                  -- AECI-1705 (0121): ISO 3166-1 alpha-2, NULL before the column
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
   body                   text not null default '', -- "Additional comments"
   found_via              text,                  -- AECI-1063 (0097): channel enum, NULL = not answered
@@ -1657,9 +1661,13 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   The `status` vocabulary is enforced by Zod. The table had a `plan_interest` column
   until AECI-1397 dropped it (`0093` and `0094`, `docs/migrations.md` §3.2). Nothing had
   written it since AECI-1365.
+- **Company country (AECI-1705, migration `0121`).** One plain `ADD COLUMN`, no CHECK, for
+  the same recreate reason as `status`. Zod enforces the code list (`ISO_COUNTRY_CODES`).
+  Required on the form, NULL on an older row and on one confirmed from a link sent before
+  the field. It is company data, not personal data. Tripwire: `migration-0121.spec.ts`.
 - **Domain state, audited.** The insert writes `listing_request.created`, and each
-  moderation `listing_request.resolved` / `listing_request.rejected`, in the same
-  `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
+  moderation wrote `listing_request.resolved` / `listing_request.rejected` until AECI-1705
+  removed the moderation endpoint, in the same `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
   CHECK-constrained. The audit metadata never holds the typed name, website or email.
 - **Self-reported attribution (AECI-1063).** `found_via` and `found_via_detail` came with
   migration `0097`, plain `ADD COLUMN`s with no CHECK, for the same recreate reason as
@@ -1731,9 +1739,9 @@ create table request_confirmations (
   token_hash      text not null,      -- SHA-256 hex of the emailed token, never the token
   submitter_email text not null,      -- the typed address, trimmed and lowercased
   payload         text,               -- the validated request body as JSON; NULL once confirmed
-  terms_version   text not null,      -- the vendor_terms version shown at submit
-  ip              text,               -- CF-Connecting-IP at submit, for the acceptance
-  user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance
+  terms_version   text not null,      -- the vendor_terms version shown at submit; '' on a listing since AECI-1705
+  ip              text,               -- CF-Connecting-IP at submit, for the acceptance; NULL on a listing since AECI-1705
+  user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance; likewise
   listing_accuracy_version  text,     -- AECI-1619 (0118): the policy versions the claim box named
   review_guidelines_version text,     -- AECI-1619 (0118): NULL on a row from before the columns
   created_at      text not null,
@@ -1754,6 +1762,10 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
   named (`LEGAL_POLICY_CURRENT_VERSIONS`). The confirm copies them into the acceptance row
   (§8.6d). A row written before the columns holds NULL in both, and its acceptance records
   NULL rather than a version the code cannot prove.
+- **A listing request holds no terms evidence (AECI-1705).** Its form shows no vendor terms
+  box, so the submit stores `terms_version = ''` (the column is `NOT NULL`, and relaxing it
+  is a recreate) and NULL IP address, browser and policy versions. The confirm writes no
+  acceptance for a listing, and ignores any evidence a row parked before the change holds.
 - **The id is the single-use rule.** The confirm inserts the request with this row's id as
   its primary key, so a second confirm trips it and its whole batch rolls back.
 - **No FK and no CHECK**, the `listing_requests` precedent. No FK in or out, so nothing
@@ -2373,10 +2385,11 @@ create unique index agreement_acceptances_stripe_session_key
   caller appends both statements to its own `db.batch`, so the acceptance commits or rolls
   back with the claim or subscription. The callers are:
   - `POST /api/requests/claim` writes a `vendor_terms` row with `vendor_request_id` = the new
-    claim (AECI-1366). `POST /api/requests/listing` writes one with `listing_request_id` = the
-    new listing request. Both set `source = 'claim'` and stamp the current version,
-    `CF-Connecting-IP` and the user agent.
-  - An anonymous claim or listing request writes its row at confirm, not at submit (AECI-1435).
+    claim (AECI-1366), with `source = 'claim'`, the current version, `CF-Connecting-IP` and the
+    user agent. `POST /api/requests/listing` wrote one with `listing_request_id` = the new
+    listing request from AECI-1366 until AECI-1705 (2026-11-12) took the vendor terms box off
+    that form. It writes none now.
+  - An anonymous claim writes its row at confirm, not at submit (AECI-1435).
     The version, IP and user agent are the submit's, carried on the `request_confirmations` row
     (§8.1c) and passed as the helper's `evidence`. The time is the confirm's. A signed-in claimant
     whose verified email is the typed address still writes it at submit.
@@ -2495,12 +2508,15 @@ create unique index agreement_acceptances_stripe_session_key
   the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
 - **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0078).** The typed-in listing
-  path ("Not listed? Type it in") has no claim row, so its acceptance names the
+  path ("Not listed? Type it in", now "Ask us to add it") has no claim row, so its acceptance names the
   `listing_requests` row instead. A claim-source row names exactly one of the two. Nullable,
   `ON DELETE SET NULL`, added by one `ALTER TABLE ... ADD`. drizzle-kit dropped the
   `ON DELETE` clause from the generated `ADD ... REFERENCES`, so the migration body is
   hand-written (the 0047 precedent). Nothing links it at approval: a listing request grants
   no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
+  **No new rows set it after AECI-1705 (2026-11-12).** A listing request no longer shows
+  the vendor terms box, so it writes no acceptance. The rows written before stay, because
+  the table is append-only, and the column and its FK stay for them.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
   `id`. Both return the AECI-1615 columns and, since AECI-1619, the label text and the policy

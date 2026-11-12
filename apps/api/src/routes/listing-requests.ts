@@ -1,25 +1,30 @@
 /**
  * `POST /api/requests/listing` (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4):
- * "Not listed? Type it in" in the claim dialog. A visitor names a product or company
- * the catalog does not list, with the claim form's identity fields and optional
- * comments, so AECi can add the listing and then invite them to claim it.
+ * "Not listed? Ask us to add it" in the claim dialog. A visitor names a product or
+ * company the catalog does not list, with the claimant's identity fields, the company's
+ * country and optional comments, so AECi can add the listing and then invite them to
+ * claim it.
+ *
+ * **A request to be listed, not a claim** (AECI-1705). There is no vendor terms box and
+ * no `agreement_acceptances` row: no listed company exists yet to accept the terms for.
+ * The vendor accepts them when they claim the listing we add.
  *
  * Public, no session, like the claim route beside it. Contract: `ListingRequestSchema`.
  *
  * **It waits on the emailed link** (AECI-1435, ADR 0043). Unless the visitor is signed
  * in with the typed address, the submit parks the request in `request_confirmations`
- * and emails a confirm link. The row, its audit row and the acceptance below are
- * written at confirm (`routes/request-confirmations.ts`), by `submitListingNow`.
+ * and emails a confirm link. The row and its audit row are written at confirm
+ * (`routes/request-confirmations.ts`), by `submitListingNow`.
  *
  * **Its own table.** The row lands in `listing_requests`, not `vendor_requests`: a
  * typed-in listing has no target, and admitting it to `vendor_requests` would change
  * two CHECKs and a NOT NULL, a drizzle-kit table recreate of a table with FK children
  * (`docs/migrations.md` §0). See the table's comment in `db/schema.ts`.
  *
- * **One atomic `db.batch`**: the insert, its `listing_request.created` audit row
- * (ADR 0022: a request is domain state), and the vendor terms acceptance with its
- * `agreement.accepted` audit row (AECI-1366: `agreement_acceptances.listing_request_id`
- * names this row). A failed batch writes none of them. The metadata holds whether a LinkedIn
+ * **One atomic `db.batch`**: the insert and its `listing_request.created` audit row
+ * (ADR 0022: a request is domain state). A failed batch writes neither. A row written
+ * before AECI-1705 also has a vendor terms acceptance that names it
+ * (`agreement_acceptances.listing_request_id`). None is written now. The metadata holds whether a LinkedIn
  * profile was given, never the typed name, website or email: those
  * are on the row, and the audit forward leaves the Worker. No `workflow_instances` row,
  * because that table's `workflow_type` is CHECK-constrained; the audit rows are the
@@ -29,7 +34,8 @@
  * `/api/requests/`, so zone Rule A caps it per IP (`docs/waf-rate-limits.md` §1, §6.2).
  *
  * **The alert** (`listing-request-alert`) goes to `SUPPORT_EMAIL` after commit in
- * `ctx.waitUntil`, reply-to the submitter, keyed on the row id. The visitor's receipt
+ * `ctx.waitUntil`, reply-to the submitter, keyed on the row id. Since AECI-1705 it is the
+ * working record, so it carries every field the form collects. The visitor's receipt
  * (`claim-received`, AECI-1366) follows it in the same chain. The address is typed, not
  * verified, so the receipt is bounded to one per address per UTC day and grants nothing.
  * Both fail open and never change the `201`.
@@ -37,7 +43,6 @@
 
 import {
   claimantTitle,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   ListingRequestSchema,
   normalizeFoundVia,
   type ListingRequest,
@@ -52,13 +57,6 @@ import { listingRequests } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import {
-  agreementAcceptanceStatements,
-  claimBoxFor,
-  currentPolicyVersions,
-  type AcceptancePolicyVersions,
-  type AcceptanceRequestEvidence,
-} from '../lib/agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { sendClaimReceivedEmail, sendListingRequestAlert } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
@@ -93,13 +91,6 @@ export const LISTING_REQUEST_CONFIRM =
 export interface ListingRequestOptions {
   /** The pending `request_confirmations.id`, used as the `listing_requests.id`. */
   requestId?: string;
-  /** The vendor terms evidence captured at submit. */
-  acceptance?: {
-    version: string;
-    /** AECI-1619: the policy versions stored at submit, or null on a legacy row. */
-    policyVersions: AcceptancePolicyVersions | null;
-    evidence: AcceptanceRequestEvidence;
-  };
   /** The confirmed-row update and its audit row, appended to the batch. */
   extra?: { stmts: BatchStmt[]; auditEntries: AuditLogEntry[] };
   /** `metadata.confirmation`: `session` for a signed-in match, `email` for a link. */
@@ -107,8 +98,8 @@ export interface ListingRequestOptions {
 }
 
 /**
- * Write a listing request: the insert, its audit row and the vendor terms acceptance
- * in one batch, then the alert and the receipt post-commit. The signed-in path of
+ * Write a listing request: the insert and its audit row in one batch, then the alert
+ * and the receipt post-commit. No acceptance row (AECI-1705). The signed-in path of
  * `POST /api/requests/listing` calls it at submit, and the confirm (AECI-1435) calls
  * it with the pending row's payload and id. Returns the request id.
  */
@@ -135,6 +126,8 @@ export async function submitListingNow(
     // AECI-1617: absent only on a pending request stored before the fields shipped.
     submitterTitle: payload.submitter_title || null,
     companyLegalName: payload.company_legal_name || null,
+    // AECI-1705: absent only on a pending request stored before the field shipped.
+    companyCountry: payload.company_country ?? null,
     body: payload.body,
     foundVia,
     foundViaDetail,
@@ -155,51 +148,16 @@ export async function submitListingNow(
     },
   };
 
-  // AECI-1366: the vendor terms box. The server stamps the current version, the IP
-  // and the user agent. Nothing to link at approval: a listing request has no seat.
-  // AECI-1435: a confirmed request carries the submit's version and evidence, and
-  // the confirm's time.
-  const acceptance = agreementAcceptanceStatements(db, {
-    document: 'vendor_terms',
-    version: opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
-    source: 'claim',
-    email: row.submitterEmail,
-    listingRequestId: requestId,
-    acceptedAt: new Date().toISOString(),
-    requestHeaders: c.req.raw.headers,
-    evidence: opts.acceptance?.evidence ?? null,
-    signer: {
-      name: row.submitterName,
-      title: row.submitterTitle,
-      companyLegalName: row.companyLegalName,
-    },
-    // AECI-1615 ruling 16: the request form's vendor terms box (`vendor-terms-box.ts`).
-    checkbox: claimBoxFor(
-      opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
-    ),
-    // AECI-1619: the policy versions the box named. A confirm carries the submit's.
-    policyVersions: opts.acceptance ? opts.acceptance.policyVersions : currentPolicyVersions(),
-    actorId: null,
-    actorType: 'user',
-  });
-
   const stmts: BatchStmt[] = [
     db.insert(listingRequests).values(row),
     auditInsert(db, auditEntry),
-    // AFTER the insert: the acceptance's `listing_request_id` FK names it.
-    ...acceptance.stmts,
     // AECI-1435: the confirmed-row update and its audit row.
     ...(opts.extra?.stmts ?? []),
   ];
   await db.batch(stmts as BatchTuple);
 
   // Best-effort §26.5 forward AFTER the atomic commit.
-  forwardAuditBatch(
-    c,
-    [auditEntry, acceptance.auditEntry, ...(opts.extra?.auditEntries ?? [])],
-    [],
-    'claim-dialog',
-  );
+  forwardAuditBatch(c, [auditEntry, ...(opts.extra?.auditEntries ?? [])], [], 'claim-dialog');
 
   c.executionCtx.waitUntil(
     sendListingRequestAlert(c, {
@@ -211,7 +169,11 @@ export async function submitListingNow(
         submitterName: row.submitterName,
         submitterTitle: claimantTitle(row.submitterTitle, row.submitterRole),
         submitterLinkedinUrl: row.submitterLinkedinUrl,
+        companyLegalName: row.companyLegalName,
+        companyCountry: row.companyCountry,
         body: row.body,
+        foundVia: row.foundVia,
+        foundViaDetail: row.foundViaDetail,
       },
       dedupeKey: `listing-request-alert:${requestId}`,
       entity: { type: 'listing_request', id: requestId },
@@ -254,6 +216,8 @@ export function createListingRequestHandler(
       email: payload.submitter_email,
       payload,
       subject: { kind: 'listing', listingName: payload.listing_name },
+      // AECI-1705: the form shows no vendor terms, so the pending row records none.
+      acceptance: false,
     });
     const body: RequestSubmitResponse = {
       request_id: id,
