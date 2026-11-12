@@ -149,10 +149,14 @@ describe('LegalPage', () => {
     'vendor-terms': GOVERNING_LAW_AGREEMENT,
     'managed-plan-agreement': GOVERNING_LAW_AGREEMENT,
   } as const;
+  // Item 13.8 (legal branch 5) labels the waiver.
   const JURY_WAIVER =
-    'Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.';
-  // Counsel's Q1 follow-up (item 11.19): the exclusion is one-directional in all three.
-  const ONE_DIRECTIONAL = 'and that exclusion applies only to claims against us.';
+    'Jury trial waiver. Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.';
+  // Counsel's Q1 follow-up (item 11.19) made the limit one-directional in all three. Items
+  // 13.6 and 13.7 (legal branch 5) replaced its wording with this pair of sentences.
+  const ONE_DIRECTIONAL =
+    'This section limits what we can owe you. It does not limit what you owe us.';
+  const OLD_ONE_DIRECTIONAL = 'that exclusion applies only to claims against us';
   // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
   const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
 
@@ -179,6 +183,7 @@ describe('LegalPage', () => {
     expect(cap).toContain('is limited to one hundred US dollars.');
     expect(cap).toContain(ONE_DIRECTIONAL);
     expect(article.textContent).not.toContain('This limit covers our liability only');
+    expect(article.textContent).not.toContain(OLD_ONE_DIRECTIONAL);
   });
 
   describe.each(['vendor-terms', 'managed-plan-agreement'] as const)(
@@ -201,6 +206,7 @@ describe('LegalPage', () => {
         expect(article.querySelector('strong')).not.toBeNull();
         expect(article.textContent).toContain(ONE_DIRECTIONAL);
         expect(article.textContent).not.toContain('This limit covers our liability only');
+        expect(article.textContent).not.toContain(OLD_ONE_DIRECTIONAL);
         expect(article.textContent).toContain(RANKING);
         expect(h2s(article)).toContain('Plans never affect ranking or reviews');
         expect(article.textContent?.toLowerCase()).not.toContain('arbitration');
@@ -453,7 +459,7 @@ describe('LegalPage', () => {
 
     it('currentLegalVersion reads the frontmatter', () => {
       expect(currentLegalVersion('terms')).toBe('1.1');
-      expect(currentLegalVersion('vendor-terms')).toBe('1.2');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.3');
       expect(currentLegalVersion('managed-plan-agreement')).toBe('1.1');
     });
   });

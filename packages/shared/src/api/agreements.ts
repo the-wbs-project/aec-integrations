@@ -36,7 +36,7 @@ export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSource
  * `apps/web/src/content/legal/`. Bump the Markdown and this map in the same change.
  */
 export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
-  vendor_terms: '1.2',
+  vendor_terms: '1.3',
   managed_plan: '1.1',
 } as const satisfies Record<LegalAgreementDocument, string>;
 
@@ -50,7 +50,7 @@ export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
  * when you bump the map above.
  */
 export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
-  vendor_terms: ['1.0', '1.1', '1.2'],
+  vendor_terms: ['1.0', '1.1', '1.2', '1.3'],
   managed_plan: ['1.0', '1.1'],
 } as const satisfies Record<LegalAgreementDocument, readonly string[]>;
 
@@ -78,10 +78,11 @@ export const LEGAL_AGREEMENT_TEXT_SHA256 = {
     '1.0': '628113b220f006e9918498e538bf6c86e9d69046da70dc32ec4f16d8f8a71d52',
     '1.1': '9ab3fe5b38411a45e2d0c6e5134c4e44fe9b7b44ba385af669901c2e214b1ca0',
     '1.2': '5a9592f8db571b06352dede158bb442c2ebd5a7cc4ad29e8211391577dcae043',
+    '1.3': 'f0b6417d34499357652db3d1e1a5e751412828bda5157044971bb12cf7dfa1ad',
   },
   managed_plan: {
     '1.0': '3f8e28e5e4309330aa9b5f1dd6cc51a572317c6f4691564fbb6f65b23797032d',
-    '1.1': '651f681360990a479e7031ec8c8a330fd2285a762f0753bb9ad3908bbb069e69',
+    '1.1': '047cfc4f12483336b2c74a6fa1584a5c2e6d635a4d1b31176a043075a07ce0ad',
   },
 } as const satisfies Record<LegalAgreementDocument, Record<string, string>>;
 
