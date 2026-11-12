@@ -1708,6 +1708,12 @@ export interface LegalTermsChangeSubject {
   expeditedReason: LegalExpeditedReason | null;
   /** The company's portal is `/vendor/{slug}`. Null falls back to `/vendor`. */
   vendorSlug: string | null;
+  /**
+   * `managed-monthly-accept` only: the company also holds subscriptions that are not
+   * monthly card ones (annual, invoice, complimentary, a grant). Adds one sentence after the
+   * acceptance ask saying the version applies to those from the next renewal or purchase.
+   */
+  otherSubscriptions?: boolean;
   /** The published PDF, already checked against its hash, as base64. */
   pdfBase64: string;
   dedupeKey: string;
@@ -1802,7 +1808,11 @@ export function sendLegalTermsChangeEmail(
       text.push(`Read version ${opts.version}: ${tagged}`);
       html.push(inlineLink(tagged, `Read version ${opts.version}`));
     }
-    const tail = [pdf, ...(expedited ? [expedited] : []), closing];
+    const others =
+      opts.closing === 'managed-monthly-accept' && opts.otherSubscriptions
+        ? 'For your other subscriptions it applies from your next renewal or your next purchase, whichever comes first.'
+        : null;
+    const tail = [pdf, ...(expedited ? [expedited] : []), closing, ...(others ? [others] : [])];
     text.push(...tail);
     html.push(...tail.map(escapeHtml));
     return houseBody(

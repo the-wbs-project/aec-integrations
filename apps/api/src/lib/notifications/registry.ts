@@ -929,7 +929,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
       "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
-    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. The sent and failed counts show on /admin/legal.',
+    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason.',
   },
   'license-unassigned-reminder': {
     channel: 'email',

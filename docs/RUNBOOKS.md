@@ -3411,39 +3411,39 @@ locally instead.
 
 ## A legal change notice did not go out
 
-Not a paging alert. Use this when a published material version's card on `/admin/legal` says
-the notice did not finish or has no outcome, when "Failed attempts" stays above zero an hour
-after the publish, or when a company says it never got the notice (AECI-1620,
-`VENDOR_SIGNUP_PROCESS.md` §3 step 12).
+Not a paging alert. Use this when a published material version's card on `/admin/legal` shows a
+company under "Not reached", when "Not yet delivered" stays above zero an hour after a send, when
+the queue line says the notice did not finish, or when a company says it never got the notice
+(AECI-1620, `VENDOR_SIGNUP_PROCESS.md` §3 step 12).
 
-**Read the card first.** It shows the queue outcome from the row and the send counts from
-`notification_sends`.
+**Read the card.** Every state below is something the card shows. The company counts come from
+`legal_notice_deliveries` (one row per company), the address counts from `notification_sends`
+(each address once, by its latest send).
 
-| The card says | Meaning | Do |
+| The card shows | Meaning | Do |
 |---|---|---|
-| Queued for N companies, failed attempts 0 | Every company was queued and every send so far went | Nothing. Sends finish within minutes |
-| Did not finish, after queuing N | The audience read or a `sendBatch` failed part way (`aeci.legal_notice.enqueue{outcome:failed}`), or `LEGAL_NOTICE_QUEUE` is unbound (`outcome:unbound`) | Press "Send the notice again". An unbound queue means a deploy missed the binding: check `wrangler-legal-notice.spec.ts` and the tier's deploy |
-| No outcome recorded | Still queuing, or the outcome write failed after the queue took the messages | Refresh after a minute. If it stays, send again |
-| Failed attempts above 0 and not falling | Resend refused sends, or the queue dropped a message after its last retry | Read the logs below, fix the cause, then send again |
+| "The last send queued N companies", Not reached 0, Not yet delivered 0 | Every company was delivered | Nothing |
+| Not yet delivered above 0 | Those companies' messages are waiting or retrying (10, 20, then 30 minutes apart) | Wait an hour. Each one ends as Delivered or under "Not reached" |
+| "The notice did not finish queuing. It stopped after queuing N companies" | The audience read or a queue send failed (`aeci.legal_notice.enqueue{outcome:failed}`), or `LEGAL_NOTICE_QUEUE` is unbound (`outcome:unbound`). The companies it could not queue are listed as "It could not be added to the send queue." | Press "Send the notice again". An unbound queue means a deploy missed the binding: check `wrangler-legal-notice.spec.ts` and the tier's deploy first |
+| "No outcome is recorded yet" | Still queuing, or the outcome write failed after the queue took the messages | Refresh after a minute. If it stays, send again |
+| Not reached: "The stored PDF did not match the published copy." | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed, or it is gone | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
+| Not reached: "The seat email addresses could not be read." | Supabase Auth was down, or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent to that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
+| Not reached: "The email service refused one or more of its addresses." | Resend answered non-2xx after every retry. The address line shows them under "Addresses failing" | Check Resend status and the sending domain, then send again |
+| Not reached: "Email sending is not set up on this tier." | No `RESEND_API_KEY` or `EMAIL_FROM` on the tier | Set them, deploy, send again |
+| Not reached: "The site address is not set, so the link could not be built." | `PUBLIC_SITE_URL` is unset | Set the var, deploy, send again |
+| Not reached: "A database or service read failed." | A D1 or R2 read threw on every attempt | Check D1 and R2 health, then send again |
+| Not reached: "No seat or billing email to send to." | The company has no unbanned seat (Vendor Terms) or owner seat (Managed plan) with an address, and no billing email | Ask the company for a billing email, or add a seat, then send again |
+| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect |
 
-**Read the logs.** In PostHog Logs, search `aeci.legal_notice`. Each error names the
-`legal_version_id`, the `vendor_id` and the version. The last attempt says "the message is
-dropped".
+**Read the logs** for detail. In PostHog Logs, search `aeci.legal_notice`. Each error names the
+`legal_version_id`, the `vendor_id` and the version, and carries `reason_code`. The last attempt
+says "the message is dropped".
 
-| Log | Meaning | Do |
-|---|---|---|
-| `the published PDF was refused (hash_mismatch)` | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
-| `(missing)` or `(unbound)` | The PDF or the bucket is gone on this tier | Restore it, then send again |
-| `the seat email lookup is unavailable` | Supabase Auth was down or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent for that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
-| `the version is already in effect` | A retry reached the company after the effective moment. Nothing was sent, because the email would say the old version still applies. The card now says the notice was not completed | A legal question for Chris: those companies had no notice from us |
-| `PUBLIC_SITE_URL unset` | The version link cannot be built | Set the var, deploy, send again |
-| `some sends failed` | Resend answered non-2xx for some addresses | Check Resend status and the domain, then send again |
-
-**Send again is always safe.** It re-reads the audience and queues every company. Each address
-is keyed `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address
-already reached for that company gets nothing. It refuses once the version has taken effect,
-because the email says it has not. A notice that never reached a company before the effective
-date is a legal question for Chris, not a re-send.
+**Send again is always safe.** It re-reads the audience and queues every company not yet
+delivered. Each address is keyed
+`legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address already
+reached for that company gets nothing. It refuses once the version has taken effect, because the
+email says it has not.
 
 **What went to one address.** Hash the address and read the ledger:
 

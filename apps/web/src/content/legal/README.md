@@ -398,14 +398,15 @@ the decision. Run the steps in this order, once per tier.
    confirmation says what each answer causes. A publish cannot be undone. The summary lines go
    into the email word for word.
 6. **Check the change notice on the card** (material versions only), after a minute and a
-   Refresh. It should say "Queued for N companies". The Vendor Terms notice goes to every
-   unbanned seat and the billing email of every company with a seat. The Managed plan notice goes
-   to the owner seats and the billing email of every company with a live subscription, grants and
-   complimentary included. Each email carries the version and date, the summary, a link to
-   `/legal/<slug>/v<version>` and the PDF. Watch "Emails sent" and "Failed attempts" grow over the
-   next hour. If the card says the notice did not finish, or no outcome is recorded, or failed
-   attempts stay above zero after an hour, press "Send the notice again". It never emails an
-   address twice for one company. `docs/RUNBOOKS.md` "A legal change notice did not go out" has
+   Refresh. It should say "The last send queued N companies". The Vendor Terms notice goes to
+   every unbanned seat and the billing email of every company with a seat. The Managed plan
+   notice goes to the owner seats and the billing email of every company with a live
+   subscription, grants and complimentary included. Each email carries the version and date, the
+   summary, a link to `/legal/<slug>/v<version>` and the PDF. Over the next hour "Delivered"
+   should reach "Companies queued" and "Not yet delivered" should reach 0. Every company listed
+   under "Companies not reached" has its reason beside it. Fix the cause and press "Send the
+   notice again": it queues only the companies not yet delivered and never emails an address
+   twice for one company. `docs/RUNBOOKS.md` "A legal change notice did not go out" has
    the checks. Staging delivers every notice to the support inbox, so a staging publish is the
    rehearsal. A notice can only go before the effective moment: after it, the re-send is
    refused and a queued retry sends nothing.

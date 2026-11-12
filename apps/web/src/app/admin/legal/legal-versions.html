@@ -193,8 +193,9 @@
       </p>
       } @case ('queued') {
       <p class="text-sm text-(--text-primary)" i18n="@@admin.legal.notice.queued">
-        Queued for {{ companyCount(p.notice_vendor_count ?? 0) }} on {{ p.notice_enqueued_at | date:
-        'longDate' : 'UTC' }} at {{ p.notice_enqueued_at | date: 'HH:mm' : 'UTC' }} UTC.
+        The last send queued {{ companyCount(p.notice_vendor_count ?? 0) }} on {{
+        p.notice_enqueued_at | date: 'longDate' : 'UTC' }} at {{ p.notice_enqueued_at | date:
+        'HH:mm' : 'UTC' }} UTC.
       </p>
       } @case ('incomplete') { @if (inEffect(entry)) {
       <p
@@ -222,19 +223,67 @@
       >
         No outcome is recorded yet. If Refresh still shows this after a minute, send it again.
       </p>
+      } } @if (p.material && entry.notice_deliveries; as dl) {
+      <dl
+        data-testid="legal-notice-companies"
+        class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]"
+      >
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesQueued">
+          Companies queued
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.total }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesDelivered">
+          Delivered
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.delivered }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesPending">
+          Not yet delivered
+        </dt>
+        <dd class="text-(--text-primary)">{{ dl.pending }}</dd>
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesNotReached">
+          Not reached
+        </dt>
+        <dd class="font-medium text-(--text-primary)">{{ dl.not_reached }}</dd>
+      </dl>
+      @if (dl.not_reached_companies.length > 0) {
+      <div class="space-y-1">
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.notReachedHeading"
+        >
+          Companies not reached
+        </p>
+        <ul
+          data-testid="legal-notice-not-reached"
+          class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+        >
+          @for (co of dl.not_reached_companies; track co.vendor_id) {
+          <li>
+            <span class="font-medium">{{ companyName(co) }}</span>: {{ notReachedReason(co) }}
+          </li>
+          }
+        </ul>
+        @if (dl.not_reached > dl.not_reached_companies.length) {
+        <p class="text-xs text-(--text-secondary)" i18n="@@admin.legal.notice.notReachedMore">
+          The first {{ dl.not_reached_companies.length }} of {{ dl.not_reached }} are listed.
+        </p>
+        }
+      </div>
       } } @if (p.material && entry.notice_sends; as s) {
       <p class="text-sm text-(--text-secondary)" data-testid="legal-notice-counts">
-        <span i18n="@@admin.legal.notice.counts"
-          >Emails sent: {{ s.sent }}. Failed attempts: {{ s.failed }}.</span
+        <span i18n="@@admin.legal.notice.addresses"
+          >Addresses sent: {{ s.sent }}. Addresses failing: {{ s.failed }}.</span
         >
         @if (s.unknown > 0) {
-        <span i18n="@@admin.legal.notice.unknown"> Outcome unknown: {{ s.unknown }}.</span>
+        <span i18n="@@admin.legal.notice.unknown">
+          Addresses with an unknown outcome: {{ s.unknown }}.</span
+        >
         } @if (s.suppressed > 0) {
         <span i18n="@@admin.legal.notice.suppressed">
-          Held by this tier's email rules: {{ s.suppressed }}.</span
+          Addresses held by this tier's email rules: {{ s.suppressed }}.</span
         >
         } @if (s.skipped > 0) {
-        <span i18n="@@admin.legal.notice.skipped"> Skipped: {{ s.skipped }}.</span>
+        <span i18n="@@admin.legal.notice.skipped"> Addresses skipped: {{ s.skipped }}.</span>
         }
       </p>
       } @if (p.material) { @if (cardErrors()[entry.document]; as message) {
@@ -530,7 +579,8 @@
           class="mt-2 space-y-2 text-sm leading-relaxed text-(--text-secondary)"
         >
           <p i18n="@@admin.legal.resendDialog.body">
-            This reads the list of affected companies again and queues the notice for each one.
+            This reads the list of affected companies again and queues the notice for each one not
+            yet delivered.
           </p>
           <p i18n="@@admin.legal.resendDialog.dedupe">
             An address that already got this notice for a company is not emailed again. Only the

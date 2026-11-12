@@ -19,6 +19,7 @@ import type { Db } from '../db/client';
 import {
   auditLog,
   billingAccounts,
+  legalNoticeDeliveries,
   legalVersions,
   licenses,
   notificationSends,
@@ -38,6 +39,9 @@ import {
 import { recipientHash } from './hash';
 import {
   deliverLegalNotice,
+  fanOutLegalNotice,
+  loadNoticeDeliveries,
+  loadNoticeSendCounts,
   isLegalNoticeQueue,
   legalClosingFor,
   legalNoticeDedupeKey,
@@ -540,5 +544,288 @@ describe('deliverLegalNotice', () => {
     ]);
     expect(ledger.filter((r) => r.outcome === 'duplicate')).toHaveLength(1);
     expect(ledger.every((r) => r.entityId === row.id)).toBe(true);
+  });
+});
+
+// ─── The per-company delivery record (review item 1) ──────────────────────────
+
+const rowsFor = async () =>
+  (await t.db.select().from(legalNoticeDeliveries)).map((r) => ({
+    vendorId: r.vendorId,
+    status: r.status,
+    attempts: r.attempts,
+    lastReason: r.lastReason,
+  }));
+
+const TS = '2026-11-12T00:00:00.000Z';
+
+describe('the delivery record', () => {
+  it('marks a company delivered once every recipient is sent or already sent', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedSeat(u(11), V1);
+    const row = await seedVersion();
+    await deliver(row, V1, {
+      send: sendSpy((to) => (to === 'billing@a.example' ? 'duplicate' : 'sent')),
+    });
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'delivered', attempts: 1, lastReason: null },
+    ]);
+  });
+
+  it('records no_recipients as its own terminal state', async () => {
+    await seedVendor(V1, 'a');
+    const row = await seedVersion();
+    const { message } = await deliver(row, V1);
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'no_recipients', attempts: 1, lastReason: null },
+    ]);
+  });
+
+  type How =
+    | { bucket: 'empty' }
+    | { seats: 'down' }
+    | { env: Partial<Env> }
+    | { send: EmailOutcome };
+  it.each<[string, string, How]>([
+    ['a refused PDF', 'pdf_refused', { bucket: 'empty' }],
+    ['a degraded seat lookup', 'seats_unavailable', { seats: 'down' }],
+    ['no site URL', 'no_site_url', { env: { PUBLIC_SITE_URL: undefined } }],
+    ['a failed send', 'send_failed', { send: 'failed' }],
+    ['no Resend key on the tier', 'email_not_configured', { send: 'skipped' }],
+  ])(
+    'keeps %s queued with its reason, then drops it on the last attempt',
+    async (_l, reason, how) => {
+      await seedVendor(V1, 'a', 'billing@a.example');
+      await seedSeat(u(11), V1);
+      const row = await seedVersion();
+      const opts = (attempts: number) => ({
+        attempts,
+        ...('bucket' in how ? { bucket: makeFakeR2Bucket() as unknown as R2Bucket } : {}),
+        ...('seats' in how
+          ? {
+              fetchSeatEmails: (async () => ({
+                available: false,
+                reason: 'error' as const,
+                emails: new Map<string, string>(),
+              })) as FetchSeatEmailsResult,
+            }
+          : {}),
+        ...('env' in how ? { env: how.env } : {}),
+        ...('send' in how ? { send: sendSpy(() => how.send) } : {}),
+      });
+
+      const first = await deliver(row, V1, opts(1));
+      expect(first.message.retry).toHaveBeenCalledTimes(1);
+      expect(await rowsFor()).toEqual([
+        { vendorId: V1, status: 'queued', attempts: 1, lastReason: reason },
+      ]);
+
+      const last = await deliver(row, V1, opts(LEGAL_NOTICE_MAX_RETRIES + 1));
+      expect(last.message.retry).toHaveBeenCalledTimes(1);
+      expect(await rowsFor()).toEqual([
+        {
+          vendorId: V1,
+          status: 'dropped',
+          attempts: LEGAL_NOTICE_MAX_RETRIES + 1,
+          lastReason: reason,
+        },
+      ]);
+    },
+  );
+
+  it('records a read failure as read_failed', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    const row = await seedVersion();
+    const boom = sendSpy(() => {
+      throw new Error('boom');
+    });
+    await deliver(row, V1, { send: boom, attempts: LEGAL_NOTICE_MAX_RETRIES + 1 });
+    expect(await rowsFor()).toEqual([
+      {
+        vendorId: V1,
+        status: 'dropped',
+        attempts: LEGAL_NOTICE_MAX_RETRIES + 1,
+        lastReason: 'read_failed',
+      },
+    ]);
+  });
+
+  it('expires every company still queued when a message arrives after the effective moment', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedVendor(V2, 'b', 'billing@b.example');
+    await seedVendor(V3, 'c', 'billing@c.example');
+    const row = await seedVersion();
+    await deliver(row, V3); // delivered before the moment
+    await t.db.insert(legalNoticeDeliveries).values([
+      { legalVersionId: row.id, vendorId: V1, status: 'queued', createdAt: TS, updatedAt: TS },
+      { legalVersionId: row.id, vendorId: V2, status: 'queued', createdAt: TS, updatedAt: TS },
+    ]);
+    await deliver(row, V1, { now: new Date(row.effectiveAt) });
+    const rows = await rowsFor();
+    expect(rows).toHaveLength(3);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { vendorId: V1, status: 'expired', attempts: 0, lastReason: 'in_effect' },
+        { vendorId: V2, status: 'expired', attempts: 0, lastReason: 'in_effect' },
+        { vendorId: V3, status: 'delivered', attempts: 1, lastReason: null },
+      ]),
+    );
+  });
+});
+
+describe('fanOutLegalNotice and the delivery record', () => {
+  const target = (queue: unknown) => ({
+    env: { LEGAL_NOTICE_QUEUE: queue } as unknown as Env,
+    ctx: { waitUntil: () => {} },
+    request: new Request('https://aeci-api/x'),
+  });
+
+  it('writes a queued row per company and skips companies already delivered', async () => {
+    await seedVendor(V1, 'a');
+    await seedVendor(V2, 'b');
+    await seedVendor(V3, 'c');
+    await seedSeat(u(11), V1);
+    await seedSeat(u(21), V2);
+    await seedSeat(u(31), V3);
+    const row = await seedVersion();
+    await t.db.insert(legalNoticeDeliveries).values([
+      {
+        legalVersionId: row.id,
+        vendorId: V2,
+        status: 'delivered',
+        attempts: 1,
+        createdAt: TS,
+        updatedAt: TS,
+      },
+      {
+        legalVersionId: row.id,
+        vendorId: V3,
+        status: 'dropped',
+        attempts: 4,
+        lastReason: 'pdf_refused',
+        createdAt: TS,
+        updatedAt: TS,
+      },
+    ]);
+    const sendBatch = vi.fn(async (_m: unknown[]) => {});
+    const fan = await fanOutLegalNotice(target({ sendBatch }), t.db, row, NOW);
+    expect(fan).toEqual({ total: 2, queued: 2, complete: true, failure: null });
+    expect(
+      sendBatch.mock.calls.flatMap(([m]) =>
+        (m as { body: { vendorId: string } }[]).map((x) => x.body.vendorId),
+      ),
+    ).toEqual([V1, V3]);
+    expect(await rowsFor()).toEqual(
+      expect.arrayContaining([
+        { vendorId: V1, status: 'queued', attempts: 0, lastReason: null },
+        { vendorId: V2, status: 'delivered', attempts: 1, lastReason: null },
+        { vendorId: V3, status: 'queued', attempts: 0, lastReason: null },
+      ]),
+    );
+  });
+
+  it('records companies it could not queue as dropped, enqueue_failed', async () => {
+    await seedVendor(V1, 'a');
+    await seedSeat(u(11), V1);
+    const row = await seedVersion();
+    const failing = {
+      sendBatch: vi.fn(async () => {
+        throw new Error('queue down');
+      }),
+    };
+    expect((await fanOutLegalNotice(target(failing), t.db, row, NOW)).complete).toBe(false);
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'dropped', attempts: 0, lastReason: 'enqueue_failed' },
+    ]);
+  });
+
+  it('summarises the record and lists the companies not reached, by name', async () => {
+    const row = await seedVersion();
+    await seedVendor(V1, 'beta');
+    await seedVendor(V2, 'Alpha');
+    await seedVendor(V3, 'gamma');
+    const r = (vendorId: string, status: string, lastReason: string | null = null) => ({
+      legalVersionId: row.id,
+      vendorId,
+      status,
+      lastReason,
+      createdAt: TS,
+      updatedAt: TS,
+    });
+    await t.db
+      .insert(legalNoticeDeliveries)
+      .values([
+        r(V1, 'dropped', 'pdf_refused'),
+        r(V2, 'no_recipients'),
+        r(V3, 'delivered'),
+        r(u(4), 'queued'),
+      ]);
+    expect((await loadNoticeDeliveries(t.db, [row.id])).get(row.id)).toEqual({
+      total: 4,
+      delivered: 1,
+      pending: 1,
+      not_reached: 2,
+      not_reached_companies: [
+        { vendor_id: V2, name: 'Alpha', slug: 'Alpha', status: 'no_recipients', reason: null },
+        { vendor_id: V1, name: 'beta', slug: 'beta', status: 'dropped', reason: 'pdf_refused' },
+      ],
+    });
+  });
+});
+
+describe('loadNoticeSendCounts (review item 2)', () => {
+  it('counts each address once, by its latest row, so a retried failure stops counting', async () => {
+    const row = await seedVersion();
+    const base = {
+      notificationId: 'legal-terms-change',
+      tier: 'production',
+      entityType: 'legal_version',
+      entityId: row.id,
+    };
+    await t.db.insert(notificationSends).values([
+      { ...base, recipientHash: 'a', outcome: 'failed' as const },
+      { ...base, recipientHash: 'a', outcome: 'failed' as const },
+      { ...base, recipientHash: 'a', outcome: 'sent' as const },
+      { ...base, recipientHash: 'b', outcome: 'failed' as const },
+      { ...base, recipientHash: 'c', outcome: 'suppressed' as const },
+      { ...base, recipientHash: 'c', outcome: 'suppressed' as const },
+      { ...base, recipientHash: 'a', outcome: 'duplicate' as const },
+    ]);
+    expect((await loadNoticeSendCounts(t.db, [row.id])).get(row.id)).toEqual({
+      sent: 1,
+      failed: 1,
+      unknown: 0,
+      suppressed: 1,
+      skipped: 0,
+    });
+  });
+});
+
+describe('the mixed Managed plan company (review item 4)', () => {
+  const mpVersion = () =>
+    seedVersion({
+      document: 'managed_plan',
+      version: '1.2',
+      requiresAcceptance: true,
+      pdfKey: 'legal/managed-plan-agreement/v1.2.pdf',
+    });
+
+  it('flags a monthly company that also holds annual subscriptions', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedLicense(u(31), V1, { source: 'stripe', endsAt: null });
+    await seedLicense(u(32), V1, { source: 'stripe', endsAt: '2027-06-01T00:00:00.000Z' });
+    const { calls } = await deliver(await mpVersion(), V1);
+    expect(calls[0]).toMatchObject({ closing: 'managed-monthly-accept', otherSubscriptions: true });
+  });
+
+  it('adds nothing for a monthly-only company', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedLicense(u(31), V1, { source: 'stripe', endsAt: null });
+    const { calls } = await deliver(await mpVersion(), V1);
+    expect(calls[0]).toMatchObject({
+      closing: 'managed-monthly-accept',
+      otherSubscriptions: false,
+    });
   });
 });

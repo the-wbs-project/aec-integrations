@@ -7038,9 +7038,26 @@ export const AdminLegalUpcomingEntrySchema = z.object({
   effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
   current_version: z.string(),               // LEGAL_AGREEMENT_CURRENT_VERSIONS[document]
   published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
-  // AECI-1620: the row's `legal-terms-change` ledger rows by outcome; null when unpublished.
-  // `duplicate` rows are not counted. A failed attempt that later sent counts in both.
+  // AECI-1620: the notice's ADDRESSES, each counted once by the outcome of its latest
+  // `legal-terms-change` ledger row for this version (`duplicate` rows ignored), so an
+  // address that failed and then went counts as sent only. Null when unpublished.
   notice_sends: z.object({ sent, failed, unknown, suppressed, skipped }).nullable(),
+  // AECI-1620: the per-company record (`legal_notice_deliveries`, DATABASE_SCHEMA §8.6j).
+  // Null when unpublished.
+  notice_deliveries: z.object({
+    total: z.number(),          // companies any fan-out tried to queue
+    delivered: z.number(),
+    pending: z.number(),        // still queued
+    not_reached: z.number(),    // no_recipients + dropped + expired
+    not_reached_companies: z.array(z.object({   // the first 100, by company name
+      vendor_id: z.string(),
+      name: z.string().nullable(),
+      slug: z.string().nullable(),
+      status: z.enum(['no_recipients', 'dropped', 'expired']),
+      reason: z.enum(['enqueue_failed', 'send_failed', 'email_not_configured', 'pdf_refused',
+        'no_site_url', 'seats_unavailable', 'read_failed', 'in_effect']).nullable(),
+    })),
+  }).nullable(),
 });
 
 // POST /api/admin/legal-versions — strict body
@@ -7090,14 +7107,18 @@ purge: no public page reads the table.
 `waitUntil`: the audience read (`lib/legal-notice.ts`), one `{ legalVersionId, vendorId,
 enqueuedAt }` message per company on `LEGAL_NOTICE_QUEUE` by `sendBatch()` in chunks of 100,
 then ONE `db.batch` with the two outcome columns and a `legal_version.notice_queued` audit row.
-The 201 has already gone, so its body shows both columns null.
+The 201 has already gone, so its body shows both columns null. Each company gets a
+`legal_notice_deliveries` row (`queued` just before its chunk is sent, `dropped` /
+`enqueue_failed` when the chunk or the queue binding fails). The outcome UPDATE is guarded on
+`effective_at > now`, so a fan-out that ends after the effective moment never stamps
+`notice_enqueued_at` over the consumer's expiry; the audit row then says `outcome_written: false`.
 
 **`POST /api/admin/legal-versions/:id/notice`.** `requireAdmin()` then `rateLimit('write')`. No
 body. Checks in order: `409 LEGAL_PUBLISH_DISABLED`; `404 NOT_FOUND` for an unknown id;
 `409 LEGAL_NOTICE_NOT_MATERIAL`; `422 LEGAL_NOTICE_TOO_LATE` once `effective_at` has passed.
-Then the same fan-out, awaited, and ONE `db.batch`: the outcome columns and the
-`legal_version.notice_resent` audit row. Safe to repeat, because each address's send is keyed
-with its company id. A complete fan-out answers 200 with the row. An incomplete one is recorded
+Then the same fan-out, awaited, over the companies not yet `delivered`, and ONE `db.batch`: the
+guarded outcome columns and the `legal_version.notice_resent` audit row. Safe to repeat, because
+each address's send is keyed with its company id. A complete fan-out answers 200 with the row. An incomplete one is recorded
 first, then answered `503 LEGAL_NOTICE_ENQUEUE_FAILED` with `details { queued, total, failure }`.
 
 Errors: `LEGAL_PUBLISH_DISABLED` (409); `MALFORMED_REQUEST` (400); `VALIDATION_FAILED` (400);

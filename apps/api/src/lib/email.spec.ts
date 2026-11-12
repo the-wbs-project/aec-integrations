@@ -4811,6 +4811,29 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
     expect(text).not.toMatch(/cancel|end at the end|not renew|charge/i);
   });
 
+  it('Managed plan, monthly with other subscriptions too: says when the version applies to those', async () => {
+    const { text } = await render({
+      document: 'managed_plan',
+      closing: 'managed-monthly-accept',
+      otherSubscriptions: true,
+    });
+    const ask =
+      'For this change we ask an owner seat at your company to accept version 1.4 in the vendor portal.';
+    const others =
+      'For your other subscriptions it applies from your next renewal or your next purchase, whichever comes first.';
+    expect(text).toContain(`${ask}\n\n${others}`);
+    // The flag means nothing on any other closing.
+    expect(
+      (
+        await render({
+          document: 'managed_plan',
+          closing: 'managed-binds',
+          otherSubscriptions: true,
+        })
+      ).text,
+    ).not.toContain('For your other subscriptions');
+  });
+
   it('the expedited sentence never rides a Managed plan notice', async () => {
     const { text } = await render({
       document: 'managed_plan',

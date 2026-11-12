@@ -74,11 +74,26 @@ for customers, or what file they would be sent.
      the date, so a message that arrives at or after `effective_at` sends nothing, is acked
      with an error log, and clears `notice_enqueued_at` with a system
      `legal_version.notice_expired` audit row, so the page shows the notice as not completed.
+   - **A delivery row per company, not a counter** (review of 2026-11-12). Five consumer paths
+     end before any send and so leave no `notification_sends` row, and the queue drops a
+     message after its last retry, so counting ledger rows could not show who was missed.
+     `legal_notice_deliveries` holds one row per version and company: `queued`, then
+     `delivered`, `no_recipients`, `dropped` (with the reason) or `expired`. `/admin/legal` counts
+     them and lists every company not reached by name and reason. It is log-class under ADR
+     0022's 2026-11-12 amendment. `notice_vendor_count` stays, as the last fan-out's queued
+     count.
+   - **Address counts by latest outcome.** The page counts each address once, by its latest
+     ledger row for the version, so a failure that a retry fixed stops counting as failing.
    - **Re-send.** `POST /api/admin/legal-versions/:id/notice` re-reads the audience and
-     re-enqueues every company, then writes the outcome with a `legal_version.notice_resent`
-     audit row in one batch. The keys make it safe. It is the recovery for a failed queue and for
-     a message the queue dropped after three retries (no dead-letter queue, like every other
-     queue here). It refuses a non-material version and one already in effect.
+     re-enqueues every company not yet `delivered`, then writes the outcome with a
+     `legal_version.notice_resent` audit row in one batch. The keys make it safe. It is the
+     recovery for a failed queue and for a message the queue dropped after three retries (no
+     dead-letter queue, like every other queue here). It refuses a non-material version and one
+     already in effect, and its outcome UPDATE (like the publish's) is guarded on
+     `effective_at > now`, so a fan-out that ends after the moment cannot overwrite the expiry.
+   - **A company on both monthly and other subscriptions** gets the monthly acceptance ask and
+     one more sentence: the version applies to its other subscriptions from the next renewal or
+     purchase.
    - **The copy restates the agreements and goes no further.** The Managed plan acceptance ask to
      monthly card customers says nothing about what happens without an acceptance, because that
      sentence of the agreement is being rewritten by the legal stream.

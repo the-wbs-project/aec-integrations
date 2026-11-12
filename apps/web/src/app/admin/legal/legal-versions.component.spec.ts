@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminLegalUpcomingEntry,
   AdminLegalVersionsResponse,
+  LegalNoticeDeliveries,
   LegalVersion,
   PublishLegalVersionRequest,
 } from '@aeci/shared';
@@ -47,6 +48,7 @@ const entry = (over: Partial<AdminLegalUpcomingEntry> = {}): AdminLegalUpcomingE
   current_version: '1.3',
   published: null,
   notice_sends: null,
+  notice_deliveries: null,
   ...over,
 });
 
@@ -486,10 +488,56 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
   /** A published row far in the future, so the re-send stays open whatever today is. */
   const future = (over: Partial<LegalVersion> = {}) =>
     published({ effective_at: '2099-01-15T12:00:00.000Z', ...over });
-  const withRow = (row: LegalVersion, over: Partial<AdminLegalVersionsResponse> = {}) => ({
+  const DELIVERIES: LegalNoticeDeliveries = {
+    total: 9,
+    delivered: 5,
+    pending: 1,
+    not_reached: 3,
+    not_reached_companies: [
+      {
+        vendor_id: 'v-a',
+        name: 'Acme Build',
+        slug: 'acme',
+        status: 'dropped',
+        reason: 'pdf_refused',
+      },
+      { vendor_id: 'v-b', name: 'Beam Co', slug: 'beam', status: 'no_recipients', reason: null },
+      { vendor_id: 'v-c', name: null, slug: null, status: 'expired', reason: 'in_effect' },
+    ],
+  };
+  const withRow = (
+    row: LegalVersion,
+    over: Partial<AdminLegalVersionsResponse> = {},
+    deliveries: LegalNoticeDeliveries | null = DELIVERIES,
+  ) => ({
     publish_enabled: true,
-    upcoming: [entry({ published: row, notice_sends: COUNTS })],
+    upcoming: [entry({ published: row, notice_sends: COUNTS, notice_deliveries: deliveries })],
     ...over,
+  });
+
+  it('shows the companies queued, delivered, not yet delivered and not reached, with the list', async () => {
+    const ctx = await setup({
+      data: withRow(
+        future({ notice_enqueued_at: '2026-11-12T14:03:05.000Z', notice_vendor_count: 9 }),
+      ),
+    });
+    const n = notice(ctx.el);
+    expect(text(n.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
+      'Companies queued 9 Delivered 5 Not yet delivered 1 Not reached 3',
+    );
+    const items = [...n.querySelectorAll('[data-testid="legal-notice-not-reached"] li')].map(text);
+    expect(items).toEqual([
+      'Acme Build: The stored PDF did not match the published copy.',
+      'Beam Co: No seat or billing email to send to.',
+      'v-c: Still waiting when the version took effect, so it was not sent.',
+    ]);
+  });
+
+  it('says how many of a long not-reached list it shows', async () => {
+    const ctx = await setup({
+      data: withRow(future({ notice_vendor_count: 9 }), {}, { ...DELIVERIES, not_reached: 250 }),
+    });
+    expect(text(notice(ctx.el))).toContain('The first 3 of 250 are listed.');
   });
   const notice = (el: HTMLElement) =>
     card(el, 'vendor_terms').querySelector<HTMLElement>('[data-testid="legal-notice"]')!;
@@ -506,9 +554,9 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
     });
     const n = notice(ctx.el);
     expect(n.getAttribute('data-state')).toBe('queued');
-    expect(text(n)).toContain('Queued for 1 company on November 12, 2026 at 14:03 UTC.');
+    expect(text(n)).toContain('The last send queued 1 company on November 12, 2026 at 14:03 UTC.');
     expect(text(n.querySelector('[data-testid="legal-notice-counts"]'))).toBe(
-      "Emails sent: 12. Failed attempts: 2. Held by this tier's email rules: 3.",
+      "Addresses sent: 12. Addresses failing: 2. Addresses held by this tier's email rules: 3.",
     );
     expect(resendButton(ctx.el).disabled).toBe(false);
   });
@@ -585,7 +633,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
     expect(ctx.api.resendNotice).toHaveBeenCalledWith('lv-1');
     expect(dialogEl()).toBeNull();
     expect(document.activeElement?.id).toBe('admin-legal-vendor_terms-heading');
-    expect(text(notice(ctx.el))).toContain('Queued for 7 companies on November 13, 2026');
+    expect(text(notice(ctx.el))).toContain('The last send queued 7 companies on November 13, 2026');
     expect(text(ctx.el.querySelector('[role="status"]'))).toBe(
       'The notice for version 1.4 of the Vendor Terms is queued again.',
     );

@@ -202,10 +202,10 @@ export const PublishLegalVersionResponseSchema = z.object({
 export type PublishLegalVersionResponse = z.infer<typeof PublishLegalVersionResponseSchema>;
 
 /**
- * The change notice's `notification_sends` rows for one version (AECI-1620), counted by
- * outcome: one row per send attempt per address. A `failed` attempt that a retry then
- * sent counts once in each. `duplicate` rows (a re-send that found the address already
- * reached) are not counted.
+ * The change notice's addresses for one version (AECI-1620), each counted once, by the
+ * outcome of its latest `notification_sends` row for that version. An address that failed
+ * and then went counts as `sent` only, so no count grows on a retry. `duplicate` rows (a
+ * re-send that found the address already reached) are ignored.
  */
 export const LegalNoticeSendCountsSchema = z.object({
   sent: z.number().int().nonnegative(),
@@ -218,6 +218,63 @@ export const LegalNoticeSendCountsSchema = z.object({
   skipped: z.number().int().nonnegative(),
 });
 export type LegalNoticeSendCounts = z.infer<typeof LegalNoticeSendCountsSchema>;
+
+/**
+ * `legal_notice_deliveries.status` (AECI-1620, `DATABASE_SCHEMA.md` §8.6j): where one
+ * company's notice stands. `queued` until the consumer finishes it; `delivered` when every
+ * recipient was sent or already sent; then three ways it was not reached:
+ * `no_recipients` (no seat or billing address to send to), `dropped` (the last retry
+ * failed, or it could not be queued) and `expired` (still queued when the version took
+ * effect, so it was never sent).
+ */
+export const LEGAL_NOTICE_DELIVERY_STATUSES = [
+  'queued',
+  'delivered',
+  'no_recipients',
+  'dropped',
+  'expired',
+] as const;
+export const LegalNoticeDeliveryStatusSchema = z.enum(LEGAL_NOTICE_DELIVERY_STATUSES);
+export type LegalNoticeDeliveryStatus = z.infer<typeof LegalNoticeDeliveryStatusSchema>;
+
+/** `legal_notice_deliveries.last_reason`: why the last attempt did not deliver. */
+export const LEGAL_NOTICE_DELIVERY_REASONS = [
+  'enqueue_failed',
+  'send_failed',
+  'email_not_configured',
+  'pdf_refused',
+  'no_site_url',
+  'seats_unavailable',
+  'read_failed',
+  'in_effect',
+] as const;
+export const LegalNoticeDeliveryReasonSchema = z.enum(LEGAL_NOTICE_DELIVERY_REASONS);
+export type LegalNoticeDeliveryReason = z.infer<typeof LegalNoticeDeliveryReasonSchema>;
+
+/** One company the notice did not reach, for the list on `/admin/legal`. */
+export const LegalNoticeNotReachedSchema = z.object({
+  vendor_id: z.string(),
+  /** `vendors.company_name`; null when the company row is gone. */
+  name: z.string().nullable(),
+  slug: z.string().nullable(),
+  status: z.enum(['no_recipients', 'dropped', 'expired']),
+  reason: LegalNoticeDeliveryReasonSchema.nullable(),
+});
+export type LegalNoticeNotReached = z.infer<typeof LegalNoticeNotReachedSchema>;
+
+/** The per-company delivery record of one version, summarised. */
+export const LegalNoticeDeliveriesSchema = z.object({
+  /** Companies with a delivery row: every company any fan-out tried to queue. */
+  total: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  /** Still `queued`: the consumer has not finished them. */
+  pending: z.number().int().nonnegative(),
+  /** `no_recipients` + `dropped` + `expired`. */
+  not_reached: z.number().int().nonnegative(),
+  /** The first 100 not reached, by company name. */
+  not_reached_companies: z.array(LegalNoticeNotReachedSchema),
+});
+export type LegalNoticeDeliveries = z.infer<typeof LegalNoticeDeliveriesSchema>;
 
 /** `POST /api/admin/legal-versions/:id/notice` → 200. The request has no body. */
 export const ResendLegalNoticeResponseSchema = z.object({
@@ -236,8 +293,10 @@ export const AdminLegalUpcomingEntrySchema = z.object({
   /** The current version it replaces. */
   current_version: z.string(),
   published: LegalVersionSchema.nullable(),
-  /** The notice's `notification_sends` rows by outcome. Null when nothing is published. */
+  /** The notice's addresses by their latest outcome. Null when nothing is published. */
   notice_sends: LegalNoticeSendCountsSchema.nullable(),
+  /** The per-company delivery record. Null when nothing is published. */
+  notice_deliveries: LegalNoticeDeliveriesSchema.nullable(),
 });
 export type AdminLegalUpcomingEntry = z.infer<typeof AdminLegalUpcomingEntrySchema>;
 

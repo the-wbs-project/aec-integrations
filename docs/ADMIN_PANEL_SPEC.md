@@ -2241,16 +2241,25 @@ of its SHA-256, and the summary as recorded.
 
 **The change notice (AECI-1620).** A published card also has a "Change notice" block. A
 non-material version says no notice is sent. A material one shows one of three states, read
-from `notice_enqueued_at` and `notice_vendor_count`: queued for N companies at a time (UTC);
-did not finish, with the N companies queued before the failure; or no outcome recorded yet
-(still queuing, or the outcome write failed). Once the version is in effect, "did not finish"
+from `notice_enqueued_at` and `notice_vendor_count`: "The last send queued N companies on …"
+(UTC); did not finish, with the N companies queued before the failure; or no outcome recorded
+yet (still queuing, or the outcome write failed). Once the version is in effect, "did not finish"
 reads "not completed before this version took effect" instead: the queue consumer sends nothing
 from the effective moment on and clears `notice_enqueued_at` when a late message arrives, and no
-re-send is offered. Below it, the `notice_sends` counts: sent and
-failed always, and "outcome unknown", "held by this tier's email rules" and "skipped" when not
-zero. A failed count is attempts, so an address that failed once and then went counts in both.
+re-send is offered.
+
+Below it, the per-company record (`notice_deliveries`, `legal_notice_deliveries`): "Companies
+queued", "Delivered", "Not yet delivered" and "Not reached", then "Companies not reached" listing
+each by name with its reason in plain words (no seat or billing email; the PDF did not match;
+the email service refused an address; email not set up on the tier; the site address unset;
+seat emails unreadable; a read failed; could not be queued; still waiting when the version took
+effect). The list shows the first 100, and says so when there are more. Then one line of
+address counts (`notice_sends`), each address counted once by its latest send: "Addresses sent"
+and "Addresses failing" always, and "with an unknown outcome", "held by this tier's email rules"
+and "skipped" when not zero. A retry that succeeds takes an address out of "failing".
+
 "Send the notice again" opens its own confirmation, which says the notice is queued again for
-every affected company and that an address already reached is not emailed twice. The button is
+every company not yet delivered and that an address already reached is not emailed twice. The button is
 off when publishing is off on the tier and once the version has taken effect. The dialog follows
 the publish dialog's rules: it cannot close mid-request, a failure shows in the dialog and on
 the card, and after a success it closes, focus moves to the card heading and the live region
@@ -2374,7 +2383,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PUT /api/admin/email/switches/:key` | §5.14 pause or resume — **AECI-1224** | **A write.** Body `{ enabled, reason? }`, strict. An unknown key is a 404. `enabled: false` on a non-pausable entry is **`400 NOTIFICATION_NOT_PAUSABLE`**. Naming the current state is a 200 with `changed: false` and no write. Otherwise ONE `db.batch`: a race sentinel on the state just read (**`409 NOTIFICATION_SWITCH_CHANGED`** when another tab moved it), the upsert, and the `notification_settings.updated` audit row (actor, key, `before_state`/`after_state` `{ enabled }`, tier, reason). Post-commit PostHog forward. Carries `rateLimit('write')` after `requireAdmin()`. No purge: no public page reads the table |
 | `GET /api/admin/legal-versions` | §5.22 legal versions — **AECI-1688** | One entry per document in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, with its effective moment (12:00 UTC) and its `legal_versions` row or null, plus `publish_enabled` for the tier. Since AECI-1620 each published entry also carries `notice_sends`, its `legal-terms-change` ledger rows counted by outcome (one grouped `SELECT` on `notification_sends`). No audit row, no `rateLimit()` (a read). Contract in `packages/shared/src/api/legal-versions.ts` |
 | `POST /api/admin/legal-versions` | §5.22 publish — **AECI-1688** | **A write.** Strict body `{ document, version, material, requires_acceptance, summary[], expedited_reason? }`. Checks in order: the tier switch (**`409 LEGAL_PUBLISH_DISABLED`**), the body (400), upcoming (**`422 LEGAL_VERSION_NOT_UPCOMING`**), not yet published (**`409 LEGAL_VERSION_EXISTS`**), 30-day window unless an expedited Vendor Terms change still in the future (**`422 LEGAL_NOTICE_WINDOW`**), the PDF in `UPLOADS` (**`409 LEGAL_PDF_MISSING`**). Then ONE `db.batch`: the insert and the `legal_version.published` audit row; a unique-index race is the same 409. Post-commit: the audit forward, then, for a material version only (AECI-1620), in `waitUntil`: one `aeci-legal-notice-{env}` message per affected company (`sendBatch`, chunks of 100) and ONE `db.batch` with the outcome columns and a `legal_version.notice_queued` audit row. No purge. Carries `rateLimit('write')` after `requireAdmin()` |
-| `POST /api/admin/legal-versions/:id/notice` | §5.22 notice re-send — **AECI-1620** | **A write.** No body. Checks in order: the tier switch (**`409 LEGAL_PUBLISH_DISABLED`**), the row (404 `NOT_FOUND`), material (**`409 LEGAL_NOTICE_NOT_MATERIAL`**), not yet in effect (**`422 LEGAL_NOTICE_TOO_LATE`**). Re-reads the audience and re-enqueues every company, then ONE `db.batch`: the outcome columns and the `legal_version.notice_resent` audit row. Safe to repeat: each address is keyed with its company id in `notification_sends`. An incomplete fan-out is recorded, then answered **`503 LEGAL_NOTICE_ENQUEUE_FAILED`**. Carries `rateLimit('write')` after `requireAdmin()`. Contract in `packages/shared/src/api/legal-versions.ts` |
+| `POST /api/admin/legal-versions/:id/notice` | §5.22 notice re-send — **AECI-1620** | **A write.** No body. Checks in order: the tier switch (**`409 LEGAL_PUBLISH_DISABLED`**), the row (404 `NOT_FOUND`), material (**`409 LEGAL_NOTICE_NOT_MATERIAL`**), not yet in effect (**`422 LEGAL_NOTICE_TOO_LATE`**). Re-reads the audience and re-enqueues every company not yet `delivered` in `legal_notice_deliveries`, then ONE `db.batch`: the outcome columns and the `legal_version.notice_resent` audit row. Safe to repeat: each address is keyed with its company id in `notification_sends`. An incomplete fan-out is recorded, then answered **`503 LEGAL_NOTICE_ENQUEUE_FAILED`**. Carries `rateLimit('write')` after `requireAdmin()`. Contract in `packages/shared/src/api/legal-versions.ts` |
 | `POST /api/admin/email/sends/search` | §5.14 address search — **SHIPPED (AECI-1223)** | **A read with a body, not a write.** The same filters plus a required `address`, in JSON. The handler hashes it with `recipientHash` and filters `recipient_hash =`. The address is never logged and never in the response. Adds `unmatched_events`, the 25 newest delivery events for that hash with no ledger row. No audit row, no `rateLimit()` (reads are never limited) |
 | `POST /api/admin/logo` | Logo upload — **SHIPPED (AECI-955)** | Not a write *in D1*: one bounded multipart `file` to the private `UPLOADS` R2 bucket, keyed by its SHA-256, returning `{logo_url: "/api/logos/<hash>"}`. No `audit_log` row, because no domain state moved — an upload is not a catalog edit until a parent form saves. Carries `rateLimit('write')` and a same-origin check (`requireLogoOrigin`), both exceptions to the conventions above; the limiter is here because this route is the only admin write that consumes unbounded external storage. Contract in `packages/shared/src/api/logos.ts` |
 | `PATCH /api/admin/vendors/:id/logo` | §5.7 vendor logo — **SHIPPED (AECI-955)** | **The sixth write in this table, and the FIRST catalog-content write** (`STAGE_2_5_SPEC.md` §11 admits it; §2's boundary is amended, not bypassed). Strict `{logo_url, reason, internalNote?}` only (AECI-1191 added the required `reason`, recorded in the audit row's `metadata.reason`; AECI-1159 shows it to the vendor) — no other column is reachable. Writes `logo_url` + `logo_source='admin'` + `updated_at` with its `vendor.updated` audit row in the same `db.batch`, then purges `vendor:{slug}` post-commit. `logo_source` fences promote off that column permanently (`REVIEW_APP_PROMOTE_API.md` "Logo ownership override"). Carries `rateLimit('write')` |

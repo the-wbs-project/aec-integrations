@@ -30,10 +30,18 @@ import {
   type LegalAgreementDocument,
   type LegalAgreementUpcomingVersion,
 } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, legalVersions, notificationSends, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  legalNoticeDeliveries,
+  legalVersions,
+  notificationSends,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -85,7 +93,7 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function app(upcoming: Upcoming, factory: DbFactory = t.factory, now = NOW) {
+function app(upcoming: Upcoming, factory: DbFactory = t.factory, now: Date | (() => Date) = NOW) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
@@ -99,7 +107,7 @@ function app(upcoming: Upcoming, factory: DbFactory = t.factory, now = NOW) {
     });
     await next();
   });
-  const deps = { now: () => now, upcoming };
+  const deps = { now: typeof now === 'function' ? now : () => now, upcoming };
   a.get('/api/admin/legal-versions', createAdminLegalVersionsHandler(factory, deps));
   a.post('/api/admin/legal-versions', createPublishLegalVersionHandler(factory, deps));
   a.post('/api/admin/legal-versions/:id/notice', createResendLegalNoticeHandler(factory, deps));
@@ -682,7 +690,7 @@ describe('POST /api/admin/legal-versions: the notice fan-out', () => {
 describe('POST /api/admin/legal-versions/:id/notice', () => {
   async function resend(
     id: string,
-    opts: { env?: Partial<Record<string, unknown>>; now?: Date } = {},
+    opts: { env?: Partial<Record<string, unknown>>; now?: Date | (() => Date) } = {},
   ) {
     const ctx = fakeExecutionContext();
     const { env, legalQueue } = envWith(opts.env);
@@ -776,6 +784,47 @@ describe('POST /api/admin/legal-versions/:id/notice', () => {
     expect(audits[0]?.afterState).toMatchObject({ complete: false, failure: 'unbound' });
   });
 
+  it('does not stamp "queued" over the expired mark when the moment passes mid-fan-out', async () => {
+    // Race order: the re-send passes its check before the effective moment, the consumer
+    // then marks the notice expired (notice_enqueued_at NULL), and the fan-out finishes
+    // after the moment. The guarded UPDATE must leave the column NULL.
+    const row = await published();
+    await seedCompanies();
+    await t.db
+      .update(legalVersions)
+      .set({ noticeEnqueuedAt: null })
+      .where(eq(legalVersions.id, row.id));
+    const before = new Date(row.effectiveAt - 60_000);
+    const after = new Date(row.effectiveAt + 1);
+    let calls = 0;
+    const clock = () => (++calls === 1 ? before : after);
+
+    const res = await resend(row.id, { now: clock });
+    expect(res.status).toBe(200);
+    const [stored] = await t.db.select().from(legalVersions);
+    expect(stored?.noticeEnqueuedAt).toBeNull();
+    const audits = await resentAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.afterState).toMatchObject({ outcome_written: false });
+  });
+
+  it('re-enqueues only the companies not yet delivered', async () => {
+    const row = await published();
+    await seedCompanies();
+    const ts = NOW.toISOString();
+    await t.db.insert(legalNoticeDeliveries).values({
+      legalVersionId: row.id,
+      vendorId: V1,
+      status: 'delivered',
+      attempts: 1,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    const res = await resend(row.id);
+    expect(res.status).toBe(200);
+    expect(queuedVendorIds(res.legalQueue)).toEqual([V2]);
+  });
+
   it('rolls the outcome back with its audit row when the audit insert fails', async () => {
     const row = await published();
     await seedCompanies();
@@ -832,5 +881,26 @@ describe('GET /api/admin/legal-versions: notice counts', () => {
     );
     const out = AdminLegalVersionsResponseSchema.parse(await res.json());
     expect(out.upcoming[0]?.notice_sends).toBeNull();
+    expect(out.upcoming[0]?.notice_deliveries).toBeNull();
+  });
+
+  it('carries the per-company delivery record of the published row', async () => {
+    await putPdf();
+    await seedCompanies();
+    await post(body());
+    const res = await app(VT_UPCOMING).request(
+      '/api/admin/legal-versions',
+      {},
+      envWith().env,
+      fakeExecutionContext(),
+    );
+    const out = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(out.upcoming[0]?.notice_deliveries).toEqual({
+      total: 2,
+      delivered: 0,
+      pending: 2,
+      not_reached: 0,
+      not_reached_companies: [],
+    });
   });
 });

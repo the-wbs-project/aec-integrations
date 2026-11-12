@@ -27,6 +27,7 @@ import {
   type AdminLegalVersionsResponse,
   type LegalAgreementDocument,
   type LegalExpeditedReason,
+  type LegalNoticeNotReached,
   type LegalVersion,
 } from '@aeci/shared';
 
@@ -107,6 +108,33 @@ export function noticeState(
   if (!p.material) return 'none';
   if (p.notice_enqueued_at) return 'queued';
   return p.notice_vendor_count === null ? 'unrecorded' : 'incomplete';
+}
+
+/** Why one company was not reached, in plain words (AECI-1620). */
+export function notReachedReason(co: Pick<LegalNoticeNotReached, 'status' | 'reason'>): string {
+  if (co.status === 'no_recipients') {
+    return $localize`:@@admin.legal.notReached.noRecipients:No seat or billing email to send to.`;
+  }
+  if (co.status === 'expired' || co.reason === 'in_effect') {
+    return $localize`:@@admin.legal.notReached.inEffect:Still waiting when the version took effect, so it was not sent.`;
+  }
+  switch (co.reason) {
+    case 'enqueue_failed':
+      return $localize`:@@admin.legal.notReached.enqueue:It could not be added to the send queue.`;
+    case 'send_failed':
+      return $localize`:@@admin.legal.notReached.sendFailed:The email service refused one or more of its addresses.`;
+    case 'email_not_configured':
+      return $localize`:@@admin.legal.notReached.emailOff:Email sending is not set up on this tier.`;
+    case 'pdf_refused':
+      return $localize`:@@admin.legal.notReached.pdf:The stored PDF did not match the published copy.`;
+    case 'no_site_url':
+      return $localize`:@@admin.legal.notReached.siteUrl:The site address is not set, so the link could not be built.`;
+    case 'seats_unavailable':
+      return $localize`:@@admin.legal.notReached.seats:The seat email addresses could not be read.`;
+    case 'read_failed':
+      return $localize`:@@admin.legal.notReached.read:A database or service read failed.`;
+  }
+  return $localize`:@@admin.legal.notReached.unknown:It was not sent.`;
 }
 
 /** A byte count, in the largest unit that keeps it readable. */
@@ -411,6 +439,16 @@ export class AdminLegalVersions {
 
   protected humanBytes(bytes: number): string {
     return humanBytes(bytes);
+  }
+
+  /** A company not reached, by name; its id when the company row is gone. */
+  protected companyName(co: LegalNoticeNotReached): string {
+    return co.name ?? co.vendor_id;
+  }
+
+  /** Why a company was not reached, in plain words. */
+  protected notReachedReason(co: LegalNoticeNotReached): string {
+    return notReachedReason(co);
   }
 
   /** "1 company" / "N companies". */

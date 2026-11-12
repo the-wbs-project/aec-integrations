@@ -289,9 +289,14 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
       `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address shared by
       two companies gets one notice per company and never two for one. The PDF is re-hashed on every
       message and a mismatch sends nothing. A seat-email lookup that is unavailable retries the
-      message. The page shows the queue outcome and the sent and failed counts, and "Send the notice
-      again" recovers a failed queue or a dropped message (`RUNBOOKS.md` "A legal change notice did
-      not go out").
+      message. Each company has a delivery row (`legal_notice_deliveries`): the page shows how many
+      were queued, delivered, not yet delivered and not reached, and lists every company not
+      reached by name and reason. "Send the notice again" queues only the companies not yet
+      delivered (`RUNBOOKS.md` "A legal change notice did not go out").
+    - **A company on both kinds of subscription.** When a Managed plan version needs acceptance
+      and the company holds a live monthly card subscription and other ones too, the email adds:
+      "For your other subscriptions it applies from your next renewal or your next purchase,
+      whichever comes first."
     - The 45-day renewal notice of step 8 still carries "any terms change". The acceptance screen and
       renewal binding are AECI-1677 and AECI-1690.
 

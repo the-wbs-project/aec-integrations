@@ -69,7 +69,7 @@ import {
   type ResendLegalNoticeResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -82,6 +82,7 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   fanOutLegalNotice,
+  loadNoticeDeliveries,
   loadNoticeSendCounts,
   noticeOutcomeColumns,
   type LegalNoticeFanOut,
@@ -151,10 +152,11 @@ export function createAdminLegalVersionsHandler(
       const row = rows.find((r) => r.document === document && r.version === u.version);
       return row ? [row] : [];
     });
-    const counts = await loadNoticeSendCounts(
-      db,
-      shown.map((r) => r.id),
-    );
+    const shownIds = shown.map((r) => r.id);
+    const [counts, deliveries] = await Promise.all([
+      loadNoticeSendCounts(db, shownIds),
+      loadNoticeDeliveries(db, shownIds),
+    ]);
     const upcoming: AdminLegalUpcomingEntry[] = entries.map(({ document, upcoming: u }) => {
       const row = shown.find((r) => r.document === document && r.version === u.version) ?? null;
       const at = legalEffectiveAtMs(u.effectiveOn);
@@ -166,6 +168,7 @@ export function createAdminLegalVersionsHandler(
         current_version: LEGAL_AGREEMENT_CURRENT_VERSIONS[document],
         published: row ? toLegalVersion(row) : null,
         notice_sends: row ? (counts.get(row.id) ?? null) : null,
+        notice_deliveries: row ? (deliveries.get(row.id) ?? null) : null,
       };
     });
     const body: AdminLegalVersionsResponse = {
@@ -378,6 +381,10 @@ async function recordNoticeFanOut(
   );
   const now = clock();
   const columns = noticeOutcomeColumns(fan, now);
+  // A fan-out that ends after the effective moment must not stamp "queued" over the
+  // consumer's expired mark. D1 has no transaction, so the guard is in the UPDATE itself
+  // (`effective_at > now`); this flag only tells the audit row what was intended.
+  const inEffect = now.getTime() >= row.effectiveAt;
   const entry: AuditLogEntry = {
     actorId: session.userId,
     actorType: auditActorType(session),
@@ -394,15 +401,24 @@ async function recordNoticeFanOut(
       audience: fan.total,
       complete: fan.complete,
       failure: fan.failure,
+      outcome_written: !inEffect,
     },
-    metadata: { source: AUDIT_SOURCE, document: row.document, version: row.version },
+    metadata: {
+      source: AUDIT_SOURCE,
+      document: row.document,
+      version: row.version,
+      guard: 'written only while effective_at > now',
+    },
   };
   await db.batch([
-    db.update(legalVersions).set(columns).where(eq(legalVersions.id, row.id)),
+    db
+      .update(legalVersions)
+      .set(columns)
+      .where(and(eq(legalVersions.id, row.id), gt(legalVersions.effectiveAt, now.getTime()))),
     auditInsert(db, entry),
   ] as BatchTuple);
   forwardAuditBatch(c, [entry], [], AUDIT_SOURCE);
-  return { fan, updated: { ...row, ...columns } };
+  return { fan, updated: inEffect ? row : { ...row, ...columns } };
 }
 
 /** `POST /api/admin/legal-versions/:id/notice`: send the change notice again. */

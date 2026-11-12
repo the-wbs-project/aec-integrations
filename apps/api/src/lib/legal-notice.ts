@@ -37,32 +37,46 @@
  * attempt send. A notice without the PDF, or without a site URL for the version link,
  * would not carry what both agreements promise (counsel Q3), so neither case sends.
  *
- * ── AFTER THE LAST RETRY ───────────────────────────────────────────────────────
- * The queue drops the message (no dead-letter queue, like every other queue here). The
- * last attempt logs an error naming the version and the company. The `/admin/legal`
- * counts show the shortfall, and "Send the notice again" re-enqueues every company: the
- * keys stop a second email to any address already reached.
+ * ── ONE DELIVERY ROW PER COMPANY ───────────────────────────────────────────────
+ * `legal_notice_deliveries` (`DATABASE_SCHEMA.md` §8.6j) says where each company stands.
+ * The fan-out writes `queued` just before it sends that company's message (a failed send
+ * turns it to `dropped`, `enqueue_failed`). The consumer writes `delivered` when every
+ * recipient was sent or already sent, `no_recipients` when the company has no address, and
+ * on each retry the attempt and its reason. On the last attempt the row becomes `dropped`
+ * with the reason, and the queue then drops the message (no dead-letter queue, like every
+ * other queue here). `/admin/legal` counts the rows and lists every company not reached by
+ * name and reason, and "Send the notice again" re-enqueues every company not `delivered`.
+ * The keys stop a second email to any address already reached.
  *
  * ── NEVER AFTER THE EFFECTIVE MOMENT ───────────────────────────────────────────
  * The email says "Until then the current version applies", which is false once the
  * version is in effect. A message that arrives at or after `effective_at` sends nothing,
- * logs an error naming the version and the company, is acked, and clears
- * `notice_enqueued_at` (`markNoticeExpired`, with a system audit row) so `/admin/legal`
- * shows the notice as not completed. The re-send route refuses then too.
+ * logs an error naming the version and the company, and is acked. Every row of the
+ * version still `queued` becomes `expired`, and `notice_enqueued_at` is cleared
+ * (`markNoticeExpired`, with a system audit row), so `/admin/legal` shows the notice as not
+ * completed. The re-send route refuses then too, and its own outcome write is guarded on
+ * the version not yet being in effect.
  */
 
 import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import type { LegalExpeditedReason, LegalNoticeSendCounts } from '@aeci/shared';
-import { and, count, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import {
+  LEGAL_NOTICE_DELIVERY_REASONS,
+  LegalNoticeDeliveryReasonSchema,
+  type LegalExpeditedReason,
+  type LegalNoticeDeliveries,
+  type LegalNoticeDeliveryStatus,
+  type LegalNoticeSendCounts,
+} from '@aeci/shared';
+import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import {
   billingAccounts,
+  legalNoticeDeliveries,
   legalVersions,
   licenses,
-  notificationSends,
   profiles,
   vendors,
 } from '../db/schema';
@@ -75,6 +89,7 @@ import {
   ownerAndBillingAddresses,
 } from './billing-recipients';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { textAsc } from './collation';
 import {
   bytesToBase64,
   sendLegalTermsChangeEmail,
@@ -174,22 +189,23 @@ export async function legalNoticeVendorIds(
   return binarySort(rows.flatMap((r) => (r.vendorId ? [r.vendorId] : [])));
 }
 
-/** Whether the company holds a live monthly card subscription: `stripe`, no `ends_at`. */
-export async function hasLiveMonthlySubscription(db: Db, vendorId: string): Promise<boolean> {
-  const row = await db
-    .select({ id: licenses.id })
+/**
+ * The kinds of live subscription a company holds: `monthly` is a live monthly card
+ * subscription (`stripe`, no `ends_at`); `other` is any other live one (annual card,
+ * invoice, complimentary, an activated grant).
+ */
+export async function liveSubscriptionKinds(
+  db: Db,
+  vendorId: string,
+): Promise<{ monthly: boolean; other: boolean }> {
+  const rows = await db
+    .select({ source: licenses.source, endsAt: licenses.endsAt })
     .from(licenses)
     .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
-    .where(
-      and(
-        eq(billingAccounts.vendorId, vendorId),
-        isNull(licenses.endedAt),
-        isNull(licenses.endsAt),
-        eq(licenses.source, 'stripe'),
-      ),
-    )
-    .limit(1);
-  return row.length > 0;
+    .where(and(eq(billingAccounts.vendorId, vendorId), isNull(licenses.endedAt)));
+  const isMonthly = (r: { source: string; endsAt: string | null }) =>
+    r.source === 'stripe' && r.endsAt === null;
+  return { monthly: rows.some(isMonthly), other: rows.some((r) => !isMonthly(r)) };
 }
 
 /** The seat-email lookup the consumer injects: the `Result` form, so it can see an outage. */
@@ -252,9 +268,81 @@ export function legalClosingFor(
 
 type WaitUntil = { waitUntil(promise: Promise<unknown>): void };
 
+// ─── The per-company delivery record ──────────────────────────────────────────
+
+/** Rows per multi-row upsert: 6 bound values each, under D1's 100-parameter cap. */
+const DELIVERY_UPSERT_CHUNK = 15;
+
+type DeliveryReason = (typeof LEGAL_NOTICE_DELIVERY_REASONS)[number];
+
+/** The companies already `delivered` for a version. They are skipped on a re-send. */
+export async function loadDeliveredVendorIds(db: Db, legalVersionId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ vendorId: legalNoticeDeliveries.vendorId })
+    .from(legalNoticeDeliveries)
+    .where(
+      and(
+        eq(legalNoticeDeliveries.legalVersionId, legalVersionId),
+        eq(legalNoticeDeliveries.status, 'delivered'),
+      ),
+    );
+  return new Set(rows.map((r) => r.vendorId));
+}
+
+/**
+ * Set the delivery row of each company to `status`, creating it when absent. A `delivered`
+ * row is never moved back by a fan-out (`queued` or a fan-out's `dropped`): the `WHERE` on
+ * the conflict update keeps it. Log-class (ADR 0022 amendment 2026-11-12): no audit row.
+ * Throws only on a D1 error.
+ */
+export async function writeDeliveryRows(
+  db: Db,
+  legalVersionId: string,
+  vendorIds: readonly string[],
+  next: { status: LegalNoticeDeliveryStatus; attempts?: number; lastReason: DeliveryReason | null },
+  now: Date,
+  opts: { keepDelivered: boolean } = { keepDelivered: true },
+): Promise<void> {
+  if (vendorIds.length === 0) return;
+  const at = now.toISOString();
+  const stmts = [];
+  for (let i = 0; i < vendorIds.length; i += DELIVERY_UPSERT_CHUNK) {
+    const chunk = vendorIds.slice(i, i + DELIVERY_UPSERT_CHUNK);
+    stmts.push(
+      db
+        .insert(legalNoticeDeliveries)
+        .values(
+          chunk.map((vendorId) => ({
+            legalVersionId,
+            vendorId,
+            status: next.status,
+            attempts: next.attempts ?? 0,
+            lastReason: next.lastReason,
+            createdAt: at,
+            updatedAt: at,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [legalNoticeDeliveries.legalVersionId, legalNoticeDeliveries.vendorId],
+          set: {
+            status: next.status,
+            ...(next.attempts === undefined ? {} : { attempts: next.attempts }),
+            lastReason: next.lastReason,
+            updatedAt: at,
+          },
+          ...(opts.keepDelivered
+            ? { setWhere: ne(legalNoticeDeliveries.status, 'delivered') }
+            : {}),
+        }),
+    );
+  }
+  await db.batch(stmts as unknown as BatchTuple);
+}
+
 /** How a fan-out went. */
 export interface LegalNoticeFanOut {
-  /** Companies in the audience, or null when the audience read failed. */
+  /** Companies to queue (the audience less those already delivered), or null when the
+   *  audience read failed. */
   total: number | null;
   /** Companies whose message the queue accepted. */
   queued: number;
@@ -297,16 +385,42 @@ export async function fanOutLegalNotice(
 
   let vendorIds: string[];
   try {
-    vendorIds = await legalNoticeVendorIds(db, LegalAgreementDocumentSchema.parse(row.document));
+    const [audience, delivered] = await Promise.all([
+      legalNoticeVendorIds(db, LegalAgreementDocumentSchema.parse(row.document)),
+      loadDeliveredVendorIds(db, row.id),
+    ]);
+    // A re-send reaches only the companies not yet delivered.
+    vendorIds = audience.filter((id) => !delivered.has(id));
   } catch (error) {
     countMetric('failed', 1);
     return fail('audience_read', null, 0, error);
   }
   if (vendorIds.length === 0) return { total: 0, queued: 0, complete: true, failure: null };
 
+  /** The delivery rows are a record: a failed write logs, and the email still goes. */
+  const record = async (ids: readonly string[], status: 'queued' | 'dropped') => {
+    try {
+      await writeDeliveryRows(
+        db,
+        row.id,
+        ids,
+        { status, attempts: 0, lastReason: status === 'dropped' ? 'enqueue_failed' : null },
+        now,
+      );
+    } catch (error) {
+      logToPosthog(ctx, env, request, {
+        level: 'error',
+        message: `aeci.legal_notice: could not record ${ids.length} companies as ${status}`,
+        legal_version_id: row.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const queue = env.LEGAL_NOTICE_QUEUE;
   if (!queue) {
     countMetric('unbound', vendorIds.length);
+    await record(vendorIds, 'dropped');
     return fail('unbound', vendorIds.length, 0, 'LEGAL_NOTICE_QUEUE is not bound');
   }
   const enqueuedAt = now.toISOString();
@@ -314,6 +428,9 @@ export async function fanOutLegalNotice(
   try {
     for (let i = 0; i < vendorIds.length; i += LEGAL_NOTICE_SEND_BATCH) {
       const chunk = vendorIds.slice(i, i + LEGAL_NOTICE_SEND_BATCH);
+      // `queued` BEFORE the send, so the consumer's `delivered` can never be overwritten
+      // by a later `queued` for the same company.
+      await record(chunk, 'queued');
       await queue.sendBatch(
         chunk.map((vendorId) => ({
           body: { legalVersionId: row.id, vendorId, enqueuedAt } satisfies LegalNoticeMessage,
@@ -324,6 +441,8 @@ export async function fanOutLegalNotice(
   } catch (error) {
     if (queued > 0) countMetric('ok', queued);
     countMetric('failed', vendorIds.length - queued);
+    // The failed chunk and every company after it were never queued.
+    await record(vendorIds.slice(queued), 'dropped');
     return fail('send_batch', vendorIds.length, queued, error);
   }
   countMetric('ok', queued);
@@ -355,7 +474,11 @@ const EMPTY_COUNTS: LegalNoticeSendCounts = {
   skipped: 0,
 };
 
-/** The notice's `notification_sends` rows per version id, by outcome. */
+/**
+ * The notice's addresses per version id, each counted once by the outcome of its LATEST
+ * `notification_sends` row for that version (`duplicate` rows ignored). So an address that
+ * failed and then went counts as sent only, and a retry never inflates any count.
+ */
 export async function loadNoticeSendCounts(
   db: Db,
   legalVersionIds: readonly string[],
@@ -364,21 +487,84 @@ export async function loadNoticeSendCounts(
   const ids = [...new Set(legalVersionIds)];
   for (const id of ids) out.set(id, { ...EMPTY_COUNTS });
   if (ids.length === 0) return out;
-  const rows = await db
-    .select({ id: notificationSends.entityId, outcome: notificationSends.outcome, n: count() })
-    .from(notificationSends)
-    .where(
-      and(
-        eq(notificationSends.notificationId, LEGAL_NOTICE_NOTIFICATION_ID),
-        eq(notificationSends.entityType, LEGAL_NOTICE_ENTITY_TYPE),
-        inArray(notificationSends.entityId, ids),
-      ),
+  const rows = await db.all<{ id: string; outcome: string; n: number }>(sql`
+    SELECT entity_id AS id, outcome, count(*) AS n FROM (
+      SELECT entity_id, outcome,
+             row_number() OVER (PARTITION BY entity_id, recipient_hash ORDER BY id DESC) AS rn
+      FROM notification_sends
+      WHERE notification_id = ${LEGAL_NOTICE_NOTIFICATION_ID}
+        AND entity_type = ${LEGAL_NOTICE_ENTITY_TYPE}
+        AND entity_id IN (${sql.join(
+          ids.map((id) => sql`${id}`),
+          sql`, `,
+        )})
+        AND outcome <> 'duplicate'
     )
-    .groupBy(notificationSends.entityId, notificationSends.outcome);
+    WHERE rn = 1
+    GROUP BY entity_id, outcome`);
   for (const r of rows) {
-    const counts = r.id ? out.get(r.id) : undefined;
+    const counts = out.get(r.id);
     if (!counts) continue;
-    if (r.outcome in counts) counts[r.outcome as keyof LegalNoticeSendCounts] += r.n;
+    if (r.outcome in counts) counts[r.outcome as keyof LegalNoticeSendCounts] += Number(r.n);
+  }
+  return out;
+}
+
+/** How many companies not reached the GET lists by name, per version. */
+export const NOT_REACHED_LIST_MAX = 100;
+
+const NOT_REACHED_STATUSES = ['dropped', 'expired', 'no_recipients'] as const;
+
+/** The per-company delivery summary per version id (`LegalNoticeDeliveriesSchema`). */
+export async function loadNoticeDeliveries(
+  db: Db,
+  legalVersionIds: readonly string[],
+): Promise<Map<string, LegalNoticeDeliveries>> {
+  const out = new Map<string, LegalNoticeDeliveries>();
+  for (const id of new Set(legalVersionIds)) {
+    const counts = await db
+      .select({ status: legalNoticeDeliveries.status, n: count() })
+      .from(legalNoticeDeliveries)
+      .where(eq(legalNoticeDeliveries.legalVersionId, id))
+      .groupBy(legalNoticeDeliveries.status);
+    const by = (s: string) => counts.find((c) => c.status === s)?.n ?? 0;
+    const notReached = NOT_REACHED_STATUSES.reduce((sum, s) => sum + by(s), 0);
+    const list =
+      notReached === 0
+        ? []
+        : await db
+            .select({
+              vendorId: legalNoticeDeliveries.vendorId,
+              name: vendors.companyName,
+              slug: vendors.slug,
+              status: legalNoticeDeliveries.status,
+              reason: legalNoticeDeliveries.lastReason,
+            })
+            .from(legalNoticeDeliveries)
+            .leftJoin(vendors, eq(vendors.id, legalNoticeDeliveries.vendorId))
+            .where(
+              and(
+                eq(legalNoticeDeliveries.legalVersionId, id),
+                inArray(legalNoticeDeliveries.status, [...NOT_REACHED_STATUSES]),
+              ),
+            )
+            .orderBy(textAsc(vendors.companyName), asc(legalNoticeDeliveries.vendorId))
+            .limit(NOT_REACHED_LIST_MAX);
+    out.set(id, {
+      total: counts.reduce((sum, c) => sum + c.n, 0),
+      delivered: by('delivered'),
+      pending: by('queued'),
+      not_reached: notReached,
+      not_reached_companies: list.map((r) => ({
+        vendor_id: r.vendorId,
+        name: r.name ?? null,
+        slug: r.slug ?? null,
+        status: r.status as (typeof NOT_REACHED_STATUSES)[number],
+        reason: LegalNoticeDeliveryReasonSchema.safeParse(r.reason).success
+          ? (r.reason as DeliveryReason)
+          : null,
+      })),
+    });
   }
   return out;
 }
@@ -444,6 +630,26 @@ export async function markNoticeExpired(
   return true;
 }
 
+/**
+ * Every company of the version still `queued` when the version took effect was never
+ * sent: mark them `expired` (`in_effect`). Log-class, no audit row. Throws on a D1 error.
+ */
+export async function expireQueuedDeliveries(
+  db: Db,
+  legalVersionId: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(legalNoticeDeliveries)
+    .set({ status: 'expired', lastReason: 'in_effect', updatedAt: now.toISOString() })
+    .where(
+      and(
+        eq(legalNoticeDeliveries.legalVersionId, legalVersionId),
+        eq(legalNoticeDeliveries.status, 'queued'),
+      ),
+    );
+}
+
 /** `aeci.legal_notice.delivery{outcome}`. */
 type DeliveryOutcome =
   | 'sent'
@@ -480,16 +686,6 @@ export async function deliverLegalNotice(
     submitCount(ctx, env, request, 'aeci.legal_notice.delivery', 1, [`outcome:${outcome}`]);
   const log = (level: 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}) =>
     logToPosthog(ctx, env, request, { level, message: msg, ...extra });
-  /** Log loud and retry. On the last attempt the queue drops the message after this. */
-  const failLoud = (outcome: DeliveryOutcome, msg: string, extra: Record<string, unknown>) => {
-    metric(outcome);
-    const text = lastAttempt
-      ? `${msg}; last attempt, the message is dropped. Send the notice again from /admin/legal`
-      : msg;
-    log('error', text, extra);
-    console.error(text, JSON.stringify(extra));
-    message.retry({ delaySeconds: legalNoticeRetryDelaySeconds(message.attempts) });
-  };
 
   const parsed = LegalNoticeMessageSchema.safeParse(message.body);
   if (!parsed.success) {
@@ -501,8 +697,51 @@ export async function deliverLegalNotice(
   const { legalVersionId, vendorId } = parsed.data;
   const ids = { legal_version_id: legalVersionId, vendor_id: vendorId };
 
+  let db: Db | null = null;
+  /** Record this company's delivery row. A failed write logs and never blocks the ack. */
+  const record = async (
+    status: LegalNoticeDeliveryStatus,
+    lastReason: DeliveryReason | null,
+  ): Promise<void> => {
+    if (!db) return;
+    try {
+      await writeDeliveryRows(
+        db,
+        legalVersionId,
+        [vendorId],
+        { status, attempts: message.attempts, lastReason },
+        clock(),
+        { keepDelivered: false },
+      );
+    } catch (error) {
+      log('error', `aeci.legal_notice: could not record the company as ${status}`, {
+        ...ids,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  /**
+   * Log loud and retry. The company's row keeps `queued` with this attempt's reason; on the
+   * last attempt it becomes `dropped`, and the queue drops the message after this.
+   */
+  const failLoud = async (
+    outcome: DeliveryOutcome,
+    reason: DeliveryReason,
+    msg: string,
+    extra: Record<string, unknown>,
+  ) => {
+    metric(outcome);
+    const text = lastAttempt
+      ? `${msg}; last attempt, the message is dropped. Send the notice again from /admin/legal`
+      : msg;
+    log('error', text, { ...extra, reason_code: reason });
+    console.error(text, JSON.stringify(extra));
+    await record(lastAttempt ? 'dropped' : 'queued', reason);
+    message.retry({ delaySeconds: legalNoticeRetryDelaySeconds(message.attempts) });
+  };
+
   try {
-    const { db } = dbFor(env, { constraint: 'first-primary' });
+    db = dbFor(env, { constraint: 'first-primary' }).db;
     const row = await loadLegalVersionById(db, legalVersionId);
     if (!row) {
       metric('unknown_version');
@@ -528,6 +767,7 @@ export async function deliverLegalNotice(
         versionIds,
       );
       try {
+        await expireQueuedDeliveries(db, row.id, clock());
         await markNoticeExpired(db, row, clock());
       } catch (error) {
         log('error', 'aeci.legal_notice: could not mark the notice not completed', {
@@ -540,7 +780,8 @@ export async function deliverLegalNotice(
     }
     const document = LegalAgreementDocumentSchema.parse(row.document);
     if (!env.PUBLIC_SITE_URL?.trim()) {
-      failLoud(
+      await failLoud(
+        'no_site_url',
         'no_site_url',
         'aeci.legal_notice: PUBLIC_SITE_URL unset; the version link cannot be built, nothing sent',
         versionIds,
@@ -549,7 +790,8 @@ export async function deliverLegalNotice(
     }
     const pdf = await loadVerifiedLegalPdf(env.UPLOADS, row);
     if (!pdf.ok) {
-      failLoud(
+      await failLoud(
+        'pdf_refused',
         'pdf_refused',
         `aeci.legal_notice: the published PDF was refused (${pdf.problem}); nothing sent`,
         { ...versionIds, pdf_key: row.pdfKey, problem: pdf.problem },
@@ -562,7 +804,8 @@ export async function deliverLegalNotice(
       addresses = await legalNoticeRecipients(env, db, document, vendorId, fetchSeatEmails);
     } catch (error) {
       if (error instanceof SeatLookupUnavailableError) {
-        failLoud(
+        await failLoud(
+          'seats_unavailable',
           'seats_unavailable',
           'aeci.legal_notice: the seat email lookup is unavailable; nothing sent, retrying',
           { ...versionIds, reason: error.reason },
@@ -574,13 +817,15 @@ export async function deliverLegalNotice(
     if (addresses.length === 0) {
       metric('no_recipients');
       log('warn', 'aeci.legal_notice: the company has no address to notify', versionIds);
+      await record('no_recipients', null);
       message.ack();
       return;
     }
-    const monthly =
+    const kinds =
       document === 'managed_plan' && row.requiresAcceptance
-        ? await hasLiveMonthlySubscription(db, vendorId)
-        : false;
+        ? await liveSubscriptionKinds(db, vendorId)
+        : { monthly: false, other: false };
+    const monthly = kinds.monthly;
     const vendor = await db.query.vendors.findFirst({
       columns: { slug: true },
       where: eq(vendors.id, vendorId),
@@ -592,6 +837,7 @@ export async function deliverLegalNotice(
     const expeditedReason = (row.expeditedReason as LegalExpeditedReason | null) ?? null;
 
     let failed = 0;
+    let skipped = 0;
     for (const to of addresses) {
       const outcome = await send(c, {
         to,
@@ -602,24 +848,31 @@ export async function deliverLegalNotice(
         closing,
         expeditedReason,
         vendorSlug: vendor?.slug ?? null,
+        otherSubscriptions: closing === 'managed-monthly-accept' && kinds.other,
         pdfBase64,
         dedupeKey: legalNoticeDedupeKey(document, row.version, vendorId, await recipientHash(to)),
         entity: { type: LEGAL_NOTICE_ENTITY_TYPE, id: row.id },
       });
       if (outcome === 'failed') failed++;
+      // No Resend key or sender on the tier: nothing went, and nothing holds a key.
+      if (outcome === 'skipped') skipped++;
     }
-    if (failed > 0) {
-      failLoud('partial_retry', 'aeci.legal_notice: some sends failed; retrying those', {
-        ...versionIds,
-        failed,
-        recipients: addresses.length,
-      });
+    if (failed > 0 || skipped > 0) {
+      await failLoud(
+        'partial_retry',
+        failed > 0 ? 'send_failed' : 'email_not_configured',
+        'aeci.legal_notice: some sends did not go; retrying those',
+        { ...versionIds, failed, skipped, recipients: addresses.length },
+      );
       return;
     }
+    // Every recipient is sent, already sent (`duplicate`), may have gone (`unknown`, which
+    // keeps its key) or was held by this tier's delivery policy (`suppressed`).
+    await record('delivered', null);
     metric('sent');
     message.ack();
   } catch (error) {
-    failLoud('read_failed', 'aeci.legal_notice: a read failed; retrying', {
+    await failLoud('read_failed', 'read_failed', 'aeci.legal_notice: a read failed; retrying', {
       ...ids,
       error: error instanceof Error ? error.message : String(error),
     });
