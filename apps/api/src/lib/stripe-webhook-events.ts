@@ -281,7 +281,7 @@ async function apply(
       if (!subscriptionId) return skip(null);
       const sub = await retrieve(deps.stripe, subscriptionId, event.id);
       if (!sub) return skip(subscriptionId);
-      // A renewal binds the CURRENT agreement version (ruling R1).
+      // A renewal binds the version `loadTermsBinding` decides at the period start (AECI-1690).
       return sync(c, db, event, sub, deps, now, {
         renewal: invoice.billing_reason === 'subscription_cycle',
         extraMetadata: { stripe_invoice_id: invoice.id },

@@ -23,8 +23,6 @@ const SCANNED = ['apps/api/src', 'apps/web/src', 'packages/shared/src'];
 const ALLOWED: Readonly<Record<string, string>> = {
   'packages/shared/src/api/agreements.ts': 'defines the constants',
   'packages/shared/src/api/legal-in-force.ts': 'the rule: the one reader',
-  'apps/api/src/lib/stripe-licenses.ts':
-    'a renewal binds a version; which one is AECI-1690, out of scope for AECI-1689',
   'apps/api/src/routes/admin-legal-versions.ts':
     '/admin/legal names the build version the upcoming one replaces',
   'apps/web/src/app/vendor/vendor-fixtures.ts': 'fixture rows for the portal previews',

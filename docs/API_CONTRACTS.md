@@ -7393,7 +7393,7 @@ subscription-bearing event re-reads the Stripe subscription from Stripe and runs
 | Event | What it does |
 |---|---|
 | `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata; the session's `plans_version` when it is a known Plans version, else NULL, AECI-1619), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A session that already has its acceptance (the reconcile backfilled it) records none. A backfill that lands mid-flight trips the session's unique key, and the sync re-plans instead of answering `500`. A new subscription sends `licenses-granted` |
-| `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the current version |
+| `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the version `loadTermsBinding` decides at the period start (ADR 0047 decision 9, AECI-1690) |
 | `invoice.payment_failed` | No subscription change (decision 13). Sends `payment-failed` to the billing email and every unbanned seat, keyed on the invoice id |
 | `customer.subscription.updated` | Syncs: quantity, period end, `cancel_at_period_end` → `vendor-cancelled` |
 | `customer.subscription.deleted` | Syncs: the Stripe subscription is `canceled`, so every subscription on it ends, with carry-over, the purge and `managed-ended`. It re-routed contests on the last subscription until AECI-1663 |

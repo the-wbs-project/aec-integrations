@@ -66,9 +66,19 @@
  * acceptance out.
  *
  * ── RENEWALS ────────────────────────────────────────────────────────────────────
- * A missed `invoice.paid` renewal reaches the sync as an annual period end past the
- * licenses' `ends_at`. The sync binds the current agreement version then, as the
- * webhook's `subscription_cycle` path does (`annualPeriodMovedForward`).
+ * A missed annual `invoice.paid` renewal reaches the sync as an annual period end past the
+ * licenses' `ends_at` (`annualPeriodMovedForward`). The sync binds then what the webhook's
+ * `subscription_cycle` path binds: the version `loadTermsBinding` decides at the period
+ * start (AECI-1690, `lib/terms-binding.ts`).
+ *
+ * A monthly renewal moves no date, so the run passes `monthlyCatchUp`. On an `active`
+ * subscription known to be monthly, the sync completes the bind the current period's charge
+ * should have made and did not: a missed `invoice.paid` after a version took effect. It
+ * counts only acceptances recorded at or before the period start, so an owner who clicks
+ * mid-period is bound at the next charge. A license that began in this period (a new
+ * checkout, or an add) keeps the version it was sold under. The change counts as
+ * `termsBound`. Nothing moves with today's data, and no read runs. A second run finds the
+ * licenses bound and does nothing. The run never updates a Stripe subscription for terms.
  *
  * ── RETRIES ARE SAFE ────────────────────────────────────────────────────────────
  * The sync converges: it maps the subscription as Stripe has it now onto the rows, so
@@ -81,6 +91,7 @@
  * client releases every body it does not read.
  */
 
+import type { LegalInForceMaps } from '@aeci/shared';
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import { and, eq, gte, isNotNull, isNull } from 'drizzle-orm';
 
@@ -130,6 +141,8 @@ export interface StripeReconcileDeps {
   sendEnded?: SendManagedEnded;
   sendRenewalCancelled?: SendRenewalCancelled;
   sendAlert?: typeof sendStripeReconcileAlert;
+  /** The in-force maps (`LEGAL_IN_FORCE_MAPS` when absent). Injected by specs. */
+  legalMaps?: LegalInForceMaps;
 }
 
 /** One subscription the run changed. */
@@ -145,6 +158,8 @@ export interface StripeReconcileChange {
   acceptanceBackfilled: boolean;
   /** The run set the empty billing email to the buyer's, from the Checkout Session. */
   billingEmailBackfilled: boolean;
+  /** The Managed plan agreement version the monthly catch-up bound (AECI-1690), or `null`. */
+  termsBound: string | null;
 }
 
 /** The counts the run reports, and what `job_runs.detail` carries. */
@@ -170,6 +185,9 @@ export interface StripeReconcileCounts {
   acceptancesBackfilled: number;
   /** Empty billing emails the run set to the buyer's from the Checkout Session. */
   billingEmailsBackfilled: number;
+  /** Monthly subscriptions whose licenses the catch-up bound to a later agreement version
+   *  (AECI-1690): a monthly `invoice.paid` the webhook missed. */
+  termsBound: number;
   /** Synced, but no billing account matched. */
   unlinked: number;
   failed: number;
@@ -418,6 +436,9 @@ export async function runStripeReconcile(
       sendRenewalCancelled: deps.sendRenewalCancelled,
       // AECI-1589: a ban-dead subscription is cancelled now, never granted on.
       stripe,
+      // AECI-1690: a monthly renewal moves no date, so the run checks what it binds.
+      monthlyCatchUp: true,
+      ...(deps.legalMaps ? { legalMaps: deps.legalMaps } : {}),
     });
     return {
       retrieved: !('sub' in item),
@@ -431,6 +452,7 @@ export async function runStripeReconcile(
         banCancelledNow: result.outcome === 'ban-dead',
         acceptanceBackfilled,
         billingEmailBackfilled,
+        termsBound: result.termsCaughtUp,
       } satisfies StripeReconcileChange,
     };
   });
@@ -446,6 +468,7 @@ export async function runStripeReconcile(
     banCancelsNow: 0,
     acceptancesBackfilled: 0,
     billingEmailsBackfilled: 0,
+    termsBound: 0,
     unlinked: 0,
     failed: 0,
   };
@@ -468,6 +491,7 @@ export async function runStripeReconcile(
     if (change.banCancelledNow) counts.banCancelsNow++;
     if (change.acceptanceBackfilled) counts.acceptancesBackfilled++;
     if (change.billingEmailBackfilled) counts.billingEmailsBackfilled++;
+    if (change.termsBound) counts.termsBound++;
     if (
       outcome === 'synced' ||
       change.banCancelledNow ||
@@ -500,6 +524,7 @@ export async function runStripeReconcile(
           banCancelledNow: ch.banCancelledNow,
           acceptanceBackfilled: ch.acceptanceBackfilled,
           billingEmailBackfilled: ch.billingEmailBackfilled,
+          termsBound: ch.termsBound,
         })),
         dedupeKey: stripeReconcileAlertKey(
           nowIso.slice(0, 10),

@@ -5,15 +5,24 @@
  * Stripe, Resend or GoTrue.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS, LEGAL_AGREEMENT_KNOWN_VERSIONS } from '@aeci/shared';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_KNOWN_VERSIONS,
+  LEGAL_IN_FORCE_MAPS,
+  legalEffectiveAtMs,
+  type LegalInForceMaps,
+} from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   auditLog,
   billingAccounts,
   integrationFieldChallenges,
   integrations,
+  legalVersions,
   licenses,
   productVendors,
   products,
@@ -22,6 +31,7 @@ import {
   vendorSuspensions,
 } from '../db/schema';
 import type { Env } from '../env';
+import { submitCount } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import type { EmailContext } from './email';
 import type { LicenseBefore } from './license';
@@ -38,9 +48,11 @@ import {
   STRIPE_LICENSE_NAMESPACE,
   stripeBanCancelNowHook,
   stripeLicenseIds,
+  unacceptedTermsCrossed,
   type SendManagedEnded,
   type StripeSyncRunOptions,
 } from './stripe-licenses';
+import { UNACCEPTED_TERMS_CHARGE_METRIC } from './terms-binding';
 import { URL_NAMESPACE, uuidv5 } from './uuidv5';
 
 vi.mock('../posthog', () => ({
@@ -331,7 +343,7 @@ describe('term, renewal and the cancel flag', () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
   });
 
-  it('a renewal moves ends_at and binds the CURRENT agreement version (ruling R1)', async () => {
+  it('a renewal moves ends_at and binds the version in force (ruling R1, AECI-1690)', async () => {
     const known = LEGAL_AGREEMENT_KNOWN_VERSIONS.managed_plan as unknown as string[];
     const current = LEGAL_AGREEMENT_CURRENT_VERSIONS as unknown as Record<string, string>;
     known.push('1.1');
@@ -1043,5 +1055,260 @@ describe('annualPeriodMovedForward (AECI-1503)', () => {
     expect(
       annualPeriodMovedForward('sub_1', NEXT, [row({ endedAt: '2026-10-28T12:00:00.000Z' })]),
     ).toBe(false);
+  });
+});
+
+// ─── AECI-1690: the agreement version a charge binds ─────────────────────────
+
+describe('the agreement version a renewal binds (AECI-1690)', () => {
+  /** 1.2 is published as the upcoming version, effective 2027-03-01 at 12:00 UTC. */
+  const MOMENT = legalEffectiveAtMs('2027-03-01');
+  const MAPS = {
+    ...LEGAL_IN_FORCE_MAPS,
+    agreementCurrent: { ...LEGAL_IN_FORCE_MAPS.agreementCurrent, managed_plan: '1.1' },
+    agreementUpcoming: { managed_plan: { version: '1.2', effectiveOn: '2027-03-01' } },
+  } satisfies LegalInForceMaps;
+  const AFTER = new Date(MOMENT + 2 * 86_400_000);
+
+  /** A Stripe client that records every call. The terms path must make none. */
+  function recordingStripe() {
+    const calls: string[] = [];
+    const client = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          return (..._args: unknown[]) => {
+            calls.push(String(prop));
+            throw new Error(`unexpected Stripe call: ${String(prop)}`);
+          };
+        },
+      },
+    ) as StripeClient;
+    return { client, calls };
+  }
+
+  async function publish(requiresAcceptance: boolean, publishedAt = '2026-12-01T00:00:00.000Z') {
+    await t.db.insert(legalVersions).values({
+      document: 'managed_plan',
+      version: '1.2',
+      effectiveAt: MOMENT,
+      summaryJson: '["A change."]',
+      material: true,
+      requiresAcceptance,
+      pdfKey: 'legal/managed-plan-agreement/v1.2.pdf',
+      pdfSha256: '0'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: 'admin',
+      publishedAt,
+    });
+  }
+
+  async function accept(version: string) {
+    await t.db.insert(agreementAcceptances).values({
+      id: crypto.randomUUID(),
+      document: 'managed_plan',
+      version,
+      source: 'portal',
+      email: 'owner@acme.example',
+      vendorId: VENDOR_ID,
+      acceptedAt: AFTER.toISOString(),
+    });
+  }
+
+  /** A subscription whose current period started at `startMs`. */
+  function periodSub(interval: 'month' | 'year', startMs: number, quantity = 1) {
+    const start = Math.floor(startMs / 1000);
+    const end = start + (interval === 'year' ? 365 : 30) * 86_400;
+    const sub = subscription({ quantity, interval, periodEnd: end });
+    sub.items.data[0]!.current_period_start = start;
+    sub.metadata = { ...sub.metadata, terms_version: '1.1' };
+    return sub;
+  }
+
+  const metricCalls = () =>
+    vi.mocked(submitCount).mock.calls.filter((c) => c[3] === UNACCEPTED_TERMS_CHARGE_METRIC);
+
+  beforeEach(() => vi.mocked(submitCount).mockClear());
+
+  it('monthly: a version that needs acceptance is withheld, and nothing touches Stripe', async () => {
+    await publish(true);
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.1' });
+    const stripe = recordingStripe();
+    await run(periodSub('month', MOMENT + 86_400_000), {
+      renewal: true,
+      now: AFTER,
+      legalMaps: MAPS,
+      stripe: stripe.client,
+    });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.1');
+    expect(stripe.calls).toEqual([]);
+    expect(metricCalls()).toEqual([]);
+  });
+
+  it('monthly: an owner who accepts after the withheld charge is bound at the next one', async () => {
+    await publish(true);
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.1' });
+    await run(periodSub('month', MOMENT + 86_400_000), {
+      renewal: true,
+      now: AFTER,
+      legalMaps: MAPS,
+    });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.1');
+    await accept('1.2');
+    await run(periodSub('month', MOMENT + 31 * 86_400_000), {
+      renewal: true,
+      now: new Date(MOMENT + 31 * 86_400_000),
+      legalMaps: MAPS,
+    });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+    expect(metricCalls()).toEqual([]);
+  });
+
+  it('monthly: a version without requires_acceptance binds from the first charge at or after its moment', async () => {
+    await publish(false);
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.1' });
+    // The charge before the moment, processed after it: still the old version.
+    await run(periodSub('month', MOMENT - 1000), { renewal: true, now: AFTER, legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.1');
+    await run(periodSub('month', MOMENT), { renewal: true, now: AFTER, legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+  });
+
+  it('annual: binds the version in force at the renewal moment, not at webhook time', async () => {
+    await publish(true);
+    await seedLicense('l-1', { termsVersion: '1.1', endsAt: '2027-02-01T12:00:00.000Z' });
+    // Period started a millisecond before the moment, the webhook runs two days after.
+    await run(periodSub('year', MOMENT - 1000), { now: AFTER, legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.1');
+    // The next renewal starts after the moment, and annual binds without an acceptance.
+    await t.db
+      .update(licenses)
+      .set({ endsAt: '2027-02-02T12:00:00.000Z' })
+      .where(eq(licenses.id, 'l-1'));
+    await run(periodSub('year', MOMENT + 1000), { now: AFTER, legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+  });
+
+  it('annual (D2): a version published inside the 45-day notice window waits a term', async () => {
+    const start = MOMENT + 1000;
+    // Published 44 days before the renewal: not in that renewal's notice.
+    await publish(false, new Date(start - 44 * 86_400_000).toISOString());
+    await seedLicense('l-1', { termsVersion: '1.1', endsAt: '2027-02-02T12:00:00.000Z' });
+    await run(periodSub('year', start), { now: AFTER, legalMaps: MAPS });
+    expect(await licenseOf('l-1')).toMatchObject({ termsVersion: '1.1' });
+    // The following renewal binds it.
+    const next = start + 365 * 86_400_000;
+    await run(periodSub('year', next), { now: new Date(next + 1000), legalMaps: MAPS });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+  });
+
+  it('a subscription added to a live plan takes the version its licenses carry', async () => {
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.2' });
+    // The metadata still names the original checkout's 1.1.
+    const sub = periodSub('month', MOMENT, 2);
+    await run(sub, { now: AFTER, legalMaps: MAPS });
+    const rows = await allLicenses();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.termsVersion)).toEqual(['1.2', '1.2']);
+  });
+
+  it('a renewal with no live license grants the version in force at the charge, not the metadata', async () => {
+    await publish(false);
+    await seedLicense('l-1', {
+      endsAt: null,
+      termsVersion: '1.1',
+      endedAt: '2027-02-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
+    // The metadata still names the original checkout's 1.1; 1.2 is in force at the charge.
+    await run(periodSub('month', MOMENT + 86_400_000, 1), {
+      renewal: true,
+      now: AFTER,
+      legalMaps: MAPS,
+    });
+    const live = (await allLicenses()).filter((l) => l.endedAt === null);
+    expect(live.map((l) => l.termsVersion)).toEqual(['1.2']);
+  });
+
+  it('a new checkout keeps the version it was sold under', async () => {
+    const sub = periodSub('month', MOMENT, 1);
+    await run(sub, { now: AFTER, legalMaps: MAPS });
+    expect((await allLicenses()).map((r) => r.termsVersion)).toEqual(['1.1']);
+  });
+
+  it('mixed: licenses on 1.2 and 1.4 with 1.3 unaccepted each keep their version, no tripwire', async () => {
+    // 1.3 is the build version and needs acceptance; 1.4 is upcoming, without the flag.
+    const mixed = {
+      ...LEGAL_IN_FORCE_MAPS,
+      agreementCurrent: { ...LEGAL_IN_FORCE_MAPS.agreementCurrent, managed_plan: '1.3' },
+      agreementUpcoming: { managed_plan: { version: '1.4', effectiveOn: '2027-03-01' } },
+    } satisfies LegalInForceMaps;
+    const row = (version: string, effectiveOn: string, requiresAcceptance: boolean) => ({
+      document: 'managed_plan',
+      version,
+      effectiveAt: legalEffectiveAtMs(effectiveOn),
+      summaryJson: '[]',
+      material: true,
+      requiresAcceptance,
+      pdfKey: `legal/managed-plan-agreement/v${version}.pdf`,
+      pdfSha256: '0'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: 'admin',
+      publishedAt: '2026-11-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(legalVersions)
+      .values([row('1.3', '2027-01-01', true), row('1.4', '2027-03-01', false)]);
+    await seedLicense('l-1', { endsAt: null, termsVersion: '1.2' });
+    await seedLicense('l-2', {
+      endsAt: null,
+      termsVersion: '1.4',
+      createdAt: '2020-01-02T00:00:00.000Z',
+    });
+    await run(periodSub('month', MOMENT + 86_400_000, 2), {
+      renewal: true,
+      now: AFTER,
+      legalMaps: mixed,
+    });
+    expect((await licenseOf('l-1')).termsVersion).toBe('1.2');
+    expect((await licenseOf('l-2')).termsVersion).toBe('1.4');
+    expect(metricCalls()).toEqual([]);
+  });
+
+  it('unacceptedTermsCrossed reads the written versions, a grant from the prior bound', () => {
+    const published = [
+      {
+        document: 'managed_plan',
+        version: '1.2',
+        effectiveAt: MOMENT,
+        requiresAcceptance: true,
+        summaryJson: '[]',
+        publishedAt: '2026-12-01T00:00:00.000Z',
+      },
+    ];
+    const entry = (before: string | null, after: string) =>
+      ({
+        afterState: { terms_version: after },
+        beforeState: before === null ? null : { terms_version: before },
+      }) as unknown as AuditLogEntry;
+    expect(unacceptedTermsCrossed([entry('1.1', '1.2')], { published, accepted: [] }, null)).toBe(
+      '1.2',
+    );
+    expect(
+      unacceptedTermsCrossed(
+        [entry('1.1', '1.2')],
+        {
+          published,
+          accepted: [{ document: 'managed_plan', version: '1.2', acceptedAt: AFTER.toISOString() }],
+        },
+        null,
+      ),
+    ).toBeNull();
+    expect(unacceptedTermsCrossed([entry(null, '1.2')], { published, accepted: [] }, '1.2')).toBe(
+      null,
+    );
+    expect(unacceptedTermsCrossed([entry(null, '1.2')], { published, accepted: [] }, '1.1')).toBe(
+      '1.2',
+    );
   });
 });

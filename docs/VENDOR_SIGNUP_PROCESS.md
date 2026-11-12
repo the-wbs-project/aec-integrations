@@ -41,7 +41,7 @@ does not restate those terms.
 | 6 | Subscriptions have a **source**: Stripe, invoice (PO or bespoke deal, recorded by AECi with an invoice reference and end date), or complimentary (pilot, end date, no card). |
 | 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. *Now stated in `PRICING_RULES.md` §2.* |
 | 8 | Payment is **Stripe** (Checkout launched from our portal, Stripe Billing for renewals, card by default, Stripe invoice on request). The founding discount is a Stripe coupon. A pilot is a complimentary subscription, not a coupon. The per-vendor price override is retired. *Discounts: `PRICING_RULES.md` §3.* |
-| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. *As built 2026-11-12 (AECI-1620):* publishing a material version also sends its own change notice at publish, at least 30 days ahead, to the owner seats and billing email of every company with a live subscription (§3 step 12). |
+| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. *As built 2026-11-12 (AECI-1620):* publishing a material version also sends its own change notice at publish, at least 30 days ahead, to the owner seats and billing email of every company with a live subscription (§3 step 12). *As built 2026-11-12 (AECI-1690):* a renewal binds the version in force at the new period's start. A monthly charge does not bind a version that needs acceptance until an owner seat has accepted it, and the subscriptions keep the version they carry. Nothing is cancelled for it (§3 step 9, ADR 0047). |
 | 10 | Only owner seats buy. One Stripe customer per billing account; a second purchase changes quantity. |
 | 11 | A subscription, once assigned, stays on its product until renewal. Unassigning early is a request to AECi, approved in the admin panel. A vendor may flag a product "release subscription at renewal" for a sunsetting product. |
 | 12 | Fewer subscriptions than assigned products at renewal: the vendor chooses before the date, else oldest assignment keeps the subscription and we email. |
@@ -85,8 +85,9 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
 - **R1, a superseded agreement version.** The webhook records the acceptance with the version the
   Checkout session showed, even when a newer one is current, provided it is a known version of that
   document (`LEGAL_AGREEMENT_KNOWN_VERSIONS`). A webhook never fails permanently on this. A renewal
-  binds the current version (decision 9). So every agreement bump appends the old version to
-  `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
+  binds the version in force at its period start, held back on a monthly charge for a version that
+  needs an acceptance nobody gave (decision 9, AECI-1690). So every agreement bump appends the old
+  version to `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
 - **R2, production gating.** The per-env var `STRIPE_CHECKOUT_ENABLED` is `"false"` on production
   until the switch-on, and on demo while demo mirrors production (2026-10-31). It is `"true"` on
   local and staging. When it is off, or `STRIPE_SECRET_KEY` is unset, the
@@ -230,6 +231,10 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    paid. The subscriptions land when `invoice.paid` arrives, not on the request. The interval cannot change.
    When the charge is not paid (a declined card, an unfinished 3-D Secure check), the route
    answers `409 STRIPE_PAYMENT_INCOMPLETE` and the dialog says the card was not charged.
+   *As built 2026-11-12 (AECI-1690):* the added subscriptions take the Managed plan agreement version
+   the subscription's live licenses are bound to, not the version in the original checkout's
+   metadata, so one subscription is never on two versions. The add dialog has no terms box and
+   records no acceptance: the add is a quantity change on the agreement already accepted.
 8. **Forty-five days before the end date** (annual, invoice and complimentary only): automatic email to
    every seat and the billing email with the date, the price, the subscription count, any terms change,
    and how to opt out or reduce. An owner opts out of a card renewal in the Stripe portal, or asks
@@ -237,12 +242,37 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    *Moved from 30 to 45 days by AECI-1596 (counsel, 2026-11-04):* 30 leaves no margin for a delivery
    or counting dispute. When card subscriptions renew, the email also states the charge. A card term the
    vendor already cancelled reads as ending, with no further charge.
+   *As built 2026-11-12 (AECI-1690):* when the renewal binds a published Managed plan agreement version
+   above what a renewing subscription carries (the same per-subscription bind the renewal runs, so a
+   version published less than 45 days before the date is not named), the email names the version and its effective date,
+   lists its summary, links the fixed copy `/legal/managed-plan-agreement/v<version>` and attaches the
+   PDF, straight after the opening line. The PDF is re-hashed against the published row first. A
+   missing or changed file sends the email without the attachment and its sentence, and logs an
+   error naming the version. The operator gets a separate `COPY:` without the PDF.
 9. **End date.** Annual with no opt-out: Stripe renews, dates move a year. Opt-out: an owner
    cancels in the Stripe portal before the date, or AECi cancels on request. Subscriptions end on
    it. Complimentary or invoice: subscriptions end unless replaced by a purchase. Monthly: runs until cancelled from the Stripe portal or by email.
    *As built 2026-10-28 (AECI-1500, AECI-1503):* a renewal is `invoice.paid` with billing reason
-   `subscription_cycle`. It moves `ends_at` to the new period end and binds the current agreement
-   version. The reconcile does the same if that event is missed. An opt-out is a cancel at period
+   `subscription_cycle`. It moves `ends_at` to the new period end and binds an agreement version.
+   The reconcile does the same if that event is missed.
+   *As built 2026-11-12 (AECI-1690):* which version binds is `loadTermsBinding`
+   (`lib/terms-binding.ts`), at the new period's start, 12:00 UTC effective moments:
+   - each subscription walks from its own version, so one is never carried past a version
+     because a sibling is on a later one;
+   - annual: the version in force at that moment, if it was published at least 45 days before
+     the renewal (so that renewal's notice announced it). A version published later binds at the
+     following renewal;
+   - monthly: the same moment, but the walk stops below the first published version that has
+     `requires_acceptance` and that no acceptance recorded by the period start covers. The
+     subscription keeps charging on the version it is on. Nothing is cancelled, paused or changed
+     in Stripe. Once an owner seat accepts, the next charge binds it, never mid-period. The daily
+     reconcile completes a charge whose `invoice.paid` was missed, by the same rule;
+   - never lower than the version a subscription carries; a new checkout, a grant, a complimentary
+     or a pilot subscription are not renewals and keep their own rules. A subscription that began
+     in the current period is not rebound by the reconcile. A renewal that finds no live
+     subscription re-creates them on the version in force at the charge, as a new purchase would.
+   `aeci.billing.unaccepted_terms_charge` is a tripwire for a charge that still left a subscription on
+   an unaccepted version (`RUNBOOKS.md` "Unaccepted terms charge"). An opt-out is a cancel at period
    end, by the owner in the portal or by an operator on request (`RUNBOOKS.md` "Stripe: annual
    opt-out"). The flag shows as `cancel_at_term_end` with reason `vendor-cancelled`, and the
    subscriptions end when Stripe deletes the Stripe subscription. Both portal configurations cancel at period end only, with no proration.
@@ -297,8 +327,9 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
       and the company holds a live monthly card subscription and other ones too, the email adds:
       "For your other subscriptions it applies from your next renewal or your next purchase,
       whichever comes first."
-    - The 45-day renewal notice of step 8 still carries "any terms change". The acceptance screen and
-      renewal binding are AECI-1677 and AECI-1690.
+    - The 45-day renewal notice of step 8 carries the version that binds at the renewal, with its
+      summary, fixed link and PDF (AECI-1690). The acceptance screen is AECI-1677, and the renewal
+      binding (step 9) is AECI-1690.
 
 ## 3a. Flow chart
 
@@ -439,7 +470,7 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 
 - **In force.** A version is final when it has an effective day: `LEGAL_AGREEMENT_EFFECTIVE_ON` in `packages/shared` (mirrored from each version's frontmatter `effective_date`, pinned by a web spec), or a published `legal_versions` row. It is in force from 12:00 UTC of that day (`legalEffectiveAtMs`). Today every entry is `null` and no row exists, so nothing is in force, and the screen shows to no one. The draft versions (Vendor Terms 1.0 to 1.3, Managed plan agreement 1.0 and 1.1) stay `null` for good, so the effective-date change must bump to a new version.
 - **Required (ruling 24).** The Vendor Terms are in force and the company holds no acceptance of a version in force. An acceptance of a draft never counts. The portal opens only the screen until one owner seat accepts the newest version in force, for the company. The listing stays claimed. No deadline ends the claim. A member seat sees who the owners are.
-- **Optional (ruling 25, counsel Q3).** A covered company and a published version with `requires_acceptance`: owner seats are asked to accept the newest final version at or after it, and may choose "Not now" for the browser session. Until an owner accepts, the earlier version applies. For the Managed plan agreement, only companies with a live monthly card subscription are asked. The screen only records the click. It changes no subscription and says nothing about what happens without an acceptance (AECI-1690).
+- **Optional (ruling 25, counsel Q3).** A covered company and a published version with `requires_acceptance`: owner seats are asked to accept the newest final version at or after it, and may choose "Not now" for the browser session. Until an owner accepts, the earlier version applies. For the Managed plan agreement, only companies with a live monthly card subscription are asked. The screen only records the click. It changes no subscription and says nothing about what happens without an acceptance. *Since AECI-1690:* a monthly charge binds the version only once a click recorded before that charge covers it, and without one the subscriptions keep the version they are on (§3 step 9). A click mid-period binds at the next charge.
 - **The record.** Source `portal`. The same columns as a claim: email, profile, signer name (the seat's display name, else its claim's, else typed on the screen; the write refuses a missing one), the title and legal name typed on the screen, time, version, the box label (the claim wording naming the version and the company, `portalAcceptanceLabel`) with its hash, and the unticked flag. A Vendor Terms row adds the two policy versions, a Managed plan row the Plans page version. **No IP address or browser yet:** the Privacy Policy names them only "for a claim or an in-portal acceptance of a granted subscription", so `PORTAL_RECORDS_EVIDENCE` is false until that sentence changes. The 90-day removal job covers the row whenever it does hold them.
 
 ## 5. Epics

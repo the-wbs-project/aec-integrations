@@ -4773,7 +4773,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
   it('Vendor Terms needing acceptance asks an owner seat and links the company portal', async () => {
     const { text } = await render({ closing: 'vendor-terms-accept' });
     expect(text).toContain(
-      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal. Until an owner seat accepts, the version your company last accepted keeps applying.',
+      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.',
     );
     expect(text).toMatch(
       /Open the vendor portal: https:\/\/www\.aecintegrations\.com\/vendor\/bentley\?/,
@@ -4854,5 +4854,113 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
 
   it('names the attachment from the document slug', () => {
     expect(legalNoticeAttachmentName('vendor_terms', '1.4')).toBe('aeci-vendor-terms-v1.4.pdf');
+  });
+});
+
+// ─── AECI-1690: a new agreement version in the 45-day renewal notice ─────────
+
+describe('entitlement-expiring with a new Managed plan agreement version (AECI-1690)', () => {
+  const PDF_B64 = bytesToBase64(new TextEncoder().encode('%PDF-1.7\nx\n%%EOF\n'));
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const SUBJECT = {
+    to: 'seat@vendor.example',
+    vendorName: 'Autodesk',
+    periodEndDay: '2027-03-15',
+    daysRemaining: 45,
+    licenseCount: 1,
+    productNames: ['Revit'],
+    sources: ['stripe'],
+    renewingLicenseCount: 1,
+    termsChange: true,
+  };
+  const NEW = {
+    version: '1.2',
+    effectiveDay: '2027-02-01',
+    inForce: false,
+    summary: ['The refund window is <30> days & more.', 'Notices go to owner seats.'],
+    pdfBase64: PDF_B64,
+  };
+
+  it('names the version and date, lists the summary, links the fixed copy, attaches the PDF', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendEntitlementExpiringEmail(fakeContext(SITE), { ...SUBJECT, newVersion: NEW });
+    const body = lastBody(fetchSpy) as Record<string, unknown> & {
+      attachments: { filename: string; content: string }[];
+    };
+    const text = String(body.text);
+    const html = String(body.html);
+    const lead = 'Your Autodesk plan on AEC Integrations runs until March 15, 2027.';
+    const block =
+      'Version 1.2 of the Managed plan agreement takes effect on February 1, 2027. It applies to your subscriptions from the renewal on March 15, 2027.';
+    // Straight after the lead, before the price paragraphs.
+    expect(text.indexOf(block)).toBeGreaterThan(text.indexOf(lead));
+    expect(text.indexOf(block)).toBeLessThan(text.indexOf('It covers 1 Managed subscription'));
+    expect(text.indexOf(block)).toBeLessThan(text.indexOf('Managed is $25 a month'));
+    expect(text).toContain('What changes:\n\n- The refund window is <30> days & more.');
+    expect(text).toMatch(
+      /Read version 1\.2: https:\/\/www\.aecintegrations\.com\/legal\/managed-plan-agreement\/v1\.2\?/,
+    );
+    expect(text).toContain('A PDF copy of version 1.2 is attached so you can save it.');
+    // The one-line form gives way to the block: the living page is not the link.
+    expect(text).not.toContain('A new version of the Managed plan agreement applies from');
+    expect(text).not.toMatch(/\/legal\/managed-plan-agreement\?/);
+    // Escaped in HTML.
+    expect(html).toContain('The refund window is &lt;30&gt; days &amp; more.');
+    expect(html).not.toContain('<30>');
+    expect(html).toContain('/legal/managed-plan-agreement/v1.2?');
+    expect(body.attachments).toEqual([
+      { filename: 'aeci-managed-plan-agreement-v1.2.pdf', content: PDF_B64 },
+    ]);
+    expect(atob(body.attachments[0]!.content).startsWith('%PDF-')).toBe(true);
+    expect(`${text}${html}`).not.toMatch(/—/);
+  });
+
+  it('sends the operator a COPY: without the attachment, and no bcc on the vendor send', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendEntitlementExpiringEmail(
+      fakeContext({ ...SITE, EMAIL_BCC: 'ops@aecintegrations.com' }),
+      { ...SUBJECT, newVersion: NEW },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const bodies = fetchSpy.mock.calls.map(
+      (c) => JSON.parse(String((c[1] as RequestInit).body)) as Record<string, unknown>,
+    );
+    expect(bodies[0]).not.toHaveProperty('bcc');
+    expect(bodies[0]).toHaveProperty('attachments');
+    const copy = bodies[1]!;
+    expect(String(copy.subject).startsWith('COPY: ')).toBe(true);
+    expect(copy).not.toHaveProperty('attachments');
+    expect(String(copy.text)).toContain('Version 1.2 of the Managed plan agreement');
+  });
+
+  it('a refused PDF sends the block without the attachment or its sentence', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendEntitlementExpiringEmail(
+      fakeContext({ ...SITE, EMAIL_BCC: 'ops@aecintegrations.com' }),
+      { ...SUBJECT, newVersion: { ...NEW, pdfBase64: null, inForce: true } },
+    );
+    // No attachment: the usual bcc, no separate copy.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = lastBody(fetchSpy);
+    expect(body).not.toHaveProperty('attachments');
+    expect(body.bcc).toEqual(['ops@aecintegrations.com']);
+    const text = String(body.text);
+    expect(text).toContain(
+      'Version 1.2 of the Managed plan agreement took effect on February 1, 2027.',
+    );
+    expect(text).not.toContain('attached');
+  });
+
+  it('without a new version the notice is as before', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendEntitlementExpiringEmail(fakeContext(SITE), SUBJECT);
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    expect(body).not.toHaveProperty('attachments');
+    expect(text).toContain(
+      'A new version of the Managed plan agreement applies from March 15, 2027.',
+    );
+    expect(text).toMatch(/\/legal\/managed-plan-agreement\?/);
+    expect(text).not.toContain('What changes:');
   });
 });

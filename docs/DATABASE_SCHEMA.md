@@ -2159,7 +2159,9 @@ create table licenses (
   release_at_renewal integer not null default 0, -- decision 11
   cancel_at_term_end integer not null default 0, -- decision 15
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
-  terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
+  terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d).
+                                 -- The Managed plan version the subscription is bound to. A Stripe renewal
+                                 -- moves it per ADR 0047 decision 9 (AECI-1690); never lowered.
   granted_by text,               -- a profiles.id; NO FK
   expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it, the lapse does not clear it
   created_at text not null,
