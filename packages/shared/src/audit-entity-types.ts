@@ -44,6 +44,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'review',
   'review_response',
   'review_update',
+  'terms_acceptance',
   'vendor',
   'vendor_entitlement',
   'vendor_request',

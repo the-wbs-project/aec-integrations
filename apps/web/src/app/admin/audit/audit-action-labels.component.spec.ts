@@ -114,6 +114,8 @@ const EMITTED_ACTIONS = [
   'retention.pruned',
   // AECI-1636, lib/acceptance-evidence-removal.ts.
   'agreement.evidence_removed',
+  'terms.accepted',
+  'terms.evidence_removed',
   'indexnow.drained',
   'vendor_plan_pricing.set',
   'vendor_plan_pricing.cleared',

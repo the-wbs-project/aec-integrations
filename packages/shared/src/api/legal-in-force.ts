@@ -6,19 +6,22 @@
  *
  * ── THE RULE ─────────────────────────────────────────────────────────────────────
  * A document has its build's current version (the current file's frontmatter, mirrored in
- * `LEGAL_AGREEMENT_CURRENT_VERSIONS` / `LEGAL_POLICY_CURRENT_VERSIONS` and the web
- * manifest's `LEGAL_CURRENT_VERSIONS`) and at most one upcoming version (`LEGAL_UPCOMING`,
- * mirrored here for the agreements and the two policies). The upcoming version is in force
- * from its effective moment, 12:00 UTC of `effectiveOn` (`legalEffectiveAtMs`), when:
+ * `LEGAL_AGREEMENT_CURRENT_VERSIONS` / `LEGAL_READER_CURRENT_VERSIONS` /
+ * `LEGAL_POLICY_CURRENT_VERSIONS` and the web manifest's `LEGAL_CURRENT_VERSIONS`) and at
+ * most one upcoming version (`LEGAL_UPCOMING`, mirrored here for all six). The upcoming
+ * version is in force from its effective moment, 12:00 UTC of `effectiveOn`
+ * (`legalEffectiveAtMs`), when:
  *
- *   - the document is one of the two agreements (Vendor Terms, Managed plan agreement), and
- *     a `legal_versions` row names that version with the same effective moment. A row
- *     means it was published, so its change notice went out. No row, no switch, on every
- *     surface. Publishing is refused in demo and production while `LEGAL_PUBLISH_ENABLED`
- *     is "false", so an agreement's first effective date waits for that release;
- *   - or the document is one of the other four (Terms, Privacy Policy, Review Guidelines,
- *     Listing Accuracy Policy). They have no publish record, so the date alone switches it.
- *     The manifest entry is a reviewed commit, and their notice is the site-wide band.
+ *   - the document is one of the four PUBLISHABLE documents (Vendor Terms, Managed plan
+ *     agreement, and since AECI-1637 the Terms of Service and the Privacy Policy), and a
+ *     `legal_versions` row names that version with the same effective moment. A row means
+ *     it was published, so its change notice went out. No row, no switch, on every surface
+ *     (ruling 2 of 2026-11-13 for the reader documents). Publishing is refused in demo and
+ *     production while `LEGAL_PUBLISH_ENABLED` is "false", so a first effective date waits
+ *     for that release;
+ *   - or the document is one of the two policies (Review Guidelines, Listing Accuracy
+ *     Policy). They have no publish record, so the date alone switches it. The manifest
+ *     entry is a reviewed commit, and their notice is the site-wide band.
  *
  * Otherwise the build's current version stays in force. Before the moment nothing changes.
  * A row whose moment differs from the manifest's (the date moved after a publish) does not
@@ -40,9 +43,16 @@ import {
   LEGAL_POLICY_CURRENT_VERSIONS,
   LEGAL_POLICY_DOCUMENTS,
   LEGAL_POLICY_UPCOMING_VERSIONS,
+  LEGAL_READER_CURRENT_VERSIONS,
+  LEGAL_READER_DOCUMENTS,
+  LEGAL_READER_EFFECTIVE_ON,
+  LEGAL_READER_KNOWN_VERSIONS,
+  LEGAL_READER_UPCOMING_VERSIONS,
   type LegalAgreementDocument,
   type LegalAgreementUpcomingVersion,
   type LegalPolicyDocument,
+  type LegalPublishableDocument,
+  type LegalReaderDocument,
 } from './agreements';
 import { legalEffectiveAtMs } from './legal-versions';
 
@@ -109,6 +119,18 @@ export interface LegalInForceMaps {
   readonly agreementEffectiveOn?: Readonly<
     Record<LegalAgreementDocument, Readonly<Record<string, string | null>>>
   >;
+  /** AECI-1637: `LEGAL_READER_CURRENT_VERSIONS`. Absent: the shared constant. */
+  readonly readerCurrent?: Readonly<Record<LegalReaderDocument, string>>;
+  /** `LEGAL_READER_UPCOMING_VERSIONS`. Absent: the shared constant. */
+  readonly readerUpcoming?: Readonly<
+    Partial<Record<LegalReaderDocument, LegalAgreementUpcomingVersion>>
+  >;
+  /** `LEGAL_READER_KNOWN_VERSIONS`. Absent: the shared constant. */
+  readonly readerKnown?: Readonly<Record<LegalReaderDocument, readonly string[]>>;
+  /** `LEGAL_READER_EFFECTIVE_ON`. Absent: the shared constant. */
+  readonly readerEffectiveOn?: Readonly<
+    Record<LegalReaderDocument, Readonly<Record<string, string | null>>>
+  >;
 }
 
 /** The shared constants. The one place outside `agreements.ts` that reads them. */
@@ -119,7 +141,57 @@ export const LEGAL_IN_FORCE_MAPS: LegalInForceMaps = {
   policyUpcoming: LEGAL_POLICY_UPCOMING_VERSIONS,
   agreementKnown: LEGAL_AGREEMENT_KNOWN_VERSIONS,
   agreementEffectiveOn: LEGAL_AGREEMENT_EFFECTIVE_ON,
+  readerCurrent: LEGAL_READER_CURRENT_VERSIONS,
+  readerUpcoming: LEGAL_READER_UPCOMING_VERSIONS,
+  readerKnown: LEGAL_READER_KNOWN_VERSIONS,
+  readerEffectiveOn: LEGAL_READER_EFFECTIVE_ON,
 };
+
+/** The reader upcoming map of `maps`, the shared constant when a spec's maps omit it. */
+export function legalReaderUpcomingOf(
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): Readonly<Partial<Record<LegalReaderDocument, LegalAgreementUpcomingVersion>>> {
+  return maps.readerUpcoming ?? LEGAL_READER_UPCOMING_VERSIONS;
+}
+
+/** The reader effective-day map of `maps`, the shared constant when omitted. */
+export function legalReaderEffectiveOnOf(
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): Readonly<Record<LegalReaderDocument, Readonly<Record<string, string | null>>>> {
+  return maps.readerEffectiveOn ?? LEGAL_READER_EFFECTIVE_ON;
+}
+
+/** The upcoming entry of any publishable document, or `undefined`. */
+export function legalPublishableUpcomingOf(
+  document: string,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): LegalAgreementUpcomingVersion | undefined {
+  return (
+    maps.agreementUpcoming[document as LegalAgreementDocument] ??
+    legalReaderUpcomingOf(maps)[document as LegalReaderDocument]
+  );
+}
+
+/**
+ * Every publishable document with an upcoming entry, agreements first, in vocabulary
+ * order (AECI-1637). `/admin/legal`, the public read and the data-quality checks list
+ * these, so the four documents are handled alike.
+ */
+export function legalPublishableUpcoming(
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): { document: LegalPublishableDocument; upcoming: LegalAgreementUpcomingVersion }[] {
+  const out: { document: LegalPublishableDocument; upcoming: LegalAgreementUpcomingVersion }[] = [];
+  for (const document of LEGAL_AGREEMENT_DOCUMENTS) {
+    const upcoming = maps.agreementUpcoming[document];
+    if (upcoming) out.push({ document, upcoming });
+  }
+  const reader = legalReaderUpcomingOf(maps);
+  for (const document of LEGAL_READER_DOCUMENTS) {
+    const upcoming = reader[document];
+    if (upcoming) out.push({ document, upcoming });
+  }
+  return out;
+}
 
 /**
  * Whether a `legal_versions` row disagrees with the manifest: it names the document's
@@ -132,7 +204,7 @@ export function legalPublishedRowMismatched(
   row: LegalPublishedLite,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): boolean {
-  const upcoming = maps.agreementUpcoming[row.document as LegalAgreementDocument];
+  const upcoming = legalPublishableUpcomingOf(row.document, maps);
   if (!upcoming || upcoming.version !== row.version) return false;
   return row.effectiveAt !== legalEffectiveAtMs(upcoming.effectiveOn);
 }
@@ -148,6 +220,23 @@ export function legalAgreementVersionInForce(
   return upcoming && legalUpcomingInForce(document, upcoming, nowMs, published)
     ? upcoming.version
     : maps.agreementCurrent[document];
+}
+
+/**
+ * The version of the Terms of Service or the Privacy Policy in force at `nowMs`, given its
+ * published rows (AECI-1637). The agreements' rule: the upcoming version switches in at its
+ * moment only once a `legal_versions` row published it (ruling 2 of 2026-11-13).
+ */
+export function legalReaderVersionInForce(
+  document: LegalReaderDocument,
+  published: readonly LegalPublishedLite[],
+  nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): string {
+  const upcoming = legalReaderUpcomingOf(maps)[document];
+  return upcoming && legalUpcomingInForce(document, upcoming, nowMs, published)
+    ? upcoming.version
+    : (maps.readerCurrent ?? LEGAL_READER_CURRENT_VERSIONS)[document];
 }
 
 /** The version of a policy in force at `nowMs`. Its date alone switches it. */
@@ -187,22 +276,22 @@ export function legalVersionsInForce(
 
 /**
  * Whether the answer at `nowMs` can depend on a `legal_versions` row: some upcoming
- * agreement's moment has come. False means every agreement is on its build version
- * whatever D1 holds, so a caller may skip the read. True today never: the map is empty.
+ * publishable document's moment has come (an agreement, or since AECI-1637 the Terms of
+ * Service or the Privacy Policy). False means every one is on its build version whatever
+ * D1 holds, so a caller may skip the read. True today never: the maps are empty.
  */
 export function legalInForceNeedsPublished(
   nowMs: number,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): boolean {
-  return LEGAL_AGREEMENT_DOCUMENTS.some((d) => {
-    const u = maps.agreementUpcoming[d];
-    return u !== undefined && legalMomentReached(legalEffectiveAtMs(u.effectiveOn), nowMs);
-  });
+  return legalPublishableUpcoming(maps).some(({ upcoming }) =>
+    legalMomentReached(legalEffectiveAtMs(upcoming.effectiveOn), nowMs),
+  );
 }
 
 /**
- * The next effective moment after `nowMs` of any upcoming agreement or policy entry, or
- * `null`. A browser answer is good until then (`LegalInForceClient`).
+ * The next effective moment after `nowMs` of any upcoming agreement, reader document or
+ * policy entry, or `null`. A browser answer is good until then (`LegalInForceClient`).
  */
 export function legalNextEffectiveMomentMs(
   nowMs: number,
@@ -211,6 +300,7 @@ export function legalNextEffectiveMomentMs(
   let next: number | null = null;
   for (const u of [
     ...Object.values(maps.agreementUpcoming),
+    ...Object.values(legalReaderUpcomingOf(maps)),
     ...Object.values(maps.policyUpcoming),
   ]) {
     if (!u) continue;

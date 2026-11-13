@@ -834,6 +834,23 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         entity: { type: 'legal_version', id: 'lv1' },
       }),
   },
+  'legal-account-change': {
+    links: true,
+    send: (c) =>
+      sendLegalTermsChangeEmail(c, {
+        to: 'reader@example.com',
+        document: 'terms',
+        version: '1.2',
+        effectiveDay: '2027-01-15',
+        summary: ['The disputes section changes.'],
+        closing: 'reader-terms-accept',
+        expeditedReason: null,
+        vendorSlug: null,
+        pdfBase64: 'JVBERi0=',
+        dedupeKey: 'legal-account-change:terms:1.2:u1',
+        entity: { type: 'legal_version', id: 'lv2' },
+      }),
+  },
   'payment-failed': {
     links: true,
     send: (c) =>

@@ -4,7 +4,8 @@
  * every reader that stamps or shows the current version asks the one rule
  * (`legal-in-force.ts`). This spec is the lint rule that keeps a stray read from coming
  * back: it fails on any source file outside the list below that names
- * `LEGAL_AGREEMENT_CURRENT_VERSIONS` or `LEGAL_POLICY_CURRENT_VERSIONS` in code.
+ * `LEGAL_AGREEMENT_CURRENT_VERSIONS`, `LEGAL_READER_CURRENT_VERSIONS` (AECI-1637) or
+ * `LEGAL_POLICY_CURRENT_VERSIONS` in code.
  *
  * Specs are exempt (they pin the constants to the Markdown). Each other entry says why
  * its read means the BUILD's version, not the one in force. Adding a file here needs
@@ -30,7 +31,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
     'fixture rows for a preview page',
 };
 
-const NAMES = /\b(LEGAL_AGREEMENT_CURRENT_VERSIONS|LEGAL_POLICY_CURRENT_VERSIONS)\b/;
+const NAMES =
+  /\b(LEGAL_AGREEMENT_CURRENT_VERSIONS|LEGAL_READER_CURRENT_VERSIONS|LEGAL_POLICY_CURRENT_VERSIONS)\b/;
 
 /** The source with comments removed, so a doc comment naming a constant is not a read. */
 function codeOf(source: string): string {
@@ -60,7 +62,7 @@ describe('readers of the build current-version constants (AECI-1689)', () => {
     }
     expect(
       offenders,
-      'Use legalAgreementVersionInForce / legalPolicyVersionInForce (lib/legal-in-force.ts on the API, LegalInForceClient on the web), or add the file to ALLOWED with the reason its read means the build version.',
+      'Use legalAgreementVersionInForce / legalReaderVersionInForce / legalPolicyVersionInForce (lib/legal-in-force.ts on the API, LegalInForceClient on the web), or add the file to ALLOWED with the reason its read means the build version.',
     ).toEqual([]);
   });
 

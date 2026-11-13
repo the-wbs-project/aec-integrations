@@ -9,8 +9,12 @@ import {
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
   LEGAL_POLICY_UPCOMING_VERSIONS,
+  LEGAL_READER_CURRENT_VERSIONS,
+  LEGAL_READER_EFFECTIVE_ON,
+  LEGAL_READER_UPCOMING_VERSIONS,
   type LegalAgreementDocument,
   type LegalPolicyDocument,
+  type LegalReaderDocument,
 } from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
@@ -796,6 +800,50 @@ describe('LegalPage', () => {
         }
       }
       // The current version of each agreement always has a page.
+      expect(checked).toBeGreaterThanOrEqual(2);
+    });
+
+    // AECI-1637: the Terms of Service and the Privacy Policy are publishable, so the API
+    // reads their versions from shared maps too. Each must equal the Markdown.
+    it('the shared reader maps equal the frontmatter and the LEGAL_UPCOMING reader entries', () => {
+      const slugFor: Record<LegalReaderDocument, LegalSlug> = {
+        terms: 'terms',
+        privacy: 'privacy',
+      };
+      for (const [document, version] of Object.entries(LEGAL_READER_CURRENT_VERSIONS)) {
+        expect(currentLegalVersion(slugFor[document as LegalReaderDocument]), document).toBe(
+          version,
+        );
+      }
+      const fromManifest: Partial<
+        Record<LegalReaderDocument, { version: string; effectiveOn: string }>
+      > = {};
+      for (const { slug, version, effectiveOn } of LEGAL_UPCOMING) {
+        const document = (Object.keys(slugFor) as LegalReaderDocument[]).find(
+          (d) => slugFor[d] === slug,
+        );
+        if (document) fromManifest[document] = { version, effectiveOn };
+      }
+      expect(LEGAL_READER_UPCOMING_VERSIONS).toEqual(fromManifest);
+      const writtenOut = (day: string) =>
+        new Date(`${day}T12:00:00.000Z`).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        });
+      let checked = 0;
+      for (const [document, versions] of Object.entries(LEGAL_READER_EFFECTIVE_ON)) {
+        for (const [version, day] of Object.entries(versions as Record<string, string | null>)) {
+          const doc = getLegalVersion(slugFor[document as LegalReaderDocument], version);
+          if (!doc) continue;
+          checked += 1;
+          expect(
+            doc.frontmatter.effectiveDate,
+            `${document} ${version}: LEGAL_READER_EFFECTIVE_ON must equal this file's effective_date`,
+          ).toBe(day === null ? '' : writtenOut(day));
+        }
+      }
       expect(checked).toBeGreaterThanOrEqual(2);
     });
 

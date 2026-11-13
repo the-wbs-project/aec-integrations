@@ -221,6 +221,34 @@ identities and **#4b creates** them. One live consequence of the shared project:
 `DELETE /api/account` on **staging or demo** now really deletes the `auth.users` row
 that also backs production. That is the accepted ADR-0017 cost, and it is why local dev carries no key.
 
+### 3.1b The sign-in is the Terms acceptance (AECI-1637)
+
+Signing in is the acceptance of the Terms of Service (Chris's ruling of 2026-11-13, counsel
+Q34). There is no reader gate, no acceptance panel and no write block. Nothing is ever refused
+because a Terms version is new.
+
+1. **The line.** `/auth/login` always shows one line beside the sign-in buttons: "By signing in,
+   you agree to our Terms of Service and Privacy Policy." Both names link to `/legal/terms` and
+   `/legal/privacy`. The text is `SIGN_IN_TERMS_LINE` (`packages/shared/src/api/agreements.ts`).
+2. **The write.** `POST /api/auth/profile/ensure` (seam #1 above) records the acceptance once
+   the profile exists, through `recordSignInTermsAcceptance` (`lib/reader-legal-acceptance.ts`).
+   It writes one `terms_acceptances` row (`DATABASE_SCHEMA.md` §8.6k) and its `terms.accepted`
+   audit row in one `db.batch`, for the Terms version in force. Once per account per version.
+   With no Terms version in force it reads and writes nothing, which is today.
+3. **The evidence.** The ensure call is a fresh `Request` across the service binding, so the
+   callback copies the eyeball request's `CF-Connecting-IP` and `User-Agent` onto it
+   (`signInEvidenceHeaders` in `apps/web/src/server/routes/auth-callback.ts`). Cloudflare sets
+   `CF-Connecting-IP` at the edge and overwrites any client value. The API reads both with
+   `acceptanceRequestEvidence`.
+4. **Never fails the sign-in.** A failed read or write is logged and swallowed. The ensure still
+   answers `{ created }`, and the callback's retry and sign-out rules (§3.1a) are unchanged.
+5. **A live session is not interrupted.** A session that began before a new Terms version stays
+   on the earlier one until its next sign-in. A version published with `requires_acceptance`
+   (it reduces rights) applies to an account holder only from that sign-in, never on continued
+   use (`STAGE_1_SPEC.md` §27.4).
+
+The `GET /api/account` self-heal does not record an acceptance. Only a completed sign-in does.
+
 ### 3.2 Role exclusivity & the vendor grant
 
 `vendor_admin` is granted **app-side on vendor-claim approval** — the same app-layer seam as

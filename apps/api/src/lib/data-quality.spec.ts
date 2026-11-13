@@ -732,6 +732,17 @@ describe('checkLegalAgreementUnpublished', () => {
   it('is registered at warn severity: never a seed obligation', () => {
     expect(CHECKS.find((c) => c.id === 'legal_agreement_unpublished')?.severity).toBe('warn');
   });
+
+  // AECI-1637: the Terms of Service and Privacy Policy switch only once published too.
+  it('covers the reader documents', async () => {
+    const reader: LegalInForceMaps = {
+      ...LEGAL_IN_FORCE_MAPS,
+      readerUpcoming: { privacy: { version: '1.2', effectiveOn: '2027-03-31' } },
+    };
+    const res = await checkLegalAgreementUnpublished(t.db, NOW, reader);
+    expect(res.lines).toHaveLength(1);
+    expect(res.lines[0]).toMatch(/^privacy 1\.2 \(2027-03-31\) takes effect in 22 days/);
+  });
 });
 
 describe('checkLegalAgreementDateMoved (AECI-1689)', () => {

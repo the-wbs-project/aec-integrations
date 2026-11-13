@@ -276,25 +276,27 @@ Every version has a stable URL. The repo is private, so git history is not the p
 ### The effective date switches by itself (AECI-1689)
 
 From the effective moment, 12:00 UTC of `effectiveOn`, an upcoming version is the current one
-with no deploy. One rule decides it everywhere: `legalAgreementVersionInForce` and
-`legalPolicyVersionInForce` (`packages/shared/src/api/legal-in-force.ts`).
+with no deploy. One rule decides it everywhere: `legalAgreementVersionInForce`,
+`legalReaderVersionInForce` and `legalPolicyVersionInForce`
+(`packages/shared/src/api/legal-in-force.ts`).
 
-- **The Vendor Terms and the Managed plan agreement switch only once published.** The upcoming
+- **The Vendor Terms, the Managed plan agreement, the Terms and the Privacy Policy switch only
+  once published.** Until AECI-1637 (2026-11-13) the last two switched on their date alone. The upcoming
   version needs a `legal_versions` row with the same effective moment ("Publishing an upcoming
   agreement version" below). A row means its change notice went out. No row, no switch, on any
   surface, ever: the page keeps the old version current and keeps saying "takes effect on
   <date>", and new claims and checkouts keep stamping the old version. Publishing is refused in
   demo and production while `LEGAL_PUBLISH_ENABLED` is `"false"`, so each agreement's first
   effective date waits for that release.
-- **The Terms, the Privacy Policy, the Review Guidelines and the Listing Accuracy Policy switch on
-  their date alone.** They have no publish record. The manifest entry is a reviewed commit, and
+- **The Review Guidelines and the Listing Accuracy Policy switch on their date alone.** They have
+  no publish record. The manifest entry is a reviewed commit, and
   their notice is the site-wide band in `notices.json`.
 - **What switches.** `/legal/<slug>` serves the new text as current. `/legal/<slug>/v<new>` is the
   current version at its own address. `/legal/<slug>/v<old>` serves the old text, superseded on
   the effective date. The announcement and the extra Change history line stop. A new claim,
   listing request, checkout or grant stamps the new version, its text hash and, for a policy,
   its version on the claim row. The 45-day renewal notice compares against it.
-- **How the pages know.** The legal pages have no database. Once an agreement's moment has come,
+- **How the pages know.** The legal pages have no database. Once the moment of an agreement, the Terms or the Privacy Policy has come,
   the SSR Worker reads `GET /api/legal/published` over the service binding, decides, and hands
   the browser the same answer. If that read fails, the page shows the old version and is cached
   for a minute (`docs/CACHE_STRATEGY.md` §4). Every cacheable page's cache ends at the moment, the
@@ -383,7 +385,9 @@ steps in this order.
      `app/legal/legal-manifest.ts`. This alone puts the announcement on the current page.
    - Import the file in `app/legal/legal-content.ts` and add it to `ARCHIVE_SOURCES`.
    - For the vendor terms or the Managed plan agreement, add the same `{ version, effectiveOn }` to
-     `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (`packages/shared/src/api/agreements.ts`).
+     `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (`packages/shared/src/api/agreements.ts`). For the Terms
+     or the Privacy Policy (AECI-1637), add it to `LEGAL_READER_UPCOMING_VERSIONS` in the same
+     file. They have no text-hash map.
    - Do **not** edit the current `<name>.md`.
    - For the vendor terms or the Managed plan agreement, add the file's hash to
      `LEGAL_AGREEMENT_TEXT_SHA256` under the new version (`agreement-text-hash.spec.ts` prints it
@@ -409,13 +413,17 @@ steps in this order.
    - Archive the old current text unchanged at `versions/<slug>/v<old>.md`, with a `LEGAL_ARCHIVES`
      entry whose `supersededOn` is the effective date. Fix the imports in `legal-content.ts`.
    - Remove the `LEGAL_UPCOMING` entry, and the `LEGAL_AGREEMENT_UPCOMING_VERSIONS` entry if there
-     is one.
+     is one, or the `LEGAL_READER_UPCOMING_VERSIONS` entry.
    - If this lands on the effective day itself, leave the version's `notices.json` entry in place:
      the band runs through that whole day, and `legal-notices.spec.ts` accepts a notice for the
      version that is now current. On any later day, remove it here (step 6).
    - Set the slug's `LEGAL_CURRENT_VERSIONS` entry to the new version. The notice's link
      `/legal/<slug>/v<new>` then keeps serving the same text as the current version, and
      `/legal/<slug>/v<old>` serves the archive.
+   - For the Terms or the Privacy Policy, set `LEGAL_READER_CURRENT_VERSIONS` to the new version,
+     append it to `LEGAL_READER_KNOWN_VERSIONS`, add its day to `LEGAL_READER_EFFECTIVE_ON` (never
+     `null`, as for the agreements) and remove its `LEGAL_READER_UPCOMING_VERSIONS` entry (all in
+     `agreements.ts`). Confirm the switch happened first, as for an agreement above.
    - For the vendor terms or the Managed plan agreement, set `LEGAL_AGREEMENT_CURRENT_VERSIONS` to
      the new version and append it to `LEGAL_AGREEMENT_KNOWN_VERSIONS`. Its
      `LEGAL_AGREEMENT_TEXT_SHA256` entry is already there from step 2, and the file moved byte for
@@ -428,7 +436,7 @@ steps in this order.
    - For the Listing Accuracy Policy or the Review Guidelines, set `LEGAL_POLICY_CURRENT_VERSIONS`
      to the new version, append it to `LEGAL_POLICY_KNOWN_VERSIONS`, and remove its
      `LEGAL_POLICY_UPCOMING_VERSIONS` entry (same file). A claim records those two versions. The
-     Terms and the Privacy Policy have no shared map.
+     Terms and the Privacy Policy use the `LEGAL_READER_*` maps above, not these.
    - Deploy it through the normal release. There is no deadline: no spec fails when the date
      passes. More than 14 days after the moment, the `Legal bump reminder` CI step prints a
      warning on every run until this lands. It never fails a check.
@@ -438,11 +446,13 @@ steps in this order.
 
 ## Publishing an upcoming agreement version (AECI-1688)
 
-For the Vendor Terms and the Managed plan agreement only. Publishing records the announcement in
+For the Vendor Terms and the Managed plan agreement, and since AECI-1637 (2026-11-13) for the
+Terms of Service and the Privacy Policy too: see "Publishing a Terms or Privacy version" at the
+end of this section. Publishing records the announcement in
 D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, two answers the
 operator gives, and the fingerprint of a PDF a customer can save. A material version's publish
 also emails the change notice (`legal-terms-change`, AECI-1620) to every affected company. The
-acceptance screen (AECI-1677) and reader accounts (AECI-1637) read the record too. Since AECI-1689
+vendor acceptance screen (AECI-1677) and the sign-in Terms acceptance (AECI-1637) read the record too. Since AECI-1689
 the record is also what lets the version become current at its moment: an unpublished agreement
 version never switches. ADR 0054 is
 the decision. Run the steps in this order, once per tier.
@@ -530,6 +540,44 @@ notice. Noon UTC falls on the named day from UTC-12 to UTC+11. `legalEffectiveAt
 (`packages/shared/src/api/legal-versions.ts`) is the one conversion. It sets
 `legal_versions.effective_at` and measures the 30-day window. Anything else that has to know when
 a version takes effect should call it rather than build its own date.
+
+### Publishing a Terms or Privacy version (AECI-1637)
+
+The steps are the ones above, with these differences.
+
+- **Slug and maps.** Dispatch the PDF workflow with slug `terms` or `privacy`. The upcoming entry
+  goes in `LEGAL_READER_UPCOMING_VERSIONS`, not the agreement map. Until a row publishes the
+  version it never switches, so the Terms' first effective date waits for the release that turns
+  `LEGAL_PUBLISH_ENABLED` on.
+- **The notice goes to accounts, not companies.** A material publish emails every unbanned
+  account holder (`legal-account-change`, no unsubscribe link: it is a legal notice), with the
+  summary, the version link and the PDF. The card says "accounts". `docs/runbooks/legal.md`
+  "A legal change notice did not go out" has the checks.
+- **Window and expedite.** The 30-day window applies, because the Terms promise 30 days. No
+  reader document can be expedited, so a date inside 30 days means moving the date.
+- **Set `material` to Yes** when the change materially affects users: new data collection,
+  wider use of personal data, a new restriction, or a change to how they may use the service. A
+  wording fix or a correction that changes nothing for them is No, and sends nothing. When in
+  doubt, ask counsel before publishing: a publish cannot be undone, and the 30-day banner
+  (`notices.json`) is separate.
+- **Set `requires_acceptance` to Yes only for a Terms change that reduces a reader's rights.**
+  Signing in is the acceptance (ruling of 2026-11-13): the login page always says "By signing
+  in, you agree to our Terms of Service and Privacy Policy." A version with Yes applies to each
+  account holder only from their next sign-in, never on continued use, and the email says so.
+  Until then the earlier version applies to them. Nothing is blocked, and a live session is not
+  interrupted. A Terms change that does not reduce rights is material at most, and binds by
+  continued use. **Privacy never takes it.** The form hides the
+  question and the API refuses `requires_acceptance` for a Privacy publish: a Privacy change
+  gets the email and the 30-day window and nothing else.
+- **Check the card** for "Accounts queued", "Delivered" and "Accounts not reached", and the
+  account count in "The last send queued N accounts". The count is of every unbanned account.
+- **After the effective moment** every sign-in records the acceptance of the new Terms version,
+  whatever the flag, once per account. The acceptance records are in `terms_acceptances`
+  (`docs/DATABASE_SCHEMA.md` §8.6k).
+  They are kept for the life of the account plus 6 years, even after deletion, and the IP
+  address and browser go at 90 days. The Privacy Policy "Agreement acceptance records" names
+  this record. The sign-in line's text is `SIGN_IN_TERMS_LINE`: change it only with the legal
+  text, and the record stores the exact text shown.
 
 ## Runbooks behind these promises (AECI-1622, AECI-1674)
 

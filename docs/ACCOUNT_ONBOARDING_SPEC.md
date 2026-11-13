@@ -300,6 +300,9 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
   stays for the page's life. It announces "Loading…", the form being ready, the fields a software
   vendor is not asked (and their return), and each audience count change. When the form appears,
   focus moves to the `h1`.
+- **No Terms gate (AECI-1637).** Signing in is the acceptance of the Terms of Service (ruling
+  of 2026-11-13). The sign-in that lands here already recorded it, so nothing overlays this
+  page and nothing blocks its writes (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
 - **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
   filled in from this. You can change any of it on your account page." It works for a vendor and a
   reviewer alike.
@@ -372,6 +375,11 @@ check.
   with your name removed. The text may still identify you." The section links the Privacy Policy. Every account sees it, worded
   conditionally (ruled 2026-11-06). The Privacy Policy draft promises this screen ("The deletion
   screen tells you what is kept before you confirm"). `STAGE_2_ATTESTATIONS_SPEC.md` §15.17.
+- **The Terms acceptance record is kept (AECI-1637, ruling 1 of 2026-11-13).** The same screen
+  says that signing in records your acceptance of the Terms of Service, and that the record is
+  kept for 6 years after deletion. It holds the
+  email, version and time, with no link to the account, so deletion does not remove it
+  (`DATABASE_SCHEMA.md` §8.6k).
 
 ## 10. Analytics
 

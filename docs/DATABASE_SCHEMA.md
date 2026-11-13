@@ -142,8 +142,10 @@ Tables grouped by domain:
 - `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
-- `legal_versions` — one announced version of the Vendor Terms or the Managed plan agreement: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688)
+- `legal_versions` — one announced version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy Policy: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688, AECI-1637)
 - `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
+- `legal_notice_reader_deliveries` — where each account's change notice for a published Terms of Service or Privacy Policy version stands (§8.6l, AECI-1637)
+- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion (§8.6k, AECI-1637)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -2879,23 +2881,23 @@ create index license_grants_account_idx on license_grants(billing_account_id);
 
 ### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
 
-One version of the Vendor Terms or the Managed plan agreement that an operator published on
-`/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
+One version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy
+Policy that an operator published on `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
 ADR 0054). A row is the record that the version was announced: its summary, the operator's two
 answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
-its change-notice email (AECI-1620) and records the fan-out here. The acceptance screen
-(AECI-1677) and reader accounts
-(AECI-1637) read the row later.
+its change-notice email (AECI-1620, and for the two reader documents the account email,
+AECI-1637) and records the fan-out here. The portal acceptance screen (AECI-1677) and the
+sign-in Terms acceptance (AECI-1637, §8.6k) read the row later.
 
 ```sql
 create table legal_versions (
   id text primary key,
-  document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
-  version text not null,           -- the LEGAL_AGREEMENT_UPCOMING_VERSIONS entry, e.g. '1.4'
+  document text not null,          -- 'vendor_terms' | 'managed_plan' | 'terms' | 'privacy' (LegalPublishableDocument); NO CHECK
+  version text not null,           -- the upcoming-version map entry (LEGAL_AGREEMENT_ or LEGAL_READER_UPCOMING_VERSIONS), e.g. '1.4'
   effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
   summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
   material integer not null,       -- 0/1: the change is summarised and noticed
-  requires_acceptance integer not null, -- 0/1: an owner seat must accept before it applies; implies material
+  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only from its next sign-in; implies material; never 1 for 'privacy'
   expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
   pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
   pdf_sha256 text not null,        -- of the exact bytes read at publish
@@ -2903,7 +2905,7 @@ create table legal_versions (
   published_by text not null,      -- a profiles.id; NO FK
   published_at text not null,      -- ISO-8601
   notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
-  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620)
+  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620); ACCOUNTS on a terms or privacy row (AECI-1637)
 );
 
 create unique index legal_versions_document_version_key on legal_versions(document, version);
@@ -2926,8 +2928,17 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
   message arrives after `effective_at`, because it then sends nothing. What was actually
   sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
+- **Reader rows (AECI-1637).** `notice_vendor_count` keeps its name and holds the number of
+  accounts queued when `document` is `terms` or `privacy`. No rename, because it is a D1 column
+  rename and the shared response field is the same. The per-account outcome lives in
+  `legal_notice_reader_deliveries` (§8.6l). `/admin/legal` says "accounts" on a reader card and
+  "companies" on an agreement card. A Privacy row always has `requires_acceptance = 0`: the
+  publish refuses it (`PublishLegalVersionRequestSchema`), and there is no expedite for either
+  reader document. On a Terms row, `requires_acceptance = 1` means the version reduces rights:
+  it binds an account holder only from their next sign-in (§8.6k), never on continued use, and
+  the change email says so.
 - **Not typed by the operator.** `version` and `effective_at` come from
-  `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
+  `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or `LEGAL_READER_UPCOMING_VERSIONS`), and `pdf_key` is built from them, never from the request.
 - **The two flags are the operator's answers.** `material` and `requires_acceptance` have no
   default on the page. `requires_acceptance = 1` with `material = 0` is refused by Zod
   (`PublishLegalVersionRequestSchema`).
@@ -3003,6 +3014,99 @@ create unique index legal_notice_deliveries_version_vendor_key
   Not in `PRUNABLE`.
 - **Migration.** One `CREATE TABLE` and one `CREATE UNIQUE INDEX`, nothing else
   (`src/test/migration-0120.spec.ts`), so no existing table is recreated (`docs/migrations.md` §0).
+
+### 8.6k `terms_acceptances` (AECI-1637, migration `0122_clever_roughhouse`)
+
+One account holder signing in while one Terms of Service version was in force. Signing in is
+the acceptance (Chris's ruling of 2026-11-13, `STAGE_1_SPEC.md` §27.4, `AUTH_AND_RLS.md`
+§3.1b). The login page shows one line beside the sign-in buttons: "By signing in, you agree to
+our Terms of Service and Privacy Policy." The row is written for every Terms version in force,
+whatever its `requires_acceptance` flag (§8.6i). For a version published with the flag, the row
+is the moment the version starts to apply to that account. The reader twin of
+`agreement_acceptances` (§8.6d).
+
+```sql
+create table terms_acceptances (
+  id text primary key,
+  document text not null,                -- 'terms' only; NO CHECK
+  version text not null,                 -- e.g. '1.2'
+  legal_version_id text,                 -- a legal_versions.id; NO FK; NULL for a version with no row
+  profile_id text not null,              -- a profiles.id; NO FK, so the row survives deletion
+  email text not null,                   -- from the verified session; '' if the token has none
+  accepted_at text not null,             -- ISO-8601, the sign-in
+  ip text,                               -- CF-Connecting-IP; nulled at 90 days
+  user_agent text,                       -- cut to 512; nulled at 90 days
+  checkbox_label text not null,          -- the exact sign-in line (SIGN_IN_TERMS_LINE); there is no box
+  checkbox_label_sha256 text not null,
+  checkbox_default_unticked integer not null, -- always 0: no box was shown (see below)
+  pdf_sha256 text,                       -- the legal_versions row's hash; NULL with legal_version_id
+  evidence_removed_at text,              -- when the sweep nulled ip and user_agent
+  created_at text not null
+);
+
+create unique index terms_acceptances_profile_document_version_key
+  on terms_acceptances (profile_id, document, version);
+```
+
+- **The one writer.** `POST /api/auth/profile/ensure` (`routes/auth-profile.ts`), which the SSR
+  `/auth/callback` calls on every sign-in, calls `recordSignInTermsAcceptance`
+  (`lib/reader-legal-acceptance.ts`) after the profile exists. It inserts the row and a
+  `terms.accepted` audit row (`entity_type = 'terms_acceptance'`, no email, IP or user agent in
+  it) in one `db.batch`. Once per account per version: a row already held writes nothing, and a
+  racing second sign-in trips the unique index, which fails that batch whole. A failure is logged
+  and never fails the sign-in. The `GET /api/account` self-heal does not write it.
+- **Evidence.** `ip` and `user_agent` are the browser's. The callback forwards the eyeball
+  request's `CF-Connecting-IP` and `User-Agent` on the ensure call (`signInEvidenceHeaders`).
+- **Which version.** The version `legalReaderVersionInForce` names, only when code dates it: a
+  dated `LEGAL_READER_EFFECTIVE_ON` entry whose day has come, or the upcoming version once a
+  `legal_versions` row published it and its moment has come. A draft is never in force, so today
+  a sign-in reads and writes nothing.
+- **The column names are the vendor table's.** `checkbox_label` holds the sign-in line, and
+  `checkbox_default_unticked` is always 0 because no box is shown. A 1 would mean an unticked box
+  was shown. That is kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34): one unticked
+  box on the sign-in page after a rights-reducing change. No migration was needed.
+- **Retention (ruling 1, 2026-11-13).** Email, version and time are kept for the life of the
+  account plus 6 years, even after the account is deleted. There is no FK to `profiles`, so
+  deleting the account does not delete the row. The IP address and browser are nulled 90 days
+  after `accepted_at` by `lib/acceptance-evidence-removal.ts`, which stamps `evidence_removed_at`
+  and writes its own `terms.evidence_removed` audit rows. In `NEVER_PRUNED`
+  (`lib/retention-prune.ts`). The account deletion screen says so.
+- **No CHECK and no FK**, the house rule (§8.6d). The migration is two `CREATE TABLE`s and two
+  `CREATE UNIQUE INDEX`es with nothing recreated (`src/test/migration-0122.spec.ts`,
+  `docs/migrations.md` §0).
+
+### 8.6l `legal_notice_reader_deliveries` (AECI-1637, migration `0122_clever_roughhouse`)
+
+Where each account's change notice for a published Terms of Service or Privacy Policy version
+stands. The account twin of `legal_notice_deliveries` (§8.6j): one row per version and
+`profiles.id`, same statuses (`LEGAL_NOTICE_DELIVERY_STATUSES`) and reasons, written only by
+`apps/api/src/lib/legal-notice.ts` (`fanOutReaderLegalNotice` and the consumer).
+
+```sql
+create table legal_notice_reader_deliveries (
+  id integer primary key autoincrement,
+  legal_version_id text not null,   -- a legal_versions.id; NO FK
+  profile_id text not null,         -- a profiles.id; NO FK
+  status text not null,             -- LEGAL_NOTICE_DELIVERY_STATUSES; NO CHECK
+  attempts integer not null default 0,
+  last_reason text,
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index legal_notice_reader_deliveries_version_profile_key
+  on legal_notice_reader_deliveries (legal_version_id, profile_id);
+```
+
+- **A table of its own** because making `legal_notice_deliveries.vendor_id` nullable is a D1
+  table recreate (`docs/migrations.md` §0).
+- **Audience and messages.** Every unbanned `profiles` row in this tier. The queue message is
+  `{ kind: 'reader', legalVersionId, profileIds }` in chunks of 25. The ledger key is
+  `legal-account-change:{document}:{version}:{profileId}` (`notification_sends`, §9.9). The
+  states, write guard and re-send skip are those of §8.6j.
+- **Log-class** (ADR 0022, amendment 2026-11-13): the publish and each fan-out outcome carry
+  their own `audit_log` rows. Writer is `lib/legal-notice.ts` only. No CHECK, no FK, not in
+  `PRUNABLE`.
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 

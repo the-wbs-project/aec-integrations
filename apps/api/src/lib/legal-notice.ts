@@ -63,9 +63,28 @@
  * (`markNoticeExpired`, with a system audit row), so `/admin/legal` shows the notice as not
  * completed. The re-send route refuses then too, and its own outcome write is guarded on
  * the version not yet being in effect.
+ *
+ * ── THE TERMS OF SERVICE AND THE PRIVACY POLICY (AECI-1637) ─────────────────────
+ * A material Terms or Privacy version notifies every ACCOUNT, not a company (counsel Q34,
+ * ruling 12): every unbanned `profiles` row of this tier, vendor seats included.
+ * {@link fanOutReaderLegalNotice} queues one {@link LegalReaderNoticeMessage} per
+ * {@link READER_NOTICE_CHUNK} accounts on the same queue, and records each account in
+ * `legal_notice_reader_deliveries` (§8.6l), the per-account twin of the company record.
+ * {@link deliverLegalNotice} routes a message by its `kind`: a message with no `kind` is a
+ * company one, so the messages queued before this change still parse. The consumer keeps
+ * every rule above: the version-in-effect check, the PDF re-hash, the site URL, and a
+ * whole-message retry when the account email lookup is unavailable. Each account is one
+ * address, sent one at a time, ledgered as `legal-account-change` and keyed
+ * {@link legalReaderNoticeDedupeKey}: `legal-account-change:{document}:{version}:{profileId}`.
  */
 
-import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from '@aeci/shared';
+import {
+  isLegalReaderDocument,
+  LegalAgreementDocumentSchema,
+  LegalReaderDocumentSchema,
+  type LegalAgreementDocument,
+  type LegalReaderDocument,
+} from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import {
   LEGAL_NOTICE_DELIVERY_REASONS,
@@ -94,6 +113,7 @@ import { getDb, type Db } from '../db/client';
 import {
   billingAccounts,
   legalNoticeDeliveries,
+  legalNoticeReaderDeliveries,
   legalVersions,
   licenses,
   profiles,
@@ -155,12 +175,44 @@ export function legalNoticeRetryDelaySeconds(attempts: number): number {
 /** Messages per `sendBatch()`, the Queues cap. */
 export const LEGAL_NOTICE_SEND_BATCH = 100;
 
+/**
+ * One company's notice. `kind` is optional and never sent, so every message queued before
+ * AECI-1637 (which had none) still parses as a company message.
+ */
 export const LegalNoticeMessageSchema = z.object({
+  kind: z.literal('vendor').optional(),
   legalVersionId: z.string().min(1),
   vendorId: z.string().min(1),
   enqueuedAt: z.string(),
 });
 export type LegalNoticeMessage = z.infer<typeof LegalNoticeMessageSchema>;
+
+/** Accounts per reader message (AECI-1637). Each costs one Auth lookup and one send. */
+export const READER_NOTICE_CHUNK = 25;
+
+/** A Terms of Service or Privacy Policy notice for up to 25 accounts (AECI-1637). */
+export const LegalReaderNoticeMessageSchema = z.object({
+  kind: z.literal('reader'),
+  legalVersionId: z.string().min(1),
+  profileIds: z.array(z.string().min(1)).min(1).max(READER_NOTICE_CHUNK),
+  enqueuedAt: z.string(),
+});
+export type LegalReaderNoticeMessage = z.infer<typeof LegalReaderNoticeMessageSchema>;
+
+/** Every message `aeci-legal-notice-{env}` carries: a company's, or a group of accounts'. */
+export type LegalNoticeQueueMessage = LegalNoticeMessage | LegalReaderNoticeMessage;
+
+/** The registry id, and `notification_sends.notification_id`, of a reader notice. */
+export const LEGAL_READER_NOTICE_NOTIFICATION_ID = 'legal-account-change';
+
+/** The dedupe key of one account's notice of one version (AECI-1637). */
+export function legalReaderNoticeDedupeKey(
+  document: LegalReaderDocument,
+  version: string,
+  profileId: string,
+): string {
+  return `${LEGAL_READER_NOTICE_NOTIFICATION_ID}:${document}:${version}:${profileId}`;
+}
 
 export function isLegalNoticeQueue(queueName: string): boolean {
   return queueName.startsWith(LEGAL_NOTICE_QUEUE_PREFIX);
@@ -269,6 +321,21 @@ export async function legalNoticeRecipients(
     [...(seats.get(vendorId) ?? []).map((s) => s.email), ...billing],
     null,
   );
+}
+
+/** The accounts a Terms or Privacy version notifies: every unbanned profile, sorted. */
+export async function legalNoticeAccountIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: profiles.id }).from(profiles).where(isNull(profiles.bannedAt));
+  return binarySort(rows.map((r) => r.id));
+}
+
+/** The closing line for one account's notice (AECI-1637). */
+export function legalReaderClosingFor(
+  document: LegalReaderDocument,
+  requiresAcceptance: boolean,
+): LegalTermsChangeClosing {
+  if (document === 'privacy') return 'reader-privacy';
+  return requiresAcceptance ? 'reader-terms-accept' : 'reader-terms';
 }
 
 /** The closing line for one company (`LegalTermsChangeClosing`). */
@@ -385,6 +452,86 @@ export function deliveryUpsertStatement(
         updatedAt: at,
       },
       ...(keepDelivered ? { setWhere: ne(legalNoticeDeliveries.status, 'delivered') } : {}),
+    });
+}
+
+/** The accounts already `delivered` for a version, among `among` when given (AECI-1637). */
+export async function loadDeliveredProfileIds(
+  db: Db,
+  legalVersionId: string,
+  among?: readonly string[],
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ profileId: legalNoticeReaderDeliveries.profileId })
+    .from(legalNoticeReaderDeliveries)
+    .where(
+      and(
+        eq(legalNoticeReaderDeliveries.legalVersionId, legalVersionId),
+        eq(legalNoticeReaderDeliveries.status, 'delivered'),
+        among ? inArray(legalNoticeReaderDeliveries.profileId, [...among]) : undefined,
+      ),
+    );
+  return new Set(rows.map((r) => r.profileId));
+}
+
+/** {@link writeDeliveryRows} for the per-account record (AECI-1637). Same rules. */
+export async function writeReaderDeliveryRows(
+  db: Db,
+  legalVersionId: string,
+  profileIds: readonly string[],
+  next: { status: LegalNoticeDeliveryStatus; attempts?: number; lastReason: DeliveryReason | null },
+  now: Date,
+  opts: { keepDelivered: boolean } = { keepDelivered: true },
+): Promise<void> {
+  if (profileIds.length === 0) return;
+  const stmts = [];
+  for (let i = 0; i < profileIds.length; i += DELIVERY_UPSERT_CHUNK) {
+    stmts.push(
+      readerDeliveryUpsertStatement(
+        db,
+        legalVersionId,
+        profileIds.slice(i, i + DELIVERY_UPSERT_CHUNK),
+        next,
+        now,
+        opts.keepDelivered,
+      ),
+    );
+  }
+  await db.batch(stmts as unknown as BatchTuple);
+}
+
+/** One multi-row upsert of the per-account record. Exported so a spec can measure it. */
+export function readerDeliveryUpsertStatement(
+  db: Db,
+  legalVersionId: string,
+  profileIds: readonly string[],
+  next: { status: LegalNoticeDeliveryStatus; attempts?: number; lastReason: DeliveryReason | null },
+  now: Date,
+  keepDelivered: boolean,
+) {
+  const at = now.toISOString();
+  return db
+    .insert(legalNoticeReaderDeliveries)
+    .values(
+      profileIds.map((profileId) => ({
+        legalVersionId,
+        profileId,
+        status: next.status,
+        attempts: next.attempts ?? 0,
+        lastReason: next.lastReason,
+        createdAt: at,
+        updatedAt: at,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [legalNoticeReaderDeliveries.legalVersionId, legalNoticeReaderDeliveries.profileId],
+      set: {
+        status: next.status,
+        ...(next.attempts === undefined ? {} : { attempts: next.attempts }),
+        lastReason: next.lastReason,
+        updatedAt: at,
+      },
+      ...(keepDelivered ? { setWhere: ne(legalNoticeReaderDeliveries.status, 'delivered') } : {}),
     });
 }
 
@@ -511,6 +658,117 @@ export async function fanOutLegalNotice(
 }
 
 /**
+ * {@link fanOutLegalNotice} for a Terms of Service or Privacy Policy version (AECI-1637):
+ * every unbanned account not yet `delivered`, one {@link LegalReaderNoticeMessage} per
+ * {@link READER_NOTICE_CHUNK} accounts, `sendBatch()` in chunks of 100 messages. `total` and
+ * `queued` count ACCOUNTS. Each account's `queued` row is written before its message is
+ * sent. Never throws. The same metric and the same failures as the company fan-out.
+ */
+export async function fanOutReaderLegalNotice(
+  target: { env: Env; ctx: WaitUntil; request: Request },
+  db: Db,
+  row: Pick<LegalVersionRow, 'id' | 'document'>,
+  now: Date = new Date(),
+): Promise<LegalNoticeFanOut> {
+  const { env, ctx, request } = target;
+  const countMetric = (outcome: 'ok' | 'failed' | 'unbound', n: number) =>
+    submitCount(ctx, env, request, 'aeci.legal_notice.enqueue', n, [
+      `outcome:${outcome}`,
+      'audience:accounts',
+    ]);
+  const fail = (
+    failure: NonNullable<LegalNoticeFanOut['failure']>,
+    total: number | null,
+    queued: number,
+    error: unknown,
+  ): LegalNoticeFanOut => {
+    logToPosthog(ctx, env, request, {
+      level: 'error',
+      message: `aeci.legal_notice.enqueue did not complete for the accounts (${failure}); send the notice again from /admin/legal`,
+      legal_version_id: row.id,
+      queued,
+      total,
+      error: error instanceof Error ? error.message : String(error ?? ''),
+    });
+    return { total, queued, complete: false, failure };
+  };
+
+  let profileIds: string[];
+  try {
+    LegalReaderDocumentSchema.parse(row.document);
+    const [audience, delivered] = await Promise.all([
+      legalNoticeAccountIds(db),
+      loadDeliveredProfileIds(db, row.id),
+    ]);
+    profileIds = audience.filter((id) => !delivered.has(id));
+  } catch (error) {
+    countMetric('failed', 1);
+    return fail('audience_read', null, 0, error);
+  }
+  if (profileIds.length === 0) return { total: 0, queued: 0, complete: true, failure: null };
+
+  let recordFailed = false;
+  const record = async (ids: readonly string[], status: 'queued' | 'dropped') => {
+    try {
+      await writeReaderDeliveryRows(
+        db,
+        row.id,
+        ids,
+        { status, attempts: 0, lastReason: status === 'dropped' ? 'enqueue_failed' : null },
+        now,
+      );
+    } catch (error) {
+      recordFailed = true;
+      logToPosthog(ctx, env, request, {
+        level: 'error',
+        message: `aeci.legal_notice: could not record ${ids.length} accounts as ${status}; send the notice again from /admin/legal`,
+        legal_version_id: row.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const queue = env.LEGAL_NOTICE_QUEUE;
+  if (!queue) {
+    countMetric('unbound', profileIds.length);
+    await record(profileIds, 'dropped');
+    return fail('unbound', profileIds.length, 0, 'LEGAL_NOTICE_QUEUE is not bound');
+  }
+  const enqueuedAt = now.toISOString();
+  const perSend = LEGAL_NOTICE_SEND_BATCH * READER_NOTICE_CHUNK;
+  let queued = 0;
+  try {
+    for (let i = 0; i < profileIds.length; i += perSend) {
+      const ids = profileIds.slice(i, i + perSend);
+      await record(ids, 'queued');
+      const messages: { body: LegalReaderNoticeMessage }[] = [];
+      for (let j = 0; j < ids.length; j += READER_NOTICE_CHUNK) {
+        messages.push({
+          body: {
+            kind: 'reader',
+            legalVersionId: row.id,
+            profileIds: ids.slice(j, j + READER_NOTICE_CHUNK),
+            enqueuedAt,
+          },
+        });
+      }
+      await queue.sendBatch(messages);
+      queued += ids.length;
+    }
+  } catch (error) {
+    if (queued > 0) countMetric('ok', queued);
+    countMetric('failed', profileIds.length - queued);
+    await record(profileIds.slice(queued), 'dropped');
+    return fail('send_batch', profileIds.length, queued, error);
+  }
+  countMetric('ok', queued);
+  if (recordFailed) {
+    return fail('delivery_record', profileIds.length, queued, 'delivery rows were not written');
+  }
+  return { total: profileIds.length, queued, complete: true, failure: null };
+}
+
+/**
  * The two outcome columns a fan-out leaves on the row (`LegalVersionSchema`): a complete
  * fan-out stamps `notice_enqueued_at`; an incomplete one leaves it NULL and records the
  * companies queued so far, so `/admin/legal` shows that the send did not finish.
@@ -543,6 +801,8 @@ const EMPTY_COUNTS: LegalNoticeSendCounts = {
 export async function loadNoticeSendCounts(
   db: Db,
   legalVersionIds: readonly string[],
+  /** `legal-account-change` for a Terms or Privacy version (AECI-1637). */
+  notificationId: string = LEGAL_NOTICE_NOTIFICATION_ID,
 ): Promise<Map<string, LegalNoticeSendCounts>> {
   const out = new Map<string, LegalNoticeSendCounts>();
   const ids = [...new Set(legalVersionIds)];
@@ -553,7 +813,7 @@ export async function loadNoticeSendCounts(
       SELECT entity_id, outcome,
              row_number() OVER (PARTITION BY entity_id, recipient_hash ORDER BY id DESC) AS rn
       FROM notification_sends
-      WHERE notification_id = ${LEGAL_NOTICE_NOTIFICATION_ID}
+      WHERE notification_id = ${notificationId}
         AND entity_type = ${LEGAL_NOTICE_ENTITY_TYPE}
         AND entity_id IN (${sql.join(
           ids.map((id) => sql`${id}`),
@@ -700,6 +960,95 @@ export async function loadNoticeDeliveries(
   return out;
 }
 
+/**
+ * {@link loadNoticeDeliveries} for Terms and Privacy versions (AECI-1637), from the
+ * per-account record. The same rules and the same shape: each list entry is one account,
+ * `vendor_id` holding its `profiles.id`, `name` and `slug` null. Listed by id: an account
+ * has no display name the operator could sort by.
+ */
+export async function loadReaderNoticeDeliveries(
+  db: Db,
+  versions: readonly Pick<LegalVersionRow, 'id' | 'effectiveAt'>[],
+  now: Date,
+): Promise<Map<string, LegalNoticeDeliveries>> {
+  const out = new Map<string, LegalNoticeDeliveries>();
+  const t = legalNoticeReaderDeliveries;
+  const listRows = (where: SQL | undefined) =>
+    db
+      .select({
+        profileId: t.profileId,
+        status: t.status,
+        reason: t.lastReason,
+        updatedAt: t.updatedAt,
+      })
+      .from(t)
+      .where(where)
+      .orderBy(asc(t.profileId))
+      .limit(NOT_REACHED_LIST_MAX);
+  const named = (profileId: string) => ({ vendor_id: profileId, name: null, slug: null });
+
+  for (const v of versions) {
+    const inEffect = now.getTime() >= v.effectiveAt;
+    const ofVersion = eq(t.legalVersionId, v.id);
+    const counts = await db
+      .select({ status: t.status, reason: t.lastReason, n: count() })
+      .from(t)
+      .where(ofVersion)
+      .groupBy(t.status, t.lastReason);
+    const by = (s: string) => counts.filter((c) => c.status === s).reduce((a, c) => a + c.n, 0);
+    const queuedNow = by('queued');
+    const notReachedStatuses: string[] = [...NOT_REACHED_STATUSES, ...(inEffect ? ['queued'] : [])];
+    const notReached = notReachedStatuses.reduce((sum, s) => sum + by(s), 0);
+    const toCheck = counts
+      .filter(
+        (c) =>
+          c.status === 'delivered' && (CHECK_REASONS as readonly string[]).includes(c.reason ?? ''),
+      )
+      .reduce((a, c) => a + c.n, 0);
+    const staleCutoff = new Date(now.getTime() - STALE_QUEUED_MS).toISOString();
+    const notReachedRows =
+      notReached === 0 ? [] : await listRows(and(ofVersion, inArray(t.status, notReachedStatuses)));
+    const checkRows =
+      toCheck === 0
+        ? []
+        : await listRows(
+            and(ofVersion, eq(t.status, 'delivered'), inArray(t.lastReason, [...CHECK_REASONS])),
+          );
+    const staleRows =
+      inEffect || queuedNow === 0
+        ? []
+        : await listRows(and(ofVersion, eq(t.status, 'queued'), lt(t.updatedAt, staleCutoff)));
+    out.set(v.id, {
+      total: counts.reduce((sum, c) => sum + c.n, 0),
+      delivered: by('delivered'),
+      pending: inEffect ? 0 : queuedNow,
+      not_reached: notReached,
+      not_reached_companies: notReachedRows.map((r) => {
+        const expired = r.status === 'queued';
+        return {
+          ...named(r.profileId),
+          status: (expired ? 'expired' : r.status) as (typeof NOT_REACHED_STATUSES)[number],
+          reason: expired
+            ? ('in_effect' as const)
+            : LegalNoticeDeliveryReasonSchema.safeParse(r.reason).success
+              ? (r.reason as DeliveryReason)
+              : null,
+        };
+      }),
+      delivered_to_check: toCheck,
+      delivered_to_check_companies: checkRows.map((r) => ({
+        ...named(r.profileId),
+        reason: r.reason as (typeof CHECK_REASONS)[number],
+      })),
+      stale_companies: staleRows.map((r) => ({
+        ...named(r.profileId),
+        queued_since: r.updatedAt,
+      })),
+    });
+  }
+  return out;
+}
+
 // ─── Consumer ──────────────────────────────────────────────────────────────────
 
 export type SendLegalTermsChange = (
@@ -767,11 +1116,15 @@ export async function markNoticeExpired(
  * Compared with `substr`, not `LIKE`, so `_` in `vendor_terms` is not a wildcard. Fails
  * open to false: the flag is advice, the delivery is already settled.
  */
-async function hasUnknownSend(db: Db, keyPrefix: string): Promise<boolean> {
+async function hasUnknownSend(
+  db: Db,
+  keyPrefix: string,
+  notificationId: string = LEGAL_NOTICE_NOTIFICATION_ID,
+): Promise<boolean> {
   try {
     const rows = await db.all<{ n: number }>(sql`
       SELECT count(*) AS n FROM notification_sends
-      WHERE notification_id = ${LEGAL_NOTICE_NOTIFICATION_ID}
+      WHERE notification_id = ${notificationId}
         AND outcome = 'unknown'
         AND substr(dedupe_key, 1, ${keyPrefix.length}) = ${keyPrefix}`);
     return Number(rows[0]?.n ?? 0) > 0;
@@ -796,6 +1149,23 @@ export async function expireQueuedDeliveries(
       and(
         eq(legalNoticeDeliveries.legalVersionId, legalVersionId),
         eq(legalNoticeDeliveries.status, 'queued'),
+      ),
+    );
+}
+
+/** {@link expireQueuedDeliveries} for the per-account record (AECI-1637). */
+export async function expireQueuedReaderDeliveries(
+  db: Db,
+  legalVersionId: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(legalNoticeReaderDeliveries)
+    .set({ status: 'expired', lastReason: 'in_effect', updatedAt: now.toISOString() })
+    .where(
+      and(
+        eq(legalNoticeReaderDeliveries.legalVersionId, legalVersionId),
+        eq(legalNoticeReaderDeliveries.status, 'queued'),
       ),
     );
 }
@@ -825,6 +1195,9 @@ export async function deliverLegalNotice(
   message: Message<unknown>,
   deps: LegalNoticeDeps = {},
 ): Promise<void> {
+  // AECI-1637: a reader message names its kind. A message with none is a company one.
+  const kind = (message.body as { kind?: unknown } | null)?.kind;
+  if (kind === 'reader') return deliverReaderLegalNotice(env, ctx, message, deps);
   const dbFor = deps.dbFor ?? getDb;
   const clock = deps.now ?? (() => new Date());
   const fetchSeatEmails = strictSeatEmails(deps.fetchSeatEmails ?? fetchAuthUserEmailsResult);
@@ -1035,6 +1408,252 @@ export async function deliverLegalNotice(
       (await hasUnknownSend(db, legalNoticeDedupeKey(document, row.version, vendorId, '')));
     await record('delivered', anyUnknown ? 'outcome_unknown' : held > 0 ? 'held_by_tier' : null);
     metric('sent');
+    message.ack();
+  } catch (error) {
+    await failLoud('read_failed', 'read_failed', 'aeci.legal_notice: a read failed; retrying', {
+      ...ids,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Deliver one reader message: up to {@link READER_NOTICE_CHUNK} accounts' notice of a Terms
+ * of Service or Privacy Policy version (AECI-1637). Acks or retries it itself and never
+ * throws. The company consumer's rules, per account:
+ *
+ *   - the version is in effect: nothing sent, every account of the message `expired`,
+ *     the notice marked not completed, acked;
+ *   - no site URL, or the PDF no longer matches its hash: nothing sent, retried;
+ *   - an account already `delivered` (an overlapping re-send) is skipped;
+ *   - the account email lookup is unavailable: nothing sent, the whole message retried,
+ *     never a part of it acked;
+ *   - an account with no email (an erased Auth user) is `no_recipients`;
+ *   - each address is sent one at a time and keyed per account, so a retry reaches only the
+ *     accounts whose send failed.
+ */
+async function deliverReaderLegalNotice(
+  env: Env,
+  ctx: ExecutionContext,
+  message: Message<unknown>,
+  deps: LegalNoticeDeps,
+): Promise<void> {
+  const dbFor = deps.dbFor ?? getDb;
+  const clock = deps.now ?? (() => new Date());
+  const fetchEmails = deps.fetchSeatEmails ?? fetchAuthUserEmailsResult;
+  const send = deps.send ?? sendLegalTermsChangeEmail;
+  const request = new Request('https://aeci-api/queue/legal-notice');
+  const c: EmailContext = { env, executionCtx: ctx, req: { raw: request } };
+  const lastAttempt = message.attempts > LEGAL_NOTICE_MAX_RETRIES;
+  const metric = (outcome: DeliveryOutcome) =>
+    submitCount(ctx, env, request, 'aeci.legal_notice.delivery', 1, [
+      `outcome:${outcome}`,
+      'audience:accounts',
+    ]);
+  const log = (level: 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}) =>
+    logToPosthog(ctx, env, request, { level, message: msg, ...extra });
+
+  const parsed = LegalReaderNoticeMessageSchema.safeParse(message.body);
+  if (!parsed.success) {
+    metric('invalid');
+    log('warn', 'aeci.legal_notice: dropped a message that is not a LegalReaderNoticeMessage');
+    message.ack();
+    return;
+  }
+  const { legalVersionId, profileIds } = parsed.data;
+  const ids = { legal_version_id: legalVersionId, accounts: profileIds.length };
+
+  let db: Db | null = null;
+  /** Record some accounts' rows. A failed write logs and never blocks the ack. */
+  const record = async (
+    accounts: readonly string[],
+    status: LegalNoticeDeliveryStatus,
+    lastReason: DeliveryReason | null,
+  ): Promise<void> => {
+    if (!db || accounts.length === 0) return;
+    try {
+      await writeReaderDeliveryRows(
+        db,
+        legalVersionId,
+        accounts,
+        { status, attempts: message.attempts, lastReason },
+        clock(),
+        { keepDelivered: status !== 'delivered' },
+      );
+    } catch (error) {
+      log('error', `aeci.legal_notice: could not record ${accounts.length} accounts as ${status}`, {
+        ...ids,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  /** Log loud and retry. `accounts` keep `queued` with the reason, `dropped` on the last try. */
+  const failLoud = async (
+    outcome: DeliveryOutcome,
+    reason: DeliveryReason,
+    msg: string,
+    extra: Record<string, unknown>,
+    accounts: readonly string[] = profileIds,
+  ) => {
+    metric(outcome);
+    const text = lastAttempt
+      ? `${msg}; last attempt, the message is dropped. Send the notice again from /admin/legal`
+      : msg;
+    log('error', text, { ...extra, reason_code: reason });
+    console.error(text, JSON.stringify(extra));
+    await record(accounts, lastAttempt ? 'dropped' : 'queued', reason);
+    message.retry({ delaySeconds: legalNoticeRetryDelaySeconds(message.attempts) });
+  };
+
+  try {
+    db = dbFor(env, { constraint: 'first-primary' }).db;
+    const row = await loadLegalVersionById(db, legalVersionId);
+    if (!row) {
+      metric('unknown_version');
+      log('error', 'aeci.legal_notice: no legal_versions row for the message; dropped', ids);
+      message.ack();
+      return;
+    }
+    const versionIds = { ...ids, document: row.document, version: row.version };
+    if (!isLegalReaderDocument(row.document)) {
+      metric('invalid');
+      log('error', 'aeci.legal_notice: an account message names an agreement; dropped', versionIds);
+      message.ack();
+      return;
+    }
+    const document = row.document;
+    if (!row.material) {
+      metric('not_material');
+      log('warn', 'aeci.legal_notice: the version is not material; dropped', versionIds);
+      message.ack();
+      return;
+    }
+    if (row.effectiveAt <= clock().getTime()) {
+      metric('too_late');
+      log(
+        'error',
+        'aeci.legal_notice: the version is already in effect; nothing sent to these accounts, the message is dropped',
+        versionIds,
+      );
+      await record(profileIds, 'expired', 'in_effect');
+      try {
+        await expireQueuedReaderDeliveries(db, row.id, clock());
+        await markNoticeExpired(db, row, clock());
+      } catch (error) {
+        log('error', 'aeci.legal_notice: could not mark the notice not completed', {
+          ...versionIds,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      message.ack();
+      return;
+    }
+    if (!env.PUBLIC_SITE_URL?.trim()) {
+      await failLoud(
+        'no_site_url',
+        'no_site_url',
+        'aeci.legal_notice: PUBLIC_SITE_URL unset; the version link cannot be built, nothing sent',
+        versionIds,
+      );
+      return;
+    }
+    const pdf = await loadVerifiedLegalPdf(env.UPLOADS, row);
+    if (!pdf.ok) {
+      await failLoud(
+        'pdf_refused',
+        'pdf_refused',
+        `aeci.legal_notice: the published PDF was refused (${pdf.problem}); nothing sent`,
+        { ...versionIds, pdf_key: row.pdfKey, problem: pdf.problem },
+      );
+      return;
+    }
+
+    const delivered = await loadDeliveredProfileIds(db, row.id, profileIds);
+    const todo = profileIds.filter((id) => !delivered.has(id));
+    if (todo.length === 0) {
+      metric('sent');
+      message.ack();
+      return;
+    }
+    const lookup = await fetchEmails(env, todo);
+    if (!lookup.available) {
+      await failLoud(
+        'seats_unavailable',
+        'seats_unavailable',
+        'aeci.legal_notice: the account email lookup is unavailable; nothing sent, retrying',
+        { ...versionIds, reason: lookup.reason },
+        todo,
+      );
+      return;
+    }
+    const noEmail = todo.filter((id) => !lookup.emails.has(id));
+    const closing = legalReaderClosingFor(document, row.requiresAcceptance);
+    const effectiveDay = new Date(row.effectiveAt).toISOString().slice(0, 10);
+    const summary = summaryOf(row);
+    const pdfBase64 = bytesToBase64(pdf.bytes);
+
+    const failed: string[] = [];
+    let anyFailed = false;
+    const reached: Record<'none' | 'outcome_unknown' | 'held_by_tier', string[]> = {
+      none: [],
+      outcome_unknown: [],
+      held_by_tier: [],
+    };
+    for (const profileId of todo) {
+      const to = lookup.emails.get(profileId);
+      if (!to) continue;
+      const dedupeKey = legalReaderNoticeDedupeKey(document, row.version, profileId);
+      const outcome = await send(c, {
+        to,
+        document,
+        version: row.version,
+        effectiveDay,
+        summary,
+        closing,
+        expeditedReason: null,
+        vendorSlug: null,
+        pdfBase64,
+        dedupeKey,
+        entity: { type: LEGAL_NOTICE_ENTITY_TYPE, id: row.id },
+      });
+      if (outcome === 'failed' || outcome === 'skipped') {
+        failed.push(profileId);
+        if (outcome === 'failed') anyFailed = true;
+      } else if (outcome === 'unknown') {
+        reached.outcome_unknown.push(profileId);
+      } else if (outcome === 'suppressed') {
+        reached.held_by_tier.push(profileId);
+      } else if (
+        outcome === 'duplicate' &&
+        (await hasUnknownSend(db, dedupeKey, LEGAL_READER_NOTICE_NOTIFICATION_ID))
+      ) {
+        // An earlier attempt's `unknown` keeps its key, so it reads `duplicate` now.
+        reached.outcome_unknown.push(profileId);
+      } else {
+        reached.none.push(profileId);
+      }
+    }
+    if (noEmail.length > 0) {
+      log('warn', 'aeci.legal_notice: some accounts have no address to notify', {
+        ...versionIds,
+        no_email: noEmail.length,
+      });
+    }
+    await record(noEmail, 'no_recipients', null);
+    await record(reached.none, 'delivered', null);
+    await record(reached.outcome_unknown, 'delivered', 'outcome_unknown');
+    await record(reached.held_by_tier, 'delivered', 'held_by_tier');
+    if (failed.length > 0) {
+      await failLoud(
+        'partial_retry',
+        anyFailed ? 'send_failed' : 'email_not_configured',
+        'aeci.legal_notice: some account sends did not go; retrying those',
+        { ...versionIds, failed: failed.length },
+        failed,
+      );
+      return;
+    }
+    metric(noEmail.length === todo.length ? 'no_recipients' : 'sent');
     message.ack();
   } catch (error) {
     await failLoud('read_failed', 'read_failed', 'aeci.legal_notice: a read failed; retrying', {

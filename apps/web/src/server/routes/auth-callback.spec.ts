@@ -21,6 +21,7 @@ import {
   PROFILE_ENSURE_ATTEMPTS,
   postSignInPath,
   sanitizeReturnPath,
+  signInEvidenceHeaders,
   signInReturnPath,
   type AuthCallbackDeps,
 } from './auth-callback';
@@ -165,12 +166,52 @@ function makeHarness(options: {
 
   const app = new Hono<{ Bindings: WebEnv }>();
   app.get('/auth/callback', createAuthCallbackHandler(deps));
-  const request = (query: string) =>
-    app.request(`/auth/callback${query}`, {}, {} as unknown as WebEnv, fakeExecutionContext());
+  const request = (query: string, headers: Record<string, string> = {}) =>
+    app.request(
+      `/auth/callback${query}`,
+      { headers },
+      {} as unknown as WebEnv,
+      fakeExecutionContext(),
+    );
   return { request, exchangeCalls, ensure, signOutCalls, sleeps };
 }
 
+describe('signInEvidenceHeaders (AECI-1637)', () => {
+  it('copies CF-Connecting-IP and User-Agent and nothing else', () => {
+    const headers = new Headers({
+      'cf-connecting-ip': '203.0.113.7',
+      'user-agent': 'Mozilla/5.0 Test',
+      cookie: 'sb-test-auth-token=secret',
+      'x-forwarded-for': '198.51.100.1',
+    });
+    expect(signInEvidenceHeaders(headers)).toEqual({
+      'cf-connecting-ip': '203.0.113.7',
+      'user-agent': 'Mozilla/5.0 Test',
+    });
+  });
+
+  it('leaves out a header the request lacks', () => {
+    expect(signInEvidenceHeaders(new Headers())).toEqual({});
+  });
+});
+
 describe('createAuthCallbackHandler', () => {
+  it('forwards the IP address and browser on the ensure call, for the Terms acceptance (AECI-1637)', async () => {
+    const { request, ensure } = makeHarness({});
+    await request('?code=pkce-123', {
+      'cf-connecting-ip': '203.0.113.7',
+      'user-agent': 'Mozilla/5.0 Test',
+    });
+    expect(ensure).toHaveBeenCalledWith('/api/auth/profile/ensure', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer jwt-abc',
+        'cf-connecting-ip': '203.0.113.7',
+        'user-agent': 'Mozilla/5.0 Test',
+      },
+    });
+  });
+
   it('exchanges the code, ensures the profile with the fresh bearer, and 303s to return', async () => {
     const { request, exchangeCalls, ensure } = makeHarness({});
     const res = await request('?code=pkce-123&return=%2Fproducts%2Ffoo');

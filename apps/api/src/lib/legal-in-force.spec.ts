@@ -24,6 +24,7 @@ import {
   legalAgreementVersionInForce,
   legalEffectiveAtMs,
   legalPublishedLiteOf,
+  legalReaderVersionInForce,
   type LegalInForceMaps,
 } from '@aeci/shared';
 import { Hono } from 'hono';
@@ -42,6 +43,7 @@ import {
   requiredVendorTermsVersion,
 } from './legal-acceptance';
 import { loadLegalInForce, loadLegalPublishedLite } from './legal-in-force';
+import { readerTermsInForce } from './reader-legal-acceptance';
 
 const DAY = '2027-03-31';
 const MOMENT = legalEffectiveAtMs(DAY);
@@ -256,5 +258,45 @@ describe('the acceptance screen agrees (invariant 4)', () => {
     }
     // The same row with the manifest's moment does require acceptance.
     expect(requiredVendorTermsVersion(rows, [], AT.getTime(), MAPS)).toBe('1.4');
+  });
+});
+
+// AECI-1637 (ruling 2 of 2026-11-13): the Terms of Service switch like the agreements.
+describe('a published Terms of Service version (AECI-1637)', () => {
+  const READER_MAPS: LegalInForceMaps = {
+    ...MAPS,
+    agreementUpcoming: {},
+    readerUpcoming: { terms: { version: '1.2', effectiveOn: DAY } },
+  };
+  const publishTerms = () =>
+    publish({
+      document: 'terms',
+      version: '1.2',
+      requiresAcceptance: true,
+      pdfKey: 'legal/terms/v1.2.pdf',
+    });
+
+  it('is listed by the public read from its moment only, and the sign-in write agrees', async () => {
+    await publishTerms();
+    expect((await readPublic(BEFORE, READER_MAPS)).published).toEqual([]);
+    const res = await readPublic(AT, READER_MAPS);
+    expect(res.published).toEqual([
+      { document: 'terms', version: '1.2', effective_at: new Date(MOMENT).toISOString() },
+    ]);
+    const web = legalReaderVersionInForce(
+      'terms',
+      legalPublishedLiteOf(res.published),
+      Date.parse(res.now),
+      READER_MAPS,
+    );
+    expect(web).toBe('1.2');
+    const rows = await t.db.select().from(legalVersions);
+    expect(readerTermsInForce(rows, BEFORE.getTime(), READER_MAPS)).toBeNull();
+    expect(readerTermsInForce(rows, AT.getTime(), READER_MAPS)).toBe('1.2');
+  });
+
+  it('unpublished, it never switches and a sign-in records nothing', async () => {
+    expect((await readPublic(LATER, READER_MAPS)).published).toEqual([]);
+    expect(readerTermsInForce([], LATER.getTime(), READER_MAPS)).toBeNull();
   });
 });

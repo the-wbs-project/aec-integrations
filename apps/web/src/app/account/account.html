@@ -453,6 +453,16 @@
             >Read the Retention section of our Privacy Policy.</a
           >
         </p>
+        <!-- AECI-1637: the record that signing in accepted the Terms survives deletion. -->
+        <p
+          class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          data-testid="account-delete-terms"
+          i18n="@@account.delete.terms"
+        >
+          When you sign in, we record that you accepted the Terms of Service. We keep that record
+          for 6 years after you delete your account. It holds your email address, the time and the
+          version.
+        </p>
         <button
           brnDialogTrigger
           [brnDialogTriggerFor]="deleteDialog"
@@ -495,6 +505,14 @@
                 If you sent messages to another company in a private conversation, they stay with
                 the conversation for 2 years after its last message, with your name removed. The
                 text may still identify you.
+              </p>
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="account-delete-dialog-terms"
+                i18n="@@account.delete.dialog.terms"
+              >
+                We keep the record that you accepted the Terms of Service when you signed in for 6
+                years after you delete your account.
               </p>
 
               @if (deleteFailed()) {

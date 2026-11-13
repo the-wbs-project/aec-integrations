@@ -3,9 +3,10 @@
  * `STAGE_1_SPEC.md` §27.3). Public and unauthenticated. A read, so no rate limit
  * (`docs/waf-rate-limits.md` §6) and no audit row.
  *
- * The legal pages have no D1. For the Vendor Terms and the Managed plan agreement, an
- * upcoming version is in force from its moment only when it was published
- * (`legalAgreementVersionInForce` in `@aeci/shared`). The SSR Worker asks here, over the
+ * The legal pages have no D1. For the Vendor Terms, the Managed plan agreement and, since
+ * AECI-1637, the Terms of Service and the Privacy Policy, an upcoming version is in force
+ * from its moment only when it was published (`legalAgreementVersionInForce` /
+ * `legalReaderVersionInForce` in `@aeci/shared`). The SSR Worker asks here, over the
  * service binding, once that moment has come; the browser asks on an in-app navigation.
  *
  * It lists only a `legal_versions` row that names an upcoming version in this build's
@@ -14,13 +15,13 @@
  * Worker's clock: a browser decides with it, never with its own.
  *
  * `Cache-Control: no-store` (the `json()` default): `now` must be fresh. No query runs
- * unless an upcoming agreement's moment has come (`loadLegalPublishedLite`), so with
- * today's empty map the read never touches D1.
+ * unless an upcoming publishable document's moment has come (`loadLegalPublishedLite`),
+ * so with today's empty maps the read never touches D1.
  */
 
 import {
-  LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_IN_FORCE_MAPS,
+  legalPublishableUpcoming,
   LegalPublishedResponseSchema,
   legalEffectiveAtMs,
   legalMomentReached,
@@ -51,9 +52,7 @@ export function createLegalPublishedHandler(
     const nowMs = now.getTime();
     const rows = await loadLegalPublishedLite(dbFor(c.env).db, nowMs, maps);
     const published: LegalPublishedResponse['published'] = [];
-    for (const document of LEGAL_AGREEMENT_DOCUMENTS) {
-      const upcoming = maps.agreementUpcoming[document];
-      if (!upcoming) continue;
+    for (const { document, upcoming } of legalPublishableUpcoming(maps)) {
       const row = rows.find((r) => r.document === document && r.version === upcoming.version);
       if (!row || !legalMomentReached(row.effectiveAt, nowMs)) continue;
       // The manifest moment, the one the rule compares a row against.

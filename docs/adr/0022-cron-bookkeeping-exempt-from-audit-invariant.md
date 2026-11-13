@@ -413,7 +413,7 @@ never exempt.
 
 Exempt (derived, log-class, ledger and service-log writes):
 
-`claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
 `notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
@@ -515,6 +515,40 @@ sent, and the table stays small.
 
 **What would end the exemption.** If any code reads this table to decide which terms bind a
 company, or an operator action edits a row, that is domain state and audits in the same
+`db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and the consolidated list above carries it.
+
+## Amendment 2026-11-13 — the reader legal change-notice delivery record (AECI-1637)
+
+Nothing above is reversed, and no new class is added. `legal_notice_reader_deliveries`
+(`DATABASE_SCHEMA.md` §8.6l) is the account twin of `legal_notice_deliveries`, and joins it in
+the consolidated exemption list above.
+
+**The table.** One row per published Terms of Service or Privacy Policy version and account
+(`profiles.id`, no FK), written by `apps/api/src/lib/legal-notice.ts` only: `queued` by
+`fanOutReaderLegalNotice` just before the account's chunk goes, then `delivered`,
+`no_recipients`, `dropped` (with a reason) or `expired` by the queue consumer, with the attempt
+count.
+
+**Why it is exempt.** The same reasons as the company record. The publish
+(`legal_version.published`), each fan-out outcome (`legal_version.notice_queued`,
+`legal_version.notice_resent`) and the expiry (`legal_version.notice_expired`) carry their own
+`audit_log` rows. This row records only how one account's send went. It is invisible on every
+public surface and nothing ranks on it. The re-send reads it to skip accounts already
+`delivered`, a transport choice and not a domain decision.
+
+**Not exempt: `terms_acceptances`.** The sign-in acceptance (`DATABASE_SCHEMA.md` §8.6k) is
+domain state. Its one writer, `lib/reader-legal-acceptance.ts` (called from
+`POST /api/auth/profile/ensure` at sign-in), inserts the row and a `terms.accepted` audit row
+in the same `db.batch`. The evidence sweep audits its own UPDATE
+(`terms.evidence_removed`).
+
+**Retention.** None for the delivery record. The notice is the proof that a legal notice went.
+
+**What would end the exemption.** If any code reads this table to decide which terms bind an
+account, or an operator action edits a row, that is domain state and audits in the same
 `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`

@@ -2228,24 +2228,38 @@ Handlers in `apps/api/src/routes/admin-reviews.ts`, the screen in `apps/web/src/
 
 ### 5.22 Legal versions (AECI-1688, 2026-11-12)
 
-`/admin/legal` records an upcoming version of the Vendor Terms or the Managed plan agreement
-before it takes effect (`STAGE_1_SPEC.md` §27.5, ADR 0054). It does not edit the text. The
+`/admin/legal` records an upcoming version of the Vendor Terms, the Managed plan agreement, the
+Terms of Service or the Privacy Policy before it takes effect (`STAGE_1_SPEC.md` §27.5, ADR 0054). It does not edit the text. The
 text, the upcoming manifest entry and the PDF all exist before the page can publish, by the
 steps in `apps/web/src/content/legal/README.md` "Publishing an upcoming agreement version".
-Publishing a **material** version queues its change notice (`legal-terms-change`, AECI-1620) to
-every affected company. The record is also what the acceptance screen (AECI-1677) and reader
-accounts (AECI-1637) read.
+Publishing a **material** version queues its change notice to every affected company
+(`legal-terms-change`, AECI-1620) or, for the Terms of Service and the Privacy Policy
+(AECI-1637), to every unbanned account (`legal-account-change`). The record is also what the
+vendor acceptance screen (AECI-1677) and the sign-in Terms acceptance (AECI-1637) read. The Terms and
+the Privacy Policy switch to a new version only once such a row published it, as the agreements do.
 
 **Route and nav.** `/admin/legal`, under **Operations**, right after Email. Not a queue, so no
 badge. Lazy, one flat child of the shell, no resolver.
 
-**What the screen shows.** One card per entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`: the
+**What the screen shows.** One card per entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS` or `LEGAL_READER_UPCOMING_VERSIONS`: the
 document and version, the version it replaces, a link to the version's own page, and the
 effective moment ("January 15, 2027 at 12:00 UTC", read-only, from the manifest). No version
 upcoming is its own empty state. When the tier's `LEGAL_PUBLISH_ENABLED` is off, a notice says
 so and Publish stays off. A published card shows the two answers, any expedited reason, who
 published and when (labelled UTC), the PDF key, its size in KB or MB and the first 12 characters
 of its SHA-256, and the summary as recorded.
+
+**Reader cards (AECI-1637).** The Terms of Service and Privacy Policy cards work like the agreement
+cards with four differences. The audience is accounts, so every count, heading and message says
+"accounts" ("Accounts queued", "Accounts not reached") where an agreement card says "companies",
+and an account in a list shows as its id with no company name. The Privacy Policy card has no
+"Does it need acceptance?" question, because the API refuses `requires_acceptance` for it
+(ruling 4 of 2026-11-13) and the notice and the 30-day window are all a Privacy change gets. The
+Terms card keeps the question and its hint: answer Yes when the change reduces a reader's rights,
+because the version then applies to each account holder only from their next sign-in, never on
+continued use. Signing in is the acceptance, so nothing is blocked (`AUTH_AND_RLS.md` §3.1b).
+Neither reader card has an expedited reason: only a Vendor Terms change may be expedited. The
+re-send works as on an agreement.
 
 **The change notice (AECI-1620).** A published card also has a "Change notice" block. A
 non-material version says no notice is sent. A material one shows one of three states, read

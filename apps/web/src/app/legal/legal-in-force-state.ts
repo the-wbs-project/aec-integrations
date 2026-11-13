@@ -4,8 +4,9 @@
  *
  * The rule is `legalUpcomingInForce` in `@aeci/shared`, the one the API Worker stamps
  * by. Here it is applied to the manifest: an upcoming entry is SWITCHED when its
- * moment (12:00 UTC of `effectiveOn`) has come and, for the two agreements, a
- * `legal_versions` row published it. A switched entry renders exactly what the
+ * moment (12:00 UTC of `effectiveOn`) has come and, for the four publishable documents
+ * (the two agreements and, since AECI-1637, the Terms of Service and the Privacy Policy),
+ * a `legal_versions` row published it. A switched entry renders exactly what the
  * bump-day change will render:
  *
  *   - `/legal/<slug>` serves the upcoming text as the current one;
@@ -23,7 +24,7 @@
  * (`legal-in-force.resolver.ts`) decides `switched` per request on the server and
  * hands the browser the same answer through `TransferState`.
  */
-import type { LegalAgreementDocument } from '@aeci/shared/api/agreements';
+import type { LegalPublishableDocument } from '@aeci/shared/api/agreements';
 import {
   legalMomentReached,
   legalUpcomingInForce,
@@ -41,16 +42,20 @@ import {
 import type { LegalDoc } from './legal-render';
 import { legalDateLabel } from './legal-versions';
 
-/** slug → agreement document, for the two slugs that need a published row. */
-const AGREEMENT_OF_SLUG = new Map<string, LegalAgreementDocument>(
-  (Object.entries(LEGAL_DOCUMENT_SLUGS) as [LegalAgreementDocument, string][]).map(
+/** slug → publishable document, for the four slugs that need a published row. */
+const PUBLISHABLE_OF_SLUG = new Map<string, LegalPublishableDocument>(
+  (Object.entries(LEGAL_DOCUMENT_SLUGS) as [LegalPublishableDocument, string][]).map(
     ([document, slug]) => [slug, document],
   ),
 );
 
-/** The agreement a slug is, or `undefined` for the four documents with no publish record. */
-export function agreementOfSlug(slug: LegalSlug): LegalAgreementDocument | undefined {
-  return AGREEMENT_OF_SLUG.get(slug);
+/**
+ * The publishable document a slug is (an agreement, or since AECI-1637 the Terms of
+ * Service or the Privacy Policy), or `undefined` for the two policies, which have no
+ * publish record.
+ */
+export function publishableOfSlug(slug: LegalSlug): LegalPublishableDocument | undefined {
+  return PUBLISHABLE_OF_SLUG.get(slug);
 }
 
 /** The effective moment of an entry, epoch ms (NaN for a bad day, which never comes). */
@@ -59,15 +64,15 @@ export function legalEntryMomentMs(entry: LegalUpcomingEntry): number {
 }
 
 /**
- * Whether `entry` is in force at `nowMs`. An agreement needs its published row
- * (`published`); any other document switches on its date alone.
+ * Whether `entry` is in force at `nowMs`. A publishable document needs its published row
+ * (`published`); a policy switches on its date alone.
  */
 export function legalEntrySwitched(
   entry: LegalUpcomingEntry,
   published: readonly LegalPublishedLite[],
   nowMs: number,
 ): boolean {
-  const document = agreementOfSlug(entry.slug);
+  const document = publishableOfSlug(entry.slug);
   return document === undefined
     ? legalUpcomingInForce(entry.slug, entry, nowMs, null)
     : legalUpcomingInForce(document, entry, nowMs, published);

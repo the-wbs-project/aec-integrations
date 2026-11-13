@@ -1,6 +1,7 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { SIGN_IN_TERMS_LINE } from '@aeci/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthService } from './auth.service';
@@ -116,6 +117,31 @@ async function submitForm(fixture: ComponentFixture<unknown>) {
 
 describe('LoginPage', () => {
   beforeEach(() => TestBed.resetTestingModule());
+
+  // AECI-1637 (ruling of 2026-11-13): signing in is the acceptance.
+  it('shows the Terms line beside the sign-in buttons, linking both documents', async () => {
+    const { el } = await setup();
+    const line = el.querySelector('[data-testid="login-terms-line"]');
+    expect(line).not.toBeNull();
+    // The exact text the API stores with each acceptance.
+    expect(line!.textContent!.replace(/\s+/g, ' ').trim()).toBe(SIGN_IN_TERMS_LINE);
+    const links = Array.from(line!.querySelectorAll('a')).map((a) => ({
+      text: a.textContent?.trim(),
+      href: a.getAttribute('href'),
+    }));
+    expect(links).toEqual([
+      { text: 'Terms of Service', href: '/legal/terms' },
+      { text: 'Privacy Policy', href: '/legal/privacy' },
+    ]);
+    // Below both sign-in buttons.
+    const form = el.querySelector('form')!;
+    expect(form.compareDocumentPosition(line!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the Terms line even when sign-in is unavailable', async () => {
+    const { el } = await setup({ configured: false });
+    expect(el.querySelector('[data-testid="login-terms-line"]')).not.toBeNull();
+  });
 
   it('renders a labeled email input and the Google button', async () => {
     const { el } = await setup();

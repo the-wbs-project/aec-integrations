@@ -625,8 +625,8 @@ describe('runRetentionPrune', () => {
     expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
   });
 
-  it('never prunes agreement acceptances or license grants (AECI-1615, counsel Q5(c))', async () => {
-    expect(NEVER_PRUNED).toEqual(['agreement_acceptances', 'license_grants']);
+  it('never prunes agreement acceptances, license grants or Terms acceptances (AECI-1615, AECI-1637)', async () => {
+    expect(NEVER_PRUNED).toEqual(['agreement_acceptances', 'license_grants', 'terms_acceptances']);
     for (const table of NEVER_PRUNED) {
       expect(PRUNABLE as readonly string[]).not.toContain(table);
     }
@@ -634,8 +634,10 @@ describe('runRetentionPrune', () => {
     const source = readFileSync(join(process.cwd(), 'src/lib/retention-prune.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '');
-    expect(source).not.toMatch(/agreementAcceptances|licenseGrants/);
-    expect(source.match(/'agreement_acceptances'|'license_grants'/g)).toHaveLength(2);
+    expect(source).not.toMatch(/agreementAcceptances|licenseGrants|termsAcceptances/);
+    expect(
+      source.match(/'agreement_acceptances'|'license_grants'|'terms_acceptances'/g),
+    ).toHaveLength(3);
   });
 
   it('keeps recrawl_submission_causes forever — it is not prunable (AECI-1184)', async () => {

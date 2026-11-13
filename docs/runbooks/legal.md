@@ -361,7 +361,7 @@ the queue line says the notice did not finish, or when a company says it never g
 says "the message is dropped".
 
 **Send again is always safe.** It re-reads the audience and queues every company not yet
-delivered. Each address is keyed
+delivered. For a Terms of Service or Privacy Policy version (AECI-1637) the audience is accounts: it queues every account not yet delivered, each keyed `legal-account-change:{document}:{version}:{profileId}`, and the card says "accounts". Each address is keyed
 `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address already
 reached for that company gets nothing. It refuses once the version has taken effect, because the
 email says it has not.
@@ -397,9 +397,9 @@ sign in." Find these companies before the effective date, not after.
 
 ## The digest reports `legal_agreement_date_moved` (AECI-1689)
 
-A Vendor Terms or Managed plan agreement version was published with one effective date, and a later commit changed the upcoming entry's `effectiveOn`. The row is now in force nowhere: the page keeps the old version, new acceptances keep stamping it, and the acceptance screen asks nothing. The `/admin/legal` card shows the same alert. The notice that went out named the published date. Move the entry back to that date in a new commit and deploy it. If the published date is truly wrong, the fix is a new version, announced and published again (legal `README.md`).
+A Vendor Terms, Managed plan agreement, Terms of Service or Privacy Policy version (the last two since AECI-1637) was published with one effective date, and a later commit changed the upcoming entry's `effectiveOn`. The row is now in force nowhere: the page keeps the old version, new acceptances keep stamping it, and the acceptance screen asks nothing. The `/admin/legal` card shows the same alert. The notice that went out named the published date. Move the entry back to that date in a new commit and deploy it. If the published date is truly wrong, the fix is a new version, announced and published again (legal `README.md`).
 
 ## The digest reports `legal_agreement_unpublished` (AECI-1689)
 
-An upcoming Vendor Terms or Managed plan agreement version is 30 days or less from its effective moment, or past it, and has no `legal_versions` row on this tier. Without the row it never becomes the version in force: the page keeps "takes effect on <date>" and new acceptances keep the old version. Publish it on `/admin/legal` (legal `README.md` "Publishing an upcoming agreement version"). The publish needs 30 days of notice, so inside 30 days move the effective date instead, unless a Vendor Terms change is expedited. In demo and production the publish is off until `LEGAL_PUBLISH_ENABLED` is turned on, so there the line is expected until that release.
+An upcoming Vendor Terms, Managed plan agreement, Terms of Service or Privacy Policy version (the last two since AECI-1637) is 30 days or less from its effective moment, or past it, and has no `legal_versions` row on this tier. Without the row it never becomes the version in force: the page keeps "takes effect on <date>" and new acceptances keep the old version. Publish it on `/admin/legal` (legal `README.md` "Publishing an upcoming agreement version"). The publish needs 30 days of notice, so inside 30 days move the effective date instead, unless a Vendor Terms change is expedited. In demo and production the publish is off until `LEGAL_PUBLISH_ENABLED` is turned on, so there the line is expected until that release.
 - **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see "Algolia sync failed".

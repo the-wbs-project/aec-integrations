@@ -855,6 +855,13 @@
       "when": 1794474148405,
       "tag": "0121_gray_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "6",
+      "when": 1794547286670,
+      "tag": "0122_clever_roughhouse",
+      "breakpoints": true
     }
   ]
 }

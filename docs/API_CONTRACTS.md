@@ -1859,6 +1859,8 @@ export interface DeleteAccountResponse {
 }
 ```
 
+The record that signing in accepted the Terms of Service is kept after deletion for 6 years (`DATABASE_SCHEMA.md` §8.6k, AECI-1637), and the account screen says so.
+
 Errors: `UNAUTHENTICATED`. `409 VENDOR_SEATS_CHANGED` only when a vendor seat's erasure
 lost the seat race on all three attempts. Nothing is written then (AECI-1106).
 
@@ -1971,6 +1973,19 @@ export type EnsureProfileResponse = {
 ```
 
 Errors: `UNAUTHENTICATED`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap keyed on the verified JWT `sub`, `Retry-After: 60`). This is the last hop of every sign-in and one sign-in spends exactly one unit of the loosest bucket in the set, so a legitimate visitor never meets it.
+
+**The sign-in Terms acceptance (AECI-1637).** Signing in is the acceptance of the Terms of
+Service (Chris's ruling of 2026-11-13, `AUTH_AND_RLS.md` §3.1b). After the profile exists, this
+endpoint records the acceptance of the Terms version in force: one `terms_acceptances` row
+(`DATABASE_SCHEMA.md` §8.6k) and its `terms.accepted` audit row in one `db.batch`. The row holds
+the session's user and email, the time, the version and its `legal_versions` id and PDF hash, the
+sign-in line (`SIGN_IN_TERMS_LINE`) and its SHA-256, the request's `CF-Connecting-IP`, and its
+`User-Agent` cut to 512. The callback forwards both headers from the browser's request. The
+audit row names no email, IP or user agent. Once per account per version: a second sign-in on
+the same version writes nothing. With no Terms version in force it reads and writes nothing,
+which is today. The write never changes the response and never fails the call: an error is
+logged and the endpoint still answers `{ created }`. No other endpoint writes an acceptance,
+and no route is blocked by a new Terms version.
 
 ### 6.9 Tracking
 
@@ -6992,8 +7007,8 @@ Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or
 
 #### Legal versions: `GET /api/admin/legal-versions`, `POST /api/admin/legal-versions` (AECI-1688), `POST /api/admin/legal-versions/:id/notice` (AECI-1620)
 
-Record an upcoming version of the Vendor Terms or the Managed plan agreement before it takes
-effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
+Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service
+or the Privacy Policy before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
 (`DATABASE_SCHEMA.md` §8.6i). `requireAdmin()` on both; the POST adds `rateLimit('write')` after
 the guard. Contract in `packages/shared/src/api/legal-versions.ts`. **A material publish
 enqueues its change notice post-commit** (AECI-1620, below). A non-material one sends nothing.
@@ -7002,14 +7017,14 @@ enqueues its change notice post-commit** (AECI-1620, below). A non-material one 
 // GET /api/admin/legal-versions — no parameters. A read: no audit row, no limiter.
 export const AdminLegalVersionsResponseSchema = z.object({
   publish_enabled: z.boolean(),              // LEGAL_PUBLISH_ENABLED === "true" on this tier
-  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS
+  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS or LEGAL_READER_UPCOMING_VERSIONS
 });
 export const AdminLegalUpcomingEntrySchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
   version: z.string(),
   effective_on: z.string(),                  // YYYY-MM-DD, from the upcoming map
   effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
-  current_version: z.string(),               // LEGAL_AGREEMENT_CURRENT_VERSIONS[document]
+  current_version: z.string(),               // LEGAL_AGREEMENT_ or LEGAL_READER_CURRENT_VERSIONS[document]
   published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
   // AECI-1620: the notice's ADDRESSES, each counted once by the outcome of its latest
   // `legal-terms-change` ledger row for this version (`duplicate` rows ignored), so an
@@ -7044,10 +7059,10 @@ export const AdminLegalUpcomingEntrySchema = z.object({
 
 // POST /api/admin/legal-versions — strict body
 export const PublishLegalVersionRequestSchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
   version: z.string().trim().min(1).max(20),
   material: z.boolean(),                     // no default: the page asks Yes or No
-  requires_acceptance: z.boolean(),          // no default; true needs material: true
+  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy
   summary: z.array(z.string().trim().min(1).max(300) /* one line, no \p{Cc}, \p{Cf}, U+2028, U+2029 */).min(1).max(10),
   expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
 }).strict();
@@ -7070,7 +7085,7 @@ export const ResendLegalNoticeResponseSchema = z.object({ legal_version: LegalVe
 **Order of checks.** `LEGAL_PUBLISH_ENABLED` first: anything but `"true"` is `409
 LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body is `400
 MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
-without `material`, an expedited reason on a Managed plan version) is `400 VALIDATION_FAILED`.
+without `material`, `requires_acceptance` on a Privacy Policy version, an expedited reason on anything but the Vendor Terms) is `400 VALIDATION_FAILED`.
 Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
 `409 LEGAL_PDF_MISSING`, in that order. The window refusal carries `details.reason`: `passed` or
 `too_soon`, so the page gives the right advice. A bullet holding a control character (tab, CR,
@@ -7095,6 +7110,17 @@ The 201 has already gone, so its body shows both columns null. Each company gets
 `effective_at > now`, so a fan-out that ends after the effective moment never stamps
 `notice_enqueued_at` over the consumer's expiry; the audit row then says `outcome_written: false`.
 
+**Reader documents (AECI-1637).** A `terms` or `privacy` publish follows the same checks, the
+same 30-day window and the same single batch, with no expedite. A material one fans out
+through `fanOutReaderLegalNotice` instead: the audience is every unbanned account in the tier,
+one `{ kind: 'reader', legalVersionId, profileIds }` message per 25 accounts on the same
+`LEGAL_NOTICE_QUEUE`, `sendBatch()` in chunks of 100, and a `legal_notice_reader_deliveries`
+row per account (`DATABASE_SCHEMA.md` §8.6l). `notice_vendor_count` holds the count of
+accounts. In `notice_deliveries` each `not_reached_companies` entry is then one account:
+`vendor_id` holds the `profiles.id`, and `name` and `slug` are `null`. `notice_sends` reads the
+`legal-account-change` ledger (`docs/NOTIFICATIONS.md`). The re-send works for these rows,
+skips `delivered` accounts, and its error copy says "accounts".
+
 **`POST /api/admin/legal-versions/:id/notice`.** `requireAdmin()` then `rateLimit('write')`. No
 body. Checks in order: `409 LEGAL_PUBLISH_DISABLED`; `404 NOT_FOUND` for an unknown id;
 `409 LEGAL_NOTICE_NOT_MATERIAL`; `422 LEGAL_NOTICE_TOO_LATE` once `effective_at` has passed.
@@ -7116,13 +7142,13 @@ Public, no auth. A read: no audit row, never rate-limited. `Cache-Control: priva
 `LegalPublishedResponseSchema` in `packages/shared/src/api/legal-versions.ts`:
 `{ now, published: [{ document, version, effective_at }] }`. `now` is the API Worker's clock as
 an ISO timestamp. `published` lists a `legal_versions` row only when it names the version in
-`LEGAL_AGREEMENT_UPCOMING_VERSIONS` for its document, its `effective_at` equals that entry's
+`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
 moment (12:00 UTC of `effectiveOn`), and that moment has come. So it says nothing the legal page
-does not show from that moment. No query runs while no upcoming agreement's moment has come, so
+does not show from that moment. No query runs while no upcoming publishable document's moment has come, so
 with an empty map it never touches D1. Readers: the SSR Worker's legal resolver over the service
 binding, and the browser on an in-app navigation and in the claim box
 (`apps/web/src/app/legal/legal-in-force.resolver.ts`, `legal-in-force-client.ts`). Both decide
-with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`), the rule the API
+with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`; `legalReaderVersionInForce` for `terms` and `privacy`), the rule the API
 stamps by, using this `now`, never the browser's clock. Errors: none of its own; a D1 failure is
 the central `500`.
 
