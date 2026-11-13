@@ -79,6 +79,7 @@ in `apps/web/src/content/legal/`.
 | A new third-party script, provider, SDK or processor (hosting, email, payments, analytics, bot check, search) | How we share data; What we collect | Names the provider classes, including bot and network checks on requests, and says Cloudflare runs the page-load count and the bot check. Cloudflare is our service provider for the page-load count, sees the visitor's IP address, and gives us an aggregated count. A separate sentence names Brandfetch as the third-party image service our vendor logos load from: the visitor's browser sends it the IP address and browser details, and it is not our processor (AECI-1654). A new provider that receives personal data is a new disclosure, and third-party content the browser loads from elsewhere gets its own sentence, outside the processors list. |
 | Any cookie, localStorage key or identifier set in the browser | Cookies and similar technologies | "A small number of strictly necessary cookies" plus consented analytics; the Turnstile identifier is named, and so is the per-notice flag a dismissed legal notice leaves (AECI-1592), which we remove on the first visit after the notice period ends. The sign-in page's "Last used" word (`aeci.auth.lastMethod`, `google` or `email`) is named too. |
 | Do Not Track or Global Privacy Control handling | Do Not Track, Global Privacy Control, and operational telemetry | States per data class whether the signal is honoured. "No identifiers" covers only the error and performance reports sent from the browser. The debugging record, and a debugging window, run for DNT and GPC requests too (AECI-1594). The policy says the signals opt out of product analytics only, and name the edge request log, the debugging record and the page-load count as kept regardless. |
+| A browser-sent fact about a page view joined to the visit record (the `browser_evidence` report) | Do Not Track, Global Privacy Control, and operational telemetry › the "Our own visit count" paragraph | Our record of the visit notes two facts, each as a yes or no: whether our page script ran, and whether the page was scrolled, clicked or typed in. It never says which key or what was clicked. It is not collected when the browser sends DNT or GPC. It is not collected in the European Economic Area, the United Kingdom or Switzerland (ruling 21). The visit record for a visitor who sends no privacy signal is not anonymous (counsel Q43), so no text calls it anonymous or aggregate. Changing any of these is a `text` verdict. Collecting more than a yes or no, or running the report in a held region, is a `decision` (AECI-1712). |
 | A retention window, a scheduled prune or `DELETE`, a change to how long a table or log is kept | Retention | Gives a period per class: 13 months, 400 days, "as long as the account exists". Acceptance records: name, title, company legal name, email, time and version for as long as the vendor account exists and six years after it ends, or five years after a granted subscription ends if later (item 13.5, ruling 17). The audit record: four years after the action. Deleted data stays in database backups for up to 30 days. |
 | Account deletion, anonymisation, what survives a deleted account | Deletion; Retention | Lists what is removed and what is kept for the purposes stated under Retention: acceptance records, the audit record, and a message sent to another company, with the author's name removed. A read record on a thread is deleted with the account (the `claim_thread_reads` cascade). |
 | How we announce a material change to the policy | Changes to this policy | A notice on every page of the site for 30 days before the change takes effect, and an email to every account holder, as the Terms describe (the band is AECI-1592; the upcoming-version page it links is built, AECI-1610; the email is AECI-1637, not built). |
@@ -222,7 +223,7 @@ trigger map has no row for the behaviour, or when a `decision` needs a first leg
 reaches Chris, ask that agent instead of guessing:
 
 ```
-SendMessage({ to: "dodoma-8c", message: "..." })
+SendMessage({ to: "quebec-v1", message: "..." })
 ```
 
 Write the question the way §2 wants the verdict: the behaviour in plain words, the document and
@@ -231,8 +232,12 @@ question per message. Record the answer on the Linear issue, and put it in the p
 verdict, because the plan check and the diff review both read the issue, not the message log.
 
 We will try to keep the agent you are looking for named **"Legal Agent"**, so check `ListAgents`
-for that name first; `dodoma-8c` is the workspace it runs in today and may change. If neither is
+for that name first; `quebec-v1` is the workspace it runs in today and may change. If neither is
 listed, say so in the verdict sentence and continue with the trigger map alone.
+
+When `ListAgents` shows no "Legal Agent" row, look up the session id under
+`~/.claude/projects/*/<id>.jsonl`. The path names the workspace. That is how the live session was
+found on 2026-11-13.
 
 The agent's answer is a legal read, not a ruling. A `decision` verdict still waits for Chris, and a
 text change still goes through counsel under §27.2.
