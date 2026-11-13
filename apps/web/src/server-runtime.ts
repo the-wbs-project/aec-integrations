@@ -834,11 +834,16 @@ const STAMPABLE_RAY = /^[0-9A-Za-z-]{1,64}$/;
  * copy goes through `new Response(body, response)` because a response from the
  * cache loopback can carry immutable headers.
  *
- * AECI-1581 adds `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip
- * until counsel rules on AECI-1458 (`isTurnstileExcludedRegion`). It is stamped
- * here for the same reason as the ray: a cached body stays visitor-neutral. The
- * browser reads it in `turnstile-config.ts`. Unlike the ray it does not depend on
- * `cf-ray`, and its value is a fixed literal.
+ * AECI-1581 adds `Server-Timing: geo;desc="eu"` for a held-region visitor
+ * (`isTurnstileExcludedRegion`, ruling 21). It serves two holds: Turnstile's and the
+ * browser report's (AECI-1713). The browser reads it in `turnstile-config.ts`
+ * (`regionAllowsCollection`), which both gates call. The stamp is permanent while
+ * ruling 21 stands. AECI-1529 removes only the Turnstile uses, never this append:
+ * without it the browser would post the report from the EEA, and the server's
+ * refusal would come after the device access counsel called an Article 5(3) event.
+ * Lift list: `docs/environments.md`, "Lifting the exclusion after AECI-1458". It is
+ * stamped here for the same reason as the ray: a cached body stays visitor-neutral.
+ * Unlike the ray it does not depend on `cf-ray`, and its value is a fixed literal.
  */
 function withGatewayServerTiming(response: Response, request: Request): Response {
   const ray = request.headers.get('cf-ray');
