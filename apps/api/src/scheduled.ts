@@ -165,7 +165,12 @@ import {
   EXPIRY_JOB_METRIC,
   type EntitlementExpiryMetricSink,
 } from './lib/entitlement-expiry-metrics';
-import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
+import {
+  browserEvidenceCaptureEnabled,
+  hasErrors,
+  runDataQualityChecks,
+  type DataQualityCheckResult,
+} from './lib/data-quality';
 import { buildDataQualityDigest, shouldSendDataQualityDigest } from './lib/data-quality-email';
 import { createReviewMirrorDriftDeps } from './lib/review-mirror-drift-deps';
 import {
@@ -1750,6 +1755,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
       now: new Date(),
       runDrift,
       reviewMirror: createReviewMirrorDriftDeps(env),
+      browserEvidenceEnabled: browserEvidenceCaptureEnabled(env),
     });
   } catch (error) {
     // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a

@@ -339,6 +339,9 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live
       // record. Skipped here: the test env sets no ownership receiver.
       'review_mirror_drift',
+      // AECI-1715 — the browser report tripwire. Skipped here: the test env sets no
+      // BROWSER_EVIDENCE_ENABLED.
+      'browser_evidence_coverage',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');
   });

@@ -68,7 +68,7 @@ import { note } from './admin-analytics';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import { createDriftRunner } from './algolia-drift-deps';
 import type { DataQualityCheckResult } from './data-quality';
-import { runDataQualityChecks } from './data-quality';
+import { browserEvidenceCaptureEnabled, runDataQualityChecks } from './data-quality';
 import { HOME_STATS_KEY_PATTERN } from './home-stats';
 import { latestCompletedJobRun } from './job-runs';
 import { createReviewMirrorDriftDeps } from './review-mirror-drift-deps';
@@ -259,6 +259,7 @@ export async function runExpensiveStatusItems(
     now,
     runDrift: sharedDrift,
     reviewMirror: createReviewMirrorDriftDeps(env),
+    browserEvidenceEnabled: browserEvidenceCaptureEnabled(env),
     ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
