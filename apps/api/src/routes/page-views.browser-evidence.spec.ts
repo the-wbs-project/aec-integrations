@@ -88,6 +88,7 @@ async function beacon(
         [PAGE_VIEW_WRITER_HEADER]: opts.writer ?? 'browser-spa',
         'cf-connecting-ip': '203.0.113.9',
         'x-aeci-cf-ray': RAY,
+        'x-aeci-cf-country': 'US',
         ...opts.headers,
       },
     },
@@ -136,13 +137,14 @@ function headersOf(res: Response): Record<string, string> {
   return out;
 }
 
-/** Insert a row directly, defaulting to a fresh arrival with RAY and no evidence. */
+/** Insert a row directly, defaulting to a fresh US arrival with RAY and no evidence. */
 async function seedRow(overrides: Partial<typeof pageViews.$inferInsert> = {}): Promise<number> {
   const [row] = await t.db
     .insert(pageViews)
     .values({
       path: '/',
       cfRay: RAY,
+      cfCountry: 'US',
       writerProvenance: 'ssr-arrival',
       privacySignal: false,
       createdAt: new Date().toISOString(),
@@ -162,7 +164,7 @@ async function evidenceOf(id: number): Promise<BrowserEvidence | null> {
 }
 
 describe('POST /api/page-views — an in-app row is written with ran (AECI-1713)', () => {
-  it('writes ran and a server timestamp on a browser-spa insert', async () => {
+  it('writes ran and a server timestamp on a browser-spa insert from the US', async () => {
     const before = Date.now();
     await beacon({ route: '/products/procore', navigation: 'spa' });
 
@@ -178,6 +180,50 @@ describe('POST /api/page-views — an in-app row is written with ran (AECI-1713)
 
     const [row] = await t.db.select().from(pageViews);
     expect(row!.writerProvenance).toBe('ssr-arrival');
+    expect(row!.browserEvidence).toBeNull();
+    expect(row!.browserEvidenceAt).toBeNull();
+  });
+
+  it.each([
+    ['a held EU country', { 'x-aeci-cf-country': 'DE' }],
+    ['the UK', { 'x-aeci-cf-country': 'GB' }],
+    ['Switzerland', { 'x-aeci-cf-country': 'CH' }],
+    ['an unknown location', { 'x-aeci-cf-country': 'XX' }],
+  ])('never writes ran on a browser-spa row from %s', async (_label, headers) => {
+    await beacon({ route: '/products/procore', navigation: 'spa' }, { headers });
+
+    const [row] = await t.db.select().from(pageViews);
+    expect(row!.writerProvenance).toBe('browser-spa');
+    expect(row!.browserEvidence).toBeNull();
+    expect(row!.browserEvidenceAt).toBeNull();
+  });
+
+  it('never writes ran on a browser-spa row with no country, which fails closed', async () => {
+    const app = buildAppWithHandler({
+      method: 'post',
+      path: '/api/page-views',
+      handler: createPageViewsHandler(t.factory),
+    });
+    const { ctx, settle } = settlingCtx();
+    await app.request(
+      '/api/page-views',
+      {
+        method: 'POST',
+        body: JSON.stringify({ route: '/products/procore', navigation: 'spa' }),
+        headers: {
+          'content-type': 'application/json',
+          'user-agent': CHROME_UA,
+          [PAGE_VIEW_WRITER_HEADER]: 'browser-spa',
+          'x-aeci-cf-ray': RAY,
+        },
+      },
+      TEST_ENV,
+      ctx,
+    );
+    await settle();
+
+    const [row] = await t.db.select().from(pageViews);
+    expect(row!.cfCountry).toBeNull();
     expect(row!.browserEvidence).toBeNull();
     expect(row!.browserEvidenceAt).toBeNull();
   });
@@ -300,6 +346,31 @@ describe('POST /api/page-views/browser-evidence (AECI-1713)', () => {
     expect(row.browserEvidenceAt).toBe(at);
     expect(wait).not.toHaveBeenCalled();
     expect(evidenceTags()).toEqual([['evidence:interacted', 'result:no_match']]);
+  });
+
+  it.each([
+    ['a held EU country', 'DE'],
+    ['a held EU country in lower case', 'de'],
+    ['the UK', 'GB'],
+    ['Norway', 'NO'],
+    ['an EU territory', 'RE'],
+    ['an unknown location', 'XX'],
+    ['no country', null],
+  ])('never marks a row from %s, for either word', async (_label, cfCountry) => {
+    const arrival = await seedRow({ cfCountry });
+    const spa = await seedRow({
+      cfCountry,
+      cfRay: OTHER_RAY,
+      writerProvenance: 'browser-spa',
+    });
+
+    await evidencePost({ cf_ray: RAY, evidence: 'ran' });
+    await evidencePost({ cf_ray: RAY, evidence: 'interacted' });
+    await evidencePost({ cf_ray: OTHER_RAY, evidence: 'interacted' });
+
+    expect(await evidenceOf(arrival)).toBeNull();
+    expect(await evidenceOf(spa)).toBeNull();
+    expect((await rowOf(arrival)).browserEvidenceAt).toBeNull();
   });
 
   it('never touches a privacy row, an old row, another ray or a row of no known writer', async () => {

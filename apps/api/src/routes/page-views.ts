@@ -1,5 +1,6 @@
 import {
   BrowserEvidencePostSchema,
+  HELD_REGION_COUNTRIES,
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
   PAGE_VIEW_RAW_HEADERS,
@@ -10,6 +11,7 @@ import {
   canonicalPairIds,
   emptyRawPageViewDerived,
   hasPrivacySignal,
+  isHeldRegionCountry,
   parseLandingPath,
   parsePairPagePath,
   type LandingEntity,
@@ -22,7 +24,7 @@ import {
   type BrowserEvidence,
   type BrowserEvidencePost,
 } from '@aeci/shared';
-import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -89,7 +91,10 @@ import { verifyTurnstile } from '../lib/turnstile';
  * browser's own report about the page load. A `browser-spa` row is written with
  * `ran`, because that insert is itself proof the script ran. Every other report
  * arrives later on `POST /api/page-views/browser-evidence`
- * (`createBrowserEvidenceHandler`), matched on `cf_ray`, upgrade only.
+ * (`createBrowserEvidenceHandler`), matched on `cf_ray`, upgrade only. Neither
+ * writer ever sets it on a privacy-signal row or a held-region row (EEA, UK,
+ * Switzerland, or an unknown country; `isHeldRegionCountry`). The Privacy Policy
+ * promises both.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -640,7 +645,15 @@ async function recordPageView(
   // AECI-1713. A `browser-spa` write comes from our tracker's own POST, so the row
   // is proof the page script ran. An `ssr-arrival` row starts NULL: the gateway
   // proves nothing about the browser, and its report arrives by UPDATE.
-  const ranInApp = clientSignals.writerProvenance === PAGE_VIEW_WRITERS.browserSpa;
+  //
+  // Never on a privacy-signal row or a held-region row. The Privacy Policy says the
+  // report is not collected for a visitor who sends DNT or GPC, or for one in the
+  // EEA, the UK or Switzerland (ruling 21). Writing `ran` from the insert would be
+  // collecting it. An unknown country is held: `isHeldRegionCountry` fails closed.
+  const ranInApp =
+    clientSignals.writerProvenance === PAGE_VIEW_WRITERS.browserSpa &&
+    !privacy &&
+    !isHeldRegionCountry(cf.country);
 
   const inserted = await db
     .insert(pageViews)
@@ -700,8 +713,8 @@ async function recordPageView(
       // AECI-1457. Set only on a `browser-spa` write that carried a token on a
       // tier with the secret. A landing row gets its verdict later, by UPDATE.
       turnstileVerdict,
-      // AECI-1713. `ran` on a `browser-spa` row, NULL otherwise. A privacy row is
-      // NULL in both, by `PRIVACY_NULLED` below.
+      // AECI-1713. `ran` on a `browser-spa` row outside the held regions, NULL
+      // otherwise. A privacy row is NULL in both, here and by `PRIVACY_NULLED` below.
       browserEvidence: ranInApp ? ('ran' satisfies BrowserEvidence) : null,
       browserEvidenceAt: ranInApp ? new Date().toISOString() : null,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
@@ -976,6 +989,12 @@ export const BROWSER_EVIDENCE_WINDOW_MS = TURNSTILE_VERDICT_WINDOW_MS;
 /** Wait before the one retry of a `ran` report, for an arrival write still in flight. */
 export const BROWSER_EVIDENCE_RETRY_MS = TURNSTILE_VERDICT_RETRY_MS;
 
+/**
+ * The held country codes, bound as parameters in the UPDATE's `NOT IN`, plus the
+ * empty string, so a blank stored country is held as `isHeldRegionCountry` holds it.
+ */
+const HELD_REGION_LIST: string[] = [...HELD_REGION_COUNTRIES, ''];
+
 /** The count every accepted browser report emits (AECI-1713). */
 const BROWSER_EVIDENCE_METRIC = 'aeci.pageviews.browser_evidence';
 
@@ -995,6 +1014,11 @@ export type BrowserEvidenceDeps = { wait?: (ms: number) => Promise<void> };
  *   `ran`. A downgrade or a replay matches nothing and changes nothing;
  * - `privacy_signal = 0`: a privacy row is "not collected" and is never written to.
  *   It also stores no `cf_ray`, so this is belt and braces;
+ * - `cf_country` present and outside `HELD_REGION_COUNTRIES`: a held-region row is
+ *   "not collected" too (ruling 21). The browser's own gate (AECI-1714) is the
+ *   primary hold. This is the server's belt, so a forged or stale post can never
+ *   mark one. A NULL country is held, as `isHeldRegionCountry` fails closed. The
+ *   list binds about 41 parameters, inside D1's per-statement limit;
  * - `created_at` inside the last 10 minutes, which bounds the scan on
  *   `page_views_created_at_idx`. `cf_ray` has no index of its own, by design.
  *
@@ -1023,6 +1047,8 @@ async function updateBrowserEvidence(
         ]),
         upgradeable,
         eq(pageViews.privacySignal, false),
+        isNotNull(pageViews.cfCountry),
+        notInArray(sql`upper(trim(${pageViews.cfCountry}))`, HELD_REGION_LIST),
         gte(pageViews.createdAt, new Date(now - BROWSER_EVIDENCE_WINDOW_MS).toISOString()),
       ),
     )

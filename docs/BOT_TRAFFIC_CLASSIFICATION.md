@@ -172,7 +172,7 @@ Terms: **ASN** is the autonomous system number, which identifies a network's own
 | Edge access rules | Request time | Cloudflare WAF (`docs/waf-rate-limits.md` §2, §3b) | Challenged or blocked requests write no row |
 | Capture | Request time, in `waitUntil` | `apps/api/src/routes/page-views.ts` | One immutable `page_views` row with `is_bot`, `bot_name`, `client_verdict` and raw signals |
 | Late Turnstile verdict | Up to 10 minutes after an arrival | `POST /api/page-views/turnstile` | Sets `turnstile_verdict` on the arrival row, matched by `cf_ray`. Not read by the classifier. |
-| Browser report | At insert for an in-app row; up to 10 minutes after the page load otherwise | `POST /api/page-views/browser-evidence` (AECI-1713) | Sets `browser_evidence` on the row its `cf_ray` names, upgrade only: NULL, then `ran`, then `interacted`. A `browser-spa` row is written with `ran`. Not read by the classifier. |
+| Browser report | At insert for an in-app row; up to 10 minutes after the page load otherwise | `POST /api/page-views/browser-evidence` (AECI-1713) | Sets `browser_evidence` on the row its `cf_ray` names, upgrade only: NULL, then `ran`, then `interacted`. A `browser-spa` row is written with `ran`. Never on a privacy-signal or held-region row. Not read by the classifier. |
 | Nightly classification | Cron `45 0 * * *` for the prior UTC day, through queue `aeci-traffic-classify-{env}` | `lib/traffic-classification-writer.ts`, `lib/traffic-shadow.ts` | Append-only `page_view_classifications` rows |
 | Reporting | Digest 05:00 UTC, and on request in the admin panel | `lib/admin-classification.ts`, `lib/analytics-digest.ts` | Classes, notes and filtered tables |
 
@@ -356,7 +356,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | Cloudflare verified-bot boolean | `cf_verified_bot` | Retired and always NULL (AECI-1348). Its source, `cf.botManagement.verifiedBot`, exists only with Bot Management (AECI-1300), so nothing writes it. `verified_edge` still names it beside the category, which keeps the rule inputs and version unchanged. The category is the signal. |
 | AS holder name | `cf_as_organization` | Display label only |
 | Spur Monocle | None | Held (AECI-1459) |
-| Browser report (AECI-1713, epic AECI-1711) | `browser_evidence`: `ran`, `interacted` or NULL | Capture is built. The browser side is AECI-1714. `interacted` is the planned human floor. `ran` is not human evidence: AECI-1710 Phase 0 found crawlers and a residential pool that run our bundle. NULL on a privacy-signal or held-region row is "not collected", never automation evidence. Reading it is AECI-1716. |
+| Browser report (AECI-1713, epic AECI-1711) | `browser_evidence`: `ran`, `interacted` or NULL | Capture is built. The browser side is AECI-1714. `interacted` is the planned human floor. `ran` is not human evidence: AECI-1710 Phase 0 found crawlers and a residential pool that run our bundle. "Not collected" rows are picked by `privacy_signal` or by a held-region `cf_country` (`isHeldRegionCountry` in `@aeci/shared`, NULL country included). They never carry a value, by either writer, and their NULL is never automation evidence. Reading it is AECI-1716. |
 
 ### 2.12 Known gaps
 

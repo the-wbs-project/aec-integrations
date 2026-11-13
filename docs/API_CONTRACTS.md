@@ -2164,7 +2164,7 @@ export const TurnstileVerdictPostSchema = z.object({
 
 #### `POST /api/page-views/browser-evidence`
 
-The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row is already written with `ran`, so an in-app view posts only `interacted`.
+The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
 
 **Guard:** `rateLimit('token', { by: 'ip' })` (`docs/waf-rate-limits.md` §6.2), the Turnstile verdict's bucket. A 429 costs one report, never a page view.
 
@@ -2187,7 +2187,8 @@ export const BrowserEvidencePostSchema = z
 
 **Behaviour, all inside `waitUntil`, which never throws:**
 
-1. One `UPDATE page_views SET browser_evidence, browser_evidence_at` matching `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0` and `created_at` within the last 10 minutes (`BROWSER_EVIDENCE_WINDOW_MS`). Counted through `RETURNING`.
+1. One `UPDATE page_views SET browser_evidence, browser_evidence_at` matching `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0`, `cf_country IS NOT NULL AND upper(trim(cf_country)) NOT IN (<HELD_REGION_COUNTRIES>, '')` and `created_at` within the last 10 minutes (`BROWSER_EVIDENCE_WINDOW_MS`). Counted through `RETURNING`. The held list binds 42 parameters.
+   A privacy-signal row and a held-region row never carry the column, by either writer: the `browser-spa` insert skips `ran` on both, and this UPDATE refuses both. The Privacy Policy promises that hold. The browser's gate (AECI-1714) is the primary hold, and this is the server's belt.
 2. Upgrade only. `ran` needs `browser_evidence IS NULL`. `interacted` needs NULL or `ran`. A replay or a downgrade changes nothing.
 3. Zero rows changed on a `ran` report means the arrival write may still be in flight. Retry once after 2 s. An `interacted` report never retries.
 4. Emit `aeci.pageviews.browser_evidence` with `evidence:ran|interacted` and `result:updated|no_match|error`. On `error`, also warn `aeci.api.page_view.browser_evidence_update_failed`.

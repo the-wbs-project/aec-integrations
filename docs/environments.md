@@ -1722,8 +1722,12 @@ Open a detail page on `www.aecintegrations.com`, then click to a second page.
 
 **Lifting the exclusion after AECI-1458 (AECI-1529).** Remove these together, in one PR:
 
-- **The stamp.** `isTurnstileExcludedRegion`, `TURNSTILE_EXCLUDED_COUNTRIES` and the `geo` append in
-  `withGatewayServerTiming` (`apps/web/src/server-runtime.ts`).
+- **The stamp.** `isTurnstileExcludedRegion` and the `geo` append in `withGatewayServerTiming`
+  (`apps/web/src/server-runtime.ts`). The country list is no longer there. Since AECI-1713 it is
+  `HELD_REGION_COUNTRIES` (alias `TURNSTILE_EXCLUDED_COUNTRIES`) with `isHeldRegionCountry`, in
+  `packages/shared/src/api/held-region.ts`. **Do not delete the list.** The browser report's hold
+  (ruling 21) reads it too: in `routes/page-views.ts` directly, and in the browser through the stamp.
+  Lifting Turnstile's hold does not lift that one. If the report still needs the stamp, keep the `geo` append.
 - **The region check.** `regionAllowsTurnstile` in `apps/web/src/app/core/turnstile-config.ts`.
 - **The policy sentences.** The exclusion sentence in the bot-check bullet and in "Cookies and similar
   technologies" (`apps/web/src/content/legal/privacy-policy.md`). This text goes through counsel

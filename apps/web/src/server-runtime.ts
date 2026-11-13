@@ -102,6 +102,7 @@ import {
   PRIVACY_SIGNAL_HEADERS,
   SITEMAP_FRAGMENT_HEADERS,
 } from '@aeci/shared';
+import { isHeldRegionCountry } from '@aeci/shared/api/held-region';
 import type { IntegrationDetailResponse, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { discardResponseBody } from '@aeci/shared/response-drain';
@@ -851,37 +852,18 @@ function withGatewayServerTiming(response: Response, request: Request): Response
 }
 
 /**
- * Countries outside `cf.isEUCountry` that Turnstile skips until the AECI-1458
- * ruling: the UK, Switzerland and the non-EU EEA states; the codes that give no
- * location (`XX` unknown, `T1` Tor); and EU territory with its own ISO code, which
- * Cloudflare's docs do not say `isEUCountry` covers. AECI-1529 removes this.
- */
-const TURNSTILE_EXCLUDED_COUNTRIES: ReadonlySet<string> = new Set([
-  'GB',
-  'CH',
-  'IS',
-  'LI',
-  'NO',
-  'XX',
-  'T1',
-  'AX',
-  'GF',
-  'GP',
-  'MF',
-  'MQ',
-  'RE',
-  'YT',
-]);
-
-/**
- * Whether this visitor's region excludes Turnstile (AECI-1581). A `cf` with no
- * country fails closed, because the privacy policy says the check does not run in
- * these regions. No `cf` at all is a Node test, never a deployed request.
+ * Whether this visitor's region excludes Turnstile and the browser report
+ * (AECI-1581, ruling 21). `cf.isEUCountry` is trusted when Cloudflare sets it. The
+ * country list itself lives in `@aeci/shared` (`isHeldRegionCountry`,
+ * `HELD_REGION_COUNTRIES`) since AECI-1713, so the API applies the same hold to the
+ * rows it writes. A `cf` with no country fails closed, because the privacy policy
+ * says the check does not run in these regions. No `cf` at all is a Node test,
+ * never a deployed request.
  */
 function isTurnstileExcludedRegion(cf: CfLike | undefined): boolean {
   if (!cf) return false;
   if (cf.isEUCountry === '1') return true;
-  return !cf.country || TURNSTILE_EXCLUDED_COUNTRIES.has(cf.country);
+  return isHeldRegionCountry(cf.country);
 }
 
 /**
