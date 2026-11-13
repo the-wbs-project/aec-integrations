@@ -193,11 +193,18 @@ export type PrunableTable = (typeof PRUNABLE)[number];
  * least five years from the day the grant's last subscription ends (lapse, revoke, release
  * or Terminate, not the scheduled `ends_at`), or from its withdraw or expiry when never
  * accepted (`DATABASE_SCHEMA.md` §8.6d). That sits inside the Privacy
- * Policy's "life of the vendor account plus six years". Neither table may join
+ * Policy's "life of the vendor account plus six years". A `terms_acceptances` row
+ * (AECI-1637) is the record that an account holder accepted a Terms of Service version,
+ * kept for the life of the account plus six years, past its deletion (ruling 1 of
+ * 2026-11-13). No table here may join
  * {@link PRUNABLE}; `retention-prune.spec.ts` asserts it. A later sweep may NULL the IP
  * and user agent on old rows (AECI-1636): that is an UPDATE, never a row delete.
  */
-export const NEVER_PRUNED = ['agreement_acceptances', 'license_grants'] as const;
+export const NEVER_PRUNED = [
+  'agreement_acceptances',
+  'license_grants',
+  'terms_acceptances',
+] as const;
 
 /** The tables with a retention window of their own. A child table inherits its
  *  parent's window and cutoff. */

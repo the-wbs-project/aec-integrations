@@ -9,6 +9,8 @@ import {
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_POLICY_CURRENT_VERSIONS,
   LEGAL_POLICY_UPCOMING_VERSIONS,
+  LEGAL_READER_CURRENT_VERSIONS,
+  LEGAL_READER_UPCOMING_VERSIONS,
 } from './agreements';
 import {
   isRecordableLegalAgreementVersion,
@@ -16,7 +18,11 @@ import {
   legalInForceNeedsPublished,
   legalMomentReached,
   legalPolicyVersionInForce,
+  legalNextEffectiveMomentMs,
+  legalPublishableUpcoming,
   legalPublishedLiteOf,
+  legalPublishedRowMismatched,
+  legalReaderVersionInForce,
   legalVersionsInForce,
   LEGAL_IN_FORCE_MAPS,
   type LegalInForceMaps,
@@ -114,6 +120,60 @@ describe('a policy switches by its date alone', () => {
     expect(legalPolicyVersionInForce('listing_accuracy', MOMENT - 1, MAPS)).toBe('1.0');
     expect(legalPolicyVersionInForce('listing_accuracy', MOMENT, MAPS)).toBe('1.1');
     expect(legalPolicyVersionInForce('review_guidelines', MOMENT, MAPS)).toBe('1.0');
+  });
+});
+
+// AECI-1637, ruling 2 of 2026-11-13: the Terms and the Privacy Policy switch like the
+// agreements, only once a `legal_versions` row published the version.
+describe('a reader document switches only when published', () => {
+  const READER_MAPS: LegalInForceMaps = {
+    ...MAPS,
+    readerCurrent: { terms: '1.1', privacy: '1.1' },
+    readerUpcoming: { terms: { version: '1.2', effectiveOn: DAY } },
+  };
+  const TERMS_ROW = [{ document: 'terms', version: '1.2', effectiveAt: MOMENT }];
+
+  it("today's data: no reader entry, every answer is the build version", () => {
+    expect(LEGAL_READER_UPCOMING_VERSIONS).toEqual({});
+    expect(LEGAL_IN_FORCE_MAPS.readerCurrent).toBe(LEGAL_READER_CURRENT_VERSIONS);
+    for (const now of [0, Date.parse('2099-01-01T00:00:00Z')]) {
+      expect(legalReaderVersionInForce('terms', TERMS_ROW, now)).toBe('1.1');
+      expect(legalReaderVersionInForce('privacy', [], now)).toBe('1.1');
+    }
+  });
+
+  it('a published version takes over exactly at its moment', () => {
+    expect(legalReaderVersionInForce('terms', TERMS_ROW, MOMENT - 1, READER_MAPS)).toBe('1.1');
+    expect(legalReaderVersionInForce('terms', TERMS_ROW, MOMENT, READER_MAPS)).toBe('1.2');
+  });
+
+  it('with no row it never switches, whatever the date', () => {
+    for (const now of [MOMENT, MOMENT + 365 * 86_400_000]) {
+      expect(legalReaderVersionInForce('terms', [], now, READER_MAPS)).toBe('1.1');
+    }
+  });
+
+  it('a row for the other reader document, or a moved date, does not count', () => {
+    const privacy = [{ document: 'privacy', version: '1.2', effectiveAt: MOMENT }];
+    expect(legalReaderVersionInForce('terms', privacy, MOMENT, READER_MAPS)).toBe('1.1');
+    const moved = [{ document: 'terms', version: '1.2', effectiveAt: MOMENT + 86_400_000 }];
+    expect(legalReaderVersionInForce('terms', moved, MOMENT + 86_400_000, READER_MAPS)).toBe('1.1');
+    expect(legalPublishedRowMismatched(moved[0]!, READER_MAPS)).toBe(true);
+    expect(legalPublishedRowMismatched(TERMS_ROW[0]!, READER_MAPS)).toBe(false);
+  });
+
+  it('a reader moment makes the published read needed, and is the next moment', () => {
+    const only: LegalInForceMaps = { ...READER_MAPS, agreementUpcoming: {}, policyUpcoming: {} };
+    expect(legalInForceNeedsPublished(MOMENT - 1, only)).toBe(false);
+    expect(legalInForceNeedsPublished(MOMENT, only)).toBe(true);
+    expect(legalNextEffectiveMomentMs(MOMENT - 1, only)).toBe(MOMENT);
+  });
+
+  it('lists the publishable upcoming entries, agreements first', () => {
+    expect(legalPublishableUpcoming(READER_MAPS).map((e) => e.document)).toEqual([
+      'vendor_terms',
+      'terms',
+    ]);
   });
 });
 

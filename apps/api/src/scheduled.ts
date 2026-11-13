@@ -229,7 +229,7 @@ import { deliverOwnershipSync, isOwnershipSyncQueue } from './lib/ownership-sync
 import {
   deliverLegalNotice,
   isLegalNoticeQueue,
-  type LegalNoticeMessage,
+  type LegalNoticeQueueMessage,
 } from './lib/legal-notice';
 import {
   runVendorSnapshot,
@@ -3595,7 +3595,7 @@ export function normalizeJobMessage(
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,
-  ScheduledJobMessageInput | OwnershipSyncMessage | LegalNoticeMessage
+  ScheduledJobMessageInput | OwnershipSyncMessage | LegalNoticeQueueMessage
 > = async (batch, env, ctx) => {
   // AECI-1418: the ownership queue is not a scheduled-job queue. Routed by queue NAME
   // before the job path, so its messages never reach `normalizeJobMessage` and a job

@@ -69,3 +69,42 @@ A bug in any of these locks every vendor out of the portal. Today no document is
 - **Two open items for the legal stream (AECI-1363):** whether the Privacy Policy will name the
   portal acceptance's IP address and browser (then `PORTAL_RECORDS_EVIDENCE` flips), and
   confirmation that the first in-force version must be a new version number.
+
+## Amendment 2026-11-13 — reader documents, and signing in is the Terms acceptance (AECI-1637)
+
+Nothing above is reversed. Counsel's Q34 and Chris's rulings of 2026-11-13 extend the first idea
+to the Terms of Service and the Privacy Policy. The second idea, a block in a guard, is NOT
+extended to readers: signing in is the acceptance.
+
+1. **The reader documents are row-gated (ruling 2).** A Terms or Privacy version is in force from
+   12:00 UTC of its day only once a `legal_versions` row published it with the same moment, by
+   `legalReaderVersionInForce`, the rule of `legalAgreementVersionInForce`. They had switched on
+   their date alone. Their maps are `LEGAL_READER_*`, kept apart from `LEGAL_AGREEMENT_*` because
+   the checkbox labels, text hashes and the vendor screen are keyed on the two agreements. Draft
+   versions are never in force, so today a sign-in records nothing.
+2. **Signing in is the acceptance (Chris, 2026-11-13).** `/auth/login` always shows one line
+   beside the sign-in buttons: "By signing in, you agree to our Terms of Service and Privacy
+   Policy." The sign-in is the click. `POST /api/auth/profile/ensure`, which the SSR callback
+   calls on every sign-in, writes one `terms_acceptances` row for the Terms version in force,
+   with its audit row in one `db.batch`, once per account per version. The callback forwards the
+   browser's `CF-Connecting-IP` and `User-Agent`. The write never fails the sign-in.
+   `AUTH_AND_RLS.md` §3.1b has the detail.
+3. **No reader block, no gate.** `createAuthzMiddleware` does not read the Terms rows, and no
+   route answers `403 LEGAL_ACCEPTANCE_REQUIRED` for a reader. That code stays the Vendor Terms
+   block's alone (decision 3). A session that began before a new version stays on the earlier
+   one until its next sign-in. An earlier draft of this amendment put a block in the guard with
+   four opt-outs and a full-viewport panel. It was replaced the same day, before it shipped.
+4. **What `requires_acceptance` means for the Terms.** The row is written for every Terms
+   version in force, whatever the flag. The flag says the version reduces rights: it then binds
+   an account holder only from their next sign-in, never on continued use, and the change email
+   says so. Acceptance is for the Terms only (ruling 4): the publish refuses the flag for the
+   Privacy Policy, and a Privacy change gets the email and the 30-day window.
+5. **The record outlives the account (ruling 1).** `terms_acceptances` has no FK to `profiles`
+   and keeps email, version and time for the life of the account plus 6 years. IP address and
+   browser go at 90 days.
+
+**Consequence.** No read is added to any guard. The cost is two small reads on each sign-in,
+and only while a Terms version can be in force. Whether the line is enough for a
+rights-reducing change is an open counsel question (`LEGAL_COUNSEL_RECORD.md`, Q34). Its
+fallback is one unticked box on the sign-in page, shown only after a rights-reducing change;
+`terms_acceptances.checkbox_default_unticked` is kept for it.

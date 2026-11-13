@@ -946,6 +946,25 @@ export const NOTIFICATIONS = {
       "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
     note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason.',
   },
+  // AECI-1637 (counsel Q34, ruling 12): the account twin of `legal-terms-change`.
+  'legal-account-change': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/legal-versions (a material Terms of Service or Privacy Policy version, post-commit) and POST /api/admin/legal-versions/:id/notice (the re-send), each enqueuing one message per 25 accounts on aeci-legal-notice-{env}; the queue consumer sends (lib/legal-notice.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per account per version: key legal-account-change:{document}:{version}:{profileId}. A failed send releases its key, so a queue retry or an admin re-send reaches only the accounts not yet sent, and a re-send skips every account already delivered.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_1_SPEC.md §27',
+    summary:
+      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only from the account holder's next sign-in, or (Privacy Policy) from its date.",
+    note: 'Always on: a service notice the Terms promise, so it has no unsubscribe, ignores the marketing mute and cannot be paused. Same template and checks as legal-terms-change: the consumer re-hashes the PDF on every message and sends nothing on a mismatch, and an account email lookup that is unavailable retries the whole message. The send carries an attachment, so it blind-copies no one. Each account has a legal_notice_reader_deliveries row, and /admin/legal counts and lists the accounts not reached.',
+  },
   'license-unassigned-reminder': {
     channel: 'email',
     audience: 'external',

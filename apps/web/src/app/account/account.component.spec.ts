@@ -534,6 +534,25 @@ describe('AccountPage', () => {
     );
   });
 
+  // ── AECI-1637: the sign-in Terms acceptance record is kept ────────────
+  it('says, before the confirmation, that the Terms acceptance record is kept for 6 years', async () => {
+    const { fixture, el } = await setup();
+    const line = el.querySelector('[data-testid="account-delete-terms"]');
+    expect(line?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'When you sign in, we record that you accepted the Terms of Service. We keep that record for 6 years after you delete your account.',
+    );
+    const trigger = Array.from(el.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete account',
+    ) as HTMLButtonElement;
+    trigger.click();
+    await settle();
+    fixture.detectChanges();
+    const dialogLine = document.querySelector('[data-testid="account-delete-dialog-terms"]');
+    expect(dialogLine?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'We keep the record that you accepted the Terms of Service when you signed in for 6 years after you delete your account.',
+    );
+  });
+
   // ── AECI-1296: About you + the onboarding card ─────────────────────────
   it('shows the onboarding card only while onboarding is pending', async () => {
     const pendingApi = makeApiMock();

@@ -14,8 +14,12 @@
  *
  *   0. `LEGAL_PUBLISH_ENABLED` is "true" on this tier, else 409 `LEGAL_PUBLISH_DISABLED`.
  *      Then the body (400 on a non-JSON body or a schema miss).
- *   1. The version is the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, else
- *      422 `LEGAL_VERSION_NOT_UPCOMING`. The effective moment comes from that entry.
+ *   1. The version is the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS` or, for
+ *      the Terms of Service and the Privacy Policy (AECI-1637), in
+ *      `LEGAL_READER_UPCOMING_VERSIONS`, else 422 `LEGAL_VERSION_NOT_UPCOMING`. The
+ *      effective moment comes from that entry. The body schema already refused
+ *      `requires_acceptance` on a Privacy version and an expedited reason on anything but
+ *      the Vendor Terms (400).
  *   2. No `legal_versions` row exists for it yet, else 409 `LEGAL_VERSION_EXISTS`.
  *   3. It takes effect at least 30 days from now, else 422 `LEGAL_NOTICE_WINDOW`. A
  *      Vendor Terms version with an expedited reason (`law` or `error`) only has to be
@@ -29,7 +33,9 @@
  *      row (§26.1). A lost race on the unique `(document, version)` index is the same 409.
  *   6. Post-commit: the audit forward. Then, for a MATERIAL version only, in `waitUntil`:
  *      the change-notice fan-out (`fanOutLegalNotice`, AECI-1620), one queue message per
- *      affected company, and ONE `db.batch` that records its outcome on the row
+ *      affected company, or for a Terms or Privacy version `fanOutReaderLegalNotice`
+ *      (AECI-1637), one message per 25 accounts, and ONE `db.batch` that records its
+ *      outcome on the row
  *      (`notice_enqueued_at`, `notice_vendor_count`) with a `legal_version.notice_queued`
  *      audit row. A non-material version enqueues nothing and both columns stay NULL. A
  *      failed audience read or queue send leaves `notice_enqueued_at` NULL with the count
@@ -45,7 +51,9 @@
  *      and has not taken effect (422 `LEGAL_NOTICE_TOO_LATE`: the email says it has not).
  *   2. The fan-out, awaited, then ONE `db.batch`: the outcome columns and the
  *      `legal_version.notice_resent` audit row. Safe to repeat: each address's send is
- *      keyed with the company id in `notification_sends`, so no address gets two.
+ *      keyed with the company id (or, for a reader version, the account id) in
+ *      `notification_sends`, so no address gets two, and `delivered` companies or
+ *      accounts are skipped.
  *   3. An incomplete fan-out is recorded first, then answered 503
  *      `LEGAL_NOTICE_ENQUEUE_FAILED`. A complete one answers 200 with the row.
  */
@@ -54,9 +62,12 @@ import {
   AdminLegalVersionsResponseSchema,
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_NOTICE_WINDOW_DAYS,
+  LEGAL_PUBLISHABLE_DOCUMENTS,
+  LEGAL_READER_CURRENT_VERSIONS,
+  LEGAL_READER_UPCOMING_VERSIONS,
+  isLegalReaderDocument,
   PublishLegalVersionRequestSchema,
   PublishLegalVersionResponseSchema,
   ResendLegalNoticeResponseSchema,
@@ -64,8 +75,8 @@ import {
   legalPdfKey,
   type AdminLegalUpcomingEntry,
   type AdminLegalVersionsResponse,
-  type LegalAgreementDocument,
   type LegalAgreementUpcomingVersion,
+  type LegalPublishableDocument,
   type LegalNoticeWindowReason,
   type PublishLegalVersionResponse,
   type ResendLegalNoticeResponse,
@@ -84,8 +95,11 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   fanOutLegalNotice,
+  fanOutReaderLegalNotice,
+  LEGAL_READER_NOTICE_NOTIFICATION_ID,
   loadNoticeDeliveries,
   loadNoticeSendCounts,
+  loadReaderNoticeDeliveries,
   noticeOutcomeColumns,
   type LegalNoticeFanOut,
 } from '../lib/legal-notice';
@@ -113,7 +127,27 @@ export const LEGAL_VERSION_NOTICE_RESENT_ACTION = 'legal_version.notice_resent';
 const AUDIT_SOURCE = 'admin-legal-versions';
 const DAY_MS = 86_400_000;
 
-type UpcomingMap = Readonly<Partial<Record<LegalAgreementDocument, LegalAgreementUpcomingVersion>>>;
+type UpcomingMap = Readonly<
+  Partial<Record<LegalPublishableDocument, LegalAgreementUpcomingVersion>>
+>;
+
+/** The shared upcoming maps, agreements and (AECI-1637) the two reader documents. */
+const SHARED_UPCOMING: UpcomingMap = {
+  ...LEGAL_AGREEMENT_UPCOMING_VERSIONS,
+  ...LEGAL_READER_UPCOMING_VERSIONS,
+};
+
+/** The build version an upcoming entry replaces. */
+function currentVersionOf(document: LegalPublishableDocument): string {
+  return isLegalReaderDocument(document)
+    ? LEGAL_READER_CURRENT_VERSIONS[document]
+    : LEGAL_AGREEMENT_CURRENT_VERSIONS[document];
+}
+
+/** "companies" for an agreement notice, "accounts" for a reader one (AECI-1637). */
+function audienceNoun(document: string): string {
+  return isLegalReaderDocument(document) ? 'accounts' : 'companies';
+}
 
 export interface AdminLegalVersionsDeps {
   now?: () => Date;
@@ -131,9 +165,9 @@ export function createAdminLegalVersionsHandler(
   dbFor: DbFactory = getDb,
   deps: AdminLegalVersionsDeps = {},
 ): (c: LegalContext) => Promise<Response> {
-  const upcomingMap = deps.upcoming ?? LEGAL_AGREEMENT_UPCOMING_VERSIONS;
+  const upcomingMap = deps.upcoming ?? SHARED_UPCOMING;
   return async (c) => {
-    const entries = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
+    const entries = LEGAL_PUBLISHABLE_DOCUMENTS.flatMap((document) => {
       const u = upcomingMap[document];
       return u ? [{ document, upcoming: u }] : [];
     });
@@ -154,11 +188,26 @@ export function createAdminLegalVersionsHandler(
       const row = rows.find((r) => r.document === document && r.version === u.version);
       return row ? [row] : [];
     });
-    const shownIds = shown.map((r) => r.id);
-    const [counts, deliveries] = await Promise.all([
-      loadNoticeSendCounts(db, shownIds),
-      loadNoticeDeliveries(db, shown, (deps.now ?? (() => new Date()))()),
+    // AECI-1637: a reader version's sends are `legal-account-change` and its delivery
+    // record is per account, so the two audiences are counted from their own rows.
+    const now = (deps.now ?? (() => new Date()))();
+    const vendorShown = shown.filter((r) => !isLegalReaderDocument(r.document));
+    const readerShown = shown.filter((r) => isLegalReaderDocument(r.document));
+    const [vendorCounts, readerCounts, vendorDeliveries, readerDeliveries] = await Promise.all([
+      loadNoticeSendCounts(
+        db,
+        vendorShown.map((r) => r.id),
+      ),
+      loadNoticeSendCounts(
+        db,
+        readerShown.map((r) => r.id),
+        LEGAL_READER_NOTICE_NOTIFICATION_ID,
+      ),
+      loadNoticeDeliveries(db, vendorShown, now),
+      loadReaderNoticeDeliveries(db, readerShown, now),
     ]);
+    const counts = new Map([...vendorCounts, ...readerCounts]);
+    const deliveries = new Map([...vendorDeliveries, ...readerDeliveries]);
     const upcoming: AdminLegalUpcomingEntry[] = entries.map(({ document, upcoming: u }) => {
       const row = shown.find((r) => r.document === document && r.version === u.version) ?? null;
       const at = legalEffectiveAtMs(u.effectiveOn);
@@ -167,7 +216,7 @@ export function createAdminLegalVersionsHandler(
         version: u.version,
         effective_on: u.effectiveOn,
         effective_at: Number.isNaN(at) ? '' : new Date(at).toISOString(),
-        current_version: LEGAL_AGREEMENT_CURRENT_VERSIONS[document],
+        current_version: currentVersionOf(document),
         published: row ? toLegalVersion(row) : null,
         notice_sends: row ? (counts.get(row.id) ?? null) : null,
         notice_deliveries: row ? (deliveries.get(row.id) ?? null) : null,
@@ -214,7 +263,7 @@ export function createPublishLegalVersionHandler(
   deps: AdminLegalVersionsDeps = {},
 ): (c: LegalContext) => Promise<Response> {
   const clock = deps.now ?? (() => new Date());
-  const upcomingMap = deps.upcoming ?? LEGAL_AGREEMENT_UPCOMING_VERSIONS;
+  const upcomingMap = deps.upcoming ?? SHARED_UPCOMING;
   return async (c) => {
     // ── 0. The tier's switch, then the body ───────────────────────────────────
     if (!legalPublishEnabled(c.env)) {
@@ -375,12 +424,11 @@ async function recordNoticeFanOut(
   clock: () => Date,
 ): Promise<{ fan: LegalNoticeFanOut; updated: LegalVersionRow }> {
   const session = c.get('auth');
-  const fan = await fanOutLegalNotice(
-    { env: c.env, ctx: c.executionCtx, request: c.req.raw },
-    db,
-    row,
-    clock(),
-  );
+  const target = { env: c.env, ctx: c.executionCtx, request: c.req.raw };
+  // AECI-1637: a Terms of Service or Privacy Policy version goes to every account.
+  const fan = isLegalReaderDocument(row.document)
+    ? await fanOutReaderLegalNotice(target, db, row, clock())
+    : await fanOutLegalNotice(target, db, row, clock());
   const now = clock();
   const columns = noticeOutcomeColumns(fan, now);
   // A fan-out that ends after the effective moment must not stamp "queued" over the
@@ -472,7 +520,7 @@ export function createResendLegalNoticeHandler(
       throw new ApiError(
         503,
         ApiErrorCode.LEGAL_NOTICE_ENQUEUE_FAILED,
-        `The notice was queued for ${fan.queued} of ${fan.total ?? 'an unknown number of'} companies. Send it again.`,
+        `The notice was queued for ${fan.queued} of ${fan.total ?? 'an unknown number of'} ${audienceNoun(row.document)}. Send it again.`,
         { details: { queued: fan.queued, total: fan.total, failure: fan.failure } },
       );
     }

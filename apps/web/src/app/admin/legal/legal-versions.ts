@@ -22,10 +22,11 @@ import {
   LEGAL_SUMMARY_MAX_BULLETS,
   LegalSummarySchema,
   hasForbiddenSummaryChar,
+  isLegalReaderDocument,
   legalVersionPagePath,
   type AdminLegalUpcomingEntry,
   type AdminLegalVersionsResponse,
-  type LegalAgreementDocument,
+  type LegalPublishableDocument,
   type LegalExpeditedReason,
   type LegalNoticeNotReached,
   type LegalVersion,
@@ -111,10 +112,16 @@ export function noticeState(
   return p.notice_vendor_count === null ? 'unrecorded' : 'incomplete';
 }
 
-/** Why one company was not reached, in plain words (AECI-1620). */
-export function notReachedReason(co: Pick<LegalNoticeNotReached, 'status' | 'reason'>): string {
+/** Why one company (or, on a Terms or Privacy version, one account) was not reached, in
+ *  plain words (AECI-1620, AECI-1637). */
+export function notReachedReason(
+  co: Pick<LegalNoticeNotReached, 'status' | 'reason'>,
+  reader = false,
+): string {
   if (co.status === 'no_recipients') {
-    return $localize`:@@admin.legal.notReached.noRecipients:No seat or billing email to send to.`;
+    return reader
+      ? $localize`:@@admin.legal.notReached.noAccountEmail:The account has no email address to send to.`
+      : $localize`:@@admin.legal.notReached.noRecipients:No seat or billing email to send to.`;
   }
   if (co.status === 'expired' || co.reason === 'in_effect') {
     return $localize`:@@admin.legal.notReached.inEffect:Still waiting when the version took effect, so it was not sent.`;
@@ -131,7 +138,9 @@ export function notReachedReason(co: Pick<LegalNoticeNotReached, 'status' | 'rea
     case 'no_site_url':
       return $localize`:@@admin.legal.notReached.siteUrl:The site address is not set, so the link could not be built.`;
     case 'seats_unavailable':
-      return $localize`:@@admin.legal.notReached.seats:The seat email addresses could not be read.`;
+      return reader
+        ? $localize`:@@admin.legal.notReached.accountEmail:The account email address could not be read.`
+        : $localize`:@@admin.legal.notReached.seats:The seat email addresses could not be read.`;
     case 'read_failed':
       return $localize`:@@admin.legal.notReached.read:A database or service read failed.`;
   }
@@ -156,9 +165,12 @@ export function humanBytes(bytes: number): string {
  * `/admin/legal` (AECI-1688). Source of truth: `docs/ADMIN_PANEL_SPEC.md` §5.22 and
  * `STAGE_1_SPEC.md` §27.5.
  *
- * One card per version in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. An unpublished card holds
- * the form: two Yes/No questions with no default, the summary lines and, for the Vendor
- * Terms only, the expedited reason. Publish stays off until both questions are answered
+ * One card per version in `LEGAL_AGREEMENT_UPCOMING_VERSIONS` and (AECI-1637)
+ * `LEGAL_READER_UPCOMING_VERSIONS`. An unpublished card holds the form: two Yes/No
+ * questions with no default, the summary lines and, for the Vendor Terms only, the
+ * expedited reason. The Privacy Policy card asks only the first question: the API refuses
+ * `requires_acceptance` for it. A Terms of Service or Privacy Policy notice goes to
+ * accounts, so its counts say "accounts" where an agreement's say "companies". Publish stays off until both questions are answered
  * and the summary is valid. "Needs acceptance: Yes" can only be picked once "material"
  * is Yes. A published card shows what was recorded. The effective date is read-only: it
  * comes from the upcoming map. The text itself is not edited here.
@@ -202,9 +214,9 @@ export class AdminLegalVersions {
   protected readonly liveMessage = signal('');
 
   /** Unsaved form state, per document. */
-  protected readonly drafts = signal<Partial<Record<LegalAgreementDocument, LegalDraft>>>({});
+  protected readonly drafts = signal<Partial<Record<LegalPublishableDocument, LegalDraft>>>({});
   /** The last failed publish, per document, shown on the card outside the dialog. */
-  protected readonly cardErrors = signal<Partial<Record<LegalAgreementDocument, string>>>({});
+  protected readonly cardErrors = signal<Partial<Record<LegalPublishableDocument, string>>>({});
 
   /** The entry the open dialog acts on. */
   protected readonly pending = signal<AdminLegalUpcomingEntry | null>(null);
@@ -213,7 +225,7 @@ export class AdminLegalVersions {
   protected readonly submitting = signal(false);
   protected readonly failedMessage = signal('');
   /** After a publish: the card whose heading takes focus once the dialog has closed. */
-  private focusAfterClose: LegalAgreementDocument | null = null;
+  private focusAfterClose: LegalPublishableDocument | null = null;
 
   private readonly dialog = viewChild(BrnDialog);
 
@@ -239,34 +251,35 @@ export class AdminLegalVersions {
 
   // ── The form ───────────────────────────────────────────────────────────────
 
-  protected draft(document: LegalAgreementDocument): LegalDraft {
+  protected draft(document: LegalPublishableDocument): LegalDraft {
     return this.drafts()[document] ?? EMPTY_DRAFT;
   }
 
-  protected bullets(document: LegalAgreementDocument): string[] {
+  protected bullets(document: LegalPublishableDocument): string[] {
     return summaryBullets(this.draft(document).summary);
   }
 
   /** The summary's error, once the field was left or holds text. */
-  protected summaryError(document: LegalAgreementDocument): string | null {
+  protected summaryError(document: LegalPublishableDocument): string | null {
     const d = this.draft(document);
     if (!d.summaryTouched && d.summary.trim() === '') return null;
     return summaryProblem(this.bullets(document));
   }
 
-  /** Both questions answered, a valid summary, and publishing on for the tier. */
-  protected canPublish(document: LegalAgreementDocument): boolean {
+  /** Both questions answered (the Privacy Policy asks only the first), a valid summary, and
+   *  publishing on for the tier. */
+  protected canPublish(document: LegalPublishableDocument): boolean {
     const d = this.draft(document);
     return (
       this.publishEnabled() &&
       d.material !== null &&
-      d.acceptance !== null &&
+      (!this.asksAcceptance(document) || d.acceptance !== null) &&
       !(d.material === 'no' && d.acceptance === 'yes') &&
       summaryProblem(summaryBullets(d.summary)) === null
     );
   }
 
-  protected onMaterial(document: LegalAgreementDocument, answer: 'yes' | 'no'): void {
+  protected onMaterial(document: LegalPublishableDocument, answer: 'yes' | 'no'): void {
     const d = this.draft(document);
     // "Needs acceptance: Yes" is only allowed on a material change. Taking material
     // back to No clears that answer, so the operator answers it again.
@@ -274,20 +287,20 @@ export class AdminLegalVersions {
     this.patch(document, { material: answer, acceptance });
   }
 
-  protected onAcceptance(document: LegalAgreementDocument, answer: 'yes' | 'no'): void {
+  protected onAcceptance(document: LegalPublishableDocument, answer: 'yes' | 'no'): void {
     if (answer === 'yes' && this.draft(document).material !== 'yes') return;
     this.patch(document, { acceptance: answer });
   }
 
-  protected onSummary(document: LegalAgreementDocument, event: Event): void {
+  protected onSummary(document: LegalPublishableDocument, event: Event): void {
     this.patch(document, { summary: (event.target as HTMLTextAreaElement).value });
   }
 
-  protected onSummaryBlur(document: LegalAgreementDocument): void {
+  protected onSummaryBlur(document: LegalPublishableDocument): void {
     this.patch(document, { summaryTouched: true });
   }
 
-  protected onExpedited(document: LegalAgreementDocument, value: string | null): void {
+  protected onExpedited(document: LegalPublishableDocument, value: string | null): void {
     this.patch(document, { expedited: (value as LegalExpeditedReason | null) ?? null });
   }
 
@@ -405,7 +418,7 @@ export class AdminLegalVersions {
         document: entry.document,
         version: entry.version,
         material: d.material === 'yes',
-        requires_acceptance: d.acceptance === 'yes',
+        requires_acceptance: this.asksAcceptance(entry.document) && d.acceptance === 'yes',
         summary: summaryBullets(d.summary),
         ...(entry.document === 'vendor_terms' ? { expedited_reason: d.expedited } : {}),
       });
@@ -433,14 +446,22 @@ export class AdminLegalVersions {
 
   // ── View helpers ───────────────────────────────────────────────────────────
 
-  protected headingId(document: LegalAgreementDocument): string {
+  protected headingId(document: LegalPublishableDocument): string {
     return `admin-legal-${document}-heading`;
   }
 
-  protected documentTitle(document: LegalAgreementDocument): string {
-    return document === 'vendor_terms'
-      ? $localize`:@@admin.legal.doc.vendorTerms:Vendor Terms`
-      : $localize`:@@admin.legal.doc.managedPlan:Managed plan agreement`;
+  protected documentTitle(document: LegalPublishableDocument): string {
+    switch (document) {
+      case 'vendor_terms':
+        return $localize`:@@admin.legal.doc.vendorTerms:Vendor Terms`;
+      case 'managed_plan':
+        return $localize`:@@admin.legal.doc.managedPlan:Managed plan agreement`;
+      // AECI-1637: the reader documents publish here too.
+      case 'terms':
+        return $localize`:@@admin.legal.doc.terms:Terms of Service`;
+      case 'privacy':
+        return $localize`:@@admin.legal.doc.privacy:Privacy Policy`;
+    }
   }
 
   /** `/legal/<slug>/v<version>`, the version's own page. */
@@ -456,7 +477,16 @@ export class AdminLegalVersions {
     return humanBytes(bytes);
   }
 
-  /** A company not reached, by name; its id when the company row is gone. */
+  /** A Terms of Service or Privacy Policy card: its notice goes to accounts (AECI-1637). */
+  protected isReader(document: LegalPublishableDocument): boolean {
+    return isLegalReaderDocument(document);
+  }
+
+  /** The acceptance question applies to every document but the Privacy Policy (ruling 4). */
+  protected asksAcceptance(document: LegalPublishableDocument): boolean {
+    return document !== 'privacy';
+  }
+
   /** Why a delivered company is worth checking, in plain words. */
   protected checkReason(reason: 'outcome_unknown' | 'held_by_tier'): string {
     return reason === 'outcome_unknown'
@@ -464,17 +494,34 @@ export class AdminLegalVersions {
       : $localize`:@@admin.legal.check.held:One of its addresses was held by this tier's email rules and got nothing.`;
   }
 
-  protected companyName(co: Pick<LegalNoticeNotReached, 'name' | 'vendor_id'>): string {
+  /** A company not reached, by name; its id when the company row is gone. On a reader
+   *  card the entry is an account, named by the start of its profile id. */
+  protected companyName(
+    co: Pick<LegalNoticeNotReached, 'name' | 'vendor_id'>,
+    document: LegalPublishableDocument,
+  ): string {
+    if (this.isReader(document)) {
+      const id = this.shortId(co.vendor_id);
+      return $localize`:@@admin.legal.notice.accountName:Account ${id}:ID:`;
+    }
     return co.name ?? co.vendor_id;
   }
 
-  /** Why a company was not reached, in plain words. */
-  protected notReachedReason(co: LegalNoticeNotReached): string {
-    return notReachedReason(co);
+  /** Why a company or account was not reached, in plain words. */
+  protected notReachedReason(
+    co: LegalNoticeNotReached,
+    document: LegalPublishableDocument,
+  ): string {
+    return notReachedReason(co, this.isReader(document));
   }
 
-  /** "1 company" / "N companies". */
-  protected companyCount(n: number): string {
+  /** "1 company" / "N companies", or "1 account" / "N accounts" on a reader card. */
+  protected audienceCount(document: LegalPublishableDocument, n: number): string {
+    if (this.isReader(document)) {
+      return n === 1
+        ? $localize`:@@admin.legal.notice.oneAccount:1 account`
+        : $localize`:@@admin.legal.notice.accounts:${n}:N: accounts`;
+    }
     return n === 1
       ? $localize`:@@admin.legal.notice.oneCompany:1 company`
       : $localize`:@@admin.legal.notice.companies:${n}:N: companies`;
@@ -492,7 +539,7 @@ export class AdminLegalVersions {
 
   // ── Internals ──────────────────────────────────────────────────────────────
 
-  private patch(document: LegalAgreementDocument, next: Partial<LegalDraft>): void {
+  private patch(document: LegalPublishableDocument, next: Partial<LegalDraft>): void {
     this.drafts.update((d) => ({ ...d, [document]: { ...(d[document] ?? EMPTY_DRAFT), ...next } }));
   }
 
@@ -543,7 +590,7 @@ function messageForError(err: unknown): string {
       case 'LEGAL_NOTICE_TOO_LATE':
         return $localize`:@@admin.legal.error.tooLate:This version has already taken effect, so the notice can no longer be sent.`;
       case 'LEGAL_NOTICE_ENQUEUE_FAILED':
-        return $localize`:@@admin.legal.error.enqueue:The notice was not queued for every company. The card shows how far it got. Send it again.`;
+        return $localize`:@@admin.legal.error.enqueue:The notice was not queued for everyone. The card shows how far it got. Send it again.`;
       case 'NOT_FOUND':
         return $localize`:@@admin.legal.error.notFound:This version is no longer recorded. Reload the page.`;
     }

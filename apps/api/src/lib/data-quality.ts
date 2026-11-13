@@ -41,9 +41,9 @@
  */
 
 import {
-  LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_IN_FORCE_MAPS,
   legalEffectiveAtMs,
+  legalPublishableUpcoming,
   legalPublishedRowMismatched,
   type LegalInForceMaps,
   OWNERSHIP_VERSIONS_MAX_IDS,
@@ -1273,8 +1273,8 @@ function truncate(message: string): string {
 export const LEGAL_UNPUBLISHED_WARN_DAYS = 30;
 
 /**
- * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms or Managed plan
- * agreement version whose effective moment is 30 days away or less, or already past, and
+ * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms, Managed plan
+ * agreement or (AECI-1637) Terms of Service or Privacy Policy version whose effective moment is 30 days away or less, or already past, and
  * that has no `legal_versions` row. Unpublished, it never becomes the version in force
  * (`legalAgreementVersionInForce`), so the page keeps "takes effect on <date>" past the
  * date, and the 30-day notice can no longer be given in time. Publish it, or move the
@@ -1287,9 +1287,7 @@ export async function checkLegalAgreementUnpublished(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
   const horizon = now.getTime() + LEGAL_UNPUBLISHED_WARN_DAYS * DAY_MS;
-  const due = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    if (!upcoming) return [];
+  const due = legalPublishableUpcoming(maps).flatMap(({ document, upcoming }) => {
     const at = legalEffectiveAtMs(upcoming.effectiveOn);
     return Number.isFinite(at) && at <= horizon ? [{ document, upcoming, at }] : [];
   });
@@ -1318,8 +1316,9 @@ export async function checkLegalAgreementUnpublished(
 }
 
 /**
- * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms or Managed plan
- * agreement row for the upcoming version whose effective moment is not the upcoming
+ * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms, Managed plan
+ * agreement, Terms of Service or Privacy Policy row (the last two since AECI-1637) for the
+ * upcoming version whose effective moment is not the upcoming
  * entry's, because the date was moved after the publish. The row is in force nowhere
  * (`legalPublishedRowMismatched`): the page never switches, no stamp moves, the acceptance
  * screen asks nothing. Move the entry back to the published date, or make the new date a
@@ -1329,10 +1328,7 @@ export async function checkLegalAgreementDateMoved(
   db: Db,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
-  const entries = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    return upcoming ? [{ document, upcoming }] : [];
-  });
+  const entries = legalPublishableUpcoming(maps);
   if (entries.length === 0) return { lines: [] };
   const rows = await db
     .select({

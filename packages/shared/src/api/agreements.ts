@@ -237,6 +237,88 @@ export function isKnownLegalPolicyVersion(policy: LegalPolicyDocument, version: 
 }
 
 /**
+ * The two documents every account holder is bound by (AECI-1637, counsel Q34, ruling 12):
+ * the Terms of Service and the Privacy Policy. Like the agreements, a new version is
+ * published on `/admin/legal` (`legal_versions`), and switches in only once published
+ * (`legalReaderVersionInForce`, ruling 2 of 2026-11-13). A material version is emailed to
+ * every account (`legal-account-change`). Signing in records an acceptance of the Terms
+ * version in force (`terms_acceptances`). A Terms version that needs acceptance (it reduces
+ * rights) applies to an account only from that record, never on continued use. A Privacy
+ * version never needs acceptance (ruling 4).
+ *
+ * Not part of `LEGAL_AGREEMENT_DOCUMENTS` on purpose: the checkbox labels, the text hashes
+ * and the vendor acceptance screen are keyed on the two agreements only.
+ */
+export const LEGAL_READER_DOCUMENTS = ['terms', 'privacy'] as const;
+export const LegalReaderDocumentSchema = z.enum(LEGAL_READER_DOCUMENTS);
+export type LegalReaderDocument = z.infer<typeof LegalReaderDocumentSchema>;
+
+/** Every document `/admin/legal` can publish: the two agreements and the two reader documents. */
+export const LEGAL_PUBLISHABLE_DOCUMENTS = [
+  ...LEGAL_AGREEMENT_DOCUMENTS,
+  ...LEGAL_READER_DOCUMENTS,
+] as const;
+export const LegalPublishableDocumentSchema = z.enum(LEGAL_PUBLISHABLE_DOCUMENTS);
+export type LegalPublishableDocument = z.infer<typeof LegalPublishableDocumentSchema>;
+
+/** Whether a document is one of the two reader documents. */
+export function isLegalReaderDocument(document: string): document is LegalReaderDocument {
+  return (LEGAL_READER_DOCUMENTS as readonly string[]).includes(document);
+}
+
+/**
+ * The BUILD's current version of each reader document. Keep it a plain object literal:
+ * `legal-page.component.spec.ts` (web) asserts each value equals the `version` frontmatter
+ * of `terms-of-service.md` / `privacy-policy.md`. Like the agreement map, it is not "the
+ * version in force now": readers ask `legalReaderVersionInForce`.
+ */
+export const LEGAL_READER_CURRENT_VERSIONS = {
+  terms: '1.1',
+  privacy: '1.1',
+} as const satisfies Record<LegalReaderDocument, string>;
+
+/**
+ * The version of each reader document that is published but not yet in force, if any.
+ * Mirrors the `terms` and `privacy` entries of the web manifest `LEGAL_UPCOMING`, and
+ * `legal-page.component.spec.ts` pins the two equal. Only the version listed here can be
+ * published, and it switches in at 12:00 UTC of `effectiveOn` only once it has a
+ * `legal_versions` row. Empty today.
+ */
+export const LEGAL_READER_UPCOMING_VERSIONS: Readonly<
+  Partial<Record<LegalReaderDocument, LegalAgreementUpcomingVersion>>
+> = {};
+
+/** Every version of each reader document that was ever current, oldest first. */
+export const LEGAL_READER_KNOWN_VERSIONS = {
+  terms: ['1.0', '1.1'],
+  privacy: ['1.0', '1.1'],
+} as const satisfies Record<LegalReaderDocument, readonly string[]>;
+
+/**
+ * The day each known version of each reader document takes effect, `YYYY-MM-DD` read as
+ * UTC, or `null` for a draft that never took effect. The same rules as
+ * `LEGAL_AGREEMENT_EFFECTIVE_ON`: `legal-page.component.spec.ts` (web) asserts each entry
+ * equals that version's frontmatter `effective_date`, and a draft stays `null` for good.
+ * Every entry is `null` today: no Terms version is in force, so a sign-in records nothing
+ * (`apps/api/src/lib/reader-legal-acceptance.ts`).
+ */
+export const LEGAL_READER_EFFECTIVE_ON = {
+  terms: { '1.0': null, '1.1': null },
+  privacy: { '1.0': null, '1.1': null },
+} as const satisfies Record<LegalReaderDocument, Record<string, string | null>>;
+
+/**
+ * The line beside the sign-in buttons on `/auth/login` (AECI-1637, ruling of 2026-11-13:
+ * signing in is the acceptance). Signing in records an acceptance of the Terms version in
+ * force, and the server stores exactly this text (`terms_acceptances.checkbox_label`) with
+ * its SHA-256. The login page renders it in en-US with "Terms of Service" and "Privacy
+ * Policy" as links, and `login.component.spec.ts` (web) pins the rendered text to this
+ * constant. Change both together, and only with the legal text that names it.
+ */
+export const SIGN_IN_TERMS_LINE =
+  'By signing in, you agree to our Terms of Service and Privacy Policy.';
+
+/**
  * The Plans page (`/docs/vendors/plans`) as versioned content (AECI-1619, ruling 16). A
  * checkout or grant acceptance records the version current when it was given
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot

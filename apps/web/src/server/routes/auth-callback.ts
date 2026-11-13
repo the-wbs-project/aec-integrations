@@ -13,6 +13,11 @@
  * fail-closed route classifier, so the cookie survives by design and never
  * reaches a cacheable render.
  *
+ * Terms acceptance (AECI-1637): signing in is the acceptance. The ensure call carries the
+ * eyeball request's `CF-Connecting-IP` and `User-Agent` ({@link signInEvidenceHeaders}), and
+ * the API records the acceptance of the Terms version in force with them. That write never
+ * fails the ensure, so it never fails the sign-in.
+ *
  * Profile-ensure: under ADR 0016 the authoritative `profiles` row lives in D1
  * and there is NO `handle_new_user` trigger, so the API Worker's
  * `POST /api/auth/profile/ensure` (bearer = the fresh access token) that this
@@ -108,6 +113,23 @@ export function postSignInPath(returnPath: string, created: boolean): string {
   if (returnPath === WELCOME_PATH || returnPath.startsWith(`${WELCOME_PATH}?`)) return returnPath;
   if (returnPath === '/') return WELCOME_PATH;
   return `${WELCOME_PATH}?${new URLSearchParams({ next: returnPath }).toString()}`;
+}
+
+/**
+ * The eyeball request's `CF-Connecting-IP` and `User-Agent`, for the profile-ensure call
+ * (AECI-1637). The ensure records the sign-in's Terms acceptance with the IP address and
+ * browser of the person signing in. The call builds a fresh `Request`, so neither header
+ * crosses the service binding unless it is copied here. Cloudflare sets
+ * `CF-Connecting-IP` at the edge and overwrites a client's value, so it is safe to pass on.
+ * A header the request lacks is left out.
+ */
+export function signInEvidenceHeaders(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  const ip = headers.get('cf-connecting-ip');
+  if (ip) out['cf-connecting-ip'] = ip;
+  const userAgent = headers.get('user-agent');
+  if (userAgent) out['user-agent'] = userAgent;
+  return out;
 }
 
 /** Profile-ensure attempts before the callback gives up and signs out (AECI-770). */
@@ -228,7 +250,10 @@ export function createAuthCallbackHandler(
       try {
         const ensured = await api.request<{ created: boolean }>('/api/auth/profile/ensure', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${data.session.access_token}` },
+          headers: {
+            Authorization: `Bearer ${data.session.access_token}`,
+            ...signInEvidenceHeaders(c.req.raw.headers),
+          },
         });
         // Strictly `true`: an older API without the field must not divert anyone.
         created = ensured?.created === true;

@@ -263,6 +263,31 @@
       }
     </div>
   </form>
+
+  <!--
+    AECI-1637 (ruling of 2026-11-13): signing in is the acceptance. This line always shows
+    beside the sign-in buttons. The API stores its exact en-US text (SIGN_IN_TERMS_LINE in
+    packages/shared/src/api/agreements.ts) with each acceptance, and login.component.spec.ts
+    pins the two equal. Change both together, and only with the legal text.
+  -->
+  <p
+    class="mt-6 text-center text-sm leading-relaxed text-(--text-secondary)"
+    data-testid="login-terms-line"
+    i18n="@@auth.login.termsLine"
+  >
+    By signing in, you agree to our
+    <a
+      routerLink="/legal/terms"
+      class="font-semibold text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >Terms of Service</a
+    >
+    and
+    <a
+      routerLink="/legal/privacy"
+      class="font-semibold text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >Privacy Policy</a
+    >.
+  </p>
   }
 
   <!--

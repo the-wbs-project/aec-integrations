@@ -2381,8 +2381,9 @@ export const agreementAcceptances = sqliteTable(
 
 /**
  * Published legal versions (AECI-1688, `STAGE_1_SPEC.md` §27.5, `DATABASE_SCHEMA.md`
- * §8.6i, ADR 0054). One row is one version of the vendor terms or the Managed plan
- * agreement that an operator published on `/admin/legal` before it takes effect. The
+ * §8.6i, ADR 0054). One row is one version of the vendor terms, the Managed plan
+ * agreement or, since AECI-1637, the Terms of Service or the Privacy Policy, that an
+ * operator published on `/admin/legal` before it takes effect. The
  * publish sends nothing: the notice email (AECI-1620), the acceptance screen (AECI-1677)
  * and reader accounts (AECI-1637) read this row later.
  *
@@ -2407,7 +2408,8 @@ export const legalVersions = sqliteTable(
   'legal_versions',
   {
     id: uuidPk(),
-    /** `LEGAL_AGREEMENT_DOCUMENTS`: `vendor_terms` | `managed_plan`. No CHECK. */
+    /** `LEGAL_PUBLISHABLE_DOCUMENTS`: `vendor_terms` | `managed_plan` | `terms` |
+     *  `privacy` (the last two since AECI-1637). No CHECK. */
     document: text('document').notNull(),
     /** e.g. `'1.4'`. */
     version: text('version').notNull(),
@@ -2429,7 +2431,8 @@ export const legalVersions = sqliteTable(
     publishedAt: text('published_at').notNull(),
     /** ISO-8601. AECI-1620 fills it when the notice fan-out is queued. */
     noticeEnqueuedAt: text('notice_enqueued_at'),
-    /** AECI-1620 fills it with the number of vendors queued. */
+    /** AECI-1620 fills it with the number of vendors queued. For a `terms` or `privacy`
+     *  row (AECI-1637) it is the number of ACCOUNTS queued: the column keeps its name. */
     noticeVendorCount: integer('notice_vendor_count'),
   },
   (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
@@ -2467,6 +2470,110 @@ export const legalNoticeDeliveries = sqliteTable(
   },
   (t) => [
     uniqueIndex('legal_notice_deliveries_version_vendor_key').on(t.legalVersionId, t.vendorId),
+  ],
+);
+
+/**
+ * Where each ACCOUNT's change notice stands for a Terms of Service or Privacy Policy version
+ * (AECI-1637, `DATABASE_SCHEMA.md` §8.6l). The account twin of `legal_notice_deliveries`:
+ * one row per published version and `profiles.id`, written by `lib/legal-notice.ts` only,
+ * with the same statuses (`LEGAL_NOTICE_DELIVERY_STATUSES`) and reasons. A table of its own
+ * because making `legal_notice_deliveries.vendor_id` nullable would be a D1 table recreate
+ * (`docs/migrations.md` §0).
+ *
+ * LOG-CLASS (ADR 0022, as `legal_notice_deliveries`): the publish and the re-send carry
+ * their own `audit_log` rows. No CHECK, no FK (a log row outlives its subjects, and the
+ * account may be deleted), no prune.
+ */
+export const legalNoticeReaderDeliveries = sqliteTable(
+  'legal_notice_reader_deliveries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** A `legal_versions.id`. No FK. */
+    legalVersionId: text('legal_version_id').notNull(),
+    /** A `profiles.id`. No FK. */
+    profileId: text('profile_id').notNull(),
+    /** `LEGAL_NOTICE_DELIVERY_STATUSES`. No CHECK. */
+    status: text('status').notNull(),
+    /** `message.attempts` of the last consumer run for this account; 0 until one runs. */
+    attempts: integer('attempts').notNull().default(0),
+    /** `LEGAL_NOTICE_DELIVERY_REASONS`. NULL when the last attempt delivered. */
+    lastReason: text('last_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('legal_notice_reader_deliveries_version_profile_key').on(
+      t.legalVersionId,
+      t.profileId,
+    ),
+  ],
+);
+
+/**
+ * Sign-in acceptances of a Terms of Service version (AECI-1637, counsel Q34, ruling 12;
+ * `DATABASE_SCHEMA.md` §8.6k). Signing in is the acceptance (ruling of 2026-11-13): the
+ * login page shows one line beside the sign-in buttons, and one row is one account holder
+ * signing in while one Terms version was in force. Written for every Terms version in
+ * force, whatever its `requires_acceptance` flag. For a version published with the flag,
+ * this row is the moment it starts to apply to that account.
+ *
+ * EVIDENCE, NOT AN ACCOUNT LINK (ruling 1 of 2026-11-13, the vendor rule). `profile_id` has
+ * NO FK to `profiles`, so the row survives the account's deletion, and keeps the user, the
+ * email, the version and the time for the life of the account plus 6 years. `ip` and
+ * `user_agent` are nulled 90 days after `accepted_at` by the daily sweep
+ * (`lib/acceptance-evidence-removal.ts`), which stamps `evidence_removed_at`.
+ *
+ * `document` is `terms` only, and has no CHECK (Zod owns it, and a CHECK change on D1 is a
+ * table recreate). `legal_version_id` names the `legal_versions` row of the version, NO FK,
+ * and is NULL only for a version with no row. `pdf_sha256` is that row's PDF hash: the copy
+ * the account holder could read. The unique `(profile_id, document, version)` index keeps
+ * it once per account per version: a racing second sign-in fails its batch whole.
+ *
+ * Domain state: the one writer, `lib/reader-legal-acceptance.ts` (called from
+ * `POST /api/auth/profile/ensure`), inserts with its `terms.accepted` audit row in one
+ * `db.batch`. Append-only but for the evidence sweep. Never pruned (`NEVER_PRUNED`).
+ */
+export const termsAcceptances = sqliteTable(
+  'terms_acceptances',
+  {
+    id: uuidPk(),
+    /** `terms`. No CHECK. */
+    document: text('document').notNull(),
+    /** The version accepted, e.g. `'1.2'`. */
+    version: text('version').notNull(),
+    /** A `legal_versions.id`, NO FK. NULL for a version with no row. */
+    legalVersionId: text('legal_version_id'),
+    /** A `profiles.id`, NO FK: the row outlives the account. */
+    profileId: text('profile_id').notNull(),
+    /** The account's email at acceptance, from the verified session. */
+    email: text('email').notNull(),
+    /** ISO-8601. */
+    acceptedAt: text('accepted_at').notNull(),
+    /** `CF-Connecting-IP`. Nulled 90 days after `accepted_at`. */
+    ip: text('ip'),
+    /** Truncated to 512 characters. Nulled 90 days after `accepted_at`. */
+    userAgent: text('user_agent'),
+    /** The exact line shown beside the sign-in buttons (`SIGN_IN_TERMS_LINE`). The name
+     *  is the vendor table's: there is no box. */
+    checkboxLabel: text('checkbox_label').notNull(),
+    /** SHA-256 (lowercase hex, UTF-8) of `checkbox_label`. */
+    checkboxLabelSha256: text('checkbox_label_sha256').notNull(),
+    /** Always 0: there is no box (the sign-in is the act). 1 would mean an unticked box was
+     *  shown, kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34). */
+    checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }).notNull(),
+    /** The published version's `legal_versions.pdf_sha256`. NULL with `legal_version_id`. */
+    pdfSha256: text('pdf_sha256'),
+    /** When the daily sweep nulled `ip` and `user_agent`. NULL while they are kept. */
+    evidenceRemovedAt: text('evidence_removed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('terms_acceptances_profile_document_version_key').on(
+      t.profileId,
+      t.document,
+      t.version,
+    ),
   ],
 );
 
