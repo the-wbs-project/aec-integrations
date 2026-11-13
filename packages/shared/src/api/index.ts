@@ -39,6 +39,8 @@ export * from './notification-preferences';
 export * from './page-views';
 export * from './page-view-raw';
 export * from './page-view-turnstile';
+export * from './page-view-browser-evidence';
+export * from './held-region';
 export * from './product-facets';
 export * from './product-pairs';
 export * from './product-requests';

@@ -3606,6 +3606,29 @@ export const pageViews = sqliteTable(
     // arrival UPDATE narrows by `created_at` instead of indexing this column.
     turnstileVerdict: text('turnstile_verdict'),
 
+    // AECI-1713 (epic AECI-1711). What the browser reported about this page load:
+    // `ran` (our page script ran) or `interacted` (a person then touched the page),
+    // `BROWSER_EVIDENCE_VALUES` in `@aeci/shared`. Only `interacted` is the planned
+    // human floor. `ran` is not human evidence (AECI-1710 Phase 0: crawlers run our
+    // bundle). A `browser-spa` row is written with `ran`, because the insert is itself
+    // proof the script ran. An `ssr-arrival` row starts NULL and is upgraded by
+    // `POST /api/page-views/browser-evidence`, matched on `cf_ray`. Upgrade only:
+    // NULL -> `ran` -> `interacted`, never back.
+    //
+    // NULL = no report arrived, or none was collected: a privacy-signal row (the
+    // column is in `PRIVACY_NULLED`), a held region, or any row written before
+    // migration 0122. Never backfilled.
+    //
+    // No CHECK constraint and no index, for the reasons `client_verdict` above
+    // records. A CHECK here made drizzle-kit emit a full `__new_page_views` recreate
+    // (tried and discarded in AECI-1713), whose DROP fires ON DELETE CASCADE
+    // (`docs/migrations.md` §0). The two words are enforced by
+    // `BrowserEvidencePostSchema` and by the handler, which writes only them.
+    browserEvidence: text('browser_evidence'),
+    // ISO server time of the last accepted report: the insert time on a `browser-spa`
+    // row, the UPDATE time on an upgrade. Never the browser's clock.
+    browserEvidenceAt: text('browser_evidence_at'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session

@@ -187,7 +187,11 @@ import {
   createSubscribeHandler,
   createUnsubscribeHandler,
 } from './routes/landing-forms';
-import { createPageViewsHandler, createTurnstileVerdictHandler } from './routes/page-views';
+import {
+  createBrowserEvidenceHandler,
+  createPageViewsHandler,
+  createTurnstileVerdictHandler,
+} from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
@@ -401,6 +405,15 @@ app.post(
   '/api/page-views/turnstile',
   rateLimit('token', { by: 'ip' }),
   createTurnstileVerdictHandler(),
+);
+// AECI-1713 (epic AECI-1711): the browser's report about a page load,
+// `{ cf_ray, evidence }`. Anonymous, through the same SSR passthrough. One small
+// post per page load, like the verdict above, so it takes the same `token` bucket
+// keyed by IP. A 429 costs one report, never a page view.
+app.post(
+  '/api/page-views/browser-evidence',
+  rateLimit('token', { by: 'ip' }),
+  createBrowserEvidenceHandler(),
 );
 
 // Phase 2.8 sub-router (AECI-54). `errorHandler()` converts thrown

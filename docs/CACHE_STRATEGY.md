@@ -271,12 +271,12 @@ return Renderer.fetch(request, { cf });
 - **Appended, not set.** An existing `Server-Timing` entry survives.
 - **Validated.** A ray not matching `^[0-9A-Za-z-]{1,64}$`, or no `cf-ray` at all (Node tests, local dev), adds no `cfray` entry. A stray quote can never break out of `desc`.
 
-The browser reads it from `PerformanceNavigationTiming.serverTiming` and posts the landing view's Turnstile verdict against it (`API_CONTRACTS.md` §6.9 `POST /api/page-views/turnstile`). Design: `docs/design/edge-log-and-page-views.md` §4. Tests: `apps/web/src/cache-key-url.spec.ts`.
+The browser reads it from `PerformanceNavigationTiming.serverTiming` and posts the landing view's Turnstile verdict against it (`API_CONTRACTS.md` §6.9 `POST /api/page-views/turnstile`). The browser report (AECI-1713, `POST /api/page-views/browser-evidence`) uses the same ray. A landing view reads it from the navigation entry. An in-app view reads it from its own `POST /api/page-views` response, which takes the non-GET branch: that ray is the beacon request's inbound `cf-ray`, the one stored on its `browser-spa` row. Design: `docs/design/edge-log-and-page-views.md` §4. Tests: `apps/web/src/cache-key-url.spec.ts`.
 
 **The gateway also stamps `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip (AECI-1581, 2026-11-02).** It is interim, until the AECI-1458 counsel ruling, and AECI-1529 removes it. `withGatewayServerTiming` appends it on the same three branches. Four rules hold it:
 
 - **Never cached.** It is added per request, after `Renderer` answers, so cached bodies stay visitor-neutral. It changes neither the cache key nor `Vary`. Do not move it into `Renderer` or the HTML.
-- **When it is stamped.** When `cf.isEUCountry === '1'`, or the country is GB, CH, IS, LI or NO. There is no tier condition, so staging and demo stamp the same visitors.
+- **When it is stamped.** When `cf.isEUCountry === '1'`, or the country is an EU member state, GB, CH, IS, LI or NO. Since AECI-1713 the country list is `HELD_REGION_COUNTRIES` in `packages/shared/src/api/held-region.ts`, which the API also reads to keep browser reports off held-region rows. It names the 27 member states itself, so an EU visitor is stamped even if Cloudflare omits `isEUCountry`. There is no tier condition, so staging and demo stamp the same visitors.
 - **Fail closed.** It is also stamped for a missing country, `XX` (unknown), `T1` (Tor), and EU territories with their own ISO code: AX, GF, GP, MF, MQ, RE, YT. A request with no `request.cf` is unstamped, which happens only in Node tests. `wrangler dev` fills `request.cf`, so the stamp can appear locally (`docs/local-dev.md` §4.3).
 - **Independent of `cf-ray`.** A request with no valid ray can still carry it. The value is a fixed literal, so it needs no validation.
 

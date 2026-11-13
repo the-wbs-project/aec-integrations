@@ -3480,6 +3480,7 @@ All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/
 | `sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol` | request-shape facts |
 | `dedupe_key` | needs the UA hash |
 | `turnstile_verdict` | no Turnstile script loads, so there is no token (AECI-1457) |
+| `browser_evidence`, `browser_evidence_at` | no report is collected, so the row reads "not collected", never `ran` (AECI-1713) |
 
 The verdicts are still computed at ingest, in memory, from the inputs that are then dropped. `created_at` is cut to the start of the UTC hour, in the same ISO text shape. The row writes no R2 raw envelope (ADR 0041, 2026-10-23 amendment). Four consequences for a reader:
 
@@ -3513,6 +3514,19 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 - **`ssr-arrival` rows, by a later UPDATE.** The gateway has no token, so the browser posts `{ cf_ray, token }` to `POST /api/page-views/turnstile` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance = 'ssr-arrival'`, `turnstile_verdict IS NULL`, `privacy_signal = 0` and `created_at` within the last 10 minutes. First verdict wins. Zero rows changed earns one retry after 2 s.
 
 NULL means no check: the tier has no `TURNSTILE_SITE_KEY` (every deployed tier requires one), the visitor sent DNT/GPC (the column is privacy-nulled, above), the visitor's region is excluded until the AECI-1458 ruling (AECI-1581), a beacon carried no token, a landing verdict post never arrived, or the row predates `0095`. Never backfilled. No CHECK, for the two reasons `client_verdict` records. No index on it or on `cf_ray`: the `created_at` bound lets the UPDATE ride `page_views_created_at_idx` instead of adding an index row to every insert on the hottest write path.
+
+**Browser evidence (AECI-1713, migration `0122`, epic AECI-1711).** `browser_evidence` is the browser's own report about one page load: `ran` (our page script ran) or `interacted` (a person then touched the page). `BROWSER_EVIDENCE_VALUES` in `@aeci/shared` holds the two words. `browser_evidence_at` is the ISO server time of the last accepted report, never the browser's clock. Only `interacted` is the planned human floor. **`ran` is not human evidence:** the AECI-1710 Phase 0 run found crawlers and a residential proxy pool that run our bundle. Nothing reads either column yet. Reading them is AECI-1716. Two writers set them:
+
+- **`browser-spa` rows, at insert.** The row comes from our tracker's own `POST /api/page-views`, so the insert is itself proof the script ran. `capturePageView` writes `ran` and the insert time, unless the row is a privacy-signal row or a held-region row (below).
+- **Any row, by a later UPDATE.** The browser posts `{ cf_ray, evidence }` to `POST /api/page-views/browser-evidence` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0`, a `cf_country` that is present and outside the held list, and `created_at` within the last 10 minutes. A landing view's ray is its `ssr-arrival` row's. An in-app view's ray is its own beacon POST's, stored on its `browser-spa` row. One ray names one request, so it names at most one of the two. Only a `ran` report that changed nothing retries, once, after 2 s.
+
+**Upgrade only.** NULL becomes `ran` or `interacted`. `ran` becomes `interacted`. Nothing moves back. A `ran` report needs `browser_evidence IS NULL`. An `interacted` report needs NULL or `ran`. A replay or a downgrade matches nothing and changes nothing, the timestamp included.
+
+**Never on a privacy or held-region row, by either writer.** The Privacy Policy promises that the report is not collected for a visitor who sends DNT or GPC, or for one in the EEA, the UK or Switzerland (ruling 21). So a privacy-signal row is always NULL in both columns (the table above). So is a held-region row: one whose `cf_country` is in `HELD_REGION_COUNTRIES` (`@aeci/shared`, the 27 EU member states, IS, LI, NO, GB, CH, `XX`, `T1` and seven EU territories) or is NULL or blank. `isHeldRegionCountry` fails closed on an unknown country. The insert checks it before writing `ran`. The UPDATE refuses those rows in SQL, so a forged or stale post cannot mark one. The browser's own gate (AECI-1714) is the primary hold, and these two checks are the server's. The SSR gateway's `geo` stamp reads the same list.
+
+NULL means no report arrived, or none was collected. Rows written before `0122` stay NULL and are **never backfilled**, old `browser-spa` rows included: the column records a report, and none was made for them. A missing report is never automation evidence on a privacy row or a held-region row. Those are "not collected", a separate state from "no report arrived". The report is the browser's claim, like `navigation`. A client that reads its own ray can post `interacted` without a person. Phase 0 found no crawler that did.
+
+**Never anonymous.** On counsel's read, the non-DNT `page_views` row is personal information, and this report is part of it. Nothing calls the row, the report or a count built on it anonymous or aggregate. The report is never a PostHog event (`ANALYTICS.md` §5). No CHECK and no index, for the reasons `client_verdict` records. A CHECK was tried and made drizzle-kit emit a full `__new_page_views` recreate (`docs/migrations.md` §0), so `BrowserEvidencePostSchema` and the handler hold the two words.
 
 ```sql
 create table page_views (
@@ -3733,6 +3747,17 @@ create table page_views (
   -- no token, no verdict post, pre-0095). No CHECK, no index.
   turnstile_verdict text,
 
+  -- AECI-1713, migration 0122 (epic AECI-1711). 'ran' | 'interacted', the browser's
+  -- report. Written 'ran' at insert on a browser-spa row; set later by
+  -- POST /api/page-views/browser-evidence on the row its cf_ray names (ssr-arrival or
+  -- browser-spa). Upgrade only: NULL -> 'ran' -> 'interacted'. Only 'interacted' is
+  -- the planned human floor; 'ran' is not human evidence. NULL = no report, or not
+  -- collected (DNT/GPC, held region, pre-0122). Neither writer ever sets it on a
+  -- privacy_signal row or a held-region cf_country (isHeldRegionCountry, NULL
+  -- country included). Never backfilled. No CHECK, no index.
+  browser_evidence text,
+  browser_evidence_at text, -- ISO server time of the last accepted report
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
@@ -3833,6 +3858,8 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 **Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate. AECI-1348 retired `cf_verified_bot` without a migration. The column was NULL on every row, because Cloudflare sends `botManagement` only to a Bot Management zone. Dropping it would be a recreate (`docs/migrations.md` §0), so it stays and nothing writes it.
 
 **Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
+
+**Migration `0122` (AECI-1713) is two plain `ADD`s**: `browser_evidence` and `browser_evidence_at`. The first generate carried a CHECK on `browser_evidence` and drizzle-kit emitted a full `__new_page_views` recreate. That file was discarded, the CHECK dropped, and the regenerate is additive. `apps/api/src/test/migration-0122.spec.ts` fails if the file ever grows a recreate, a CHECK or an index.
 
 **Raw twin outside D1 (AECI-1384, ADR 0041, 2026-10-16).** Every capture that reaches the API also writes one raw JSON envelope to R2 through a Cloudflare Pipelines stream (bucket `aeci-page-views-raw-<env>`, Parquet, 400-day lifecycle). It is not a table and has no migration. It joins to this table on `page_view_id` (this table's `id`, set only for outcome `inserted`) and on `cf.ray` (this table's `cf_ray`). Outcomes `conflict`, `deduped`, `sampled_out` and `failed` have no `page_view_id`, so join those on the ray. The store holds the IP only as a monthly-keyed hash. This table still holds no IP. Read recipe: `docs/ANALYTICS.md`.
 
