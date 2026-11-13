@@ -920,6 +920,16 @@ element inside a `@defer (hydrate …)` block until that block hydrates. `#ng-st
 is no signal: it survives the `TransferState` read. `[ngh]` is no signal either:
 it is consumed before a default `goto` resolves.
 
+The same signal also covers content the client fetches at boot. App stability
+waits for pending `HttpClient` requests, `httpResource` included. So once
+`jsaction` is gone, the desktop nav flyouts hold their `TaxonomyNavStore` values.
+A listener can be live before that point while the list is still empty. In
+`e2e/nav-menu.spec.ts` "the flyout opens on keyboard", an ArrowDown sent before
+stability focused "View all", the only link yet. The values then rendered above
+it, so the first link was not focused (AECI-1675, 7 of 80 runs without the gate,
+0 of 1,120 with it). Gate on `untilHydrated` even when the listener seems to
+answer already.
+
   **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
   then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and
   the `updates.spec.ts` signup question are the worked examples. Do not wrap a
