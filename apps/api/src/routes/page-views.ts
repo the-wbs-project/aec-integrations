@@ -1,4 +1,5 @@
 import {
+  BrowserEvidencePostSchema,
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
   PAGE_VIEW_RAW_HEADERS,
@@ -18,8 +19,10 @@ import {
   type RawPageViewOutcome,
   type TurnstileVerdict,
   type TurnstileVerdictPost,
+  type BrowserEvidence,
+  type BrowserEvidencePost,
 } from '@aeci/shared';
-import { and, eq, gte, inArray, isNull } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -81,6 +84,12 @@ import { verifyTurnstile } from '../lib/turnstile';
  * verified before its insert (`verifySpaTurnstile`). A landing view's row is
  * written by the SSR gateway, which has no token, so the browser posts it later to
  * `POST /api/page-views/turnstile` (`createTurnstileVerdictHandler`).
+ *
+ * AECI-1713 (epic AECI-1711) added `browser_evidence`: `ran` or `interacted`, the
+ * browser's own report about the page load. A `browser-spa` row is written with
+ * `ran`, because that insert is itself proof the script ran. Every other report
+ * arrives later on `POST /api/page-views/browser-evidence`
+ * (`createBrowserEvidenceHandler`), matched on `cf_ray`, upgrade only.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -445,6 +454,11 @@ const PRIVACY_NULLED = {
   // AECI-1457. The browser loads no Turnstile script for a privacy request, so
   // there is no token. Listed anyway so no path can ever store a verdict here.
   turnstileVerdict: null,
+  // AECI-1713. The browser sends no report for a privacy request, and a privacy row
+  // is "not collected", never "ran". Listed so the `browser-spa` insert below cannot
+  // stamp `ran` on one.
+  browserEvidence: null,
+  browserEvidenceAt: null,
 } as const;
 
 /** The count every Turnstile verdict emits (AECI-1457). Only when the secret is set. */
@@ -623,6 +637,11 @@ async function recordPageView(
   derived.is_owner_visit = isOwnerVisit;
   derived.turnstile_verdict = turnstileVerdict;
 
+  // AECI-1713. A `browser-spa` write comes from our tracker's own POST, so the row
+  // is proof the page script ran. An `ssr-arrival` row starts NULL: the gateway
+  // proves nothing about the browser, and its report arrives by UPDATE.
+  const ranInApp = clientSignals.writerProvenance === PAGE_VIEW_WRITERS.browserSpa;
+
   const inserted = await db
     .insert(pageViews)
     .values({
@@ -681,6 +700,10 @@ async function recordPageView(
       // AECI-1457. Set only on a `browser-spa` write that carried a token on a
       // tier with the secret. A landing row gets its verdict later, by UPDATE.
       turnstileVerdict,
+      // AECI-1713. `ran` on a `browser-spa` row, NULL otherwise. A privacy row is
+      // NULL in both, by `PRIVACY_NULLED` below.
+      browserEvidence: ranInApp ? ('ran' satisfies BrowserEvidence) : null,
+      browserEvidenceAt: ranInApp ? new Date().toISOString() : null,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
       // (e.g. the waitlist welcome banner); null for ordinary views.
       refSource: payload.ref_source ?? null,
@@ -939,6 +962,142 @@ export function createTurnstileVerdictHandler(
     }
     const body = TurnstileVerdictPostSchema.parse(raw);
     c.executionCtx.waitUntil(applyTurnstileVerdict(c, body, dbFor, wait));
+    return noContent();
+  };
+}
+
+/**
+ * How far back a browser report looks for its row (AECI-1713). The Turnstile window,
+ * for the same reason: the `created_at` bound is what lets an UPDATE keyed on the
+ * unindexed `cf_ray` ride `page_views_created_at_idx`.
+ */
+export const BROWSER_EVIDENCE_WINDOW_MS = TURNSTILE_VERDICT_WINDOW_MS;
+
+/** Wait before the one retry of a `ran` report, for an arrival write still in flight. */
+export const BROWSER_EVIDENCE_RETRY_MS = TURNSTILE_VERDICT_RETRY_MS;
+
+/** The count every accepted browser report emits (AECI-1713). */
+const BROWSER_EVIDENCE_METRIC = 'aeci.pageviews.browser_evidence';
+
+/** Injectable seams for the browser evidence handler. `wait` lets specs skip the 2 s. */
+export type BrowserEvidenceDeps = { wait?: (ms: number) => Promise<void> };
+
+/**
+ * Store one browser report on the row its page load wrote. One UPDATE, matched on
+ * `cf_ray`, narrowed so it can only touch that row and only move it forward:
+ *
+ * - `writer_provenance IN ('ssr-arrival', 'browser-spa')`: the row this ray wrote.
+ *   A landing view's ray is the document request's, stored on its `ssr-arrival`
+ *   row. An in-app view's ray is its own `POST /api/page-views`, stored on its
+ *   `browser-spa` row. One ray names one request, so it names at most one of the
+ *   two. A row with any other provenance, or none, is never touched;
+ * - upgrade only. `ran` needs `browser_evidence IS NULL`. `interacted` needs NULL or
+ *   `ran`. A downgrade or a replay matches nothing and changes nothing;
+ * - `privacy_signal = 0`: a privacy row is "not collected" and is never written to.
+ *   It also stores no `cf_ray`, so this is belt and braces;
+ * - `created_at` inside the last 10 minutes, which bounds the scan on
+ *   `page_views_created_at_idx`. `cf_ray` has no index of its own, by design.
+ *
+ * Returns the rows changed, counted through `RETURNING` (D1 gives no usable
+ * `meta.changes` here, AECI-581).
+ */
+async function updateBrowserEvidence(
+  db: Db,
+  cfRay: string,
+  evidence: BrowserEvidence,
+  now: number,
+): Promise<number> {
+  const upgradeable =
+    evidence === 'ran'
+      ? isNull(pageViews.browserEvidence)
+      : or(isNull(pageViews.browserEvidence), eq(pageViews.browserEvidence, 'ran'));
+  const rows = await db
+    .update(pageViews)
+    .set({ browserEvidence: evidence, browserEvidenceAt: new Date(now).toISOString() })
+    .where(
+      and(
+        eq(pageViews.cfRay, cfRay),
+        inArray(pageViews.writerProvenance, [
+          PAGE_VIEW_WRITERS.ssrArrival,
+          PAGE_VIEW_WRITERS.browserSpa,
+        ]),
+        upgradeable,
+        eq(pageViews.privacySignal, false),
+        gte(pageViews.createdAt, new Date(now - BROWSER_EVIDENCE_WINDOW_MS).toISOString()),
+      ),
+    )
+    .returning({ id: pageViews.id });
+  return rows.length;
+}
+
+/**
+ * The deferred half of a browser report. Never throws.
+ *
+ * Only a `ran` report retries. It is posted as the page starts, so it can beat the
+ * gateway's own arrival write, which runs in that request's `waitUntil`. Zero rows
+ * changed earns one retry after 2 s. An `interacted` report follows a person's
+ * action, so its row is long written. Zero rows there is a replay, a downgrade, a
+ * privacy row or an old row, and a retry would only spend a second UPDATE.
+ *
+ * Log-class write: `page_views` is exempt from `audit_log` (ADR 0022), exactly as
+ * the Turnstile UPDATE is. Nothing here renders on a cached page, so there is no
+ * purge.
+ */
+async function applyBrowserEvidence(
+  c: Context<{ Bindings: Env }>,
+  body: BrowserEvidencePost,
+  dbFor: DbFactory,
+  wait: (ms: number) => Promise<void>,
+): Promise<void> {
+  const req = c.req.raw;
+  let result: 'updated' | 'no_match' | 'error';
+  try {
+    const { db } = dbFor(c.env);
+    let changed = await updateBrowserEvidence(db, body.cf_ray, body.evidence, Date.now());
+    if (changed === 0 && body.evidence === 'ran') {
+      await wait(BROWSER_EVIDENCE_RETRY_MS);
+      changed = await updateBrowserEvidence(db, body.cf_ray, body.evidence, Date.now());
+    }
+    result = changed > 0 ? 'updated' : 'no_match';
+  } catch (error) {
+    result = 'error';
+    logToPosthog(c.executionCtx, c.env, req, {
+      level: 'warn',
+      message: 'aeci.api.page_view.browser_evidence_update_failed',
+      source: 'page-views',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  submitCount(c.executionCtx, c.env, req, BROWSER_EVIDENCE_METRIC, 1, [
+    `evidence:${body.evidence}`,
+    `result:${result}`,
+  ]);
+}
+
+/**
+ * `POST /api/page-views/browser-evidence` (AECI-1713, epic AECI-1711): the
+ * browser's report about one page load. Body `{ cf_ray, evidence }`
+ * (`BrowserEvidencePostSchema`). A bad body is a 400. Anything well-formed is a 204,
+ * with the UPDATE deferred to `waitUntil`. The response never says whether a row
+ * matched, so a caller cannot probe which rays exist.
+ *
+ * `index.ts` registers it behind the `token` rate-limit bucket keyed by IP, the
+ * Turnstile verdict's bucket: both are one small anonymous post per page load.
+ */
+export function createBrowserEvidenceHandler(
+  dbFor: DbFactory = getDb,
+  deps: BrowserEvidenceDeps = {},
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  const wait = deps.wait ?? sleep;
+  return async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+    }
+    const body = BrowserEvidencePostSchema.parse(raw);
+    c.executionCtx.waitUntil(applyBrowserEvidence(c, body, dbFor, wait));
     return noContent();
   };
 }

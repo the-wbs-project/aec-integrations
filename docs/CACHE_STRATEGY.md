@@ -271,7 +271,7 @@ return Renderer.fetch(request, { cf });
 - **Appended, not set.** An existing `Server-Timing` entry survives.
 - **Validated.** A ray not matching `^[0-9A-Za-z-]{1,64}$`, or no `cf-ray` at all (Node tests, local dev), adds no `cfray` entry. A stray quote can never break out of `desc`.
 
-The browser reads it from `PerformanceNavigationTiming.serverTiming` and posts the landing view's Turnstile verdict against it (`API_CONTRACTS.md` §6.9 `POST /api/page-views/turnstile`). Design: `docs/design/edge-log-and-page-views.md` §4. Tests: `apps/web/src/cache-key-url.spec.ts`.
+The browser reads it from `PerformanceNavigationTiming.serverTiming` and posts the landing view's Turnstile verdict against it (`API_CONTRACTS.md` §6.9 `POST /api/page-views/turnstile`). The browser report (AECI-1713, `POST /api/page-views/browser-evidence`) uses the same ray. A landing view reads it from the navigation entry. An in-app view reads it from its own `POST /api/page-views` response, which takes the non-GET branch: that ray is the beacon request's inbound `cf-ray`, the one stored on its `browser-spa` row. Design: `docs/design/edge-log-and-page-views.md` §4. Tests: `apps/web/src/cache-key-url.spec.ts`.
 
 **The gateway also stamps `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip (AECI-1581, 2026-11-02).** It is interim, until the AECI-1458 counsel ruling, and AECI-1529 removes it. `withGatewayServerTiming` appends it on the same three branches. Four rules hold it:
 

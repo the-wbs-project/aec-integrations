@@ -421,3 +421,23 @@ export const PRIVACY_SIGNAL_HEADERS = ['sec-gpc', 'dnt'] as const;
 export function hasPrivacySignal(headers: Headers): boolean {
   return PRIVACY_SIGNAL_HEADERS.some((name) => headers.get(name)?.trim() === '1');
 }
+
+/**
+ * The two words `page_views.browser_evidence` stores (AECI-1713, epic AECI-1711).
+ * `ran` means our page script ran for this page load. `interacted` means a person
+ * then touched the page. Only `interacted` is the planned human floor. `ran` is not
+ * human evidence: the AECI-1710 Phase 0 run found crawlers that run our bundle.
+ * NULL on the column, never a third word, means no report arrived, or none was
+ * collected (a privacy-signal row, a held region, a row written before the column).
+ *
+ * Plain constants, kept here rather than beside the body schema, so the eager
+ * browser tracker can import them without pulling a Zod schema into the initial
+ * bundle (the reason `page-view-turnstile.ts` and `page-view-browser-evidence.ts`
+ * are separate modules).
+ */
+export const BROWSER_EVIDENCE_VALUES = ['ran', 'interacted'] as const;
+
+export type BrowserEvidence = (typeof BROWSER_EVIDENCE_VALUES)[number];
+
+/** Where the browser posts its report (`BrowserEvidencePostSchema`). Same-origin. */
+export const BROWSER_EVIDENCE_URL = '/api/page-views/browser-evidence';

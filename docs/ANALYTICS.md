@@ -178,7 +178,7 @@ most important thing to understand before reading any chart here.
 | **1 — server** | always, no consent concept | Worker logs, all metrics, audit forwards, deploy markers | n/a |
 | **2 — browser operational** | **every visitor, including DNT/GPC** | errors, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie |
 | **3 — product analytics** | consented visitors only; DNT/GPC are a hard deny | `$pageview` + the event catalogue above, `identify`, groups | localStorage |
-| **`page_views` (D1, not PostHog)** | every visitor; DNT/GPC become an anonymous counter row | page, hour, country, coarse verdicts. For DNT/GPC: no UA hash, network, Ray ID, referrer host, link token or raw envelope | none in the browser |
+| **`page_views` (D1, not PostHog)** | every visitor; DNT/GPC become an anonymous counter row | page, hour, country, coarse verdicts, and the browser report (`browser_evidence`, AECI-1713), which is a column on this row and never a PostHog event. For DNT/GPC: no UA hash, network, Ray ID, referrer host, link token, browser report or raw envelope | none in the browser |
 
 Consequences you must hold in your head when reading a number:
 
