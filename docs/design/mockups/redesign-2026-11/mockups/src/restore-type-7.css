@@ -1,0 +1,59 @@
+/* Type and spacing: as first designed (Options). The original values, over the limited ramp. */
+html.r-type-orig .pname { font-size: clamp(48px, 4.7vw, 68px); }
+html.r-type-orig .stage-note { font-size: 12.5px; }
+html.r-type-orig .f-ev { margin: 0; padding: 0; gap: 4px; font-size: 13.5px; }
+html.r-type-orig .seg button .n, html.r-type-orig .cat .n { font-size: 12.5px; font-weight: 700; padding: 0 6px; }
+html.r-type-orig .cat .n { margin-left: 2px; }
+html.r-type-orig .moreobj { gap: 6px; }
+html.r-type-orig .lane-row .must { margin-top: 6px; }
+html.r-type-orig .arrange { gap: 10px; }
+html.r-type-orig .int-body { gap: 36px; }
+html.r-type-orig .rail { gap: 14px; }
+html.r-type-orig .rail-box { padding: 16px 12px 12px; }
+html.r-type-orig .rail h4 { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: .08em; padding: 0 8px 8px; line-height: 1.4; }
+html.r-type-orig .rail ul { margin: 0; padding: 0; gap: 2px; }
+html.r-type-orig .rail a { gap: 10px; padding: 6px 10px 6px 6px; font-weight: 700; font-size: 14.5px; line-height: 1.2; }
+html.r-type-orig .rail a .c { font-size: 13px; }
+html.r-type-orig .rail .evb { gap: 10px; padding: 0 8px 4px; }
+html.r-type-orig .evb li { gap: 4px 10px; font-size: 13.5px; }
+html.r-type-orig .grp + .grp { margin-top: 46px; }
+html.r-type-orig .grp-head { gap: 14px; margin-bottom: 18px; padding-bottom: 14px; }
+html.r-type-orig .grp-head h3 { font-size: 25px; line-height: 1.15; }
+html.r-type-orig .grp-head .gn { font-size: 13px; font-weight: 700; padding: 2px 10px; }
+html.r-type-orig .grp-head .gs { margin-left: auto; font-size: 13.5px; gap: 6px; }
+html.r-type-orig .grp-more { margin-top: 16px; }
+html.r-type-orig .peek { gap: 12px; }
+html.r-type-orig .peek .stack .mark + .mark { margin-left: -9px; }
+html.r-type-orig .loadbar { margin-top: 30px; gap: 12px; }
+html.r-type-orig .loadbar .st { font-size: 14.5px; }
+html.r-type-orig .loadbar .row { gap: 10px; }
+html.r-type-orig .jchip { gap: 6px; padding: 0 14px 0 10px; font-weight: 500; font-size: 13px; }
+html.r-type-orig .jchip .n { font-size: 12.5px; }
+html.r-type-orig body.view-table .jump { gap: 8px; margin: 0 0 18px; }
+html.r-type-orig table.cmp tr.gh th { padding: 12px 24px; font-size: 14.5px; font-weight: 700; }
+html.r-type-orig table.cmp tr.gh th .ico { margin-right: 8px; }
+html.r-type-orig table.cmp tr.gh th span { font-weight: 600; margin-left: 6px; }
+html.r-type-orig .tnote { font-size: 13.5px; margin: 0 0 12px; }
+html.r-type-orig .int-foot { margin-top: 40px; }
+html.r-type-orig .order .body p + p { margin-top: 6px; }
+html.r-type-orig .sel .sortbtn { padding: 0 40px 0 44px; font: inherit; }
+html.r-type-orig .sortlist { margin: 0; padding: 4px; }
+html.r-type-orig .sortlist li { padding: 10px 12px; font-size: 14px; }
+html.r-type-orig .sortlist li[aria-selected="true"] { font-weight: 600; }
+html.r-type-orig .agree-dot { margin-right: 8px; }
+@media (max-width: 1260px) {
+  html.r-type-orig .int-body { gap: 28px; }
+}
+@media (max-width: 1040px) {
+  html.r-type-orig .jump { gap: 8px; margin: 0 0 24px; padding: 2px; }
+}
+@media (max-width: 760px) {
+  html.r-type-orig .pname { font-size: 38px; }
+  html.r-type-orig .hero { padding-bottom: 150px; }
+  html.r-type-orig .stage { margin-bottom: 40px; }
+  html.r-type-orig .stage-note { font-size: 12.5px; }
+  html.r-type-orig .seg button { gap: 6px; }
+  html.r-type-orig .grp-head { gap: 10px 12px; }
+  html.r-type-orig .grp-head h3 { font-size: 21px; }
+  html.r-type-orig .grp-head .gs { margin-left: 0; }
+}
