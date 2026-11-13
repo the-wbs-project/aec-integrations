@@ -1,0 +1,10 @@
+/* ---------- Rulings: Options-panel comparisons ---------- */
+/* 13 (ruled 2026-11-13): keep the soft single-colour glow in the hero, the empty-state card and the menu card;
+   no noise overlay; the stuck section bar is a solid surface with a hairline and the bar shadow, never frosted.
+   Options "Hero and bars": ruled (default), as first designed (html.r-hero-first: noise and frosted bar back),
+   fully solid (html.r-solid: the glows go too). Meter gradients are already gone under ruling 19. */
+html:not(.r-hero-first) .hero::after { display: none; }
+html:not(.r-hero-first) .secnav.stuck { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+html.r-solid .hero::before, html.r-solid .hero::after, html.r-solid .know::before { display: none; }
+html.r-solid .cm-card { background: var(--hero-bg); }
+html.r-solid .secnav.stuck { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }

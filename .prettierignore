@@ -45,3 +45,8 @@ scripts/ops/**/.upstream-cache.json
 # Third instance of the same trap as the two entries above. The lane's rollback-*.sql
 # needs no entry: Prettier has no SQL parser and skips it.
 scripts/ops/**/preflight-*.json
+
+# Redesign mock-ups (AECI-1571, 2026-11) — self-contained design references with
+# inline CSS and JS, assembled by the scripts in src/. Reformatting them would break
+# the byte-for-byte rebuild of mock-ups 7 and 8 from those sources.
+docs/design/mockups/redesign-2026-11/mockups/

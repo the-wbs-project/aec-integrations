@@ -1,0 +1,33 @@
+/* Buttons: as first designed (Options). Restores the original button anatomy over the one-size spec. */
+html.r-btn-orig.r-btn-orig .btn { min-height: 48px; padding: 0 22px; border-radius: 14px; border: 0; font-weight: 700; font-size: 15.5px; gap: 9px; box-shadow: none; }
+html.r-btn-orig.r-btn-orig .btn-hero { box-shadow: var(--sh-btn); }
+html.r-btn-orig.r-btn-orig .btn-primary { box-shadow: var(--sh-btn); }
+html.r-btn-orig.r-btn-orig .btn-soft { background: var(--surface-3); border-color: transparent; }
+html.r-btn-orig.r-btn-orig .btn-soft:hover { background: color-mix(in srgb, var(--surface-3) 70%, var(--ink-3) 30%); color: var(--ink); }
+html.r-btn-orig.r-btn-orig .btn-hero-ghost { border-color: transparent; }
+html.r-btn-orig.r-btn-orig .nav > a.signin { display: inline-block; align-items: normal; min-height: 0; padding: 10px 20px; border-radius: 999px; font-weight: 700; font-size: 15px; }
+html.r-btn-orig.r-btn-orig .viewtog { padding: 4px; border-radius: 14px; box-shadow: var(--sh-ctl); border: 0; }
+html.r-btn-orig.r-btn-orig .viewtog button { min-height: 40px; padding: 0 14px; border-radius: 10px; font-weight: 700; font-size: 14.5px; }
+html.r-btn-orig.r-btn-orig .keep { padding: 5px; border-radius: 17px; box-shadow: var(--sh-ctl); border: 0; }
+html.r-btn-orig.r-btn-orig .keep button { min-height: 50px; padding: 0 18px 0 8px; border-radius: 13px; font-weight: 700; font-size: 15.5px; gap: 10px; }
+html.r-btn-orig.r-btn-orig .keep button .mark { width: 34px; height: 34px; }
+html.r-btn-orig.r-btn-orig .linkbtn { min-height: 0; padding: 8px 14px; border-radius: 999px; border: 0; box-shadow: var(--sh-ctl); font-weight: 700; font-size: 14px; }
+html.r-btn-orig.r-btn-orig .need { min-height: 52px; padding: 0 8px 0 20px; border-radius: 16px; border: 0; font-weight: 700; font-size: 16px; gap: 12px; }
+html.r-btn-orig.r-btn-orig .need[aria-pressed="true"] { box-shadow: 0 8px 20px -10px var(--brand); border-color: transparent; }
+html.r-btn-orig.r-btn-orig .need .cnt { height: 38px; min-width: 44px; border-radius: 11px; font-size: 17px; }
+html.r-btn-orig.r-btn-orig .obj { min-height: 42px; }
+html.r-btn-orig.r-btn-orig .cat { min-height: 40px; }
+html.r-btn-orig.r-btn-orig .field { height: 48px; }
+html.r-btn-orig.r-btn-orig .btn-sm { min-height: 40px; padding: 0 16px; border-radius: 12px; font-size: 14.5px; }
+html.r-btn-orig.r-btn-orig .seg, html.r-btn-orig.r-btn-orig .viewtog { padding: 4px; border-radius: 14px; box-shadow: var(--sh-ctl); border: 0; }
+html.r-btn-orig.r-btn-orig .seg button, html.r-btn-orig.r-btn-orig .viewtog button { min-height: 42px; padding: 0 14px; border-radius: 10px; font-weight: 700; font-size: 14.5px; }
+html.r-btn-orig.r-btn-orig .moreobj { min-height: 40px; padding: 0 14px; border-radius: 999px; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--brand) 40%, transparent); border: 0; font-weight: 700; font-size: 14.5px; }
+html.r-btn-orig.r-btn-orig .peek { min-height: 50px; padding: 6px 18px 6px 8px; border-radius: 16px; font-weight: 700; font-size: 14.5px; }
+html.r-btn-orig.r-btn-orig .peek .stack .mark { width: 30px; height: 30px; }
+html.r-btn-orig.r-btn-orig .sel .sortbtn { height: 50px; border-radius: 14px; font-weight: 700; font-size: 14.5px; }
+@media (max-width: 760px) {
+  html.r-btn-orig.r-btn-orig .keep button { min-height: 56px; padding: 6px 10px 6px 6px; font-size: 14px; }
+  html.r-btn-orig.r-btn-orig .keep button .mark { width: 28px; height: 28px; }
+  html.r-btn-orig.r-btn-orig .seg button { padding: 0 8px; font-size: 13.5px; }
+  html.r-btn-orig.r-btn-orig .mm-signin { min-height: 50px; border-radius: 999px; font-weight: 700; font-size: inherit; }
+}

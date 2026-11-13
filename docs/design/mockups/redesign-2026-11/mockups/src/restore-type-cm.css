@@ -1,0 +1,44 @@
+/* Type and spacing: as first designed (Options). The original values, over the limited ramp. */
+html.r-type-orig .cm-in { margin: 0 auto; padding: 44px var(--gut) 40px; gap: 0 40px; }
+html.r-type-orig .cm ul { margin: 0; padding: 0; }
+html.r-type-orig .cm-ov { letter-spacing: .08em; margin: 0 0 18px; font-family: var(--sans); font-size: 12px; font-weight: 600; line-height: 1.4; }
+html.r-type-orig .cm-cols { column-gap: 40px; }
+html.r-type-orig .cm-big { padding: 2px 0 12px; }
+html.r-type-orig .cm-big .t { font: 500 24px/1.15 var(--serif); letter-spacing: -.012em; }
+html.r-type-orig .cm-big .m { font-size: 13px; line-height: 1.4; margin-top: 3px; }
+html.r-type-orig .cm-sub { margin: 10px 0 12px; padding-top: 16px; font-size: 12px; font-weight: 600; line-height: 1; font-family: var(--sans); letter-spacing: .08em; }
+html.r-type-orig .cm-list a { padding: 6px 0 7px; }
+html.r-type-orig .cm-list .t { font-weight: 500; font-size: 15.5px; line-height: 1.3; }
+html.r-type-orig .cm-list .m { font-size: 13px; line-height: 1.4; margin-top: 2px; }
+html.r-type-orig .cm-list .cm-more { padding-top: 8px; }
+html.r-type-orig .cm-list .cm-all { padding: 6px 0; }
+html.r-type-orig .cm-all { gap: 8px; font-weight: 500; font-size: 15px; }
+html.r-type-orig .cm-foot { margin: 22px 0 0; padding-top: 18px; font-size: 13.5px; }
+html.r-type-orig .cm-card { padding: 28px 26px 26px; }
+html.r-type-orig .cm-card .q { font: 600 26px/1.16 var(--serif); letter-spacing: -.015em; }
+html.r-type-orig .cm-side { margin-top: 26px; }
+html.r-type-orig .cm-side .cm-card { gap: 28px; padding: 20px 26px; }
+html.r-type-orig .cm-side .cm-card .q { font-size: 22px; }
+html.r-type-orig .cm-side .cm-card .s { margin: 0; }
+html.r-type-orig .cm-side .cm-card .go { margin: 0 0 0 auto; }
+html.r-type-orig .cm-card .s { margin-top: 12px; font-size: 14.5px; line-height: 1.5; }
+html.r-type-orig .cm-card .go { margin-top: auto; }
+@media (max-width: 1200px) {
+  html.r-type-orig .cm-cols { column-gap: 28px; }
+}
+@media (max-width: 760px) {
+  html.r-type-orig .mm:not([hidden]) { padding: 6px var(--gut) 22px; }
+  html.r-type-orig .mm ul { margin: 0; padding: 0; }
+  html.r-type-orig .mm-top > li.mm-exp { padding: 10px 0 14px; }
+  html.r-type-orig .mm .mm-top .mm-big { gap: 12px; padding: 8px 0; font: 500 24px/1.15 var(--serif); letter-spacing: -.012em; }
+  html.r-type-orig .mm .mm-top .mm-big .n { font: 400 13px/1 var(--sans); }
+  html.r-type-orig .mm-sub { margin: 8px 0 4px; padding-top: 14px; font-size: 12px; font-weight: 600; line-height: 1; font-family: var(--sans); letter-spacing: .08em; }
+  html.r-type-orig .mm-top > li > a:not(.cm-card), html.r-type-orig .mm-dis { padding: 0; font: 600 20px/1.2 var(--serif); letter-spacing: -.01em; }
+  html.r-type-orig .mm-sec { padding: 0 0 16px; }
+  html.r-type-orig .mm-sec a:not(.cm-all) { gap: 12px; padding: 10px 0; font-size: 16px; font-weight: 500; }
+  html.r-type-orig .mm-sec .n { font-size: 13px; font-weight: 400; }
+  html.r-type-orig .mm-sec .cm-all { margin-top: 6px; }
+  html.r-type-orig .mm-top > li.mm-card { padding: 16px 0 6px; }
+  html.r-type-orig .mm-foot { margin: 14px 0 0; font-size: 13px; }
+  html.r-type-orig .mm-signin { margin-top: 18px; }
+}
