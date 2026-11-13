@@ -75,7 +75,6 @@ import {
   AddStripeLicensesRequestSchema,
   AddStripeLicensesResponseSchema,
   ApiErrorCode,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   PLANS_PAGE_CURRENT_VERSION,
   StripeCheckoutRequestSchema,
   StripeRedirectResponseSchema,
@@ -98,6 +97,7 @@ import { auditActorType } from '../lib/authz';
 import { stripeCustomerLinkStatements } from '../lib/billing-account';
 import { formatLongDay, formatUsd, parseRecipients } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import { publicSiteBase } from '../lib/public-urls';
 import {
   stripeCheckoutAvailable,
@@ -392,11 +392,14 @@ export function createStripeCheckoutHandler(
     const customerId =
       account.stripeCustomerId ?? (await linkCustomer(c, db, stripe, account, now));
 
+    // AECI-1689: the Managed plan agreement version in force now. A published upcoming
+    // version is the one the Checkout page's link shows from its effective moment.
+    const inForce = await loadLegalInForce(db, now);
     const metadata = {
       billing_account_id: account.id,
       vendor_id: vendorId,
       profile_id: session.userId,
-      terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      terms_version: inForce.agreements.managed_plan,
     };
 
     // AECI-1617: who signs, on the session only. It reaches the acceptance row through the

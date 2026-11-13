@@ -15,13 +15,14 @@
  *
  *   pending_reviews   reviews.status = 'pending'
  *   pending_requests  vendor_requests.status = 'open' AND kind = 'correction', PLUS
- *                     listing_requests.status = 'open' (AECI-1293: the screen's second
- *                     section), PLUS product_requests.status = 'open' (AECI-1377: a
- *                     vendor asking us to add a product, also on /admin/requests),
- *                     PLUS license_release_requests.status = 'open' (AECI-1373: an
- *                     owner asking us to free a license early, the fourth section),
- *                     so the badge counts what /admin/requests lists. Four tables, so
- *                     the four terms cannot overlap.
+ *                     product_requests.status = 'open' (AECI-1377: a vendor asking us
+ *                     to add a product, also on /admin/requests), PLUS
+ *                     license_release_requests.status = 'open' (AECI-1373: an owner
+ *                     asking us to free a license early), so the badge counts what
+ *                     /admin/requests lists. Three tables, so the three terms cannot
+ *                     overlap. Open listing requests are NOT counted (AECI-1705): they
+ *                     have no screen, and the operator works them from the
+ *                     `listing-request-alert` email.
  *   pending_claims    vendor_requests.status = 'open' AND kind = 'claim'
  *
  * Requests and claims are the SAME TABLE split by `kind` — `/admin/requests` and
@@ -81,7 +82,6 @@ import {
   reviewUpdates,
   reviews,
   vendorRequests,
-  listingRequests,
   productRequests,
   licenseReleaseRequests,
 } from '../db/schema';
@@ -111,7 +111,6 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     contestRows,
     replyRows,
     updateRows,
-    listingRows,
     productRequestRows,
     releaseRequestRows,
   ] = await db.batch([
@@ -159,14 +158,10 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     // AECI-1613: reviewer updates awaiting approval. Served by
     // `review_updates_status_created_idx`.
     db.select({ value: count() }).from(reviewUpdates).where(eq(reviewUpdates.status, 'pending')),
-    // AECI-1293: open listing requests, the second section of `/admin/requests`. Added
-    // to `pending_requests` below so the Requests badge counts what that screen lists.
-    // Served by `listing_requests_status_created_idx`.
-    db.select({ value: count() }).from(listingRequests).where(eq(listingRequests.status, 'open')),
     // AECI-1377: open product requests, also listed on `/admin/requests`, so they join
     // `pending_requests` too. Served by `product_requests_status_created_idx`.
     db.select({ value: count() }).from(productRequests).where(eq(productRequests.status, 'open')),
-    // AECI-1373: open early-unassign requests, the fourth section of `/admin/requests`.
+    // AECI-1373: open early-unassign requests, a section of `/admin/requests`.
     // Served by `license_release_requests_status_created_idx`.
     db
       .select({ value: count() })
@@ -178,7 +173,6 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     pending_reviews: reviewRows[0]?.value ?? 0,
     pending_requests:
       (requestRows[0]?.value ?? 0) +
-      (listingRows[0]?.value ?? 0) +
       (productRequestRows[0]?.value ?? 0) +
       (releaseRequestRows[0]?.value ?? 0),
     pending_claims: claimRows[0]?.value ?? 0,

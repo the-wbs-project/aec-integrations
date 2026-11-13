@@ -35,7 +35,8 @@ means widening `DocsSectionId` and adding its `SECTION_META` entry. Mark it `sin
 is one page served at `/docs/<section>` with no index (`faq` is). Whether a path is indexable is
 decided by `NOINDEX_PATH_PREFIXES` in `src/app/docs/docs-indexing.ts`, not by the page. The list holds
 no docs page since AECI-1253, so every page is indexable. Its entries are the archived legal versions
-(AECI-1361) and the recorded Plans versions at `/docs/vendors/plans/v<version>` (AECI-1619), which are
+(AECI-1361), the upcoming legal versions and each current legal version's own address (AECI-1610),
+and the recorded Plans versions at `/docs/vendors/plans/v<version>` (AECI-1619), which are
 not manifest pages.
 
 **The Plans page is versioned (AECI-1619).** `docs/vendors/plans.md` carries frontmatter `version`

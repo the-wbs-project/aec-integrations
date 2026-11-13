@@ -8,12 +8,18 @@
  * (`entitlement-expiring`, AECI-1406). Seat addresses come from
  * `loadVendorSeatRecipients` (`lib/vendor-seat-recipients.ts`); this module adds the
  * billing email and the dedupe.
+ *
+ * {@link ownerAndBillingAddresses} is the owner-only variant for one vendor: its owner
+ * seats and every billing email its accounts carry. The suspension notices (AECI-1623)
+ * and the Managed plan change notice (`legal-terms-change`, AECI-1620) use it.
  */
 
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { billingAccounts } from '../db/schema';
+import type { Env } from '../env';
+import { loadVendorOwnerRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 
 /** Billing account ids per lookup. D1 caps bound parameters per query. */
 const BILLING_LOOKUP_CHUNK = 50;
@@ -57,4 +63,31 @@ export async function loadBillingEmails(
     for (const row of rows) out.set(row.id, row.billingEmail ?? null);
   }
   return out;
+}
+
+/** Every billing email the vendor's accounts carry. Throws only on a D1 error. */
+export async function loadVendorBillingEmails(db: Db, vendorId: string): Promise<string[]> {
+  const rows = await db
+    .select({ billingEmail: billingAccounts.billingEmail })
+    .from(billingAccounts)
+    .where(eq(billingAccounts.vendorId, vendorId));
+  return rows.flatMap((r) => (r.billingEmail ? [r.billingEmail] : []));
+}
+
+/**
+ * The owner seats and the billing emails of one vendor, each address once. Throws when
+ * D1 throws, and when `fetchSeatEmails` throws: the legal notice passes a strict lookup
+ * that throws on an Auth outage, so no partial list goes out.
+ */
+export async function ownerAndBillingAddresses(
+  env: Env,
+  db: Db,
+  vendorId: string,
+  fetchSeatEmails: FetchSeatEmails,
+): Promise<string[]> {
+  const [owners, billing] = await Promise.all([
+    loadVendorOwnerRecipients(db, env, vendorId, fetchSeatEmails),
+    loadVendorBillingEmails(db, vendorId),
+  ]);
+  return mergeRecipientAddresses([...owners.map((o) => o.email), ...billing], null);
 }

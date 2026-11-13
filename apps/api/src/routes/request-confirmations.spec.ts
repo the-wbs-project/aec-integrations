@@ -79,7 +79,8 @@ const listingBody = {
   submitter_email: 'dana@acme.com',
   submitter_title: 'VP Partnerships',
   company_legal_name: 'Acme, Inc.',
-  accepted_terms: true,
+  // AECI-1705: a listing request has no vendor terms box, and names the company's country.
+  company_country: 'CA',
 };
 
 const CONFIRM_LINK = /\/claims\/confirm\?token=([A-Za-z0-9_-]+)/;
@@ -586,8 +587,49 @@ describe('the listing path', () => {
     });
     const [row] = await t.db.select().from(listingRequests);
     expect(row!.id).toBe(json.request_id);
-    const [acceptance] = await t.db.select().from(agreementAcceptances);
-    expect(acceptance!.listingRequestId).toBe(json.request_id);
+    expect(row!.companyCountry).toBe('CA');
+    // AECI-1705: no acceptance row and no acceptance audit row.
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+    const actions = (await t.db.select().from(auditLog)).map((a) => a.action);
+    expect(actions).not.toContain('agreement.accepted');
+  });
+
+  it('parks no vendor terms evidence for a listing (AECI-1705)', async () => {
+    await submitListing();
+    const [pending] = await t.db.select().from(requestConfirmations);
+    expect(pending).toMatchObject({
+      kind: 'listing',
+      termsVersion: '',
+      ip: null,
+      userAgent: null,
+      listingAccuracyVersion: null,
+      reviewGuidelinesVersion: null,
+    });
+  });
+
+  it('a listing parked before AECI-1705 confirms and ignores its acceptance evidence', async () => {
+    await submitListing();
+    const [pending] = await t.db.select().from(requestConfirmations);
+    const payload = JSON.parse(pending!.payload!) as Record<string, unknown>;
+    payload['accepted_terms'] = true;
+    delete payload['company_country'];
+    await t.db
+      .update(requestConfirmations)
+      .set({
+        payload: JSON.stringify(payload),
+        termsVersion: '1.2',
+        ip: '198.51.100.7',
+        userAgent: 'Mozilla/5.0 (old)',
+        listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
+        reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+      })
+      .where(eq(requestConfirmations.id, pending!.id));
+
+    const res = await confirm(tokenFromMail());
+    expect(((await res.json()) as { status: string }).status).toBe('confirmed');
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row!.companyCountry).toBeNull();
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
   });
 });
 
@@ -612,7 +654,7 @@ describe('the signer fields survive the confirm (AECI-1617)', () => {
     expect(audit).not.toContain('Acme, Inc.');
   });
 
-  it('a listing: the same', async () => {
+  it('a listing: title and legal name land on the request, with no acceptance (AECI-1705)', async () => {
     await submitListing();
     await confirm(tokenFromMail());
     const [row] = await t.db.select().from(listingRequests);
@@ -620,8 +662,7 @@ describe('the signer fields survive the confirm (AECI-1617)', () => {
       submitterTitle: 'VP Partnerships',
       companyLegalName: 'Acme, Inc.',
     });
-    const [acceptance] = await t.db.select().from(agreementAcceptances);
-    expect(acceptance).toMatchObject({ signerTitle: 'VP Partnerships', signerName: 'Dana Reyes' });
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
   });
 
   /** Rewrite the pending row as a submit from before the fields shipped would have left it. */
@@ -670,28 +711,6 @@ describe('the signer fields survive the confirm (AECI-1617)', () => {
     expect(acceptance).toMatchObject({
       listingAccuracyVersion: null,
       reviewGuidelinesVersion: null,
-    });
-  });
-
-  it('a pending listing from before the policy versions confirms, with NULLs (AECI-1619)', async () => {
-    await submitListing();
-    await dropPolicyVersionsFromPending();
-    await confirm(tokenFromMail());
-    const [acceptance] = await t.db.select().from(agreementAcceptances);
-    expect(acceptance).toMatchObject({
-      listingRequestId: expect.any(String),
-      listingAccuracyVersion: null,
-      reviewGuidelinesVersion: null,
-    });
-  });
-
-  it('a confirmed listing carries the policy versions stored at submit (AECI-1619)', async () => {
-    await submitListing();
-    await confirm(tokenFromMail());
-    const [acceptance] = await t.db.select().from(agreementAcceptances);
-    expect(acceptance).toMatchObject({
-      listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
-      reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
     });
   });
 

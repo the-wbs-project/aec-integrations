@@ -5,8 +5,9 @@
  * leaves the machine and no row is written: a found listing sends
  * `POST /api/requests/claim` with the comments, a typed-in listing sends
  * `POST /api/requests/listing`. Three steps since AECI-1365 removed the plan step, and
- * neither body carries a plan answer. AECI-1366: the vendor terms box is required on the
- * You step and both bodies carry `accepted_terms: true`. The claim-target lookup is
+ * neither body carries a plan answer. AECI-1366: the vendor terms box is required on a
+ * found listing's You step and the claim body carries `accepted_terms: true`. AECI-1705:
+ * the typed-in path has no box and asks for the company country instead. The claim-target lookup is
  * mocked too, and a company with an owner seat shows the routed notice and receipt. An
  * anonymous claim (`confirmation_required: true`, AECI-1435) shows "Check your inbox".
  * Then the dialog's own behaviour (Escape, focus,
@@ -124,14 +125,28 @@ const termsBox = (page: Page) =>
     .getByRole('dialog')
     .getByRole('checkbox', { name: /I have read and accept the Vendor Terms/ });
 
-/** The You step's fields, and the vendor terms box unless `terms` is false. */
-async function fillYou(page: Page, terms = true) {
+/** AECI-1705: pick the company country on the typed-in path. */
+async function chooseCountry(page: Page, name: string) {
+  await page
+    .getByRole('dialog')
+    .getByRole('combobox', { name: /Company country/ })
+    .click();
+  await page.getByRole('option', { name, exact: true }).click();
+}
+
+/**
+ * The You step's fields. With `complete`, also what the path requires last: the vendor
+ * terms box on a found listing, the company country on the typed-in path (AECI-1705).
+ */
+async function fillYou(page: Page, complete = true) {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Your name').fill('Dana Reyes');
   await dialog.getByLabel('Title', { exact: true }).fill('VP Partnerships');
   await dialog.getByLabel('Company legal name').fill('Acme, Inc.');
   await dialog.getByLabel('Your work email').fill('dana@procore.example');
-  if (terms) await termsBox(page).check();
+  if (!complete) return;
+  if (await termsBox(page).count()) await termsBox(page).check();
+  else await chooseCountry(page, 'United Kingdom');
 }
 
 const axe = (page: Page) =>
@@ -231,14 +246,19 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     });
   }
 
-  test('typed-in listing: "Not listed? Type it in" sends a listing request', async ({ page }) => {
+  test('typed-in listing: "Not listed? Ask us to add it" sends a listing request', async ({
+    page,
+  }) => {
     await mockSearch(page);
     const sent = await mockSubmits(page);
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
 
     const dialog = await openFromManagedCard(page);
-    await dialog.getByRole('button', { name: 'Type it in' }).click();
+    await dialog.getByRole('button', { name: 'Ask us to add it' }).click();
+    // AECI-1705: a request to be listed, not a claim.
+    await expect(page.getByRole('dialog', { name: 'Ask us to list your product' })).toBeVisible();
+    await expect(termsBox(page)).toHaveCount(0);
     await dialog.getByLabel('Product or company name').fill('Site Diary Pro');
     await dialog.getByLabel('Website').fill('https://sitediary.example.com');
     await fillYou(page);
@@ -265,11 +285,11 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
         body: '',
-        accepted_terms: true,
         found_via: '',
         found_via_detail: '',
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',
+        company_country: 'GB',
       },
     ]);
     expect(sent.claim).toEqual([]);
@@ -342,7 +362,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     await waitForHydrationSettle(page);
 
     const dialog = await openFromManagedCard(page);
-    await dialog.getByRole('button', { name: 'Type it in' }).click();
+    await dialog.getByRole('button', { name: 'Ask us to add it' }).click();
     await expect(dialog.getByRole('button', { name: 'Back' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Back' }).click();
     await expect(dialog.getByRole('heading', { name: 'Find your listing' })).toBeVisible();
@@ -381,12 +401,15 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
       await claim.click();
       await expect(dialog).toBeVisible({ timeout: 2000 });
     }).toPass();
-    await dialog.getByRole('button', { name: 'Type it in' }).click();
+    await dialog.getByRole('button', { name: 'Ask us to add it' }).click();
+    // AECI-1705: the typed-in path renames the dialog, so find it by role alone now.
+    const request = page.getByRole('dialog', { name: 'Ask us to list your product' });
+    await expect(request).toBeVisible();
     await fillYou(page);
-    await dialog.getByLabel('Product or company name').fill('X');
-    await dialog.getByLabel('Website').fill('https://x.example.com');
-    await dialog.getByRole('button', { name: 'Continue' }).click();
+    await request.getByLabel('Product or company name').fill('X');
+    await request.getByLabel('Website').fill('https://x.example.com');
+    await request.getByRole('button', { name: 'Continue' }).click();
     // AECI-1365 removed the plan step: the You step goes straight to the comments.
-    await expect(dialog.getByRole('heading', { name: 'Anything to add?' })).toBeVisible();
+    await expect(request.getByRole('heading', { name: 'Anything to add?' })).toBeVisible();
   });
 });

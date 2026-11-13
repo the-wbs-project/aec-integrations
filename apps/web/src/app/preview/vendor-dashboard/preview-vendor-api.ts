@@ -3,6 +3,9 @@ import { Injectable } from '@angular/core';
 
 import { REMOVAL_ELECTION_FIELDS } from '@aeci/shared';
 import type {
+  AcceptLegalVersionRequest,
+  AcceptLegalVersionResponse,
+  VendorLegalAcceptanceResponse,
   THREAD_ACK_TEXT_VERSION,
   CreateRemovalElectionResponse,
   RemovalElectionResponse,
@@ -128,6 +131,7 @@ import {
   VENDOR_HISTORY_FOLLOW_UP_FIXTURE,
   historyKindKeeps,
 } from '../../vendor/vendor-history-fixtures';
+import { LEGAL_NOTHING_PENDING_FIXTURE } from '../../vendor/vendor-legal-fixtures';
 import { VENDOR_PROPOSALS_FIXTURE } from '../../vendor/vendor-proposal-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
@@ -712,6 +716,30 @@ export class PreviewVendorApi extends VendorApi {
    * leaves `pending_grants`, its licenses join the pool and a `grant` acceptance row
    * lands, so the whole tab reacts as it would live.
    */
+  /** AECI-1677: the acceptance screen's state for the fixture on screen. */
+  private legalState: VendorLegalAcceptanceResponse = LEGAL_NOTHING_PENDING_FIXTURE;
+
+  setLegalFixture(state: VendorLegalAcceptanceResponse): void {
+    this.legalState = clone(state);
+  }
+
+  override async getLegalAcceptance(): Promise<VendorLegalAcceptanceResponse> {
+    return clone(this.legalState);
+  }
+
+  /** The accept succeeds and empties the pending list, as the real write does. */
+  override async acceptLegalVersion(
+    body: AcceptLegalVersionRequest,
+  ): Promise<AcceptLegalVersionResponse> {
+    this.legalState = clone(LEGAL_NOTHING_PENDING_FIXTURE);
+    return {
+      document: body.document,
+      version: body.version,
+      accepted_at: new Date().toISOString(),
+      state: clone(this.legalState),
+    };
+  }
+
   override async acceptLicenseGrant(
     grantId: string,
     body: AcceptLicenseGrantInput,

@@ -24,21 +24,53 @@ export type LegalAgreementDocument = z.infer<typeof LegalAgreementDocumentSchema
 
 /** `agreement_acceptances.source`: where the acceptance was given. No CHECK either.
  *  `grant` (AECI-1615): an owner seat accepted a granted subscription in the portal, or
- *  AECi recorded a signed deal that accepts it. */
-export const AGREEMENT_ACCEPTANCE_SOURCES = ['claim', 'checkout', 'grant'] as const;
+ *  AECi recorded a signed deal that accepts it. `portal` (AECI-1677): an owner seat
+ *  accepted a newer version of an agreement on the portal's acceptance screen. */
+export const AGREEMENT_ACCEPTANCE_SOURCES = ['claim', 'checkout', 'grant', 'portal'] as const;
 export const AgreementAcceptanceSourceSchema = z.enum(AGREEMENT_ACCEPTANCE_SOURCES);
 export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSourceSchema>;
 
 /**
- * The current version of each agreement. An acceptance of any other version is refused
- * with `VALIDATION_FAILED`. Keep it a plain object literal: a web spec (E2.3, AECI-1361)
- * asserts each value equals the `version` frontmatter of the agreement's Markdown under
+ * The BUILD's current version of each agreement: the current file's frontmatter
+ * `version`. Keep it a plain object literal: a web spec (E2.3, AECI-1361) asserts each
+ * value equals the `version` frontmatter of the agreement's Markdown under
  * `apps/web/src/content/legal/`. Bump the Markdown and this map in the same change.
+ *
+ * **Not "the version in force now" (AECI-1689).** A published upcoming version replaces
+ * it at its effective moment with no deploy. Every reader that stamps or shows the
+ * current version asks `legalAgreementVersionInForce` (`./legal-in-force`), and
+ * `legal-current-readers.spec.ts` fails on any other reader.
  */
 export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
   vendor_terms: '1.3',
   managed_plan: '1.1',
 } as const satisfies Record<LegalAgreementDocument, string>;
+
+/**
+ * A version of an agreement whose text is published but not yet in force
+ * (AECI-1610). `effectiveOn` is the day it takes effect, `YYYY-MM-DD` read as UTC.
+ */
+export interface LegalAgreementUpcomingVersion {
+  readonly version: string;
+  readonly effectiveOn: string;
+}
+
+/**
+ * The version of each agreement that is published but not yet in force, if any.
+ * The web manifest `LEGAL_UPCOMING` (`apps/web/src/app/legal/legal-manifest.ts`) is
+ * the source: `legal-page.component.spec.ts` asserts this map equals its
+ * `vendor-terms` and `managed-plan-agreement` entries. Add an entry here in the same
+ * change that adds the upcoming file, and remove it in the bump-day change. Empty
+ * today. The admin publish (`/api/admin/legal-versions`, AECI-1688) reads it: only the
+ * version listed here can be published, on its `effectiveOn` day at 12:00 UTC
+ * (`legalEffectiveAtMs`). Since AECI-1689 the version becomes the one in force at that
+ * moment, with no deploy, but only once it has a `legal_versions` row
+ * (`legalAgreementVersionInForce`). So from the change that adds it, it needs its
+ * `LEGAL_AGREEMENT_TEXT_SHA256` entry: `agreement-text-hash.spec.ts` requires it.
+ */
+export const LEGAL_AGREEMENT_UPCOMING_VERSIONS: Readonly<
+  Partial<Record<LegalAgreementDocument, LegalAgreementUpcomingVersion>>
+> = {};
 
 /**
  * Every version of each agreement that was ever current, oldest first. The current
@@ -55,6 +87,55 @@ export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
 } as const satisfies Record<LegalAgreementDocument, readonly string[]>;
 
 /**
+ * The day each known version of each agreement takes effect, `YYYY-MM-DD` read as UTC,
+ * or `null` for a draft that never took effect (AECI-1677). The effective moment is
+ * 12:00 UTC of that day (`legalEffectiveAtMs`). This map is how the API Worker knows a
+ * version is in force: it cannot read the Markdown, whose frontmatter `effective_date`
+ * is the source. `legal-page.component.spec.ts` (apps/web) asserts every entry equals
+ * that version's frontmatter, the current file and each archive.
+ *
+ * **A draft version is never in force, and stays `null` for good.** Every acceptance of
+ * the versions listed `null` today was given while the page said "draft, not yet in
+ * force" (counsel Q42), so none of them may ever count as an acceptance of a version in
+ * force. `agreements.spec.ts` pins those entries `null`. The effective-date change must
+ * therefore bump the version: make the final text a new version with its own entry here.
+ * Keep it a plain object literal. Add the new version's entry when you append it to
+ * `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
+ *
+ * Today every entry is `null`: no agreement is in force, so the acceptance screen never
+ * shows and nothing is blocked (`apps/api/src/lib/legal-acceptance.ts`).
+ */
+export const LEGAL_AGREEMENT_EFFECTIVE_ON = {
+  vendor_terms: { '1.0': null, '1.1': null, '1.2': null, '1.3': null },
+  managed_plan: { '1.0': null, '1.1': null },
+} as const satisfies Record<LegalAgreementDocument, Record<string, string | null>>;
+
+/** The effective day of one version, or `null` for a draft or a version this map lacks. */
+export function legalAgreementEffectiveOn(
+  document: LegalAgreementDocument,
+  version: string,
+): string | null {
+  return (LEGAL_AGREEMENT_EFFECTIVE_ON[document] as Record<string, string | null>)[version] ?? null;
+}
+
+/**
+ * The label beside the box on the portal's acceptance screen (AECI-1677), as the server
+ * records it. The claim box's wording (`AGREEMENT_CHECKBOX_LABELS`), adapted to name the
+ * version and the company. `companyName` is `vendors.company_name`, which the screen shows
+ * above the box. The web label (`@@vendor.legalAccept.label.*`) renders this exact text
+ * in en-US: `vendor-legal-acceptance.component.spec.ts` holds the two together.
+ */
+export function portalAcceptanceLabel(
+  document: LegalAgreementDocument,
+  version: string,
+  companyName: string,
+): string {
+  return document === 'vendor_terms'
+    ? `I have read and accept the Vendor Terms, version ${version}, on behalf of ${companyName}, and I am authorized to bind that company.`
+    : `I have read and accept the Managed plan agreement, version ${version}, on behalf of ${companyName}.`;
+}
+
+/**
  * How a `grant` acceptance was given (AECI-1615, `agreement_acceptances.method`). No CHECK.
  * `portal_checkbox`: an owner seat ticked the box on the Billing tab. `signed_deal`: AECi
  * recorded a deal, signed by a person with authority, that names the agreement by version
@@ -66,8 +147,9 @@ export type AgreementAcceptanceMethod = z.infer<typeof AgreementAcceptanceMethod
 
 /**
  * The SHA-256 (lowercase hex) of the exact bytes of each published version's Markdown
- * (AECI-1615, counsel Q5): the current file under `apps/web/src/content/legal/` and each
- * archive under `apps/web/src/content/legal/versions/`. The API Worker cannot read the
+ * (AECI-1615, counsel Q5): the current file under `apps/web/src/content/legal/`, each
+ * archive under `apps/web/src/content/legal/versions/`, and since AECI-1689 the upcoming
+ * file there, which can be in force before bump day. The API Worker cannot read the
  * Markdown, so a `grant` acceptance stamps `text_sha256` from here.
  * `agreement-text-hash.spec.ts` recomputes every value from the files and fails on drift:
  * an edit to a published agreement's text changes its hash, so it needs a version bump
@@ -120,14 +202,27 @@ export const LEGAL_POLICY_DOCUMENTS = ['listing_accuracy', 'review_guidelines'] 
 export type LegalPolicyDocument = (typeof LEGAL_POLICY_DOCUMENTS)[number];
 
 /**
- * The current version of each policy. Keep it a plain object literal: a web spec
+ * The BUILD's current version of each policy. Keep it a plain object literal: a web spec
  * (`legal-page.component.spec.ts`) asserts each value equals the `version` frontmatter of
  * `listing-accuracy-policy.md` / `review-guidelines.md`. Bump both in the same change.
+ * Like the agreement map, it is not "the version in force now": readers ask
+ * `legalPolicyVersionInForce` (AECI-1689).
  */
 export const LEGAL_POLICY_CURRENT_VERSIONS = {
   listing_accuracy: '1.0',
   review_guidelines: '1.0',
 } as const satisfies Record<LegalPolicyDocument, string>;
+
+/**
+ * The version of each policy that is published but not yet in force, if any
+ * (AECI-1689). Mirrors the `listing-accuracy` and `review-guidelines` entries of the web
+ * manifest `LEGAL_UPCOMING`, and `legal-page.component.spec.ts` pins the two equal. A
+ * policy has no publish record, so the entry switches on its date alone: the version is
+ * in force from 12:00 UTC of `effectiveOn` (`legalPolicyVersionInForce`). Empty today.
+ */
+export const LEGAL_POLICY_UPCOMING_VERSIONS: Readonly<
+  Partial<Record<LegalPolicyDocument, LegalAgreementUpcomingVersion>>
+> = {};
 
 /** Every version of each policy that was ever current, oldest first. A claim may record
  *  any of them: a submit made before a bump is confirmed with the versions it showed. */
@@ -186,14 +281,6 @@ export function isKnownLegalAgreementVersion(
   version: string,
 ): boolean {
   return (LEGAL_AGREEMENT_KNOWN_VERSIONS[document] as readonly string[]).includes(version);
-}
-
-/** Whether `version` is the current version of `document`. */
-export function isCurrentLegalAgreementVersion(
-  document: LegalAgreementDocument,
-  version: string,
-): boolean {
-  return LEGAL_AGREEMENT_CURRENT_VERSIONS[document] === version;
 }
 
 /**

@@ -142,6 +142,8 @@ Tables grouped by domain:
 - `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
+- `legal_versions` — one announced version of the Vendor Terms or the Managed plan agreement: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688)
+- `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -1618,8 +1620,11 @@ it that the column alone does not say:
 ### 8.1a `listing_requests` (AECI-1293)
 
 A product or company a visitor typed into the claim dialog because the catalog does
-not list it (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Written by `POST /api/requests/listing`,
-read and moderated by `/admin/requests` through `/api/admin/listing-requests`.
+not list it (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Written by `POST /api/requests/listing`.
+Read and moderated by `/admin/requests` through `/api/admin/listing-requests` until
+AECI-1705 (2026-11-12) removed that queue. The `listing-request-alert` email is the record
+now, so nothing in the app reads a row back or moves `status` off `open`, except the
+`vendor-claim-nudge` job, which skips an address with an open row.
 
 ```sql
 create table listing_requests (
@@ -1631,6 +1636,7 @@ create table listing_requests (
   submitter_role         text,                  -- legacy (AECI-1649): NULL on new rows
   submitter_title        text,                  -- AECI-1617 (0101): NULL before the column
   company_legal_name     text,                  -- AECI-1617 (0101): NULL before the column
+  company_country        text,                  -- AECI-1705 (0121): ISO 3166-1 alpha-2, NULL before the column
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
   body                   text not null default '', -- "Additional comments"
   found_via              text,                  -- AECI-1063 (0097): channel enum, NULL = not answered
@@ -1655,9 +1661,13 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   The `status` vocabulary is enforced by Zod. The table had a `plan_interest` column
   until AECI-1397 dropped it (`0093` and `0094`, `docs/migrations.md` §3.2). Nothing had
   written it since AECI-1365.
+- **Company country (AECI-1705, migration `0121`).** One plain `ADD COLUMN`, no CHECK, for
+  the same recreate reason as `status`. Zod enforces the code list (`ISO_COUNTRY_CODES`).
+  Required on the form, NULL on an older row and on one confirmed from a link sent before
+  the field. It is company data, not personal data. Tripwire: `migration-0121.spec.ts`.
 - **Domain state, audited.** The insert writes `listing_request.created`, and each
-  moderation `listing_request.resolved` / `listing_request.rejected`, in the same
-  `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
+  moderation wrote `listing_request.resolved` / `listing_request.rejected` until AECI-1705
+  removed the moderation endpoint, in the same `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
   CHECK-constrained. The audit metadata never holds the typed name, website or email.
 - **Self-reported attribution (AECI-1063).** `found_via` and `found_via_detail` came with
   migration `0097`, plain `ADD COLUMN`s with no CHECK, for the same recreate reason as
@@ -1729,9 +1739,9 @@ create table request_confirmations (
   token_hash      text not null,      -- SHA-256 hex of the emailed token, never the token
   submitter_email text not null,      -- the typed address, trimmed and lowercased
   payload         text,               -- the validated request body as JSON; NULL once confirmed
-  terms_version   text not null,      -- the vendor_terms version shown at submit
-  ip              text,               -- CF-Connecting-IP at submit, for the acceptance
-  user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance
+  terms_version   text not null,      -- the vendor_terms version shown at submit; '' on a listing since AECI-1705
+  ip              text,               -- CF-Connecting-IP at submit, for the acceptance; NULL on a listing since AECI-1705
+  user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance; likewise
   listing_accuracy_version  text,     -- AECI-1619 (0118): the policy versions the claim box named
   review_guidelines_version text,     -- AECI-1619 (0118): NULL on a row from before the columns
   created_at      text not null,
@@ -1749,9 +1759,13 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
   `CREATE INDEX`.
 - **The policy versions (AECI-1619, counsel Q14; migration `0118`, plain `ADD COLUMN`s).**
   The submit stores the Listing Accuracy Policy and Review Guidelines versions the claim box
-  named (`LEGAL_POLICY_CURRENT_VERSIONS`). The confirm copies them into the acceptance row
+  named: the versions in force at submit (`legalPolicyVersionInForce`, AECI-1689). The confirm copies them into the acceptance row
   (§8.6d). A row written before the columns holds NULL in both, and its acceptance records
   NULL rather than a version the code cannot prove.
+- **A listing request holds no terms evidence (AECI-1705).** Its form shows no vendor terms
+  box, so the submit stores `terms_version = ''` (the column is `NOT NULL`, and relaxing it
+  is a recreate) and NULL IP address, browser and policy versions. The confirm writes no
+  acceptance for a listing, and ignores any evidence a row parked before the change holds.
 - **The id is the single-use rule.** The confirm inserts the request with this row's id as
   its primary key, so a second confirm trips it and its whole batch rolls back.
 - **No FK and no CHECK**, the `listing_requests` precedent. No FK in or out, so nothing
@@ -2145,7 +2159,9 @@ create table licenses (
   release_at_renewal integer not null default 0, -- decision 11
   cancel_at_term_end integer not null default 0, -- decision 15
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
-  terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
+  terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d).
+                                 -- The Managed plan version the subscription is bound to. A Stripe renewal
+                                 -- moves it per ADR 0047 decision 9 (AECI-1690); never lowered.
   granted_by text,               -- a profiles.id; NO FK
   expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it, the lapse does not clear it
   created_at text not null,
@@ -2323,7 +2339,7 @@ create table agreement_acceptances (
   id text primary key,
   document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
   version text not null,           -- must be current at write time; a grant row: the grant's pinned version
-  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant'; NO CHECK
+  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant' | 'portal'; NO CHECK
   email text not null,             -- the accepting person; kept as evidence
   profile_id text,                 -- a profiles.id; NO FK; null at claim time
   vendor_id text,                  -- a vendors.id; NO FK
@@ -2371,10 +2387,11 @@ create unique index agreement_acceptances_stripe_session_key
   caller appends both statements to its own `db.batch`, so the acceptance commits or rolls
   back with the claim or subscription. The callers are:
   - `POST /api/requests/claim` writes a `vendor_terms` row with `vendor_request_id` = the new
-    claim (AECI-1366). `POST /api/requests/listing` writes one with `listing_request_id` = the
-    new listing request. Both set `source = 'claim'` and stamp the current version,
-    `CF-Connecting-IP` and the user agent.
-  - An anonymous claim or listing request writes its row at confirm, not at submit (AECI-1435).
+    claim (AECI-1366), with `source = 'claim'`, the current version, `CF-Connecting-IP` and the
+    user agent. `POST /api/requests/listing` wrote one with `listing_request_id` = the new
+    listing request from AECI-1366 until AECI-1705 (2026-11-12) took the vendor terms box off
+    that form. It writes none now.
+  - An anonymous claim writes its row at confirm, not at submit (AECI-1435).
     The version, IP and user agent are the submit's, carried on the `request_confirmations` row
     (§8.1c) and passed as the helper's `evidence`. The time is the confirm's. A signed-in claimant
     whose verified email is the typed address still writes it at submit.
@@ -2396,6 +2413,9 @@ create unique index agreement_acceptances_stripe_session_key
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
   `400 VALIDATION_FAILED`. A `grant` row passes the grant's pinned version instead, which must
   equal `version`, current or not (AECI-1615). Grant fields on any other source are refused.
+  A `portal` row (AECI-1677) passes `portalVersion`, the version `lib/legal-acceptance.ts`
+  found pending for the company, which must equal `version`: a published version not yet
+  current in code, or one in force through its `legal_versions` row. Only `portal` may pass it.
 - **IP and user agent on the claim path and the portal grant accept.** The helper reads
   `CF-Connecting-IP` and `User-Agent` from the request's headers and cuts the user agent to
   512 characters. *Corrected 2026-11-10 (AECI-1615):* a `portal_checkbox` grant row records
@@ -2432,9 +2452,9 @@ create unique index agreement_acceptances_stripe_session_key
   snapshot file, `apps/web/src/content/docs/vendors/versions/plans/v<version>.md`
   (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). The constants live in
   `packages/shared/src/api/agreements.ts`. The builder refuses with `400 VALIDATION_FAILED`:
-  - `policyVersions` on any source other than `claim`;
+  - `policyVersions` on any source other than `claim` or a `portal` Vendor Terms row (AECI-1677);
   - a policy version not in `LEGAL_POLICY_KNOWN_VERSIONS`;
-  - `plansVersion` on any source other than `checkout` or `grant`;
+  - `plansVersion` on any source other than `checkout`, `grant` or a `portal` Managed plan row;
   - a Plans version not in `PLANS_PAGE_KNOWN_VERSIONS`.
 
   Both parameters are optional, and absent or null writes NULL. A known older version passes,
@@ -2456,7 +2476,19 @@ create unique index agreement_acceptances_stripe_session_key
   `packages/shared/src/audit-vendor-actions.ts` as an aeci-override action with `receipt`
   false. The `accepted_at`, `email`, `ip` and `user_agent` columns are never touched.
 - **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
-  change must never recreate the table (`docs/migrations.md` §0).
+  change must never recreate the table (`docs/migrations.md` §0). So AECI-1677's `portal`
+  source needed no migration.
+- **`portal` rows (AECI-1677 — 2026-11-12, no migration).** An owner seat's accept on the
+  portal's acceptance screen (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). The row carries the
+  seat's email and profile, `vendor_id`, the vendor's `billing_account_id` when one exists,
+  the signer's name, the typed title and legal name, the label (`portalAcceptanceLabel`, the
+  claim wording naming the version and the company) with its SHA-256 and
+  `checkbox_default_unticked = 1`, the two policy versions on a Vendor Terms row and the Plans
+  page version on a Managed plan row. `ip` and `user_agent` stay NULL
+  (`PORTAL_RECORDS_EVIDENCE = false`): the Privacy Policy names them only for a claim and a
+  portal grant accept. Its `agreement.accepted` audit row is in the same `db.batch`. An
+  acceptance of a draft version (`LEGAL_AGREEMENT_EFFECTIVE_ON` entry `null`) never counts
+  as an acceptance of a version in force.
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
   has nothing to null and leaves the row, email, IP and user agent included
   (`AUTH_AND_RLS.md` §8). The IP and user agent still go at 90 days (AECI-1636, below). No FK to `vendors` either, so a vendor retraction never cascades
@@ -2493,12 +2525,15 @@ create unique index agreement_acceptances_stripe_session_key
   the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
 - **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0078).** The typed-in listing
-  path ("Not listed? Type it in") has no claim row, so its acceptance names the
+  path ("Not listed? Type it in", now "Ask us to add it") has no claim row, so its acceptance names the
   `listing_requests` row instead. A claim-source row names exactly one of the two. Nullable,
   `ON DELETE SET NULL`, added by one `ALTER TABLE ... ADD`. drizzle-kit dropped the
   `ON DELETE` clause from the generated `ADD ... REFERENCES`, so the migration body is
   hand-written (the 0047 precedent). Nothing links it at approval: a listing request grants
   no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
+  **No new rows set it after AECI-1705 (2026-11-12).** A listing request no longer shows
+  the vendor terms box, so it writes no acceptance. The rows written before stay, because
+  the table is append-only, and the column and its FK stay for them.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
   `id`. Both return the AECI-1615 columns and, since AECI-1619, the label text and the policy
@@ -2841,6 +2876,133 @@ create index license_grants_account_idx on license_grants(billing_account_id);
   (`max(updated_at)` per vendor, `STAGE_2_REALTIME_SPEC.md`).
 - **Never pruned** (§8.6d, `NEVER_PRUNED`).
 - **Grandfathered (ruling R3).** Grants live before AECI-1615 have no row here and stay live.
+
+### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
+
+One version of the Vendor Terms or the Managed plan agreement that an operator published on
+`/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
+ADR 0054). A row is the record that the version was announced: its summary, the operator's two
+answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
+its change-notice email (AECI-1620) and records the fan-out here. The acceptance screen
+(AECI-1677) and reader accounts
+(AECI-1637) read the row later.
+
+```sql
+create table legal_versions (
+  id text primary key,
+  document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
+  version text not null,           -- the LEGAL_AGREEMENT_UPCOMING_VERSIONS entry, e.g. '1.4'
+  effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
+  summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
+  material integer not null,       -- 0/1: the change is summarised and noticed
+  requires_acceptance integer not null, -- 0/1: an owner seat must accept before it applies; implies material
+  expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
+  pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
+  pdf_sha256 text not null,        -- of the exact bytes read at publish
+  pdf_bytes integer not null,      -- at most 5 MB
+  published_by text not null,      -- a profiles.id; NO FK
+  published_at text not null,      -- ISO-8601
+  notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
+  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620)
+);
+
+create unique index legal_versions_document_version_key on legal_versions(document, version);
+```
+
+- **The one writer.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
+  the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
+  `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing deletes a row.
+- **`summary_json` is unescaped plain text.** Each bullet is one line with no control, format
+  (zero-width, bidi) or U+2028/U+2029 characters (`LEGAL_SUMMARY_FORBIDDEN_CHARS`), but it is
+  stored as typed, `<` and `&` included. Every renderer (the admin page, the AECI-1620 email, a
+  vendor screen) must escape it for its medium. Never insert it as HTML. The notice email escapes
+  each bullet with `escapeHtml` in its HTML part and writes it as-is in its text part.
+- **The notice outcome (AECI-1620).** The only update. After a material publish, and on each
+  `POST /api/admin/legal-versions/:id/notice` re-send, the same file writes `notice_enqueued_at`
+  and `notice_vendor_count` with a `legal_version.notice_queued` or `legal_version.notice_resent`
+  audit row in one `db.batch`. Both NULL: no fan-out recorded (a non-material version always).
+  `notice_enqueued_at` set: every company was queued then. `notice_enqueued_at` NULL with a count:
+  the fan-out stopped after that many companies, and `/admin/legal` says so. The queue consumer
+  also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
+  message arrives after `effective_at`, because it then sends nothing. What was actually
+  sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
+- **Not typed by the operator.** `version` and `effective_at` come from
+  `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
+- **The two flags are the operator's answers.** `material` and `requires_acceptance` have no
+  default on the page. `requires_acceptance = 1` with `material = 0` is refused by Zod
+  (`PublishLegalVersionRequestSchema`).
+- **The effective moment is 12:00 UTC**, not midnight, so a version never starts on the evening
+  before in the Americas (legal README "The effective moment").
+- **No CHECK and no FK**, the house rule for enum-like text (§8.6d): Zod owns the vocabulary in
+  `packages/shared/src/api/legal-versions.ts`, and a CHECK change on D1 is a table recreate
+  (`docs/migrations.md` §0). The migration is one `CREATE TABLE` and one `CREATE UNIQUE INDEX`,
+  guarded by `src/test/migration-0119.spec.ts`.
+- **Readers.** `GET /api/admin/legal-versions`, the acceptance screen (AECI-1677), and since
+  AECI-1689 the version-in-force read (`apps/api/src/lib/legal-in-force.ts`): a published
+  upcoming agreement version is the one a new acceptance stamps from its effective moment, and
+  `GET /api/legal/published` tells the legal pages so. A write still purges nothing: the read lists
+  a row only from its moment, a page's TTL ends at that moment, and a publish is refused once the
+  moment has passed (`docs/CACHE_STRATEGY.md` §4).
+- **Retention.** Kept. Not in `PRUNABLE` (`lib/retention-prune.ts`).
+- **`notice_vendor_count` is kept, not derived** (AECI-1620 review). It is the number of companies
+  the LAST fan-out queued: everyone on a publish, only those not yet delivered on a re-send. The
+  per-company totals on `/admin/legal` come from `legal_notice_deliveries` (§8.6j). The column
+  stays because it is what tells "did not finish" apart from "no fan-out recorded" when
+  `notice_enqueued_at` is NULL.
+
+### 8.6j `legal_notice_deliveries` (AECI-1620, migration `0120_fat_mephistopheles`)
+
+Where each company's change notice for a published version stands. One row per version and
+company, written by `apps/api/src/lib/legal-notice.ts` (`ADMIN_PANEL_SPEC.md` §5.22, ADR 0054
+decision 7).
+
+```sql
+create table legal_notice_deliveries (
+  id integer primary key autoincrement,
+  legal_version_id text not null,   -- a legal_versions.id; NO FK
+  vendor_id text not null,          -- a vendors.id; NO FK
+  status text not null,             -- LEGAL_NOTICE_DELIVERY_STATUSES; NO CHECK
+  attempts integer not null default 0, -- message.attempts of the last consumer run; 0 until one runs
+  last_reason text,                 -- LEGAL_NOTICE_DELIVERY_REASONS; why the last attempt did not deliver
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index legal_notice_deliveries_version_vendor_key
+  on legal_notice_deliveries (legal_version_id, vendor_id);
+```
+
+- **States.** `queued`: written by the fan-out just before the company's queue message is sent;
+  a retry keeps it `queued` and records the attempt and its reason. `delivered`: the consumer
+  finished every recipient (sent, already sent, `unknown`, or held by the tier's delivery policy).
+  It carries `last_reason = 'outcome_unknown'` when any address's send ended `unknown` (in this
+  attempt or, read from the ledger, an earlier one), else `held_by_tier` when any address was
+  suppressed by the tier's email rules, else NULL.
+  `no_recipients`: no seat or billing address to send to. `dropped`: the last retry failed, with
+  the reason (`send_failed`, `email_not_configured`, `pdf_refused`, `no_site_url`,
+  `seats_unavailable`, `read_failed`), or the company could not be queued (`enqueue_failed`).
+  `expired` (`in_effect`): still `queued`, or arriving with no row, when a message arrived after
+  the effective moment.
+- **Writes.** Upserts on `(legal_version_id, vendor_id)`. No write but the consumer's own
+  `delivered` moves a `delivered` row (the conflict update is guarded on `status <> 'delivered'`),
+  so a late failure from an older message never undoes it, and a re-send queues only companies
+  not `delivered`. Each write is its own statement, outside any audited batch. A failed write
+  logs an error naming the version and never stops a send, and a fan-out whose rows failed reports
+  itself incomplete (`delivery_record`), leaving `notice_enqueued_at` NULL.
+- **D1 limits.** A multi-row upsert binds 7 values per row plus 5 for the conflict update
+  (4 without the guard), measured with `toSQL()`. `DELIVERY_UPSERT_CHUNK` is 12 rows, 89
+  parameters, under D1's 100. A spec pins the measured count, so a new column fails it.
+- **Read rules.** From the effective moment on, the page counts and lists every row still
+  `queued` as not reached (`in_effect`). Before it, a `queued` row with no update for two hours
+  (the retries take about one) is listed as stale.
+- **Log-class** (ADR 0022, amendment 2026-11-12): the publish, each fan-out outcome and the
+  expiry carry their own `audit_log` rows. No CHECK and no FK, the house rule.
+- **Readers.** `GET /api/admin/legal-versions` (`notice_deliveries`: totals and the first 100
+  companies not reached, by name) and the re-send's skip of delivered companies.
+- **Retention.** Kept. One row per company per version is the record that a legal notice went.
+  Not in `PRUNABLE`.
+- **Migration.** One `CREATE TABLE` and one `CREATE UNIQUE INDEX`, nothing else
+  (`src/test/migration-0120.spec.ts`), so no existing table is recreated (`docs/migrations.md` §0).
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 

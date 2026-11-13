@@ -1618,8 +1618,10 @@ export const vendorRequests = sqliteTable(
 /**
  * Listing requests (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or
  * company a visitor typed into the claim dialog because it is not in the catalog
- * ("Not listed? Type it in"). The claim form's identity fields and the comments, plus the name and website they typed. Written by
- * `POST /api/requests/listing`, moderated on `/admin/requests`.
+ * ("Not listed? Ask us to add it"). The claimant's identity fields and the comments, plus
+ * the name, website and company country they typed. Written by `POST /api/requests/listing`.
+ * Since AECI-1705 there is no admin screen: the `listing-request-alert` email is the
+ * working record, and the operator works it from the inbox. `status` stays `open`.
  *
  * **Its own table, not a `vendor_requests` kind.** A typed-in listing has no target,
  * and `vendor_requests` has `target_type`/`target_id` NOT NULL plus CHECKs on `kind`
@@ -1629,10 +1631,11 @@ export const vendorRequests = sqliteTable(
  * **Deliberately no FK and no CHECK** (the `field_overrides` precedent below). No FK
  * from `resolved_by` to `profiles`, so the erasure batch has nothing new to null and
  * an admin's id stays on the record, as in audit metadata. No CHECK on `status`: a
- * CHECK change would force a recreate. The moderation handler enforces the vocabulary.
+ * CHECK change would force a recreate. Zod enforced the vocabulary while the admin
+ * moderation endpoint existed (removed by AECI-1705).
  *
- * Domain state (a request): every insert and every status change writes its
- * `audit_log` row in the same `db.batch` (ADR 0022). No `workflow_instances` row: that
+ * Domain state (a request): every insert writes its `audit_log` row in the same
+ * `db.batch` (ADR 0022). No `workflow_instances` row: that
  * table's `workflow_type` is CHECK-constrained, and the audit rows are the history.
  */
 export const listingRequests = sqliteTable(
@@ -1648,6 +1651,10 @@ export const listingRequests = sqliteTable(
     /** AECI-1617: as on `vendor_requests`. NULL on a row stored before these columns. */
     submitterTitle: text('submitter_title'),
     companyLegalName: text('company_legal_name'),
+    /** AECI-1705: the company's country, an ISO 3166-1 alpha-2 code (`ISO_COUNTRY_CODES`).
+     *  Required on the form since then. NULL on an older row, and on one confirmed from a
+     *  link sent before the field. No CHECK: Zod enforces the list (`docs/migrations.md` §0). */
+    companyCountry: text('company_country'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
     // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
@@ -1679,8 +1686,8 @@ export const listingRequests = sqliteTable(
  * **The token is stored hashed.** `token_hash` is the SHA-256 hex of the emailed
  * token, so a read of this table cannot be replayed as a link. `payload` is the
  * validated request body as JSON, nulled on confirm. `terms_version`, `ip` and
- * `user_agent` are the vendor terms evidence captured at submit, written into
- * `agreement_acceptances` at confirm.
+ * `user_agent` are a claim's vendor terms evidence captured at submit, written into
+ * `agreement_acceptances` at confirm. A listing request carries none since AECI-1705.
  *
  * **No FK and no CHECK** (the `listing_requests` precedent). `kind` is `claim` or
  * `listing`, enforced by the handler. A new table, so its migration is a plain
@@ -1703,9 +1710,12 @@ export const requestConfirmations = sqliteTable(
     submitterEmail: text('submitter_email').notNull(),
     /** The validated request body as JSON. NULL once confirmed. */
     payload: text('payload'),
-    /** The vendor terms version shown at submit. */
+    /** The vendor terms version shown at submit. `''` on a listing request since
+     *  AECI-1705: its form shows no terms, and the column is NOT NULL (changing that is
+     *  a recreate). */
     termsVersion: text('terms_version').notNull(),
-    /** `CF-Connecting-IP` at submit, for the acceptance row. */
+    /** `CF-Connecting-IP` at submit, for the acceptance row. NULL on a listing request
+     *  since AECI-1705, which records no acceptance. */
     ip: text('ip'),
     /** The submit's user agent, cut to 512 characters, for the acceptance row. */
     userAgent: text('user_agent'),
@@ -2289,7 +2299,7 @@ export const agreementAcceptances = sqliteTable(
     document: text('document').notNull(),
     /** The version accepted, e.g. `'1.0'`. Must be current at write time. */
     version: text('version').notNull(),
-    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout` | `grant`. No CHECK. */
+    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout` | `grant` | `portal`. No CHECK. */
     source: text('source').notNull(),
     email: text('email').notNull(),
     /** A `profiles.id`, NO FK. Null at claim time until E3 fills it at approval. */
@@ -2300,8 +2310,9 @@ export const agreementAcceptances = sqliteTable(
     vendorRequestId: text('vendor_request_id').references(() => vendorRequests.id, {
       onDelete: 'set null',
     }),
-    /** AECI-1366: the typed-in listing request this acceptance was given on (the
-     *  "Not listed? Type it in" path has no claim row). SET NULL, like the claim link. */
+    /** AECI-1366: the typed-in listing request this acceptance was given on (that path
+     *  has no claim row). SET NULL, like the claim link. AECI-1705: no new rows set it,
+     *  because a listing request no longer shows the vendor terms box. */
     listingRequestId: text('listing_request_id').references(() => listingRequests.id, {
       onDelete: 'set null',
     }),
@@ -2365,6 +2376,97 @@ export const agreementAcceptances = sqliteTable(
     uniqueIndex('agreement_acceptances_stripe_session_key')
       .on(t.stripeCheckoutSessionId)
       .where(sql`"stripe_checkout_session_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * Published legal versions (AECI-1688, `STAGE_1_SPEC.md` §27.5, `DATABASE_SCHEMA.md`
+ * §8.6i, ADR 0054). One row is one version of the vendor terms or the Managed plan
+ * agreement that an operator published on `/admin/legal` before it takes effect. The
+ * publish sends nothing: the notice email (AECI-1620), the acceptance screen (AECI-1677)
+ * and reader accounts (AECI-1637) read this row later.
+ *
+ * `effective_at` is 12:00 UTC of the upcoming map's `effectiveOn` day
+ * (`legalEffectiveAtMs`). `summary_json` is a JSON array of 1 to 10 plain-text bullets,
+ * each up to 300 characters (`LegalSummarySchema`). `material` and `requires_acceptance`
+ * are the operator's two answers, 0/1, and `requires_acceptance` implies `material`.
+ * `expedited_reason` is `law` | `error` on a Vendor Terms version published inside the
+ * 30-day window, NULL otherwise. `pdf_key` names the CI-built copy in `UPLOADS`
+ * (`legal/<slug>/v<version>.pdf`), and `pdf_sha256` / `pdf_bytes` describe the exact
+ * bytes read at publish. `notice_enqueued_at` and `notice_vendor_count` are NULL until
+ * AECI-1620 records its fan-out.
+ *
+ * No CHECK on `document` or `expedited_reason`, the house rule for enum-like text
+ * (`agreement_acceptances.document` above): Zod owns the vocabulary, and a CHECK change
+ * on D1 is a table recreate (`docs/migrations.md` §0). No FK: `published_by` is a
+ * `profiles.id`, as `listing_requests.resolved_by`. The one writer is
+ * `routes/admin-legal-versions.ts`, whose insert carries its `legal_version.published`
+ * audit row in the same `db.batch`. Nothing updates or deletes a row yet.
+ */
+export const legalVersions = sqliteTable(
+  'legal_versions',
+  {
+    id: uuidPk(),
+    /** `LEGAL_AGREEMENT_DOCUMENTS`: `vendor_terms` | `managed_plan`. No CHECK. */
+    document: text('document').notNull(),
+    /** e.g. `'1.4'`. */
+    version: text('version').notNull(),
+    /** Epoch ms, 12:00 UTC of the manifest's `effectiveOn` day. */
+    effectiveAt: integer('effective_at').notNull(),
+    /** JSON array of strings. */
+    summaryJson: text('summary_json').notNull(),
+    material: integer('material', { mode: 'boolean' }).notNull(),
+    requiresAcceptance: integer('requires_acceptance', { mode: 'boolean' }).notNull(),
+    /** `LEGAL_EXPEDITED_REASONS`: `law` | `error`. Vendor Terms only. No CHECK. */
+    expeditedReason: text('expedited_reason'),
+    pdfKey: text('pdf_key').notNull(),
+    /** 64 lowercase hex characters. */
+    pdfSha256: text('pdf_sha256').notNull(),
+    pdfBytes: integer('pdf_bytes').notNull(),
+    /** A `profiles.id`, NO FK. */
+    publishedBy: text('published_by').notNull(),
+    /** ISO-8601. */
+    publishedAt: text('published_at').notNull(),
+    /** ISO-8601. AECI-1620 fills it when the notice fan-out is queued. */
+    noticeEnqueuedAt: text('notice_enqueued_at'),
+    /** AECI-1620 fills it with the number of vendors queued. */
+    noticeVendorCount: integer('notice_vendor_count'),
+  },
+  (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
+);
+
+/**
+ * Where each company's change notice stands (AECI-1620, `DATABASE_SCHEMA.md` §8.6j). One row
+ * per published version and company, written by `lib/legal-notice.ts`: `queued` just before
+ * the company's message is sent to `aeci-legal-notice-{env}`, then `delivered` when the
+ * consumer finished every recipient, or a terminal `no_recipients`, `dropped` (with
+ * `last_reason`) or `expired`. `/admin/legal` counts and lists them, and the re-send skips
+ * `delivered` companies.
+ *
+ * LOG-CLASS (ADR 0022, amendment 2026-11-12): the publish and the re-send that cause these
+ * writes carry their own `audit_log` rows, and a row only records how a send went. No
+ * CHECK (Zod owns `status`), no FK (a log row outlives its subjects), no prune: one row per
+ * company per version is the record of a legal notice.
+ */
+export const legalNoticeDeliveries = sqliteTable(
+  'legal_notice_deliveries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** A `legal_versions.id`. No FK. */
+    legalVersionId: text('legal_version_id').notNull(),
+    /** A `vendors.id`. No FK. */
+    vendorId: text('vendor_id').notNull(),
+    /** `LEGAL_NOTICE_DELIVERY_STATUSES`. No CHECK. */
+    status: text('status').notNull(),
+    /** `message.attempts` of the last consumer run for this company; 0 until one runs. */
+    attempts: integer('attempts').notNull().default(0),
+    /** `LEGAL_NOTICE_DELIVERY_REASONS`: why the last attempt did not deliver. NULL otherwise. */
+    lastReason: text('last_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('legal_notice_deliveries_version_vendor_key').on(t.legalVersionId, t.vendorId),
   ],
 );
 
@@ -5891,6 +5993,8 @@ export const schema = {
   licenses,
   licenseGrants,
   agreementAcceptances,
+  legalVersions,
+  legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,

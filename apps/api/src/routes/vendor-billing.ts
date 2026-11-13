@@ -40,7 +40,6 @@
  */
 
 import {
-  isCurrentLegalAgreementVersion,
   VENDOR_BILLING_LICENSES_MAX,
   VendorBillingResponseSchema,
   type VendorPendingGrant,
@@ -64,6 +63,7 @@ import { json } from '../http';
 import { loadCheckoutSigner } from '../lib/agreement-acceptances';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import { grantItems, PENDING, type LicenseGrantRow } from '../lib/license-grants';
 import {
   createStripeClient,
@@ -274,6 +274,9 @@ async function toVendorPendingGrants(
   vendorId: string,
   rows: readonly LicenseGrantRow[],
 ): Promise<VendorPendingGrant[]> {
+  // AECI-1689: "current" is the version in force now, a published upcoming one from its
+  // moment. No D1 read unless one can matter, and none at all with no pending grant.
+  const inForce = rows.length === 0 ? null : await loadLegalInForce(db, new Date());
   const itemsOf = new Map(rows.map((row) => [row.id, grantItems(row)]));
   const productIds = [...new Set([...itemsOf.values()].flat().map((item) => item.product_id))];
   const named =
@@ -300,7 +303,7 @@ async function toVendorPendingGrants(
     ends_at: row.endsAt,
     reference: row.reference,
     terms_version: row.termsVersion,
-    terms_version_current: isCurrentLegalAgreementVersion('managed_plan', row.termsVersion),
+    terms_version_current: row.termsVersion === inForce?.agreements.managed_plan,
     items: (itemsOf.get(row.id) ?? []).map((item) => ({
       product: byId.get(item.product_id) ?? null,
       product_id: item.product_id,

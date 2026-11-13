@@ -54,7 +54,7 @@ import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { mergeRecipientAddresses } from '../lib/billing-recipients';
+import { ownerAndBillingAddresses } from '../lib/billing-recipients';
 import { businessWindowEnd } from '../lib/business-days';
 import {
   sendVendorSuspendedEmail,
@@ -72,10 +72,9 @@ import { stripeClientFromEnv } from '../lib/stripe';
 import type { StripeClientFor } from '../lib/stripe-licenses';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { isSeatsChangedError, seatRaceSentinels, seatsChangedError } from '../lib/vendor-handback';
-import { loadVendorOwnerRecipients, type FetchSeatEmails } from '../lib/vendor-seat-recipients';
+import type { FetchSeatEmails } from '../lib/vendor-seat-recipients';
 import {
   emailAfterTermination,
-  loadVendorBillingEmails,
   loadVendorStripeCustomerIds,
   planTermination,
   readRefundablePayments,
@@ -200,20 +199,6 @@ function confirmedSend(c: AdminContext, outcome: EmailOutcome): boolean {
   return outcome === 'suppressed' && !isProductionTier(c.env);
 }
 
-/** The owner seats and the billing email, each address once. */
-async function ownerAndBillingAddresses(
-  c: AdminContext,
-  db: Db,
-  vendorId: string,
-  fetchSeatEmails: FetchSeatEmails,
-): Promise<string[]> {
-  const [owners, billing] = await Promise.all([
-    loadVendorOwnerRecipients(db, c.env, vendorId, fetchSeatEmails),
-    loadVendorBillingEmails(db, vendorId),
-  ]);
-  return mergeRecipientAddresses([...owners.map((o) => o.email), ...billing], null);
-}
-
 /**
  * Sends one stage's notice and, on the first confirmed send, stamps it with its audit row
  * in one batch. The stamp is guarded, so only the first send starts the clock. Never
@@ -244,7 +229,7 @@ async function sendNotice(
   const attemptKey = isResend && !stamped ? `:retry:${attemptAt}` : '';
   let confirmed = false;
   try {
-    const addresses = await ownerAndBillingAddresses(c, db, row.vendorId, fetchSeatEmails);
+    const addresses = await ownerAndBillingAddresses(c.env, db, row.vendorId, fetchSeatEmails);
     for (const to of addresses) {
       try {
         const outcome = await send(c, {
@@ -828,7 +813,7 @@ export function createLiftVendorSuspensionHandler(
     forwardAuditBatch(c, [entry], []);
     c.executionCtx.waitUntil(
       (async () => {
-        const addresses = await ownerAndBillingAddresses(c, db, vendorId, fetchSeatEmails);
+        const addresses = await ownerAndBillingAddresses(c.env, db, vendorId, fetchSeatEmails);
         for (const to of addresses) {
           await send(c, {
             to,

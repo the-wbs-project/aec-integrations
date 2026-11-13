@@ -66,6 +66,7 @@ import {
   sendVendorTerminatedEmail,
   sendPaymentFailedEmail,
   sendRenewalCancelledEmail,
+  sendLegalTermsChangeEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
   sendProductRequestDecidedEmail,
@@ -338,8 +339,10 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         },
       }),
   },
+  // AECI-1705: no call to action. The alert is the record, and its one site URL is the
+  // typed website, which stays as it came.
   'listing-request-alert': {
-    links: true,
+    links: false,
     verbatim: ['https://sitediary.example.com'],
     send: (c) =>
       sendListingRequestAlert(c, {
@@ -351,7 +354,11 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
           submitterName: 'Pat',
           submitterTitle: 'Founder',
           submitterLinkedinUrl: null,
+          companyLegalName: 'Site Diary Ltd',
+          companyCountry: 'GB',
           body: '',
+          foundVia: null,
+          foundViaDetail: null,
         },
       }),
   },
@@ -762,6 +769,30 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         termsChange: true,
       }),
   },
+  // AECI-1690: the renewal notice with a new agreement version and its PDF sends the
+  // operator a separate COPY: (no bcc on an attachment send).
+  'entitlement-expiring-operator-copy': {
+    links: true,
+    send: (c) =>
+      sendEntitlementExpiringEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        periodEndDay: '2027-11-01',
+        daysRemaining: 45,
+        licenseCount: 1,
+        productNames: ['MicroStation'],
+        sources: ['stripe'],
+        renewingLicenseCount: 1,
+        termsChange: true,
+        newVersion: {
+          version: '1.2',
+          effectiveDay: '2027-10-01',
+          inForce: false,
+          summary: ['The refund window is 30 days.'],
+          pdfBase64: 'JVBERi0xLjQK',
+        },
+      }),
+  },
   'licenses-granted': {
     links: true,
     send: (c) =>
@@ -784,6 +815,23 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         endDay: '2027-11-01',
         licenseCount: 2,
         interval: 'year',
+      }),
+  },
+  'legal-terms-change': {
+    links: true,
+    send: (c) =>
+      sendLegalTermsChangeEmail(c, {
+        to: 'billing@vendor.example',
+        document: 'vendor_terms',
+        version: '1.4',
+        effectiveDay: '2027-01-15',
+        summary: ['The liability section changes.'],
+        closing: 'vendor-terms-accept',
+        expeditedReason: null,
+        vendorSlug: 'bentley',
+        pdfBase64: 'JVBERi0=',
+        dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:abc',
+        entity: { type: 'legal_version', id: 'lv1' },
       }),
   },
   'payment-failed': {

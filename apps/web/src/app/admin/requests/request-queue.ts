@@ -10,7 +10,6 @@ import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 import { LicenseReleaseQueue } from './license-release-queue';
-import { ListingRequestQueue } from './listing-request-queue';
 import { ProductRequestQueue } from './product-request-queue';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
@@ -51,31 +50,24 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * actions this screen's generic resolve/reject cannot express. Nothing here could
  * do to a claim what that screen does.
  *
- * ── LISTING REQUESTS (AECI-1293) ─────────────────────────────────────────────
- * The second section, `ListingRequestQueue`: typed-in listings from the claim dialog,
- * from their own table and endpoints. The Requests badge counts open corrections plus
- * open listing requests, so both sections decrement it.
+ * ── LISTING REQUESTS: REMOVED (AECI-1705) ────────────────────────────────────
+ * AECI-1293 added a listing requests section here. AECI-1705 removed it: listing
+ * requests reach the operator by email only (`listing-request-alert`), and the badge
+ * no longer counts them.
  *
  * ── PRODUCT REQUESTS (AECI-1377) ─────────────────────────────────────────────
- * The third section, `ProductRequestQueue`: vendors asking us to add the other
+ * The second section, `ProductRequestQueue`: vendors asking us to add the other
  * product of an integration (`ADMIN_PANEL_SPEC.md` §5.16). The badge counts its open
  * rows too, and a decision decrements it.
  *
  * ── EARLY-UNASSIGN REQUESTS (AECI-1373) ──────────────────────────────────────
- * The fourth section, `LicenseReleaseQueue`: vendor owners asking us to free a license
+ * The third section, `LicenseReleaseQueue`: vendor owners asking us to free a license
  * before renewal (`ADMIN_PANEL_SPEC.md` §5.17). Counted in the badge and decremented on
  * a committed approve or decline, never on a lost race.
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [
-    DatePipe,
-    LicenseReleaseQueue,
-    ListingRequestQueue,
-    NewTabIcon,
-    ProductRequestQueue,
-    RouterLink,
-  ],
+  imports: [DatePipe, LicenseReleaseQueue, NewTabIcon, ProductRequestQueue, RouterLink],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {
@@ -240,7 +232,7 @@ export class RequestQueue {
   ): Promise<void> {
     if (this.pendingActionId()) return;
     // Read the status BEFORE the row is dropped. `pending_requests` counts `open`
-    // corrections plus open listing requests, and `isActionable` also admits `in_review` — a status this
+    // corrections (with product and early-unassign requests), and `isActionable` also admits `in_review` — a status this
     // screen's filter cannot currently select, but decrementing on one would walk
     // the badge below the real backlog with nothing to resync it until the next
     // full visit to /admin.

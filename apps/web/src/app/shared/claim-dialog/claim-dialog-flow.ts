@@ -35,6 +35,7 @@ import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
 import { ClaimRoutedNotice } from '../../requests/claim-routed-notice';
 import { ClaimantFields } from '../../requests/claimant-fields';
+import { CompanyCountryField } from '../../requests/company-country-field';
 import { RequestsApi } from '../../requests/requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from '../../requests/vendor-terms-box';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
@@ -74,8 +75,11 @@ interface ClaimDialogModel {
   /** AECI-1617: pre-filled from a found listing's company, editable. Blank on the
    *  typed-in path, whose name may be a product's. */
   company_legal_name: string;
+  /** AECI-1705: the company's country (ISO 3166-1 alpha-2), typed-in path only. `''`
+   *  until chosen. */
+  company_country: string;
   body: string;
-  /** AECI-1366: the vendor terms box, on the You step of both paths. */
+  /** AECI-1366: the vendor terms box, on the found path's You step only (AECI-1705). */
   accepted_terms: boolean;
   /** AECI-1063: "How did you find AEC Integrations?" on the comments step of both
    *  paths. `''` = not answered. Never required. */
@@ -91,7 +95,7 @@ interface ClaimDialogModel {
  *
  * **Two paths.** A catalog listing (`found`) submits `POST /api/requests/claim` with
  * the comments as the claim's `body`. A typed-in listing
- * (`typed`, "Not listed? Type it in") submits `POST /api/requests/listing`. One model
+ * (`typed`, "Not listed? Ask us to add it") submits `POST /api/requests/listing`. One model
  * holds both; the active path picks the shared Zod schema that validates it
  * (`ClaimFormSchema` or `ListingRequestFormSchema`), so the LinkedIn host allowlist and
  * every other rule match the API exactly.
@@ -119,8 +123,10 @@ interface ClaimDialogModel {
  * The receipt then reads "Check your inbox": the claim is not sent until the link in
  * the email is clicked. Otherwise it is today's "sent" receipt.
  *
- * **Vendor terms** (AECI-1366). The You step carries the required terms box on both
- * paths, so Continue stops on it. A found listing also looks up whether the company
+ * **Vendor terms** (AECI-1366). A found listing's You step carries the required terms box,
+ * so Continue stops on it. The typed-in path has no box (AECI-1705): it is a request to
+ * be listed, not a claim, and asks for the company's country instead. The dialog's
+ * title and description say so (`ClaimDialogService.typed`). A found listing also looks up whether the company
  * already has an owner seat (`RequestsApi.getClaimTarget`) and, if so, shows the routed
  * notice and the routed receipt. The lookup fails quiet and never blocks the submit.
  *
@@ -132,6 +138,7 @@ interface ClaimDialogModel {
   imports: [
     ClaimantFields,
     ClaimRoutedNotice,
+    CompanyCountryField,
     FormField,
     FoundViaField,
     SearchAutocomplete,
@@ -184,9 +191,9 @@ interface ClaimDialogModel {
               (click)="typeItIn()"
               [class]="textButtonClass"
               data-testid="claim-dialog-type-it-in"
-              i18n="@@claimDialog.find.typeItIn"
+              i18n="@@claimDialog.find.askToAdd"
             >
-              Type it in
+              Ask us to add it
             </button>
           </p>
         }
@@ -501,12 +508,22 @@ interface ClaimDialogModel {
                   [email]="form.submitter_email"
                   [legalName]="form.company_legal_name"
                 />
-                <aec-vendor-terms-box
-                  class="mt-6"
-                  idPrefix="claim-dialog"
-                  [field]="form.accepted_terms"
-                  [rejected]="termsRejected()"
-                />
+                @if (path() === 'typed') {
+                  <!-- AECI-1705: a request to be listed, not a claim. No vendor terms box;
+                       the company's country helps us check the company is real. -->
+                  <aec-company-country-field
+                    class="mt-6"
+                    idPrefix="claim-dialog-country"
+                    [field]="form.company_country"
+                  />
+                } @else {
+                  <aec-vendor-terms-box
+                    class="mt-6"
+                    idPrefix="claim-dialog"
+                    [field]="form.accepted_terms"
+                    [rejected]="termsRejected()"
+                  />
+                }
               }
               @case ('comments') {
                 <h3
@@ -576,9 +593,9 @@ interface ClaimDialogModel {
                       type="button"
                       (click)="typeItInFromGone()"
                       [class]="textButtonClass"
-                      i18n="@@claimDialog.error.typeInstead"
+                      i18n="@@claimDialog.error.askInstead"
                     >
-                      Type it in instead
+                      Ask us to add it instead
                     </button>
                   </p>
                 } @else if (submitError() === 'failed') {
@@ -700,10 +717,13 @@ export class ClaimDialogFlow implements OnInit {
   /** The last legal name `seedLegalName` wrote, to tell it from one the visitor typed. */
   private seededLegalName = '';
 
-  /** AECI-1617: Continue on the You step stays off until the box is ticked, like the
-   *  submit on the routed page and the drawer. */
+  /** AECI-1617: Continue on a found listing's You step stays off until the box is
+   *  ticked, like the submit on the routed page and the drawer. The typed-in path has no
+   *  box (AECI-1705). */
   protected readonly primaryDisabled = computed(
-    () => this.submitting() || (this.step() === 'you' && !this.model().accepted_terms),
+    () =>
+      this.submitting() ||
+      (this.step() === 'you' && this.path() === 'found' && !this.model().accepted_terms),
   );
 
   private readonly model = signal<ClaimDialogModel>({
@@ -714,6 +734,7 @@ export class ClaimDialogFlow implements OnInit {
     submitter_linkedin_url: '',
     submitter_title: '',
     company_legal_name: '',
+    company_country: '',
     body: '',
     accepted_terms: false,
     found_via: '',
@@ -922,8 +943,13 @@ export class ClaimDialogFlow implements OnInit {
       ['submitter_linkedin_url', 'claim-dialog-linkedin', this.form.submitter_linkedin_url],
       ['submitter_email', 'claim-dialog-email', this.form.submitter_email],
       ['company_legal_name', 'claim-dialog-legal-name', this.form.company_legal_name],
-      ['accepted_terms', 'claim-dialog-terms', this.form.accepted_terms],
     );
+    // AECI-1705: the typed-in path asks for the country, and only a claim has the box.
+    if (this.path() === 'typed') {
+      fields.push(['company_country', 'claim-dialog-country-trigger', this.form.company_country]);
+    } else {
+      fields.push(['accepted_terms', 'claim-dialog-terms', this.form.accepted_terms]);
+    }
     return fields;
   }
 
@@ -951,8 +977,6 @@ export class ClaimDialogFlow implements OnInit {
     this.submitting.set(true);
     await submit(this.form, async (f) => {
       const v = f().value();
-      // The schema already refused an unchecked box; this narrows the type.
-      if (!v.accepted_terms) return undefined;
       const opening = this.opening();
       const identity = {
         submitter_name: v.submitter_name,
@@ -961,7 +985,6 @@ export class ClaimDialogFlow implements OnInit {
         submitter_title: v.submitter_title,
         company_legal_name: v.company_legal_name,
         body: v.body,
-        accepted_terms: true as const,
         found_via: v.found_via,
         found_via_detail: v.found_via_detail.trim(),
       };
@@ -969,9 +992,11 @@ export class ClaimDialogFlow implements OnInit {
       const listing = this.listing();
       try {
         if (this.path() === 'found' && listing) {
+          // The schema already refused an unchecked box; this narrows the type.
+          if (!v.accepted_terms) return undefined;
           const res = await this.api.submitClaim(
             { targetType: listing.targetType, slug: listing.slug },
-            identity,
+            { ...identity, accepted_terms: true },
           );
           this.confirmationRequired.set(res.confirmation_required);
           this.analytics.claimRequested({
@@ -982,10 +1007,12 @@ export class ClaimDialogFlow implements OnInit {
             found_via: foundVia,
           });
         } else {
+          // AECI-1705: no `accepted_terms`. A listing request accepts no terms.
           const res = await this.api.submitListing({
             ...identity,
             listing_name: v.listing_name,
             website: v.website,
+            company_country: v.company_country,
           });
           this.confirmationRequired.set(res.confirmation_required);
           this.analytics.listingRequested({
@@ -998,7 +1025,7 @@ export class ClaimDialogFlow implements OnInit {
         this.sentName.set(v.listing_name.trim());
         this.show('done');
       } catch (err) {
-        if (isAcceptedTermsRejection(err)) {
+        if (this.path() === 'found' && isAcceptedTermsRejection(err)) {
           // AECI-1366: back to the You step, with the box's own error and focus on it.
           this.termsRejected.set(true);
           this.model.update((m) => ({ ...m, accepted_terms: false }));
@@ -1024,11 +1051,13 @@ export class ClaimDialogFlow implements OnInit {
     this.step.set(step);
     const opening = this.opening();
     const path = this.path();
-    // AECI-1364: "Claim <Company>" once a found listing names it. The Find step and
-    // the typed-in path read "Claim your company".
+    // AECI-1364: "Claim <Company>" once a found listing names it. The Find step reads
+    // "Claim your company". AECI-1705: the typed-in path reads "Ask us to list your
+    // product", because it is a request to be listed, not a claim.
     this.dialog.setCompany(
       step !== 'find' && path === 'found' ? (this.listing()?.company ?? null) : null,
     );
+    this.dialog.setTyped(step !== 'find' && path === 'typed');
     this.analytics.claimDialogStep({
       step,
       page: opening.page,

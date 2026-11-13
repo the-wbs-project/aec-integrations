@@ -25,8 +25,6 @@
  * it is rendered via `[innerHTML]` (Angular's sanitizer runs) and is not
  * `$localize`-extracted. Only the page chrome in `legal-page.ts` is i18n-wrapped.
  */
-import { marked } from 'marked';
-
 import listingAccuracyMd from '../../content/legal/listing-accuracy-policy.md';
 import managedPlanAgreementMd from '../../content/legal/managed-plan-agreement.md';
 import privacyMd from '../../content/legal/privacy-policy.md';
@@ -39,32 +37,18 @@ import vendorTermsV1_0Md from '../../content/legal/versions/vendor-terms/v1.0.md
 import vendorTermsV1_1Md from '../../content/legal/versions/vendor-terms/v1.1.md';
 import vendorTermsV1_2Md from '../../content/legal/versions/vendor-terms/v1.2.md';
 import termsV1_0Md from '../../content/legal/versions/terms/v1.0.md';
-import { LEGAL_ARCHIVES, type LegalSlug } from './legal-manifest';
-import { type LegalVersion, buildLegalVersions } from './legal-versions';
+import {
+  LEGAL_ARCHIVES,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_UPCOMING,
+  type LegalSlug,
+} from './legal-manifest';
+import { type LegalDoc, renderLegalVersion } from './legal-render';
+import { buildLegalVersions } from './legal-versions';
 
 export { LEGAL_SLUGS, type LegalSlug } from './legal-manifest';
 
-/** Frontmatter fields surfaced in the page header. */
-export interface LegalFrontmatter {
-  readonly title: string;
-  readonly version: string;
-  /** Pre-formatted display string; empty while a doc is an unapproved draft. */
-  readonly effectiveDate: string;
-  /** Pre-formatted display string. */
-  readonly lastUpdated: string;
-}
-
-/** A parsed legal document: header metadata + rendered body HTML. */
-export interface LegalDoc {
-  readonly slug: LegalSlug;
-  readonly frontmatter: LegalFrontmatter;
-  readonly html: string;
-  /**
-   * Set on an archived version only (`/legal/<slug>/v<version>`): the day the
-   * next version replaced it. Absent on the current version.
-   */
-  readonly supersededOn?: string;
-}
+export type { LegalDoc, LegalFrontmatter } from './legal-render';
 
 // The current text of each document (`LEGAL_SOURCE_FILES` names the files).
 const CURRENT_SOURCES: Record<LegalSlug, string> = {
@@ -76,8 +60,9 @@ const CURRENT_SOURCES: Record<LegalSlug, string> = {
   'managed-plan-agreement': managedPlanAgreementMd,
 };
 
-// Every archived version, keyed by its path under `src/content/legal/`. Must
-// match `LEGAL_ARCHIVES` one to one; `buildLegalVersions` throws otherwise.
+// Every archived and upcoming version, keyed by its path under
+// `src/content/legal/`. Must match `LEGAL_ARCHIVES` plus `LEGAL_UPCOMING` one to
+// one; `buildLegalVersions` throws otherwise.
 const ARCHIVE_SOURCES: Record<string, string> = {
   'versions/terms/v1.0.md': termsV1_0Md,
   'versions/privacy/v1.0.md': privacyV1_0Md,
@@ -87,33 +72,19 @@ const ARCHIVE_SOURCES: Record<string, string> = {
   'versions/vendor-terms/v1.2.md': vendorTermsV1_2Md,
 };
 
-function renderVersion(v: LegalVersion): LegalDoc {
-  // Synchronous render — `async: false` keeps the body in the first SSR paint.
-  const html = marked.parse(v.body, { async: false, gfm: true });
-  return {
-    slug: v.slug,
-    frontmatter: {
-      title: v.data['title'] ?? '',
-      version: v.version,
-      effectiveDate: v.data['effective_date'] ?? '',
-      lastUpdated: v.data['last_updated'] ?? '',
-    },
-    html,
-    ...(v.supersededOn === undefined ? {} : { supersededOn: v.supersededOn }),
-  };
-}
-
 const VERSIONS = buildLegalVersions({
   current: CURRENT_SOURCES,
   archives: ARCHIVE_SOURCES,
   manifest: LEGAL_ARCHIVES,
+  upcoming: LEGAL_UPCOMING,
+  currentVersions: LEGAL_CURRENT_VERSIONS,
 });
 
 // slug → version → rendered doc. Rendered once per isolate, at module init.
 const REGISTRY: ReadonlyMap<LegalSlug, ReadonlyMap<string, LegalDoc>> = new Map(
   Array.from(VERSIONS, ([slug, set]) => [
     slug,
-    new Map(Array.from(set.versions, ([version, v]) => [version, renderVersion(v)] as const)),
+    new Map(Array.from(set.versions, ([version, v]) => [version, renderLegalVersion(v)] as const)),
   ]),
 );
 
@@ -131,7 +102,7 @@ export function getLegalDoc(slug: string): LegalDoc | undefined {
 }
 
 /**
- * Returns one version of a known slug, current or archived, or `undefined` when
+ * Returns one version of a known slug, current, archived or upcoming, or `undefined` when
  * the slug or the version is unknown.
  */
 export function getLegalVersion(slug: string, version: string): LegalDoc | undefined {

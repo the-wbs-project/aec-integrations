@@ -1,6 +1,7 @@
 import type { CachePurgeMessage, OwnershipSyncMessage } from '@aeci/shared';
 import type { Pipeline } from 'cloudflare:pipelines';
 
+import type { LegalNoticeMessage } from './lib/legal-notice';
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
 /**
@@ -294,6 +295,17 @@ export type Env = {
    */
   THREADS_ENABLED?: string;
   /**
+   * `"true"` lets an admin publish a legal version on this tier (AECI-1688,
+   * `ADMIN_PANEL_SPEC.md` §5.22). Anything else, or absent, is off: every
+   * `POST /api/admin/legal-versions` answers `409 LEGAL_PUBLISH_DISABLED` and the GET
+   * reports `publish_enabled: false`. `"true"` on local and staging, `"false"` on demo
+   * and production until every issue on the legal gate list has shipped. The release that
+   * sets the first effective date turns them on: a passed effective moment blocks vendor
+   * writes until an owner accepts (AECI-1677). Read only through `legalPublishEnabled`
+   * (`routes/admin-legal-versions.ts`).
+   */
+  LEGAL_PUBLISH_ENABLED?: string;
+  /**
    * `"true"` lets the daily vendor claim nudge send (AECI-1305, ruling 2026-10-31).
    * Anything else, or unset, makes the job return `skipped` (`disabled`) before it reads
    * anything. `"false"` on production until Chris turns it on. Every gate in
@@ -568,6 +580,16 @@ export type Env = {
    * emits `aeci.ownership_sync.enqueue{outcome:unbound}` and warns.
    */
   OWNERSHIP_SYNC_QUEUE?: Queue<OwnershipSyncMessage>;
+  /**
+   * Producer binding for the legal change notice (AECI-1620, `legal-terms-change`). A
+   * material publish on `/admin/legal` and its re-send route each `sendBatch()` one
+   * {@link LegalNoticeMessage} per affected company here; the same Worker consumes
+   * `aeci-legal-notice-{env}` (`lib/legal-notice.ts`). Declared in all four
+   * `wrangler.jsonc` blocks, local dev included. Absent (unit tests) → the fan-out
+   * counts `aeci.legal_notice.enqueue{outcome:unbound}`, logs an error and leaves
+   * `notice_enqueued_at` NULL.
+   */
+  LEGAL_NOTICE_QUEUE?: Queue<LegalNoticeMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per

@@ -1,7 +1,8 @@
 # Legal runbooks
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
-report or demand letter, a subpoena for a reviewer's identity. No alert pages any of them. Alert runbooks are in
+report or demand letter, a subpoena for a reviewer's identity. The last four sections run our published legal versions: the
+change notice, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
 [`alerts.md`](./alerts.md). Subscription and billing procedures are in
 [`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
 `docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q40, Q41). Where counsel did not say something, these steps say
@@ -324,3 +325,81 @@ records before they run, rather than stopping the job:
 
 **Ending a hold.** Only when the attorney says the matter is closed. Record the end date on the Linear
 issue and tell everyone who got the notice.
+
+## A legal change notice did not go out
+
+Not a paging alert. Use this when a published material version's card on `/admin/legal` shows a
+company under "Not reached", when "Not yet delivered" stays above zero an hour after a send, when
+the queue line says the notice did not finish, or when a company says it never got the notice
+(AECI-1620, `VENDOR_SIGNUP_PROCESS.md` §3 step 12).
+
+**Read the card.** Every state below is something the card shows. The company counts come from
+`legal_notice_deliveries` (one row per company), the address counts from `notification_sends`
+(each address once, by its latest send).
+
+| The card shows | Meaning | Do |
+|---|---|---|
+| "The last send queued N companies", Not reached 0, Not yet delivered 0 | Every company was delivered | Nothing |
+| Not yet delivered above 0 | Those companies' messages are waiting or retrying (10, 20, then 30 minutes apart) | Wait an hour. Each one ends as Delivered or under "Not reached" |
+| "Waiting too long": a company with "Queued for more than two hours. Send the notice again." | Its row is still queued with no update for two hours, longer than the retries take. The message is gone (the consumer died on its last attempt, or its last write failed) | Press "Send the notice again" before the effective date. After it, the company moves to "Not reached" |
+| "Delivered, with an address to check": "The email service did not confirm one of its addresses, so that email may not have arrived." | A send timed out or threw after it may have reached Resend. Its key is kept, so a re-send will not retry it | Check Resend's log for that message. If it did not go, contact the company directly |
+| "Delivered, with an address to check": "One of its addresses was held by this tier's email rules and got nothing." | Off production the tier policy held an outside address. Expected on demo and local; never on production | On production, read the `email-suppressed-in-production` alert. Elsewhere, nothing |
+| "The notice did not finish queuing" right after every company was queued | The delivery rows could not be written (`aeci.legal_notice: could not record …`), so the fan-out reported itself incomplete even though the messages went | Press "Send the notice again": it rewrites the rows, and the keys stop a second email |
+| "The notice did not finish queuing. It stopped after queuing N companies" | The audience read or a queue send failed (`aeci.legal_notice.enqueue{outcome:failed}`), or `LEGAL_NOTICE_QUEUE` is unbound (`outcome:unbound`). The companies it could not queue are listed as "It could not be added to the send queue." | Press "Send the notice again". An unbound queue means a deploy missed the binding: check `wrangler-legal-notice.spec.ts` and the tier's deploy first |
+| "No outcome is recorded yet" | Still queuing, or the outcome write failed after the queue took the messages | Refresh after a minute. If it stays, send again |
+| Not reached: "The stored PDF did not match the published copy." | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed, or it is gone | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
+| Not reached: "The seat email addresses could not be read." | Supabase Auth was down, or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent to that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
+| Not reached: "The email service refused one or more of its addresses." | Resend answered non-2xx after every retry. The address line shows them under "Addresses failing" | Check Resend status and the sending domain, then send again |
+| Not reached: "Email sending is not set up on this tier." | No `RESEND_API_KEY` or `EMAIL_FROM` on the tier | Set them, deploy, send again |
+| Not reached: "The site address is not set, so the link could not be built." | `PUBLIC_SITE_URL` is unset | Set the var, deploy, send again |
+| Not reached: "A database or service read failed." | A D1 or R2 read threw on every attempt | Check D1 and R2 health, then send again |
+| Not reached: "No seat or billing email to send to." | The company has no unbanned seat (Vendor Terms) or owner seat (Managed plan) with an address, and no billing email | Ask the company for a billing email, or add a seat, then send again |
+| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect |
+
+**Read the logs** for detail. In PostHog Logs, search `aeci.legal_notice`. Each error names the
+`legal_version_id`, the `vendor_id` and the version, and carries `reason_code`. The last attempt
+says "the message is dropped".
+
+**Send again is always safe.** It re-reads the audience and queues every company not yet
+delivered. Each address is keyed
+`legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address already
+reached for that company gets nothing. It refuses once the version has taken effect, because the
+email says it has not.
+
+**What went to one address.** Hash the address and read the ledger:
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, outcome, dedupe_key FROM notification_sends WHERE notification_id = 'legal-terms-change' AND recipient_hash = 'HASH' ORDER BY created_at DESC LIMIT 20"
+```
+
+## A company is blocked on the acceptance screen and has no working owner seat (AECI-1677)
+
+Once a Vendor Terms version is in force, a company with no acceptance of a version in force sees
+only the acceptance screen, and only an owner seat can accept (ruling 24,
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). A company whose owners are all banned, or which has only
+member seats, cannot unblock itself. Its member seats see "Your company has no owner seat that can
+sign in." Find these companies before the effective date, not after.
+
+1. **Before the effective date, list who has not accepted.** On `/admin/legal`, open "Who has
+   accepted" and read the "Not yet" list for the version that will take effect. Each name links
+   to `/admin/vendors/:id`.
+2. **Check each company's seats.** On the vendor page, Seats tab: a company needs at least one
+   seat marked owner that is not banned. Note every company with none.
+3. **Find the person who should own it.** Use the claim on record or the member seats. Confirm
+   with the company, in writing, who has authority to accept for it.
+4. **Make that person an owner seat.** On the vendor page, provision a seat for their email
+   (`POST /api/admin/vendors/:id/seats`, §5.7). It creates an owner seat, or promotes an
+   existing member seat to owner, with its audit row.
+5. **Tell them.** Reply to the company: an owner seat now exists, and the next sign-in shows the
+   acceptance screen. Do not accept on their behalf: an acceptance is the company's act.
+6. **After the effective date,** a member seat that writes in about the screen gets the same
+   steps 2 to 5.
+
+## The digest reports `legal_agreement_date_moved` (AECI-1689)
+
+A Vendor Terms or Managed plan agreement version was published with one effective date, and a later commit changed the upcoming entry's `effectiveOn`. The row is now in force nowhere: the page keeps the old version, new acceptances keep stamping it, and the acceptance screen asks nothing. The `/admin/legal` card shows the same alert. The notice that went out named the published date. Move the entry back to that date in a new commit and deploy it. If the published date is truly wrong, the fix is a new version, announced and published again (legal `README.md`).
+
+## The digest reports `legal_agreement_unpublished` (AECI-1689)
+
+An upcoming Vendor Terms or Managed plan agreement version is 30 days or less from its effective moment, or past it, and has no `legal_versions` row on this tier. Without the row it never becomes the version in force: the page keeps "takes effect on <date>" and new acceptances keep the old version. Publish it on `/admin/legal` (legal `README.md` "Publishing an upcoming agreement version"). The publish needs 30 days of notice, so inside 30 days move the effective date instead, unless a Vendor Terms change is expedited. In demo and production the publish is off until `LEGAL_PUBLISH_ENABLED` is turned on, so there the line is expected until that release.
+- **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see "Algolia sync failed".

@@ -310,6 +310,38 @@ export const ApiErrorCode = {
   // integration carries no acknowledgment of the private-thread rules (409). Nothing
   // is written. The portal shows the acknowledgment and the seat sends again.
   THREAD_ACK_REQUIRED: 'THREAD_ACK_REQUIRED',
+  // AECI-1688 legal version publish (`API_CONTRACTS.md` §4, `POST /api/admin/legal-versions`),
+  // checked in this order. `LEGAL_PUBLISH_DISABLED` (409): `LEGAL_PUBLISH_ENABLED` is not
+  // "true" on this tier. `LEGAL_VERSION_NOT_UPCOMING` (422): the version is not the
+  // document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`. `LEGAL_VERSION_EXISTS` (409):
+  // it is already published, including the loser of a race on the unique index.
+  // `LEGAL_NOTICE_WINDOW` (422): it takes effect less than 30 days out, and it is not a
+  // Vendor Terms change with an expedited reason that is still in the future.
+  // `LEGAL_PDF_MISSING` (409): the CI-built PDF is absent from `UPLOADS`, is not a PDF, or
+  // is over 5 MB. Nothing is written on any of them.
+  LEGAL_PUBLISH_DISABLED: 'LEGAL_PUBLISH_DISABLED',
+  LEGAL_VERSION_NOT_UPCOMING: 'LEGAL_VERSION_NOT_UPCOMING',
+  LEGAL_VERSION_EXISTS: 'LEGAL_VERSION_EXISTS',
+  LEGAL_NOTICE_WINDOW: 'LEGAL_NOTICE_WINDOW',
+  LEGAL_PDF_MISSING: 'LEGAL_PDF_MISSING',
+  // AECI-1620 notice re-send (`POST /api/admin/legal-versions/:id/notice`), after the
+  // `LEGAL_PUBLISH_DISABLED` gate and a 404 for an unknown id. `LEGAL_NOTICE_NOT_MATERIAL`
+  // (409): the version is not a material change, so it has no notice. `LEGAL_NOTICE_TOO_LATE`
+  // (422): the version has already taken effect, and the notice would say it has not.
+  // `LEGAL_NOTICE_ENQUEUE_FAILED` (503): the audience read or a queue send failed. The
+  // partial outcome IS recorded on the row with its audit row; send again to finish.
+  LEGAL_NOTICE_NOT_MATERIAL: 'LEGAL_NOTICE_NOT_MATERIAL',
+  LEGAL_NOTICE_TOO_LATE: 'LEGAL_NOTICE_TOO_LATE',
+  LEGAL_NOTICE_ENQUEUE_FAILED: 'LEGAL_NOTICE_ENQUEUE_FAILED',
+  // AECI-1677 the portal acceptance screen (`API_CONTRACTS.md` §4, §6.14 "Legal
+  // acceptance"). `LEGAL_ACCEPTANCE_REQUIRED` (403): a vendor write while the Vendor Terms
+  // are in force and the company holds no acceptance of a version in force (ruling 24).
+  // `details` names the document and version to accept. `LEGAL_ACCEPTANCE_NOT_PENDING`
+  // (422): `POST /api/vendor/legal-acceptance` named a version this company cannot accept
+  // right now: not in force and not a published version that needs acceptance, or
+  // already accepted. Nothing is written on either.
+  LEGAL_ACCEPTANCE_REQUIRED: 'LEGAL_ACCEPTANCE_REQUIRED',
+  LEGAL_ACCEPTANCE_NOT_PENDING: 'LEGAL_ACCEPTANCE_NOT_PENDING',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

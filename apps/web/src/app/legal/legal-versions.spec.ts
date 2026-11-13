@@ -15,12 +15,23 @@ import { describe, expect, it } from 'vitest';
 import {
   LEGAL_ARCHIVES,
   LEGAL_ARCHIVE_PATHS,
+  LEGAL_CURRENT_VERSIONS,
+  LEGAL_CURRENT_VERSION_PATHS,
   LEGAL_SLUGS,
   LEGAL_SOURCE_FILES,
+  LEGAL_UPCOMING,
+  LEGAL_UPCOMING_PATHS,
   type LegalArchiveEntry,
+  type LegalUpcomingEntry,
   legalArchiveFile,
 } from './legal-manifest';
-import { type LegalVersionSources, buildLegalVersions, changeHistoryItems } from './legal-versions';
+import {
+  type LegalVersionSources,
+  buildLegalVersions,
+  bumpLegalVersionSet,
+  changeHistoryItems,
+  legalDateLabel,
+} from './legal-versions';
 
 const CONTENT_DIR = fileURLToPath(new URL('../../content/legal', import.meta.url));
 
@@ -40,14 +51,38 @@ function realSources(): LegalVersionSources {
     current: Object.fromEntries(LEGAL_SLUGS.map((slug) => [slug, read(LEGAL_SOURCE_FILES[slug])])),
     archives: Object.fromEntries(diskArchiveFiles().map((file) => [file, read(file)])),
     manifest: LEGAL_ARCHIVES,
+    upcoming: LEGAL_UPCOMING,
+    currentVersions: LEGAL_CURRENT_VERSIONS,
   };
 }
 
 describe('the real legal sources (AECI-1361)', () => {
-  it('every archive file on disk has a manifest entry, and every entry has a file', () => {
+  it('every versions/ file on disk has a manifest entry, and every entry has a file', () => {
     expect(diskArchiveFiles().sort()).toEqual(
-      LEGAL_ARCHIVES.map((a) => legalArchiveFile(a.slug, a.version)).sort(),
+      [...LEGAL_ARCHIVES, ...LEGAL_UPCOMING].map((a) => legalArchiveFile(a.slug, a.version)).sort(),
     );
+  });
+
+  it('upcoming URLs derive from LEGAL_UPCOMING (AECI-1610)', () => {
+    expect(LEGAL_UPCOMING_PATHS).toEqual(
+      LEGAL_UPCOMING.map((u) => `/legal/${u.slug}/v${u.version}`),
+    );
+  });
+
+  // A change notice links /legal/<slug>/v<version>. On bump day that version
+  // becomes the current file, so the current version must keep that URL.
+  it('serves each current version at its own /legal/<slug>/v<version> address (AECI-1610)', () => {
+    const map = buildLegalVersions(realSources());
+    for (const slug of LEGAL_SLUGS) {
+      expect(LEGAL_CURRENT_VERSIONS[slug], slug).toBe(map.get(slug)!.current.version);
+    }
+    expect(LEGAL_CURRENT_VERSION_PATHS).toEqual(
+      LEGAL_SLUGS.map((slug) => `/legal/${slug}/v${LEGAL_CURRENT_VERSIONS[slug]}`),
+    );
+    for (const path of LEGAL_CURRENT_VERSION_PATHS) {
+      expect(LEGAL_ARCHIVE_PATHS).not.toContain(path);
+      expect(LEGAL_UPCOMING_PATHS).not.toContain(path);
+    }
   });
 
   it('builds: the four versioned documents carry their archives; the two policies have no archive', () => {
@@ -175,8 +210,23 @@ describe('buildLegalVersions', () => {
 
   it('throws when an archive file has no manifest entry', () => {
     expect(() => buildLegalVersions(sources({ manifest: [] }))).toThrow(
-      /has no LEGAL_ARCHIVES entry/,
+      /has no LEGAL_ARCHIVES or LEGAL_UPCOMING entry/,
     );
+  });
+
+  it('throws when LEGAL_CURRENT_VERSIONS disagrees with the current file (AECI-1610)', () => {
+    expect(() => buildLegalVersions(sources({ currentVersions: { terms: '1.1' } }))).not.toThrow();
+    expect(() => buildLegalVersions(sources({ currentVersions: { terms: '1.0' } }))).toThrow(
+      /LEGAL_CURRENT_VERSIONS says terms is version 1.0/,
+    );
+    expect(() => buildLegalVersions(sources({ currentVersions: {} }))).toThrow(/move both/);
+  });
+
+  it('lets the change history link the current version at its own address', () => {
+    const history = GOOD_HISTORY.replace('**Version 1.1**', '[Version 1.1](/legal/terms/v1.1)');
+    expect(() =>
+      buildLegalVersions(sources({ current: { terms: doc('1.1', history) } })),
+    ).not.toThrow();
   });
 
   it('throws when a manifest entry has no bundled file', () => {
@@ -239,5 +289,211 @@ describe('buildLegalVersions', () => {
     expect(() => buildLegalVersions(sources({ current: { terms: doc('1.1', noDate) } }))).toThrow(
       /does not give its superseded date/,
     );
+  });
+});
+
+// --- Upcoming versions (AECI-1610) -------------------------------------------
+
+describe('legalDateLabel', () => {
+  it('writes a real day out as "Month D, YYYY"', () => {
+    expect(legalDateLabel('2027-03-01')).toBe('March 1, 2027');
+    expect(legalDateLabel('2026-12-31')).toBe('December 31, 2026');
+  });
+
+  it.each(['03/01/2027', '2027-3-1', '2027-13-01', '2027-02-30', ''])('refuses "%s"', (iso) => {
+    expect(legalDateLabel(iso)).toBeUndefined();
+  });
+});
+
+describe('buildLegalVersions with an upcoming version', () => {
+  const UPCOMING: LegalUpcomingEntry = { slug: 'terms', version: '1.2', effectiveOn: '2027-03-31' };
+  const UPCOMING_FILE = 'versions/terms/v1.2.md';
+  const OLD_FILE = '---\ntitle: T\nversion: 1.0\n---\n\nOld body.\n';
+  /** An upcoming file with the change history it will have once current (AECI-1689). */
+  function upcomingFile(version = '1.2', effective = 'March 31, 2027'): string {
+    const history = [
+      `- **Version ${version}** (this version): effective ${effective}.`,
+      `- [Version 1.1](/legal/terms/v1.1): draft, never in force. Superseded ${effective}.`,
+      '- [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded May 1, 2026.',
+    ].join('\n');
+    return `---\ntitle: T\nversion: ${version}\neffective_date: ${effective}\n---\n\nNew body.\n\n## Change history\n\n${history}\n`;
+  }
+
+  function withUpcoming(overrides: Partial<LegalVersionSources> = {}): LegalVersionSources {
+    return sources({
+      archives: { 'versions/terms/v1.0.md': OLD_FILE, [UPCOMING_FILE]: upcomingFile() },
+      upcoming: [UPCOMING],
+      ...overrides,
+    });
+  }
+
+  it('builds: the upcoming version resolves, carries its effective day, and is not current', () => {
+    const set = buildLegalVersions(withUpcoming()).get('terms')!;
+    expect(set.current.version).toBe('1.1');
+    const next = set.versions.get('1.2')!;
+    expect(next.effectiveOn).toBe('2027-03-31');
+    expect(next.supersededOn).toBeUndefined();
+    expect(next.body).toContain('New body.');
+    expect(next.data['effective_date']).toBe('March 31, 2027');
+  });
+
+  // AECI-1689 owns what happens on the date. The builder never reads the clock,
+  // so `main` cannot go red the day after an effective date.
+  it('still builds once the effective date has passed', () => {
+    const past: LegalUpcomingEntry = { ...UPCOMING, effectiveOn: '2001-01-01' };
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          upcoming: [past],
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]: upcomingFile('1.2', 'January 1, 2001'),
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('throws when the upcoming file is missing', () => {
+    expect(() =>
+      buildLegalVersions(withUpcoming({ archives: { 'versions/terms/v1.0.md': OLD_FILE } })),
+    ).toThrow(/LEGAL_UPCOMING lists terms 1.2 but "versions\/terms\/v1.2.md" is not bundled/);
+  });
+
+  it('throws when a versions/ file has no entry in either manifest', () => {
+    expect(() => buildLegalVersions(withUpcoming({ upcoming: [] }))).toThrow(
+      /"versions\/terms\/v1.2.md" has no LEGAL_ARCHIVES or LEGAL_UPCOMING entry/,
+    );
+  });
+
+  it('throws when the upcoming file names another version than its filename', () => {
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: { 'versions/terms/v1.0.md': OLD_FILE, [UPCOMING_FILE]: upcomingFile('1.3') },
+        }),
+      ),
+    ).toThrow(/filename\/frontmatter mismatch/);
+  });
+
+  it('throws when the frontmatter label is not the effectiveOn day', () => {
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]: upcomingFile('1.2', 'March 30, 2027'),
+          },
+        }),
+      ),
+    ).toThrow(/effective_date "March 30, 2027" is not "March 31, 2027"/);
+  });
+
+  it.each(['2027-02-30', '31/03/2027', ''])('throws on an effectiveOn of "%s"', (effectiveOn) => {
+    expect(() =>
+      buildLegalVersions(withUpcoming({ upcoming: [{ ...UPCOMING, effectiveOn }] })),
+    ).toThrow(/is not a real YYYY-MM-DD day/);
+  });
+
+  it.each(['1.1', '1.0.5', '0.9'])(
+    'throws when the upcoming version %s is not later than the current one',
+    (version) => {
+      expect(() =>
+        buildLegalVersions(withUpcoming({ upcoming: [{ ...UPCOMING, version }] })),
+      ).toThrow(/is not later than the current version 1.1/);
+    },
+  );
+
+  it('compares versions numerically, not as text', () => {
+    const v110: LegalUpcomingEntry = { ...UPCOMING, version: '1.10' };
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            'versions/terms/v1.10.md': upcomingFile('1.10'),
+          },
+          upcoming: [v110],
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('throws when the same file is both archived and upcoming, or listed twice', () => {
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          manifest: [ARCHIVE, { slug: 'terms', version: '1.2', supersededOn: 'May 2, 2026' }],
+        }),
+      ),
+    ).toThrow(/is also in LEGAL_ARCHIVES/);
+    expect(() => buildLegalVersions(withUpcoming({ upcoming: [UPCOMING, UPCOMING] }))).toThrow(
+      /is listed twice/,
+    );
+  });
+
+  it('throws on a second upcoming entry for the same document', () => {
+    const second: LegalUpcomingEntry = { ...UPCOMING, version: '1.3', effectiveOn: '2027-06-30' };
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]: upcomingFile(),
+            'versions/terms/v1.3.md': upcomingFile('1.3', 'June 30, 2027'),
+          },
+          upcoming: [UPCOMING, second],
+        }),
+      ),
+    ).toThrow(/terms already has upcoming version 1.2/);
+  });
+
+  // AECI-1689: the upcoming file moves unchanged on bump day, and the page shows it
+  // as current from its date, so its own history must already read as current.
+  it('throws when the upcoming file has no change history of its own', () => {
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: {
+            'versions/terms/v1.0.md': OLD_FILE,
+            [UPCOMING_FILE]:
+              '---\ntitle: T\nversion: 1.2\neffective_date: March 31, 2027\n---\n\nNew.\n',
+          },
+        }),
+      ),
+    ).toThrow(/upcoming versions\/terms\/v1\.2\.md \(read as current\) does not end with/);
+  });
+
+  it('throws when the upcoming history does not supersede the current version on its date', () => {
+    const wrongDate = upcomingFile().replace(
+      'Superseded March 31, 2027',
+      'Superseded April 1, 2027',
+    );
+    expect(() =>
+      buildLegalVersions(
+        withUpcoming({
+          archives: { 'versions/terms/v1.0.md': OLD_FILE, [UPCOMING_FILE]: wrongDate },
+        }),
+      ),
+    ).toThrow(/line for version 1\.1 does not give its superseded date "March 31, 2027"/);
+  });
+
+  it('bumpLegalVersionSet: the upcoming version current, the old one superseded on its date', () => {
+    const set = buildLegalVersions(withUpcoming()).get('terms')!;
+    const bumped = bumpLegalVersionSet(set, '1.2');
+    expect(bumped.current.version).toBe('1.2');
+    expect(bumped.current.effectiveOn).toBeUndefined();
+    expect(bumped.versions.get('1.1')!.supersededOn).toBe('March 31, 2027');
+    expect(bumped.versions.get('1.0')!.supersededOn).toBe('May 1, 2026');
+    expect(() => bumpLegalVersionSet(set, '1.0')).toThrow(/has no upcoming version 1.0/);
+  });
+
+  // Announcing a version must not edit the current file: for an agreement that
+  // would change the hashed text of a version in force. `LegalPage` announces it.
+  it('builds with the current file unchanged: its change history need not list it', () => {
+    const plain = sources();
+    const withIt = withUpcoming();
+    expect(withIt.current).toEqual(plain.current);
+    expect(() => buildLegalVersions(withIt)).not.toThrow();
   });
 });

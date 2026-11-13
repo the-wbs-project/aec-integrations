@@ -91,7 +91,12 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
     await form.getByLabel('Title', { exact: true }).fill('VP Partnerships');
     await form.getByLabel('Company legal name').fill('Acme, Inc.');
     await form.getByLabel('Your work email').fill('dana@sitediary.example');
-    await form.getByRole('checkbox', { name: /I have read and accept the Vendor Terms/ }).check();
+    // AECI-1705: no vendor terms box on a listing request, and a required country.
+    await expect(
+      form.getByRole('checkbox', { name: /I have read and accept the Vendor Terms/ }),
+    ).toHaveCount(0);
+    await form.getByRole('combobox', { name: /Company country/ }).click();
+    await page.getByRole('option', { name: 'Canada', exact: true }).click();
     await form.getByRole('button', { name: 'Continue' }).click();
     await expect(progress).toContainText('Step 2 of 2');
     await form.getByRole('button', { name: 'Send request' }).click();
@@ -107,11 +112,11 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
         company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
         body: '',
-        accepted_terms: true,
         found_via: '',
         found_via_detail: '',
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',
+        company_country: 'CA',
       },
     ]);
     await expect(page).toHaveURL(new RegExp(`${PATH}$`));

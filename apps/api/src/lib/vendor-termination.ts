@@ -39,7 +39,7 @@ import type { Env } from '../env';
 import { logToPosthog } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import type { AuthzVariables } from './authz';
-import { mergeRecipientAddresses } from './billing-recipients';
+import { loadVendorBillingEmails, mergeRecipientAddresses } from './billing-recipients';
 import { sendVendorTerminatedEmail } from './email';
 import { recipientHash } from './hash';
 import {
@@ -117,15 +117,6 @@ export async function loadVendorStripeCustomerIds(db: Db, vendorId: string): Pro
       and(eq(billingAccounts.vendorId, vendorId), isNotNull(billingAccounts.stripeCustomerId)),
     );
   return [...new Set(rows.flatMap((r) => (r.customerId ? [r.customerId] : [])))];
-}
-
-/** Every billing email the vendor's accounts carry. */
-export async function loadVendorBillingEmails(db: Db, vendorId: string): Promise<string[]> {
-  const rows = await db
-    .select({ billingEmail: billingAccounts.billingEmail })
-    .from(billingAccounts)
-    .where(eq(billingAccounts.vendorId, vendorId));
-  return rows.flatMap((r) => (r.billingEmail ? [r.billingEmail] : []));
 }
 
 /**

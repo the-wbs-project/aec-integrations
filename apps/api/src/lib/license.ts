@@ -685,10 +685,16 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
   /** The new reference. Absent = leave alone; `null` clears it. */
   reference?: string | null;
   /**
-   * The Managed agreement version to bind (AECI-1500, ruling R1): a Stripe renewal
-   * binds the CURRENT version to every license it renews. Absent = leave alone.
+   * The Managed agreement version to bind (AECI-1500, ruling R1): a Stripe renewal binds
+   * the version `loadTermsBinding` decided (AECI-1690) to every license it renews. Absent =
+   * leave alone.
    */
   termsVersion?: string | null;
+  /**
+   * A version per license id, which wins over `termsVersion` for that license (AECI-1690:
+   * each license of a Stripe renewal walks from its own version). Absent ids fall back.
+   */
+  termsVersionById?: ReadonlyMap<string, string>;
   /**
    * Also guard the UPDATE on the `ends_at`, `source` and `reference` the caller read
    * (NULL-safe), so it matches no row when a concurrent edit moved any of them. Pair it
@@ -737,15 +743,16 @@ function termWrites(
   for (const id of new Set(p.licenseIds)) {
     const before = findLicense(p, id);
     if (!before || before.endedAt !== null) continue;
+    const termsVersion = p.termsVersionById?.get(id) ?? p.termsVersion;
     const after: LicenseBefore = {
       ...before,
       endsAt,
       source: p.licenseSource ?? before.source,
       reference: p.reference === undefined ? before.reference : p.reference,
-      ...(p.termsVersion !== undefined ? { termsVersion: p.termsVersion } : {}),
+      ...(termsVersion !== undefined ? { termsVersion } : {}),
     };
     const termMoved = after.endsAt !== before.endsAt;
-    const versionMoved = p.termsVersion !== undefined && before.termsVersion !== p.termsVersion;
+    const versionMoved = termsVersion !== undefined && before.termsVersion !== termsVersion;
     if (
       !termMoved &&
       !versionMoved &&
@@ -761,7 +768,7 @@ function termWrites(
         endsAt: after.endsAt,
         source: after.source,
         reference: after.reference,
-        ...(p.termsVersion !== undefined ? { termsVersion: p.termsVersion } : {}),
+        ...(termsVersion !== undefined ? { termsVersion } : {}),
         ...(termMoved ? { expiryNoticeSentAt: null } : {}),
         updatedAt: now,
       })
@@ -1402,11 +1409,14 @@ export interface SyncStripeLicensesParams extends LicenseWriteContext {
   quantity: number;
   /** Annual: the period end. Monthly: `null`. Read on `live` only. */
   endsAt: string | Date | null;
-  /** The version a NEW license records: the subscription metadata's `terms_version`. */
+  /** The version a NEW license records: the renewal's bound version, else the version
+   *  the subscription's live licenses carry, else the subscription metadata's
+   *  `terms_version` (AECI-1690, `lib/stripe-licenses.ts`). */
   termsVersion: string | null;
-  /** A renewal (`invoice.paid` with `billing_reason = subscription_cycle`) binds this
-   *  version to every license it keeps (ruling R1). Absent: versions are left alone. */
-  renewalTermsVersion?: string;
+  /** A renewal binds, per license id, the version `loadTermsBinding` decided from that
+   *  license's own version (ruling R1, AECI-1690). A license not in the map, and every
+   *  license when it is absent, keeps its version. */
+  renewalTermsVersions?: ReadonlyMap<string, string>;
   /** The subscription's `cancel_at_period_end`. `null` leaves every cancel flag as it
    *  is (the ban hook's own cancel, `lib/stripe-licenses.ts`). */
   cancelAtPeriodEnd: boolean | null;
@@ -1471,8 +1481,8 @@ function surplusOf(live: readonly LicenseBefore[], surplus: number): LicenseBefo
  *    `grantLicenseIds`;
  *  - more: end the surplus `released` ({@link surplusOf}), then carry its products
  *    onto the account's live pool licenses ({@link carryOverStatements});
- *  - every license kept: `ends_at` = `endsAt`, and on a renewal `terms_version` =
- *    `renewalTermsVersion` ({@link setLicensesTermStatements}' writes);
+ *  - every license kept: `ends_at` = `endsAt`, and on a renewal its own entry of
+ *    `renewalTermsVersions` ({@link setLicensesTermStatements}' writes);
  *  - `cancelAtPeriodEnd` sets `cancel_at_term_end` with reason `vendor-cancelled` on
  *    licenses with NO reason (`ifCancelReason: null`), and clearing it touches only
  *    `vendor-cancelled` flags. A `vendor-banned` flag is never overwritten or cleared.
@@ -1601,7 +1611,9 @@ export function syncStripeLicensesStatements(db: Db, p: SyncStripeLicensesParams
         ...ctxNow(),
         licenseIds: kept,
         endsAt: p.endsAt,
-        ...(p.renewalTermsVersion !== undefined ? { termsVersion: p.renewalTermsVersion } : {}),
+        ...(p.renewalTermsVersions !== undefined
+          ? { termsVersionById: p.renewalTermsVersions }
+          : {}),
       },
       now,
     );

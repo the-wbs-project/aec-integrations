@@ -17,11 +17,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import {
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  REQUEST_CONFIRMATION_DAYS,
-  type RequestConfirmationKind,
-} from '@aeci/shared';
+import { REQUEST_CONFIRMATION_DAYS, type RequestConfirmationKind } from '@aeci/shared';
 import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -35,6 +31,7 @@ import {
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { sendClaimConfirmEmail, type ClaimConfirmSubject, type EmailContext } from './email';
 import { sha256Hex } from './hash';
+import { loadLegalInForce } from './legal-in-force';
 import { forwardAuditBatch, type ForwardContext } from './moderation-forward';
 
 /** How long the emailed link works. Ruled 2026-10-21 (Chris). The shared constant. */
@@ -177,7 +174,7 @@ export const REQUEST_CONFIRMATION_SOURCE = 'claim-confirm';
 /**
  * Park an anonymous submit (the confirm path of `POST /api/requests/claim` and
  * `/listing`). One `db.batch`: the pending row and its `request_confirmation.created`
- * audit row. No acceptance row, no account check, no routing, no Linear issue, no
+ * audit row. No acceptance row (a claim's is written at confirm, a listing request's never), no account check, no routing, no Linear issue, no
  * alert, no receipt: all of that runs at confirm. Post-commit, in `waitUntil`, the
  * `claim-confirm` email goes to the typed address. Returns the pending id, which the
  * request takes on confirm.
@@ -189,12 +186,23 @@ export async function createPendingConfirmation(
     email: string;
     payload: unknown;
     subject: ClaimConfirmSubject;
+    /**
+     * Whether the form showed the vendor terms box, so the pending row keeps the
+     * acceptance evidence for the confirm. Default `true` (a claim). A listing request
+     * passes `false` (AECI-1705): it shows no terms, so the row stores `terms_version =
+     * ''` (the column is NOT NULL) and no IP address, browser or policy versions.
+     */
+    acceptance?: boolean;
     now?: Date;
   },
 ): Promise<{ id: string }> {
   const now = p.now ?? new Date();
   const id = crypto.randomUUID();
   const token = newConfirmationToken();
+  const acceptance = p.acceptance ?? true;
+  // AECI-1689: the versions in force at submit, the ones the visitor's page showed.
+  // AECI-1705: a listing request records no acceptance, so it needs no read.
+  const inForce = acceptance ? await loadLegalInForce(db, now) : null;
   const built = pendingConfirmationStatements(db, {
     id,
     kind: p.kind,
@@ -203,12 +211,14 @@ export async function createPendingConfirmation(
     tokenHash: await confirmationTokenHash(token),
     email: p.email,
     payload: p.payload,
-    // The version the visitor saw. Re-checked at confirm, where a bump in between
-    // refuses the acceptance (`agreementAcceptanceStatements`).
-    termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    // The version the visitor saw. Re-checked at confirm, where a bump or a switch in
+    // between refuses the acceptance (`agreementAcceptanceStatements`).
+    termsVersion: inForce ? inForce.agreements.vendor_terms : '',
     // AECI-1619: the policy versions the box named beside the terms, for the same row.
-    policyVersions: currentPolicyVersions(),
-    evidence: acceptanceRequestEvidence(c.req.raw.headers),
+    policyVersions: inForce ? currentPolicyVersions(inForce) : null,
+    evidence: inForce
+      ? acceptanceRequestEvidence(c.req.raw.headers)
+      : { ip: null, userAgent: null },
     now,
   });
   await db.batch(built.stmts as BatchTuple);

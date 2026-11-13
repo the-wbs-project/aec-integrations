@@ -70,14 +70,40 @@ another Stripe account or mode. Ask Chris before you touch its subscriptions.
 the missing Checkout agreement acceptance. It also sets an empty billing email to the buyer's
 email from the Checkout Session, as the webhook would. Either backfill counts as a change, so the
 email lists it under "Acceptance" or "Billing email". When it moves a term to a new period end, it binds the
-current agreement version, as a renewal through the webhook does. So a grant in the email needs no
-manual acceptance fix. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
+agreement version a renewal binds, as the webhook does (ADR 0047 decision 9). So a grant in the email
+needs no manual acceptance fix. On a monthly Stripe subscription it also binds a later Managed plan
+agreement version the current period's charge should have bound (AECI-1690). The email lists
+that under "Agreement version", and `job_runs.detail` counts it as `termsBound`. That is a missed
+monthly `invoice.paid`: treat it as a missed webhook. An owner's click after a charge never shows
+here, because it binds at the next charge. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
 Stripe's own failed-payment email still went.
 
 **`outcome:skipped`** means `STRIPE_SECRET_KEY` is unset on the tier. That is expected on local dev
 without a `.dev.vars` key. On a deployed tier it means the secret push warned and skipped: check the
 deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being off
 (`STRIPE_CHECKOUT_ENABLED="false"`) does not skip the reconcile.
+
+## Unaccepted terms charge
+
+**Signal:** the warn log `aeci.billing.unaccepted_terms_charge` (source `stripe-webhook` or
+`stripe-reconcile`), or a non-zero count of the metric of the same name.
+
+**What it means.** A monthly Stripe charge ended with a subscription bound to a Managed plan
+agreement version that needs acceptance (`requires_acceptance`), and no acceptance of the company
+covers it (AECI-1690, ADR 0047 decision 9). The bind is built to hold such a version back, so this
+is a tripwire. The usual cause is a Stripe subscription whose subscriptions carried two versions
+before the charge. Each subscription walks from its own version, so even that should not cross
+the click. A firing therefore means a bug in the bind, or a version set by hand. Nothing was cancelled, and the customer was charged at the price they agreed. The log names
+`stripe_subscription_id`, `vendor_id`, `billing_account_id` and `terms_version`.
+
+1. **Read the subscriptions.** Run the first query under "Stripe reconcile changed subscriptions" with
+   `SUB` set to the id from the log, adding `terms_version` to the column list.
+2. **Read the acceptances.** On the admin vendor page, Billing tab, check the Managed plan rows. If an
+   owner did accept that version, the alert was a false positive: file a bug with the log line.
+3. **Put the subscriptions back.** If no acceptance covers it, ask Chris before you change anything.
+   The fix is an ops script that sets `terms_version` back to the version the company accepted, with
+   a `license.term_changed` audit row. Data fixes are ops scripts, not migrations.
+4. **File a bug** on the AECi team with the log line, so the cause is fixed in the bind.
 
 ## Stripe: refund a paid subscription
 

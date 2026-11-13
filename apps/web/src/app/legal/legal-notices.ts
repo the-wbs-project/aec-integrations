@@ -14,7 +14,10 @@
  * would take down every page.
  */
 import noticesJson from '../../content/legal/notices.json';
-import { LEGAL_SLUGS, type LegalSlug, legalArchivePath } from './legal-manifest';
+// `legal-slugs`, not `legal-manifest`: the app shell imports this file, and the
+// version lists must stay out of the initial bundle. The entry type is type-only.
+import type { LegalUpcomingEntry } from './legal-manifest';
+import { LEGAL_SLUGS, type LegalSlug, legalArchivePath } from './legal-slugs';
 
 /** One entry in `notices.json`. */
 export interface LegalNotice {
@@ -104,13 +107,18 @@ export function nextLegalNoticeBoundaryMs(
 
 /**
  * Every problem with `notices`, or an empty list. `titles` is each document's
- * frontmatter title. `upcomingPaths` is `LEGAL_UPCOMING_PATHS`: a notice whose new
- * version has no page would break the promise to link to it.
+ * frontmatter title. `upcoming` is `LEGAL_UPCOMING`: a notice whose new version
+ * has no upcoming entry has no page, which would break the promise to link to it,
+ * and a notice must name the same effective day as the entry (AECI-1610).
+ * `currentVersions` is `LEGAL_CURRENT_VERSIONS`: the band runs through the
+ * effective day, which the bump-day cleanup may land within, so a
+ * notice for the version now current is allowed until it is tidied away.
  */
 export function validateLegalNotices(
   notices: readonly LegalNotice[],
   titles: Readonly<Partial<Record<LegalSlug, string>>>,
-  upcomingPaths: readonly string[],
+  upcoming: readonly LegalUpcomingEntry[],
+  currentVersions: Readonly<Partial<Record<LegalSlug, string>>> = {},
 ): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -140,7 +148,15 @@ export function validateLegalNotices(
       problems.push(`${id}: summary is longer than ${LEGAL_NOTICE_SUMMARY_MAX} characters`);
     }
 
-    if (!upcomingPaths.includes(legalNoticeHref(notice))) {
+    const entry = upcoming.find((u) => u.slug === notice.slug && u.version === notice.version);
+    if (entry) {
+      if (entry.effectiveOn !== notice.effectiveDate) {
+        problems.push(
+          `${id}: effectiveDate ${notice.effectiveDate} is not the LEGAL_UPCOMING effectiveOn ${entry.effectiveOn}`,
+        );
+      }
+    } else if (currentVersions[notice.slug] !== notice.version) {
+      // A bumped version is current, and its own address still serves the link.
       problems.push(`${id}: ${legalNoticeHref(notice)} is not in LEGAL_UPCOMING_PATHS`);
     }
   }

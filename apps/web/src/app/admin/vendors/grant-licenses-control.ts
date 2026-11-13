@@ -3,7 +3,6 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 
 import {
   ApiErrorCode,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   SIGNED_DEAL_ROLE_MAX,
   SIGNED_DEAL_TEXT_MAX,
   SignedDealSchema,
@@ -19,6 +18,7 @@ import {
   type AdminGrantLicenseSource,
 } from '@aeci/shared/entitlements';
 
+import { LegalInForceClient } from '../../legal/legal-in-force-client';
 import { AdminLicensesApi } from './admin-licenses-api';
 
 /** The operator's local today as `YYYY-MM-DD`, the form a date input holds. Local, not
@@ -87,8 +87,12 @@ export class GrantLicensesControl {
   protected readonly notesMax = LICENSE_GRANT_NOTES_MAX;
   protected readonly dealTextMax = SIGNED_DEAL_TEXT_MAX;
   protected readonly dealRoleMax = SIGNED_DEAL_ROLE_MAX;
-  /** The version a grant pins today. A signed deal must name it. */
-  protected readonly currentVersion = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+  /** The Managed plan agreement versions in force, as the API pins them (AECI-1689). */
+  private readonly inForce = inject(LegalInForceClient);
+  /** The version a grant pins today: the one in force. A signed deal must name it. */
+  protected readonly currentVersion = computed(
+    () => this.inForce.versions().agreements.managed_plan,
+  );
 
   protected readonly formOpen = signal(false);
   private readonly grantId = signal('');
@@ -139,7 +143,7 @@ export class GrantLicensesControl {
   );
   /** The API refuses any version but the one the grant pins. */
   protected readonly dealVersionMismatch = computed(
-    () => this.dealVersion().trim() !== '' && this.dealVersion().trim() !== this.currentVersion,
+    () => this.dealVersion().trim() !== '' && this.dealVersion().trim() !== this.currentVersion(),
   );
   /** `YYYY-MM-DD` strings compare correctly as text. */
   protected readonly dealSignedInFuture = computed(
@@ -201,7 +205,12 @@ export class GrantLicensesControl {
     this.dealCompany.set('');
     this.dealEmail.set('');
     this.dealReference.set('');
-    this.dealVersion.set(this.currentVersion);
+    this.dealVersion.set(this.currentVersion());
+    // A switch since the page loaded moves the version: correct the field if it was not edited.
+    const shown = this.currentVersion();
+    void this.inForce.refresh().then(() => {
+      if (this.dealVersion() === shown) this.dealVersion.set(this.currentVersion());
+    });
     this.dealVersionDate.set('');
     this.dealSigningAccepts.set(false);
     this.dealSignedAt.set('');
@@ -298,7 +307,7 @@ export class GrantLicensesControl {
       this.lastStatus.set(result.status);
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
-      this.failedMessage.set(messageForError(err));
+      this.failedMessage.set(messageForError(err, this.currentVersion()));
     } finally {
       this.pending.set(false);
     }
@@ -324,12 +333,11 @@ export class GrantLicensesControl {
 }
 
 /** Each status and code the endpoint returns gets a sentence the operator can act on. */
-function messageForError(err: unknown): string {
+function messageForError(err: unknown, version: string): string {
   if (err instanceof HttpErrorResponse) {
     const code = (err.error as { error?: { code?: string } } | null)?.error?.code;
     const field = (err.error as { error?: { field?: string } } | null)?.error?.field;
     if (err.status === 400 && field?.startsWith('signed_deal')) {
-      const version = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
       return $localize`:@@admin.vendors.billing.grants.error.deal:Check the signed deal: it must name version ${version}:VERSION: of the Managed plan agreement, and it cannot be signed in the future. Nothing was granted.`;
     }
     if (err.status === 400) {

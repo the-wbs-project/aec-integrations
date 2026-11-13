@@ -165,6 +165,35 @@ check all of these. The first three are built:
 Turning it on for a tier is a one-line change to that block's `vars` in `apps/api/wrangler.jsonc`,
 then a normal deploy.
 
+### Legal publish per tier (AECI-1688)
+
+The committed API var `LEGAL_PUBLISH_ENABLED` is the switch for `POST /api/admin/legal-versions`,
+the publish on `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22), and for its notice re-send
+`POST /api/admin/legal-versions/:id/notice` (AECI-1620). Only `"true"` turns it on. Absent or
+any other value answers `409 LEGAL_PUBLISH_DISABLED`, and `GET /api/admin/legal-versions` reports
+`publish_enabled: false`, so the page keeps Publish off and says why. It is a plain var: no secret,
+no preflight, no web var. `apps/api/src/wrangler-legal-publish.spec.ts` pins the four blocks.
+
+| Tier | `LEGAL_PUBLISH_ENABLED` |
+| --- | --- |
+| **Local** | `"true"` |
+| **Staging** | `"true"` |
+| **Demo** | `"false"` |
+| **Production** | `"false"` |
+
+Demo and production stay `"false"` until every issue on the legal README's gate list has
+shipped. The release that sets the first effective date turns both on. The reason is the
+acceptance screen (AECI-1677): once a published version's effective moment passes, every claimed
+vendor's writes are blocked until an owner seat accepts. The change-notice email (AECI-1620) has
+shipped, so a publish now tells vendors before that moment. Production mirrors demo, so both flip
+together, and `apps/api/src/wrangler-legal-publish.spec.ts` is edited in the same change.
+
+**The PDF workflow.** `.github/workflows/legal-pdf.yml` (dispatch only, from `main` only, `CICD_PLAN.md` §11a-ter)
+prints one version and uploads it to `aeci-uploads-<env>` at `legal/<slug>/v<version>.pdf`. It
+runs in the `<env>` GitHub environment, so a production run waits for the `production` reviewer.
+It needs `CLOUDFLARE_API_TOKEN` with `Workers R2 Storage: Edit` and `CLOUDFLARE_ACCOUNT_ID`, the
+pair `deploy.yml` uses. It refuses to overwrite an object that exists.
+
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app
@@ -1087,6 +1116,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 **Cross-Worker cache-purge queue (WC-5 / AECI-319 / ADR 0020 §3).** `aeci-cache-purge-{staging,demo,production}` is provisioned by the **same** idempotent `create_queue` step (in `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`, before the SSR deploy) and needs the same two prerequisites above. It differs from the ADR-0013 job queues in that its **producers** are the API Worker (`CACHE_PURGE_QUEUE`, enqueued on promote/moderation) **and** — since WC-7 (AECI-321) — the manual-deploy `apps/datatool` Worker (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, enqueued after a copy/seed/reindex with `{ purgeEverything: true, source: 'datatool' }`), while its **consumer** is the **SSR Worker** (`apps/web/wrangler.jsonc` `queues.consumers`, which issues `ctx.cache.purge()`) — so the queue must exist before the SSR deploy, not only the API deploy (and before a datatool deploy). No queue on preview/local (the producers no-op gracefully). Retire it, like the job queues, only after removing all bindings.
 
 **Ownership-sync queue (AECI-1418).** `aeci-ownership-sync-{staging,demo,production}` (binding `OWNERSHIP_SYNC_QUEUE`) is created by the same idempotent `create_queue` step and needs the same two prerequisites. The API Worker is both producer and consumer. Unlike every other queue it is also declared in the local-dev block, as `aeci-ownership-sync-local`, which `wrangler dev` emulates. Its secrets and checklist: "Ownership receiver per tier" above.
+
+**Legal-notice queue (AECI-1620).** `aeci-legal-notice-{staging,demo,production}` (binding `LEGAL_NOTICE_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The API Worker is both producer (a material publish and the re-send on `/admin/legal`) and consumer (`lib/legal-notice.ts`, routed by name in `queue()`). It is declared in the local-dev block too, as `aeci-legal-notice-local`, so a local publish sends locally. Every block: `max_batch_size` 1, `max_retries` 3, `max_concurrency` 1, no dead-letter queue, pinned by `wrangler-legal-notice.spec.ts`. It needs no secret of its own: it sends through Resend, reads seat emails with `SUPABASE_SERVICE_ROLE_KEY` and the PDF from `UPLOADS`. Without the service-role key (local dev) a company with seats cannot be sent: the message retries and is dropped, by design. The email is `production-external`, so staging delivers every notice to the support inbox and demo sends only to internal addresses. Publishing itself stays behind `LEGAL_PUBLISH_ENABLED` above.
 
 **Traffic classification queue (AECI-1345).** `aeci-traffic-classify-{staging,demo,production}` (binding `TRAFFIC_CLASSIFY_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`, and needs the same two prerequisites. The `traffic-classify` cron enqueues one message at 00:45 UTC, and the consumer classifies the prior day (3 retries, batch size 1). Without the binding (local), the cron runs the job inline.
 

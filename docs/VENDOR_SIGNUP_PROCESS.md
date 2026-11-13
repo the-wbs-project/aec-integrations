@@ -41,7 +41,7 @@ does not restate those terms.
 | 6 | Subscriptions have a **source**: Stripe, invoice (PO or bespoke deal, recorded by AECi with an invoice reference and end date), or complimentary (pilot, end date, no card). |
 | 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. *Now stated in `PRICING_RULES.md` §2.* |
 | 8 | Payment is **Stripe** (Checkout launched from our portal, Stripe Billing for renewals, card by default, Stripe invoice on request). The founding discount is a Stripe coupon. A pilot is a complimentary subscription, not a coupon. The per-vendor price override is retired. *Discounts: `PRICING_RULES.md` §3.* |
-| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. |
+| 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 45-day email (30-day until AECI-1596). Nothing is re-signed mid-term. *As built 2026-11-12 (AECI-1620):* publishing a material version also sends its own change notice at publish, at least 30 days ahead, to the owner seats and billing email of every company with a live subscription (§3 step 12). *As built 2026-11-12 (AECI-1690):* a renewal binds the version in force at the new period's start. A monthly charge does not bind a version that needs acceptance until an owner seat has accepted it, and the subscriptions keep the version they carry. Nothing is cancelled for it (§3 step 9, ADR 0047). |
 | 10 | Only owner seats buy. One Stripe customer per billing account; a second purchase changes quantity. |
 | 11 | A subscription, once assigned, stays on its product until renewal. Unassigning early is a request to AECi, approved in the admin panel. A vendor may flag a product "release subscription at renewal" for a sunsetting product. |
 | 12 | Fewer subscriptions than assigned products at renewal: the vendor chooses before the date, else oldest assignment keeps the subscription and we email. |
@@ -85,8 +85,9 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
 - **R1, a superseded agreement version.** The webhook records the acceptance with the version the
   Checkout session showed, even when a newer one is current, provided it is a known version of that
   document (`LEGAL_AGREEMENT_KNOWN_VERSIONS`). A webhook never fails permanently on this. A renewal
-  binds the current version (decision 9). So every agreement bump appends the old version to
-  `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
+  binds the version in force at its period start, held back on a monthly charge for a version that
+  needs an acceptance nobody gave (decision 9, AECI-1690). So every agreement bump appends the old
+  version to `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
 - **R2, production gating.** The per-env var `STRIPE_CHECKOUT_ENABLED` is `"false"` on production
   until the switch-on, and on demo while demo mirrors production (2026-10-31). It is `"true"` on
   local and staging. When it is off, or `STRIPE_SECRET_KEY` is unset, the
@@ -230,6 +231,10 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    paid. The subscriptions land when `invoice.paid` arrives, not on the request. The interval cannot change.
    When the charge is not paid (a declined card, an unfinished 3-D Secure check), the route
    answers `409 STRIPE_PAYMENT_INCOMPLETE` and the dialog says the card was not charged.
+   *As built 2026-11-12 (AECI-1690):* the added subscriptions take the Managed plan agreement version
+   the subscription's live licenses are bound to, not the version in the original checkout's
+   metadata, so one subscription is never on two versions. The add dialog has no terms box and
+   records no acceptance: the add is a quantity change on the agreement already accepted.
 8. **Forty-five days before the end date** (annual, invoice and complimentary only): automatic email to
    every seat and the billing email with the date, the price, the subscription count, any terms change,
    and how to opt out or reduce. An owner opts out of a card renewal in the Stripe portal, or asks
@@ -237,12 +242,37 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    *Moved from 30 to 45 days by AECI-1596 (counsel, 2026-11-04):* 30 leaves no margin for a delivery
    or counting dispute. When card subscriptions renew, the email also states the charge. A card term the
    vendor already cancelled reads as ending, with no further charge.
+   *As built 2026-11-12 (AECI-1690):* when the renewal binds a published Managed plan agreement version
+   above what a renewing subscription carries (the same per-subscription bind the renewal runs, so a
+   version published less than 45 days before the date is not named), the email names the version and its effective date,
+   lists its summary, links the fixed copy `/legal/managed-plan-agreement/v<version>` and attaches the
+   PDF, straight after the opening line. The PDF is re-hashed against the published row first. A
+   missing or changed file sends the email without the attachment and its sentence, and logs an
+   error naming the version. The operator gets a separate `COPY:` without the PDF.
 9. **End date.** Annual with no opt-out: Stripe renews, dates move a year. Opt-out: an owner
    cancels in the Stripe portal before the date, or AECi cancels on request. Subscriptions end on
    it. Complimentary or invoice: subscriptions end unless replaced by a purchase. Monthly: runs until cancelled from the Stripe portal or by email.
    *As built 2026-10-28 (AECI-1500, AECI-1503):* a renewal is `invoice.paid` with billing reason
-   `subscription_cycle`. It moves `ends_at` to the new period end and binds the current agreement
-   version. The reconcile does the same if that event is missed. An opt-out is a cancel at period
+   `subscription_cycle`. It moves `ends_at` to the new period end and binds an agreement version.
+   The reconcile does the same if that event is missed.
+   *As built 2026-11-12 (AECI-1690):* which version binds is `loadTermsBinding`
+   (`lib/terms-binding.ts`), at the new period's start, 12:00 UTC effective moments:
+   - each subscription walks from its own version, so one is never carried past a version
+     because a sibling is on a later one;
+   - annual: the version in force at that moment, if it was published at least 45 days before
+     the renewal (so that renewal's notice announced it). A version published later binds at the
+     following renewal;
+   - monthly: the same moment, but the walk stops below the first published version that has
+     `requires_acceptance` and that no acceptance recorded by the period start covers. The
+     subscription keeps charging on the version it is on. Nothing is cancelled, paused or changed
+     in Stripe. Once an owner seat accepts, the next charge binds it, never mid-period. The daily
+     reconcile completes a charge whose `invoice.paid` was missed, by the same rule;
+   - never lower than the version a subscription carries; a new checkout, a grant, a complimentary
+     or a pilot subscription are not renewals and keep their own rules. A subscription that began
+     in the current period is not rebound by the reconcile. A renewal that finds no live
+     subscription re-creates them on the version in force at the charge, as a new purchase would.
+   `aeci.billing.unaccepted_terms_charge` is a tripwire for a charge that still left a subscription on
+   an unaccepted version (`docs/runbooks/subscriptions.md` "Unaccepted terms charge"). An opt-out is a cancel at period
    end, by the owner in the portal or by an operator on request (`docs/runbooks/subscriptions.md` "Stripe: annual
    opt-out"). The flag shows as `cancel_at_term_end` with reason `vendor-cancelled`, and the
    subscriptions end when Stripe deletes the Stripe subscription. Both portal configurations cancel at period end only, with no proration.
@@ -268,6 +298,38 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     paid subscription (by card) in the admin panel does not work: the next sync grants it back. No dispute
     event is handled, so a chargeback is not automated. An operator who wants the products on Free
     cancels the Stripe subscription, which ends the subscriptions for good rather than until settled.
+12. **A new agreement version.** *As built 2026-11-12 (AECI-1620, counsel Q3).* An operator
+    publishes the version on `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22) at least 30 days before it
+    takes effect. When it is a material change, the publish queues the change notice
+    `legal-terms-change`, one message per affected company on `aeci-legal-notice-{env}`
+    (`apps/api/src/lib/legal-notice.ts`). A non-material version sends nothing.
+    - **Who.** Vendor Terms: every company with an unbanned seat, to every unbanned seat and the
+      billing email. Managed plan agreement: every company with a live subscription of any source
+      (card, invoice, complimentary, an activated grant), to the owner seats and the billing email.
+      A grant or complimentary company gets it as information (ruled by Chris).
+    - **What.** The version and its effective date, the summary bullets, a link to
+      `/legal/<slug>/v<version>` and the PDF attached as `aeci-<slug>-v<version>.pdf`. The closing line
+      follows the agreement's "Changes" section: Vendor Terms bind on continued use unless the claim
+      is given up, or wait for an owner seat's acceptance when the version needs it. A Managed plan
+      version applies from the next renewal or purchase. When it needs acceptance, a company with a
+      live monthly card subscription is asked for an owner seat's acceptance in the portal, and the
+      email says nothing about what happens without one. An expedited Vendor Terms version says why
+      it is sooner.
+    - **Safe to repeat.** Each address is keyed
+      `legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address shared by
+      two companies gets one notice per company and never two for one. The PDF is re-hashed on every
+      message and a mismatch sends nothing. A seat-email lookup that is unavailable retries the
+      message. Each company has a delivery row (`legal_notice_deliveries`): the page shows how many
+      were queued, delivered, not yet delivered and not reached, and lists every company not
+      reached by name and reason. "Send the notice again" queues only the companies not yet
+      delivered (`docs/runbooks/legal.md` "A legal change notice did not go out").
+    - **A company on both kinds of subscription.** When a Managed plan version needs acceptance
+      and the company holds a live monthly card subscription and other ones too, the email adds:
+      "For your other subscriptions it applies from your next renewal or your next purchase,
+      whichever comes first."
+    - The 45-day renewal notice of step 8 carries the version that binds at the renewal, with its
+      summary, fixed link and PDF (AECI-1690). The acceptance screen is AECI-1677, and the renewal
+      binding (step 9) is AECI-1690.
 
 ## 3a. Flow chart
 
@@ -342,7 +404,7 @@ Both live at versioned URLs under `/legal/`: `/legal/vendor-terms` and `/legal/m
 with each superseded version at `/legal/<slug>/v<version>` (`STAGE_1_SPEC.md` §27.3). The acceptance
 store is `agreement_acceptances` (`DATABASE_SCHEMA.md` §8.6d). Store for each acceptance: who (the claimant's email and
 request at claim time, the seat once one exists), time, version, billing account, source (claim,
-checkout or grant), and the Stripe session id for the plan agreement. IP and user agent are recorded
+checkout, grant or portal), and the Stripe session id for the plan agreement. IP and user agent are recorded
 on the claim path and on a portal grant accept. The checkout acceptance is written from the Stripe
 webhook and has neither. A signed-deal acceptance has neither, because the admin's browser records
 it. The Privacy Policy keeps the signer's name, title and company legal name, the email, time and version for the life of the vendor account plus six years, or five years after a granted subscription ends if later (item 13.5, ruling 17), and promises the IP and user agent are deleted 90 days after acceptance (ruling 11). *As built 2026-11-10 (AECI-1636):* the daily `acceptance-evidence-removal` job at 17:00 UTC nulls `ip` and `user_agent` on every acceptance more than 90 days old, claim and portal grant rows alike, and stamps `evidence_removed_at`. The signer fields, email, time and version stay. Each batch writes one `agreement.evidence_removed` audit row. The owner's Billing tab never showed either field. The admin Billing tab reads "Removed after 90 days" in the IP column (`DATABASE_SCHEMA.md` §8.6d). A one-hour lawyer read before the first
@@ -353,6 +415,14 @@ listing request, whose acceptance names the `listing_requests` row (`listing_req
 0078) because there is no claim. The server stamps the version, IP and user agent. The email receipt
 in step 1 is `claim-received`, at most one per address per day, with no link that grants anything
 (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).
+
+*As built, AECI-1705 (2026-11-12, Chris's rulings 3 to 6).* The box is on the claim forms only:
+the dialog's found-listing path, the routed claim pages and the drawer. A typed-in listing request
+("Not listed? Ask us to add it") is a request to be listed, not a claim, and no listed company
+exists yet to accept the terms for. It shows no box and writes no acceptance. The vendor accepts
+the terms when they claim the listing we add. The rows written by listing requests before the
+change stay, because `agreement_acceptances` is append-only. The listing request form asks for a
+required "Company country" (ISO 3166-1 alpha-2) instead, to help us check the company is real.
 
 *As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the
 emailed link is confirmed, not at submit. It carries the version shown, the IP and the user agent of
@@ -367,7 +437,7 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 
 *As built 2026-11-05 (AECI-1617, counsel Q11 and Q15).* The claim box reads "I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company." It starts unticked, and submit stays disabled until it is ticked, including Continue on the dialog's You step.
 
-- **Signer.** The form requires "Title" and "Company legal name". The legal name is pre-filled from a found listing's company, is editable, and starts blank on a typed-in listing. Both are stored on the claim or listing request. The acceptance row copies them with the claimant's name (`signer_name`, `signer_title`, `company_legal_name`). The columns stay out of the audit row.
+- **Signer.** The form requires "Title" and "Company legal name". The legal name is pre-filled from a found listing's company, is editable, and starts blank on a typed-in listing. Both are stored on the claim or listing request. A claim's acceptance row copies them with the claimant's name (`signer_name`, `signer_title`, `company_legal_name`). The columns stay out of the audit row.
 - **Signer at checkout (ruled 2026-11-05).** The Stripe page has no form, so the checkout route reads the signer before the session opens (`loadCheckoutSigner`) and writes `signer_name`, `signer_title` and `company_legal_name` into the session's metadata only, not the subscription's. The webhook and the reconcile copy them onto the acceptance row. The name is the profile's display name, else the seat's claim. The Managed plan agreement says we record these where we hold them, and the Privacy Policy says we pass them to Stripe with the checkout (items 10.7 and 10.8).
   *As built 2026-11-06 (AECI-1625).* The legal name now has a home, `vendors.legal_name`. The checkout takes it from there, else from the newest claim acceptance that recorded one. It never reads `billing_accounts.name` or `company_name`, because neither is a legal name. The title is what the buyer typed in the required "Your title" field on the buy form (`signer_title`, 1 to 100 characters), else this seat's own newest claim title. The form pre-fills the field from `checkout_signer_title` on `GET /api/vendor/billing`. An invited seat has no claim, so it types the title. A reused open Checkout Session must match the signer metadata too, or it is expired. The Checkout idempotency key gains a 12-hex signer digest.
 - **The legal name field (AECI-1625, 2026-11-06).** Claim approval fills `vendors.legal_name` from the claim's company legal name only while the column is empty. Chris ruled this on AECI-1625, because a later claimant must not undo an owner's or an admin's correction. An owner seat edits it under Billing, beside "Billing email", and an admin edits it on the vendor's Billing tab. Each change writes a `vendor.legal_name_changed` audit row. Promote never writes it.
@@ -391,10 +461,17 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 
 - **Label text.** `checkbox_label` stores the exact label beside its hash, because ruling 16 asks for the text, not a hash. It is NULL wherever the hash is NULL.
 - **Policy versions at claim.** The Vendor Terms incorporate the Listing Accuracy Policy and the Review Guidelines. A claim row records the version of each (`listing_accuracy_version`, `review_guidelines_version`). An anonymous claim stores them on `request_confirmations` at submit, and the confirm copies them. A link sent before the deploy confirms with NULL for both.
-- **The line beside the claim box.** Under the box, `@@requests.terms.policies` reads "The Vendor Terms include the Listing Accuracy Policy, version {x}, and the Review Guidelines, version {y}." It links both pages. The versions come from `LEGAL_POLICY_CURRENT_VERSIONS`, the constants the claim route records, so the line and the row cannot disagree. The label itself is unchanged, because `vendor-terms.md` quotes it.
+- **The line beside the claim box.** Under the box, `@@requests.terms.policies` reads "The Vendor Terms include the Listing Accuracy Policy, version {x}, and the Review Guidelines, version {y}." It links both pages. The versions are the ones in force, by the rule the claim route records them by (`legalPolicyVersionInForce`, AECI-1689), so the line and the row cannot disagree. The label itself is unchanged, because `vendor-terms.md` quotes it.
 - **Plans snapshot at checkout and grant.** The Plans page (`/docs/vendors/plans`) is now versioned content. A checkout or grant row records the Plans version current when it was given (`plans_page_version`) and the SHA-256 of that version's snapshot file (`plans_page_sha256`, `PLANS_PAGE_SHA256`). Checkout writes `plans_version` into the session metadata, and the webhook and reconcile copy it. A reused open session must name the same version, and the idempotency digest includes it. A grant stamps the current version at activation, by either method. Each version is served at `/docs/vendors/plans/v<version>`, noindex. A change to the page, a capability or a price is a new version (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4).
 - **Where it shows.** Both Billing tables show a claim row's policy versions and a "Plans page {version}" link on a checkout or grant row. The admin table adds a "Checkbox label" column.
 - **The core inclusions, edited in place.** The Managed plan agreement 1.1 sentence "At a minimum, Managed gives…" now names each core inclusion: the Managed fields with "How teams use it", trades, audiences and phases, the integrations-page and API docs links, confirmed data flows and the search-engine notice, which it says does not decide crawling, indexing or ranking. Review replies and colleague seats come after "As on every plan". It was edited without a version bump, and `LEGAL_AGREEMENT_TEXT_SHA256.managed_plan['1.1']` changed with it. That is safe only while prod holds no `managed_plan` 1.1 acceptance. A prod read on 2026-11-12 found no `managed_plan` acceptance of any version. Check again before merge, else it becomes 1.2 (`apps/web/src/content/legal/README.md`).
+
+*As built 2026-11-12 (AECI-1677, counsel Q42, rulings 24 and 25, counsel Q3).* The portal has one acceptance screen with two modes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24, ADR 0055).
+
+- **In force.** A version is final when it has an effective day: `LEGAL_AGREEMENT_EFFECTIVE_ON` in `packages/shared` (mirrored from each version's frontmatter `effective_date`, pinned by a web spec), or a published `legal_versions` row. It is in force from 12:00 UTC of that day (`legalEffectiveAtMs`). Today every entry is `null` and no row exists, so nothing is in force, and the screen shows to no one. The draft versions (Vendor Terms 1.0 to 1.3, Managed plan agreement 1.0 and 1.1) stay `null` for good, so the effective-date change must bump to a new version.
+- **Required (ruling 24).** The Vendor Terms are in force and the company holds no acceptance of a version in force. An acceptance of a draft never counts. The portal opens only the screen until one owner seat accepts the newest version in force, for the company. The listing stays claimed. No deadline ends the claim. A member seat sees who the owners are.
+- **Optional (ruling 25, counsel Q3).** A covered company and a published version with `requires_acceptance`: owner seats are asked to accept the newest final version at or after it, and may choose "Not now" for the browser session. Until an owner accepts, the earlier version applies. For the Managed plan agreement, only companies with a live monthly card subscription are asked. The screen only records the click. It changes no subscription and says nothing about what happens without an acceptance. *Since AECI-1690:* a monthly charge binds the version only once a click recorded before that charge covers it, and without one the subscriptions keep the version they are on (§3 step 9). A click mid-period binds at the next charge.
+- **The record.** Source `portal`. The same columns as a claim: email, profile, signer name (the seat's display name, else its claim's, else typed on the screen; the write refuses a missing one), the title and legal name typed on the screen, time, version, the box label (the claim wording naming the version and the company, `portalAcceptanceLabel`) with its hash, and the unticked flag. A Vendor Terms row adds the two policy versions, a Managed plan row the Plans page version. **No IP address or browser yet:** the Privacy Policy names them only "for a claim or an in-portal acceptance of a granted subscription", so `PORTAL_RECORDS_EVIDENCE` is false until that sentence changes. The 90-day removal job covers the row whenever it does hold them.
 
 ## 5. Epics
 

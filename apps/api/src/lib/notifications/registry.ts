@@ -381,7 +381,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
     summary:
       'Tells the person who sent a claim or a typed-in listing request that we have it, what they claimed, and what happens next.',
-    note: "Sent after the operator alert, in the same waitUntil, once the request is in: at confirm for an anonymous visitor (AECI-1435), at submit for a signed-in one whose verified email is the typed address. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
+    note: "Sent after the operator alert, in the same waitUntil, once the request is in: at confirm for an anonymous visitor (AECI-1435), at submit for a signed-in one whose verified email is the typed address. No link that grants anything: a claim's links the vendor terms they accepted and the help page. Listing variant (AECI-1705): no terms row, because a listing request accepts no terms, and it links how claiming works after we add the listing and the listing conditions. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim or request was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
   },
   'listing-request-alert': {
     channel: 'email',
@@ -394,11 +394,11 @@ export const NOTIFICATIONS = {
     dedupe: 'Key listing-request-alert:{requestId}, so at most one alert per saved request.',
     ledger: ['notification_sends'],
     optOut: 'none',
-    pausable: true,
+    pausable: false,
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
     summary:
-      'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
-    note: 'The visitor gets claim-received, bounded per address per day (AECI-1366). Pausable: operator alert. The request waits in /admin/requests either way.',
+      'Tells SUPPORT_EMAIL a visitor asked us to add a product or company we do not list, with every field the form collects and reply-to set to them.',
+    note: 'The working record since AECI-1705: there is no admin queue for listing requests, so the email carries every field and has no call to action. Not pausable for the same reason: a paused alert would leave the request with no screen to find it on. The visitor gets claim-received, bounded per address per day (AECI-1366).',
   },
   'product-request-alert': {
     channel: 'email',
@@ -803,8 +803,23 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary:
-      "The 45-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), the charge when card subscriptions renew, any new Managed plan agreement version, and how to opt out or reduce. A card term the vendor cancelled reads as ending, with no further charge.",
-    note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
+      "The 45-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), the charge when card subscriptions renew, any new Managed plan agreement version, and how to opt out or reduce. A card term the vendor cancelled reads as ending, with no further charge. When a published agreement version binds at the renewal, the notice names it and its effective date, lists its summary, links /legal/managed-plan-agreement/v<version> and attaches its PDF.",
+    note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16). The PDF is attached only when its bytes match the published hash. A missing or changed file sends the notice without it and logs an error naming the version (AECI-1690). A send with the PDF blind-copies no one, so the operator gets entitlement-expiring-operator-copy instead.",
+  },
+  'entitlement-expiring-operator-copy': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: { kind: 'cron', ref: '0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts)' },
+    envRule: 'any-tier',
+    dedupe:
+      'Sent only after an entitlement-expiring send with the agreement PDF attached was sent.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
+    summary:
+      'Sends the EMAIL_BCC list a COPY: of a renewal notice that carries a new Managed plan agreement version, without the PDF.',
+    note: 'AECI-1690. Not counted in aeci.email.send. A failed copy only warns. Always on as an entry: the support-copy switch is its control, not a switch of its own.',
   },
   'entitlement-expiring-admin': {
     channel: 'email',
@@ -912,6 +927,24 @@ export const NOTIFICATIONS = {
     summary:
       "Tells a vendor's seats and its billing email that its monthly or annual card billing is cancelled, the date it ends, and that no further charge will be made.",
     note: 'Always on: the record a vendor holds of its own cancel. The portal route and the email route (an operator cancels at period end in Stripe) both arrive as cancel_at_period_end, so one sync sends for both. An immediate cancel (a refund, a ban) sets no such flag and does not send it. A past_due Stripe subscription says Stripe may still retry the unpaid invoice.',
+  },
+  'legal-terms-change': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/legal-versions (a material version, post-commit) and POST /api/admin/legal-versions/:id/notice (the re-send), each enqueuing one message per company on aeci-legal-notice-{env}; the queue consumer sends (lib/legal-notice.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per address per company per version: key legal-terms-change:{document}:{version}:{vendorId}:{recipient hash}. A failed send releases its key, so a queue retry or an admin re-send reaches only the addresses not yet sent. An address that is a seat or billing email of two companies gets one notice per company.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
+    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason.',
   },
   'license-unassigned-reminder': {
     channel: 'email',

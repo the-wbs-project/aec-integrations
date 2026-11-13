@@ -65,19 +65,33 @@ async function loadChildRoutes(route: Route, at: string): Promise<Routes> {
  * and calls each `loadChildren`. A route with children is a layout, so only its
  * children count. A leaf counts when it renders something or redirects. The
  * `**` wildcard is skipped. A `matcher` route cannot be read as a pattern, so it
- * throws rather than pass every link silently.
+ * throws rather than pass every link silently, unless `matcherPaths` knows it and
+ * returns the exact paths it serves (AECI-1610: the one legal version route).
  */
-export async function appRoutePatterns(routes: Routes, prefix = ''): Promise<string[]> {
+export async function appRoutePatterns(
+  routes: Routes,
+  prefix = '',
+  matcherPaths: (route: Route) => readonly string[] | undefined = () => undefined,
+): Promise<string[]> {
   const patterns: string[] = [];
   for (const route of routes) {
     if (route.path === '**') continue;
     if (route.matcher) {
-      throw new Error(`Route under "/${prefix}" uses a matcher; the link checker cannot read it`);
+      const paths = matcherPaths(route);
+      if (!paths) {
+        throw new Error(`Route under "/${prefix}" uses a matcher; the link checker cannot read it`);
+      }
+      patterns.push(...paths);
+      continue;
     }
     const full = joinPath(prefix, route.path ?? '');
-    if (route.children) patterns.push(...(await appRoutePatterns(route.children, full)));
+    if (route.children) {
+      patterns.push(...(await appRoutePatterns(route.children, full, matcherPaths)));
+    }
     if (route.loadChildren) {
-      patterns.push(...(await appRoutePatterns(await loadChildRoutes(route, full), full)));
+      patterns.push(
+        ...(await appRoutePatterns(await loadChildRoutes(route, full), full, matcherPaths)),
+      );
     }
     const isLeaf = !route.children && !route.loadChildren;
     const lands =

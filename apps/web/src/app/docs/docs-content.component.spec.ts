@@ -11,6 +11,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { routes } from '../app.routes';
+import {
+  LEGAL_ARCHIVE_PATHS,
+  LEGAL_CURRENT_VERSION_PATHS,
+  LEGAL_UPCOMING_PATHS,
+} from '../legal/legal-manifest';
+import { legalVersionMatcher } from '../legal/legal-version-matcher';
 
 import {
   DOCS_PAGES,
@@ -506,11 +512,26 @@ describe('docs manifest', () => {
         hrefs: hrefsIn(getPlansSnapshot(version)!.html),
       })),
     ];
-    const routePatterns = await appRoutePatterns(routes);
+    // AECI-1610: the one legal version route is a matcher. It serves exactly the
+    // paths `servesLegalVersion` accepts, so expand it to those.
+    const legalVersionPaths = [
+      ...LEGAL_ARCHIVE_PATHS,
+      ...LEGAL_UPCOMING_PATHS,
+      ...LEGAL_CURRENT_VERSION_PATHS,
+    ];
+    const routePatterns = await appRoutePatterns(routes, '', (route) =>
+      route.matcher === legalVersionMatcher ? legalVersionPaths : undefined,
+    );
     // A flattening bug must not shrink the table unnoticed: pin one route from
-    // the root, one from a lazy child table and one parameterised.
+    // the root, one from a lazy child table, one parameterised and one from the
+    // legal version matcher.
     expect(routePatterns).toEqual(
-      expect.arrayContaining(['/methodology', '/vendor/:vendorSlug/seats', '/products/:slug']),
+      expect.arrayContaining([
+        '/methodology',
+        '/vendor/:vendorSlug/seats',
+        '/products/:slug',
+        '/legal/terms/v1.0',
+      ]),
     );
 
     const failures = findBrokenDocsLinks(sources, {

@@ -19,25 +19,40 @@
  * `forwardAuditLog` it in `waitUntil` after the commit.
  *
  * ── VERSION GATE ───────────────────────────────────────────────────────────────
- * A vendor may only accept the CURRENT version of an agreement. A stale or unknown
- * version (a form loaded before a bump, a forged body) is refused with
- * `400 VALIDATION_FAILED` before any statement exists. The current versions are
- * `LEGAL_AGREEMENT_CURRENT_VERSIONS` in `@aeci/shared`.
+ * A vendor may only accept the version of an agreement IN FORCE at request time. A stale
+ * or unknown version (a form loaded before a bump or a switch, a forged body) is refused
+ * with `400 VALIDATION_FAILED` before any statement exists. Since AECI-1689 the caller
+ * passes that version (`inForce`, read by `loadLegalInForce` in `lib/legal-in-force.ts`):
+ * a published upcoming version is in force from its effective moment, before bump day.
+ * Without it, the gate uses the version in force with no publish known, which is the
+ * build's current version (`legalAgreementVersionInForce` in `@aeci/shared`).
  *
  * One exception (AECI-1500, ruling R1 on AECI-1339): the Stripe checkout webhook
  * passes `allowSupersededVersion`. It records the version the Checkout page showed,
  * which a bump may have superseded by the time Stripe delivers the event. The vendor
  * did accept that version, and a webhook must never fail for good. The version must
- * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`), and only `source: 'checkout'`
- * may use the option.
+ * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`) or the upcoming one, which a
+ * switch may have put in force before bump day (`isRecordableLegalAgreementVersion`), and
+ * only `source: 'checkout'` may use the option.
  *
  * A second exception (AECI-1615): a `grant` acceptance passes `pinnedVersion`, the
  * version the grant pinned at create. The version must equal it, current or not, so the
  * grant-date version keeps governing after a bump.
  *
+ * A third (AECI-1677): a `portal` acceptance passes `portalVersion`, the version
+ * `lib/legal-acceptance.ts` found pending for the company right now. That may be a
+ * published version not yet current in code, or one in force through a `legal_versions`
+ * row before the bump deploy. The version must equal it, and only `source: 'portal'` may
+ * pass it. This module stays synchronous, so the caller does that read.
+ *
  * ── IP AND USER AGENT ──────────────────────────────────────────────────────────
  * Recorded on the claim path and on a portal grant accept (AECI-1615,
- * `method: 'portal_checkbox'`), whose request comes from the owner's browser. The
+ * `method: 'portal_checkbox'`), whose request comes from the owner's browser. NOT on
+ * a `portal` acceptance (AECI-1677), though it comes from the owner's browser too: the
+ * Privacy Policy's "Agreement acceptance records" names the IP address and browser only
+ * "for a claim or an in-portal acceptance of a granted subscription". Recording them here
+ * waits for that sentence to change (`docs/LEGAL_IMPACT_REVIEW.md` §3). Flip
+ * `PORTAL_RECORDS_EVIDENCE` in the same change. The
  * checkout acceptance is written from the Stripe webhook, whose request comes from
  * Stripe, so its `CF-Connecting-IP` would be Stripe's address. A signed-deal grant is
  * recorded from the admin's browser, not the signer's. Those two store NULL for both
@@ -75,12 +90,13 @@ import {
   AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
   type AgreementAcceptanceMethod,
-  isKnownLegalAgreementVersion,
   isKnownLegalPolicyVersion,
   isKnownPlansPageVersion,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  isRecordableLegalAgreementVersion,
   LEGAL_AGREEMENT_DOCUMENTS,
-  LEGAL_POLICY_CURRENT_VERSIONS,
+  legalAgreementVersionInForce,
+  legalVersionsInForce,
+  type LegalInForceVersions,
   plansPageSha256,
   type AgreementAcceptanceSource,
   type LegalAgreementDocument,
@@ -102,6 +118,12 @@ export const AGREEMENT_LINKED_ACTION = 'agreement.linked';
 
 /** `audit_log.entity_type`; `entity_id` is the acceptance id. */
 export const AGREEMENT_ACCEPTANCE_ENTITY_TYPE = 'agreement_acceptance';
+
+/**
+ * Whether a `portal` acceptance stores the IP address and browser (module header). False
+ * until the Privacy Policy names this acceptance. `agreement-acceptances.spec.ts` pins it.
+ */
+export const PORTAL_RECORDS_EVIDENCE = false;
 
 /** The longest user agent stored. Longer strings are cut, never refused. */
 export const USER_AGENT_MAX_LENGTH = 512;
@@ -146,9 +168,15 @@ export interface AcceptanceSigner {
 export interface AgreementAcceptanceParams {
   /** Validated at runtime: a webhook may hand over a string from Stripe metadata. */
   document: LegalAgreementDocument | string;
-  /** Must equal `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]`, unless
-   *  `allowSupersededVersion` is set. */
+  /** Must equal the version in force (`inForce`), unless `allowSupersededVersion`,
+   *  `grant` or `portalVersion` is set. */
   version: string;
+  /**
+   * AECI-1689: the agreement versions in force at request time (`loadLegalInForce`).
+   * Every request path passes it. Absent (a spec, a caller with no D1 read), the gate
+   * uses the version in force with no publish known: the build's current version.
+   */
+  inForce?: LegalInForceVersions | null;
   /**
    * Accept any KNOWN version of the document, not only the current one (module header,
    * ruling R1). Only for `source: 'checkout'`: any other source with it set is refused.
@@ -191,19 +219,27 @@ export interface AgreementAcceptanceParams {
    */
   grant?: AcceptanceGrantFields | null;
   /**
+   * AECI-1677: the version `lib/legal-acceptance.ts` found pending for this company,
+   * required with `source: 'portal'` and refused with any other source. Replaces the
+   * current-version gate: `version` must equal it.
+   */
+  portalVersion?: string | null;
+  /**
    * AECI-1615 ruling 16: the checkbox the acceptance was given on. Pass it only when
    * the caller knows the exact label shown. Absent (a signed deal) writes NULL to both
    * columns.
    */
   checkbox?: AcceptanceCheckbox | null;
   /**
-   * AECI-1619: the policy versions the claim box named. Claim only: any other source
+   * AECI-1619: the policy versions the claim box named. Claim only, and since AECI-1677
+   * a `portal` acceptance of the Vendor Terms, which incorporate them: any other source
    * with it set is refused. Absent or null writes NULL (a legacy pending claim).
    */
   policyVersions?: AcceptancePolicyVersions | null;
   /**
-   * AECI-1619: the Plans page version current at acceptance. Checkout and grant only:
-   * a claim with it set is refused. The builder stamps `plans_page_sha256` from it.
+   * AECI-1619: the Plans page version current at acceptance. Checkout and grant only,
+   * and since AECI-1677 a `portal` acceptance of the Managed plan agreement: any other
+   * with it set is refused. The builder stamps `plans_page_sha256` from it.
    * Absent or null writes NULL to both (a checkout session from before the metadata).
    */
   plansVersion?: string | null;
@@ -220,11 +256,17 @@ export interface AcceptancePolicyVersions {
   reviewGuidelines: string;
 }
 
-/** The policy versions the claim box names today (`LEGAL_POLICY_CURRENT_VERSIONS`). */
-export function currentPolicyVersions(): AcceptancePolicyVersions {
+/**
+ * The policy versions the claim box names at request time: the ones in force
+ * (`inForce`, AECI-1689). A policy switches on its date alone, so without `inForce` the
+ * answer is computed from the clock with no D1 read.
+ */
+export function currentPolicyVersions(
+  inForce: LegalInForceVersions = legalVersionsInForce([], Date.now()),
+): AcceptancePolicyVersions {
   return {
-    listingAccuracy: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
-    reviewGuidelines: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
+    listingAccuracy: inForce.policies.listing_accuracy,
+    reviewGuidelines: inForce.policies.review_guidelines,
   };
 }
 
@@ -268,12 +310,14 @@ export function uncheckedBoxFor(document: LegalAgreementDocument): AcceptanceChe
  * The claim box for a claim-path acceptance of vendor terms `version`. A confirmed
  * anonymous claim carries the SUBMIT's version (AECI-1435), and the label is part of the
  * text it quotes, so a submit under an older version may have shown an older label. Only
- * the current version's label is known here, so any other version records NULL.
+ * the label of the version in force (`inForce`, AECI-1689) is known here, so any other
+ * version records NULL.
  */
-export function claimBoxFor(version: string): AcceptanceCheckbox | null {
-  return version === LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms
-    ? uncheckedBoxFor('vendor_terms')
-    : null;
+export function claimBoxFor(
+  version: string,
+  inForce: LegalInForceVersions = legalVersionsInForce([], Date.now()),
+): AcceptanceCheckbox | null {
+  return version === inForce.agreements.vendor_terms ? uncheckedBoxFor('vendor_terms') : null;
 }
 
 /** The `grant`-source columns (AECI-1615). */
@@ -327,17 +371,32 @@ export function agreementAcceptanceStatements(
   if (!isSource(p.source)) {
     throw validationFailed('source', `Unknown acceptance source: ${p.source}`);
   }
-  const current = LEGAL_AGREEMENT_CURRENT_VERSIONS[p.document];
+  const current =
+    p.inForce?.agreements[p.document] ?? legalAgreementVersionInForce(p.document, [], Date.now());
   if ((p.source === 'grant') !== Boolean(p.grant)) {
     throw validationFailed('source', 'Only a grant acceptance carries grant fields');
   }
-  if (p.grant) {
+  const portalVersion = p.portalVersion ?? null;
+  if ((p.source === 'portal') !== (portalVersion !== null)) {
+    throw validationFailed('source', 'Only a portal acceptance names its pending version');
+  }
+  if (portalVersion !== null) {
+    if (p.allowSupersededVersion) {
+      throw validationFailed('source', 'A portal acceptance names its pending version instead');
+    }
+    if (p.version !== portalVersion) {
+      throw validationFailed(
+        'version',
+        `Version ${p.version} of ${p.document} is not the version waiting for acceptance (${portalVersion})`,
+      );
+    }
+  } else if (p.grant) {
     if (p.allowSupersededVersion) {
       throw validationFailed('source', 'A grant acceptance pins its version instead');
     }
     if (
       p.version !== p.grant.pinnedVersion ||
-      !isKnownLegalAgreementVersion(p.document, p.version)
+      !isRecordableLegalAgreementVersion(p.document, p.version)
     ) {
       throw validationFailed(
         'version',
@@ -348,7 +407,7 @@ export function agreementAcceptanceStatements(
     if (p.source !== 'checkout') {
       throw validationFailed('source', 'Only a checkout acceptance may record an older version');
     }
-    if (!isKnownLegalAgreementVersion(p.document, p.version)) {
+    if (!isRecordableLegalAgreementVersion(p.document, p.version)) {
       throw validationFailed(
         'version',
         `Version ${p.version} of ${p.document} was never published (current: ${current})`,
@@ -362,8 +421,11 @@ export function agreementAcceptanceStatements(
   }
   const policyVersions = p.policyVersions ?? null;
   if (policyVersions) {
-    if (p.source !== 'claim') {
-      throw validationFailed('policy_versions', 'Only a claim acceptance records policy versions');
+    if (p.source !== 'claim' && !(p.source === 'portal' && p.document === 'vendor_terms')) {
+      throw validationFailed(
+        'policy_versions',
+        'Only a claim or a portal Vendor Terms acceptance records policy versions',
+      );
     }
     if (!isKnownLegalPolicyVersion('listing_accuracy', policyVersions.listingAccuracy)) {
       throw validationFailed(
@@ -380,10 +442,14 @@ export function agreementAcceptanceStatements(
   }
   const plansVersion = p.plansVersion ?? null;
   if (plansVersion !== null) {
-    if (p.source !== 'checkout' && p.source !== 'grant') {
+    if (
+      p.source !== 'checkout' &&
+      p.source !== 'grant' &&
+      !(p.source === 'portal' && p.document === 'managed_plan')
+    ) {
       throw validationFailed(
         'plans_version',
-        'Only a checkout or grant acceptance records the Plans page',
+        'Only a checkout, grant or portal Managed plan acceptance records the Plans page',
       );
     }
     if (!isKnownPlansPageVersion(plansVersion)) {
@@ -403,7 +469,9 @@ export function agreementAcceptanceStatements(
 
   // The claim path and a portal grant accept come from the accepting person's browser.
   const recordsEvidence =
-    p.source === 'claim' || (p.source === 'grant' && p.grant?.method === 'portal_checkbox');
+    p.source === 'claim' ||
+    (p.source === 'grant' && p.grant?.method === 'portal_checkbox') ||
+    (p.source === 'portal' && PORTAL_RECORDS_EVIDENCE);
   const evidence = !recordsEvidence
     ? { ip: null, userAgent: null }
     : p.evidence

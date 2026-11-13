@@ -77,6 +77,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump; the unversioned `/accessibility` statement, hidden until AECI-1687 (§27.6) | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
+| Publishing an agreement version (`/admin/legal`, `legal_versions`, CI-built PDF, `LEGAL_PUBLISH_ENABLED`) | `docs/ADMIN_PANEL_SPEC.md` §5.22; ADR 0054; legal `README.md` |
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Counsel questions and answers (November 2026 review), Chris's rulings on them | `docs/LEGAL_COUNSEL_RECORD.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |

@@ -4,12 +4,13 @@ import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { VendorMeResponse } from '@aeci/shared';
+import type { VendorLegalAcceptanceResponse, VendorMeResponse } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { NotFound } from '../not-found/not-found';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 import { isVendorSuspendedGate, type VendorSuspendedGate } from './vendor-gate';
+import { VendorLegalAcceptanceState } from './vendor-legal-acceptance-state';
 import { VendorLiveSync } from './vendor-live-sync';
 import { VendorPortalStore } from './vendor-portal-store';
 import { VendorSuspendedNotice } from './vendor-suspended-notice';
@@ -66,7 +67,7 @@ type ResolvedMe = VendorMeResponse | VendorSuspendedGate | null;
 @Component({
   selector: 'aec-vendor-page',
   imports: [NotFound, VendorDashboardTabbed, VendorSuspendedNotice],
-  providers: [VendorPortalStore, VendorLiveSync],
+  providers: [VendorPortalStore, VendorLiveSync, VendorLegalAcceptanceState],
   template: `
     @if (suspended(); as gate) {
       <aec-vendor-suspended-notice [vendorName]="gate.vendorName" />
@@ -85,6 +86,7 @@ export class VendorPage {
   private readonly store = inject(VendorPortalStore);
   private readonly liveSync = inject(VendorLiveSync);
   private readonly analytics = inject(Analytics);
+  private readonly legal = inject(VendorLegalAcceptanceState);
 
   /** Resolved data. `vendorMeResolver` runs server-side and on hydration reads
    *  from `TransferState`; the snapshot value is the SSR-resolved payload (or
@@ -110,6 +112,10 @@ export class VendorPage {
     const resolved = this.resolved();
     const initial = isVendorSuspendedGate(resolved) ? null : resolved;
     if (initial) this.store.seed(initial);
+    // AECI-1677: the acceptance screen's state, from `vendorLegalResolver`. Null fails open.
+    this.legal.seed(
+      (this.route.snapshot.data['legal'] ?? null) as VendorLegalAcceptanceResponse | null,
+    );
 
     // And re-seed if the resolver emits again (an in-app navigation back to
     // `/vendor` re-runs it). `seed()` no-ops on the identical object, so the
@@ -144,6 +150,8 @@ export class VendorPage {
       // service's own `DestroyRef` hook.
       afterNextRender(() => {
         this.liveSync.start();
+        // AECI-1677: this session's "Not now" dismissals, after hydration.
+        this.legal.loadDismissed();
 
         // AECI-649 / §AW8 — the vendor group (`docs/ANALYTICS.md` §8). THIS is
         // where the vendor identity is actually resolved: `initial` is the

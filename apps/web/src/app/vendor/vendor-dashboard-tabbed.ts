@@ -17,6 +17,8 @@ import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vendor-nav';
+import { VendorLegalAcceptance, VendorLegalAccepted } from './components/vendor-legal-acceptance';
+import { VendorLegalAcceptanceState } from './vendor-legal-acceptance-state';
 import { VendorPortalNav } from './vendor-portal-nav';
 import { VendorPlanBadge } from './components/vendor-plan-badge';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
@@ -111,9 +113,13 @@ import { planHasEnded } from './vendor-plan';
     VendorPlanEndedBanner,
     VendorProductEndedBanner,
     VendorListingHiddenBanner,
+    VendorLegalAcceptance,
+    VendorLegalAccepted,
   ],
   template: `
     @let m = me();
+    @let legalItem = legal?.current() ?? null;
+    @let legalState = legal?.state() ?? null;
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
       <header class="pb-4">
         <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
@@ -163,8 +169,11 @@ import { planHasEnded } from './vendor-plan';
           case that does.
         -->
         <div class="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <!-- tabindex="-1": a script may move the focus here (AECI-1677, closing the
+               acceptance confirmation), never the Tab key. -->
           <h1
-            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
+            tabindex="-1"
+            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) focus-visible:outline-none md:text-4xl"
           >
             {{ product()?.name ?? m.vendor.company_name }}
           </h1>
@@ -177,42 +186,79 @@ import { planHasEnded } from './vendor-plan';
       </header>
 
       <!--
+        AECI-1677 (section 6.24): the confirmation after an accept, above everything.
+      -->
+      @if (legal?.confirmation()) {
+        <aec-vendor-legal-accepted [companyName]="m.vendor.company_name" />
+      }
+
+      @if (legalItem && legalItem.mode === 'required') {
+        <!--
+          Ruling 24: the Vendor Terms are in force and the company has not accepted a
+          version in force. The portal opens only this screen: no banners, no tabs, no
+          outlet. The API refuses the company's other writes too (lib/authz.ts).
+        -->
+        <aec-vendor-legal-acceptance
+          [item]="legalItem"
+          [companyName]="m.vendor.company_name"
+          [canAccept]="legalState?.can_accept ?? false"
+          [ownerNames]="legalState?.owner_names ?? []"
+          [prefillTitle]="legalState?.signer?.title ?? null"
+          [prefillLegalName]="legalState?.signer?.legal_name ?? null"
+          [askName]="!!legalState?.signer && !legalState?.signer?.name"
+          [stripeBilling]="legalState?.stripe_billing ?? false"
+        />
+      } @else {
+        <!--
         AECI-1218 (STAGE_2_PAID_TIERS_SPEC.md section 13.11): renders only when the
         vendor's plan ended. Above the tabs, so it heads every portal page, and
         not dismissible, because it states the current state.
       -->
-      <aec-vendor-plan-ended-banner
-        [entitlement]="m.entitlement"
-        [billingLink]="m.seat_owner ? 'billing' : null"
-      />
+        <aec-vendor-plan-ended-banner
+          [entitlement]="m.entitlement"
+          [billingLink]="m.seat_owner ? 'billing' : null"
+        />
 
-      <!--
+        <!--
         AECI-1408 (VENDOR_SIGNUP_PROCESS.md section 3 step 10): the open product's
         Managed plan ended. Under the product header, so it heads every product
         tab. The vendor-wide banner above wins: a vendor never sees two.
       -->
-      @if (product(); as p) {
-        @if (!vendorPlanEnded()) {
-          <aec-vendor-product-ended-banner
-            [plan]="p.plan"
-            [billingLink]="m.seat_owner ? 'billing' : null"
-          />
-        }
-        <!-- AECI-1238 (section 11d.6): AECi hid this product, on its own or with the company.
+        @if (product(); as p) {
+          @if (!vendorPlanEnded()) {
+            <aec-vendor-product-ended-banner
+              [plan]="p.plan"
+              [billingLink]="m.seat_owner ? 'billing' : null"
+            />
+          }
+          <!-- AECI-1238 (section 11d.6): AECi hid this product, on its own or with the company.
              Under the product header, so it heads every product tab. -->
-        @if (p.hidden; as hidden) {
-          <aec-vendor-listing-hidden-banner
-            [hidden]="hidden"
-            headingId="vendor-product-listing-hidden-h"
+          @if (p.hidden; as hidden) {
+            <aec-vendor-listing-hidden-banner
+              [hidden]="hidden"
+              headingId="vendor-product-listing-hidden-h"
+            />
+          }
+        }
+
+        <!-- AECI-1677: an optional prompt (ruling 25, counsel Q3). An owner may dismiss it. -->
+        @if (legalItem) {
+          <aec-vendor-legal-acceptance
+            [item]="legalItem"
+            [companyName]="m.vendor.company_name"
+            [canAccept]="legalState?.can_accept ?? false"
+            [prefillTitle]="legalState?.signer?.title ?? null"
+            [prefillLegalName]="legalState?.signer?.legal_name ?? null"
+            [askName]="!!legalState?.signer && !legalState?.signer?.name"
           />
         }
+
+        <aec-vendor-portal-nav [items]="navItems()" [ariaLabel]="navLabel()" />
+
+        <div class="min-w-0">
+          <router-outlet />
+        </div>
       }
-
-      <aec-vendor-portal-nav [items]="navItems()" [ariaLabel]="navLabel()" />
-
-      <div class="min-w-0">
-        <router-outlet />
-      </div>
 
       <!--
         THE portal's live region. One, polite, sr-only, and always in the DOM so
@@ -252,6 +298,10 @@ import { planHasEnded } from './vendor-plan';
 })
 export class VendorDashboardTabbed {
   readonly me = input.required<VendorMeResponse>();
+
+  /** AECI-1677: the acceptance screen's state. Optional, so a spec that mounts the shell
+   *  alone sees no gate; the surface owner (`VendorPage`, the preview) provides it. */
+  protected readonly legal = inject(VendorLegalAcceptanceState, { optional: true });
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

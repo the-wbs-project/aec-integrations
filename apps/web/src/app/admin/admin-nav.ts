@@ -180,6 +180,9 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       // in Operations rather than Insights because the question it answers is a support
       // case about one person ("did they get our email?"), not a trend.
       { path: '/admin/email', label: $localize`:@@admin.shell.nav.email:Email` },
+      // AECI-1688 (`ADMIN_PANEL_SPEC.md` §5.22). Not a queue, so no badge. Beside Email
+      // because both are operator tools about what customers are told, not trends.
+      { path: '/admin/legal', label: $localize`:@@admin.shell.nav.legal:Legal versions` },
       { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
       // AECI-653. The global, filterable read of `audit_log` (`ADMIN_PANEL_SPEC.md`
       // §5.18). Last in Operations: it is where an operator goes after a queue or a

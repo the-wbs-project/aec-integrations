@@ -62,6 +62,7 @@ export class ClaimDialogService {
   private readonly active = signal<ClaimDialogOpening | null>(null);
   private readonly hosts = signal(0);
   private readonly companyName = signal<string | null>(null);
+  private readonly typedPath = signal(false);
   private readonly seeded = signal<ClaimListing | null>(null);
   private opener: (() => void) | null = null;
 
@@ -72,10 +73,16 @@ export class ClaimDialogService {
   readonly hosted = computed(() => this.hosts() > 0);
   /**
    * The company the open dialog is claiming, for its "Claim <Company>" title
-   * (AECI-1364). `null` on the Find step and on the typed-in path, which read
-   * "Claim your company". The flow sets it; the shell reads it.
+   * (AECI-1364). `null` on the Find step, which reads "Claim your company", and on the
+   * typed-in path (see {@link typed}). The flow sets it; the shell reads it.
    */
   readonly company = this.companyName.asReadonly();
+  /**
+   * Whether the open dialog is on the typed-in path past the Find step (AECI-1705). The
+   * shell then reads "Ask us to list your product", with the request description,
+   * because that path is a request to be listed, not a claim. The flow sets it.
+   */
+  readonly typed = this.typedPath.asReadonly();
   /**
    * The listing the page already knows the visitor means (`/vendor-program?vendor=`,
    * `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4), or `null`. With one, every open starts on the
@@ -86,6 +93,7 @@ export class ClaimDialogService {
 
   open(opening: ClaimDialogOpening): void {
     this.companyName.set(null);
+    this.typedPath.set(false);
     this.active.set(opening);
     this.opener?.();
   }
@@ -94,11 +102,17 @@ export class ClaimDialogService {
   close(): void {
     this.active.set(null);
     this.companyName.set(null);
+    this.typedPath.set(false);
   }
 
   /** The flow names the company once it is known, and clears it on the Find step. */
   setCompany(name: string | null): void {
     this.companyName.set(name);
+  }
+
+  /** The flow says when it is on the typed-in path, and clears it on the Find step. */
+  setTyped(typed: boolean): void {
+    this.typedPath.set(typed);
   }
 
   /** The page names the listing every open starts from, or clears it with `null`. */

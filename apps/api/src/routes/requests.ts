@@ -57,7 +57,6 @@ import {
   ClaimRequestSchema,
   type StoredClaimRequest,
   ClaimTargetResponseSchema,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
   normalizeFoundVia,
   RequestTargetTypeSchema,
@@ -94,6 +93,7 @@ import {
   type AcceptancePolicyVersions,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import { computeDomainMatch } from '../lib/domain-match';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -213,7 +213,7 @@ export interface ClaimTarget {
  * shows is the company the row records. The product comes back as `contextProduct`.
  *
  * A product with no `product_vendors` row has no company to claim. It returns the
- * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Type it in
+ * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Ask us to add it
  * instead" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.2).
  */
 export async function resolveClaimTarget(
@@ -445,22 +445,27 @@ async function createRequest(
 
   // AECI-1366: a claim carries the vendor terms acceptance (the box on the form,
   // `ClaimFormSchema.accepted_terms`). The server stamps
-  // the current version and the request's IP and user agent; the client sends neither.
+  // the version in force and the request's IP and user agent; the client sends neither.
   // Profile, vendor and billing account stay null until the approval links them
   // (`linkClaimAcceptanceStatements`, matched on `vendor_request_id`). The rows ride the
   // claim's own batch, so a failed batch writes neither the claim nor the acceptance.
   //
   // AECI-1435: a confirmed anonymous claim is accepted at confirm. The version, IP and
   // user agent are the submit's, from the pending row; the time is now.
+  // AECI-1689: the versions in force now. A published upcoming Vendor Terms version is
+  // in force from its effective moment, before bump day. No D1 read unless one can be.
+  const acceptedAt = new Date();
+  const inForce = kind === 'claim' ? await loadLegalInForce(db, acceptedAt) : null;
   const acceptance =
-    kind === 'claim'
+    kind === 'claim' && inForce
       ? agreementAcceptanceStatements(db, {
           document: 'vendor_terms',
-          version: opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+          version: opts.acceptance?.version ?? inForce.agreements.vendor_terms,
+          inForce,
           source: 'claim',
           email: insert.submitterEmail,
           vendorRequestId: requestId,
-          acceptedAt: new Date().toISOString(),
+          acceptedAt: acceptedAt.toISOString(),
           requestHeaders: c.req.raw.headers,
           evidence: opts.acceptance?.evidence ?? null,
           signer: {
@@ -470,12 +475,13 @@ async function createRequest(
           },
           // AECI-1615 ruling 16: the claim form's vendor terms box (`vendor-terms-box.ts`).
           checkbox: claimBoxFor(
-            opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+            opts.acceptance?.version ?? inForce.agreements.vendor_terms,
+            inForce,
           ),
           // AECI-1619: the policy versions the box named. A confirm carries the submit's.
           policyVersions: opts.acceptance
             ? opts.acceptance.policyVersions
-            : currentPolicyVersions(),
+            : currentPolicyVersions(inForce),
           actorId: null,
           actorType: 'user',
         })
@@ -879,7 +885,7 @@ export async function submitClaimNow(
  * Nothing else runs until the link is clicked.
  *
  * The target resolves first on both paths, so a dead listing still answers `404` and
- * the dialog can offer "Type it in instead".
+ * the dialog can offer "Ask us to add it instead".
  */
 export function createClaimSubmitHandler(
   dbFor: DbFactory = getDb,

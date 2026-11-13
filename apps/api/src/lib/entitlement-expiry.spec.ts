@@ -22,14 +22,28 @@
  * the transport and a stubbed seam would never reach it.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_IN_FORCE_MAPS,
+  legalEffectiveAtMs,
+  type LegalInForceMaps,
+} from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, products, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  legalVersions,
+  licenses,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { BatchStmt } from './audit';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { makeFakeR2Bucket } from '../test/fake-r2';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import {
   daysUntil,
@@ -48,6 +62,7 @@ import {
   sendEntitlementExpiringEmail,
   type EmailOutcome,
 } from './email';
+import { sha256OfBytes } from './legal-versions';
 import { EXPIRY_STAMP_CHUNK } from './license';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -1170,5 +1185,141 @@ describe('tier delivery policy — the real senders on a demo config (AECI-1198)
     expect(resendBodies(fetchSpy)).toHaveLength(0);
     expect(result.warned).toBe(0);
     expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
+  });
+});
+
+// ─── AECI-1690: a new agreement version in the notice ────────────────────────
+
+describe('a published Managed plan version that binds at the renewal (AECI-1690)', () => {
+  const SWEEP_AT = new Date('2027-02-20T11:00:00.000Z');
+  const ENDS = '2027-03-15T12:00:00.000Z';
+  const MAPS = {
+    ...LEGAL_IN_FORCE_MAPS,
+    agreementCurrent: { ...LEGAL_IN_FORCE_MAPS.agreementCurrent, managed_plan: '1.1' },
+    agreementUpcoming: { managed_plan: { version: '1.2', effectiveOn: '2027-03-01' } },
+  } satisfies LegalInForceMaps;
+  const PDF = new TextEncoder().encode('%PDF-1.7\nversion 1.2\n%%EOF\n');
+  const KEY = 'legal/managed-plan-agreement/v1.2.pdf';
+
+  async function publish(sha256: string, publishedAt = '2027-01-15T00:00:00.000Z') {
+    await t.db.insert(legalVersions).values({
+      document: 'managed_plan',
+      version: '1.2',
+      effectiveAt: legalEffectiveAtMs('2027-03-01'),
+      summaryJson: JSON.stringify(['The refund window is 30 days.']),
+      material: true,
+      requiresAcceptance: false,
+      pdfKey: KEY,
+      pdfSha256: sha256,
+      pdfBytes: PDF.length,
+      publishedBy: 'admin',
+      publishedAt,
+    });
+  }
+
+  async function bucket() {
+    const b = makeFakeR2Bucket();
+    await b.put(KEY, PDF.slice().buffer);
+    return b as unknown as R2Bucket;
+  }
+
+  function capture() {
+    const seen: Array<Parameters<SendEntitlementExpiringEmail>[1]> = [];
+    const sendVendorEmail = vi.fn(async (_c, o) => {
+      seen.push(o);
+      return 'sent' as const;
+    }) as unknown as SendEntitlementExpiringEmail;
+    return { seen, sendVendorEmail };
+  }
+
+  async function sweepWith(env: Partial<Env>, maps: LegalInForceMaps | null = MAPS) {
+    const { seen, sendVendorEmail } = capture();
+    await runEntitlementExpirySweep(ctx(env), t.db, {
+      now: SWEEP_AT,
+      fetchSeatEmails: seatEmails,
+      sendVendorEmail,
+      sendAdminEmail: seams().sendAdminEmail,
+      ...(maps ? { legalMaps: maps } : {}),
+    });
+    await Promise.all(waited);
+    return seen;
+  }
+
+  beforeEach(async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ source: 'stripe', termsVersion: '1.1', endsAt: ENDS, reference: null });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('names the version, its date and summary, and carries the checked PDF', async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    const seen = await sweepWith({ UPLOADS: await bucket() });
+    expect(seen).toHaveLength(1);
+    const v = seen[0]!.newVersion!;
+    expect(v).toMatchObject({
+      version: '1.2',
+      effectiveDay: '2027-03-01',
+      inForce: false,
+      summary: ['The refund window is 30 days.'],
+    });
+    expect(atob(v.pdfBase64!).startsWith('%PDF-')).toBe(true);
+  });
+
+  it('a hash mismatch sends the block without the PDF and logs an error naming the version', async () => {
+    const intake = stubPosthogIntake();
+    await publish('f'.repeat(64));
+    const seen = await sweepWith({ UPLOADS: await bucket(), POSTHOG_PROJECT_KEY: 'phc_test' });
+    expect(seen[0]!.newVersion).toMatchObject({ version: '1.2', pdfBase64: null });
+    expect(intake.requests.flatMap((r) => r.messages)).toContain(
+      'aeci.entitlement.expiry.pdf_refused',
+    );
+  });
+
+  it('a missing PDF sends the block without it', async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    const seen = await sweepWith({ UPLOADS: makeFakeR2Bucket() as unknown as R2Bucket });
+    expect(seen[0]!.newVersion).toMatchObject({ version: '1.2', pdfBase64: null });
+  });
+
+  it("today's data carries no block, as before AECI-1690", async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    const seen = await sweepWith({ UPLOADS: await bucket() }, null);
+    expect(seen[0]!.newVersion).toBeUndefined();
+  });
+
+  it('D2: a version published 45 days before the renewal is announced', async () => {
+    const sha = await sha256OfBytes(PDF.slice());
+    const day = 86_400_000;
+    await publish(sha, new Date(Date.parse(ENDS) - 45 * day).toISOString());
+    expect((await sweepWith({ UPLOADS: await bucket() }))[0]!.newVersion?.version).toBe('1.2');
+  });
+
+  it('D2: a version published 44 days before the renewal is not announced as binding', async () => {
+    const sha = await sha256OfBytes(PDF.slice());
+    const day = 86_400_000;
+    await publish(sha, new Date(Date.parse(ENDS) - 44 * day).toISOString());
+    expect((await sweepWith({ UPLOADS: await bucket() }))[0]!.newVersion).toBeUndefined();
+  });
+
+  it('names no more than the bind does: a license already on the version adds nothing', async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    await seedLicense({
+      id: '55555555-5555-4555-8555-555555555555',
+      source: 'stripe',
+      termsVersion: '1.2',
+      endsAt: ENDS,
+      reference: null,
+    });
+    const seen = await sweepWith({ UPLOADS: await bucket() });
+    // The 1.1 license moves to 1.2; the one on 1.2 stays. The notice names 1.2.
+    expect(seen[0]!.newVersion?.version).toBe('1.2');
+  });
+
+  it('a term the vendor cancelled renews nothing, so nothing binds', async () => {
+    await publish(await sha256OfBytes(PDF.slice()));
+    await t.db.update(licenses).set({ cancelAtTermEnd: true }).where(eq(licenses.id, LICENSE_ID));
+    const seen = await sweepWith({ UPLOADS: await bucket() });
+    expect(seen[0]!.newVersion).toBeUndefined();
   });
 });

@@ -1,14 +1,10 @@
 /**
  * `POST /api/requests/listing` (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) against
- * the in-memory D1 harness: the row and its audit row in ONE batch, validation, the
- * operator alert after commit, and the Rule A placement of the path.
+ * the in-memory D1 harness: the row and its audit row in ONE batch, no vendor terms
+ * acceptance (AECI-1705), validation, the operator alert after commit, and the Rule A
+ * placement of the path.
  */
 
-import {
-  AGREEMENT_CHECKBOX_LABELS,
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  LEGAL_POLICY_CURRENT_VERSIONS,
-} from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -52,7 +48,8 @@ const validBody = {
   submitter_email: 'pat@sitediary.example.com',
   submitter_title: 'VP Partnerships',
   company_legal_name: 'Acme, Inc.',
-  accepted_terms: true,
+  // AECI-1705: required, and no vendor terms box.
+  company_country: 'GB',
   body: 'We make two products.',
 };
 
@@ -91,19 +88,18 @@ describe('POST /api/requests/listing', () => {
       submitterName: 'Pat Lee',
       submitterRole: null,
       submitterLinkedinUrl: null,
+      companyLegalName: 'Acme, Inc.',
+      companyCountry: 'GB',
       body: 'We make two products.',
       foundVia: null,
       foundViaDetail: null,
       status: 'open',
     });
 
-    // The request's audit row, then the vendor terms acceptance's (AECI-1366).
+    // The request's audit row only: no vendor terms acceptance (AECI-1705).
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(2);
-    expect(audits.map((a) => a.action)).toEqual(
-      expect.arrayContaining(['agreement.accepted', 'listing_request.created']),
-    );
-    const created = audits.find((a) => a.action === 'listing_request.created')!;
+    expect(audits.map((a) => a.action)).toEqual(['listing_request.created']);
+    const created = audits[0]!;
     expect(created).toMatchObject({
       action: 'listing_request.created',
       entityType: 'listing_request',
@@ -124,68 +120,64 @@ describe('POST /api/requests/listing', () => {
     expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
   });
 
-  it('commits the insert, the acceptance and both audit rows in ONE db.batch (ADR 0022)', async () => {
+  it('commits the insert and its audit row in ONE db.batch (ADR 0022)', async () => {
     const batch = vi.spyOn(t.db, 'batch');
     await post(validBody);
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls[0]![0]).toHaveLength(4);
+    expect(batch.mock.calls[0]![0]).toHaveLength(2);
   });
 
-  // ── AECI-1366: the vendor terms box ───────────────────────────────────────
-  it('records the vendor terms acceptance against the listing request', async () => {
-    const res = await post(validBody, TEST_ENV, fakeExecutionContext(), {
-      'cf-connecting-ip': '203.0.113.9',
-      'user-agent': 'Mozilla/5.0 (test)',
-    });
+  // ── AECI-1705: a request to be listed, not a claim ─────────────────────────
+  it.each([
+    ['omitted', undefined],
+    ['true, from a stale bundle', true],
+    ['false', false],
+  ])('accepts accepted_terms %s and writes no acceptance', async (_label, value) => {
+    const res = await post(
+      { ...validBody, accepted_terms: value },
+      TEST_ENV,
+      fakeExecutionContext(),
+      {
+        'cf-connecting-ip': '203.0.113.9',
+        'user-agent': 'Mozilla/5.0 (test)',
+      },
+    );
     expect(res.status).toBe(201);
-    const { request_id } = (await res.json()) as { request_id: string };
-    const rows = await t.db.select().from(agreementAcceptances);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      document: 'vendor_terms',
-      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
-      source: 'claim',
-      email: 'pat@sitediary.example.com',
-      listingRequestId: request_id,
-      // AECI-1615 ruling 16: the request form's vendor terms box.
-      checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
-      checkboxDefaultUnticked: true,
-      // AECI-1619: the label text and the policy versions the box named.
-      checkboxLabel: AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
-      listingAccuracyVersion: LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy,
-      reviewGuidelinesVersion: LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines,
-      plansPageVersion: null,
-      vendorRequestId: null,
-      profileId: null,
-      vendorId: null,
-      billingAccountId: null,
-      ip: '203.0.113.9',
-      userAgent: 'Mozilla/5.0 (test)',
-    });
+    expect(await t.db.select().from(listingRequests)).toHaveLength(1);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.action)).not.toContain('agreement.accepted');
   });
 
   it.each([
     ['missing', undefined],
-    ['false', false],
+    ['blank', ''],
+    ['free text', 'United Kingdom'],
+    ['not an assigned code', 'ZZ'],
   ])(
-    'rejects accepted_terms %s with VALIDATION_FAILED on the field and writes nothing',
+    'rejects company_country %s with VALIDATION_FAILED on the field and writes nothing',
     async (_label, value) => {
-      const res = await post({ ...validBody, accepted_terms: value });
+      const res = await post({ ...validBody, company_country: value });
       expect(res.status).toBe(400);
       const { error } = (await res.json()) as { error: { code: string; field?: string } };
-      expect(error).toMatchObject({ code: 'VALIDATION_FAILED', field: 'accepted_terms' });
+      expect(error).toMatchObject({ code: 'VALIDATION_FAILED', field: 'company_country' });
       expect(await t.db.select().from(listingRequests)).toHaveLength(0);
-      expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
     },
   );
 
-  it('writes neither the request nor the acceptance when the batch fails', async () => {
+  it('stores the country code upper-cased', async () => {
+    expect((await post({ ...validBody, company_country: 'de' })).status).toBe(201);
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row!.companyCountry).toBe('DE');
+  });
+
+  it('writes neither the request nor its audit row when the batch fails', async () => {
     vi.spyOn(t.db, 'batch').mockRejectedValueOnce(new Error('D1 down'));
     const res = await post(validBody);
     expect(res.status).toBe(500);
     expect(await t.db.select().from(listingRequests)).toHaveLength(0);
-    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
   it('sends the claimant a claim-received receipt after the alert, on production', async () => {
@@ -220,7 +212,11 @@ describe('POST /api/requests/listing', () => {
     expect(receipt.subject).toBe('We received your listing request');
     expect(receipt.subject).not.toContain('Site Diary Pro');
     expect(receipt.text).toContain('Site Diary Pro');
-    expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
+    // AECI-1705: a listing request accepted no terms, so the receipt names none.
+    expect(receipt.text).not.toContain('/legal/vendor-terms');
+    expect(receipt.text).not.toContain('Vendor terms you accepted');
+    expect(receipt.text).toContain('How claiming works after we add it');
+    expect(receipt.text).toContain('Nothing happens unless we add the listing.');
     expect(receipt.text).not.toContain('/vendor?');
     expect(receipt.text).not.toContain('/auth/');
   });
@@ -314,7 +310,11 @@ describe('POST /api/requests/listing', () => {
       SUPPORT_EMAIL: 'support@aecintegrations.com',
     };
     const execCtx = fakeExecutionContext();
-    const res = await post(validBody, env, execCtx);
+    const res = await post(
+      { ...validBody, found_via: 'ai_tool', found_via_detail: 'aec takeoff tools' },
+      env,
+      execCtx,
+    );
     expect(res.status).toBe(201);
     await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
 
@@ -331,6 +331,22 @@ describe('POST /api/requests/listing', () => {
     expect(String(sent.reply_to)).toContain('pat@sitediary.example.com');
     expect(sent.text).not.toContain('Plan interest');
     expect(sent.text).toContain('https://sitediary.example.com');
+    // AECI-1705: every field the form collects, and no queue to open.
+    for (const line of [
+      'Company legal name',
+      'Acme, Inc.',
+      'Company country',
+      'United Kingdom (GB)',
+      'Found us via',
+      'ChatGPT, Claude, Perplexity or another AI tool: aec takeoff tools',
+      'VP Partnerships',
+      'We make two products.',
+      'Add the listing, then reply to this email.',
+    ]) {
+      expect(sent.text).toContain(line);
+    }
+    expect(sent.text).not.toContain('Open the requests queue');
+    expect(sent.text).not.toContain('/admin/requests');
   });
 
   it('still answers 201 when the alert send fails (fail-open)', async () => {

@@ -1,7 +1,7 @@
 /**
  * `LEGAL_AGREEMENT_TEXT_SHA256` (AECI-1615) must hold the SHA-256 of the exact bytes of
  * each published agreement version's Markdown: the current file under
- * `apps/web/src/content/legal/` and every archive under `.../legal/versions/`. A grant
+ * `apps/web/src/content/legal/` and every archived or upcoming file under `.../legal/versions/`. A grant
  * acceptance stamps that hash as evidence of the text the owner was shown, and the API
  * Worker cannot read the Markdown, so this spec is what keeps the constant true. An edit
  * to a published agreement's text fails here: bump the version, or, for a draft with no
@@ -19,6 +19,7 @@ import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
   LEGAL_AGREEMENT_TEXT_SHA256,
+  LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   legalAgreementTextSha256,
   type LegalAgreementDocument,
   PLANS_PAGE_CURRENT_VERSION,
@@ -46,19 +47,23 @@ describe.each(Object.keys(FILES) as LegalAgreementDocument[])('%s text hashes', 
     expect(legalAgreementTextSha256(document, version)).toBe(sha256(join(LEGAL, current)));
   });
 
-  it('records every archived version from its archive file', () => {
+  // An upcoming version (AECI-1610) shares the `versions/` folder. Since AECI-1689 it can
+  // be in force before bump day, so a new acceptance can stamp its hash: it is required
+  // from the change that adds the file, and the bump moves the file byte for byte.
+  it('records every archived and upcoming version from its file', () => {
     const dir = join(LEGAL, 'versions', archive);
-    const archived = readdirSync(dir).filter((f) => /^v[\d.]+\.md$/.test(f));
-    expect(archived.length).toBeGreaterThan(0);
-    for (const file of archived) {
+    const files = readdirSync(dir).filter((f) => /^v[\d.]+\.md$/.test(f));
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
       const version = file.slice(1, -3);
       expect(legalAgreementTextSha256(document, version), file).toBe(sha256(join(dir, file)));
     }
   });
 
-  it('holds a hash for every known version, and no other', () => {
+  it('holds a hash for every known version and the upcoming one, and no other', () => {
+    const upcoming = LEGAL_AGREEMENT_UPCOMING_VERSIONS[document]?.version;
     expect(Object.keys(LEGAL_AGREEMENT_TEXT_SHA256[document]).sort()).toEqual(
-      [...LEGAL_AGREEMENT_KNOWN_VERSIONS[document]].sort(),
+      [...LEGAL_AGREEMENT_KNOWN_VERSIONS[document], ...(upcoming ? [upcoming] : [])].sort(),
     );
   });
 });

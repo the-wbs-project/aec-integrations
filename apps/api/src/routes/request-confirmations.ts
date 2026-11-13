@@ -25,8 +25,9 @@
  *
  * **Going in is today's submit, unchanged.** A claim runs `submitClaimNow` and a listing
  * runs `submitListingNow`, the functions the signed-in submit calls, with the pending
- * row's id as the request id and its stored terms version, IP and user agent for the
- * acceptance. The AECI-1420 account check, owner routing, the duplicate probe and the
+ * row's id as the request id. A claim takes its stored terms version, IP and user agent
+ * for the acceptance. A listing request writes no acceptance (AECI-1705), so it ignores
+ * any evidence a row parked before that change still holds. The AECI-1420 account check, owner routing, the duplicate probe and the
  * domain match all run now. The request's batch also carries the guarded update of the
  * pending row (`confirmed_at`, `payload = NULL`) and its
  * `request_confirmation.confirmed` audit row.
@@ -138,15 +139,14 @@ export function createConfirmRequestHandler(
       });
     }
 
-    // AECI-1619: the policy versions are the submit's too. A row from before
-    // migration 0118 holds none, and the acceptance records NULL.
-    const acceptance = {
-      version: row.termsVersion,
-      policyVersions: storedPolicyVersions(row),
-      evidence: { ip: row.ip, userAgent: row.userAgent },
-    };
-
     if (kind === 'claim') {
+      // AECI-1619: the policy versions are the submit's too. A row from before
+      // migration 0118 holds none, and the acceptance records NULL.
+      const acceptance = {
+        version: row.termsVersion,
+        policyVersions: storedPolicyVersions(row),
+        evidence: { ip: row.ip, userAgent: row.userAgent },
+      };
       const payload = StoredClaimRequestSchema.parse(storedPayload(row));
       // Again, not from the submit: the listing may have changed or gone in 7 days.
       const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
@@ -193,6 +193,8 @@ export function createConfirmRequestHandler(
       }
     }
 
+    // AECI-1705: no acceptance. A row parked before the change may hold a terms version,
+    // an IP address and a browser, and `accepted_terms` in its payload. None is used.
     const payload = StoredListingRequestSchema.parse(storedPayload(row));
     const confirmed = confirmedStatements(db, {
       id: row.id,
@@ -204,7 +206,6 @@ export function createConfirmRequestHandler(
     try {
       const requestId = await submitListingNow(c, db, payload, {
         requestId: row.id,
-        acceptance,
         extra: { stmts: confirmed.stmts, auditEntries: [confirmed.auditEntry] },
         confirmation: 'email',
       });

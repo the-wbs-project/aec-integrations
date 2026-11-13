@@ -1,5 +1,5 @@
-import { inject } from '@angular/core';
-import { type Route, Router, Routes } from '@angular/router';
+import { Injector, inject, runInInjectionContext } from '@angular/core';
+import { type ResolveFn, type Route, Router, Routes, type UrlSegment } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
@@ -7,7 +7,7 @@ import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './accessibility/accessibility
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
-import { LEGAL_ARCHIVES, legalArchivePath } from './legal/legal-manifest';
+import { legalVersionMatcher } from './legal/legal-version-matcher';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { productsIndexResolver } from './products/products-index.resolver';
@@ -32,6 +32,19 @@ import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
  *  binding is emitted, which is what lets the build's `define` substitution
  *  reach the bare identifier. */
 declare const ngDevMode: unknown;
+
+/**
+ * AECI-1689 — whether a legal page's upcoming version is in force for this request
+ * (`legal/legal-in-force.resolver.ts`). Lazy, so the version lists stay out of the
+ * initial bundle; the injector is captured before the import so the resolver body
+ * still runs in an injection context.
+ */
+const legalSwitchedResolver: ResolveFn<boolean> = (route) => {
+  const injector = inject(Injector);
+  return import('./legal/legal-in-force.resolver').then((m) =>
+    runInInjectionContext(injector, () => m.resolveLegalSwitched(route)),
+  );
+};
 
 export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
@@ -367,6 +380,14 @@ export const routes: Routes = [
         path: 'email',
         loadComponent: () => import('./admin/email/email-activity').then((m) => m.EmailActivity),
       },
+      // AECI-1688 — the legal publish page (`ADMIN_PANEL_SPEC.md` §5.22): record an
+      // upcoming Vendor Terms or Managed plan agreement version. Lazy, one flat child,
+      // no resolver; the parent's `adminSummaryResolver` is the gate.
+      {
+        path: 'legal',
+        loadComponent: () =>
+          import('./admin/legal/legal-versions').then((m) => m.AdminLegalVersions),
+      },
       // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
       // read layer over the connector lane. Two flat children, the
       // same arrangement and the same reason as the vendor pair below: the detail
@@ -613,21 +634,25 @@ export const routes: Routes = [
     path: 'legal/terms',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'terms' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/privacy',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'privacy' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/review-guidelines',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'review-guidelines' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/listing-accuracy',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'listing-accuracy' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   // AECI-1359 / AECI-1360: the two vendor agreements (`docs/VENDOR_SIGNUP_PROCESS.md`
   // §4), on the same LegalPage and the same `/legal/*` cache rules.
@@ -635,25 +660,37 @@ export const routes: Routes = [
     path: 'legal/vendor-terms',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'vendor-terms' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
   {
     path: 'legal/managed-plan-agreement',
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'managed-plan-agreement' },
+    resolve: { legalSwitched: legalSwitchedResolver },
   },
-  // AECI-1361 — superseded versions at `/legal/<slug>/v<version>`, one explicit
-  // route per entry in the `.md`-free `LEGAL_ARCHIVES` manifest (still no
-  // `legal/:slug` param route, so an unknown slug or version falls through to the
-  // `**` 404). Same LegalPage, same `/legal/*` cache rules. The page sets
-  // `robots: noindex` and a canonical to the current version; the SSR egress
+  // AECI-1361, AECI-1610 — every version with a page at `/legal/<slug>/v<version>`:
+  // each archive (`LEGAL_ARCHIVES`), each version not yet in force (`LEGAL_UPCOMING`)
+  // and each current version at its own address (`LEGAL_CURRENT_VERSIONS`). A
+  // change notice links that address, so it keeps serving the same text once the
+  // version becomes current. One route: the matcher reads the URL shape only, and
+  // the guard lazy-loads the version lists (`legal-version-route.ts`), so they stay
+  // out of the initial bundle. An unknown slug or version fails the guard and falls
+  // through to the `**` 404. Same LegalPage, same `/legal/*` cache rules. The page
+  // sets `robots: noindex` and a canonical to the current version; the SSR egress
   // stamps `X-Robots-Tag` (`NOINDEX_PATH_PREFIXES`); the sitemap leaves them out.
-  ...LEGAL_ARCHIVES.map(
-    ({ slug, version }): Route => ({
-      path: legalArchivePath(slug, version).slice(1),
-      loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
-      data: { slug, version },
-    }),
-  ),
+  // Every legal route resolves `legalSwitched` (AECI-1689): from its effective moment
+  // an upcoming version is current with no deploy, and the same URLs serve it.
+  {
+    matcher: legalVersionMatcher,
+    canMatch: [
+      (_route: Route, segments: UrlSegment[]) =>
+        import('./legal/legal-version-route').then((m) =>
+          m.servesLegalVersion(segments[1].path, segments[2].path.slice(1)),
+        ),
+    ],
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    resolve: { legalSwitched: legalSwitchedResolver },
+  },
   // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
   // behind `ngDevMode` so the optimized build folds this to `[]` and never
   // references the chunk: `@angular/build` substitutes the literal `false` when

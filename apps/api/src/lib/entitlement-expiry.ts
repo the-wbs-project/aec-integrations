@@ -68,9 +68,23 @@
  * requiring BOTH would re-nag the operator every night on any tier without the
  * service-role key. Nothing here throws — `sendTransactionalEmail` never does, and
  * a batch failure is logged and skipped so one bad term cannot end the sweep.
+ *
+ * ── A NEW AGREEMENT VERSION (AECI-1690) ─────────────────────────────────────────
+ *
+ * The Managed plan agreement's "Changes to this agreement" promises that this notice
+ * names a new version and its effective date, summarizes every material change, links
+ * the archived text of that version, and attaches a copy. When card subscriptions in the
+ * term renew, the version that renewal binds (`bindTermsVersion`, the same call the renewal
+ * makes: in force at `ends_at`, published at least 45 days ahead, walked per carried
+ * version) is above what one of them carries, and that version has a `legal_versions`
+ * row, the vendor copy carries the block (`newVersion`). The PDF is read and re-hashed
+ * against the row once per version per run (`loadVerifiedLegalPdf`). A missing or changed
+ * file sends the notice without the attachment and its sentence, and logs
+ * `aeci.entitlement.expiry.pdf_refused` at error level with the version. A version that is
+ * a draft in code has no row, so with today's data nothing extra is read.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import { compareLegalVersions, type LegalInForceMaps } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
@@ -83,10 +97,25 @@ import {
   type EntitlementExpiryMetricSink,
   type ExpiryNoticeOutcome,
 } from './entitlement-expiry-metrics';
-import { parseRecipients, type EmailContext, type EmailOutcome } from './email';
+import {
+  bytesToBase64,
+  parseRecipients,
+  type EmailContext,
+  type EmailOutcome,
+  type RenewalNoticeVersion,
+} from './email';
+import { isDraftInCode } from './legal-acceptance';
+import { loadLegalInForce } from './legal-in-force';
+import { loadLegalVersion, loadVerifiedLegalPdf, summaryOf } from './legal-versions';
 import { expiryNoticeStampStatements, LICENSE_ENTITY_TYPE } from './license';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
+import {
+  bindTermsVersion,
+  loadTermsPublished,
+  termsRowsMayMatter,
+  type TermsPublishedRow,
+} from './terms-binding';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, products, vendors } from '../db/schema';
@@ -174,6 +203,9 @@ export type SendEntitlementExpiringEmail = (
     renewingLicenseCount: number;
     /** A license in the term accepted an older Managed plan agreement version. */
     termsChange: boolean;
+    /** The published version this renewal binds, when it moves a renewing license
+     *  (AECI-1690). */
+    newVersion?: RenewalNoticeVersion;
   },
 ) => Promise<EmailOutcome>;
 
@@ -215,6 +247,8 @@ export interface ExpiryDeps {
   sendAdminEmail?: SendEntitlementExpiringAdminEmail;
   /** Metric sink. Absent → metrics are simply not emitted (local). */
   metrics?: EntitlementExpiryMetricSink;
+  /** The in-force maps (`LEGAL_IN_FORCE_MAPS` when absent). Injected by specs. */
+  legalMaps?: LegalInForceMaps;
 }
 
 export interface ExpiryResult {
@@ -251,6 +285,8 @@ interface ExpiringTerm {
   /** Licenses Stripe will charge for again: `source = 'stripe'`, not flagged
    *  `cancel_at_term_end`. A flagged one ends on this date (AECI-1596). */
   renewingLicenseCount: number;
+  /** The distinct `terms_version` values of those licenses (AECI-1690). */
+  renewingVersions: string[];
   /** The distinct non-blank `reference` values, in `compareText` order. */
   references: string[];
   /** The names of the products the term's licenses are on, one per assigned license,
@@ -278,6 +314,7 @@ interface ExpiringTermRow {
   references: string;
   productNames: string;
   renewing: number;
+  renewingVersions: string;
   termsMismatched: number;
   unstamped: number;
   oldestStamp: string | null;
@@ -345,9 +382,16 @@ function productNamesOf(json: string): string[] {
  * backlog, and a warned term (now fully stamped) drops to the back of tomorrow's
  * window. The `ends_at` key still orders within each group.
  */
-async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringTerm[]> {
+async function loadExpiring(
+  db: Db,
+  horizonIso: string,
+  limit: number,
+  now: Date,
+): Promise<ExpiringTerm[]> {
   const unstamped = sql<number>`sum(case when ${licenses.expiryNoticeSentAt} is null then 1 else 0 end)`;
-  const currentTerms = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+  // AECI-1689: the version a renewal would bind is the one in force at the sweep, a
+  // published upcoming version from its moment, so the notice's "new version" line holds.
+  const currentTerms = (await loadLegalInForce(db, now)).agreements.managed_plan;
   const termsMismatched = sql<number>`sum(case when ${licenses.termsVersion} is not null and ${licenses.termsVersion} <> ${currentTerms} then 1 else 0 end)`;
   const rows = (await db
     .select({
@@ -367,6 +411,7 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
         sql<number>`sum(case when ${licenses.source} = 'stripe' and ${licenses.cancelAtTermEnd} = 0 then 1 else 0 end)`.mapWith(
           Number,
         ),
+      renewingVersions: sql<string>`json_group_array(distinct case when ${licenses.source} = 'stripe' and ${licenses.cancelAtTermEnd} = 0 then ${licenses.termsVersion} end)`,
       termsMismatched: termsMismatched.mapWith(Number),
       unstamped: unstamped.mapWith(Number),
       oldestStamp: sql<string | null>`min(${licenses.expiryNoticeSentAt})`,
@@ -409,6 +454,7 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
     licenseIds: stringsOf(r.licenseIds),
     sources: stringsOf(r.sources),
     renewingLicenseCount: Number(r.renewing),
+    renewingVersions: stringsOf(r.renewingVersions),
     references: stringsOf(r.references, compareText),
     productNames: productNamesOf(r.productNames),
     termsChange: Number(r.termsMismatched) > 0,
@@ -613,6 +659,117 @@ function collapse(outcomes: readonly EmailOutcome[]): EmailOutcome {
   return 'skipped';
 }
 
+// ─── A new agreement version in the notice (AECI-1690) ──────────────────────
+
+/**
+ * The reader of the new-version block (module header): one lookup per term, the rows and
+ * the PDF read at most once per version per run. Never throws: an R2 or D1 failure reads as
+ * no PDF, or no block, and is logged.
+ */
+function newVersionReader(
+  c: ExpiryContext,
+  db: Db,
+  nowMs: number,
+  horizonIso: string,
+  maps: LegalInForceMaps | undefined,
+): (term: ExpiringTerm) => Promise<RenewalNoticeVersion | null> {
+  let published: Promise<TermsPublishedRow[]> | null = null;
+  const byVersion = new Map<string, Promise<RenewalNoticeVersion | null>>();
+  const logError = (message: string, fields: Record<string, unknown>) => {
+    try {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'error',
+        message,
+        source: EXPIRY_AUDIT_SOURCE,
+        ...fields,
+      });
+    } catch {
+      // Telemetry must never change the outcome.
+    }
+  };
+
+  const load = async (version: string): Promise<RenewalNoticeVersion | null> => {
+    const row = await loadLegalVersion(db, 'managed_plan', version);
+    if (!row) return null;
+    let pdfBase64: string | null = null;
+    try {
+      const pdf = await loadVerifiedLegalPdf(c.env.UPLOADS, row);
+      if (pdf.ok) {
+        pdfBase64 = bytesToBase64(pdf.bytes);
+      } else {
+        logError('aeci.entitlement.expiry.pdf_refused', {
+          document: 'managed_plan',
+          version,
+          pdf_key: row.pdfKey,
+          problem: pdf.problem,
+        });
+      }
+    } catch (error) {
+      logError('aeci.entitlement.expiry.pdf_refused', {
+        document: 'managed_plan',
+        version,
+        pdf_key: row.pdfKey,
+        problem: 'read_failed',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return {
+      version,
+      effectiveDay: new Date(row.effectiveAt).toISOString().slice(0, 10),
+      inForce: row.effectiveAt <= nowMs,
+      summary: summaryOf(row),
+      pdfBase64,
+    };
+  };
+
+  return async (term) => {
+    if (term.renewingLicenseCount === 0) return null;
+    const endsAtMs = Date.parse(term.endsAt);
+    const carried = [...term.renewingVersions].sort(compareLegalVersions);
+    const lowest = carried[0] ?? null;
+    if (lowest === null || !Number.isFinite(endsAtMs)) return null;
+    try {
+      // The rows are read once a run, and only when a walk can need them.
+      const rows = termsRowsMayMatter(endsAtMs, lowest, maps)
+        ? await (published ??= loadTermsPublished(db))
+        : [];
+      // The bind itself, per carried version, as the renewal will run it: annual, at
+      // `ends_at`, with the 45-day announcement rule. The notice names the version every
+      // moving subscription reaches at least, so it never claims more than the bind does.
+      const moving = carried
+        .map((v) => ({
+          from: v,
+          to: bindTermsVersion({
+            interval: 'year',
+            renewalAtMs: endsAtMs,
+            boundVersion: v,
+            published: rows,
+            accepted: [],
+            ...(maps ? { maps } : {}),
+          }).version,
+        }))
+        .filter((m): m is { from: string; to: string } => m.to !== null && m.to !== m.from)
+        .map((m) => m.to)
+        .sort(compareLegalVersions);
+      const binds = moving[0];
+      // A draft in code never has a row, so nothing is read for it.
+      if (binds === undefined || isDraftInCode('managed_plan', binds, maps)) return null;
+      let entry = byVersion.get(binds);
+      if (!entry) {
+        entry = load(binds);
+        byVersion.set(binds, entry);
+      }
+      return await entry;
+    } catch (error) {
+      logError('aeci.entitlement.expiry.version_read_failed', {
+        billing_account_id: term.billingAccountId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+}
+
 // ─── The sweep ───────────────────────────────────────────────────────────────
 
 /**
@@ -651,7 +808,7 @@ export async function runEntitlementExpirySweep(
 
   const horizonIso = new Date(nowMs + warningDays * DAY_MS).toISOString();
   // One over the cap, so "there was more" is detectable without a second query.
-  const terms = await loadExpiring(db, horizonIso, cap + 1);
+  const terms = await loadExpiring(db, horizonIso, cap + 1, now);
 
   const pending: Array<{ term: ExpiringTerm; daysRemaining: number }> = [];
   for (const term of terms) {
@@ -696,6 +853,7 @@ export async function runEntitlementExpirySweep(
     batch.map((b) => b.term.billingAccountId),
   );
   const planRows = await loadPlanRows(db, vendorIds);
+  const newVersionFor = newVersionReader(c, db, nowMs, horizonIso, deps.legalMaps);
 
   const outcomes: ExpiryNoticeOutcome[] = [];
   // Collected per term and sent ONCE after the loop (AECI-1112). One `logToPosthog`
@@ -712,6 +870,7 @@ export async function runEntitlementExpirySweep(
       billingEmails.get(term.billingAccountId),
     );
 
+    const newVersion = await newVersionFor(term);
     const vendorSends: EmailOutcome[] = [];
     for (const to of addresses) {
       vendorSends.push(
@@ -725,6 +884,7 @@ export async function runEntitlementExpirySweep(
           sources: term.sources,
           renewingLicenseCount: term.renewingLicenseCount,
           termsChange: term.termsChange,
+          ...(newVersion ? { newVersion } : {}),
         }),
       );
     }

@@ -26,6 +26,11 @@
  *      can't know these; the runtime merges this array in before writing
  *      the header.
  *
+ *   3. `legalStateUncertain` — set by the legal resolver (AECI-1689) when it could not
+ *      read whether an upcoming agreement version was published. The page then shows
+ *      the old version as current (fail safe), and the runtime caches it briefly
+ *      (`LEGAL_UNCERTAIN_TTL`) instead of on the 24 h `/legal/*` TTL.
+ *
  * There is no page-view field. A resolver runs only on a cache MISS, so since
  * AECI-1297 the gateway writes the arrival from the path, on a HIT and a MISS
  * alike, and the API resolves the entity id from that path.
@@ -41,8 +46,9 @@ import type { CacheTagEntity } from './cache-tags';
 export interface AeciRequestContext {
   readonly api: ServerApiClient;
   embedded: CacheTagEntity[];
+  legalStateUncertain: boolean;
 }
 
 export function createRequestContext(api: ServerApiClient): AeciRequestContext {
-  return { api, embedded: [] };
+  return { api, embedded: [], legalStateUncertain: false };
 }
