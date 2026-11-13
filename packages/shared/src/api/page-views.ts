@@ -441,3 +441,11 @@ export type BrowserEvidence = (typeof BROWSER_EVIDENCE_VALUES)[number];
 
 /** Where the browser posts its report (`BrowserEvidencePostSchema`). Same-origin. */
 export const BROWSER_EVIDENCE_URL = '/api/page-views/browser-evidence';
+
+/**
+ * The Ray ID pattern behind `TurnstileVerdictPostSchema.cf_ray`, and so behind
+ * `BrowserEvidencePostSchema.cf_ray`. A plain `RegExp`, kept here rather than in a
+ * schema module, so the eager browser tracker can test a ray read from
+ * `Server-Timing` without pulling a Zod schema into the initial bundle (AECI-1714).
+ */
+export const CF_RAY_PATTERN = /^[0-9a-f]{16}(-[A-Z]{3,4})?$/i;

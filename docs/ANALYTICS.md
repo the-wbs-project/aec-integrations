@@ -212,6 +212,34 @@ Consequences you must hold in your head when reading a number:
   visitor with no known location (AECI-1581, `CACHE_STRATEGY.md` §4a.1). Their verdict
   stays null. Staging and demo sit behind Cloudflare Access, so only allowlisted
   visitors run the check there. AECI-1529 removes the exclusion after AECI-1458 closes.
+- **The browser report (AECI-1714, epic AECI-1711).** The page tracker tells us
+  whether our page script ran and whether a person then touched the page. It posts
+  one word per page load, `ran` or `interacted`, with that load's Ray ID, to
+  `POST /api/page-views/browser-evidence` (`API_CONTRACTS.md` §6.9). The API stores it
+  in `page_views.browser_evidence` on the row that ray names. It is a column on our own
+  census row. **It is never a PostHog event or property**, so the telemetry sentence in
+  the privacy policy stays true. Code: `app/core/browser-evidence-config.ts` and
+  `PageViewTracker`.
+  - **What it posts.** A landing view posts `ran` once the app has started, with the
+    document's `Server-Timing: cfray` ray. It posts `interacted` on the first
+    `pointerdown`, `keydown`, `wheel` or `touchstart`, once per view. An in-app view
+    posts only `interacted`, because its `browser-spa` row is written with `ran`. Its
+    ray comes from the `Server-Timing` header of its own `POST /api/page-views`
+    response. No ray means nothing is posted for that view, which is always the case
+    in local dev. At most one post per word per view, through `fetch` with `keepalive`.
+  - **Three gates, all checked before any post.** (1) The tier's switch: the SSR
+    Worker injects `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` only when the
+    wrangler var `BROWSER_EVIDENCE_ENABLED` is `"true"` (`docs/environments.md`).
+    Production is `"false"` until Privacy Policy 1.1 is in force (AECI-1715). (2) No
+    DNT or GPC signal. (3) No `Server-Timing: geo;desc="eu"` stamp, so nothing is sent
+    from the EEA, the UK or Switzerland (ruling 21). A browser that exposes no
+    `serverTiming` sends nothing. The DNT/GPC and region checks are the same functions
+    Turnstile uses (`turnstile-config.ts`). The API refuses privacy and held-region
+    rows as well.
+  - **Nothing is written to the browser.** No `localStorage`, `sessionStorage`, cookie
+    or IndexedDB. Not on `/admin` or `/account`.
+  - `ran` is never human evidence. Crawlers run our bundle (AECI-1710). The planned
+    human floor is `interacted` (`BOT_TRAFFIC_CLASSIFICATION.md` §2.11).
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error
   counts are therefore **occurrence** counts, not affected-visitor counts. That
   is the accepted price of running ops telemetry without asking permission.
