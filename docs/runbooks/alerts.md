@@ -1224,9 +1224,10 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
+Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
 telemetry tripwires —
-AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
+AECI-868's `arrival_cf_coverage`, AECI-876's `landing_cf_coverage` and AECI-1715's
+`browser_evidence_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
 triage. The email digest to the support inbox (`support@aecintegrations.com`) carries the offending rows.
@@ -1271,6 +1272,9 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
 
+> **`browser_evidence_coverage` means the browser report path is broken.** It has its own entry
+> below: [Browser evidence coverage](#browser-evidence-coverage).
+
 **First checks**
 
 1. **Which check?** The "found issues" alerts are split `by {check}` **and by `severity:`** — the
@@ -1304,8 +1308,60 @@ not the row — `promotion_status_invariant`, `arrival_cf_coverage` and `landing
 above. The third is `warn`, so it never reaches this alert at all; read it on `/admin/system` or in the
 digest. It means new `mailing_list` rows are losing their network metadata on the SSR `/api/*`
 passthrough — check `withForwardedLandingCf`, and note the path is a POST, so the AECI-868 cache-gateway
-`cf` override is not the cause. A no-data/liveness failure is a Worker scheduling issue — escalate to
+`cf` override is not the cause. `browser_evidence_coverage` is diagnosed at the report path too; see
+[Browser evidence coverage](#browser-evidence-coverage) below. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+### Browser evidence coverage
+
+**Check:** `browser_evidence_coverage`, severity `warn` (AECI-1715, epic AECI-1711). It never pages.
+Read it on `/admin/system` or in the digest.
+
+**What it measures.** The share of the previous UTC day's Turnstile-pass arrivals that carry a
+browser report (`page_views.browser_evidence` is `ran` or `interacted`). The population is
+`ssr-arrival` rows with `turnstile_verdict = 'pass'`, `privacy_signal = 0`, and a known country
+outside the held regions (`isHeldRegionCountry` in `@aeci/shared`). Privacy-signal and held-region
+rows are "not collected", so they are in neither number.
+
+**Why Turnstile pass is the denominator.** A pass proves our page script ran in that page load. So
+every row in the population should have sent its report. A gap there is the report path failing,
+not visitors declining. Raw arrivals would be the wrong base: crawlers that never run the script
+would read as a broken path.
+
+**Starting values, not rulings.** AECI-1715 records the first production reading, and these move
+to fit it.
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `BROWSER_EVIDENCE_COVERAGE_MIN` | `0.8` | Fires below this share |
+| `BROWSER_EVIDENCE_COVERAGE_MIN_ROWS` | `20` | Below this many rows, "nothing to measure" and a pass |
+
+**Not applicable.** On a tier whose API var `BROWSER_EVIDENCE_ENABLED` is not `"true"`, the check
+reports *Skipped*. Production reads *Skipped* until Privacy Policy 1.1 is in force and capture is
+switched on (`docs/environments.md` "Browser report check per tier").
+
+**What a firing means.** Pages loaded and Turnstile passed, but the report did not land on the row.
+Something on the report path is broken. Look at these first, in this order:
+
+1. **The flag.** The SSR Worker's `BROWSER_EVIDENCE_ENABLED` must match the API's on that tier. If
+   the web var is off, the browser never sends a report. Check `GET /_version` and
+   `GET /api/version` for the live builds.
+2. **The ray stamp.** The browser reads the page load's Ray ID from the gateway's
+   `Server-Timing: cfray` entry. Load a page with devtools open and read the response's
+   `Server-Timing`. The Turnstile verdict joins on the same ray, so a lost stamp empties both
+   numbers. The check then reads "nothing to measure", not a firing. A busy tier that reads
+   "nothing to measure" is a sign to start here.
+3. **The endpoint.** `POST /api/page-views/browser-evidence` answers 204 to any well-formed body,
+   matched or not, and runs the UPDATE in `waitUntil`. So a 204 does not prove the row moved. Read
+   Workers Logs for 400s and for errors from the deferred UPDATE.
+4. **The rate-limit bucket.** The endpoint shares the `token` bucket, keyed by IP, with the
+   Turnstile verdict post. A 429 drops the report. `docs/waf-rate-limits.md` §6.4 says which layer
+   stopped it.
+5. **A client regression.** A web release that broke the tracker. Compare the firing day with the
+   web deploys, and check the browser console on a fresh page load.
+
+**Repair.** Nothing repairs the lost rows: a report that never arrived cannot be rebuilt. Fix the
+path, then say in the health report that the day's human floor is low by the gap.
 
 ## Cron runs missing or stuck in flight on `/admin/system`
 

@@ -194,6 +194,26 @@ runs in the `<env>` GitHub environment, so a production run waits for the `produ
 It needs `CLOUDFLARE_API_TOKEN` with `Workers R2 Storage: Edit` and `CLOUDFLARE_ACCOUNT_ID`, the
 pair `deploy.yml` uses. It refuses to overwrite an object that exists.
 
+### Browser report check per tier (AECI-1715)
+
+The committed API var `BROWSER_EVIDENCE_ENABLED` tells the `browser_evidence_coverage`
+data-quality check that this tier captures the browser report (`docs/runbooks/alerts.md`
+"Browser evidence coverage"). It does not switch the capture. The SSR Worker's var of the same
+name does that (AECI-1714). The API cannot read the web var, so it carries its own copy. Only
+`"true"` runs the check. Absent or any other value reports it *Skipped*. It is a plain var: no
+secret, no preflight.
+
+| Tier | API `BROWSER_EVIDENCE_ENABLED` |
+| --- | --- |
+| **Local** | `"true"` |
+| **Staging** | `"true"` |
+| **Demo** | `"true"` |
+| **Production** | `"false"` |
+
+Production stays `"false"` until Privacy Policy 1.1 is in force. Flip it in the same change as
+the web var. `apps/api/src/wrangler-browser-evidence.spec.ts` pins the four API blocks, and fails
+any block where the web Worker declares the var with a different value.
+
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app

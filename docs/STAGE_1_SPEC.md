@@ -1813,10 +1813,11 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 > row, not the integrations pointing at it — once a product is off-`promoted`, finding its
 > edges is a follow-up query, not a second daily check.
 >
-> The roster has grown twice since: AECI-962 added `taxonomy_missing_description`, which catches
+> The roster has grown since, among others: AECI-962 added `taxonomy_missing_description`, which catches
 > a live taxonomy term with no description — the shape promote's old find-or-create mint wrote, and
 > the AECI-926 defect. Since AECI-1048 promote no longer mints, so the check now guards seed and manual edits. AECI-876 added `landing_cf_coverage`, the lead-capture sibling of
-> `arrival_cf_coverage`. **`ADMIN_PANEL_SPEC.md` §14.1 is the enumerated inventory and the only
+> `arrival_cf_coverage`. AECI-1715 added `browser_evidence_coverage`, the third telemetry check,
+> over the browser report path. **`ADMIN_PANEL_SPEC.md` §14.1 is the enumerated inventory and the only
 > place that states the count**; the bullets above are the roster and this paragraph deliberately
 > no longer restates a number. It used to, which made two live counts that had to agree — the
 > exact drift (nineteen sites in two months) the §14.1 rule exists to stop.

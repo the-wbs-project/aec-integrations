@@ -314,6 +314,17 @@ export type Env = {
    */
   VENDOR_CLAIM_NUDGE_ENABLED?: string;
   /**
+   * `"true"` says the browser report is captured on this tier (AECI-1715, epic AECI-1711).
+   * The capture itself is switched by the SSR Worker's var of the same name
+   * (`apps/web/wrangler.jsonc`, AECI-1714). The API Worker cannot read that one, so this
+   * mirror tells the `browser_evidence_coverage` data-quality check whether to run.
+   * Anything else, or unset, makes the check report skipped. `"true"` on local, staging
+   * and demo, `"false"` on production until Privacy Policy 1.1 is in force. Flip it in
+   * the same change as the web var. Read only through `browserEvidenceCaptureEnabled`
+   * (`lib/data-quality.ts`). `wrangler-browser-evidence.spec.ts` pins the four blocks.
+   */
+  BROWSER_EVIDENCE_ENABLED?: string;
+  /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a
