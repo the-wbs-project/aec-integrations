@@ -38,13 +38,13 @@ function post(env: Partial<Env>) {
 }
 
 describe('POST /api/page-views/turnstile registration', () => {
-  it('asks the token bucket, keyed by the client IP, and 204s when allowed', async () => {
+  it('asks the token bucket, keyed by the client IP on the page-views sub-budget, and 204s', async () => {
     const token = limiter(true);
     const write = limiter(true);
     const res = await post({ TOKEN_RATE_LIMIT: token, WRITE_RATE_LIMIT: write });
 
     expect(res.status).toBe(204);
-    expect(token.keys).toEqual(['staging:ip:203.0.113.9']);
+    expect(token.keys).toEqual(['staging:ip:203.0.113.9:page-views']);
     expect(write.keys).toEqual([]);
   });
 

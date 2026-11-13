@@ -1742,12 +1742,14 @@ Open a detail page on `www.aecintegrations.com`, then click to a second page.
 
 **Lifting the exclusion after AECI-1458 (AECI-1529).** Remove these together, in one PR:
 
-- **The stamp.** `isTurnstileExcludedRegion` and the `geo` append in `withGatewayServerTiming`
-  (`apps/web/src/server-runtime.ts`). The country list is no longer there. Since AECI-1713 it is
-  `HELD_REGION_COUNTRIES` (alias `TURNSTILE_EXCLUDED_COUNTRIES`) with `isHeldRegionCountry`, in
-  `packages/shared/src/api/held-region.ts`. **Do not delete the list.** The browser report's hold
-  (ruling 21) reads it too: in `routes/page-views.ts` directly, and in the browser through the stamp.
-  Lifting Turnstile's hold does not lift that one. If the report still needs the stamp, keep the `geo` append.
+- **Not the stamp.** Keep `isTurnstileExcludedRegion` and the `geo` append in `withGatewayServerTiming`
+  (`apps/web/src/server-runtime.ts`) while ruling 21 stands. They are the browser report's hold too
+  (`CACHE_STRATEGY.md` §4a.1): without the stamp the browser would post the report from a held region.
+  The server would refuse the write, but the device access counsel called an Article 5(3) event would
+  already have happened. Rename the function if its Turnstile name misleads, and keep its behaviour.
+  The country list is `HELD_REGION_COUNTRIES` (alias `TURNSTILE_EXCLUDED_COUNTRIES`) with
+  `isHeldRegionCountry`, in `packages/shared/src/api/held-region.ts`. **Do not delete the list.**
+  `routes/page-views.ts` reads it directly. Lifting Turnstile's hold does not lift the report's.
 - **The region check.** Remove the `regionAllowsCollection()` call from `turnstileSiteKey()` in
   `apps/web/src/app/core/turnstile-config.ts`. Keep the function itself: the browser report's gate
   (`browser-evidence-config.ts`, AECI-1714) still calls it.

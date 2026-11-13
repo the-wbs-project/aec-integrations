@@ -92,6 +92,19 @@ export const RATE_LIMIT_BUCKETS = {
   { binding: keyof Env; limit: number; period: 10 | 60 }
 >;
 
+/**
+ * The `tag` the two anonymous page-view report routes share: the landing view's
+ * Turnstile verdict and the browser's evidence report (AECI-1713). A sanctioned use
+ * of the "specific reason" below. Without it they would spend the ONE `token`
+ * counter per IP that seat-invite accept, request confirm, unsubscribe and the two
+ * mutes also spend, since the key carries no route. A landing view posts up to three
+ * reports, so a busy office behind one NAT could 429 a real invite accept, and the
+ * 429s would drop reports from exactly those visitors. The two reports share this
+ * one sub-budget, so the split adds one budget per IP, not one per route
+ * (`docs/waf-rate-limits.md` §6.1).
+ */
+export const PAGE_VIEW_REPORTS_RATE_LIMIT_TAG = 'page-views';
+
 /** Which principal a counter ended up keyed by. `absent` is the degraded mode. */
 export type RateLimitKeySource = 'user' | 'vendor' | 'ip' | 'absent';
 

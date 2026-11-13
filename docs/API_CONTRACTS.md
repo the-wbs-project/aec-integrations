@@ -2166,7 +2166,9 @@ export const TurnstileVerdictPostSchema = z.object({
 
 The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
 
-**Guard:** `rateLimit('token', { by: 'ip' })` (`docs/waf-rate-limits.md` §6.2), the Turnstile verdict's bucket. A 429 costs one report, never a page view.
+**Switch:** `BROWSER_EVIDENCE_ENABLED` on the API Worker. Only `"true"` turns either writer on: the `ran` on a `browser-spa` insert and this endpoint's UPDATE. Any other value, or none, leaves both columns NULL on every row. Production holds it at `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 entry in `apps/web/src/content/legal/README.md`, `LEGAL_COUNSEL_RECORD.md` Q37 and Q43). Off, a well-formed post gets the same `204`, writes nothing and counts `result:disabled`.
+
+**Guard:** `rateLimit('token', { by: 'ip', tag: 'page-views' })` (`docs/waf-rate-limits.md` §6.1 and §6.2). The `page-views` sub-budget is shared with the Turnstile verdict and kept off the `token` counter that seat-invite accept and unsubscribe spend. A 429 costs one report, never a page view.
 
 **Request** (`BrowserEvidencePostSchema`, `packages/shared/src/api/page-view-browser-evidence.ts`; the words and the URL are plain constants in `page-views.ts`):
 
@@ -2185,13 +2187,13 @@ export const BrowserEvidencePostSchema = z
 
 **Errors:** `400 MALFORMED_REQUEST` (not JSON), `400 VALIDATION_FAILED` (schema, including an unknown evidence word or an extra key), `429 RATE_LIMITED` (the `token` bucket, `Retry-After` per §4.1a).
 
-**Behaviour, all inside `waitUntil`, which never throws:**
+**Behaviour, all inside `waitUntil`, which never throws** (only when the switch is on):
 
 1. One `UPDATE page_views SET browser_evidence, browser_evidence_at` matching `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0`, `cf_country IS NOT NULL AND upper(trim(cf_country)) NOT IN (<HELD_REGION_COUNTRIES>, '')` and `created_at` within the last 10 minutes (`BROWSER_EVIDENCE_WINDOW_MS`). Counted through `RETURNING`. The held list binds 42 parameters.
    A privacy-signal row and a held-region row never carry the column, by either writer: the `browser-spa` insert skips `ran` on both, and this UPDATE refuses both. The Privacy Policy promises that hold. The browser's gate (AECI-1714) is the primary hold, and this is the server's belt.
 2. Upgrade only. `ran` needs `browser_evidence IS NULL`. `interacted` needs NULL or `ran`. A replay or a downgrade changes nothing.
 3. Zero rows changed on a `ran` report means the arrival write may still be in flight. Retry once after 2 s. An `interacted` report never retries.
-4. Emit `aeci.pageviews.browser_evidence` with `evidence:ran|interacted` and `result:updated|no_match|error`. On `error`, also warn `aeci.api.page_view.browser_evidence_update_failed`.
+4. Emit `aeci.pageviews.browser_evidence` with `evidence:ran|interacted` and `result:updated|no_match|error`. A post on a tier with the switch off emits `result:disabled` instead, at once, with no UPDATE. On `error`, also warn `aeci.api.page_view.browser_evidence_update_failed`.
 
 **No audit log, no purge.** `page_views` is log-class (ADR 0022). Nothing written here renders on a cached page. **Never a PostHog event:** the report travels only on this endpoint (`ANALYTICS.md` §5).
 

@@ -1354,8 +1354,9 @@ Something on the report path is broken. Look at these first, in this order:
 3. **The endpoint.** `POST /api/page-views/browser-evidence` answers 204 to any well-formed body,
    matched or not, and runs the UPDATE in `waitUntil`. So a 204 does not prove the row moved. Read
    Workers Logs for 400s and for errors from the deferred UPDATE.
-4. **The rate-limit bucket.** The endpoint shares the `token` bucket, keyed by IP, with the
-   Turnstile verdict post. A 429 drops the report. `docs/waf-rate-limits.md` §6.4 says which layer
+4. **The rate-limit bucket.** The endpoint shares the `token` bucket's `page-views` sub-budget,
+   keyed by IP, with the Turnstile verdict post. A 429 drops the report. A trip counts as
+   `bucket:token` like any other, so the warn log's `path` tells the two counters apart. `docs/waf-rate-limits.md` §6.4 says which layer
    stopped it.
 5. **A client regression.** A web release that broke the tracker. Compare the firing day with the
    web deploys, and check the browser console on a fresh page load.

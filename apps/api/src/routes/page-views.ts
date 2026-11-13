@@ -94,7 +94,8 @@ import { verifyTurnstile } from '../lib/turnstile';
  * (`createBrowserEvidenceHandler`), matched on `cf_ray`, upgrade only. Neither
  * writer ever sets it on a privacy-signal row or a held-region row (EEA, UK,
  * Switzerland, or an unknown country; `isHeldRegionCountry`). The Privacy Policy
- * promises both.
+ * promises both. Neither writer runs at all while `BROWSER_EVIDENCE_ENABLED` is not
+ * `"true"`, and production holds it at `"false"` until Privacy Policy 1.1 is in force.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -650,7 +651,14 @@ async function recordPageView(
   // report is not collected for a visitor who sends DNT or GPC, or for one in the
   // EEA, the UK or Switzerland (ruling 21). Writing `ran` from the insert would be
   // collecting it. An unknown country is held: `isHeldRegionCountry` fails closed.
+  //
+  // Never while `BROWSER_EVIDENCE_ENABLED` is not `"true"`. Production holds it at
+  // `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 README entry,
+  // counsel Q37 and Q43). The browser's own switch is the SSR Worker's var of the
+  // same name, so this one is the server's half: with it off, no row gets `ran`
+  // from the insert, whatever the client sends.
   const ranInApp =
+    browserEvidenceEnabled(c.env) &&
     clientSignals.writerProvenance === PAGE_VIEW_WRITERS.browserSpa &&
     !privacy &&
     !isHeldRegionCountry(cf.country);
@@ -998,6 +1006,16 @@ const HELD_REGION_LIST: string[] = [...HELD_REGION_COUNTRIES, ''];
 /** The count every accepted browser report emits (AECI-1713). */
 const BROWSER_EVIDENCE_METRIC = 'aeci.pageviews.browser_evidence';
 
+/**
+ * Whether this tier records the browser report at all. Only `"true"` counts. Both
+ * writers read it: the `ran` on a `browser-spa` insert and the report endpoint's
+ * UPDATE. Production holds it at `"false"` until Privacy Policy 1.1 is in force.
+ * `browserEvidenceCaptureEnabled` in `lib/data-quality.ts` reads the same var.
+ */
+function browserEvidenceEnabled(env: Pick<Env, 'BROWSER_EVIDENCE_ENABLED'>): boolean {
+  return env.BROWSER_EVIDENCE_ENABLED === 'true';
+}
+
 /** Injectable seams for the browser evidence handler. `wait` lets specs skip the 2 s. */
 export type BrowserEvidenceDeps = { wait?: (ms: number) => Promise<void> };
 
@@ -1104,11 +1122,14 @@ async function applyBrowserEvidence(
  * `POST /api/page-views/browser-evidence` (AECI-1713, epic AECI-1711): the
  * browser's report about one page load. Body `{ cf_ray, evidence }`
  * (`BrowserEvidencePostSchema`). A bad body is a 400. Anything well-formed is a 204,
- * with the UPDATE deferred to `waitUntil`. The response never says whether a row
- * matched, so a caller cannot probe which rays exist.
+ * with the UPDATE deferred to `waitUntil`. While `BROWSER_EVIDENCE_ENABLED` is not
+ * `"true"` the 204 writes nothing and counts `result:disabled`. The response never
+ * says whether a row matched, so a caller cannot probe which rays exist.
  *
- * `index.ts` registers it behind the `token` rate-limit bucket keyed by IP, the
- * Turnstile verdict's bucket: both are one small anonymous post per page load.
+ * `index.ts` registers it behind the `token` rate-limit bucket keyed by IP, on the
+ * `page-views` sub-budget it shares with the Turnstile verdict: both are one small
+ * anonymous post per page load, and neither may spend the counter a seat-invite
+ * accept or an unsubscribe needs (`waf-rate-limits.md` §6.2).
  */
 export function createBrowserEvidenceHandler(
   dbFor: DbFactory = getDb,
@@ -1123,6 +1144,15 @@ export function createBrowserEvidenceHandler(
       throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
     }
     const body = BrowserEvidencePostSchema.parse(raw);
+    // Off on this tier: the same 204, so the response still says nothing, and no
+    // UPDATE. The count says why the post wrote nothing.
+    if (!browserEvidenceEnabled(c.env)) {
+      submitCount(c.executionCtx, c.env, c.req.raw, BROWSER_EVIDENCE_METRIC, 1, [
+        `evidence:${body.evidence}`,
+        'result:disabled',
+      ]);
+      return noContent();
+    }
     c.executionCtx.waitUntil(applyBrowserEvidence(c, body, dbFor, wait));
     return noContent();
   };

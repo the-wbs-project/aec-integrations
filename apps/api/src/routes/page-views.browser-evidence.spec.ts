@@ -7,6 +7,10 @@
  * arrives on `POST /api/page-views/browser-evidence`, matched on `cf_ray`, and only
  * ever moves a row forward: NULL to `ran` to `interacted`.
  *
+ * Both writers run only while `BROWSER_EVIDENCE_ENABLED` is `"true"`, so every spec
+ * here runs on `ON_ENV` unless it is the off-tier case at the end. Production holds
+ * the var at `"false"` until Privacy Policy 1.1 is in force.
+ *
  * `submitCount` and `logToPosthog` are mocked so the metric and the warn can be
  * asserted.
  */
@@ -37,6 +41,9 @@ const CHROME_UA =
 const RAY = '8c1a2b3c4d5e6f70-IAD';
 const OTHER_RAY = '0000000000000000-LHR';
 const URL_PATH = '/api/page-views/browser-evidence';
+
+/** A tier that records the report. Every spec runs here unless it passes `env`. */
+const ON_ENV: Env = { ...TEST_ENV, BROWSER_EVIDENCE_ENABLED: 'true' };
 
 let t: TestDb;
 
@@ -92,7 +99,7 @@ async function beacon(
         ...opts.headers,
       },
     },
-    { ...TEST_ENV, ...opts.env },
+    { ...ON_ENV, ...opts.env },
     ctx,
   );
   await settle();
@@ -104,6 +111,7 @@ async function evidencePost(
   opts: {
     wait?: (ms: number) => Promise<void>;
     dbFor?: Parameters<typeof createBrowserEvidenceHandler>[0];
+    env?: Partial<Env>;
   } = {},
 ) {
   const app = buildAppWithHandler({
@@ -121,7 +129,7 @@ async function evidencePost(
       body: typeof body === 'string' ? body : JSON.stringify(body),
       headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
     },
-    TEST_ENV,
+    { ...ON_ENV, ...opts.env },
     ctx,
   );
   const deferred = pending();
@@ -217,7 +225,7 @@ describe('POST /api/page-views — an in-app row is written with ran (AECI-1713)
           'x-aeci-cf-ray': RAY,
         },
       },
-      TEST_ENV,
+      ON_ENV,
       ctx,
     );
     await settle();
@@ -454,5 +462,62 @@ describe('POST /api/page-views/browser-evidence (AECI-1713)', () => {
         reason: 'd1 down',
       }),
     ]);
+  });
+});
+
+describe('BROWSER_EVIDENCE_ENABLED off: neither writer runs (AECI-1713 review)', () => {
+  it.each([
+    ['"false"', 'false'],
+    ['unset', undefined],
+    ['"TRUE"', 'TRUE'],
+  ])(
+    'leaves both columns NULL on a browser-spa insert when the var is %s',
+    async (_label, value) => {
+      await beacon(
+        { route: '/products/procore', navigation: 'spa' },
+        { env: { BROWSER_EVIDENCE_ENABLED: value } },
+      );
+
+      const [row] = await t.db.select().from(pageViews);
+      expect(row!.writerProvenance).toBe('browser-spa');
+      expect(row!.cfCountry).toBe('US');
+      expect(row!.browserEvidence).toBeNull();
+      expect(row!.browserEvidenceAt).toBeNull();
+    },
+  );
+
+  it.each([
+    ['"false"', 'false'],
+    ['unset', undefined],
+  ])('204s a well-formed report and changes no row when the var is %s', async (_label, value) => {
+    const id = await seedRow();
+    const wait = vi.fn(async () => {});
+
+    const off = await evidencePost(
+      { cf_ray: RAY, evidence: 'interacted' },
+      { wait, env: { BROWSER_EVIDENCE_ENABLED: value } },
+    );
+
+    expect(off.res.status).toBe(204);
+    expect(await off.res.text()).toBe('');
+    expect(off.deferred).toBe(0);
+    expect(wait).not.toHaveBeenCalled();
+    expect(await evidenceOf(id)).toBeNull();
+    expect((await rowOf(id)).browserEvidenceAt).toBeNull();
+    expect(evidenceTags()).toEqual([['evidence:interacted', 'result:disabled']]);
+
+    // The off answer is the on answer, so a caller cannot read the tier's state.
+    const on = await evidencePost({ cf_ray: OTHER_RAY, evidence: 'interacted' });
+    expect(headersOf(off.res)).toEqual(headersOf(on.res));
+  });
+
+  it('still 400s a bad body when the var is off', async () => {
+    const { res, deferred } = await evidencePost(
+      { cf_ray: RAY, evidence: 'human' },
+      { env: { BROWSER_EVIDENCE_ENABLED: 'false' } },
+    );
+    expect(res.status).toBe(400);
+    expect(deferred).toBe(0);
+    expect(evidenceTags()).toEqual([]);
   });
 });
