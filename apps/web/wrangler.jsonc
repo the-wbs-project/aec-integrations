@@ -142,6 +142,14 @@
     // the check until the AECI-1458 ruling (AECI-1581, Server-Timing: geo). The API's
     // TURNSTILE_SECRET_KEY is pushed by CI and deploy-required on every tier
     // (docs/environments.md).
+    //
+    // AECI-1714: BROWSER_EVIDENCE_ENABLED is the browser report's per-tier switch.
+    // "true" injects window.__AECI_BROWSER_EVIDENCE__ = { enabled: true } and the page
+    // tracker posts `ran` and `interacted` to POST /api/page-views/browser-evidence.
+    // Anything else is off. Declared in every block: "true" here (local) and in
+    // staging and demo, "false" in production until Privacy Policy 1.1 is in force
+    // (AECI-1715 flips it). src/browser-evidence-enabled.spec.ts pins all four.
+    "BROWSER_EVIDENCE_ENABLED": "true",
   },
   // The local API Worker is the top-level block of apps/api/wrangler.jsonc, whose
   // `name` is `aeci-api`. `dev:bound` gives both Workers a per-workspace dev
@@ -157,6 +165,8 @@
         // AECI-1457: REQUIRED. The staging widget's public site key (Invisible mode).
         // src/turnstile-site-key.spec.ts fails without it.
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjXv0etxhUPRfV",
+        // AECI-1714: the browser report is on. See the top-level vars note.
+        "BROWSER_EVIDENCE_ENABLED": "true",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
@@ -231,6 +241,8 @@
         // AECI-1457: REQUIRED. The demo widget's public site key (Invisible mode).
         // src/turnstile-site-key.spec.ts fails without it.
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjjpvZ5o__r2fa",
+        // AECI-1714: the browser report is on. See the top-level vars note.
+        "BROWSER_EVIDENCE_ENABLED": "true",
       },
       "observability": {
         "enabled": true,
@@ -300,6 +312,9 @@
         // AECI-1581: REQUIRED. The production widget's public site key (Invisible
         // mode). src/turnstile-site-key.spec.ts fails without it.
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjmhctjS-s0JoR",
+        // AECI-1714: OFF. The Privacy Policy 1.1 sentence that covers the browser
+        // report is not in force yet. AECI-1715 flips this to "true" when it is.
+        "BROWSER_EVIDENCE_ENABLED": "false",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",

@@ -5,6 +5,10 @@
  * `turnstile.service.ts`. A dark env (no site key), a DNT/GPC visitor and an
  * excluded region never download the service chunk. The service reads the key
  * through this same function, so the two gates cannot drift.
+ *
+ * The privacy-signal and region checks are exported because the browser report
+ * (`browser-evidence-config.ts`, AECI-1714) applies the same two holds. One
+ * function owns each rule, so the Turnstile hold and the report hold cannot drift.
  */
 
 /**
@@ -12,33 +16,45 @@
  * (`turnstile-bootstrap-inject.ts`), or `null` when the config is absent or
  * malformed, the browser sends Global Privacy Control or Do-Not-Track (ruling
  * 2026-10-28: those visitors never load the script), or the visitor's region is
- * excluded (`regionAllowsTurnstile`). Pure (reads `globalThis`) and platform-blind:
+ * excluded (`regionAllowsCollection`). Pure (reads `globalThis`) and platform-blind:
  * the caller adds the browser check.
  */
 export function turnstileSiteKey(): string | null {
   const g = globalThis as {
     __AECI_TURNSTILE__?: { siteKey?: unknown } | null;
-    navigator?: { globalPrivacyControl?: boolean; doNotTrack?: string | null };
   };
   const key = g.__AECI_TURNSTILE__?.siteKey;
-  const nav = g.navigator;
   return typeof key === 'string' &&
     key !== '' &&
-    nav?.globalPrivacyControl !== true &&
-    nav?.doNotTrack !== '1' &&
-    regionAllowsTurnstile()
+    !browserSendsPrivacySignal() &&
+    regionAllowsCollection()
     ? key
     : null;
 }
 
 /**
- * AECI-1581: false when the gateway stamped `Server-Timing: geo;desc="eu"` on this
- * page load (`server-runtime.ts`), until counsel rules on AECI-1458. A browser that
- * exposes no `serverTiming` cannot show us the stamp, so it fails closed: the privacy
- * policy says the check does not run in those regions. An empty list runs, because
- * that is a response with nothing stamped.
+ * True when the browser sends Global Privacy Control (`navigator.globalPrivacyControl
+ * === true`) or Do-Not-Track (`navigator.doNotTrack === '1'`). Neither Turnstile nor
+ * the browser report runs for that visitor (ruling 2026-10-28, ruling 21).
  */
-function regionAllowsTurnstile(): boolean {
+export function browserSendsPrivacySignal(): boolean {
+  const nav = (
+    globalThis as {
+      navigator?: { globalPrivacyControl?: boolean; doNotTrack?: string | null };
+    }
+  ).navigator;
+  return nav?.globalPrivacyControl === true || nav?.doNotTrack === '1';
+}
+
+/**
+ * AECI-1581 and ruling 21: false when the gateway stamped `Server-Timing:
+ * geo;desc="eu"` on this page load (`server-runtime.ts`). Turnstile is held there
+ * until counsel rules on AECI-1458. The browser report (AECI-1714) is held there for
+ * good. A browser that exposes no `serverTiming` cannot show us the stamp, so it fails
+ * closed: the privacy policy says neither runs in those regions. An empty list runs,
+ * because that is a response with nothing stamped.
+ */
+export function regionAllowsCollection(): boolean {
   const entry = globalThis.performance?.getEntriesByType?.('navigation')[0] as
     | PerformanceNavigationTiming
     | undefined;

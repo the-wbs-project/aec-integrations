@@ -1748,7 +1748,9 @@ Open a detail page on `www.aecintegrations.com`, then click to a second page.
   `packages/shared/src/api/held-region.ts`. **Do not delete the list.** The browser report's hold
   (ruling 21) reads it too: in `routes/page-views.ts` directly, and in the browser through the stamp.
   Lifting Turnstile's hold does not lift that one. If the report still needs the stamp, keep the `geo` append.
-- **The region check.** `regionAllowsTurnstile` in `apps/web/src/app/core/turnstile-config.ts`.
+- **The region check.** Remove the `regionAllowsCollection()` call from `turnstileSiteKey()` in
+  `apps/web/src/app/core/turnstile-config.ts`. Keep the function itself: the browser report's gate
+  (`browser-evidence-config.ts`, AECI-1714) still calls it.
 - **The policy sentences.** The exclusion sentence in the bot-check bullet and in "Cookies and similar
   technologies" (`apps/web/src/content/legal/privacy-policy.md`). This text goes through counsel
   (`STAGE_1_SPEC.md` §27.2).
@@ -1760,6 +1762,35 @@ Then grep for `AECI-1581` and `geo;desc` and correct what is left, including the
 **The CSP is already open on every tier.** `script-src` and `frame-src` allow
 `https://challenges.cloudflare.com` everywhere (`CACHE_STRATEGY.md` §7). Enabling a tier needs no
 header change.
+
+## Browser report per tier (AECI-1714, epic AECI-1711)
+
+The page tracker's browser report (`ran` / `interacted`, `docs/ANALYTICS.md` §5) runs only where the
+web Worker's committed var `BROWSER_EVIDENCE_ENABLED` is `"true"`. The SSR Worker then injects
+`window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` into every page. Any other value, or none,
+injects nothing, and the browser sends no report. It needs no secret and no API var: the endpoint is
+always deployed, and the switch is only this flag.
+
+| Tier | `BROWSER_EVIDENCE_ENABLED` (committed web var) |
+| --- | --- |
+| **Local** | `"true"`, the top-level `vars` block |
+| **Staging** | `"true"`, `env.staging.vars` |
+| **Demo** | `"true"`, `env.demo.vars` |
+| **Production** | `"false"`, `env.production.vars` |
+
+**Production stays `"false"` until Privacy Policy 1.1 is in force.** The 1.1 sentence that describes
+the report (AECI-1712) is a promise only from its effective date. AECI-1715 flips the var in the same
+PR that changes the pin. `apps/web/src/browser-evidence-enabled.spec.ts` pins all four values, so a
+flip without that PR fails CI.
+
+The flag is per tier, not per visitor. A visitor with DNT or GPC, or one the gateway stamps with
+`Server-Timing: geo;desc="eu"`, sends nothing on any tier. The script is stored with the cached page,
+like the Turnstile config. That is safe because the value depends only on the tier, and a flip takes a
+deploy, which starts a new cache namespace (`CACHE_STRATEGY.md` §4a). Staging and demo sit behind
+Cloudflare Access, so their reports come from allowlisted visitors and are a functional test.
+
+Local dev sends `ran` and `interacted` only when the request carries a `cf-ray` header, because
+`wrangler dev` adds none and the gateway stamps no ray without one (`docs/local-dev.md` §4.4).
 
 ## Edge request log (AECI-1196, ADR 0045)
 

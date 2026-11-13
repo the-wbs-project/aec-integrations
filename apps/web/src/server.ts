@@ -21,6 +21,7 @@ import { WorkerEntrypoint } from '#cloudflare-workers';
 import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
+import { injectBrowserEvidenceBootstrap } from './browser-evidence-bootstrap-inject';
 import { injectBuildStamp } from './build-stamp-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { stripProxyHeaders } from './server-proxy-headers';
@@ -79,9 +80,11 @@ const app = createApp({
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
     const turnstileInjected = await injectTurnstileBootstrap(posthogInjected, env);
+    // The browser report's per-tier switch (AECI-1714). Env-only, like Turnstile's.
+    const evidenceInjected = await injectBrowserEvidenceBootstrap(turnstileInjected, env);
     // Stamp the page with its build so an open tab can tell a deploy has
     // replaced its chunks (AECI-1493, `build-stamp-inject.ts`).
-    const stamped = await injectBuildStamp(turnstileInjected, env);
+    const stamped = await injectBuildStamp(evidenceInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
     // No-op on the shipping en-US LTR path (matches the index.html default);
     // only a non-default/RTL locale pays a body pass. `request` is the source

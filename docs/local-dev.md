@@ -211,6 +211,18 @@ The test keys keep working after AECI-1581. `wrangler dev` fills `request.cf`, s
 `Server-Timing: geo;desc="eu"` locally. A developer whose location is excluded sees Turnstile off, even
 with test keys, because `turnstileSiteKey()` then returns null.
 
+### 4.4 The browser report is on locally but needs a ray (AECI-1714)
+
+`BROWSER_EVIDENCE_ENABLED` is `"true"` in the top-level block of `apps/web/wrangler.jsonc`, so every
+local page carries `window.__AECI_BROWSER_EVIDENCE__`. The tracker still posts nothing by default,
+because it needs the `Server-Timing: cfray` ray and `wrangler dev` sends no inbound `cf-ray`. Send the
+header yourself to exercise it. The gateway stamps whatever valid ray the request carries, and the API
+stores it as `cf_ray`. `apps/web/e2e/browser-evidence.spec.ts` does this, and reads the row back from
+the API Worker's D1 through wrangler's Local Explorer
+(`http://localhost:<api port>/cdn-cgi/local/explorer/api/d1/database/<id>/raw`). The same `geo` hold
+as Turnstile applies, so a developer in a held region sees nothing posted. Per-tier values:
+`docs/environments.md` "Browser report per tier".
+
 ## 5. Version reporting (AECI-74)
 
 `GET /api/version` reports the API Worker's `{ sha, deployedAt, environment }`, proxied through

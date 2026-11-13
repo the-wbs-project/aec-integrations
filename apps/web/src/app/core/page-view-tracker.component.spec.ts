@@ -11,7 +11,7 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type Event, NavigationEnd, Router } from '@angular/router';
 import { Subject } from 'rxjs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PageViewTracker } from './page-view-tracker';
 import { TURNSTILE_VERDICT_URL, TurnstileService } from './turnstile.service';
@@ -513,6 +513,304 @@ describe('PageViewTracker', () => {
       expect(turnstile.getToken).not.toHaveBeenCalled();
       httpMock.expectNone(TURNSTILE_VERDICT_URL);
       httpMock.verify();
+    });
+  });
+
+  // AECI-1714 — the browser report: `ran` for the landing view, `interacted` once
+  // per view on the first interaction, behind the tier flag, DNT/GPC and region.
+  describe('browser report (AECI-1714)', () => {
+    const LANDING_RAY = '8f2a1b3c4d5e6f70-SIN';
+    const SPA_RAY = '0123456789abcdef-IAD';
+    const SPA_RAY_2 = 'fedcba9876543210-LHR';
+
+    type EvidenceWindow = Window & { __AECI_BROWSER_EVIDENCE__?: unknown };
+
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    function stubTiming(entries: { name: string; description: string }[] | undefined) {
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue(
+        entries === undefined
+          ? []
+          : ([{ serverTiming: entries }] as unknown as PerformanceEntryList),
+      );
+    }
+
+    function setFlag(on: boolean): void {
+      if (on) (window as EvidenceWindow).__AECI_BROWSER_EVIDENCE__ = { enabled: true };
+      else delete (window as EvidenceWindow).__AECI_BROWSER_EVIDENCE__;
+    }
+
+    /** The `{ cf_ray, evidence }` bodies posted so far, in order. */
+    function reports(): { cf_ray: string; evidence: string }[] {
+      return fetchMock.mock.calls
+        .filter(([url]) => url === '/api/page-views/browser-evidence')
+        .map(([, init]) => JSON.parse((init as RequestInit).body as string));
+    }
+
+    function interact(type = 'pointerdown'): void {
+      document.dispatchEvent(new Event(type));
+    }
+
+    /** Answer the SPA beacon, stamping `Server-Timing` the way the gateway does. */
+    function flushBeacon(httpMock: HttpTestingController, ray: string | null): void {
+      const headers: Record<string, string> = ray ? { 'Server-Timing': `cfray;desc="${ray}"` } : {};
+      httpMock
+        .expectOne('/api/page-views')
+        .flush(null, { status: 204, statusText: 'No Content', headers });
+    }
+
+    beforeEach(() => {
+      fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+      vi.stubGlobal('fetch', fetchMock);
+      setFlag(true);
+      stubTiming([{ name: 'cfray', description: LANDING_RAY }]);
+    });
+
+    afterEach(() => {
+      // Destroying the root injector drops the tracker's document listeners.
+      TestBed.resetTestingModule();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      setFlag(false);
+    });
+
+    it('posts `ran` once for the landing view with the document ray', () => {
+      const { events, tracker } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/products/procore'));
+      expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init).toMatchObject({ method: 'POST', keepalive: true, credentials: 'same-origin' });
+    });
+
+    it('posts `interacted` once, on the first qualifying event, and never again', () => {
+      const { events, tracker } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/products/procore'));
+      interact('keydown');
+      interact('pointerdown');
+      interact('wheel');
+      interact('touchstart');
+      expect(reports()).toEqual([
+        { cf_ray: LANDING_RAY, evidence: 'ran' },
+        { cf_ray: LANDING_RAY, evidence: 'interacted' },
+      ]);
+    });
+
+    it.each(['pointerdown', 'keydown', 'wheel', 'touchstart'])('%s counts', (type) => {
+      const { events, tracker } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact(type);
+      expect(reports().at(-1)).toEqual({ cf_ray: LANDING_RAY, evidence: 'interacted' });
+    });
+
+    it('ignores events that are not interactions', () => {
+      const { events, tracker } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact('mousemove');
+      interact('scroll');
+      expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+    });
+
+    it('re-arms on an in-app view and posts only `interacted`, with the beacon ray', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact();
+
+      events.next(nav(2, '/products/procore'));
+      flushBeacon(httpMock, SPA_RAY);
+      await settle();
+      interact();
+      interact();
+
+      events.next(nav(3, '/vendors/autodesk'));
+      flushBeacon(httpMock, SPA_RAY_2);
+      await settle();
+      interact('keydown');
+
+      expect(reports()).toEqual([
+        { cf_ray: LANDING_RAY, evidence: 'ran' },
+        { cf_ray: LANDING_RAY, evidence: 'interacted' },
+        { cf_ray: SPA_RAY, evidence: 'interacted' },
+        { cf_ray: SPA_RAY_2, evidence: 'interacted' },
+      ]);
+      httpMock.verify();
+    });
+
+    it('posts an interaction made before the beacon answered, once the ray arrives', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact();
+
+      events.next(nav(2, '/products/procore'));
+      interact();
+      expect(reports()).toHaveLength(2);
+      flushBeacon(httpMock, SPA_RAY);
+      await settle();
+      interact();
+
+      expect(reports().slice(2)).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+    });
+
+    it('posts nothing for an in-app view whose beacon carried no ray (local dev)', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact();
+
+      events.next(nav(2, '/products/procore'));
+      flushBeacon(httpMock, null);
+      await settle();
+      interact();
+
+      expect(reports()).toHaveLength(2);
+    });
+
+    it('posts nothing for an in-app view whose beacon failed', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact();
+
+      events.next(nav(2, '/products/procore'));
+      httpMock
+        .expectOne('/api/page-views')
+        .flush(null, { status: 500, statusText: 'Server Error' });
+      await settle();
+      interact();
+
+      expect(reports()).toHaveLength(2);
+    });
+
+    it('posts nothing on untracked routes, landing or in-app', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/admin/reviews'));
+      interact();
+      expect(reports()).toEqual([]);
+
+      events.next(nav(2, '/products/procore'));
+      flushBeacon(httpMock, SPA_RAY);
+      await settle();
+      events.next(nav(3, '/account'));
+      interact();
+      expect(reports()).toEqual([]);
+      httpMock.verify();
+    });
+
+    it('a query-only rewrite of the same route keeps the current view', async () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/products'));
+      events.next(nav(2, '/products?page=2'));
+      httpMock.expectNone('/api/page-views');
+      interact();
+      expect(reports()).toEqual([
+        { cf_ray: LANDING_RAY, evidence: 'ran' },
+        { cf_ray: LANDING_RAY, evidence: 'interacted' },
+      ]);
+    });
+
+    it.each([
+      ['no tier flag', () => setFlag(false)],
+      [
+        'Do-Not-Track',
+        () =>
+          Object.defineProperty(window.navigator, 'doNotTrack', { value: '1', configurable: true }),
+      ],
+      [
+        'Global Privacy Control',
+        () =>
+          Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+            value: true,
+            configurable: true,
+          }),
+      ],
+      [
+        'a geo=eu stamp',
+        () =>
+          stubTiming([
+            { name: 'cfray', description: LANDING_RAY },
+            { name: 'geo', description: 'eu' },
+          ]),
+      ],
+      ['no serverTiming', () => stubTiming(undefined)],
+    ])('sends nothing with %s', async (_label, arrange) => {
+      arrange();
+      try {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        events.next(nav(1, '/products/procore'));
+        interact();
+        events.next(nav(2, '/vendors/autodesk'));
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        interact();
+        expect(fetchMock).not.toHaveBeenCalled();
+        httpMock.verify();
+      } finally {
+        Object.defineProperty(window.navigator, 'doNotTrack', { value: null, configurable: true });
+        Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+          value: undefined,
+          configurable: true,
+        });
+      }
+    });
+
+    it('sends nothing on the server', () => {
+      const { events, tracker } = configure('server');
+      tracker.start();
+      events.next(nav(1, '/products/procore'));
+      interact();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing to localStorage, sessionStorage or cookies', async () => {
+      const local = localStorage.length;
+      const session = sessionStorage.length;
+      const cookie = document.cookie;
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/'));
+      interact();
+      events.next(nav(2, '/products/procore'));
+      flushBeacon(httpMock, SPA_RAY);
+      await settle();
+      interact();
+      expect(reports()).toHaveLength(3);
+      expect(localStorage.length).toBe(local);
+      expect(sessionStorage.length).toBe(session);
+      expect(document.cookie).toBe(cookie);
+    });
+
+    it('reads the beacon ray through the lazy Turnstile path too', async () => {
+      setTurnstileConfig(true);
+      stubTiming([]);
+      try {
+        const { events, tracker, httpMock } = configure('browser', fakeTurnstile(true, 'tok'));
+        tracker.start();
+        events.next(nav(1, '/'));
+        // An empty timing list has no ray: no landing report.
+        expect(reports()).toEqual([]);
+
+        events.next(nav(2, '/products/procore'));
+        const req = await vi.waitFor(() => httpMock.expectOne('/api/page-views'));
+        expect(req.request.body).toMatchObject({ turnstile_token: 'tok' });
+        req.flush(null, {
+          status: 204,
+          statusText: 'No Content',
+          headers: { 'Server-Timing': `cfray;desc="${SPA_RAY}"` },
+        });
+        await settle();
+        interact();
+        expect(reports()).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+      } finally {
+        setTurnstileConfig(false);
+      }
     });
   });
 });
