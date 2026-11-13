@@ -15,7 +15,7 @@ import { HttpsUrlSchema } from './https-url';
  * also hides every product joined to the company, each through a CHILD hide row
  * that its restore clears.
  *
- * The three kinds come from counsel's removal-request table (`docs/RUNBOOKS.md`,
+ * The three kinds come from counsel's removal-request table (`docs/runbooks/catalog.md`,
  * "Removal requests"). A hide is interim. It is not a finding that the listing is
  * false.
  */

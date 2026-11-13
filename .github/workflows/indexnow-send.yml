@@ -26,7 +26,7 @@
 #                              refusal alert judges a run of them. Do NOT re-run.
 #   red                        our API failed (401 = token missing or mismatched),
 #                              or IndexNow was unreachable or answered 5xx.
-#                              docs/RUNBOOKS.md "IndexNow submissions refused".
+#                              docs/runbooks/alerts.md "IndexNow submissions refused".
 #
 # Production only. Staging and demo have no INDEXNOW_KEY, so there is nothing to send.
 #

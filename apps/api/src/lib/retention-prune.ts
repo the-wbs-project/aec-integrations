@@ -671,7 +671,7 @@ export async function runRetentionPrune(
     if (options.archiveRequired) {
       const { gap, mismatch } = await findArchiveGap(db, cutoffs.page_views.iso);
       // A mismatch first: it needs an operator, while a gap heals when the
-      // archive step next succeeds (RUNBOOKS.md "Retention prune skipped").
+      // archive step next succeeds (docs/runbooks/alerts.md "Retention prune skipped").
       if (mismatch.length > 0) return skip('archive_mismatch', mismatch);
       if (gap.length > 0) return skip('archive_gap', gap);
     }

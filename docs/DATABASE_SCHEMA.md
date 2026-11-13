@@ -757,7 +757,7 @@ rename, not a retirement: the rows stay and only the slug changes. An ops script
 (raw SQL skips `$onUpdate`, and the Algolia sync is a delta on it), and writes a
 `vendor.updated` / `product.updated` audit row with the slug in `before_state` /
 `after_state`. It is not a migration because a migration only changes data migrations
-created. The procedure is `docs/RUNBOOKS.md`, "Rename a live slug". Consumers besides
+created. The procedure is `docs/runbooks/catalog.md`, "Rename a live slug". Consumers besides
 the resolvers are the three discovery channels, which all withhold a `from_slug` because a
 URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
 the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for
@@ -4597,7 +4597,7 @@ The shadow runner and the writer share one population builder, `buildClassificat
 
 **History backfill (AECI-1444).** Older days are classified by the same `classifyDay`, through the
 same queue. An operator sends one `traffic_classify` message carrying `trafficClassify: { day,
-through }` (`ops:backfill-traffic-classifications`, runbook in `RUNBOOKS.md`). The consumer
+through }` (`ops:backfill-traffic-classifications`, runbook in `docs/runbooks/alerts.md`). The consumer
 classifies that one day, then sends `day + 1` with the same `through` until the two are equal. One
 day per invocation keeps each run the size of a nightly run. The next message is sent after the
 insert, so a failed send retries the same day and the chain cannot skip one. The consumer refuses a
@@ -5923,7 +5923,7 @@ unchanged.
 
 **Migration `0099`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
 
-**Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
+**Re-archiving a day.** Delete its row by hand (`docs/runbooks/alerts.md` "Retention prune skipped"). The
 next run copies the day again and overwrites both objects.
 
 ---
@@ -6145,7 +6145,7 @@ Production starts empty at launch. The initial bulk load happens once during Pha
 
 ## 15. Backups and retention
 
-Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
+Backup policy is deferred to a dedicated operational document — `docs/runbooks/alerts.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)

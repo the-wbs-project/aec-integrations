@@ -20,7 +20,7 @@ AECi runs a live, operated Datadog installation: a ~50-metric custom catalog emi
 both Workers over a shared transport (`packages/shared/src/datadog.ts`), 26 applied
 monitors + 5 dashboards (`observability/datadog/`, applied to us5), browser RUM carrying
 prod Core Web Vitals, the §26.5 audit-log forward, and two operating procedures on top
-(`POST_LAUNCH_MONITORING.md`, `RUNBOOKS.md`). PostHog already runs beside it as the
+(`POST_LAUNCH_MONITORING.md`, `docs/runbooks/alerts.md`). PostHog already runs beside it as the
 consent-gated product-analytics layer (AECI-239), in one project shared by every tier.
 
 The sibling repo `earned-value` migrated the same architecture off Datadog onto PostHog

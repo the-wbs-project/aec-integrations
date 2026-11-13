@@ -653,7 +653,7 @@ country each burst (BR, US, DE, and others). On 2026-09-27 it burst at 15:05, 15
 
 The cost is Worker invocations and noisy metrics. Cloudflare counted about 850, 570 and 900
 `aeci-web-production` invocations in three 15-minute windows that day. The 16:02 burst pushed 8
-detail renders to about 1.8 s and tripped the `High p95 detail render` alert (`RUNBOOKS.md`).
+detail renders to about 1.8 s and tripped the `High p95 detail render` alert (`docs/runbooks/alerts.md`).
 A 404 on production was then a full SSR render, because production ran uncached. So each probe
 cost as much as a real page. Production is cached since AECI-1443. A repeat probe of one path can
 now be a HIT, but each new path is still a full render.
@@ -796,7 +796,7 @@ A blocked probe is a `firewallcustom` mitigation, so the hourly poll counts it i
 `aeci.waf.ratelimit.blocked` (§5). One burst is several hundred requests, and two bursts can land
 in one clock hour. That can pass the **2,000/h** `WAF rate-limit / challenge spike` alert. The
 trade is intended: a WAF event costs nothing, a Worker render does. If the spike alert fires
-and the `rule` tag is one of these two rules alone, it is a scanner. See `RUNBOOKS.md`
+and the `rule` tag is one of these two rules alone, it is a scanner. See `docs/runbooks/alerts.md`
 §"Scanner probes reaching the Worker".
 
 ### The second caller — Azure, no user agent, homepage only
@@ -1308,7 +1308,7 @@ rule change.
   equivalent and moves to the AECI-647 external CI liveness sweep. **Both metrics are
   vendor-independent** — `CF_ZONE_ID` / `CF_ANALYTICS_API_TOKEN` and the poll itself are
   untouched by the migration. See `docs/OBSERVABILITY.md` for the catalog + alert and
-  `docs/RUNBOOKS.md` for triage.
+  `docs/runbooks/alerts.md` for triage.
 
   **Token:** the poll needs `CF_ANALYTICS_API_TOKEN` — a Cloudflare token scoped to
   **`Zone Analytics: Read`** on `aecintegrations.com` (a narrow, read-only scope,
@@ -1536,7 +1536,7 @@ recorded-state table carries its own date for that reason.
 **When a new public hostname starts serving the app, it needs adding to all three
 host-scoped expressions in the same change.** DNS alone does not carry these rules — that omission at
 the apex cutover is exactly what AECI-659 fixed, and it went unnoticed for months because
-the observability metric reads ~0 either way. `docs/launch-cutover-runbook.md` §3 now
+the observability metric reads ~0 either way. `docs/runbooks/launch-cutover.md` §3 now
 carries the action step, and
 [`scripts/ops/2026-09-waf-host-scope/`](../scripts/ops/2026-09-waf-host-scope/README.md)
 is the mechanism (edit its `NEW_HOSTS` and re-run).

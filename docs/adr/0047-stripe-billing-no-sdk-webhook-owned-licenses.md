@@ -67,7 +67,7 @@ The Worker has constraints that shape the answers. It holds about six pending co
 ## Consequences
 
 - A missed or disabled webhook delays a change by at most a day. It never loses one, because the reconcile reads Stripe directly. A lost `payment-failed` email is the one thing it cannot repeat.
-- An admin cannot end a paid subscription in the admin panel. A revoke ends the row, and the next sync grants it back because the Stripe subscription quantity has not changed. Refunds and opt-outs are done in Stripe (`RUNBOOKS.md`).
+- An admin cannot end a paid subscription in the admin panel. A revoke ends the row, and the next sync grants it back because the Stripe subscription quantity has not changed. Refunds and opt-outs are done in Stripe (`docs/runbooks/subscriptions.md`).
 - The `licenses` rows are the only place the portal, plan resolution and ranking read. Stripe never enters a request path that renders a public page.
 - A Stripe API version upgrade is a code change to `STRIPE_API_VERSION` plus a new webhook endpoint per account, because Stripe fixes an endpoint's version at creation.
 - The card statement reads THE WBS PROJECT. Subscription-mode Checkout accepts no statement descriptor suffix, so the account descriptor is the only one (ruling R3, 2026-10-28).

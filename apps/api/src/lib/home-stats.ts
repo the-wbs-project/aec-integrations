@@ -459,7 +459,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
  * A version bump is different. No day in the window has a row at the new version
  * until the nightly run or a backfill writes one, so the key falls to `[]` at the
  * next recompute and refills one day at a time. Backfill the window with the bump
- * (`RUNBOOKS.md`, "Backfill traffic classifications").
+ * (`docs/runbooks/alerts.md`, "Backfill traffic classifications").
  *
  * Recomputed nightly with the other keys; `[]` sends the row to its category fallback.
  */

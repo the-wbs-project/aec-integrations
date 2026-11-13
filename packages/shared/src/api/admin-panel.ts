@@ -1551,7 +1551,7 @@ export const AdminOrphanSweepIndexSchema = z.object({
   /** Actually removed — 0 when the safety cap refused, or on a delete error. */
   deleted: z.number().int().nonnegative(),
   /** The cap refused this pass; `orphans` is the backlog. Re-run the CLI with
-   *  `--force` (see `docs/RUNBOOKS.md`). */
+   *  `--force` (see `docs/runbooks/alerts.md`). */
   skipped_by_safety_cap: z.boolean(),
   ok: z.boolean(),
   error: z.string().optional(),

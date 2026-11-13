@@ -238,7 +238,7 @@ while [ "$I" -lt "$CRON_COUNT" ]; do
   SCHEDULER="$(jq -r --argjson i "$I" '.liveness.crons[$i].scheduler // empty' "$CONFIG")"
   if [ "$SCHEDULER" = "github-actions" ]; then
     RAN_TEXT="The GitHub Actions workflow '${JOB}.yml' (schedule '${SCHEDULE}') has not run, or its calls to the API Worker are failing (a 401 emits no heartbeat)"
-    CHECK_TEXT="Check 'gh run list --workflow ${JOB}.yml' and the red run's log (docs/RUNBOOKS.md)."
+    CHECK_TEXT="Check 'gh run list --workflow ${JOB}.yml' and the red run's log (docs/runbooks/alerts.md)."
   else
     RAN_TEXT="The cron '${SCHEDULE}' has not run, or the Worker is not emitting"
     CHECK_TEXT="Check /admin/system (job_runs) and the Cloudflare cron trigger for apps/api."
@@ -284,7 +284,7 @@ echo ""
 if [ "$STALE" -gt 0 ]; then
   echo "::error::posthog-liveness-sweep: ${STALE} of $((STALE + FRESH)) cron heartbeats are stale or missing on PostHog project ${PROJECT_ID}."
   echo "This replaces the eight Datadog notify_no_data monitors. It is MEANT to be red here."
-  echo "Runbook: docs/RUNBOOKS.md — 'Cron not running'; the schedules are"
+  echo "Runbook: docs/runbooks/alerts.md — 'Cron not running'; the schedules are"
   echo "apps/api/src/lib/cron-schedules.ts and the heartbeat metrics are"
   echo "observability/posthog/project-config.json -> liveness.crons[]."
   exit 1

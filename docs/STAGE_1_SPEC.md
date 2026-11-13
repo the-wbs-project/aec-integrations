@@ -28,7 +28,7 @@ Stage 1 is a public, read-only directory of AEC software products, vendors, and 
 
 **The index is the `CLAUDE.md` "Documents that are source of truth" table.** It has one row per topic and is kept current as documents are added, which is why `CLAUDE.md` calls it the complete index.
 
-A second index used to live here, and it drifted. It listed 13 of the 59 documents in `docs/`, marked `SEARCH_RANKING.md` "Pending" long after it shipped, and pointed at an `OPERATIONAL_RUNBOOKS.md` that was never created under that name — it shipped as `docs/RUNBOOKS.md`. Maintaining two indexes of the same set is what produced that, so this section now points at the one that is maintained instead of repeating it.
+A second index used to live here, and it drifted. It listed 13 of the 59 documents in `docs/`, marked `SEARCH_RANKING.md` "Pending" long after it shipped, and pointed at an `OPERATIONAL_RUNBOOKS.md` that was never created under that name — it shipped as `docs/runbooks/alerts.md`. Maintaining two indexes of the same set is what produced that, so this section now points at the one that is maintained instead of repeating it.
 
 Companion documents live in `docs/`, with three exceptions: `PRODUCT.md`, `DESIGN.md` and `ANGULAR_STYLE_GUIDE.md` sit at the repo root beside `CLAUDE.md`, and the logo construction spec sits at `branding/logo-construction.md`. Architecture Decision Records are indexed separately in `docs/adr/README.md`.
 
@@ -916,7 +916,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 - `home.most_active_category` — category with highest aggregate integration count (still computed; not rendered since AECI-1554)
 - `home.recent_integrations`: retired by AECI-1238. It was the 6 newest integrations (AECI-1559), unrendered since AECI-1573, and it carried a `mechanism_name` AECi can hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). The stats job deletes its row.
 - `home.trending_products` — top 5 by page_views in last 7 days, each clearing a **min-views floor** (`TRENDING_MIN_VIEWS`, currently 3 — AECI-280) so 1–2-view noise is never called "trending" (joined with PostHog if available, else page_views table). Computed, not rendered on the home (AECI-1573).
-- `home.popular_products`: top 5 by page views in the last 30 days, the hero's "Popular:" row (AECI-1572). The trending query with a 30-day window and its own population (AECI-1586, ruled 2026-11-03). A view counts when `page_view_classifications` holds a row for it at the current `TRAFFIC_CLASSIFIER_VERSION` in class `browser_with_human_evidence` or `unresolved`. `suspected_automation` and `identified_automation` views do not count. The write-time `HUMAN` flag is not used, because it admits suspected automation and every crawler the UA and ASN rules miss. `unresolved` is in so the floor stays reachable. Dropping it is a later decision. `NOT_INTERNAL` still applies, a pair-page view counts for both products (AECI-929), the same `TRENDING_MIN_VIEWS` floor, ties by product id. The classifier runs at 00:45 UTC for the previous day, so a view counts from the next day. On a 30-day window that one-day lag is harmless. A classifier version bump is not: no day in the window has a row at the new version, so the key falls to `[]` at the next recompute and refills one day at a time, unless the window is backfilled with the bump (`RUNBOOKS.md`, "Backfill traffic classifications"). Optional in `HomeStatsResponse` so a payload from before the key existed still parses.
+- `home.popular_products`: top 5 by page views in the last 30 days, the hero's "Popular:" row (AECI-1572). The trending query with a 30-day window and its own population (AECI-1586, ruled 2026-11-03). A view counts when `page_view_classifications` holds a row for it at the current `TRAFFIC_CLASSIFIER_VERSION` in class `browser_with_human_evidence` or `unresolved`. `suspected_automation` and `identified_automation` views do not count. The write-time `HUMAN` flag is not used, because it admits suspected automation and every crawler the UA and ASN rules miss. `unresolved` is in so the floor stays reachable. Dropping it is a later decision. `NOT_INTERNAL` still applies, a pair-page view counts for both products (AECI-929), the same `TRENDING_MIN_VIEWS` floor, ties by product id. The classifier runs at 00:45 UTC for the previous day, so a view counts from the next day. On a 30-day window that one-day lag is harmless. A classifier version bump is not: no day in the window has a row at the new version, so the key falls to `[]` at the next recompute and refills one day at a time, unless the window is backfilled with the bump (`docs/runbooks/alerts.md`, "Backfill traffic classifications"). Optional in `HomeStatsResponse` so a payload from before the key existed still parses.
 - `home.recently_added_products` — last 10 products with `created_at` in last 30 days. Computed, not rendered on the home.
 - `category_counts` — product count per category
 - `audience_counts` — product count per audience
@@ -957,7 +957,7 @@ via `ctx.waitUntil`, fail-open):
 
 Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). The home's closing CTA carried the same capture forward, so signup survived the apex flip. The signup left the home in AECI-1564: the shared band and `/updates` carry it now. The apex cutover (AECI-247/277) **retires `apps/landing`** — its lead-capture forms and its operator "new signup / feedback" email move to the API Worker (`routes/landing-forms.ts`, to `ADMIN_ALERT_EMAIL`, since AECI-1220 `SUPPORT_EMAIL`), and the closing-CTA island becomes the caller — extracted in AECI-327 into a shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`) that also rides the directory + detail pages, and which on a fresh signup adds the subscriber's `mailing-list-welcome` first-touch email.
 
-**On launch (the ordered ceremony + rollback live in `docs/launch-cutover-runbook.md`):**
+**On launch (the ordered ceremony + rollback live in `docs/runbooks/launch-cutover.md`):**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
 - The apex (`aecintegrations.com`) + `www` reassign off the retired landing Worker onto `aeci-web-production` (armed via `custom_domain` routes; flips on the launch `promote-to-prod` deploy), with the bare apex→`www` 301 (canonical host is `www.` — ADR 0011 amendment 2026-07-05)
 
@@ -1094,7 +1094,7 @@ Single platform for performance, error tracking, logs, and audit-log forwarding.
 > monitors, 5 dashboards, and the runbooks on top. **AECI-651 deleted it**: both Worker adapters,
 > `@datadog/browser-rum`, `observability/datadog/`, every `DD_*` var and the CSP grants to the
 > intake hosts are gone, and the 2026-09-03 Stage 2 merge carried that onto `main`.
-> `docs/OBSERVABILITY.md` is canonical for the live plane, and `docs/RUNBOOKS.md` holds the only
+> `docs/OBSERVABILITY.md` is canonical for the live plane, and `docs/runbooks/alerts.md` holds the only
 > surviving record of the 26 retired monitors' thresholds.
 
 **Frontend:** the **two-mode PostHog client** of §14.1 — exception capture (via an Angular
@@ -1123,7 +1123,7 @@ dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
 - Audit event volume by action type
 
 **Alerts:**
-- **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is the table in `docs/RUNBOOKS.md`
+- **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is `observability/posthog/alerts.json`, indexed to runbooks in `docs/runbooks/alerts.md`
 - First occurrence of new error class
 - Error rate > 1% over 5 minutes *(the Datadog cadence; PostHog alerts evaluate **hourly**, which is the largest accepted degradation in the swap — ADR 0024)*
 - p95 latency > 2s
@@ -1215,7 +1215,7 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 > runbook's Scope table — **not** DNS: a hostname that starts serving the app is
 > unprotected until it is added to all three expressions. That is what the apex cutover
 > missed, leaving live production (`www.`) with no rate limiting and no scraper block until
-> 2026-09. `docs/launch-cutover-runbook.md` §3 now carries the action step.
+> 2026-09. `docs/runbooks/launch-cutover.md` §3 now carries the action step.
 >
 > **Rule A covers two endpoints beyond the four bullets above:** `POST /api/subscribe` and
 > `POST /api/feedback`. They postdate this section (they moved into the API Worker in
@@ -1352,8 +1352,8 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [x] 7.9 — Waitlist welcome banner + token attribution (§11.2) — AECI-243 (#365)
 - [x] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3) — AECI-244; **the pass was waived at the launch gate, not run** (`docs/PHASE_7_COMPLETION.md` §1 records the waiver). The public-site pass finally ran **2026-09-09** — results in `docs/ACCESSIBILITY_AUDIT.md`, procedure in `docs/a11y-manual-testing-checklist.md`. It found **three serious WCAG 4.1.3 (AA) status-message failures** on the login, review-submission and account paths, all invisible to axe because they only exist after a submit. AECI-829 fixed all three on 2026-10-23, with e2e focus assertions on login and review. The **VoiceOver/NVDA speech layer is still open** (checklist §6/§7), so AECI-244 is not closed by that run
 - [x] 7.11 — Performance / Core Web Vitals audit — AECI-245 (#371); results `docs/PERFORMANCE_AUDIT.md`
-- [x] 7.12 — Phase 7 completion checkpoint (launch-readiness gate) — AECI-246; `docs/PHASE_7_COMPLETION.md` (launch punts F1–F4 + `docs/launch-cutover-runbook.md`)
-- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2) — AECI-247; runbook prepared: `docs/launch-cutover-runbook.md`
+- [x] 7.12 — Phase 7 completion checkpoint (launch-readiness gate) — AECI-246; `docs/PHASE_7_COMPLETION.md` (launch punts F1–F4 + `docs/runbooks/launch-cutover.md`)
+- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2) — AECI-247; runbook prepared: `docs/runbooks/launch-cutover.md`
 
 ### Phase 8: Post-launch (Week 11+)
 - [ ] Monitor errors, performance, search quality
@@ -1529,7 +1529,7 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 >   is asserted here.
 > - **The key value is still unverified.** A 429 throttles *before* IndexNow fetches `<key>.txt`, so a wrong key
 >   looks identical from our side to a rate limit. Rotation is the only route to a known value
->   (`docs/launch-cutover-runbook.md` §2a), and until a submission returns 2xx, "Bing discovery is handled" is
+>   (`docs/runbooks/launch-cutover.md` §2a), and until a submission returns 2xx, "Bing discovery is handled" is
 >   still unsupported.
 >
 > **Once a day, highest tier first (AECI-1136, 2026-09-28).** Prod PostHog for 2026-09-22 to 2026-09-28 showed
@@ -1568,7 +1568,7 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 > transport, gated since AECI-833 so it fires on an isolated fault and never on a bare rate limit
 > (`isRetryableStatus`, `apps/api/src/lib/indexnow.ts`), a seven-day staleness sweep so a prolonged outage
 > cannot grow the table without limit, and a PostHog alert on a sustained failure ratio — the check whose absence let this run silent
-> for at least three days (`docs/OBSERVABILITY.md`, `docs/RUNBOOKS.md`).
+> for at least three days (`docs/OBSERVABILITY.md`, `docs/runbooks/alerts.md`).
 >
 > **Corrected 2026-09-09 (AECI-799).** The sentence that stood here — "Google has **no push channel** for our content types" —
 > was true of the *automated* pipeline and false in practice. Google has no automated push channel; it has a **manual** one, and
@@ -1582,7 +1582,7 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 > will be. It is no longer **unrecorded**. The writes that need it now queue themselves into `gsc_recrawl_queue`, and the depth
 > of that queue is a badge in the admin nav. So "working from memory after a promote" is replaced by "work the list until
 > Google's quota stops you". The word that stays true is *undelegated*. Nothing does the Search Console step but a person, and
-> nothing alerts when they stop. See `docs/RUNBOOKS.md` for why an unworked-queue alert was considered and declined.
+> nothing alerts when they stop. See `docs/runbooks/alerts.md` for why an unworked-queue alert was considered and declined.
 >
 > **Amended 2026-10-05 (AECI-1236): the inspection step is automated.** The request is still a human step.
 > The Google list is no longer only a worklist a human drains, because a daily cron now closes the rows Google has already
@@ -1616,7 +1616,7 @@ Embedded in `<head>` on relevant pages:
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
 
-> **Site name in Google results (2026-10-15):** Google shows a site name above each result. It picks it from the home `WebSite.name`, then `WebSite.alternateName`, then `og:site_name`, `<title>` and headings, and falls back to the bare domain when unsure. It showed `aecintegrations.com` even though the home was crawled on 2026-10-13 with `name` in place. So the home `WebSite` also carries `alternateName: ["AECi"]` (`SITE_ALTERNATE_NAMES` in `apps/web/src/app/core/meta.helpers.ts`), and every page carries a static `og:site_name` of `AEC Integrations` from `apps/web/src/index.html`. The `og:site_name` value and the `<title>` brand must stay identical to `SITE_NAME`. Do not change the home `<h1>` for this; the title and logo carry the brand. Recovery steps are in `docs/gsc-reindex-playbook.md` §Home page and site name.
+> **Site name in Google results (2026-10-15):** Google shows a site name above each result. It picks it from the home `WebSite.name`, then `WebSite.alternateName`, then `og:site_name`, `<title>` and headings, and falls back to the bare domain when unsure. It showed `aecintegrations.com` even though the home was crawled on 2026-10-13 with `name` in place. So the home `WebSite` also carries `alternateName: ["AECi"]` (`SITE_ALTERNATE_NAMES` in `apps/web/src/app/core/meta.helpers.ts`), and every page carries a static `og:site_name` of `AEC Integrations` from `apps/web/src/index.html`. The `og:site_name` value and the `<title>` brand must stay identical to `SITE_NAME`. Do not change the home `<h1>` for this; the title and logo carry the brand. Recovery steps are in `docs/runbooks/gsc-reindex.md` §Home page and site name.
 
 > **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
@@ -1851,7 +1851,7 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > **Positive drift (records missing from the index) is only partly repaired by the 08:00
 > incremental sync** — corrected by AECI-789. That sync is watermark-windowed, so a row last
 > touched before the watermark is never re-pushed; the repair is a full rebuild via the datatool's
-> `POST /api/reindex` (`docs/RUNBOOKS.md` "Algolia index drift"). The AECI-138 bulk sync this note
+> `POST /api/reindex` (`docs/runbooks/alerts.md` "Algolia index drift"). The AECI-138 bulk sync this note
 > once pointed to as the repair path never landed.
 >
 > **The sweep's authoritative id-set spans both delivered-tier tables** (`integrations` and
@@ -2355,7 +2355,7 @@ Counsel's four wording rules bind every edit:
 1. Say "we aim to conform" to WCAG 2.1 AA. Never "compliant" or "fully compliant".
 2. Say "we test each release" and say how. State only what is true on the day. Today that is the axe job in `deploy.yml` (`e2e-and-integration`, which blocks `deploy-staging`) and the manual keyboard and screen-reader checklist before major releases (`docs/a11y-manual-testing-checklist.md`).
 3. Give one contact route: `support@aecintegrations.com`, the production `SUPPORT_EMAIL`.
-4. Give a reply window we meet every time: 10 business days. The page promises a reply, not a fix. The operator step is `docs/RUNBOOKS.md` "Accessibility barrier report".
+4. Give a reply window we meet every time: 10 business days. The page promises a reply, not a fix. The operator step is `docs/runbooks/legal.md` "Accessibility barrier report (AECI-1673)".
 
 `apps/web/src/app/accessibility/accessibility-statement.spec.ts` pins all four rules against the source file, and rule 3 against the API Worker's production `SUPPORT_EMAIL`. A change that makes a sentence false, such as dropping the axe gate, moving the inbox or changing the cadence, waits for the text change.
 

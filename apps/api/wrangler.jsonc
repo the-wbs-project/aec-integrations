@@ -216,7 +216,7 @@
   // docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
   "workers_dev": false,
   // Placement (AECI-839): ON in `env.production` only. Kept by ruling on 2026-11-02
-  // unless evidence shows the location is wrong (docs/RUNBOOKS.md step 0b).
+  // unless evidence shows the location is wrong (docs/runbooks/alerts.md step 0b).
   // The production D1 primary is in ENAM since 2026-10-05. Read replication is on,
   // but replicas go inactive between requests in sparse regions, so a Worker in
   // the visitor's colo still pays 2-3 serial rounds to ENAM per render.
@@ -790,7 +790,7 @@
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
         // "false" (2026-10-31) so demo shows the production vendor flow: Stripe wired,
-        // checkout off. Set back to "true" before the demo rehearsal in RUNBOOKS.md
+        // checkout off. Set back to "true" before the demo rehearsal in docs/runbooks/subscriptions.md
         // "Turning on Stripe in production" step 4.
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
@@ -1041,7 +1041,7 @@
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // AECI-1454 (epic AECI-1413): the ownership record schema the consumer sends to the
         // review app. "2" since AECI-1455: the review receiver v2 (AECI-1453, AECI-1491) is
-        // live on production. Roll back by setting "1" and promoting (RUNBOOKS.md).
+        // live on production. Roll back by setting "1" and promoting (docs/runbooks/alerts.md).
         "REVIEW_APP_MIRROR_SCHEMA": "2",
         // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
         // auth project across all environments. Drives JWKS user-JWT

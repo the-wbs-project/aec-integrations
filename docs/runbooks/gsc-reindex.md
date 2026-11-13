@@ -5,7 +5,7 @@ Runbook for draining the `/admin/reindex` queue against Google Search Console. I
 1. **Step 0, the automated inspection.** A daily cron (`gsc-inspect`, 13:00 UTC, AECI-1236) asks the Search Console URL Inspection API about every queued URL. It removes the rows Google has already re-crawled since the page last changed, and tags the rest with what Google said. `scripts/gsc-reindex-triage.mjs` is the manual fallback when the cron did not run.
 2. **The manual loop.** Google accepts no re-index request by API, so every row left is requested by hand via URL Inspection.
 
-Tag this file into a prompt (e.g. "follow @docs/gsc-reindex-playbook.md") and go — no further instructions needed.
+Tag this file into a prompt (e.g. "follow @docs/runbooks/gsc-reindex.md") and go — no further instructions needed.
 
 ## Pages involved
 

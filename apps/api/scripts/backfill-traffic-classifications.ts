@@ -1,7 +1,7 @@
 /**
  * backfill-traffic-classifications.ts — classify past `page_views` days at the current
  * classifier version (AECI-1444; `docs/DATABASE_SCHEMA.md` §9.7, runbook in
- * `docs/RUNBOOKS.md` "Backfill traffic classifications"). The Node shell around the
+ * `docs/runbooks/alerts.md` "Backfill traffic classifications"). The Node shell around the
  * tested core (`src/lib/backfill-traffic-classifications.ts`): argv, the Queues HTTP
  * publish, and `console`. Same shape as `backfill-ownership-sync.ts`.
  *

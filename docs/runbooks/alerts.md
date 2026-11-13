@@ -1,24 +1,21 @@
 # Runbooks
 
-Operational response guides for AECi's alerts.
+Operational response guides for AECi's alerts. Subscription, catalog and legal procedures live in
+the other files in this folder. [`README.md`](./README.md) lists them all.
 
-> **Status: stubs (AECI-66).** Each runbook below has enough to triage during Phase 2.
-> Full incident procedures (severity matrix, comms, post-mortem template) land in
-> Phase 6. **Linked from the alert messages on both planes — keep the heading anchors
-> stable.**
+> **Keep the heading anchors stable.** Alert messages in `observability/posthog/alerts.json`, the
+> CI workflows and other docs cite these headings by name.
 
-> **Cloudflare account (2026-10-04, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
+> **Cloudflare account (2026-10-04, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](../adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
 ## Which console just paged you
 
-**PostHog.** It is the only observability plane: AECI-651 deleted the 26 Datadog
-monitors, the five dashboards, and both Worker transport legs. The alert set is
+**PostHog.** It is the only observability plane (ADR 0024). The alert set is
 committed as `observability/posthog/alerts.json` and applied to the **production**
 project (`aec-integrations`, 354071); alerts are deliberately production-only, so a
 failing cron on staging or demo does not page anyone.
 
-Two properties of the current model matter mid-incident and are different from what
-the Datadog monitors did:
+Two properties of the alert model matter mid-incident:
 
 - **Alerts evaluate hourly.** Not every 5 minutes. If you are looking at a graph that
   is clearly bad and no alert has fired, that is expected within the hour — do not
@@ -54,95 +51,46 @@ how you answer "did a deploy cause this" with a join rather than a guess.
 
 ## Alert → runbook
 
-Every one of the 26 retired Datadog monitors, where it landed, and
-which runbook below covers it. **The old Datadog threshold is recorded for every
-monitor that landed anywhere other than a PostHog alert**, so re-promoting one is a
-config change and not archaeology — this table and
-`observability/posthog/README.md` are now the **only** places those thresholds
-survive, `observability/datadog/` having been deleted.
+Every signal that can page you today, and the runbook for it. The PostHog alerts are committed in
+`observability/posthog/alerts.json`, where each carries a `runbook` pointer to a heading below. Old
+thresholds of retired alerts are in `observability/posthog/README.md` "Monitor disposition".
 
-| # | Retired Datadog monitor | Old threshold | Where it landed | Runbook |
-|---|---|---|---|---|
-| 1 | Worker error rate > 1% (5m) | `5xx / total * 100 > 1` over `last_5m` | **PostHog alert** — "Worker error rate > 1% (**1 h**)" | [High Worker error rate](#high-worker-error-rate) |
-| 2 | Algolia sync failed (daily cron) | `sum:aeci.algolia.sync{outcome:failed} > 0` over `last_1d` | **Worker email** — [A scheduled job failed](#a-scheduled-job-failed) (AECI-1587) | [Algolia sync failed](#algolia-sync-failed) |
-| 3 | Home stats compute failed | `sum:aeci.stats.compute.key{outcome:failed} + sum:aeci.stats.compute{outcome:failed,trigger:cron} > 0` over `last_1d` | **Worker email** | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
-| 4 | Data quality job failed | `sum:aeci.data_quality.job{outcome:failed} > 0` over `last_1d` | **Worker email** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
-| 5 | Data quality check — **ERROR** severity | `max:aeci.data_quality.check{severity:error} by {check} > 0` over `last_1d` | **PostHog alert — kept separate.** Also *improved*: the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's `max(...) > 0` could not see a thrown check — a real hole, closed in the port | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
-| 6 | Retention prune failed | `sum:aeci.retention.prune{outcome:failed} > 0` over `last_1d` | **Worker email** | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert — kept separate** (a user-visible vendor request is stuck; the sweep itself is healthy) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
-| 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert — kept separate, threshold unchanged** (a *successful* run with the wrong effect) | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert — kept separate** (success-with-a-caveat; folding it into "job failed" would make that alert mushy) | [Algolia index drift](#algolia-index-drift) |
-| 10 | Detail render slow (p95 > 1.5 s, MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — p95 reconstructed from OTLP histogram buckets, **verified 2026-09-10** against live buckets | [High p95 detail render](#high-p95-detail-render) |
-| 11 | Auth sign-in error rate | `failed/total * 100 > 30` over `last_15m` | **PostHog alert (hourly)**, threshold 30% unchanged, **≥5-attempt floor added** | [Auth sign-in error-rate spike](#auth-sign-in-error-rate-spike) |
-| 12 | Toxicity scoring outage | `failed/total * 100 > 50` over `last_15m` | **PostHog alert (hourly)**, threshold 50% unchanged, **≥5-call floor added** | [Toxicity scoring outage](#toxicity-scoring-outage) |
-| 13 | page_views write errors | `failed/total * 100 > 10` over `last_10m` | **PostHog alert (hourly)**, threshold 10% unchanged, **≥20-write floor added** | [Page-view writes failing](#page-view-writes-failing) |
-| 14 | Linear pipeline failure | `failed/(non-skipped) * 100 > 50` over `last_1h` | **PostHog alert (hourly)**, window + threshold unchanged, **≥3-attempt floor added** | [Linear pipeline failure](#linear-pipeline-failure-issue-creation--sync) |
-| 15 | Linear webhook HMAC failures | `sum:aeci.webhooks.linear.hmac_failure > 3` over `last_1h` | **PostHog alert (hourly)**, unchanged in every respect except cadence (security signal, not a job signal) | [Linear webhook HMAC failures](#linear-webhook-hmac-failures) |
-| 16 | WAF rate-limit spike | `sum:aeci.waf.ratelimit.blocked > 500` over `last_15m` | **PostHog alert (hourly)**, **threshold rescaled 500/15 m → 2,000/1 h** | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
-| 17 | Retention prune skipped *(non-paging)* | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest + dashboard** — "Scheduled jobs and data cleanup" → *Old-data cleanup — what was deleted, and what was not*. **No alert.** The daily data-quality digest already carries it | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 18 | Data quality **WARN** severity *(non-paging)* | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest + dashboard** — *Nightly data-quality checks*. **No alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
-| 19 | Algolia sync not running *(no-data)* | `sum:aeci.algolia.sync{outcome:ok,trigger:cron} < 1` over `last_2d`; `notify_no_data` @ 2880 min | **Liveness sweep** — `algolia-sync`, window **tightened 48 h → 26 h** | [Algolia sync failed](#algolia-sync-failed) |
-| 20 | Home stats not running *(no-data)* | `sum:aeci.stats.compute{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `home-stats`, 26 h | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
-| 21 | Data quality not running *(no-data)* | `sum:aeci.data_quality.job{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `data-quality`, 26 h | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
-| 22 | Reconcile sweep not running *(no-data)* | `min:aeci.linear.reconcile.stuck < 0` over `last_1h`; no-data @ 60 min | **Liveness sweep** — `request-reconcile`, window **relaxed 60 → 90 min** (the extra 30 is margin for the *sweep's* lateness, not the job's) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
-| 23 | WAF poll not running *(no-data)* | `sum:aeci.waf.poll{outcome:ok,trigger:cron} < 1` over `last_3h`; no-data @ 180 min | **Liveness sweep** — `waf-poll`, 180 min unchanged | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
-| 24 | Retention prune not running *(no-data)* | `sum:aeci.retention.prune{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `retention-prune`, 26 h | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Is Algolia out of step with our database?* · **Liveness sweep** (`algolia-drift`, 26 h). **The value half stops alerting** — it is report-only and self-heals | [Algolia index drift](#algolia-index-drift) |
-| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Sign-ins, reviews and moderation" → *Moderation queue — how deep, and how long the oldest has waited* · **Liveness sweep** (`moderation-snapshot`, 26 h). **The backlog half stops alerting** — read it on the dashboard | [Moderation queue backlog](#moderation-queue-backlog) |
+**PostHog alerts (production only, checked hourly unless marked daily).**
 
-**Totals: 13 PostHog alerts covering 16 monitors · 8 → the liveness sweep · 2 → the
-digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
+| Alert | Runbook |
+|---|---|
+| Worker error rate > 1% (1 h) | [High Worker error rate](#high-worker-error-rate) |
+| p95 detail page render > 2.5 s (1 h) | [High p95 detail render](#high-p95-detail-render) |
+| API requests stalled (5+ over 10 s, 1 h) | [API requests stalled](#api-requests-stalled) |
+| Cron failure email not sent, or post-write sync failed | [A scheduled job failed](#a-scheduled-job-failed) |
+| Data quality check found ERROR-severity issues (daily) | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| Retention prune runaway (> 5,000 rows/table/day) | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| Algolia orphan sweep capped | [Algolia index drift](#algolia-index-drift) |
+| Linear reconciliation: persistent stuck requests | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
+| Linear pipeline failure rate > 50% (1 h) | [Linear pipeline failure](#linear-pipeline-failure-issue-creation--sync) |
+| Linear webhook HMAC failures > 3 (1 h) | [Linear webhook HMAC failures](#linear-webhook-hmac-failures) |
+| Auth sign-in error rate > 30% (1 h) | [Auth sign-in error-rate spike](#auth-sign-in-error-rate-spike) |
+| Account record could not be created (any, 1 h) | [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in) |
+| Account erasure left a sign-in record behind (any, 1 h) | [Erasure left an `auth.users` row behind](#erasure-left-an-authusers-row-behind) |
+| Toxicity scoring outage (> 50% errors, 1 h) | [Toxicity scoring outage](#toxicity-scoring-outage) |
+| page_views write error rate > 10% (1 h) | [Page-view writes failing](#page-view-writes-failing) |
+| Raw page-view store missed a capture (any, 1 h) | [Raw page-view store missed a capture](#raw-page-view-store-missed-a-capture) |
+| page_views archive failed or unbound (daily) | [page_views archive failed](#page_views-archive-failed) |
+| Turnstile verdicts unknown > 20% (1 h) | [Turnstile verdicts unknown](#turnstile-verdicts-unknown) |
+| WAF rate-limit / challenge spike (> 2,000 / 1 h) | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
+| Search-engine pings refused (> 90% over 72 h, daily) | [IndexNow submissions refused](#indexnow-submissions-refused) |
+| The five email alerts: failure rate, volume spike, held back in production, bounce rate, complaint rate (daily) | No runbook here. `docs/email.md` for the transport and delivery webhooks, `docs/NOTIFICATIONS.md` for what each template is |
 
-**Nine crons gain failure coverage they never had** (metrics-snapshot, asn-registry,
-analytics-digest, attestation-notify, entitlement-expiry, indexnow-drain,
-claim-stale-check, waf-poll, and the per-key half of home-stats — several shipped after
-the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826 and only
-joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
-AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
-the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-six** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+**Other signals.**
 
-**A fourteenth alert exists and is deliberately outside the table above.**
-`indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
-shipped in AECI-236 and was never alerted on by either plane, which is why production sat at
-a 100% HTTP 429 failure rate for at least three days with nothing noticing. The table is a
-disposition record for the 26 *retired* monitors, so a net-new alert belongs beside it, not
-inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused).
-
-**A fifteenth alert, `profile-ensure-failed` (AECI-1099), sits outside the table for the
-same reason.** It watches `aeci.auth.profile_ensure` failures, a metric AECI-770 added.
-Runbook: [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in).
-
-**`api-requests-stalled` (2026-11-03) sits outside the table too.** It watches
-`aeci.api.request.slow`, a metric added that day. It goes live on the next `apply.sh` run after the
-metric ships. Runbook: [API requests stalled](#api-requests-stalled).
-
-**`erasure-auth-delete-orphaned` (AECI-531) sits outside the table for the same reason.** It
-watches `aeci.account.erasure.auth_delete`, a metric AECI-531 added. It is committed and goes live
-on the next `apply.sh` run against production.
-Runbook: [Erasure left an `auth.users` row behind](#erasure-left-an-authusers-row-behind).
-
-**Three email alerts (AECI-1206) sit outside the table too**: `email-failure-rate`,
-`email-volume-spike` and `email-suppressed-in-production`. They watch `aeci.email.send`.
-Thresholds and their basis: `observability/posthog/README.md`. First look:
-`docs/email.md` for the transport, `docs/NOTIFICATIONS.md` for what each template is.
-
-**Two delivery alerts (AECI-1222) sit beside them**: `email-bounce-rate` and
-`email-complaint-rate`. They watch `aeci.email.delivery` on `outcome:recorded`, over 7 days,
-checked daily. The thresholds are initial. First look: `docs/email.md` §Delivery webhooks, then
-the Resend dashboard for the message itself.
-
-**One more net-new alert, `pageviews-raw-unsent` (AECI-1384), also sits outside the table.** It watches
-`aeci.pageviews.raw` for any `failed` or `skipped` in an hour. Runbook:
-[Raw page-view store missed a capture](#raw-page-view-store-missed-a-capture).
-
-**And `pageviews-turnstile-unknown` (AECI-1457).** It watches `aeci.pageviews.turnstile` for an
-`unknown` share over 20% in an hour, with at least 20 verdicts. Runbook:
-[Turnstile verdicts unknown](#turnstile-verdicts-unknown).
-
-**And `pageviews-archive-failed` (AECI-1228).** It watches `aeci.pageviews.archive` for any
-`failed` or `archive_unbound` in 24 h, checked daily. Runbook:
-[page_views archive failed](#page_views-archive-failed).
+| Signal | Where it comes from | Runbook |
+|---|---|---|
+| `[AECi] Scheduled job failed: <job>` email | The Worker, after the last retry of any cron | [A scheduled job failed](#a-scheduled-job-failed), then the job's own runbook |
+| A cron's heartbeat is missing or stale | The CI liveness sweep, every 3 h, fails red in GitHub Actions | [Cron runs missing or stuck in flight on `/admin/system`](#cron-runs-missing-or-stuck-in-flight-on-adminsystem) |
+| "Logpush job disabled" email | Cloudflare | [Logpush job disabled](#logpush-job-disabled) |
+| Promote strand audit fails red | GitHub Actions, daily | `docs/runbooks/catalog.md` "Promote strand audit is red" |
+| Stripe reconcile changed subscriptions email | The Worker, daily | `docs/runbooks/subscriptions.md` "Stripe reconcile changed subscriptions" |
+| Data-quality WARN findings, a skipped retention prune, Algolia drift, moderation backlog | The daily digests and PostHog dashboards. Not paged | [Data quality job failed or not running](#data-quality-job-failed-or-not-running), [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running), [Algolia index drift](#algolia-index-drift), [Moderation queue backlog](#moderation-queue-backlog) |
 
 ### A scheduled job failed
 
@@ -173,23 +121,20 @@ the last retry. It carries the reason, the deployed commit and the `job_runs` de
 
 A job that never ran sends no email. The CI liveness sweep owns that case.
 
-### Two dependencies the old alert model did not have
+### Two limits of the alert model
 
 State these before an incident, not during one.
 
-1. **Alert cadence is hourly, uniformly.** PostHog's `every_15_minutes` needs the
-   Boost add-on and `real_time` needs Scale/Enterprise. Four Datadog monitors
-   evaluated at 5–15 minutes; **the Worker error-rate alert moves 5 min → 1 h**,
-   which is the single largest degradation in the migration. Plan detection time
-   accordingly: a 5xx spike can now run for an hour before anything pages. The
+1. **Alert cadence is hourly at best.** PostHog's `every_15_minutes` needs the
+   Boost add-on and `real_time` needs Scale/Enterprise. Plan detection time
+   accordingly: a 5xx spike can run for an hour before anything pages. The
    escape hatch, if it bites, is PostHog's *log*-alert type — 5/10/15/30/60-minute
    windows, no add-on, max 20 per project (`observability/posthog/README.md`,
    manual step 4).
 2. **Absence detection depends on GitHub Actions being up.** No PostHog tier has
    `notify_no_data`, so all eight no-data monitors are replaced by
    `.github/workflows/posthog-liveness-sweep.yml`, which runs every 3 hours
-   **outside** the Worker — the property that made "Datadog owns absence" true, and
-   one a Worker-hosted check cannot have. If GitHub Actions is degraded, cron
+   **outside** the Worker, which a Worker-hosted check cannot be. If GitHub Actions is degraded, cron
    liveness is **unchecked**, and the sweep says so rather than passing: **exit 0** =
    all fourteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
    `::error::` annotation naming the cron and its allowance), **exit 2** = the sweep
@@ -517,8 +462,7 @@ misconfigured promoted-id read (wrong env/DB) or a churning source; capture the
 `AECi — Algolia sync not running (no successful cron push)` (the cron stopped firing).
 **After AECI-1587:** the failure half is the Worker's `cron-job-failed-alert` email. It was the combined `AECi — Cron job failed (any
 daily/hourly job)` alert — read the `label_column` in the breach email to see it was this job —
-and it becomes **trigger-agnostic**, so a failed `trigger:promote` sync now alerts too (it did
-not in Datadog, which was a gap rather than a decision). The liveness half moves to the **CI
+and it becomes **trigger-agnostic**, so a failed `trigger:promote` sync alerts too. The liveness half moves to the **CI
 liveness sweep** (`algolia-sync`), whose window is **tightened 48 h → 26 h**.
 **Metric:** `aeci.algolia.sync{outcome:failed}` — count of failed entity pushes; the
 liveness alert watches `aeci.algolia.sync{outcome:ok,trigger:cron}` instead
@@ -576,8 +520,7 @@ on-call and capture a failing `reason` from the logs for the post-mortem.
 **Alerts (PostHog, hourly):** `AECi — Home stats compute failed (daily cron)` (one or more `home.*`
 keys failed) and `AECi — Home stats not running (no daily compute)` (the cron stopped firing — the
 freshness alert). **After AECI-1587:** the failure half is the `cron-job-failed-alert`
-email, which names the job and the reason. It gains the per-key half that Datadog's stats monitor did
-not watch; the freshness half moves to the **CI liveness sweep** (`home-stats`, 26 h).
+email, which names the job and the reason. It also covers a failed per-key compute. The freshness half moves to the **CI liveness sweep** (`home-stats`, 26 h).
 **Metric:** `aeci.stats.compute.key{outcome:failed}` (failed per-key computes) **+** the job-level
 `aeci.stats.compute{outcome:failed}` count — the job-level term covers a pre-compute crash that
 emits no per-key points. The freshness/liveness alert watches the `aeci.stats.compute{trigger:cron}`
@@ -633,8 +576,8 @@ alert with a healthy Worker is a cron/queue wiring problem (see check 5).
 
 ## Page-view writes failing
 
-**Alert:** `AECi — page_views write error rate > 10% (1 h)` — PostHog, hourly. Same 10%
-threshold as the retired 10-minute Datadog monitor, plus a **≥20-write minimum-denominator floor**
+**Alert:** `AECi — page_views write error rate > 10% (1 h)` — PostHog, hourly. 10%
+threshold, with a **≥20-write minimum-denominator floor**
 (`if(total >= 20, ratio, 0.0)`), so a quiet hour reads 0 instead of paging on one failure out of
 three.
 **Metric:** `aeci.pageviews.write{outcome:failed}` / `aeci.pageviews.write` (all) — the failed-insert
@@ -884,10 +827,9 @@ a manual/restore load that bypassed it) before forcing the constraint.
 
 ## Auth sign-in error-rate spike
 
-**Alert:** `AECi — Auth sign-in error rate > 30% (1 h)` — PostHog, hourly. Same 30%
-threshold as the retired 15-minute Datadog monitor, plus a **≥5-attempt floor**. The floor is
-new and deliberate: at current volume one failed sign-in out of two is 50% and would have
-paged. Datadog's shorter window had the same exposure and simply got lucky.
+**Alert:** `AECi — Auth sign-in error rate > 30% (1 h)` — PostHog, hourly. 30%
+threshold, with a **≥5-attempt floor**. The floor is deliberate: at current volume one failed
+sign-in out of two is 50% and would page.
 **Metric:** `aeci.auth.signin{outcome:failed}` / `aeci.auth.signin` (all) — the failed-completion ratio
 over 15m, `service:aeci-web` (AECI-206). `attempts = sum over outcomes`; failure `reason` ∈
 `link_invalid` / `missing_code` / `auth_not_configured`. The user lands on `/auth/login?error=<reason>`,
@@ -924,8 +866,8 @@ single failure can dominate the ratio. Retune once production traffic is known.)
 
 ## Toxicity scoring outage
 
-**Alert:** `AECi — Toxicity scoring outage (> 50% errors, 1 h)` — PostHog, hourly. Same 50%
-threshold as the retired 15-minute Datadog monitor, plus a **≥5-call floor**.
+**Alert:** `AECi — Toxicity scoring outage (> 50% errors, 1 h)` — PostHog, hourly. 50%
+threshold, with a **≥5-call floor**.
 **Metric:** `aeci.toxicity.api{outcome:failed}` / `aeci.toxicity.api` (all) over 15m; failure
 `reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.toxicity.api.duration_ms`
 (latency) and the `service:aeci-api source:toxicity` warn logs.
@@ -964,7 +906,7 @@ is a launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
 ## Moderation queue backlog
 
 **Alert:** none. The old `AECi — Moderation queue backlog (oldest pending > 48h)` monitor
-(threshold plus a `notify_no_data` cron-liveness check) was retired with the Datadog plane.
+(threshold plus a `notify_no_data` cron-liveness check) was retired in AECI-651.
 
 > **The backlog does not alert.** It is a **dashboard** read
 > (PostHog "AECi — Sign-ins, reviews and moderation" → *Moderation queue — how deep, and how
@@ -1010,8 +952,7 @@ cron to hourly if a tighter SLA is needed.)
 ## Linear pipeline failure (issue creation / sync)
 
 **Alert:** `AECi — Linear pipeline failure rate > 50% (1 h)` (AECI-219 / Phase 6.12) —
-PostHog, hourly. Window and 50% threshold **unchanged** from the Datadog original (it already
-used 1 h, so only the evaluation cadence moved), plus a **≥3-attempt floor**. Traffic-driven, so
+PostHog, hourly. 1 h window, 50% threshold, with a **≥3-attempt floor**. Traffic-driven, so
 deliberately **no** `notify_no_data` — no submits/resolves (and the absent-key no-op) emit nothing, so
 zero is the healthy pre-launch state.
 **Metric:** the combined failure **rate** of the two outbound Linear write paths over **terminal**
@@ -1061,8 +1002,7 @@ The 50% threshold + 1h window are launch-tunable starting points (`docs/OBSERVAB
 ## Linear webhook HMAC failures
 
 **Alert:** `AECi — Linear webhook HMAC failures > 3 (1 h)` (AECI-219 / Phase 6.12) —
-PostHog, hourly. **Unchanged from the Datadog original in every respect except evaluation
-cadence.** It stays
+PostHog, hourly. It stays
 its own alert rather than folding into the cron-failure email, because it is a **security**
 signal, not a job signal. Deliberately **no** `notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
 **Metric:** `aeci.webhooks.linear.hmac_failure` (count) — emitted by `POST /api/webhooks/linear`
@@ -1163,7 +1103,7 @@ and a silent drift would either double-send or skip a band with nothing failing.
 ## Linear reconciliation — stuck requests
 
 **Alert:** `AECi — Linear reconciliation: persistent stuck requests` (PostHog, hourly). Two
-Datadog monitors used to share this runbook — that one
+monitors used to share this runbook — that one
 (the persistent-failure signal; deliberately **no** `notify_no_data` — the count is emitted only when the
 failure condition holds, so zero points is healthy) and its liveness companion `AECi — Linear
 reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` check on the always-emitted
@@ -1264,9 +1204,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 **After AECI-651** the four split four ways, and the split is worth knowing before you triage:
 
 - **ERROR severity stays its own PostHog alert** — the job **succeeded**; the DATA is wrong.
-  Different runbook entirely (triage the finding, don't restart the job). It also gets *better*:
-  the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's
-  `max(...) > 0` could not see a thrown check — a real hole, closed in the port. Since
+  Different runbook entirely (triage the finding, don't restart the job). The query uses
+  `max(abs(value))`, so a check that **threw** (sentinel `-1`) also fires. Since
   2026-10-29 PostHog checks it **daily**, not hourly, so a finding sends one email per run, not
   24. The email can arrive up to a day after the 04:00 UTC run; `/admin/system` shows it sooner.
 - **WARN severity stops alerting** — dashboard ("AECi — Scheduled jobs and data cleanup" →
@@ -1330,7 +1269,7 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
-> records** (AECI-1455). It has its own section: [Review-app mirror drift](#review-app-mirror-drift).
+> records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
 
 **First checks**
 
@@ -1684,8 +1623,8 @@ If step 2 returns any rows, the prune will skip — backfill those days first (F
 **After AECI-651:** the spike alert is the **one threshold in the whole set that had to move** —
 **500/15 min → 2,000/1 h**. The sensitivity is unchanged and so is the underlying data: the source
 is an **hourly** cron (`0 * * * *`) that reads the *previous clock hour* from Cloudflare's GraphQL
-API in one shot, so a 15-minute Datadog window over an hourly-emitted series was always coarser than
-it looked — it just saw the whole hour's count land inside one 15-minute bucket. `500 × 4 = 2,000`.
+API in one shot, so a 15-minute window over an hourly-emitted series saw the whole hour's count land in
+one bucket. `500 × 4 = 2,000`.
 The poll-liveness half moves to the **CI liveness sweep** (`waf-poll`, 180 min unchanged).
 
 **Metrics:**
@@ -1730,8 +1669,8 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
 if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
 a manual Cloudflare block. The threshold is a launch placeholder; re-tune it in
 `observability/posthog/alerts.json` (2,000/1 h) once baseline volume is known. That figure is
-the retired Datadog monitor's 500/15 m rescaled 4× for the hourly window — keep the rescale in
-mind when re-tuning, or the alert will mean something different from what the runbooks assume.
+the old 500/15 m threshold rescaled 4× for the hourly window. Keep the rescale in mind when
+re-tuning.
 
 **Do not re-tune this layer for an in-Worker complaint.** Since AECI-773 there are two limiting
 layers with different owners, and the whole triage risk is fixing the wrong one — see the sibling
@@ -1832,384 +1771,6 @@ completely different things, and that is the fastest discriminator:
 **Repair:** nothing here is an outage on its own — a 429 with `Retry-After` is a working control.
 The two cases that are real problems are (1) above (a tier protecting nothing) and a legitimate
 customer being stopped repeatedly. Neither is fixed in the Cloudflare dashboard.
-
----
-
-## Promote job errored or stuck
-
-**Signal:** `aeci.api.promote.job{outcome:errored}` (with a `code` tag), the
-`aeci.api.promote.job_failed` error log, or `aeci.api.promote.job.duration_ms` running long.
-There is **no alert on this on either plane** — promote volume is a handful per day, so the trigger
-is usually a curator reporting "the promote never finished". It is not among the 26 dispositioned
-monitors and it is not in `observability/posthog/alerts.json`, so the cutover changes nothing here.
-(AECI-563 / ADR 0021.)
-
-**What it means:** since AECI-563 `POST /api/promote` only *starts* the ingest. The commit runs
-in the `PROMOTE_WORKFLOW` Cloudflare Workflow, one instance per promote, whose **instance id is
-the review-app-supplied `promote_job_id`**. A failure never surfaces as an HTTP status to the
-caller — it lands as `{ status: 'errored', error: { code } }` on `GET /api/promote/jobs/:id` and
-as the log above. An `errored` job **wrote nothing**: the ingest is one atomic `db.batch`, so
-there is no partial state to clean up.
-
-**First checks**
-
-1. **Get the job id.** From the curator (the review app's product row `promote_job_id`), or from the
-   `job_id` attribute on the `aeci.api.promote.job_failed` log
-   (`service:aeci-api source:review-app-promote`).
-2. **Read the job.** Either the API (`GET /api/promote/jobs/{jobId}` with the
-   `REVIEW_APP_TOKEN` bearer) or the Cloudflare dashboard → **Workers & Pages → Workflows →
-   `aeci-promote-<env>`** → the instance. The dashboard shows the per-step history, which the
-   API does not.
-3. **Which code?**
-   - `SLUG_CONFLICT` — two first-time promotes raced for the same slug. Benign and
-     caller-resolvable: re-push with a **new** job id and slug disambiguation (`-2`, `-3`) will
-     settle it.
-   - `VALIDATION_FAILED` — a product name that can't be turned into a slug (reserved or empty
-     after normalization). Needs the name fixed in the review app.
-   - `INTERNAL_ERROR` — a real fault. Read the log's `reason` (D1 errors put the detail in the
-     `cause` chain) and the step history.
-4. **Stuck rather than failed?** A job sitting in `running` far longer than
-   `aeci.api.promote.job.duration_ms`'s normal range is usually a slow plan phase on a
-   heavily-integrated product (many sequential D1 reads) — not a hang. The commit step has a
-   10-minute timeout, after which the instance errors. A job stuck in `queued` means the
-   account is at its concurrent-instance ceiling, which our volume will not reach.
-5. **Was it even started?** A poll returning `404` means AECi has no record of the id: either
-   the kick-off never succeeded (check for a 4xx/5xx `source:review-app-promote` log with that
-   window's `trace_id`) or the job is past its retention (30 days for the instance, 90 for the
-   KV result mirror).
-
-**Repair**
-
-- **Normal path — let the review app re-push.** A new job id, same bundle. Because an `errored`
-  job wrote nothing, this is safe and is the expected remedy for every code above.
-  **One exception (AECI-571):** an `errored` job whose reason reads *"has already committed, but
-  its stored result is unreadable"* **did** write. Its rows are live. Do **not** re-push — recover
-  the ID map from the KV mirror (`promote:result:{jobId}`) or straight from D1
-  (`SELECT result FROM promote_jobs WHERE job_id = '…'`) and hand it to the write-back. This is
-  the only `errored` promote that ever committed, and it means the ledger row itself is corrupt;
-  escalate it.
-- **The IDs committed but the review app never collected them** (the exact class of damage this
-  design exists to prevent): poll the job id; a `complete` job still serves its full ID map, so
-  the write-back can be re-run. This is what the review-app reconcile sweep (AECI-570) automates.
-- **`restart()` no longer risks a duplicate (AECI-571), but is still not a retry.** If the commit
-  already succeeded, a restart replays it, trips the `promote_jobs` primary key, rolls back, and
-  returns the recorded ID map — which makes it the fastest way to recover an instance that is
-  wedged *after* a silently-successful commit. It is still **not** the remedy for a genuinely
-  failed commit: the step is deliberately non-retried (`NonRetryableError`), and a failure that
-  reproduces will simply fail again. Re-push with a new job id for that.
-- **`terminate()`** an instance only to clear a genuinely wedged job, and note that the id is then
-  permanently consumed for its retention window — the review app must use a new one.
-
-**Escalation:** repeated `INTERNAL_ERROR`s across different products point at the ingest itself
-(`apps/api/src/routes/promote.ts`) or at D1 — capture the job id, the `reason`, and the step
-history. Repeated `SLUG_CONFLICT`s with no concurrency suggest a slug-generation regression, not
-a race.
-
-**Duplicate safety (AECI-571).** Workflows guarantee a step runs *at least* once, so an engine
-crash between the `db.batch` committing and the step result being persisted replays the commit.
-That used to be able to duplicate a **created** row; it can't any more. The ingest writes a
-`promote_jobs` row keyed by the job id as the first statement of the promote's own batch, so a
-replayed batch trips the primary key, D1 rolls the whole batch back, and the recorded ID map is
-returned instead — same ids, same slug.
-
-- `sum:aeci.api.promote.replay` is non-zero **exactly when the window fired and was absorbed**.
-  This is informational, not actionable: the promote is correct. Capture the `job_id` from the
-  `aeci.api.promote.replay_detected` log if you want the step history, and note the `via` tag
-  (`pre-read` = the ordinary replay, `batch-conflict` = a replay that raced the original batch).
-- A duplicated product whose promote job reported `complete` exactly once is now a **bug**, not
-  the known gap. Capture the job id and the instance's step history and escalate.
-
-**Pruning the ledger.** `promote_jobs` grows by a handful of ~10 KB rows a day and has no
-automatic prune (deliberately — see `DATABASE_SCHEMA.md` §8.5). If it ever needs one:
-
-```sql
-DELETE FROM promote_jobs WHERE created_at < datetime('now', '-180 days');
-```
-
-**The floor is 90 days, hard.** Below that the guard expires before the `promote:result:{jobId}`
-KV mirror it backstops, leaving a window where a poll still serves IDs while a re-push of that
-job id would duplicate them.
-
----
-
-## Promote strand audit is red
-
-> **Rewritten 2026-09-08 (AECI-796). Read this before triaging an old run.** Between
-> 2026-08-13 and 2026-09-06 this workflow read Airtable and **skipped green** when
-> `AIRTABLE_TOKEN` was absent. That secret was never provisioned, so all 25 scheduled runs
-> reported success having audited nothing — and the secret was not the fix either, because
-> the review app had moved off Airtable onto its own D1, leaving the transport pointed at a
-> decommissioned system. The job now runs `scripts/ops/2026-09-stranded-row-audit/` over
-> `AECI_MCP_TOKEN`, with **no skip branch**, and its buckets are the six below rather than
-> the five Airtable-shaped ones it used to report. A green run before 2026-09-08 is evidence
-> of nothing.
-
-**Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
-exits non-zero. There is no monitor on either plane — the workflow's own red **is** the alert, the
-same pattern the AECI-647 cron liveness sweep uses for absence detection, and for the same
-reason: the check has to live outside the system it is checking. (AECI-568 / AECI-593 / AECI-796.)
-
-**Which red is this? Check the exit code first — they are different problems.**
-
-| Exit | Meaning | What to do |
-|---|---|---|
-| `1` | Stranded rows found. Production holds a row no upstream record claims. | Triage below. |
-| `2` | The audit **could not run**: a missing credential, an incomplete sweep, or a crash. | The catalog is **unverified, not clean**. Fix the run, then re-dispatch. Do not close this as a pass. |
-
-An exit 2 on a missing `AECI_MCP_TOKEN` means the repo secret is absent — add it under
-Settings → Secrets and variables → Actions. An exit 2 with buckets printed means the sweep
-could not read part of upstream (`unresolvedUpstream` non-empty) or its product classes did
-not reconcile; the bucket list is untrustworthy in both directions, so re-run rather than
-triaging it.
-
-**What it means:** production D1 and the review app's curation catalog disagree about which rows
-exist. The only link between them is the `supabase_*_id` column the review app holds — D1 stores no
-curation-tool key (AECI-562 was rejected deliberately) — so one broken pointer makes a live row
-permanently unreachable. Which bucket fired tells you what broke:
-
-| Bucket | Meaning |
-|---|---|
-| `integrationSourceGone` | An `integrations` edge no upstream record claims. **The common one.** |
-| `evidencedPairSourceGone` | A `connector_evidenced_pairs` edge no upstream record claims. **New 2026-09-14 (AECI-897)** — this table was counted but never classified, which is why the job read green on 2026-09-10 and 2026-09-11 with 215 retracted pairs live. **Its repair is not the same as the others, and it has two routes — see below.** Its first two findings were both real and were retracted the same day (AECI-916). |
-| `integrationEndpointStranded` | An edge whose endpoint, connector or builder is itself stranded. Falls out with that row. Spans **both** anchor tables; read the entry's `table` field. |
-| `productDeletedUpstream` | A D1 product no upstream record claims at all. |
-| `productRejectedUpstream` | A D1 product whose upstream record is `rejected` — promoted once, then rejected, never retracted here. |
-| `vendorSourceGone` | A D1 vendor whose upstream record is gone. |
-| `vendorNoLiveProducts` | A D1 vendor whose products have all moved to another vendor. Usually a re-parenting that left the old row behind. |
-
-`orphanChildren` is reported alongside them as cascade weight (claims and attestations that
-would go with the rows), not as a bucket — it does not affect the exit code. It reads **both**
-`claims.integration_id` and `claims.connector_evidenced_pair_id` since AECI-897; before that it
-reported zero cascade for every pair finding, understating the cost of a retraction by exactly
-the rows that make one dangerous.
-
-Every edge finding also carries `table` and, where one exists, `twin` — the row on the *other*
-anchor table covering the same product pair. A twin is **not** by itself a defect: under the
-Addendum C model a pair can legitimately carry both a delivered edge and a connector-delivered
-one, and two production pairs do. Only "both tables, one unreferenced upstream" is the strand
-shape, which is the AECI-888 signature.
-
-> **`evidencedPairSourceGone` has a repair tool since 2026-09-14 (AECI-916), and which route
-> you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
-> datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
-> tombstones) them only as a side effect of retracting an endpoint or connector product, and
-> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
-> and it takes two cohorts:
->
-> - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the
->   curator delete the record so the journal carries it, then run the consumer normally. It
->   preserves the curator's own words, which beats an operator's reconstruction.
-> - **Route B, no upstream record and no journal entry.** Write a committed ruling file and run
->   `consume.mjs --env production --ruling <file>`. Same guards, same `audit_log` row per id,
->   same count repair, same rollback; `confirm_retractions` is never called and the run refuses
->   if the journal is non-empty.
->
-> **This runbook used to prescribe route A only, and that was a real defect, not a stale
-> sentence.** A journal entry is written only when the deleted upstream record carried a
-> `supabase_integration_id` — and a strand is by definition a row nothing upstream points at.
-> So for the rows this bucket finds most often, "have the curator delete the record" reaches a
-> record that is already gone or was never linked, and journals nothing. AECI-916 is the worked
-> case: the route closed under the issue while it was open, three days after it was written
-> down. Raw SQL is still wrong in both routes — it skips the `audit_log` row and the
-> `integration_count` reconcile, which is what made the 2026-09-07 cleanup a one-off nobody can
-> replay, and under route B that audit row is the *only* surviving account of the deletion.
->
-> **The bar has not moved.** A finding here is still a curation judgement; the escalation path
-> below still applies. What changed is that executing a ruling no longer requires raw SQL.
-> Format, refusals and the worked example: `scripts/ops/2026-09-retraction-consumer/README.md`
-> §"Operator-ruling mode".
-
-**First checks**
-
-1. **Re-run locally for the full per-bucket dump** (the CI log prints the table and the ids; the
-   report file and id list go to `RUNNER_TEMP` and are not uploaded):
-   ```bash
-   AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> \
-     node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache
-   ```
-2. **`integrationSourceGone`: was this an editorial retraction, or duplicate residue?** Read the affected
-   product's upstream `research_notes` and `tool_integration_check_notes` *before* anything
-   else, and read the notes on any **surviving sibling row** too — a merge ruling is recorded
-   on the survivor, not on the row that went away. All three shapes below flip the repair from
-   "adopt" to "delete", and there are now three worked examples, executed end to end (plan →
-   rollback → audit row → delete → count repair → Algolia → re-audit):
-   - `scripts/ops/2026-09-polycam-retraction/README.md` — **editorial retraction**. The row
-     was the only copy; the guards tripped and were correctly overridden.
-   - `scripts/ops/2026-09-procore-followup-retraction/README.md` — **duplicate residue** from
-     an upstream merge. The guards *also* tripped, and this time they were wrong to:
-     `orphansWithoutATwin` is orientation-blind, so it could not see the surviving reverse
-     twin. Use it as the reminder that the guard sheet cannot classify a stray on its own.
-   - `scripts/ops/2026-09-dynamics-monday-retraction/README.md` — **no ruling on either side.**
-     This is the case the other two do not cover, and the one the "Escalation" note below is
-     written for. Read it before concluding that a missing note means you must stop
-     indefinitely: escalating produced a ruling, the ruling was recorded on the issue and in
-     the `audit_log` row as `no_upstream_ruling: true`, and the delete then proceeded. A
-     plausible cause was visible in the row's own data and was deliberately **not** asserted,
-     because consistency is not causation.
-3. **`productRejectedUpstream` is not automatically a delete.** A rejected upstream record
-   means the curator ruled against the product *after* it was promoted, so the D1 row is
-   almost certainly residue — but read the ruling, because rejection and retraction are
-   recorded differently and only `find_product` with `include_rejected` can see the record
-   at all.
-
-> **The retired `pendingJobMarkers` bucket.** The Airtable-era audit also reported uncollected
-> `promote_job_id` markers, which doubled as the liveness check for the AECI-570 hourly
-> reconcile sweep. The current audit does not compute it. If you are chasing a stuck job, go
-> to "Promote job errored or stuck" above; never clear the marker by hand, it is the recovery
-> handle and a `complete` job still serves its full ID map.
-
-**Repair**
-
-Every bucket's recipe lives in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
-That lane is **retired** — its `audit.mjs` was deleted on 2026-09-08 — but the README is kept
-precisely for this section, and the reasoning survives the transport change. Its bucket *names*
-are the old five; map `stray` onto `integrationSourceGone` / `productDeletedUpstream` as you
-read. The audit itself has no `--apply` and never writes. Two things worth repeating here:
-
-- **A stranded row is a curation judgement, not a mechanical delete.** Adopt (recreate the
-  upstream record carrying the existing uuid) or delete (datatool `POST /api/prune-integrations`).
-  **A tripped guard is not evidence in either direction.** `orphansWithoutATwin` matches on
-  `(source_product_id, target_product_id, mechanism_name)` and is orientation-blind, so it reports
-  "no twin" on a reverse-orientation duplicate that plainly has one; `claimsUniqueToOrphans`
-  inherits that plus an exact `direction` match. AECI-794 is the worked case — both guards tripped
-  on a row that really was redundant residue. Go to the claim data and the upstream ruling
-  (`docs/REVIEW_APP_PROMOTE_API.md` §5.1). With a ruling, acknowledge exactly the guards the dry
-  run reported plus an `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
-- **A prune does not recompute `stats_cache`.** After deleting integrations the home-page totals
-  read high until the next promote of any product triggers the debounced home-stats refresh
-  (about a minute later, AECI-1509) or the 07:00 UTC cron runs. Harmless and self-healing; only
-  chase it if no promote is expected soon.
-
-**Root cause, and why this job exists:** promote can create and update but **never retracts**
-(`docs/REVIEW_APP_PROMOTE_API.md` §5.1) — it deletes only rows a payload names by id, never rows
-a payload merely omits. A curator deleting an upstream record therefore always
-strands the D1 row, and destroys the only pointer that could have found it. Nothing in the promote
-path can guard that, so this scheduled audit is the backstop. The other half shipped in
-**AECI-882** — the review app's `list_retractions` feed, which says *why* a record went away — and
-it runs as this job's seventh bucket rather than as a separate job. A feed only journals forward,
-so this stock check stays; see the next section for what a non-zero `pendingRetractions` means.
-
-**Escalation:** a stranded row with no recorded ruling and no obvious curator action is a real unknown
-— do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
-raise it with whoever owns the catalog.
-
-**Escalating is a step, not a dead end.** AECI-795 is the worked example (`scripts/ops/2026-09-dynamics-monday-retraction/`).
-The catalog owner answered "no upstream record and no defence; if the edge is real it should be
-re-materialised deliberately with current evidence, not adopted from a stranded row", and that
-answer *is* the ruling. Three things make it safe to act on:
-
-- **Record the absence, not a guess.** The `audit_log` row carries `no_upstream_ruling: true`
-  and names the escalation as the ruling source, so a future auditor sees that nothing was
-  found rather than assuming nobody looked.
-- **Do not promote a hypothesis to a cause.** That row's own data pointed hard at one
-  explanation and it was still filed as `suspected_cause.asserted: false`, because nothing
-  recorded why the row actually went.
-- **Adoption is the riskier exit when there is no note.** Creating an upstream record to justify
-  a live row whose only evidence is that it exists gets the direction backwards.
-
-
----
-
-## `pendingRetractions` is non-zero
-
-**Signal:** the daily `promote-strand-audit` is red and the `pendingRetractions` bucket is the
-non-zero one. Every other bucket may be clean; this is a different class of finding.
-
-**What it means:** a curator deleted a record upstream, and the public row it produced is still
-live here. Promote cannot remove it (§5.1), so the only way it goes is the consumer.
-
-**This bucket is the exception to "never delete a row to make this job green".** That rule exists
-because a stranded row might be correct and you cannot tell without a ruling. Here the ruling
-**already exists** — it is on the journal entry, in the curator's own words, and the run prints
-it. You are executing a decision, not making one.
-
-**Triage:**
-
-1. Read the entry's `reason` in the audit output. If it does not justify a delete, stop and raise
-   it — a retraction with an unconvincing reason is an upstream problem, not a D1 one.
-1a. Check the entry's `entity`. The consumer handles **`integration` only** and parks everything
-   else, so a `product` entry will never clear through it — that one goes through
-   `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
-   bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
-   refuses the upstream delete while a supabase id is attached.
-   If the dry run lists a **live subscription** on the product, it refuses without `--force`
-   (AECI-1350). Retracting the product frees a Managed slot the vendor pays for. Tell the vendor,
-   or move the subscription to another product, before you re-run with `--force`. With `--force` every
-   subscription on the product is unassigned and keeps its billing account. Each one gets a
-   `license.unassigned` audit row in the same batch. An ended subscription never blocks.
-2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
-   prints the plan, the cascade, the affected products and the rollback path.
-   ```
-   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
-   ```
-3. If the plan looks right, execute it with the count the dry run reported:
-   ```
-   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count <N>
-   ```
-4. Afterwards: `db:reconcile-algolia-drift -- --env production` to measure orphans (purge with
-   `--apply --allow-production`), then `db:reconcile-counts -- --fix --allow-production` as an
-   independent check on the count repair.
-
-**Three things to know before you run it:**
-
-- **Never confirm an entry you have not deleted.** `confirm_retractions` stamps `synced_at` and
-  the entry leaves the feed, which holds the only copy of the row's `supabaseId`. Confirming
-  early loses a live public row permanently. The script enforces the order; do not route around
-  it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
-- **A product retracted by hand still opens an entry.** The order for a product is
-  `ops:retract-product` first, then `delete_product` upstream. That delete opens a journal entry
-  for a row that is already gone, and the consumer parks product entries. Read back the 404, then
-  call `confirm_retractions` on that entry yourself, or the next audit goes red. Worked example:
-  `scripts/ops/2026-10-cove-retraction/README.md` (AECI-1496).
-- **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
-  with their reason and do not fail the run. If the job is red, something *new* arrived.
-  - **The list is EMPTY as of 2026-09-14 (AECI-909).** The two Agave holds were released and their
-    rows deleted, verified and confirmed, so every entry the bucket now reports is unhandled. A
-    non-zero `pendingRetractions` today means run the consumer, not "check the hold list".
-  - **If you add a hold, delete it in the same change as the run that releases it.** A discharged
-    hold left in place is worse than no hold: the bucket reports a steady count, the job stays
-    green, and the next retraction sits invisible behind ids nobody re-reads. The two Agave holds
-    are the worked example of doing it right — each named its release condition, that condition
-    was evaluated against live evidence, and the map was emptied the same day.
-  - **Write a release condition you can actually evaluate.** The Agave wording had to be corrected
-    once: "when AECI-891 ships" would have held those two forever, because that issue delivers the
-    claim *anchor* while the reach-tier *render* is AECI-716 and is still unbuilt. The condition
-    that worked named two checkable facts — AECI-891 live in production, and the re-anchored claims
-    counted in production D1. `REVIEW_APP_PROMOTE_API.md` §5.1.
-- **A parked entry is not a consumer job.** Anything whose `entity` is not `integration` is
-  reported and then left alone — never deleted, never confirmed. That is deliberate: a `product`
-  entry resolves against neither delivered-tier table, so to the consumer it is indistinguishable
-  from an edge that is already gone, and confirming it would discard the curator's ruling while
-  the live row stayed. Leaving it pending is the harmless direction.
-- **A refusal is the script working.** It stops rather than adapting when the resolved shape
-  differs from the recorded ruling, when the cascade exceeds its ceiling, when a held id has
-  vanished, when an id is in both tables, or when the sentinel edge moves. Re-establish the
-  ruling before editing a constant to make it proceed.
-- **Expect the first refusal, every time.** `EXPECTED` and `MAX_CASCADE` rest at zero between
-  cohorts (reset 2026-09-14, AECI-909), so a new cohort refuses on the shape gate before it can
-  delete anything. That is not production having moved unexpectedly — it is the lane asking you
-  to measure this cohort and pin it. Reset both to zero again in the same change as the run that
-  used them, for the same reason you empty a discharged hold: a spent authorisation left in the
-  file would clear a later cohort of the same shape with nobody ruling on it. Raising
-  `MAX_CASCADE` is the one edit that can destroy data, so raise it only after confirming by count
-  that every claim it will cascade away already exists somewhere else.
-
-**Residue that is normal:** `stats_cache` reads high until the 07:00 cron, and `metrics_daily`
-history keeps the pre-delete totals (ADR 0027 — a snapshot is corrected, not final). A retracted
-pair leaves a **noindexed empty pair page, not a 404** — and, unlike a re-pointed endpoint,
-not a redirect either. AECI-953 301s an emptied pair only when `integration_endpoint_moves`
-says the edge moved somewhere; a retraction deletes the edge, writes no move row, and has
-nowhere to point.
-
-**Retracting a PRODUCT is the other case, and it 404s unless you seed a mapping.** Every
-pair URL under a deleted product 404s — the pair read checks that both slugs resolve to
-rows before it uses any other result (its one `db.batch` runs every statement, AECI-1506). If the product was merged into another (rather than simply removed), add
-its `slug_redirects` row and every `/products/{retired}/integrations/*` URL 301s onto the
-survivor's pair page instead (AECI-991, `STAGE_1_5_SPEC.md` §7.2b). The row can be seeded
-before or after the retraction: a live product row always beats a mapping, so an early
-seed is inert rather than harmful. Move rows themselves no longer cascade away with the
-product — that was the AECI-991 defect, and `apps/api/src/test/d1.spec.ts` pins the
-absence of the foreign key that caused it.
 
 ---
 
@@ -2523,7 +2084,7 @@ indistinguishable from our side. The `INDEXNOW_KEY` value is also **unrecoverabl
 `wrangler secret list` and `gh secret list` both return names only, and the SSR route serves
 the file solely at the exact `/{key}.txt` path, so the URL cannot be built without already
 knowing the key. **The Bing Webmaster Tools IndexNow panel is not a recovery route** either;
-IndexNow never requires registering a key with Bing (`launch-cutover-runbook.md` §2a).
+IndexNow never requires registering a key with Bing (`docs/runbooks/launch-cutover.md` §2a).
 
 Rotation is the only way to a known value, and it is cheap — IndexNow supports it by design:
 
@@ -2663,7 +2224,7 @@ published 2,000 calls a day per property.
 
 **What is safe to ignore.** A failed or halted run never deletes a row it did not inspect, and it
 never closes a row on a failed page fetch. The cost of a dead run is a longer list, not lost work.
-The manual fallback is step 0 of `docs/gsc-reindex-playbook.md`.
+The manual fallback is step 0 of `docs/runbooks/gsc-reindex.md`.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
@@ -2739,818 +2300,6 @@ message. A purge then drops that night's run, and the liveness sweep goes red th
 **What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
 cannot hide a missed nightly run. A backfill `failed` still sends the `cron-job-failed-alert` email.
 
-## Stripe reconcile changed subscriptions
-
-**Signal:** a `[AECi] Stripe reconcile changed N Stripe plans` email to `SUPPORT_EMAIL`
-(`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
-on `/admin/system`. A `failed` run sends the `cron-job-failed-alert` email.
-
-**What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
-§7.6 point 2) re-read Stripe and found subscriptions that did not match. It has already fixed them:
-granted, ended, moved an end date, or cancelled a ban-dead Stripe subscription. It may also have
-backfilled a missed checkout's agreement acceptance or billing email. So nothing is
-broken now. But a Stripe webhook did not arrive, or the termination's post-commit cancel failed. Find out which, because the
-vendor waited up to a day for the change. The email lists each Stripe subscription, its Stripe status,
-the subscriptions granted and ended, any backfill, and a link to the vendor.
-
-**Staging sends no alert.** Staging has no reachable Stripe webhook endpoint by design, so every
-test purchase there lands through the reconcile and would alert every day. The alert email goes out
-on demo and production only. Staging's changes still show in its `job_runs` rows.
-
-**Triage.**
-
-1. Open the endpoint in Stripe: Developers, Webhooks, the endpoint for the tier. If Stripe
-   disabled it, re-enable it. Read the failed deliveries for the Stripe subscription in the email.
-2. A delivery answered 401 means a signature failure. Check the PostHog metric
-   `aeci.webhooks.stripe.signature_failure` by `reason`. `missing_secret` means the tier's
-   `STRIPE_WEBHOOK_SECRET` was never pushed. `mismatch` means the secret was rotated in Stripe
-   but not in the Worker.
-3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
-   `aeci.stripe.webhook_transient` or the error at that time.
-4. No delivery at all, and the change is "Ban cancel: cancelled now, the vendor is banned": the
-   termination's own cancel failed. The vendor was terminated, and the Stripe subscription stayed billable
-   in Stripe with no live subscription on it. The reconcile cancelled it now
-   (a ban-dead Stripe subscription, `stripe_events.outcome = 'ban-dead'`). Search the logs for
-   `aeci.stripe.ban_cancel_now_failed` at the time of the termination to see why the first cancel failed.
-   The `job_runs` detail counts these as `banCancelsNow`. See "Vendor suspension and termination".
-
-**Look up the Stripe subscription.** Set `SUB` in your shell to the Stripe subscription id from the email.
-Then read the subscriptions on it and the rows the reconcile wrote. Production D1 is read from
-`/tmp` by its full name.
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, source, ends_at, ended_at, end_reason, assigned_product_id, cancel_at_term_end, cancel_reason FROM licenses WHERE stripe_subscription_id = '$SUB'"
-```
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT created_at, action, json_extract(metadata, '$.license_id') AS license_id FROM audit_log WHERE json_extract(metadata, '$.source') = 'stripe-reconcile' AND json_extract(metadata, '$.stripe_subscription_id') = '$SUB' ORDER BY created_at DESC LIMIT 20"
-```
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT started_at, outcome, json_extract(detail, '$.changed') AS changed, json_extract(detail, '$.granted') AS granted, json_extract(detail, '$.ended') AS ended, json_extract(detail, '$.failed') AS failed, json_extract(detail, '$.reason') AS reason FROM job_runs WHERE job = 'stripe-reconcile' ORDER BY id DESC LIMIT 7"
-```
-
-In the Stripe Dashboard the Stripe subscription is at `dashboard.stripe.com/subscriptions/` plus the id.
-Its Events tab lists every event Stripe tried to send for it.
-
-**A `failed` run.** The list walk failed, or one or more Stripe subscriptions did not sync. The run
-synced the rest and sent its alert before it failed. The queue retries it 3 times. A retry is
-safe because the sync converges on what Stripe has now. The `job_runs` reason names up to ten
-Stripe subscriptions and why. A subscription Stripe answers 404 for will fail every day: it belongs to
-another Stripe account or mode. Ask Chris before you touch its subscriptions.
-
-**What the reconcile also repairs.** When `checkout.session.completed` never arrived, it backfills
-the missing Checkout agreement acceptance. It also sets an empty billing email to the buyer's
-email from the Checkout Session, as the webhook would. Either backfill counts as a change, so the
-email lists it under "Acceptance" or "Billing email". When it moves a term to a new period end, it binds the
-agreement version a renewal binds, as the webhook does (ADR 0047 decision 9). So a grant in the email
-needs no manual acceptance fix. On a monthly Stripe subscription it also binds a later Managed plan
-agreement version the current period's charge should have bound (AECI-1690). The email lists
-that under "Agreement version", and `job_runs.detail` counts it as `termsBound`. That is a missed
-monthly `invoice.paid`: treat it as a missed webhook. An owner's click after a charge never shows
-here, because it binds at the next charge. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
-Stripe's own failed-payment email still went.
-
-**`outcome:skipped`** means `STRIPE_SECRET_KEY` is unset on the tier. That is expected on local dev
-without a `.dev.vars` key. On a deployed tier it means the secret push warned and skipped: check the
-deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being off
-(`STRIPE_CHECKOUT_ENABLED="false"`) does not skip the reconcile.
-
-## Unaccepted terms charge
-
-**Signal:** the warn log `aeci.billing.unaccepted_terms_charge` (source `stripe-webhook` or
-`stripe-reconcile`), or a non-zero count of the metric of the same name.
-
-**What it means.** A monthly Stripe charge ended with a subscription bound to a Managed plan
-agreement version that needs acceptance (`requires_acceptance`), and no acceptance of the company
-covers it (AECI-1690, ADR 0047 decision 9). The bind is built to hold such a version back, so this
-is a tripwire. The usual cause is a Stripe subscription whose subscriptions carried two versions
-before the charge. Each subscription walks from its own version, so even that should not cross
-the click. A firing therefore means a bug in the bind, or a version set by hand. Nothing was cancelled, and the customer was charged at the price they agreed. The log names
-`stripe_subscription_id`, `vendor_id`, `billing_account_id` and `terms_version`.
-
-1. **Read the subscriptions.** Run the first query under "Stripe reconcile changed subscriptions" with
-   `SUB` set to the id from the log, adding `terms_version` to the column list.
-2. **Read the acceptances.** On the admin vendor page, Billing tab, check the Managed plan rows. If an
-   owner did accept that version, the alert was a false positive: file a bug with the log line.
-3. **Put the subscriptions back.** If no acceptance covers it, ask Chris before you change anything.
-   The fix is an ops script that sets `terms_version` back to the version the company accepted, with
-   a `license.term_changed` audit row. Data fixes are ops scripts, not migrations.
-4. **File a bug** on the AECi team with the log line, so the cause is fixed in the bind.
-
-## Stripe: refund a paid subscription
-
-Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
-charge or of a renewal charge, and none after, except where applicable law provides otherwise
-(Managed plan agreement, "Refunds"; `docs/PRICING_RULES.md` §5).
-
-**A charge we made in error is different.** A double charge, a wrong amount, or a charge after a
-cancellation took effect is always reversed, with no 14-day limit. Refund that payment in full
-from its page in the Stripe Dashboard. Do not cancel the Stripe subscription unless the charge was after a
-cancellation. Reply to the vendor that it was our error and is reversed. A subscription the vendor
-bought twice is not our error: it follows the 14-day rule below.
-
-**Never revoke a paid subscription (by card) in the admin panel.** The Stripe subscription still holds the quantity, so
-the next webhook or the 01:15 reconcile grants the subscription back. Every change to a paid subscription goes
-through Stripe, and the webhook writes D1.
-
-1. **Check the date.** In the Stripe Dashboard open the customer, then the first payment. The ask
-   must be within 14 days of it. Past that, reply with the refund rule and stop.
-2. **Refund the payment** in full from the payment's page.
-3. **Cancel the Stripe subscription immediately.** Open the Stripe subscription, choose Cancel, and pick
-   "Immediately", not "At the end of the period". Stripe sends `customer.subscription.deleted`.
-4. **Watch the subscriptions end.** The webhook ends every live subscription on the Stripe subscription `lapsed`,
-   carries products over where it can, purges the pages and sends `managed-ended`. Check with the
-   first query under "Stripe reconcile changed subscriptions", with `SUB` set to the Stripe subscription id.
-5. **Reply to the vendor** that the refund is made and the products are on Free.
-
-**Part of a purchase.** To refund some subscriptions of several, lower the Stripe subscription quantity in
-Stripe with no proration, then refund that amount. The sync ends the surplus `released`: unassigned
-subscriptions first, then those flagged release-at-renewal, then the most recently assigned. If the
-vendor wants a particular product kept, ask them to unassign the others first.
-
-## Stripe: annual opt-out
-
-Not an alert. An owner can stop an annual renewal themselves: **Manage billing in Stripe** on the
-Billing tab opens the annual portal configuration, which cancels at the end of the period only
-(AECI-1516). Nothing for us to do then, and step 3 shows the same flag. These steps are the
-fallback, for a vendor who emails before the renewal date instead.
-
-1. **Check the Stripe subscription is annual and live.** In the Stripe Dashboard open the Stripe subscription.
-   A Stripe subscription whose subscriptions all ended `banned` is not the vendor's to cancel: a termination cancels
-   it at once, so it should already be canceled (see "Vendor suspension and termination").
-2. **Cancel at the end of the period.** Choose Cancel and pick "At the end of the current period".
-   Never "Immediately": the vendor paid for the term.
-3. **Check the tab.** `customer.subscription.updated` flags every live subscription on it
-   `cancel_at_term_end` with reason `vendor-cancelled`. The vendor's Billing tab says the
-   Stripe subscription will not renew.
-4. **Check the confirmation went.** The sync emails `renewal-cancelled` to every seat and the
-   billing email, with the end date and that no further charge will be made (AECI-1596). Nothing
-   more to send. The subscriptions end on that date, when Stripe deletes the Stripe
-   subscription.
-
-**Undo before the date.** Open the Stripe subscription and choose "Don't cancel" (Stripe's renew). The
-webhook clears the `vendor-cancelled` flags.
-
-**A monthly cancel by email.** Do the same as step 2. The subscriptions run to the end of the paid
-month, and the same confirmation goes.
-
-## Stripe: a company gives up its claim
-
-Not an alert. A company gives up its claim, or loses its last seat without a termination: an owner asks us,
-the last seat is removed, or the last account is deleted. Ruling (Chris, 2026-10-28, AECI-1516; the
-Managed plan agreement, "If you give up your claim"): its subscriptions run to the end of the paid term,
-do not renew, and are not refunded. Nothing does this automatically. A seat removal writes nothing
-in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15). Only a termination cancels by itself, and it cancels
-at once ("Vendor suspension and termination"), which a give-up never does.
-
-1. **Find the Stripe subscriptions.** Run this against production with `VENDOR` set to the vendor id. A
-   complimentary or invoice subscription needs nothing: it ends on its end date as usual.
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT DISTINCT l.stripe_subscription_id, b.stripe_customer_id FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = 'VENDOR' AND l.source = 'stripe' AND l.ended_at IS NULL"
-```
-
-2. **Cancel each at the end of the period.** In the Stripe Dashboard open the Stripe subscription, choose
-   Cancel, and pick "At the end of the current period". This is the vendor's own cancel. Do
-   not choose "Immediately", and do not refund.
-3. **Check the flags.** `customer.subscription.updated` flags every live subscription on it
-   `cancel_at_term_end` with reason `vendor-cancelled`. The subscriptions end when Stripe deletes the
-   Stripe subscription, and the products move to Free. The sync also emails `renewal-cancelled` to any
-   seats left and the billing email (AECI-1596).
-
-Nothing clears this cancel for you: not a new seat, an unban or the reconcile. A company that claims
-again before the date renews in **Manage billing in Stripe** itself, or asks us to choose "Don't
-cancel".
-
-## Vendor suspension and termination
-
-Not an alert. An operator ends a vendor in two steps from `/admin/vendors/:id`: Suspend, then Terminate.
-A suspension that sits past its window is a daily digest warning (`vendor_suspension_past_window`).
-Ruled 2026-11-05 (AECI-1623, counsel's Q13 and follow-up, `VENDOR_SIGNUP_PROCESS.md` §2 decision 15).
-Non-payment is a different path: a failed card keeps Managed on through Stripe's retries, and only a
-Stripe cancel ends the subscriptions. Banning one seat from `/admin/users/:id` is a third thing. It
-touches that seat only, and it is refused with `409 VENDOR_LAST_SEAT_USE_SUSPEND` on the last unbanned
-seat. Use Suspend for that vendor.
-
-**Write the rule and the evidence as facts.** Both are printed in the notice and stored in the audit
-record. Say what was seen, where and when. Name no person unless the fact needs a name. Give no opinion
-about motive. The internal reason is never sent, but it is stored too, so keep it factual as well.
-
-**1. Suspend.** Choose Suspend on the vendor page. Pick the kind (`breach` or `false_claim`), write the
-rule and the evidence for the vendor, and write the internal reason.
-
-- Every seat loses the portal at once. Every `/api/vendor/*` call answers `403 VENDOR_SUSPENDED`, reads
-  included. The one route that still works is the Stripe portal link, `POST /api/vendor/billing/portal`.
-  The Billing tab stays blocked. A seat invite cannot be accepted while the vendor is suspended.
-- The listing stays live. Billing, subscriptions and records are untouched. Nothing is purged.
-- One notice (`vendor-suspended`) goes to the owner seats and the billing email. It names the rule and
-  the evidence, states the 7 business days, and says the vendor can cancel by replying to the notice or
-  from the Stripe portal.
-
-**The clock.** The window of 7 business days starts at the first confirmed send of that stage's notice.
-Business days are Monday to Friday with US federal holidays excluded. The window ends at the end of the
-7th business day in New York, up to an hour late and never early. A failed send leaves the suspension
-in place with no clock. The page says "not confirmed sent". Choose Re-send notice until it is
-confirmed. A timed-out send counts as not confirmed. Until one send is confirmed, each re-send goes to every address, so an address can get the notice twice. Once the clock runs, a re-send reaches only addresses not yet reached. On staging and preview the delivery rule
-withholds mail to outside addresses, and that counts as confirmed there so the flow can be tested.
-In production it never does.
-
-**2. Stage 2, only for a false claim.** If the vendor did not cure or rebut in stage 1 and you found it
-claimed a company it does not represent, choose Start stage 2 after the stage 1 window ends. Write the
-finding for the vendor. A second notice asks it to prove identity and authority, and a further 7
-business days run from its first confirmed send. A suspension of kind `false_claim` cannot be
-terminated before stage 2 has run its window. A `breach` suspension has no stage 2.
-
-**3. Keep the cost log while the window runs.** Log cost the day it is incurred, one entry per task.
-The server stamps the time, and an entry cannot be edited. A wrong entry is voided with a reason and
-stays on the record. Only cost the breach caused counts.
-
-| Kind | You enter | Counts as |
-|---|---|---|
-| `staff` | Work date, description, minutes | Minutes x $150 an hour, which is 250 cents a minute |
-| `third_party` | Work date, description, amount | The amount paid to others |
-| `recovery` | Work date, description, amount | A credit against the cost |
-
-A work date cannot be in the future. The total is floored at zero, and it is capped at the refund
-due, so it can never take more than the vendor would be owed. It is never used to keep prepaid fees
-for the unused term.
-
-**4a. Lift it.** If the vendor cured, or we were wrong, choose Lift and write the reason. Access is back
-at once, billing never changed, and one `vendor-suspension-lifted` email goes out. Cost entries stay on
-the record.
-
-**4b. Terminate it.** Terminate is refused until the applicable stage has elapsed. There is no early
-path, because the window is also the vendor's chance to show we are wrong. The page shows a preview
-read from Stripe: each payment, the refund before cost, the cost total from the log and the refund
-after cost.
-
-1. Check the cost log. Terminate reads the log and nothing else.
-2. For each invoice-paid subscription, type the amount it paid. Stripe cannot say. Card subscriptions
-   need no typing.
-3. Check the preview, then confirm. The page sends the gross refund and the cost total it showed. If either
-   changed since the page loaded, the API answers `409 VENDOR_TERMINATION_REFUND_CHANGED` and writes
-   nothing. Reload and check the new numbers.
-
-The refund is paid x unused days / term days, minus cost, floored at zero. The period used ends on the
-suspension date. A renewal charged inside the window comes back in full before cost. A payment
-already part-refunded counts only for what is left.
-
-One database batch then does all of this.
-
-- Every unbanned seat is banned, with its audit and workflow rows. The vendor keeps its text.
-- Every live subscription ends now, `end_reason = 'banned'`. An annual or complimentary row keeps its
-  `ends_at` as the paid term end. A monthly Stripe row takes Stripe's `current_period_end`, or has no
-  `ends_at` when Stripe could not be read.
-- `vendors.owned_at` is cleared and the records return to AECi: markers back to `aeci`, integrations
-  un-claimed, open contests moved to AECi, open product proposals deleted. The audit row is
-  `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. `usefulness_source` stays
-  `vendor`. The claim ends too (`vendors.claim_ended_at`, AECI-1618), so pages read Unclaimed at once, and the
-  daily brand asset removal clears `logo_source = 'vendor'` logos within 14 days (see "Brand asset removal").
-- Every pending seat invite is revoked.
-- The suspension closes with the statement, and one refund row per payment lands `pending`.
-
-If Stripe cannot be read while the vendor has card subscriptions, Terminate answers
-`503 VENDOR_TERMINATION_STRIPE_UNAVAILABLE` and writes nothing. Try again shortly.
-
-After commit, in order: one cache purge, the review app told the records are AECi's again, then every
-Stripe subscription on the vendor's Stripe customer that Stripe can still bill is cancelled now with
-no proration, and open Checkout pages are expired. That step gives up after 15 seconds. The refunds
-follow, one at a time, each under its own idempotency key. Last, one `vendor-terminated` email goes to
-every seat, banned seats included, and the billing email. It carries the itemized statement and states
-what each refund really did. The statement is the vendor's route to dispute a cost: it writes to
-`SUPPORT_EMAIL`. `managed-ended` is not sent.
-
-**Check the termination.**
-
-1. Open `/admin/vendors/:id` and the Billing section. Each subscription reads "ended by the vendor's
-   ban". The products are on Free. The "Return records to AECi" control is gone.
-2. In the Stripe Dashboard open the vendor's customer. Every Stripe subscription must be Canceled, no
-   Checkout session may be open, and each refund must show on its payment.
-3. Read the refund rows with `SUSPENSION` set to the suspension id.
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, status, paid_cents, gross_cents, cost_applied_cents, refund_cents, stripe_refund_id FROM vendor_termination_refunds WHERE suspension_id = '$SUSPENSION'"
-```
-
-4. Read the audit rows with `VENDOR` set to the vendor id.
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT created_at, action, json_extract(metadata, '$.paid_term_end_source') AS term_end_source FROM audit_log WHERE vendor_id = '$VENDOR' AND action IN ('vendor.suspended', 'vendor.suspension_notice_sent', 'vendor.terminated', 'vendor.termination_refund_paid', 'vendor.termination_refund_failed', 'license.banned', 'vendor.records_returned') ORDER BY created_at DESC LIMIT 30"
-```
-
-`term_end_source` is `ends_at`, `stripe` or `unknown`. `unknown` means Stripe could not be read, and
-the log has `aeci.stripe.ban_period_end_unavailable`.
-
-**A refund failed.** The refund row is `failed`, the audit row is `vendor.termination_refund_failed`
-and the log line is `aeci.stripe.termination_refund_failed` with the reason. The termination stands and
-the vendor is owed the money. The `termination_refund_unsettled` digest check lists a `failed` or
-stranded `pending` row after a day. Fix the cause, then choose Retry refunds on the vendor page. Retry
-looks up the payment's refunds first and treats one carrying this row's `aeci_refund_id` as paid, so a
-first attempt that took the refund but lost its response cannot pay twice, however late the retry is. A
-lookup that cannot answer pays nothing and leaves the row `failed`. Stripe replays a stored error for the
-same idempotency key for up to 24 hours, so a retry inside that time can show the same failure. Try again
-after 24 hours. A success sends the
-statement again with the refund made. A `manual` row is an invoice-paid subscription. Pay it by hand,
-outside Stripe, then write to the vendor from `SUPPORT_EMAIL` that it is paid. If
-`aeci.stripe.termination_refund_record_failed` appears, Stripe took the refund but the row did not
-update. Check the payment in the Stripe Dashboard before you retry.
-
-**The cancel failed.** The log line is `aeci.stripe.ban_cancel_now_failed` with the vendor and the
-Stripe subscription. A `reason` of `deadline 15000 ms` means Stripe was too slow and the step gave up.
-The Stripe subscription is not cancelled in Stripe and no subscription on it is live. Nothing grants on
-it: the vendor is terminated and fully banned, so the sync treats every billable Stripe subscription
-of the vendor as ban-dead. A webhook event for it answers 503 until a cancel succeeds. The next
-`customer.subscription.updated` event, or the daily reconcile at 01:15 UTC, cancels it. The reconcile
-then emails `SUPPORT_EMAIL` with "Ban cancel: cancelled now" (`banCancelsNow` in `job_runs.detail`,
-"Stripe reconcile changed subscriptions"). To act sooner, cancel the Stripe subscription in the Stripe
-Dashboard: choose Cancel and pick "Immediately", with no proration. Refund the unused term from the
-statement by hand, or choose Retry refunds.
-
-A vendor left with only banned seats by a seat revoke is not ban-dead. It got no notice and no
-refund, so its Stripe subscription is not cancelled. Suspend it first.
-
-**Other warn lines from Terminate.** Each is isolated, and the termination stands.
-
-| Log line | Meaning | Do |
-|---|---|---|
-| `aeci.moderation.terminate_followup_failed` | The whole post-commit step failed | Check the purge, the Stripe cancel, the refunds and the email by hand |
-| `aeci.moderation.terminate_product_read_failed` | The product names could not be read | The email may name no products. Nothing to repair |
-| `aeci.moderation.terminate_purge_failed` | The cache purge was not queued | Purge the vendor's `product:{slug}` and vendor tags (`CACHE_STRATEGY.md`) |
-| `aeci.moderation.terminate_email_failed` | The `vendor-terminated` email did not go | Write to the vendor from `SUPPORT_EMAIL` with the statement |
-| `aeci.stripe.ban_checkout_expire_failed` | An open Checkout page was not expired | Expire it in the Stripe Dashboard. If the vendor pays it first, the sync cancels the new Stripe subscription as ban-dead |
-| `aeci.stripe.termination_refund_failed` | A refund was not made | See "A refund failed" |
-| `aeci.stripe.termination_refund_record_failed` | A refund row did not update | See "A refund failed" |
-
-**A `409 VENDOR_SEATS_CHANGED` on Suspend, Stage 2 or Terminate.** A seat, an invite, a product proposal
-or a subscription landed while the request ran. Nothing was saved. Reload the page and try again.
-
-**A vendor asks to cancel while suspended.** It can reply to the notice, or use "Manage billing in
-Stripe" on its suspended screen. The portal cancels at the end of the period. For a reply, cancel the
-Stripe subscription at the end of the period, as in "Stripe: annual opt-out", never "Immediately".
-A cancel does not lift or end the suspension. Decide that separately.
-
-**Reinstate a seat after Terminate.** On the seat holder's page choose Reinstate. It lifts the seat
-ban and re-stamps `vendors.owned_at`, so the vendor owns its records again. It restores no
-subscription, no invite and no contest, and the suspension stays terminated. The contests the
-termination moved to AECi stay with AECi. The portal is open again for that seat. Then give the vendor
-its term back.
-
-**Grant the ban term.** Open `/admin/vendors/:id` and the Billing section. The control "Grant
-complimentary subscriptions for the ban term" lists one row per product whose subscription the
-termination ended and that holds no live subscription now. A product drops off the list once any
-subscription on it was created after the ban, even one that has since ended. So a ban-term
-subscription that lapsed or that you revoked does not bring the row back, and the API refuses a second
-grant from the same ended subscription. Each date is prefilled from the ended subscription's
-`ends_at`. Where the date is empty, Stripe could not be read at the time: the control says "Term end
-unknown", and you must enter the date the vendor had paid through. A prefilled date you leave alone is
-sent as stored. Untick a product to leave it on Free. Choose "Review the ban-term subscriptions", then
-confirm with "Grant complimentary subscriptions for the ban term". Since AECI-1615 (2026-11-10) this
-writes one pending grant, and the owner seats get `license-grant-pending`. Nothing is on Managed until an
-owner accepts it on the vendor's Billing tab. Then each subscription is complimentary, assigned to its
-product, with the reference "Complimentary for the ban term", and the vendor gets one
-`licenses-granted` email per end date. A product that took a subscription while the grant waited gets
-its new one unassigned in the pool. A product already named by a pending ban-term grant drops off the
-list. The control refuses while the vendor has no unbanned seat
-(`VENDOR_STILL_BANNED`) and for a product that already holds a live subscription
-(`LICENSE_PRODUCT_ALREADY_LICENSED`). If the last seat is banned again while you grant, the grant
-answers `VENDOR_SEATS_CHANGED` and writes nothing. Each end date must be after today in UTC, the rule
-the API applies, so late in a US evening tomorrow's date may still be refused. A retry of the same
-grant answers 200 and writes nothing, even though the products are subscribed now.
-
-**Any other grant waits for the unban.** Unban first, then grant. The ordinary "Grant subscriptions"
-control refuses a vendor whose every owner seat is banned with `VENDOR_STILL_BANNED` and writes
-nothing (ruled 2026-11-03). A vendor nobody has claimed yet, with no seat at all, is still
-grantable. If the last seat is banned while you grant, the grant answers `VENDOR_SEATS_CHANGED`
-and writes nothing. A retry of a grant made before the ban still answers 200.
-
-**One-off: a vendor banned before AECI-1589.** Before 2026-11-03 a last-seat ban only flagged the
-subscriptions `cancel_at_term_end` with `cancel_reason = 'vendor-banned'` and set the Stripe subscription
-to cancel at period end, marked `aeci_ban_cancel = "true"` in its metadata. Production has no
-Stripe subscriptions, so this concerns staging only. Nothing reads that marker any more, so nothing
-clears or re-applies it. Find the vendor's flagged subscriptions with `VENDOR` set.
-
-```bash
-cd /tmp && npx wrangler d1 execute aeci-app-staging --remote --command "SELECT l.id, l.stripe_subscription_id, l.ends_at FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = '$VENDOR' AND l.ended_at IS NULL AND l.cancel_reason = 'vendor-banned'"
-```
-
-To apply the new rule to such a vendor: reinstate the last seat, which clears the legacy flags, then
-Suspend and Terminate it. To keep the vendor instead: reinstate the seat, then open the Stripe
-subscription in the Stripe Dashboard and choose "Don't cancel", because the old period-end cancel stays
-set until someone clears it. Delete the stale `aeci_ban_cancel` metadata key by hand if it bothers you.
-Nothing depends on it.
-
-## Stripe webhook endpoint disabled
-
-**Signal:** Stripe emails that an endpoint is failing or was disabled, or the reconcile alert fires
-every day for new purchases. Stripe disables an endpoint after days of failed deliveries. Until it
-is enabled again, subscriptions arrive only through the 01:15 reconcile, up to a day late.
-
-1. **Fix the cause first.** Read the failed deliveries in Workbench, Webhooks, the tier's endpoint.
-   A 401 is a secret mismatch: see "Stripe: rotate the webhook secret". A 503 with reason
-   `stripe_unconfigured` is "Stripe webhook answers 503". A 503 with reason `http_error` is the
-   Stripe subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A 503 with reason
-   `ban_dead_cancel_failed` is a terminated vendor's Stripe subscription whose cancel failed again: see
-   "The cancel failed" under "Vendor suspension and termination". A lasting 401 or 403 means
-   `STRIPE_SECRET_KEY` is wrong or revoked, so push the right key. A 404 means the deployed Worker has no
-   route yet, which is expected before the AECI-1339 promote reaches that tier.
-2. **Enable the endpoint** in Workbench, Webhooks, the endpoint, Enable.
-3. **Resend what matters.** Stripe keeps events for 30 days. Resend the failed
-   `checkout.session.completed` and `invoice.paid` events from the endpoint's event list. A
-   replay of an event we already handled answers 200 `replay`, so resending is safe.
-4. **Or wait for the reconcile.** It syncs every Stripe subscription at 01:15 UTC and backfills a missing
-   acceptance. Lost `invoice.payment_failed` emails are not resent by it.
-
-## Stripe: rotate the webhook secret
-
-Do this when the secret may have leaked, or when a 401 `mismatch` shows the two sides disagree.
-The steps are for production. For demo use `STRIPE_WEBHOOK_SECRET_DEMO` and `--env demo`.
-
-1. **Prep.** Have the Stripe Dashboard open on the live account, and a shell in the repo root.
-2. **Roll the secret in Stripe.** Workbench, Webhooks, the endpoint, Roll secret. Let the old
-   secret expire in 24 hours, not now. Until then Stripe signs each event with both secrets, and
-   the verifier accepts either `v1=` signature.
-3. **Store the new secret in GitHub**, so every later promote pushes it. The command prompts for
-   the value.
-
-```bash
-gh secret set STRIPE_WEBHOOK_SECRET_PRODUCTION
-```
-
-4. **Push it to the Worker now**, so you need no promote. The command prompts for the value.
-
-```bash
-pnpm --filter @aeci/api exec wrangler secret put STRIPE_WEBHOOK_SECRET --env production
-```
-
-5. **Check a delivery.** Send a test event from the endpoint or wait for a real one. It must answer
-   200, and `aeci.webhooks.stripe.signature_failure` must stay at 0.
-
-## Stripe webhook answers 503
-
-**Signal:** Stripe shows deliveries answered 503 with `reason: stripe_unconfigured` in the body.
-
-**What it means.** `STRIPE_WEBHOOK_SECRET` is set on the tier, so the signature passed, but
-`STRIPE_SECRET_KEY` is not. The webhook cannot re-read the Stripe subscription, so it refuses with a
-retryable 503 and writes nothing. This is kept on purpose: Stripe retries a 503 for three days, so
-no event is lost while the key is missing. A 200 would drop it.
-
-1. Push the key. Set `STRIPE_SECRET_KEY_PRODUCTION` (or the tier's suffix) in GitHub, then push it
-   to the Worker. Each command prompts for the value.
-
-```bash
-gh secret set STRIPE_SECRET_KEY_PRODUCTION
-```
-
-```bash
-pnpm --filter @aeci/api exec wrangler secret put STRIPE_SECRET_KEY --env production
-```
-
-2. Stripe's next retry succeeds. If retries have stopped, follow "Stripe webhook endpoint disabled"
-   from step 2.
-
-## Stripe: set the webhook endpoint API version
-
-Stripe renders each event in its endpoint's API version. That version must equal
-`STRIPE_API_VERSION` in `apps/api/src/lib/stripe.ts`, today `2026-09-30.endive`. Stripe fixes an
-endpoint's version when it is created, and an existing endpoint cannot change it. So a wrong version
-means a new endpoint.
-
-1. **Prep.** Have the Stripe Dashboard open on the tier's account, and the Stripe CLI logged in to
-   it.
-2. **Read the version.** Workbench, Webhooks, the endpoint, shows its API version. If it already
-   reads `2026-09-30.endive`, stop.
-3. **Create a new endpoint** at that version, with the same URL and the same five events:
-   `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`,
-   `customer.subscription.updated` and `customer.subscription.deleted`. The Dashboard creates at the
-   account's default version only, so use the API or the CLI and pass the version. This is the
-   production command. For demo, run it in the demo sandbox with `https://demo.aecintegrations.com`.
-
-```bash
-stripe webhook_endpoints create --live --url https://www.aecintegrations.com/api/webhooks/stripe --api-version 2026-09-30.endive -d "enabled_events[]=checkout.session.completed" -d "enabled_events[]=invoice.paid" -d "enabled_events[]=invoice.payment_failed" -d "enabled_events[]=customer.subscription.updated" -d "enabled_events[]=customer.subscription.deleted"
-```
-
-4. **Swap the secret.** The output carries the new endpoint's `secret`. Store and push it as in
-   "Stripe: rotate the webhook secret" steps 3 and 4.
-5. **Delete the old endpoint** in Workbench. While both exist, each event arrives twice. The second
-   copy answers 200 `replay`, because the `stripe_events` row has the event id, so the overlap is
-   safe. Only the old endpoint's deliveries fail, with 401, once the secret is swapped.
-6. **Record the new endpoint id** in `.context/stripe-setup-checklist.md` or the epic.
-
-## Turning on Stripe in production
-
-Run once, in this order (AECI-1339, the P7 switch-on). Each step depends on the one before it.
-Until step 8, production keeps `STRIPE_CHECKOUT_ENABLED="false"`, so no vendor sees Pay by card.
-
-1. **Prep: re-set the staging secrets under their tier names.** The staging values sit in GitHub
-   under the unsuffixed names, which no workflow reads (`environments.md`, "Stripe secrets per
-   tier"). Set the two suffixed names, then delete the old pair. Each `set` prompts for the value.
-
-```bash
-gh secret set STRIPE_SECRET_KEY_STAGING
-gh secret set STRIPE_WEBHOOK_SECRET_STAGING
-gh secret delete STRIPE_SECRET_KEY
-gh secret delete STRIPE_WEBHOOK_SECRET
-```
-
-2. **Set the webhook endpoint API versions** on staging, demo and live, by "Stripe: set the webhook
-   endpoint API version". Push each new secret before the next step.
-3. **Confirm the live portal configurations.** In the live account, Settings, Billing, Customer
-   portal. The monthly configuration must have quantity update off and plan switching off, with
-   cancel at period end on. The annual one must match: cancel at period end on, no immediate
-   cancel, no proration (AECI-1516). A quantity change in the portal would bypass the Add
-   subscriptions pro-rating, and a plan switch would mix intervals. Also in the live account's customer
-   email settings, turn on emails for successful payments. Stripe attaches the
-   invoice PDF, with its renewal footer, only when these are on (AECI-1596).
-4. **Rehearse on demo** with a sandbox test card. Demo ships `STRIPE_CHECKOUT_ENABLED="false"`
-   while it mirrors production, so first set it to `"true"` in the `demo` block of
-   `apps/api/wrangler.jsonc` and in `apps/api/src/stripe-secrets-ci.spec.ts`, merge, and promote
-   to demo. Then: buy 2 annual with `PILOT2026`, assign one, add 1,
-   open Manage billing in Stripe, cancel the annual Stripe subscription at period end and check the tab
-   says it will not renew, cancel a monthly Stripe subscription, and trigger a failed payment
-   with `stripe trigger invoice.payment_failed`. Check three AECI-1596 items: the renewal disclosure
-   sits above the terms box on Stripe's page, the invoice PDF carries the renewal footer, and each
-   cancel sends `renewal-cancelled`. A customer linked before AECI-1596 has no footer, and no
-   backfill exists, so rehearse with a new vendor. Production had no Stripe customers at that date. Record the run in `STAGE_2_1_REHEARSAL.md` style.
-5. **Get the lawyer read** of the Managed plan agreement, including the tax line. If counsel
-   changes the text, bump the version in both registries and append `1.0` to
-   `LEGAL_AGREEMENT_KNOWN_VERSIONS` (`packages/shared/src/api/agreements.ts`).
-6. **Promote to production** as usual. The promote pushes the two `_PRODUCTION` secrets and creates
-   the reconcile queue.
-7. **Re-enable any disabled endpoint.** Stripe may have disabled the live endpoint while the route
-   did not exist. Follow "Stripe webhook endpoint disabled" from step 2. Then confirm the live
-   endpoint's next deliveries answer 200. Do this before step 8, so the first purchase has a
-   working webhook.
-8. **Flip `STRIPE_CHECKOUT_ENABLED`** to `"true"` in the `production` block of
-   `apps/api/wrangler.jsonc`, and update the matching expectation in
-   `apps/api/src/stripe-secrets-ci.spec.ts`. Merge, then promote again.
-9. **Move the reconcile liveness date.** In `observability/posthog/project-config.json`, set the
-   `stripe-reconcile` entry's `activeFrom` (today the placeholder `2026-11-15T02:00:00Z`) to the
-   step 6 promote plus one day, at `02:00:00Z`. It may ride the step 8 change. Delete it once the
-   first production heartbeat is in.
-
-**Rolling back.** Set `STRIPE_CHECKOUT_ENABLED` back to `"false"` and promote. The panel hides and
-the checkout routes answer 503. The webhook and the reconcile keep running, so existing Stripe
-subscriptions stay in sync.
-
-## Pilot vendor terms: set, extend, end
-
-Not an alert. This is the operator procedure for a pilot vendor's free Managed term.
-
-*As revised 2026-10-19 (AECI-1404, E6.1):* a subscription now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 45-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with subscriptions (AECI-1375). The older procedures are in git history.
-
-**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends on its end date with no operator step.
-
-**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary subscriptions granted with "Pilot" in the grant notes. The notes go to the audit trail only. A calendar reminder per vendor is optional now. It is only useful to decide on an extension before the end date.
-
-### 1. Start the pilot
-
-1. Open the vendor at `/admin/vendors/:id?tab=billing`.
-2. Choose **Grant subscriptions**. Number: one per product in the pilot. Source: Complimentary.
-3. Set the start date to the sign-on date and the end date to the sign-on date plus one month.
-4. Put "Pilot" and the sign-on date in **Notes**.
-5. Confirm.
-6. Tell the vendor's owner to accept the grant on its own Billing tab, then assign the subscriptions to products there. A grant assigns nothing.
-
-*As built 2026-11-10 (AECI-1615):* the grant waits until an owner accepts it, so no subscription exists before then. If the pilot has a signed deal, record it instead (see "Grant subscriptions: record a signed deal, withdraw a pending grant"). The warning email below starts once the grant is accepted.
-
-The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 45-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
-
-### 2. Extend the pilot
-
-Do this **before** the end date. On the end date itself, do it before 11:00 UTC.
-
-1. Open the vendor at `/admin/vendors/:id?tab=billing`.
-2. On each live `licenses` row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
-3. Confirm.
-
-Extend resets the subscription's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins. The run rolls that term back, reads it again once, and ends only the subscriptions still on the term. An extended subscription stays live.
-
-### 3. The pilot ends
-
-Nothing to do. On the end date, the 11:00 UTC run ends every live subscription of the term.
-
-| Effect | Detail |
-|---|---|
-| Subscription | `ended_at` is set. `end_reason` is `lapsed`, or `released` for a subscription the vendor flagged "release at renewal". The subscription keeps its product as history. |
-| Plan | Each product on an ended subscription moves to the Free plan, unless the account holds a live unassigned subscription that does not end yet. Then the products assigned longest move onto those subscriptions and stay Managed (decision 12, AECI-1405). Seats, logins and everything the vendor entered stay. |
-| Portal | The plan-ended banner shows once no subscription is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
-| Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
-| Cache | The product and vendor pages are purged. |
-| Owner contests | A lapse moves no contest. Since ruling 14 (2026-11-09, AECI-1663) an owner decides contests on its connector-powered rows on any plan. Older `integration.contest.rerouted` rows with source `license-lapse-cron` are from the retired ruling B, and those contests stay with AECi. |
-
-To end a pilot **early**, revoke the subscriptions on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked` and emails `managed-ended` per product. It moves no contest (since AECI-1663).
-
-To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried` and `lapse_batch_failures`. A raced term is rebuilt once from a fresh read. A non-zero `lapse_batch_failures` is a term that raced twice, or a D1 error. Either way the next run reads that term again.
-
-### 4. Undo a wrong lapse
-
-A lapse is terminal. An ended subscription never comes back, and Extend works on live subscriptions only. So a wrong lapse is undone with a new grant plus a re-assign.
-
-1. Open the vendor at `/admin/vendors/:id?tab=billing`. Choose **Grant subscriptions** with the same number, source and reference as the ended subscriptions, and the correct end date. This is the extend.
-2. Ask the vendor's owner to accept the new grant and re-assign the subscriptions to the same products from its own Billing tab. There is no admin assign. Until the owner accepts and assigns them, the products stay on Free. Since AECI-1615 the grant waits for that accept unless you record a signed deal.
-
-The accept emails `licenses-granted`. The `managed-ended` email has already gone, so tell the vendor that Managed is back. The Managed-field content was never removed, so nothing else needs restoring.
-
-### `lapsed` versus `revoked`
-
-A pilot that ends on schedule reads as `lapsed` in the audit log and in reports (`license.lapsed`). One flagged "release at renewal" reads as `released`. A revoke stays `revoked`. Rows written before 2026-10-19 show scheduled pilot ends as `revoked` with the reason "Pilot ended". Treat those as normal pilot ends. The vendor sees no difference: the banner reads "Your Managed plan has ended" for every cause.
-
-## Grant subscriptions: record a signed deal, withdraw a pending grant
-
-Not an alert. The operator procedure for a grant that must not wait for the owner's click, and for
-taking back a grant nobody should accept. Since AECI-1615 (2026-11-10, counsel Q5) every grant waits as
-"Waiting for acceptance" until an owner ticks the box on the vendor's Billing tab
-(`VENDOR_SIGNUP_PROCESS.md` §3 step 5). A grant nobody accepts expires at its end date on its own.
-
-### Record a signed deal
-
-Use this only when a person with authority for the vendor has signed a deal that names the Managed plan
-agreement by version and date and says that signing accepts it.
-
-1. Have the signed deal open. Check it names the current Managed plan agreement version. The grant form
-   refuses any other version, because a substituted version needs a new acceptance.
-2. Open the vendor at `/admin/vendors/:id?tab=billing` and choose **Grant subscriptions**.
-3. Fill in the grant as usual: number, source, dates, reference and notes.
-4. Open **Recorded signed deal**. Enter the signer's name and role, the company's legal name, the
-   signer's email, the deal reference, the version and date the deal names, and the date it was signed.
-   Tick the box that the deal says signing accepts the agreement.
-5. Confirm. The message reads "Active: recorded signed deal". The subscriptions are in the vendor's pool
-   now, and the vendor gets `licenses-granted`. The owner sees no prompt.
-
-Check the Grants table on the same tab: the row reads Accepted with method Signed deal. The acceptance
-row records the signer, the deal reference and the signed date, and no IP address.
-
-### Withdraw a pending grant
-
-Use this when a grant was made in error, or its deal fell through before an owner accepted.
-
-1. Open the vendor at `/admin/vendors/:id?tab=billing` and find the row in **Grants** that reads
-   "Waiting for acceptance".
-2. Choose **Withdraw**. Enter the reason, up to 500 characters. It stays in AECi's records and is not
-   sent to the vendor.
-3. Confirm. The row reads Withdrawn. No email goes out and no page changes.
-4. Tell the vendor's owners yourself if they already saw the `license-grant-pending` email.
-
-If the answer says the grant is no longer waiting, an owner accepted it or it expired first. Reload the
-tab. An accepted grant's subscriptions are ended with **Revoke** on each subscription row, as in
-"Pilot vendor terms: set, extend, end".
-
-## Ownership records not reaching the review app
-
-Not a paging alert yet. Use this when the review app shows a vendor's records as editable
-after a claim approval, or when `aeci.ownership_sync.delivery` shows anything but
-`delivered` and `stale` (AECI-1418, `REVIEW_APP_PROMOTE_API.md` §4d).
-
-**Read the ledger first.** Every delivery attempt is one `ownership_sync_deliveries` row
-(`DATABASE_SCHEMA.md` §9.14). The `--filter` runs it in `apps/api`, so `--env production`
-resolves the binding from `wrangler.jsonc`. Put the vendor's id in place of `VENDOR_UUID`.
-
-```bash
-pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, reason, attempt, outcome, http_status, error FROM ownership_sync_deliveries WHERE vendor_id = 'VENDOR_UUID' ORDER BY created_at DESC LIMIT 10"
-```
-
-| Latest outcome | Meaning | Do |
-|---|---|---|
-| `unconfigured` | The tier has no `REVIEW_APP_OWNERSHIP_URL` or `_TOKEN`. Expected on staging and demo. On production a promote cannot ship without both (AECI-1427), so a secret was deleted out of band | Restore both (`environments.md` "Ownership receiver per tier"), promote, then re-send the vendor |
-| `permanent` with `401` or `403` | The token does not match the review app's | Rotate the pair on both sides, then re-send |
-| `permanent` with `404` | The review app has never stored this vendor id. The daily `ownership_sync_unknown_vendor` data-quality check (`warn`) lists it too | Expected for a vendor the review app never promoted. Otherwise check the id mapping in the review app, then re-send |
-| `exhausted` | Six attempts over about 15 minutes all failed with a retryable status | Check the review app is up, then re-send |
-| no row at all | The message was never enqueued (`aeci.ownership_sync.enqueue{outcome:failed}` or `unbound`) | Re-send |
-| no row, with `aeci.ownership_sync.delivery{outcome:read_failed}` | The record could not be built. Either D1 failed, or under v2 (`REVIEW_APP_MIRROR_SCHEMA` = `"2"`) a stored value fails its v2 content schema. The warn, or the error on the last attempt, carries the Zod issue and its field path | Fix the stored value in the live app, then re-send |
-
-**Re-send one vendor.** The record is the whole current state, so a re-send is always safe.
-Read the queue id, dry-run, then apply with that id in place of `QUEUE_ID`. Production needs Chris's go-ahead.
-
-```bash
-pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production
-pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --vendor VENDOR_UUID
-pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --vendor VENDOR_UUID --apply --allow-production --queue-id QUEUE_ID
-```
-
-**The first backfill (ruling Q7).** The same script without `--vendor` sends one message per
-vendor with `owned_at` set. Run it once per tier after that tier's receiver is live. The
-dry run prints the vendors. The script writes nothing to D1. It needs
-`CLOUDFLARE_API_TOKEN` with Queues Edit and D1 Read, and `CLOUDFLARE_ACCOUNT_ID`.
-`--local --apply` is refused: the local queue lives inside `wrangler dev`, so approve a claim
-locally instead.
-
-## A legal change notice did not go out
-
-Not a paging alert. Use this when a published material version's card on `/admin/legal` shows a
-company under "Not reached", when "Not yet delivered" stays above zero an hour after a send, when
-the queue line says the notice did not finish, or when a company says it never got the notice
-(AECI-1620, `VENDOR_SIGNUP_PROCESS.md` §3 step 12).
-
-**Read the card.** Every state below is something the card shows. The company counts come from
-`legal_notice_deliveries` (one row per company), the address counts from `notification_sends`
-(each address once, by its latest send).
-
-| The card shows | Meaning | Do |
-|---|---|---|
-| "The last send queued N companies", Not reached 0, Not yet delivered 0 | Every company was delivered | Nothing |
-| Not yet delivered above 0 | Those companies' messages are waiting or retrying (10, 20, then 30 minutes apart) | Wait an hour. Each one ends as Delivered or under "Not reached" |
-| "Waiting too long": a company with "Queued for more than two hours. Send the notice again." | Its row is still queued with no update for two hours, longer than the retries take. The message is gone (the consumer died on its last attempt, or its last write failed) | Press "Send the notice again" before the effective date. After it, the company moves to "Not reached" |
-| "Delivered, with an address to check": "The email service did not confirm one of its addresses, so that email may not have arrived." | A send timed out or threw after it may have reached Resend. Its key is kept, so a re-send will not retry it | Check Resend's log for that message. If it did not go, contact the company directly |
-| "Delivered, with an address to check": "One of its addresses was held by this tier's email rules and got nothing." | Off production the tier policy held an outside address. Expected on demo and local; never on production | On production, read the `email-suppressed-in-production` alert. Elsewhere, nothing |
-| "The notice did not finish queuing" right after every company was queued | The delivery rows could not be written (`aeci.legal_notice: could not record …`), so the fan-out reported itself incomplete even though the messages went | Press "Send the notice again": it rewrites the rows, and the keys stop a second email |
-| "The notice did not finish queuing. It stopped after queuing N companies" | The audience read or a queue send failed (`aeci.legal_notice.enqueue{outcome:failed}`), or `LEGAL_NOTICE_QUEUE` is unbound (`outcome:unbound`). The companies it could not queue are listed as "It could not be added to the send queue." | Press "Send the notice again". An unbound queue means a deploy missed the binding: check `wrangler-legal-notice.spec.ts` and the tier's deploy first |
-| "No outcome is recorded yet" | Still queuing, or the outcome write failed after the queue took the messages | Refresh after a minute. If it stays, send again |
-| Not reached: "The stored PDF did not match the published copy." | The object at `pdf_key` in `UPLOADS` is not the file the publish hashed, or it is gone | Restore the published file. Never re-run `legal-pdf.yml` over it (it refuses). Then send again |
-| Not reached: "The seat email addresses could not be read." | Supabase Auth was down, or `SUPABASE_SERVICE_ROLE_KEY` is missing. Nothing was sent to that company | Fix Auth or the secret, then send again. On local dev without the key this is expected |
-| Not reached: "The email service refused one or more of its addresses." | Resend answered non-2xx after every retry. The address line shows them under "Addresses failing" | Check Resend status and the sending domain, then send again |
-| Not reached: "Email sending is not set up on this tier." | No `RESEND_API_KEY` or `EMAIL_FROM` on the tier | Set them, deploy, send again |
-| Not reached: "The site address is not set, so the link could not be built." | `PUBLIC_SITE_URL` is unset | Set the var, deploy, send again |
-| Not reached: "A database or service read failed." | A D1 or R2 read threw on every attempt | Check D1 and R2 health, then send again |
-| Not reached: "No seat or billing email to send to." | The company has no unbanned seat (Vendor Terms) or owner seat (Managed plan) with an address, and no billing email | Ask the company for a billing email, or add a seat, then send again |
-| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect |
-
-**Read the logs** for detail. In PostHog Logs, search `aeci.legal_notice`. Each error names the
-`legal_version_id`, the `vendor_id` and the version, and carries `reason_code`. The last attempt
-says "the message is dropped".
-
-**Send again is always safe.** It re-reads the audience and queues every company not yet
-delivered. Each address is keyed
-`legal-terms-change:{document}:{version}:{vendorId}:{recipientHash}`, so an address already
-reached for that company gets nothing. It refuses once the version has taken effect, because the
-email says it has not.
-
-**What went to one address.** Hash the address and read the ledger:
-
-```bash
-pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, outcome, dedupe_key FROM notification_sends WHERE notification_id = 'legal-terms-change' AND recipient_hash = 'HASH' ORDER BY created_at DESC LIMIT 20"
-```
-
-## Review-app mirror drift
-
-Pages through the existing `data-quality-error` alert. Use this when the daily
-`aeci.data_quality.check{check:review_mirror_drift}` gauge is above 0 or is -1 (AECI-1455).
-
-**What it means.** For every owned vendor the check builds the v2 ownership record we would
-send now, then asks the review app for the hash of the last v2 record it accepted
-(`REVIEW_APP_PROMOTE_API.md` §4d). A line means the review app is curating from a stale or
-absent copy of that vendor's records. It runs only when the tier sends v2
-(`REVIEW_APP_MIRROR_SCHEMA` is `"2"`) and both receiver secrets are set. Otherwise it is
-skipped and reads 0.
-
-**Read the lines first.** Open `/admin/system`, run the data-quality checks, and read the
-`review_mirror_drift` sample. Each line names the vendor id and one of five causes.
-
-| Line says | Meaning | Do |
-|---|---|---|
-| `missing on the review side` | The review app holds no record for this vendor | Read the vendor's ledger ("Ownership records not reaching the review app" above). A `404` there is the unknown-vendor case. Otherwise re-send the vendor |
-| `the review side holds no v2 record` | The review app last accepted a v1 record | Expected once, right after the v2 flip and before the backfill. Afterwards, re-send the vendor |
-| `hash differs` | The review app's v2 record is older than the live state | A mirrored edit did not deliver. Read the ledger, then re-send the vendor |
-| `build_failed` | A stored value on this vendor's records violates the v2 contract, so the record cannot be built. The text after it is the builder's error, cut at 200 characters. The queue consumer is retrying this vendor too, and drops it after its last attempt, so nothing reaches the review app | Fix the stored value the error names, then re-send the vendor. Other vendors are still checked, so the rest of the sample is real |
-| `partial` | The review app holds this exact record, but did not apply every part of it. The number is its `skipped` count (AECI-1488). Typical causes are a product it could not bind or an endpoint it does not hold | Do not re-send first: the same record skips the same parts again. Read which parts were skipped on the review side (AECI-1490). Fix the cause there, or on our side if it names a live value. Then re-send the vendor |
-
-The re-send is the `--vendor` command in the section above. The record is the whole current
-state, so a re-send is always safe. Production needs Chris's go-ahead.
-
-**The value is -1.** The versions read failed: a network error, a timeout after 10 s, a
-non-2xx answer, or a body that failed the schema. The check's `error` text on
-`/admin/system` names which. A `401` or `403` means the token pair is out of step. A `404`
-on the versions path means the review app's receiver does not serve the versions read yet.
-
-**Many vendors drift at once.** Look for one cause before re-sending vendor by vendor. A
-review-app deploy that changed how it stores records, or a v2 field change on our side
-(`review-mirror-fields.ts`), moves every hash. Fix the cause, then run the full backfill
-below.
-
-## Turning on the v2 ownership mirror in production
-
-Run once, in this order (AECI-1413). Each step depends on the one before it. AECI-1455 runs
-it on production starting 2026-10-27. The var is `"2"` there from that deploy on.
-
-1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
-   of AECI-1413 must be shipped, and so must AECI-1491, which accepts
-   `products[].fromProposalRef` (AECI-1489). The live receiver answers `400` to a v2 record
-   it does not parse, and the consumer treats a `400` as permanent. So a flip before this
-   step drops every send.
-2. **Flip the production var.** Set `REVIEW_APP_MIRROR_SCHEMA` to `"2"` in the
-   `production` block of `apps/api/wrangler.jsonc`, and update the matching expectation in
-   `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is
-   a plain var, not a secret, so it ships with the deploy.
-3. **Re-send every owned vendor as v2.** Read the queue id, dry-run, then apply with that
-   id in place of `QUEUE_ID`. Needs Chris's go-ahead. Run it before the next 04:00 UTC
-   data-quality run. Until it lands, every owned vendor's mirror holds a v1 record, so
-   `review_mirror_drift` reads above 0 and the `data-quality-error` alert pages.
-
-```bash
-pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production
-pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production
-pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --apply --allow-production --queue-id QUEUE_ID
-```
-
-4. **Expect `review_mirror_drift` to read 0 on the next daily run** (04:00 UTC). To check
-   sooner, run the data-quality checks on `/admin/system` once the queue has drained. Any
-   line left is triaged with "Review-app mirror drift" above.
-
-**Rolling back.** Set the var back to `"1"` and promote. The check then skips, and the
-consumer sends v1 again.
-
----
-
 ## Brand asset removal (AECI-1618)
 
 Use this when `aeci.brand_assets.removal.run` reports `outcome:failed`, the liveness sweep says `brand-asset-removal` is missing, or a company's logo is still there more than 14 days after its claim ended.
@@ -3570,7 +2319,7 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 6. A company that got a seat back before the run is not due. The seat return clears `claim_ended_at`, the hold and the removed stamp, and the logos stay. That is correct.
 7. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 
-An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK.md` §6a.
+An objection from a logo owner is a different path: `docs/runbooks/listing-submissions.md` §6a.
 
 ## Acceptance evidence removal (AECI-1636)
 
@@ -3590,163 +2339,10 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
 
-## A company is blocked on the acceptance screen and has no working owner seat (AECI-1677)
+## Runbooks kept in other files
 
-Once a Vendor Terms version is in force, a company with no acceptance of a version in force sees
-only the acceptance screen, and only an owner seat can accept (ruling 24,
-`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.24). A company whose owners are all banned, or which has only
-member seats, cannot unblock itself. Its member seats see "Your company has no owner seat that can
-sign in." Find these companies before the effective date, not after.
+The index of every runbook is [`README.md`](./README.md).
 
-1. **Before the effective date, list who has not accepted.** On `/admin/legal`, open "Who has
-   accepted" and read the "Not yet" list for the version that will take effect. Each name links
-   to `/admin/vendors/:id`.
-2. **Check each company's seats.** On the vendor page, Seats tab: a company needs at least one
-   seat marked owner that is not banned. Note every company with none.
-3. **Find the person who should own it.** Use the claim on record or the member seats. Confirm
-   with the company, in writing, who has authority to accept for it.
-4. **Make that person an owner seat.** On the vendor page, provision a seat for their email
-   (`POST /api/admin/vendors/:id/seats`, §5.7). It creates an owner seat, or promotes an
-   existing member seat to owner, with its audit row.
-5. **Tell them.** Reply to the company: an owner seat now exists, and the next sign-in shows the
-   acceptance screen. Do not accept on their behalf: an acceptance is the company's act.
-6. **After the effective date,** a member seat that writes in about the screen gets the same
-   steps 2 to 5.
-
-## Accessibility barrier report (AECI-1673)
-
-Use this when someone tells the support inbox (`support@aecintegrations.com`) that something on the site stops them from using it. The statement at `/accessibility` says "We reply within 10 business days." It is hidden until AECI-1687, but treat a barrier report the same way now. Ruling 22 set that window, and a missed self-set deadline is evidence against us (counsel Q40). `STAGE_1_SPEC.md` §27.6 governs the page.
-
-1. Reply within 10 business days of receipt, every time. Count from the day the email arrives. Thank them and restate the barrier as you understand it. Say what happens next. Do not promise a fix date unless you can meet it.
-2. File a Linear issue in the **Bugs** project. Put the page address, the browser and assistive technology, and the reporter's words in it. Never put their email address in it.
-3. If the report needs a workaround to reach the content, such as a review, a correction or a claim, offer to do it for them by email.
-4. When the fix ships, tell the reporter.
-5. A letter that cites the ADA, threatens suit or comes from a lawyer is not a barrier report. Follow the demand-letter runbook (AECI-1674): insurer first, hold notice, then an attorney. Do not reply to the substance yourself.
-
-## Removal requests
-
-Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** There are two tools. The listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052) takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact. The value hide (§11d.7) blanks one value on a vendor-held record while AECi checks it, and shows "Under review" in its place.
-
-**What "hidden" means.** Counsel's Q20 answer says a reversible hidden state "will normally meet the practical purpose of removal". It "does not meet an order or duty requiring deletion of the underlying data". Retained data "remains discoverable". So a hide never answers an order to delete. Send any deletion order to Chris before you act.
-
-### Which requests oblige us to act
-
-Counsel's table, from the Q20 and Q21 answers of 2026-11-04 (`LEGAL_COUNSEL_RECORD.md`). The decision rule was recorded on AECI-1238 the same day. The first three columns are that rule. The last column maps it to the tool we have.
-
-| # | Request | Obliged? | Action | In the admin panel |
-|---|---|---|---|---|
-| 1 | A vendor asks to be removed, and the listing is accurate | No | Refuse politely. Offer the correction route. | No hide. |
-| 2 | A vendor says the listing is inaccurate, and we cannot verify either way | No. But knowingly keeping a materially false listing risks a claim under Fla. Stat. 501.204 (FDUTPA) | Investigate. Hide the contested value pending verification. Correct what is proved. Record receipt, verification, interim hide and decision. Act in days. | A single value on a vendor-held record: the value hide ("Hide a value" below). Once it is proved wrong, correct it with a field correction (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5), which ends the hide. On an AECi-held record, correct it upstream in the review app. A whole listing that is materially false: hide it as `complaint_under_review`. |
-| 3 | The company or product is defunct | Policy | Verify it: a dissolution record, or the product site says it is discontinued. Then take it down. | Hide as `defunct`, with the evidence as the source. |
-| 4 | A trademark or copyright complaint about a name or logo | No for a name, which is nominative use. A compliant DMCA notice (17 U.S.C. 512) or a court order changes that for a logo or screenshot | Name: refuse. Logo or screenshot: the DMCA process or the order. Otherwise refuse. | No hide for a name. A logo under a compliant notice or order: Remove on objection (`LISTING_SUBMISSIONS_RUNBOOK.md` §6a). An order that covers the whole listing: hide as `lawful_order`. |
-| 5 | A defamation claim about a listing's text, not a review | Vendor-authored text: Section 230 applies, and a bare notice creates no duty. Our own text: correct or remove it if proved false | Investigate with proof. Hide pending verification. Correct our own text when it is proved false. Fla. Stat. 770.01's presuit notice rule applies to media defendants. | One text value on a vendor-held record: the value hide ("Hide a value" below). A whole listing: hide as `complaint_under_review`. Correct our own text upstream in the review app and promote it. |
-| 6 | A court order, or lawful government process | Yes, within its scope | Comply. An informal government request is not an order. | Hide as `lawful_order`, with the order as the source. An order that requires deletion goes to Chris first. |
-| 7 | A request about a named person, not a company | No general right. The Florida Digital Bill of Rights does not reach us | Refuse, unless it is personal data we hold in a review. Handle that under the privacy policy. | No hide. |
-| 8 | A cease-and-desist letter from a vendor that never claimed its listing and has no contract with us | No. It is a demand, not an obligation | Reply with the correction route as a process we offer, never as terms we impose. Never admit falsity. | No hide. |
-
-Two further rules from the same answers:
-
-- **Notice and a dispute route are not required by statute.** Both bind us once a policy promises them (Q20). The Listing Accuracy Policy promises both. The hide sends the notice and shows the dispute line for you.
-- **A hide is interim, never a finding** (Q21 follow-up, 2026-11-05). The reason you write must not say the listing is false.
-
-### The timeline
-
-Counsel set a clock for a contested value (Q21 follow-up, 2026-11-05, ruling 6 in `LEGAL_COUNSEL_RECORD.md`):
-
-| Step | Deadline | Starts |
-|---|---|---|
-| Hide or flag the value | 2 business days | On receipt of a public source that shows the value is wrong. A bare complaint does not start it |
-| Correct a confirmed error | 5 business days | The same receipt. Only where review confirms the error against the named source |
-| A disputed or complex value | 5 business days | The same receipt. Tell the requester what further verification is needed and when we expect to decide |
-
-A business day is Monday to Friday, excluding US federal holidays, in America/New_York (`apps/api/src/lib/business-days.ts`). Correct sooner when verification is quick, because "damages can grow while a known error stays live" (Q21 follow-up). Counsel set no fixed clock for a whole-listing hide. The rule there is to "act in days, not weeks, on a documented timetable" (Q21 (c)).
-
-The value hide computes the two value deadlines from the received date: "Hide by" (2 business days) and "Decide by" (5 business days), shown on each row under "Values under review". A whole-listing hide has no computed deadline. Count it from the received date by hand.
-
-### Hide a listing
-
-1. **Record the request.** Note the date AECi received it and the link to the public source. A `complaint_under_review` hide is refused without a source link.
-2. **Open the company** at `/admin/vendors/:id`.
-   - A whole company: the Vendor tab, "Listing visibility", **Hide from the public site**.
-   - One product: the Products tab, **Hide** on the product's row.
-3. **Fill in the form.** Pick the kind from the table above. Enter the received date and the source link. Write the reason for the vendor to read. Put anything else in the internal note, which no vendor sees.
-4. **Confirm.** For a company, the confirm step lists every product that will also be hidden. That includes a product shared with another company that stays live (ruled 2026-11-09).
-5. **Check the result.** The company, product and pair pages answer 404 once the queued purge runs. The records leave Algolia through a sync that runs right after the save.
-6. **Tell the requester** by email. A claimed vendor of an affected listing gets a portal notice and a banner automatically. No email goes to it. An unclaimed company gets nothing automatically.
-
-### Restore a listing
-
-1. **Open the company** at `/admin/vendors/:id`.
-   - A hidden company: "Listing visibility", **Restore the listing**. The confirm step lists the products that come back with it.
-   - A product hidden on its own: the Products tab, **Restore** on its row.
-2. **Write the reason** for the vendor to read, and confirm. The pages return once the purge runs. The edge caches a 404 for up to 60 seconds, so a page can lag by that much.
-3. **A product hidden with its company** has a disabled Restore. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
-4. **A product joined to two hidden companies** stays hidden when you restore one of them. It moves under the other company's hide.
-
-### When something looks wrong
-
-- **`409 LISTING_HIDDEN` or `LISTING_NOT_HIDDEN`.** Someone else acted first. Reload the page.
-- **`409 LISTING_CHANGED_WHILE_SAVING`.** The listing changed during the save. Reload and try again.
-- **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see "Algolia sync failed".
-- **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's. A line ending "still hidden by a restored hide" is the reverse. The product's hide row, or its company's hide, was restored without it, and no restore will ever reach it. Check that no company joined to it is hidden. Then clear its `hidden_at` and `hidden_hide_id` with an ops script, and run a by-id Algolia sync for it.
-- **The review app still shows the listing as live.** That is expected. The review mirror does not carry the hide (ADR 0044), and a `REVIEW - ` follow-up covers it.
-
-### Hide a value
-
-Use this for one wrong value on a record a vendor holds: a company, a product the vendor holds, or an integration it holds. An AECi-held record is corrected upstream in the review app instead, and the hide refuses it with `409 FIELD_HIDE_NOT_VENDOR_HELD`. Hiding is an interim step while we verify, not a finding that the value is false.
-
-1. **Record the request.** Note the date AECi received it and the link to the public source. The hide is refused without an https source link.
-2. **Open the company** at `/admin/vendors/:id`. On the Vendor tab, find "Values under review" and choose **Hide a value**.
-3. **Pick the record and the field.** The fields are the ones a field correction offers, plus the company and product descriptions. A product's categories, audiences, phases and trades cannot be hidden, and neither can an integration's name, type or direction.
-4. **Fill in the form.** Enter the received date and the source link. Write the reason for the vendor to read. It must not say the value is false. Put anything else in the internal note. Confirm.
-5. **Check the result.** The public page shows the field blank with "Under review. AEC Integrations is checking this detail." once the queued purge runs. The search record drops the value in a sync that runs right after the save. The vendor gets a portal notice with the reason and the dispute line, and a note on the field. No email goes to it.
-6. **Do it within 2 business days** of the received date. The row's "Hide by" date shows the deadline.
-
-### Decide a hidden value
-
-Decide within 5 business days of the received date. The row's "Decide by" date shows the deadline.
-
-- **The value is right.** Choose **Restore** on the row, and write the reason for the vendor to read. The value returns to the public page.
-- **The value is wrong.** Correct it under "Field corrections" with the source. That ends the hide in the same save, and the page shows "Corrected by AEC Integrations".
-- **You cannot decide yet.** Email the requester what further verification is needed and when you expect to decide. Then choose **Record status reply** on the row, and note what you told them. The note is internal. It changes nothing public.
-- **The vendor changed the value itself.** Its save ended the hide, and the row leaves the list.
-
-The vendor can always edit a hidden field. A save that changes it ends the hide at once, and the new value goes public. If the new value is still wrong, hide it again.
-
-### When a value hide looks wrong
-
-- **`409 FIELD_HIDE_ACTIVE`.** The field is already hidden. Reload the page.
-- **`409 FIELD_HIDE_CLEARED`.** The hide ended before your restore or status reply: someone restored it, corrected it, or the vendor changed the value. Reload the page.
-- **The digest reports `field_hide_decision_overdue`.** A hide is past its "Decide by" date with no status reply. Decide it now, or send the requester a status reply and record it.
-
-### The digest reports `legal_agreement_date_moved` (AECI-1689)
-
-A Vendor Terms or Managed plan agreement version was published with one effective date, and a later commit changed the upcoming entry's `effectiveOn`. The row is now in force nowhere: the page keeps the old version, new acceptances keep stamping it, and the acceptance screen asks nothing. The `/admin/legal` card shows the same alert. The notice that went out named the published date. Move the entry back to that date in a new commit and deploy it. If the published date is truly wrong, the fix is a new version, announced and published again (legal `README.md`).
-
-### The digest reports `legal_agreement_unpublished` (AECI-1689)
-
-An upcoming Vendor Terms or Managed plan agreement version is 30 days or less from its effective moment, or past it, and has no `legal_versions` row on this tier. Without the row it never becomes the version in force: the page keeps "takes effect on <date>" and new acceptances keep the old version. Publish it on `/admin/legal` (legal `README.md` "Publishing an upcoming agreement version"). The publish needs 30 days of notice, so inside 30 days move the effective date instead, unless a Vendor Terms change is expedited. In demo and production the publish is off until `LEGAL_PUBLISH_ENABLED` is turned on, so there the line is expected until that release.
-- **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see "Algolia sync failed".
-
-## Rename a live slug
-
-Not an alert. This is the procedure for changing the slug of a vendor or product that stays live, for example after a rebrand. First used for AECI-1495 (Coda to Superhuman, 2026-10-28). Used again for AECI-1574 (`openasset-connector` to `openasset-source`, product only, `scripts/ops/2026-11-openasset-slug-rename/`). Retiring a row is a different case: it seeds only the redirect.
-
-Slugs are immutable by default (`STAGE_1_PHASE_2_SPEC.md` §6.2). Promote never sends or changes one. Its update branch keeps the stored slug, so a rename has to be done on the app side. There is no admin action for it.
-
-**Use an ops script, not a migration.** A migration only changes data that migrations created. A rename touches rows that exist only in production, and as a migration its redirect rows would land on every fresh database pointing at nothing (ruled 2026-10-28). Copy `scripts/ops/2026-10-coda-slug-rename/`: an `apply.sql`, a `rollback.sql`, and a README with the commands in run order. The SQL does four things, keyed on the production ids:
-
-1. Updates `slug` in place, guarded so it cannot collide with an existing slug.
-2. Sets `updated_at` by hand in the same UPDATE. Raw SQL skips Drizzle's `$onUpdate`, and the Algolia sync is a delta on `updated_at`. Without this the search records keep the old slug.
-3. Seeds one `slug_redirects` row per old slug (`DATABASE_SCHEMA.md` §4.3b). The detail resolvers and the pair route then 301 the old URLs. Since AECI-979 a taxonomy term (`category`, `audience`, `phase`, `trade`) can be mapped the same way, and the browse resolver 301s it.
-4. Writes a `vendor.updated` / `product.updated` audit row with the slug in `before_state` and `after_state`, once, and only where the rename landed.
-
-Test both files on a scratch database built from every migration before running them: apply twice, then rollback twice. Production D1 is reached from `/tmp` as `aeci-app-production-us`. The README holds the full commands.
-
-After the SQL runs, in run order:
-
-1. **Purge the edge, if needed.** The SQL purges nothing, and editing the map has no purge hook (`CACHE_STRATEGY.md` §3 rule 6). Detail pages cache for 900 s, so a stale copy expires by itself. If one must go sooner, run `POST /admin/purge` with the `ADMIN_PURGE_TOKEN` bearer (GitHub secrets, not an admin session) and `{ "tags": [...] }` naming `vendor:` or `product:` with each old and each new slug. A product's old `product:` tag also covers its pair pages.
-2. **Promote the product from the review app, if the display name has not arrived yet.** For AECI-1495 it already had. It also purges the new-slug tags and marks the sitemap dirty. If the vendor has `owned_at` set, promote skips the vendor row, so check that in the preflight read.
-3. **Check the review app's copy of the slug.** Read the review record's `supabaseSlug` with the `aeci-review` read tools. No tool writes it directly. The review app stores the slug a promote returns, so a promote in step 2 is what fixes it. Run that promote even when the name has already arrived.
-4. **Check the discovery queues.** URLs already in `gsc_recrawl_queue` and `indexnow_queue` under the old slug were queued before the mapping existed, and now only 301. The IndexNow drain drops its own copies before sending (`indexnow-drain.ts`), so only the Google queue keeps them. Report them. Do not delete them without a ruling. For AECI-1574 Chris ruled to delete them, once the promote had queued the new-slug URLs. `scripts/ops/2026-11-openasset-slug-rename/delete-queued-old-slug.sql` is the template. It matches with `substr` because D1 rejects a long LIKE pattern as too complex.
-5. **Verify.** With a browser user agent (the WAF answers curl's default with 403), `curl -sI` the old vendor URL, the old product URL and one old pair URL on `www.aecintegrations.com`. Each should return `301` with `location` on the new slug.
+- **Promote, the strand audit, retractions, the ownership mirror, removal requests, slug renames:** [`catalog.md`](./catalog.md).
+- **Subscriptions, Stripe billing, pilot and granted terms, ending a vendor:** [`subscriptions.md`](./subscriptions.md).
+- **Legal events with a deadline (data breach, accessibility demand letter, subpoena, litigation hold):** [`legal.md`](./legal.md).

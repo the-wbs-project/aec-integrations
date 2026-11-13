@@ -36,7 +36,7 @@
 # findings — the withheld count rides on the `unresolvedUpstream` entry as `suppressed`.
 #
 # **This bucket has no repair tool.** Neither `ops:retract-product` nor the datatool prune
-# can touch that table. See `docs/RUNBOOKS.md` before acting on one.
+# can touch that table. See `docs/runbooks/alerts.md` before acting on one.
 #
 # Entries on the script's `HELD_RETRACTIONS` list are reported but do NOT fail the run.
 # A hold names the issue that clears it. Do not add one to quiet the job; a permanently
@@ -92,7 +92,7 @@
 # NEVER heals. The script has no --apply and no write path, and `mcp-client.mjs` refuses any
 # tool outside a read-only allow-list — the same MCP server exposes `promote_product` and the
 # `create_*`/`update_*` family. Every bucket's repair is a deliberate, judgement-bearing
-# operator action. Recipes: docs/RUNBOOKS.md §"Promote strand audit is red".
+# operator action. Recipes: docs/runbooks/catalog.md §"Promote strand audit is red".
 #
 # RATE BUDGET. The review app rate-limits at 100 requests / 10 s keyed on `CF-Connecting-IP`,
 # and the check runs BEFORE auth, so this job shares a budget with anything else on the
@@ -193,7 +193,7 @@ jobs:
             echo "::error::  exit 1 — stranded rows found. Production holds a row no upstream record claims."
             echo "::error::  exit 2 — the audit could NOT run: a missing credential, an incomplete sweep, or a crash. The catalog is unverified, not clean."
             echo "::error::Triage order for exit 1:"
-            echo "::error::  1. docs/RUNBOOKS.md — 'Promote strand audit is red'. Bucket meanings and the repair recipes."
+            echo "::error::  1. docs/runbooks/catalog.md — 'Promote strand audit is red'. Bucket meanings and the repair recipes."
             echo "::error::  2. Read the upstream ruling BEFORE anything else. A stranded row is either an editorial retraction or duplicate residue, and that flips the repair from adopt to delete. Two worked examples, executed end to end: scripts/ops/2026-09-polycam-retraction/README.md (retraction) and scripts/ops/2026-09-procore-followup-retraction/README.md (merge residue)."
             echo "::error::  3. A tripped datatool guard is NOT evidence either way. orphansWithoutATwin is orientation-blind, so it reports 'no twin' on a reverse-orientation duplicate that plainly has one. Go to the claim data. See docs/REVIEW_APP_PROMOTE_API.md 5.1."
             echo "::error::  4. Never delete a row to make this job green. Retraction is a separate authorized action and needs a recorded ruling."

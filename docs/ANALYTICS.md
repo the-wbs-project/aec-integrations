@@ -618,6 +618,10 @@ is a 400 before that point and writes nothing.
   token. A landing view's verdict arrives later by UPDATE on the D1 row, so it is never in an envelope.
 - `ip_hash` is `HMAC(HMAC(secret, 'YYYY-MM'), ip)`. The same address matches within a UTC month and not
   across months. It is null when the secret or the IP is absent.
+  No month key is stored, so "monthly rotation" destroys nothing: every past month's hash can be
+  recomputed while `PAGE_VIEW_IP_HASH_SECRET` survives. A litigation hold therefore keeps that secret
+  unchanged, and copies the affected objects out of the 400-day lifecycle (`docs/runbooks/legal.md`
+  "Subpoena or legal process for a reviewer's identity", AECI-1622).
 
 **What is never in it.** `cookie`, `authorization` and every `cf-access-*` header (the
 Cloudflare Access session JWT, user email and service token on gated tiers). Every IP-bearing header
@@ -662,7 +666,7 @@ The stream has no schema, so the sink has one `value` column holding the envelop
 with `json_extract_string(value, '$.path')`. Do not paste real keys into a shared file.
 
 **Health.** Metric `aeci.pageviews.raw`, alert `pageviews-raw-unsent`, runbook "Raw page-view store missed
-a capture" in `RUNBOOKS.md`. Locally the binding is absent and the write is counted `skipped`
+a capture" in `docs/runbooks/alerts.md`. Locally the binding is absent and the write is counted `skipped`
 (`local-dev.md`).
 
 **Consent.** A capture with `DNT: 1` or `Sec-GPC: 1` writes no envelope, on any outcome (AECI-1386). It
@@ -722,7 +726,7 @@ is the security record. Since AECI-1386 it is also the only record of request de
 visit. The privacy policy says so.
 
 **Health.** Cloudflare's "Logpush job disabled" email to Chris. Runbook "Logpush job disabled" in
-`RUNBOOKS.md`. A missed day is lost unless a GraphQL pull fills it in time.
+`docs/runbooks/alerts.md`. A missed day is lost unless a GraphQL pull fills it in time.
 
 ## 11b. Self-reported attribution
 
@@ -841,7 +845,7 @@ Join a classification to its view on `page_view_classifications.page_view_id = p
 classification objects with the same `read_json` call and their own path.
 
 **Health.** Metric `aeci.pageviews.archive`, alert `pageviews-archive-failed`, runbook "page_views
-archive failed" in `RUNBOOKS.md`.
+archive failed" in `docs/runbooks/alerts.md`.
 
 ## 12. Related
 

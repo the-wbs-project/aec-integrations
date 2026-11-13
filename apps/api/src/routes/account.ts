@@ -776,7 +776,7 @@ export function createDeleteAccountHandler(
     // The D1 data is already erased, so nothing here is fatal. On production a skip
     // or a failure leaves the sign-in identity behind, so both log at error and
     // every outcome is counted (AECI-531). The log carries the user id, the same id
-    // the `account.deleted` audit row holds: it is the orphan list `RUNBOOKS.md`
+    // the `account.deleted` audit row holds: it is the orphan list `docs/runbooks/alerts.md`
     // cleans up from. The metric carries no id. No email or display name goes to either.
     const authResult = erasesSharedAuthIdentity(c.env) ? await deleteAuthUser(c.env, userId) : null;
     const authOutcome: AuthDeleteOutcome = authResult

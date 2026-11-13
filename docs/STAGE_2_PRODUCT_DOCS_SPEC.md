@@ -259,7 +259,7 @@ sidebar toggle, with disjoint URL spaces.
 ├─ trust/                            — SHIPPED (AECI-1249), indexable
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy, stated in full here only. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
 │  ├─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
-│  └─ listing-submissions            — how to suggest a product, the three listing conditions, suggesting vs claiming, what no payment changes (AECI-588; operator side `docs/LISTING_SUBMISSIONS_RUNBOOK.md`). As a General page it links `/vendor-program` for the claim dialog and the plans, never the vendor guide, and it leaves the full "cannot be bought" statement to `how-ranking-works` (B6)
+│  └─ listing-submissions            — how to suggest a product, the three listing conditions, suggesting vs claiming, what no payment changes (AECI-588; operator side `docs/runbooks/listing-submissions.md`). As a General page it links `/vendor-program` for the claim dialog and the plans, never the vendor guide, and it leaves the full "cannot be bought" statement to `how-ranking-works` (B6)
 ├─ reviewers/                        — SHIPPED (AECI-1250; requests-and-corrections by AECI-1248), indexable
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing

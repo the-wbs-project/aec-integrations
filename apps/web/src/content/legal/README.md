@@ -514,7 +514,7 @@ the decision. Run the steps in this order, once per tier.
    should reach "Companies queued" and "Not yet delivered" should reach 0. Every company listed
    under "Companies not reached" has its reason beside it. Fix the cause and press "Send the
    notice again": it queues only the companies not yet delivered and never emails an address
-   twice for one company. `docs/RUNBOOKS.md` "A legal change notice did not go out" has
+   twice for one company. `docs/runbooks/legal.md` "A legal change notice did not go out" has
    the checks. Staging delivers every notice to the support inbox, so a staging publish is the
    rehearsal. A notice can only go before the effective moment: after it, the re-send is
    refused and a queued retry sends nothing.
@@ -530,6 +530,16 @@ notice. Noon UTC falls on the named day from UTC-12 to UTC+11. `legalEffectiveAt
 (`packages/shared/src/api/legal-versions.ts`) is the one conversion. It sets
 `legal_versions.effective_at` and measures the 30-day window. Anything else that has to know when
 a version takes effect should call it rather than build its own date.
+
+## Runbooks behind these promises (AECI-1622, AECI-1674)
+
+Some sentences here are promises about what we do when something happens. The procedure for each is in
+`docs/runbooks/legal.md`. Change the runbook when the promise changes.
+
+| Promise | Document and section | Runbook |
+|---|---|---|
+| We disclose identifying information only in response to legal process, and tell the user first where the law permits | Privacy Policy "How we share data"; Terms of Service | "Subpoena or legal process for a reviewer's identity" |
+| Single-use links "stop working within days" | Privacy Policy "Edge request log" and "Debugging record" | "Data breach (Fla. Stat. 501.171)", recorded checks |
 
 ## Site-wide notice of a material change (spec §27.4, AECI-1592)
 
