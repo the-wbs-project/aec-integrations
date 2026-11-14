@@ -302,11 +302,11 @@ components:
     padding: "{spacing.0} {spacing.6}"
     md_padding: "{spacing.0} {spacing.8}"
     lg_padding: "{spacing.0} {spacing.12}"
-  # A nav link on Forest. The hover wash is Bone at 10%. Text stays Bone.
   # Sign in hover (the Bone main button on Forest). Forest text is 9.46:1 on it.
   button-on-brand-hover:
     backgroundColor: "var(--surface-on-brand-hover)"
     textColor: "{colors.accent-primary}"
+  # A nav link on Forest. The hover wash is Bone at 10%. Text stays Bone.
   header-link:
     textColor: "{colors.accent-warm}"
     typography: "{typography.body}"
@@ -314,10 +314,10 @@ components:
     padding: "{spacing.3} {spacing.4}"
   header-link-hover:
     backgroundColor: "var(--surface-on-brand-wash)"
-  # The active route is weight 600, aria-current and the Clay bar below. Never the bar alone.
+  # Active route: weight 600 and aria-current.
   header-link-active:
     fontWeight: 600
-  # Clay on Forest is 5.29:1. Clay on white is 2.33:1, so there the bar needs the weight and the text colour too.
+  # Panel-open cue under Browse only.
   active-bar:
     backgroundColor: "{colors.accent-secondary}"
     height: "3px"
@@ -360,7 +360,7 @@ components:
     fontWeight: 600
   section-nav-count:
     textColor: "{colors.text-secondary}"
-    fontSize: "0.875rem"
+    fontSize: "0.8125rem"
     fontWeight: 400
   # The footer ground. Ink is Bone. Labels take var(--text-on-footer-secondary).
   footer:
@@ -1520,7 +1520,7 @@ AECI-1771 (header) and AECI-1776 (footer) do not start until he rules. Until the
 | Signed in | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state, so the trigger's Forest styling is open | AECI-1771 |
 | Focus ring | Bone (`--focus-ring-on-brand`), 3px at 3px offset, on every control on Forest. A Forest ring is invisible there | §2, AECI-1747 |
 
-- **Link type.** Nav links are `--t-16` at weight 400, the ramp's "Body, nav links" role (§3). The label is Bone with no opacity change. The mock-up dims it to 92% opacity (line 42), and clash 6 forbids a colour nobody measured.
+- **Link type.** Nav links are `--t-16` at weight 400, the ramp's "Body, nav links" role (§3). The label is Bone with no opacity change. The mock-up dims it to 92% opacity (line 42), and the `no-color-opacity-modifier` source-constraint rule (AECI-1747, on the batch branch) bars a `/NN` alpha on a colour utility. Clash 6 says every colour is a named token.
 - **Link hover.** A `--surface-on-brand-wash` fill (Bone 10%) behind the link, text still Bone. A link hovered on `--surface-on-brand-wash-hover` (16%) over Forest has Bone text only (6.98:1). `--text-on-footer-secondary` is 4.46:1 on that wash and fails. It also fails on Forest hover (4.39:1), so it is never used in the header.
 - **Link shape.** §4 hands the nav hover shape to this section. The mock-up's hover wash is a pill (line 42). It is a hover fill on a text link and not a button, so clash 12's "no pill buttons" does not reach it. Chris to confirm.
 - **Wordmark size.** Starting value 32px high, and 28px below `md` (mock-up lines 497 and 611).
@@ -1532,7 +1532,7 @@ AECI-1771 (header) and AECI-1776 (footer) do not start until he rules. Until the
 Chris ruled NEW on clash 28. The new design wins over the clash recommendation, which had been a 2px underline everywhere.
 
 - **In the header the Clay bar is the panel-open cue.** The mock-up draws it under "Browse" only while the Browse panel is open. It is `scaleX(0)` until the panel opens (lines 629 to 631). It is 3px high with rounded top corners (`3px 3px 0 0`), on the header's bottom edge, 14px in from each side of the label. Clay on Forest is 5.29:1, so it meets the 3:1 floor for a meaning-bearing graphic. On Forest hover it is 3.29:1.
-- **The active route in the header is weight 600 plus `aria-current`.** The mock-up draws no active-route bar. `PLAN.md` §4.7 and AECI-1771 say "the active item has a Clay bar under it". This part holds to the mock-up, and Chris is to confirm. The label reserves its 600 width so the row does not shift when the active item changes.
+- **The active route in the header is weight 600 plus `aria-current`.** The mock-up draws no active-route bar. Clash 28's ruled design is the mock-up's `.cm-trigger::after`, which is `scaleX(0)` at rest and shown only while the panel is open. Weight 600 plus `aria-current` is the floor carried over for the active route and needs no ruling. `PLAN.md` §4.7 says the same. AECI-1771's description says "the active route item has a Clay bar under it", and AECI-1771 follows this part. The label reserves its 600 width so the row does not shift when the active item changes.
 - **`aria-current` is `page` on an exact match and `true` for a section.** Browse is a section: it is `true` on `/products`, `/categories`, `/audiences`, `/trades`, `/phases` and their detail pages. These are the routes that lit the old items, minus Home. How we rank and For vendors are `page` on their own routes. Colour alone never shows the active route.
 - **The section nav's active bar is Clay (R3).** See "The section nav". There the weight and the text colour are the other cues, because Clay is 2.33:1 on white and 2.09:1 on Bone and can never carry the state alone.
 - **Portal, admin and the public in-page router rows keep their rule.** See "Portal and admin rows" below.
@@ -1658,7 +1658,7 @@ The section nav is the in-page jump bar on the product page (`shared/section-nav
 - **Starting values** (lines 144 to 186): `position: sticky; top: 0`, `z-index: 20`, items 44px high with `12px` side padding and a `6px` gap between label and count, the bar `3px` with radius `3px 3px 0 0`, the stuck wordmark `24px` high, the product name at `--t-16` in `--text-secondary` capped at 200px with an ellipsis, and a 40px end fade as the overflow cue (line 186). Below `md` the bar is `64px` high, and the stuck bar shows our monogram and no name (lines 576 and 577).
 - **Open: "Write a review" at the end of the bar.** The mock-up has a button there above `lg` (line 1334). No ruling or issue covers it. AECI-1768 decides whether it ships.
 - **The slide of the bar between items** is motion. Under reduced motion the bar jumps (line 187). AECI-1746 owns the timing.
-- **One shared component.** `section-nav.ts` serves the product page and the vendor page. AECI-1768 restyles the shared component, so the vendor page gets the same bar, items, counts and sticky behaviour straight away. Until AECI-1797 moves the vendor page onto the redesigned shell, it keeps its own page body around the restyled bar. AECI-1797 decides anything else the vendor page needs.
+- **The vendor page is not bound.** `section-nav.ts` serves the product page and the vendor page. AECI-1768 puts the new section nav look behind an input that only the product page sets. The vendor page keeps the shipped section nav until its mock-up (AECI-1791) is approved and AECI-1797 builds it.
 - **Other in-page navs** (the account page's section nav and the docs "On this page" rail) keep their own rules and are not restyled here.
 
 #### The breadcrumb (clash 31, current)
@@ -1720,7 +1720,6 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 | The header's handover breakpoint and the three-link width budget | Needs a measurement at `md` and `lg`, signed out | AECI-1771 |
 | The signed-in account trigger and the pending-review badge on Forest | No mock-up draws them, and neither pairing is measured | AECI-1771 |
 | Whether the account menu's items move off weight 500 | The ramp allows 400 and 600 | AECI-1771 |
-| The active-route mark in the header (weight and `aria-current`) against `PLAN.md` §4.7's Clay bar | See "Active route" | Chris |
 | The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
 | The pill's width bands | See "Header search". The "/" shortcut's WCAG 2.1.4 mechanism is a requirement, not an open value | AECI-1772 |
 | Where the grace timing lives, and the panel layout between the handover and about 1200px (the floor is set) | See "The Browse menu" | AECI-1774 |
