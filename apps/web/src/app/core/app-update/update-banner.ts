@@ -36,10 +36,16 @@ import { AecButton } from '../../shared/button/button';
               border-(--border-default) bg-(--surface-raised) p-4 shadow-lg"
         >
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-(--text-primary)" i18n="@@appUpdate.banner.title">
+            <p
+              class="text-t-14 font-semibold text-(--text-primary)"
+              i18n="@@appUpdate.banner.title"
+            >
               A new version of AEC Integrations is available
             </p>
-            <p class="mt-1 text-sm/6 text-(--text-secondary)" i18n="@@appUpdate.banner.body">
+            <p
+              class="mt-1 text-t-14 leading-6 text-(--text-secondary)"
+              i18n="@@appUpdate.banner.body"
+            >
               Refresh the page to keep browsing.
             </p>
             <button

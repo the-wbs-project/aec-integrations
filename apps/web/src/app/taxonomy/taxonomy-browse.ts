@@ -25,6 +25,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 
 import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * AECI-61 / AECI-544 — shared browse page for `/categories/:slug`,
@@ -77,6 +78,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
 @Component({
   selector: 'aec-taxonomy-browse',
   imports: [
+    AecBreadcrumb,
     BrowseLayout,
     FacetSidebar,
     ListingToolbar,
@@ -96,32 +98,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
       template never depends on where it is instantiated.
     -->
     <ng-template #pageHeader let-t>
-      <nav i18n-aria-label="@@taxonomy.browse.breadcrumbs.aria" aria-label="Breadcrumb">
-        <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
-          <li>
-            <a
-              routerLink="/"
-              class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@taxonomy.browse.breadcrumbs.home"
-              >Home</a
-            >
-          </li>
-          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-          <li>
-            @if (parentLink(); as link) {
-              <a
-                [routerLink]="link"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ parentLabel() }}</a
-              >
-            } @else {
-              <span>{{ parentLabel() }}</span>
-            }
-          </li>
-          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-          <li class="text-(--text-primary)" aria-current="page">{{ t.name }}</li>
-        </ol>
-      </nav>
+      <aec-breadcrumb [items]="crumbs()" />
 
       <h1 class="font-display text-4xl font-semibold tracking-tight md:text-5xl">
         {{ t.name }}
@@ -419,6 +396,13 @@ export class TaxonomyBrowsePage {
    * links.
    */
   protected readonly parentLink = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
+
+  /** Home, the facet index, then the term. The term is the current page. */
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.parentLabel(), link: this.parentLink() },
+    { label: this.term()?.name ?? '' },
+  ]);
 
   protected readonly productCountLabel = computed(() => {
     const count = this.term()?.product_count ?? 0;

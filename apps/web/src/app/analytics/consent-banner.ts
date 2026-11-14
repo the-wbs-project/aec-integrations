@@ -51,7 +51,7 @@ import { AecButton } from '../shared/button/button';
             border border-(--border-default) bg-(--surface-raised) p-5 shadow-lg
             sm:flex-row sm:items-center sm:justify-between"
         >
-          <p class="text-sm/6 text-(--text-secondary)">
+          <p class="text-t-14 leading-6 text-(--text-secondary)">
             <span i18n="@@analytics.consent.message"
               >We use privacy-friendly product analytics to understand how the directory is used and
               make it better. No ads, and we never sell your data.</span
