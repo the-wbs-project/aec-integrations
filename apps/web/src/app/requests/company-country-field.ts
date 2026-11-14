@@ -41,7 +41,7 @@ import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select
     @if (showError()) {
       <p
         [id]="idPrefix() + '-error'"
-        class="text-xs font-medium text-(--text-primary)"
+        class="text-xs font-semibold text-(--text-primary)"
         role="alert"
         i18n="@@requests.listing.country.error"
       >

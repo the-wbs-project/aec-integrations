@@ -52,38 +52,52 @@ colors:
   surface-sticky:              "oklch(100% 0 0 / 94%)"
 typography:
   # The limited ramp (clashes 9 and 17, PLAN.md §4.2): ten sizes, weights 400
-  # and 600. Settled values are real CSS. The fluid size ranges are comments
-  # because no clamp() is ruled yet. AECI-1748 writes the clamp() expressions
-  # with rem bounds and a rem-plus-vw middle term. Weights, line heights and
-  # tracking marked "start" are measured from the mock-ups. AECI-1748 confirms.
+  # and 600. Every value is real CSS. The four fluid sizes are the clamp()
+  # expressions in apps/web/src/styles.css (AECI-1748): rem bounds and a
+  # rem-plus-vw middle term. AECI-1748 confirmed the weights, line heights and
+  # tracking measured from mock-up 6.
   display:
-    # Today's Display, kept for the About and Home heroes and vendor mastheads.
-    # AECI-1748 replaces its size with the --t-display clamp, 40 to 72px in rem.
-    # Start values for --t-display: weight 400, line-height 1, tracking -0.02em.
+    # The Display clamp the About and Home heroes and the vendor masthead
+    # declare (clash 7 rules only on detail pages). Not a ramp token. It does
+    # not render today: those heroes put it on the h1 element, and the unlayered
+    # h1 rule wins, so they show the h1 size (--t-fig, 28 to 40px, weight 600).
+    # AECI-1847 moves the size onto an inner span.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
     fontWeight: 400
     lineHeight: 1.05
     letterSpacing: "-0.01em"
-  statement:
-    # --t-statement, 34 to 56px fluid. Start: line-height 1.1, tracking -0.02em.
+  display-detail:
+    # --t-display, 40 to 72px: the product name on a detail page (clash 7). The
+    # page adopts it when it is rebuilt (AECI-1778).
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)"
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: "-0.02em"
+  statement:
+    # --t-statement, 34 to 56px.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)"
     fontWeight: 400
     lineHeight: 1.1
     letterSpacing: "-0.02em"
   figure:
-    # --t-fig, 28 to 40px fluid. Start: line-height 1, tracking -0.01em.
+    # --t-fig, 28 to 40px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "-0.01em"
   section:
-    # --t-36, 28 to 36px fluid. Start: line-height 1.1, tracking -0.02em.
+    # --t-36, 28 to 36px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1.75rem, 1vw + 1.35rem, 2.25rem)"
     fontWeight: 600
     lineHeight: 1.1
     letterSpacing: "-0.02em"
   headline:
+    # --t-fig, the global h1 rule. Same pixels as before the ramp.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
     fontWeight: 600
@@ -546,16 +560,36 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 
 - **Weights are 400 and 600** (clash 9). Bold 700 stays only for inline emphasis, as before. Weight 500 survives on exactly two chips that copy the live site: the maintenance marker (`.mchip`) and the agreement badge (`.agree`). Both are 12px at 500, matching §5 Badges "The public chip". They stay at 12px, which is already today's smallest text size. It is not a general weight.
 - **What may sit at `--t-12`.** Overlines, the two 500 chips above, and field captions (12px, 20px line height). Counts sit at `--t-13` (`PLAN.md`).
-- **Tailwind mapping: to confirm.** AECI-1748 remaps Tailwind's `text-*` scale onto these tokens. It decides where `text-lg` (18px) and `text-3xl` (30px) land, because neither is on the ramp. That mapping table goes here when AECI-1748 lands. Until then the `text-*` names in §5 describe today's code.
+- **Tailwind mapping (AECI-1748).** Every `text-*` size utility resolves to a ramp token. `styles.css` overrides Tailwind's `--text-*` theme variables, so the call sites did not change. Each step keeps Tailwind's own line height, so no multi-line text lost leading. The mapping changes as little as it can: five steps keep their pixels. This applies on every surface, the vendor portal and admin included.
+
+  | Utility | Before | Token | After, 320 / 768 / 1280 / 1920px wide | Line height |
+  | -- | -- | -- | -- | -- |
+  | `text-xs` | 12px | `--t-12` | 12px, unchanged | 16px (1.333) |
+  | `text-sm` | 14px | `--t-14` | 14px, unchanged | 20px (1.429) |
+  | `text-base` | 16px | `--t-16` | 16px, unchanged | 24px (1.5) |
+  | `text-lg` | 18px | `--t-20` | 20px | 1.556, so 31px |
+  | `text-xl` | 20px | `--t-20` | 20px, unchanged | 28px (1.4) |
+  | `text-2xl` | 24px | `--t-24` | 24px, unchanged | 32px (1.333) |
+  | `text-3xl` | 30px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.2 |
+  | `text-4xl` | 36px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.111 |
+  | `text-5xl` | 48px | `--t-fig` | 28 / 31.2 / 40 / 40px | 1 |
+  | `text-6xl` to `text-9xl` | 60 to 128px | `--t-display` | 45.7 / 56.4 / 68.7 / 72px | 1 |
+
+  - **`text-lg` lands on `--t-20`, not `--t-16`.** Most `text-lg` call sites are serif names and titles. Dropping them to 16px would break the Serif-Floor Rule, and `--t-20` is the card-title step. The sans ledes at `text-lg` carry `leading-relaxed`, so they keep 1.625.
+  - **`text-3xl` and `text-4xl` both land on `--t-36`.** It is the nearest step at every width, and both are used as section headings and figures. The common `text-3xl md:text-4xl` pair now renders one fluid size.
+  - **`text-5xl` lands on `--t-fig`.** Its only live use off a heading is the vendor portal's glance figure, which is a Figure. At `--t-statement` it rendered 56px at 1440px, larger than the portal's h1.
+  - **`text-6xl` to `text-9xl` are unused.** They land on `--t-display` so no utility can render off the ramp.
+  - **The ramp itself is exposed as `text-t-12` to `text-t-display`**, each with its role's line height: 20px for `--t-12` (the field caption), 1.4 for `--t-13`, 1.5 for `--t-14`, 1.6 for `--t-16`, 1.5 for `--t-20`, 1.25 for `--t-24`, 1.1 for `--t-36` and `--t-statement`, and 1 for `--t-fig` and `--t-display`. New code uses these names. A role that needs another leading at the same size adds a `leading-*` utility.
+  - **A `text-*` utility on an `h1`, `h2` or `h3` element is still dead.** See the Unlayered-Heading Rule. Most `text-3xl` to `text-5xl` call sites sit on headings, so the remap does not move them.
 - **Serif never sits on a sans-only step.** `--t-12` to `--t-16` are sans. Serif starts at `--t-20`.
 
 ### Hierarchy
 
-- **Display** (Source Serif 4, 400): clash 7 (new) allows it on detail pages, where it is the product name at `--t-display`, 40 to 72px fluid. Start values from the mock-up: line-height 1, tracking -0.02em. The About and Home heroes stay at today's Display clamp (`clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em), because clash 7 rules only on detail pages. The home hero is re-decided in its own mock-up issue (AECI-1789). The vendor masthead stays Display, as clash 7's recommendation names vendor pages. Used at most once per page. Statement is the pair page's Display use and counts toward that once. An H1 at this size follows the Unlayered-Heading Rule: put the size on an inner `<span>`.
+- **Display** (Source Serif 4, 400): clash 7 (new) allows it on detail pages, where it is the product name at `--t-display`, 40 to 72px fluid. Start values from the mock-up: line-height 1, tracking -0.02em. The About and Home heroes declare today's Display clamp (`clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em), because clash 7 rules only on detail pages. That clamp does not render: both heroes put it on the `h1` element, and the unlayered `h1` rule beats it, so they show the h1 size (`--t-fig`, 28 to 40px, weight 600). AECI-1847 moves the size onto an inner `<span>`. The home hero is re-decided in its own mock-up issue (AECI-1789). The vendor masthead stays Display, as clash 7's recommendation names vendor pages. Used at most once per page. Statement is the pair page's Display use and counts toward that once. An H1 at this size follows the Unlayered-Heading Rule: put the size on an inner `<span>`.
 - **Statement** (Source Serif 4, 400, `--t-statement`, 34 to 56px fluid, line-height 1.1, tracking -0.02em): the pair page statement, its H1 (clash 7, new). It is the pair page's one display-scale line.
 - **Figure** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1, tracking -0.01em): score and count figures (clashes 8 and 9). **One large figure per band** (clash 8, blend). The figure is Forest and sits at the Score Display role (§5 → Score Display). Every other number in the band drops to inline text. The hero-metric template stays banned (§6).
 - **Section** (Source Serif 4, 600, `--t-36`, 28 to 36px fluid, line-height 1.1, tracking -0.02em): section headings, the H2 on a detail page. Clash 9's blend added a larger section-heading role to the system. This is it.
-- **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages that are not detail pages. This is today's value, kept. It equals the `--t-fig` range (28 to 40px). The ramp names no H1 token, so the token for it is open.
+- **Headline** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1.15, tracking -0.005em): page H1 on content pages that are not detail pages. AECI-1748 put the global `h1` rule on `--t-fig`. Its clamp is the pre-ramp h1 value, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, so no h1 moved.
 - **Title** (Source Serif 4, 600, `--t-24`, 1.5rem / 24px, line-height 1.25): sub-headings and section H2 within long-form content.
 - **Card title** (Source Serif 4, 600, `--t-20`, 1.25rem / 20px, line-height 1.1): the name on a card (`.card .nm` in the mock-up).
 - **Lede** (Atkinson Hyperlegible Next, 400, `--t-20`, 1.25rem / 20px, line-height 1.5): lede text under a heading (clash 9, blend). The mock-ups set it in the body sans. The blend named a lede role of about 1.1875rem. The ramp snaps it to 20px.
@@ -566,25 +600,39 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 
 Floors that hold whatever the ramp: the smallest text is 12px, body is 16px, prose measure is 65 to 75ch, and all text meets AA contrast (§2). No token goes below `--t-12`.
 
-**Fluid tokens use rem.** Each fluid bound is in rem, and the middle term is rem plus vw. They are checked at 200% zoom (WCAG 1.4.4). Do not copy the mock-ups' `clamp(40px, 5vw, 72px)` style values. Px bounds and a viewport-only middle term ignore the reader's font size and zoom.
+**Fluid tokens use rem.** Each fluid bound is in rem, and the middle term is rem plus vw. Each doubles by 300% zoom at every window width (WCAG 1.4.4; 300% is Safari's limit). Do not copy the mock-ups' `clamp(40px, 5vw, 72px)` style values. Px bounds and a viewport-only middle term ignore the reader's font size and zoom.
 
-### Open values (set by AECI-1748 and AECI-1749)
+### Settled values (AECI-1748)
 
-The weights, line heights and tracking stated above are starting values measured from the mock-ups. AECI-1748 confirms them. These stay open:
+AECI-1748 confirmed the weights, line heights and tracking stated above. They are the values measured from mock-up 6: Display 400, 1, -0.02em; Statement 400, 1.1, -0.02em; Section 600, 1.1, -0.02em; Figure 600, 1, -0.01em; Lede sans 400, 1.5; field caption 12px on a 20px line. It settled these too:
 
-- The `clamp()` expressions for the four fluid tokens, written to the rem rule above. `PLAN.md` gives the pixel bounds only, not the viewport widths.
-- The Tailwind `text-*` mapping table, including where `text-lg` and `text-3xl` land (AECI-1748).
-- The token for the H1 on content pages (Headline role).
-- The sizes of the global `h1`, `h2` and `h3` rules in `styles.css`, which the Unlayered-Heading Rule quotes (AECI-1748).
-- Any stray size that reaches the build snaps to the ramp (AECI-1749). The 18px card title is `text-lg`, so its landing step belongs to the mapping above (AECI-1748).
+- **The fluid clamps.** All four use rem bounds and a rem-plus-vw middle term, and all reach their upper bound by 1440px, the mock-up canvas. `--t-36` leaves its lower bound at 640px. `--t-fig` keeps the pre-ramp h1 clamp, which runs from 640px to 1120px and equals the mock-up's `2.5vw + 12px`. `--t-statement` and `--t-display` need a larger rem share to double by 300% zoom: the rem term is at least half the upper bound, and the vw term is the upper bound minus the rem term, divided by 1440.
+
+  | Token | `clamp()` | 320px | 768px | 1280px | 1920px | Doubles at zoom: 1280 / 1920px window, worst width |
+  | -- | -- | -- | -- | -- | -- | -- |
+  | `--t-36` | `clamp(1.75rem, 1vw + 1.35rem, 2.25rem)` | 28 | 29.3 | 34.4 | 36 | 246% / 244%, 257% |
+  | `--t-fig` | `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)` | 28 | 31.2 | 40 | 40 | 286% / 267%, 286% |
+  | `--t-statement` | `clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)` | 35.8 | 43.8 | 53 | 56 | 277% / 258%, 287% |
+  | `--t-display` | `clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)` | 45.7 | 56.4 | 68.7 | 72 | 281% / 258%, 290% |
+
+  Sizes are CSS px at 100% zoom. Browser zoom shrinks the CSS viewport and grows the rem, so a fluid size grows less than the zoom factor until it reaches its lower bound. Each token doubles by 300% zoom at every width, which is Safari's zoom limit. `design-tokens.guard.spec.ts` checks every window from 320px to 4000px. The last column gives the zoom where each token doubles, and the worst case over all widths. WCAG 1.4.4 asks that text can reach 200%. It does not require that at exactly 200% zoom.
+- **The Tailwind mapping.** The table is under "The type ramp" above.
+- **The Headline token** is `--t-fig`.
+- **The global heading rules** sit on ramp tokens at the same pixels as before: `h1` at `--t-fig`, `h2` at `--t-24`, `h3` at `--t-20`. They stay unlayered. See the Unlayered-Heading Rule.
+- **The `/docs` headings snapped to the ramp.** The page title went from 30px to `--t-36`, the article h2 from 22px to `--t-24` and the article h3 from 18px to `--t-20`.
+- **Weight 500 left the public pages** except the maintenance marker and the agreement badge. AECI-1748 moved the public and shared templates' `font-medium` to `font-semibold`, keeping the emphasis the author meant. An in-text link takes no weight class at all, because it inherits the sentence's type (the Link Treatment Rule). It left 500 on surfaces another issue rebuilds: chips (AECI-1763), buttons and toggles (AECI-1758 to AECI-1762), tabs and section navs (AECI-1768), and the header and menus (AECI-1771, AECI-1774, AECI-1775). The vendor portal and admin were not edited.
+
+### Open values (set by AECI-1749)
+
+- Any stray size that reaches the build snaps to the ramp (AECI-1749). That covers the arbitrary `text-[…]` sizes and the `.aec-plan-price` 32px figure in `styles.css`.
 
 ### Named Rules
 
 **The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
 
-**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. The live `/docs` h3 (serif, 1.125rem) is off the ramp until AECI-1748.
+**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. AECI-1748 moved the `/docs` article h3 from 18px to `--t-20`.
 
-**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (today h1 `clamp(1.75rem…2.5rem)`, h2 1.5rem, h3 1.25rem) and the author's intent never renders. Two consequences:
+**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (h1 `--t-fig`, 28 to 40px; h2 `--t-24`; h3 `--t-20`) and the author's intent never renders. Two consequences:
 
 - **To size a heading, put the `text-*` utility on an inner `<span>`**, not on the heading element. The span inherits the display face from the heading and takes its own size. (`product-powered-hub.ts` does this for its card titles.)
 - **Don't "fix" it by moving the block into `@layer base` without an audit.** Doing so silently resizes every heading that currently carries a losing `text-*` utility — at the time of writing that is ~7 surfaces, including the `/search` integration hit card (`text-base` → would drop 1.25rem → 1rem, which the Serif-Floor Rule then forbids; the product and vendor hit cards no longer use a heading element, so the rule does not reach them), `browse-grid`, `products-pair` mechanism titles, `admin-shell`, and both taxonomy `h1`s. The block being unlayered is a bug, but unwinding it is its own scoped piece of work with per-surface decisions, not a drive-by.
@@ -925,7 +973,7 @@ group's rows.
 - **Header:** `surface-sunken` fill with a `border-default` bottom rule. Contents in order: a chevron
   (the `chevron-down` icon, rotated 180° when open), the subject's logo, the subject name at
   `--t-20` (the card title role) on an inner `<span>` (the Serif-Floor Rule — the size cannot go on the `<h3>`, see the
-  Unlayered-Heading Rule), and the group size at `--t-13` in text secondary. The shipped code still says `text-lg` (18px), which is off the ramp, until AECI-1748 maps it.
+  Unlayered-Heading Rule), and the group size at `--t-13` in text secondary. The shipped code says `text-lg`, which AECI-1748 maps to `--t-20`, so the name renders 20px.
 - **Behavior is hand-rolled, not Angular Aria.** A `<button aria-expanded aria-controls>` inside the
   `<h3>`, over a `role="region"` panel hidden with the `hidden` attribute. Aria's accordion renders
   its panel through a client-only `afterRenderEffect`, which would ship an empty card to crawlers on
@@ -1191,7 +1239,7 @@ the product row, so the two can never drift apart visually.
 - **(Superseded) Taxonomy reads as a summary and writes in a modal** (AECI-915). The four facets shipped as fieldsets of `aria-pressed` toggle chips — 107 chips on one screen — which made "what is this tagged as" a visual diff and left the per-term descriptions nowhere to go. Now each facet is a card in a **two-column grid**: name, a right-justified pencil, and one row per *assigned* term. This is the exception the "Don't use modals as the first thought" rule contemplates — the alternatives were tried and shipped, and the read case and the write case genuinely want different densities. The picker (`vendor/components/vendor-taxonomy-facet-dialog.ts`) is a `BrnDialog` opened imperatively from the click handler (never an `effect()`, NG0602), and every row is a `<label>` wrapping a real `<input type="checkbox">` so the whole row is the click target and the keyboard and ARIA behaviour is native rather than re-implemented over `role="checkbox"`. **Its Save persists**, because there is no `CanDeactivate` guard on this app and a Save that only staged would lose work silently; a failure keeps the modal open with the draft and puts the error inside it.
 
 - **The Overview is a landing page, not an inventory** (AECI-983, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). Three blocks: the access strip, a glance band, and a "What needs you" list of whole-row links (`rounded-(--radius-md)` bordered rows, a Lucide severity icon, a status pill, an `aria-hidden` chevron with `rtl:-scale-x-100`). Row hover moves the **surface** (`hover:bg-(--surface-sunken)`), never the border, for the cascade reason recorded above. Pill border tones are the unlayered `.aec-pill-conflict` / `.aec-pill-attention` classes in `styles.css`, the same escape hatch as `.aec-nav-tab`.
-- **The glance band reuses the former home stats-card vocabulary, with two departures** (`vendor/components/vendor-glance-band.ts`). The home cards were deleted in AECI-1554; the vocabulary stands here: three `rounded-(--radius-lg)` `--surface-raised` cards, a `font-display text-5xl` figure, a quiet `--text-secondary` line, and every label row `min-h-9 md:min-h-12` so the figures align even when a label wraps at `md`. **A zero is never a bare 0**: it renders a sentence ("No conflicts", "None open"). *(2026-11-14, R2: the portal takes the new tokens and nothing more. Clash 8's one large figure per band and clash 25's large zero are public-page rules, so the three figures and the sentence at zero stay here. `text-5xl` is off the ramp, and AECI-1748's mapping lands it.)* **Departure one: a non-zero conflict figure is `--status-error`**, not Forest. `conflict` is the one sanctioned red, and a conflict count that reads like good news defeats the tile. At zero there is no figure, so red never appears for good news. **Departure two: tile hover moves the surface**, not the border, because a border-colour utility does not apply here. **Only a tile with something to do is a link.** At zero, In conflict and Suggestions are plain cards with a 32px Forest check badge. With work waiting, the tile is a link with a badge beside the figure: a red X for conflicts, a Forest "!" for open suggestions. The badges are `aria-hidden`; the figure and the link's `aria-label` carry the state.
+- **The glance band reuses the former home stats-card vocabulary, with two departures** (`vendor/components/vendor-glance-band.ts`). The home cards were deleted in AECI-1554; the vocabulary stands here: three `rounded-(--radius-lg)` `--surface-raised` cards, a `font-display text-5xl` figure, a quiet `--text-secondary` line, and every label row `min-h-9 md:min-h-12` so the figures align even when a label wraps at `md`. **A zero is never a bare 0**: it renders a sentence ("No conflicts", "None open"). *(2026-11-14, R2: the portal takes the new tokens and nothing more. Clash 8's one large figure per band and clash 25's large zero are public-page rules, so the three figures and the sentence at zero stay here. AECI-1748 maps `text-5xl` to `--t-fig`, so the figures render 28 to 40px.)* **Departure one: a non-zero conflict figure is `--status-error`**, not Forest. `conflict` is the one sanctioned red, and a conflict count that reads like good news defeats the tile. At zero there is no figure, so red never appears for good news. **Departure two: tile hover moves the surface**, not the border, because a border-colour utility does not apply here. **Only a tile with something to do is a link.** At zero, In conflict and Suggestions are plain cards with a 32px Forest check badge. With work waiting, the tile is a link with a badge beside the figure: a red X for conflicts, a Forest "!" for open suggestions. The badges are `aria-hidden`; the figure and the link's `aria-label` carry the state.
 - **The Views period toggle is an `aria-pressed` button set, not Angular Aria.** The tile was removed on 2026-10-13 (Chris). The glance band shows two tiles until AECI-941 rebuilds Views with a real figure and this toggle. Aria@22 ships no radio group (ADR 0010), and the admin date-range control (`admin/traffic/traffic.html`) already made this call, so the vendor surface follows the shipped precedent: a `fieldset` with an sr-only legend, a sunken segmented track, and the pressed segment filled Forest by the unlayered `.aec-period[aria-pressed='true']` rule, which also sets the pressed segment's focus ring to Forest so it does not vanish. Visible "1d", accessible name "1d, last day" (WCAG 2.5.3).
 - **The connector seat's Catalogue tab (labeled "Catalog" since AECI-1262) is a row card, not a table** (AECI-1083, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). It shows only on a `connector`-role product, last in the product row. The listings sit in the product list's bordered `--surface-raised` card, one row each: the name in the body face at 16px (on a span, because the `h3` element rule is unlayered serif), a "View listing" link, then each match as a phrase with a quiet `--surface-sunken` "Counts toward reach" pill. The admin triage table needs 64rem, so the portal does not borrow it. Edit opens the form inline under its row, capped at `max-w-2xl`; one form at a time, focus moves in on open and back to Edit on close. Disabled buttons swap to the sunken surface rather than dimming. Text blocks are capped at 52ch, because `npx impeccable detect` measured ~96 characters a line at 65ch in Atkinson.
 - **(Superseded by AECI-1218) The plan panel had a compact strip for the quiet state.** Plans moved to the product level (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 2), so the full panel lives on each product's overview. The vendor overview first carried a one-line plan summary; that is gone too, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The compact strip and the "Account access" heading are gone.
@@ -1246,7 +1294,7 @@ Three surfaces, home → section → article (`apps/web/src/app/docs/`), all ins
 - **Sidebar tree** (`nav` named "Help center" on the General guide): "Help center" first, then each General section in manifest order, its pages indented under a `--border-default` start-edge guide line. A single-page section is one item. **On a vendor guide page the tree is the vendor guide's own** (AECI-1265): a `nav` named "Vendor guide", then "Vendor guide" and its pages, overview and claiming first (AECI-1271). The URL alone picks the tree, so the SSR HTML is the same for every visitor. All groups are expanded. Items are `text-sm` `--text-secondary`, no icons. The current page is a `--surface-sunken` rounded pill with `--text-primary` medium text and `aria-current="page"` (`routerLinkActive`, exact match, so a section item is current only on its own index). From `lg` the tree is sticky at the viewport top, at most one viewport tall, and scrolls on its own when it is longer. The site header is not sticky, so nothing sits above it.
 - **Top bar** over the content only, with a hairline under it. Left: a slash breadcrumb derived from the URL *(2026-11-14: clash 31 rules the separator `›`, and AECI-1777 moves this trail onto the shared breadcrumb, §5 Navigation "The breadcrumb")*. "Help center", then the section, on the General guide. On the vendor guide the trail starts at "Vendor guide", which is its one section (AECI-1271). Ancestors are links. The current place is text with `aria-current="page"`. On an article the trail stops at the section, as DeepWiki's does, because the `h1` names the page. Right, articles only, from `sm`: the pre-formatted "Last updated" line in `--text-secondary`.
 - **Below `lg`** the tree becomes a panel under the top bar, closed by default. A bordered icon button at the start of the top bar ("Docs menu", `aria-expanded`, `aria-controls`) toggles it. Escape and any navigation close it. DOM order is top bar, panel, page at every width, so the SSR HTML is identical for every visitor.
-- **Article column** (`docs-page.ts`): a centred 42rem column. A Source Serif `h1` at 1.875rem (`.aec-docs-title`, the Headline role brought down from a hero), one muted lede line from the frontmatter description, then `.aec-prose aec-docs-prose`. No overline. Docs `h2`s are 1.375rem and `h3`s 1.125rem, both serif at or above the 18px floor. *(2026-11-14: 1.875rem, 1.375rem and 1.125rem are off the type ramp (§3), and the serif floor is now 20px. AECI-1748 snaps them to the ramp. The sizes are not decided here.)* Below `sm` the "Last updated" line moves under the lede.
+- **Article column** (`docs-page.ts`): a centred 42rem column. A Source Serif `h1` at `--t-36`, 28 to 36px (`.aec-docs-title`, the Headline role brought down from a hero), one muted lede line from the frontmatter description, then `.aec-prose aec-docs-prose`. No overline. Docs `h2`s are `--t-24` and `h3`s `--t-20`, both serif at or above the 20px floor. *(AECI-1748 moved them from 1.875rem, 1.375rem and 1.125rem, which were off the type ramp (§3).)* Below `sm` the "Last updated" line moves under the lede.
 - **Heading ids.** Every body `h2` and `h3` has a stable GitHub-style slug id, unique per page, built at manifest time (`docs-markdown.ts`). The template renders the headings itself, because the `[innerHTML]` sanitizer strips `id`. Headings carry `scroll-margin-top: 1.5rem`.
 - **"On this page" rail** (`docs-toc.ts`), from `xl` only, sticky at the far right of the content. One short dash per `h2`, the closing "Related" excluded, none at all below two headings. The current dash is longer and `--text-primary`. Others are `--text-tertiary`, which holds the 3:1 non-text floor because a closed dash is the link's only visible mark. Each link is at least a 24px target (WCAG 2.2 target size), which sets the dash pitch. Hover or keyboard focus opens it into a bordered `--surface-base` panel listing the headings. The labels are visually hidden, never removed, so the links stay named. Links are plain anchors to the article path plus `#id`, opted in to the smooth in-page jump. This lands with AECI-1752, in review. Until then they are router links with a fragment. The first dash is current in the SSR HTML; an `IntersectionObserver` moves it only after the first browser render.
 - **Plans comparison** (`docs-plans-comparison.ts`, `/docs/vendors/plans` only; its two cards are `shared/plan-cta/plan-cards.ts`, shared with `/vendor-program`): the one place the docs use cards. Placed by a `<!-- docs:plans-comparison -->` widget line and rendered outside `.aec-prose`. Two plan cards side by side from `sm` (stacked below): `--surface-raised`, 1px `--border-default`, `rounded-lg` (24px on the new scale), no shadow. Only the components §4 names take `--shadow-card`, and whether the plan cards join them is open (AECI-1765). Managed carries the 2px `--accent-primary` featured border. Each card: a 20px serif plan name, a one-line summary, a 2rem serif price with a `text-sm` unit, one action (Free: a hairline-ringed "Claim your listing" button at the Managed button's size; Managed: the Forest-filled "Claim your listing", the surface's one accent action; both actions open the claim dialog, AECI-1293. E8.1 removed the inquiry line and reply promise, and E8.2 retired "Start with Managed", both 2026-10-19), then a benefit list ("Includes" / "Everything in Free, plus"). Under the cards, the sort rule on a Bone (`--accent-warm`) band. Then a three-column comparison table: hairline row rules, uppercase `text-xs` group rows (`th scope="colgroup"`), a Forest check or a `--text-tertiary` dash per cell with a visually hidden "Included" / "Not included", or a printed value (price, billing). Labels say what the vendor gets, not the portal control's name. Unshipped work never appears in it. Classes are unlayered `.aec-plan-*` in `styles.css`. Mobbin anchor: Mintlify's billing page, screen `c74405c6-a307-4e35-b8eb-21a1129ce5f3`.

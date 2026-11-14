@@ -56,7 +56,7 @@ import { ConsentService } from './consent';
               make it better. No ads, and we never sell your data.</span
             >&ngsp;<a
               routerLink="/legal/privacy"
-              class="font-medium text-(--accent-primary) underline underline-offset-2
+              class="text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
               i18n="@@analytics.consent.privacyLink"
               >Read our Privacy Policy</a

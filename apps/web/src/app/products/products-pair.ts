@@ -874,7 +874,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                 <button
                   type="button"
                   (click)="showLatest()"
-                  class="mt-3 rounded-(--radius-sm) text-xs font-medium text-(--accent-primary)
+                  class="mt-3 rounded-(--radius-sm) text-xs font-semibold text-(--accent-primary)
                     underline underline-offset-2 focus-visible:outline-2
                     focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                   i18n="@@pair.version.showLatest"
@@ -1257,7 +1257,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                           aecTrackExternalLink="pair_detail"
                           [aecLinkContext]="link.context"
                           class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
-                            text-xs font-medium text-(--text-secondary) underline
+                            text-xs font-semibold text-(--text-secondary) underline
                             decoration-(--border-strong) underline-offset-4 transition-colors
                             hover:text-(--text-primary) focus-visible:outline-2
                             focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"

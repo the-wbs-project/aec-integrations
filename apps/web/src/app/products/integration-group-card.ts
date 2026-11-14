@@ -106,9 +106,9 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             @if (logoName(); as name) {
               <aec-logo-or-initial [src]="logoSrc()" [name]="name" size="sm" />
             }
-            <!-- text-lg = 1.125rem, the Serif-Floor Rule's minimum for the display
-                 face (DESIGN.md §3). The size lives on the SPAN because
-                 styles.css declares h3 { font-size: 1.25rem } OUTSIDE any cascade
+            <!-- text-lg resolves to the ramp's --t-20 (AECI-1748), the smallest serif
+                 step (DESIGN.md §3). The size lives on the SPAN because
+                 styles.css declares h3 { font-size: var(--t-20) } OUTSIDE any cascade
                  layer, and unlayered rules beat every Tailwind utility, so a
                  text-* utility on the h3 itself is silently dead. See DESIGN.md
                  §3 "The Unlayered-Heading Rule". -->
@@ -139,7 +139,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             [routerLink]="target"
             [attr.aria-label]="linkAriaLabel()"
             class="ms-auto inline-flex shrink-0 items-center rounded-(--radius-md) px-3 py-1.5
-              text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong)
+              text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong)
               underline-offset-4 transition-colors hover:text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"
