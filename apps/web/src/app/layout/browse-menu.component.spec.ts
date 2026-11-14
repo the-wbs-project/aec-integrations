@@ -232,6 +232,27 @@ describe('BrowseMenu', () => {
     expect(TestBed.inject(Router).url).toBe('/trades/hvac');
   });
 
+  it('panel links are plain hrefs that the eager panel box routes, so they work unhydrated', async () => {
+    const { panel } = await render();
+    for (const link of Array.from(panel().querySelectorAll('a'))) {
+      // No RouterLink and no listener inside the lazy body: nothing to replay.
+      expect(link.hasAttribute('ng-reflect-router-link')).toBe(false);
+      expect(link.hasAttribute('jsaction')).toBe(false);
+    }
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    panel().querySelector('a[href="/phases"]')!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    await TestBed.inject(Router).navigateByUrl('/'); // reset
+  });
+
+  it('leaves a modified click to the browser (new tab or window)', async () => {
+    const { panel } = await render();
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
+    panel().querySelector('a[href="/phases"]')!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(TestBed.inject(Router).url).not.toBe('/phases');
+  });
+
   it('draws the Clay cue only while open', async () => {
     const { trigger, settle } = await render();
     const cue = trigger.querySelector('[data-browse-cue]')!;

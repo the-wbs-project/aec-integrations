@@ -4,10 +4,8 @@ import {
   Component,
   computed,
   input,
-  output,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { type BrowseMenuModel, EMPTY_BROWSE_MENU } from '../core/taxonomy/browse-menu-model';
@@ -39,11 +37,18 @@ const TEXT =
  * The terms and counts wait for the first browser render (`ready`). The server
  * renders none, and a block hydrated later must start from the same empty lists
  * the server sent, or hydration would meet DOM it did not expect.
+ *
+ * Every destination is a plain `<a href>` with no listener and no `RouterLink`.
+ * So the server HTML carries no event-replay marker inside this block, and a link
+ * works before the block hydrates, or if its chunk never loads (a tab left open
+ * across a deploy). The menu's panel box (`browse-menu.ts`) is eager and catches
+ * the click: it closes the menu and routes in the app. Without it the browser
+ * follows the href.
  */
 @Component({
   selector: 'aec-browse-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AecIcon],
+  imports: [AecIcon],
   host: { class: 'mx-auto block max-w-7xl px-8 pt-12 pb-8' },
   template: `
     <div class="grid grid-cols-5 gap-x-6 xl:gap-x-8">
@@ -55,7 +60,7 @@ const TEXT =
         >
           Explore
         </p>
-        <a routerLink="/products" (click)="navigate.emit()" [class]="linkClass">
+        <a href="/products" [class]="linkClass">
           <span [class]="keyTextClass" i18n="@@app.nav.browse.allProducts">All products</span>
           @let total = shown().totalProducts;
           @if (total !== undefined) {
@@ -72,11 +77,7 @@ const TEXT =
         <ul aria-labelledby="browse-col-key">
           @for (term of shown().keyCategories; track term.id) {
             <li>
-              <a
-                [routerLink]="['/categories', term.slug]"
-                (click)="navigate.emit()"
-                [class]="linkClass"
-              >
+              <a [href]="'/categories/' + term.slug" [class]="linkClass">
                 <span [class]="keyTextClass">{{ term.name }}</span>
                 <span [class]="countClass">{{ countText(term.product_count) }}</span>
               </a>
@@ -93,11 +94,7 @@ const TEXT =
           <ul [attr.aria-labelledby]="'browse-col-' + column.kind">
             @for (term of column.terms; track term.id) {
               <li>
-                <a
-                  [routerLink]="[column.path, term.slug]"
-                  (click)="navigate.emit()"
-                  [class]="termLinkClass"
-                >
+                <a [href]="column.path + '/' + term.slug" [class]="termLinkClass">
                   <span [class]="termTextClass">{{ term.name }}</span>
                   <span [class]="countClass">{{ countText(term.product_count) }}</span>
                 </a>
@@ -105,8 +102,7 @@ const TEXT =
             }
           </ul>
           <a
-            [routerLink]="column.path"
-            (click)="navigate.emit()"
+            [href]="column.path"
             class="mt-2 inline-flex items-center gap-2 rounded-mark py-2 text-t-16 font-normal text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >{{ column.seeAll }}<aec-icon name="arrow-right" decorative [size]="4"
           /></a>
@@ -121,8 +117,6 @@ const TEXT =
 })
 export class BrowsePanel {
   readonly menu = input.required<BrowseMenuModel>();
-  /** Any destination was chosen: the menu closes. */
-  readonly navigate = output<void>();
 
   private readonly ready = signal(false);
 

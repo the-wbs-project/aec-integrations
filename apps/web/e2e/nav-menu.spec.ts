@@ -492,6 +492,89 @@ test.describe('primary navigation menu (1280px)', () => {
     });
   }
 
+  // The panel body is a lazy `@defer (on idle; hydrate on idle)` block. A reader
+  // can act before its chunk lands, or after it failed (a tab open across a
+  // deploy). Its links are plain hrefs with no listener, and the eager panel box
+  // routes them, so neither case may lose the click. The chunk is found by a
+  // string only the panel carries: its footer line.
+  //
+  // App stability waits for the held chunk, so `untilHydrated` (which waits for
+  // stability) cannot gate these tests. The gate is the chunk request itself:
+  // `hydrate on idle` asks for it only once the eager app has hydrated.
+  async function holdPanelChunk(page: Page, mode: 'slow' | 'abort') {
+    const seen = { panelChunk: false };
+    await page.route(/\/chunk-[^/]+\.js$/, async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      if (!body.includes('Key categories are chosen by AEC Integrations')) {
+        await route.fulfill({ response, body });
+        return;
+      }
+      seen.panelChunk = true;
+      if (mode === 'abort') {
+        await route.abort('failed');
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30_000));
+      await route.fulfill({ response, body }).catch(() => {});
+    });
+    return seen;
+  }
+
+  async function openWhileHeld(page: Page, seen: { panelChunk: boolean }) {
+    await expect
+      .poll(() => seen.panelChunk, { message: 'the panel chunk was requested' })
+      .toBe(true);
+    await expect(async () => {
+      await page.mouse.move(5, 790);
+      await browse(page).hover();
+      await expect(panel(page)).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+  }
+
+  test('with the panel chunk slowed, the first click on a panel link navigates', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const seen = await holdPanelChunk(page, 'slow');
+    await page.goto(ROUTE);
+    await openWhileHeld(page, seen);
+    // Still the server's links: the panel body has not hydrated.
+    await expect(panel(page).getByRole('link', { name: /\d+ products?$/ })).toHaveCount(0);
+
+    await panel(page).getByRole('link', { name: 'See all trades' }).click();
+    await page.waitForURL(/\/trades$/, { timeout: 5_000 });
+    await expect(page.locator('h1').first()).toBeVisible();
+  });
+
+  test('with the panel chunk slowed, Enter on a panel link navigates', async ({ page }) => {
+    test.setTimeout(60_000);
+    const seen = await holdPanelChunk(page, 'slow');
+    await page.goto(ROUTE);
+    await openWhileHeld(page, seen);
+    await panel(page).getByRole('link', { name: 'See all phases' }).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL(/\/phases$/, { timeout: 5_000 });
+  });
+
+  test('with the panel chunk blocked, the server-rendered links still navigate', async ({
+    page,
+  }) => {
+    const seen = await holdPanelChunk(page, 'abort');
+    await page.goto(ROUTE);
+    await openWhileHeld(page, seen);
+    await panel(page).getByRole('link', { name: 'See all phases' }).click();
+    await page.waitForURL(/\/phases$/);
+    await expect(page.locator('h1').first()).toBeVisible();
+
+    // The header keeps working on the next page.
+    await openWhileHeld(page, seen);
+    await panel(page)
+      .getByRole('link', { name: /^All products/ })
+      .click();
+    await page.waitForURL(/\/products$/);
+  });
+
   test('Escape closes a hover-opened panel while focus is elsewhere', async ({ page }) => {
     await page.goto(ROUTE);
     await untilHydrated(browse(page));

@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import {
   PoweredIntegrationItemSchema,
   ProductIntegrationItemSchema,
+  TaxonomyResponseSchema,
   TaxonomyTermWithCountSchema,
   type PoweredIntegrationItem,
   type ProductIntegrationItem,
@@ -832,6 +833,34 @@ const columnSlugs = (menu: BrowseMenuModel) => ({
 
 describe('on-page ordering firewall: the Browse menu', () => {
   const base = columnSlugs(buildBrowseMenu(browseFixture()));
+
+  /**
+   * The menu's whole input is `GET /api/taxonomy`. Pin every field of it, so a
+   * field added to the payload (a plan, a license, a "featured" flag, a review
+   * count) fails here and forces a firewall review before the menu can read it.
+   * The API builds each term through `toTaxonomyTermWithCount`, which is typed
+   * to this schema, so an extra key fails the API typecheck as well. A trade's
+   * "published" state is not a field: `isPublishedTrade` derives it from
+   * `product_count`.
+   */
+  it('[surface:browse-menu-term-order] pins every field of the payload the menu reads', () => {
+    expect(Object.keys(TaxonomyResponseSchema.shape).sort()).toEqual([
+      'audiences',
+      'categories',
+      'phases',
+      'total_products',
+      'trades',
+    ]);
+    expect(Object.keys(TaxonomyTermWithCountSchema.shape).sort()).toEqual([
+      'description',
+      'display_order',
+      'id',
+      'integration_count',
+      'name',
+      'product_count',
+      'slug',
+    ]);
+  });
 
   it('[surface:browse-menu-term-order] the baseline has real ties and the documented orders', () => {
     expect(base.keyCategories).toEqual([

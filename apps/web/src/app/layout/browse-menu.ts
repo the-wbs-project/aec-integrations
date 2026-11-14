@@ -67,6 +67,8 @@ export function isBrowseSection(url: string): boolean {
   host: {
     class: 'inline-flex items-center',
     '(document:keydown.escape)': 'onDocumentEscape($event)',
+    // The panel's links are plain hrefs, so the eager host routes them.
+    '(click)': 'onPanelClick($event)',
   },
   template: `
     <a
@@ -96,11 +98,12 @@ export function isBrowseSection(url: string): boolean {
       <!--
         The body is lazy (AECI-1774: the initial bundle had under 2 kB of
         headroom). Incremental hydration renders it on the server in full, so the
-        cached HTML keeps every index link, and the browser hydrates it the first
-        time the panel opens. A browser-only render loads it when idle.
+        cached HTML keeps every index link. The browser fetches and hydrates it
+        as soon as the page is idle, before a reader is likely to open the menu.
+        Its links work before that, and if the chunk never loads: see onPanelClick.
       -->
-      @defer (on idle; hydrate when isOpen()) {
-        <aec-browse-panel [menu]="menu()" (navigate)="close()" />
+      @defer (on idle; hydrate on idle) {
+        <aec-browse-panel [menu]="menu()" />
       }
     </div>
   `,
@@ -156,6 +159,27 @@ export class BrowseMenu extends NavDisclosure {
       },
       { injector: this.injector },
     );
+  }
+
+  /**
+   * A click on a panel destination closes the menu and routes in the app. It is a
+   * host listener, so it is eager and it bubbles up from any panel link. The
+   * links are plain hrefs (`browse-panel.ts`), so this works whether or not the
+   * lazy body has hydrated. A modified or non-primary click is left to the
+   * browser (new tab, new window). A replayed click already ran its native
+   * default, a full page load, so it is ignored.
+   */
+  protected onPanelClick(event: MouseEvent): void {
+    if (isReplayedEvent(event) || event.defaultPrevented) return;
+    const link = (event.target as Element | null)?.closest?.(`#${this.panelId} a[href]`);
+    const href = link?.getAttribute('href');
+    if (!href?.startsWith('/')) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    this.close();
+    void this.router.navigateByUrl(href);
   }
 
   /**
