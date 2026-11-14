@@ -547,7 +547,7 @@ describe('docs manifest', () => {
       },
     });
     expect(failures).toEqual([]);
-  });
+  }, 20_000); // Loads every lazy route table: over 5 s when the machine is loaded.
 
   // AECI-1259: the rail and every #link depend on these ids being unique and
   // derived from the heading text alone, so a rebuild never moves them.

@@ -490,11 +490,12 @@ test('user can search and find a product', async ({ page }) => {
 });
 ```
 
-**Scroll with `behavior: 'instant'`.** The app sets `html { scroll-behavior: smooth }`, which
-`window.scrollTo` and `scrollIntoView` honour. A smooth scroll is still moving when the next
-assertion runs. An assertion that matches the start state then passes before the scroll lands.
-Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec tests the smooth
-scroll itself. The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
+**Scroll with `behavior: 'instant'`.** Smooth scrolling is on only while an in-page section link
+jumps (AECI-1752, `ANGULAR_STYLE_GUIDE.md`), but the switch back to a global smooth scroll can turn
+it on everywhere, and `window.scrollTo` and `scrollIntoView` honour it. A smooth scroll is still
+moving when the next assertion runs. An assertion that matches the start state then passes before
+the scroll lands. Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec
+tests the smooth scroll itself (`e2e/scroll-restoration.spec.ts` samples `scrollY` per frame). The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
 and failed on 1.64's newer Chromium (AECI-1383).
 
 **Never write a port into a spec.** Navigate with relative paths so `page.goto` follows the
