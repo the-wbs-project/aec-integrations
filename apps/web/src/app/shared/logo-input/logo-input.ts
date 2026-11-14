@@ -82,7 +82,7 @@ import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload
             invalidUrl() ? inputId() + '-help ' + inputId() + '-error' : inputId() + '-help'
           "
           [attr.aria-invalid]="invalidUrl() ? 'true' : null"
-          class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)"
+          class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)"
         />
         <p [id]="inputId() + '-help'" class="text-xs leading-relaxed text-(--text-secondary)">
           @if (uploaded()) {

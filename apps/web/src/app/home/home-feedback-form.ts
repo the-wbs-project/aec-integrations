@@ -85,7 +85,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="What capabilities would help your work?"
             [attr.aria-invalid]="atLeastOneError() ? 'true' : null"
             [attr.aria-describedby]="atLeastOneError() ? 'home-feedback-fields-error' : null"
-            class="w-full resize-y rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full resize-y aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
         </div>
 
@@ -105,14 +105,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="Which AEC tools should we add? e.g. Procore, Bluebeam, Revit"
             [attr.aria-invalid]="atLeastOneError() ? 'true' : null"
             [attr.aria-describedby]="atLeastOneError() ? 'home-feedback-fields-error' : null"
-            class="w-full resize-y rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full resize-y aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
         </div>
 
         @if (atLeastOneError()) {
           <p
             id="home-feedback-fields-error"
-            class="-mt-2 text-xs font-semibold text-(--text-primary)"
+            class="-mt-2 aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@home.feedback.fields.error"
           >
@@ -138,12 +138,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="you@yourfirm.com"
             [attr.aria-invalid]="emailInvalid() ? 'true' : null"
             [attr.aria-describedby]="emailInvalid() ? 'home-feedback-email-error' : null"
-            class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           @if (emailInvalid()) {
             <p
               id="home-feedback-email-error"
-              class="text-xs font-semibold text-(--text-primary)"
+              class="aec-field-error text-t-14 font-semibold text-(--status-error)"
               role="alert"
               i18n="@@home.feedback.email.error"
             >
