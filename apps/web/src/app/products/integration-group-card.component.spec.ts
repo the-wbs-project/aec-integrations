@@ -92,6 +92,9 @@ describe('IntegrationGroupCard', () => {
     // The crawler / SSR invariant: hidden, never removed.
     expect(el.querySelector('#card-body')).not.toBeNull();
     expect(el.querySelector('button')!.getAttribute('aria-expanded')).toBe('false');
+    // Collapsed, the header is the whole card, so its button rounds all four corners.
+    expect(el.querySelector('button')!.classList.contains('rounded-card')).toBe(true);
+    expect(el.querySelector('button')!.classList.contains('rounded-t-card')).toBe(false);
   });
 
   it('is not hidden when expanded', () => {
@@ -159,6 +162,10 @@ describe('IntegrationGroupCard surface (AECI-1765)', () => {
     expect(section.classList.contains('shadow-card')).toBe(true);
     expect(section.classList.contains('rounded-card')).toBe(true);
     expect(section.classList.contains('overflow-hidden')).toBe(true);
+    // The button rounds with the card so its inset focus ring keeps its corners.
+    const button = el.querySelector('h3 button')!;
+    expect(button.classList.contains('rounded-t-card')).toBe(true);
+    expect(button.classList.contains('rounded-card')).toBe(false);
     const name = el.querySelector('h3 button span span')!;
     expect(name.classList.contains('text-t-20')).toBe(true);
     expect(name.classList.contains('leading-tight')).toBe(true);

@@ -67,6 +67,9 @@ describe('SearchIntegrationCard', () => {
 describe('SearchIntegrationCard surface (AECI-1765)', () => {
   it('is a shadowed card with the title size on the block link, not the h3', () => {
     const el = setup();
+    expect(el.querySelector('aec-search-integration-card')!.classList.contains('group/card')).toBe(
+      true,
+    );
     const article = el.querySelector('article')!;
     expect(article.classList.contains('shadow-card')).toBe(true);
     expect(article.classList.contains('rounded-card')).toBe(true);

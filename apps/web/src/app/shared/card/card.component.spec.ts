@@ -58,11 +58,14 @@ describe('aecCard (AECI-1765)', () => {
     expect(el('plain').className).not.toContain('transition');
   });
 
-  it('an interactive card lifts 4px on hover and 1px on press, only under motion-safe', () => {
+  it('an interactive card lifts from its wrapper, 4px on hover and 1px on press, only under motion-safe', () => {
     const c = el('link').classList;
     for (const name of [
-      'motion-safe:hover:-translate-y-1',
-      'motion-safe:active:-translate-y-px',
+      'motion-safe:group-hover/card:-translate-y-1',
+      'motion-safe:group-active/card:-translate-y-px',
+      'relative',
+      'has-focus-visible:outline-3',
+      'has-focus-visible:outline-offset-3',
       'duration-base',
       'ease-standard',
       'focus-visible:outline-3',
@@ -70,7 +73,8 @@ describe('aecCard (AECI-1765)', () => {
     ])
       expect(c.contains(name), name).toBe(true);
     // No unconditioned translate, so reduced motion removes the move entirely.
-    expect(el('link').className).not.toMatch(/(^|\s)(hover|active):-?translate/);
+    // The card never lifts on its own :hover: that flickers at its bottom edge.
+    expect(el('link').className).not.toMatch(/(^|\s)(motion-safe:)?(hover|active):/);
     // The shadow does not change on hover (clash 37).
     expect(el('link').className).not.toContain('hover:shadow');
   });

@@ -36,8 +36,23 @@ export interface AecCardOptions {
  *
  * LIFT. `interactive` moves the card up 4px on hover and 1px on press (clash 37)
  * over the base duration. Both moves are `motion-safe:`, so they are gone under
- * reduced motion, and the card's own text also changes colour on hover. The shadow
- * does not change. A card that is not interactive never lifts.
+ * reduced motion, and the title also turns Forest on hover. The shadow does not
+ * change. A card that is not interactive never lifts.
+ *
+ * THE REQUIRED WRAPPER. The hover state sits on a STATIC wrapper named `group/card`,
+ * and the card lifts through `group-hover/card:`. If the card lifted itself on its
+ * own `:hover`, the pointer near its bottom edge would leave the card as it rose,
+ * the card would drop, the pointer would be over it again, and it would flicker.
+ * The wrapper is the grid `<li>`, or the component host. Every interactive card
+ * must sit in one. A caller writes `class="group/card"` on that wrapper and nothing
+ * else.
+ *
+ * ONE LINK. A card that is one link puts the link on its TITLE and stretches it over
+ * the card with `after:absolute after:inset-0 after:rounded-card`. The card is
+ * `relative` (this recipe adds it), and the rest of its text stays outside the link
+ * name. The ring is drawn around the whole card by `has-focus-visible` and the
+ * title link draws none of its own. A card that is itself the link (`<a aecCard>`)
+ * gets the ring from `focus-visible`.
  *
  * FOCUS. 3px outline at a 3px offset. An outline is kept by forced-colours mode.
  */
@@ -51,7 +66,7 @@ const CARD_TONE: Record<AecCardTone, string> = {
 const CARD_NESTED = 'rounded-panel bg-(--accent-primary-soft)';
 
 const CARD_INTERACTIVE =
-  'transition-transform duration-base ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 motion-safe:hover:-translate-y-1 motion-safe:active:-translate-y-px';
+  'relative transition-transform duration-base ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) has-focus-visible:outline-3 has-focus-visible:outline-offset-3 has-focus-visible:outline-(--accent-primary) motion-safe:group-hover/card:-translate-y-1 motion-safe:group-active/card:-translate-y-px';
 
 const CARD_STRIPE: Record<AecCardStripe, string> = {
   forest: 'aec-card-stripe',
@@ -74,12 +89,11 @@ export const CARD_GRID_CLASS = 'aec-card-grid';
  * `aecCard` (AECI-1765): the one card surface on public and shared pages.
  *
  * `<section aecCard class="p-6">` is a card on the page ground.
- * `<a aecCard interactive [routerLink]="…" class="flex flex-col gap-4 p-6">` is a
- * card that is one link. `<div aecCard nested class="p-4">` sits inside a card.
+ * `<li class="group/card"><div aecCard interactive class="flex flex-col gap-4 p-6">`
+ * is a card that is one link, with the link on its title (see ONE LINK above). `<div aecCard nested class="p-4">` sits inside a card.
  *
- * A card that is one link names the product or vendor and nothing more. Give the
- * link `[attr.aria-label]` with that name, so a screen reader does not read the
- * whole card as one long link name (PLAN.md section 10.2).
+ * A card that is one link names the product or vendor and nothing more, because
+ * only the title is the link (PLAN.md section 10.2).
  *
  * Portal and admin bodies do not use it yet.
  */

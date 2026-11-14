@@ -25,16 +25,16 @@ import { Chip } from '../shared/chip/chip';
 @Component({
   selector: 'aec-search-integration-card',
   imports: [RouterLink, AecCard, Chip],
-  host: { class: 'block h-full' },
+  host: { class: 'group/card block h-full' },
   template: `
-    <article aecCard interactive class="group relative flex h-full flex-col p-6">
+    <article aecCard interactive class="flex h-full flex-col p-6">
       <h3 class="text-(--text-primary)">
         <!-- The card title is the heading's link (a stretched link). The size sits on the
              block anchor, not the h3: the unlayered h3 rule beats a text-* utility on
              the h3 itself (DESIGN.md, the Unlayered-Heading Rule). -->
         <a
           [routerLink]="pairLink()"
-          class="block rounded-sm text-t-20 leading-tight transition-colors after:absolute after:inset-0 after:rounded-card group-hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+          class="block text-t-20 leading-tight transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
         >
           {{ record().source_product_name }}
           <span class="inline-block text-(--text-secondary) rtl:-scale-x-100" aria-hidden="true"

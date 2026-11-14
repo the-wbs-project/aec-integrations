@@ -89,23 +89,60 @@ describe('ProductCardGrid card surface (AECI-1765)', () => {
     expect(root.querySelector('ul')?.classList.contains('aec-card-grid')).toBe(true);
   });
 
-  it('each card is a lifting 24px shadowed card named by the product alone', () => {
+  it('the lead spans two columns from md, not sm, so it never makes an uneven grid', () => {
     const root = render(DefaultHost);
-    const links = Array.from(root.querySelectorAll('li > a'));
-    expect(links).toHaveLength(2);
-    for (const [i, a] of links.entries()) {
-      expect(a.classList.contains('shadow-card')).toBe(true);
-      expect(a.classList.contains('rounded-card')).toBe(true);
-      expect(a.classList.contains('motion-safe:hover:-translate-y-1')).toBe(true);
-      expect(a.className).not.toContain('hover:border');
-      // The whole card text is not the link name (PLAN.md 10.2).
-      expect(a.getAttribute('aria-label')).toBe(`Product ${i + 1}`);
+    const lead = root.querySelector('li')!;
+    expect(lead.classList.contains('md:col-span-2')).toBe(true);
+    expect(lead.className).not.toContain('sm:col-span-2');
+    expect(lead.className).not.toContain('lg:col-span-2');
+  });
+
+  it('each card is a lifting card in a static hover wrapper', () => {
+    const root = render(DefaultHost);
+    const items = Array.from(root.querySelectorAll('li'));
+    expect(items).toHaveLength(2);
+    for (const li of items) {
+      expect(li.classList.contains('group/card')).toBe(true);
+      const card = li.firstElementChild!;
+      expect(card.classList.contains('shadow-card')).toBe(true);
+      expect(card.classList.contains('rounded-card')).toBe(true);
+      expect(card.classList.contains('motion-safe:group-hover/card:-translate-y-1')).toBe(true);
+      expect(card.className).not.toContain('hover:border');
+      // The card is a div, not a link, and carries no label of its own.
+      expect(card.tagName).toBe('DIV');
+      expect(card.hasAttribute('aria-label')).toBe(false);
     }
+  });
+
+  it('the link is the title alone, stretched over the card, and the other facts stay outside it', () => {
+    const root = render(DefaultHost);
+    for (const [i, li] of Array.from(root.querySelectorAll('li')).entries()) {
+      const links = li.querySelectorAll('a');
+      expect(links).toHaveLength(1);
+      const a = links[0];
+      expect(a.getAttribute('href')).toBe(`/products/product-${i + 1}`);
+      // The accessible name is the title text, with no aria-label to replace it.
+      expect(a.textContent?.trim()).toBe(`Product ${i + 1}`);
+      expect(a.hasAttribute('aria-label')).toBe(false);
+      expect(a.classList.contains('after:absolute')).toBe(true);
+      expect(a.classList.contains('after:inset-0')).toBe(true);
+      // The vendor line and the integration count are readable text outside the name.
+      expect(li.textContent).toContain('Independent');
+      expect(li.textContent).toContain(String(i + 1));
+      expect(a.textContent).not.toContain('Independent');
+    }
+  });
+
+  it('the featured card keeps its eyebrow as text outside the link name', () => {
+    const root = render(DefaultHost);
+    const li = root.querySelector('li')!;
+    expect(li.textContent).toContain('Recently added');
+    expect(li.querySelector('a')!.textContent).not.toContain('Recently added');
   });
 
   it('the card title takes the card-title role with a tight line', () => {
     const root = render(DefaultHost);
-    const title = root.querySelectorAll('li > a')[1].querySelector('p')!;
+    const title = root.querySelectorAll('li')[1].querySelector('p')!;
     expect(title.classList.contains('text-t-20')).toBe(true);
     expect(title.classList.contains('leading-tight')).toBe(true);
     expect(title.classList.contains('text-lg')).toBe(false);

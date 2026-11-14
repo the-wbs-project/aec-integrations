@@ -102,13 +102,22 @@ describe('SearchProductCard', () => {
 });
 
 describe('SearchProductCard surface (AECI-1765)', () => {
-  it('is a lifting shadowed card whose link name is the product alone', () => {
+  it('is a lifting card in a static hover host, with the link on the product name alone', () => {
     const el = setup();
+    const host = el.querySelector('aec-search-product-card')!;
+    expect(host.classList.contains('group/card')).toBe(true);
+    const card = el.querySelector('div')!;
+    expect(card.classList.contains('shadow-card')).toBe(true);
+    expect(card.classList.contains('rounded-card')).toBe(true);
+    expect(card.classList.contains('motion-safe:group-hover/card:-translate-y-1')).toBe(true);
     const link = el.querySelector('a')!;
-    expect(link.classList.contains('shadow-card')).toBe(true);
-    expect(link.classList.contains('rounded-card')).toBe(true);
-    expect(link.classList.contains('motion-safe:hover:-translate-y-1')).toBe(true);
-    expect(link.getAttribute('aria-label')).toBe(baseRecord.name);
+    expect(link.textContent?.trim()).toBe(baseRecord.name);
+    expect(link.hasAttribute('aria-label')).toBe(false);
+    expect(link.classList.contains('after:inset-0')).toBe(true);
+    // The vendor and the integration count are text outside the link name.
+    expect(card.textContent).toContain('12');
+    expect(card.textContent).toContain('Procore Technologies');
+    expect(link.textContent).not.toContain('Procore Technologies');
     const title = el.querySelector('p')!;
     expect(title.classList.contains('text-t-20')).toBe(true);
     expect(title.classList.contains('leading-tight')).toBe(true);

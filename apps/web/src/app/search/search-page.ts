@@ -62,6 +62,7 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { ProductCard, type ProductRow } from '../products/product-card';
+import { AecCard } from '../shared/card/card';
 import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { FacetPanel } from '../shared/facets/facet-panel';
 import {
@@ -143,6 +144,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    AecCard,
     BrowseLayout,
     CompanyFactsNote,
     FacetPanel,
@@ -559,7 +561,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     <!--
       Loading skeletons (AECI-228). Purely decorative (aria-hidden); the sr-only
       status region announces loading/result counts. Each card mirrors the real
-      product/vendor card's box (same radius, border, padding, surface) with a
+      product/vendor card's box (the same aecCard frame, padding and gap) with a
       min height so the skeleton≈real swap barely moves. The pagination footer slot and
       the facet rail reserve their height too, so the first response settles in
       place instead of shoving the page. animate-pulse is auto-neutralized under
@@ -570,9 +572,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
         <ul class="aec-card-grid">
           @for (card of skeletonCards; track card) {
             <li>
-              <div
-                class="flex min-h-32 flex-col gap-3 rounded-card border border-(--border-default) bg-(--surface-raised) p-5"
-              >
+              <div aecCard class="flex min-h-32 flex-col gap-4 p-6">
                 <div class="flex items-start justify-between gap-3">
                   <div
                     class="h-9 w-9 shrink-0 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"

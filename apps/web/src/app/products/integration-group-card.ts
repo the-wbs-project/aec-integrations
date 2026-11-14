@@ -86,6 +86,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             [attr.aria-expanded]="expanded()"
             [attr.aria-controls]="panelId()"
             (click)="toggled.emit()"
+            [class.rounded-t-card]="expanded()"
+            [class.rounded-card]="!expanded()"
             class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-start
               text-(--text-primary) transition-colors hover:text-(--accent-primary)
               focus-visible:outline-2 focus-visible:-outline-offset-2
