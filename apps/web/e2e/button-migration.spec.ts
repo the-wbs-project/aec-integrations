@@ -3,7 +3,7 @@
  * runs no Tailwind and no cascade layers, so a component spec cannot see a 44px
  * height, a 12px radius or a fill. Three representative migrated buttons:
  *
- * - the home hero's submit (primary, full width, `aria-disabled` while it checks),
+ * - the home hero's submit (primary, full width),
  * - the 404 page's "Go home" link (a primary link),
  * - a product page's "Suggest a correction" link (a secondary link, with an icon).
  *
@@ -41,9 +41,7 @@ async function style(loc: Locator) {
 }
 
 test.describe('public buttons on aecButton (AECI-1759)', () => {
-  test('home hero submit: 44px, 12px, Forest fill, and not dimmed while it checks', async ({
-    page,
-  }) => {
+  test('home hero submit: 44px, 12px, Forest fill', async ({ page }) => {
     await page.goto('/');
     const button = page
       .locator('form[aria-labelledby="hero-pair-title"]')
@@ -57,11 +55,6 @@ test.describe('public buttons on aecButton (AECI-1759)', () => {
     expect(rest.color).toBe(WHITE);
     expect(rest.boxShadow).toBe('none');
     await expect(button).toHaveAttribute('type', 'submit');
-
-    // While the pair check runs the component sets `aria-disabled`. `aecButton` dims
-    // that to 60%, so the hero opts out and the button stays fully opaque.
-    await button.evaluate((el) => el.setAttribute('aria-disabled', 'true'));
-    expect((await style(button)).opacity).toBe('1');
   });
 
   test('404 "Go home" is a 44px primary link', async ({ page }) => {

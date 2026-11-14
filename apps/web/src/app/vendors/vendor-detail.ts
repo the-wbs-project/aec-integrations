@@ -212,18 +212,15 @@ const HERO_LINK_FIELDS = [
               <span class="flex items-center gap-2" role="list" [attr.aria-label]="socialAria">
                 @for (link of socialLinks(); track link.key) {
                   <a
+                    aecButton
+                    variant="secondary"
+                    iconOnly
                     role="listitem"
                     [href]="link.href"
                     target="_blank"
                     rel="noopener nofollow"
                     aecTrackExternalLink="vendor_detail_social"
                     [aecLinkContext]="linkContexts()!.social"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)
-                      border border-(--border-default) bg-(--surface-raised) text-(--text-secondary)
-                      transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)
-                      focus-visible:outline-none focus-visible:ring-2
-                      focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                      focus-visible:ring-offset-(--surface-base)"
                     [attr.aria-label]="link.aria"
                     [title]="link.label"
                   >

@@ -53,12 +53,7 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
               listing to correct the facts and keep them current, and position in the directory is
               never for sale.
             </p>
-            <a
-              aecButton
-              routerLink="/vendor-program"
-              class="mt-8 self-start"
-              i18n="@@home.cta.vendor.action"
-            >
+            <a aecButton routerLink="/vendor-program" class="mt-8" i18n="@@home.cta.vendor.action">
               Claim or list your product
             </a>
           </div>

@@ -976,9 +976,21 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 - `preview/unified-home/unified-home-preview.ts` lines 624 to 626 (`primaryBtn`, `linkBtn`). A preview route. It stays as it is.
 - `vendor/vendor-invite-page.ts` line 158 (`btn`) and the `BTN_PRIMARY`, `BTN_SECONDARY` and `BTN_DANGER` constants in `vendor/integration-detail/integration-detail-styles.ts` lines 139 to 143. AECI-1761.
 - `vendor/components/vendor-removal-election.ts` line 279 and `vendor/components/vendor-license-actions.ts` line 503. Both append `disabled:cursor-not-allowed disabled:opacity-50` to `BUTTON_SECONDARY_CLASS`. The recipe's `disabled:opacity-60` wins, so the suffix does nothing. AECI-1813 drops it.
-- **Public pages (AECI-1759).** The buttons and button-styled links in `layout`, `shared`, `home`, `products`, `vendors` and `not-found` are `aecButton`: the plan cards and plan calls to action, the claim dialog footer, the mailing-list "Subscribe", the load-more button, the feedback form and its dialog close, the home call-to-action pair, "Visit website", "Claim" and "Suggest a correction", and the 404 "Go home". Segmented controls and view toggles, tabs, chips, sort toggles, combobox triggers and inline text links stay as they are.
-- **Pending state without the dim.** `home/home-hero.ts` keeps `aria-disabled` on its submit button while it checks a pair, and adds `aria-disabled:opacity-100!` so the button is not dimmed to 60%. A check in flight is busy, not unavailable. Any other caller that sets `aria-disabled` by hand for a busy state does the same.
+
+**Migrated (AECI-1759).** The buttons and button-styled links in `layout`, `shared`, `home`, `products`, `vendors` and `not-found` are `aecButton`: the plan cards and plan calls to action, the claim dialog footer and close button, the mailing-list "Subscribe", "Load more", the feedback form and its dialog close, the home call-to-action pair, "Visit website", the vendor social icon links, "Claim" and "Suggest a correction", and the 404 "Go home". These stay outside the component on purpose:
+
+- The Cards/Table view toggle and the other pressed toggles (the pair page's Basic/Detailed toggle, the taxonomy sort toggle). They follow the pressed-toggle rule.
+- Tabs, in-text links ("Clear filters", "Show latest", the correction links) and chips.
+- Select and combobox triggers (AECI-1764).
+- The header icon controls (AECI-1771) and the footer links.
+- Tiny inline icon triggers: the info hint, relative time, claim provenance and the combobox clear button. A 44px target would break the line they sit in.
+- The two phone-menu account buttons in `layout/nav-menu.ts`. AECI-1775 moves them to `aecButton` ("Account" secondary, full width; "Sign in" primary, full width).
+
+`pagination-footer`'s button branch is the admin one. It now renders the shared secondary look, so it is visible on `/search` and on `/admin/vendors`.
+
+- **A busy state does not set `aria-disabled`.** `aecButton` dims anything with `aria-disabled` to 60%, so a pending action guards its handler and marks the form `aria-busy` (the home hero does this while it checks a pair).
 - **A disabled link uses the `disabled` input.** Spartan's `brnButton` marks a disabled link with `data-disabled`, which the `aecButton` look does not read. No public page uses `brnButton` on a link.
+- **Flagged for Chris (orchestrator's decisions).** The mailing-list "Subscribed" state stays a disabled secondary (the live region carries the success). On the plans page the hero call to action and the plan cards are both filled today, unchanged by AECI-1759. On the product page "Visit website" stays filled, and "Write a review" belongs to AECI-1760.
 
 **Measured contrast (AECI-1758).** WCAG 2 ratios from the token hexes. The secondary edge is not a required boundary, see Secondary above.
 
