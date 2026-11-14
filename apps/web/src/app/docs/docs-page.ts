@@ -160,7 +160,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:flex xl:flex-col xl:items-end xl:gap-8 xl:self-start xl:justify-self-end"
         >
           <aec-plan-cta-rail class="hidden w-44 min-[90rem]:block" page="docs_plans" />
-          <app-docs-toc class="block w-10" [headings]="page.headings" [path]="page.path" />
+          <app-docs-toc class="block w-10" [headings]="page.headings" />
         </div>
         <aec-plan-cta-mobile-bar page="docs_plans" />
         <!-- One claim dialog for every claim control (AECI-1293), loaded on first use. -->
@@ -169,7 +169,6 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
         <app-docs-toc
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"
           [headings]="page.headings"
-          [path]="page.path"
         />
       }
 

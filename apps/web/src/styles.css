@@ -215,8 +215,8 @@
      Forest is 7.69:1, secondary 5.55. */
   --surface-hero-glow: oklch(43.47% 0.0641 160.3 / 75%); /* Forest hover at 75% */
   --surface-hero-glow-soft: oklch(43.47% 0.0641 160.3 / 45%); /* Forest hover at 45% */
-  /* The sticky section bar's frosted white. Over white it is #FFFFFF; over a
-     Forest hero it is #F2F3F3 (text-primary 17.81:1). */
+  /* White at 94%, meant for the sticky section bar. Unused: clash 13 made the
+     bar solid `--surface-base` (AECI-1768, DESIGN.md §5 "The section nav"). */
   --surface-sticky: oklch(100% 0 0 / 94%); /* White at 94% */
 
   /* Typography (DESIGN.md §3 source of truth) */
@@ -1145,6 +1145,40 @@ textarea:-webkit-autofill:focus {
   html.aeci-smooth-scroll {
     scroll-behavior: smooth;
   }
+}
+
+/* The sticky section bar (`shared/section-nav/section-nav.ts`, AECI-1768, DESIGN.md §5
+   "The section nav"). It is 64px high, and 72px from `md`. Everything after it in its
+   container sits under it once it sticks. Its 1px bottom hairline sits outside that
+   height, so the offset adds 1px. So:
+
+   - `--aec-sticky-offset` is the bar's height, for anything else that sticks below it
+     (the product page's metadata aside in `DetailLayout`, and the integrations jump
+     rail AECI-1783 builds).
+   - Every focusable element after the bar takes a `scroll-margin-top` that clears the
+     bar, so a control reached by Tab scrolls clear of it (WCAG 2.4.11 Focus Not
+     Obscured). A section's own `scroll-mt-20` covers only the anchor jump.
+
+   It is a sibling selector, not `scroll-padding-top` on <html>, on purpose. Root
+   scroll padding adds to every target's `scroll-margin-top` on a native jump and in
+   `InitialFragmentScroller`'s `scrollIntoView()`, but not in
+   `ScrollMarginViewportScroller`, which reads the margin alone. The three paths would
+   then land on different pixels. The sections are not matched here, so all three still
+   land on `scroll-mt-20`. Pure CSS, so the server HTML already carries it. */
+aec-section-nav ~ * {
+  --aec-sticky-offset: calc(4rem + 1px);
+}
+
+@media (min-width: 48rem) {
+  aec-section-nav ~ * {
+    --aec-sticky-offset: calc(4.5rem + 1px);
+  }
+}
+
+aec-section-nav
+  ~ *
+  :is(a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]) {
+  scroll-margin-top: calc(var(--aec-sticky-offset) + 0.5rem);
 }
 
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's

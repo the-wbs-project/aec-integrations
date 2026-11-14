@@ -56,12 +56,24 @@ export type BrandLogoTone = 'default' | 'on-dark';
       routerLink="/"
       class="inline-flex items-center rounded-md"
       [class]="ringClass() + ' ' + sizeClass()"
-      [style.height.px]="responsive() ? null : height()"
+      [style.height.px]="responsive() || monogramBelowMd() ? null : height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"
     >
+      @if (monogramBelowMd()) {
+        <img
+          class="block h-full w-auto md:hidden"
+          ngSrc="/branding/monogram-light.svg"
+          [priority]="priority()"
+          width="80"
+          height="80"
+          i18n-alt="@@app.brand.logoAlt"
+          alt="AEC Integrations"
+        />
+      }
       <img
-        class="block h-full w-auto"
+        class="h-full w-auto"
+        [class]="monogramBelowMd() ? 'hidden md:block' : 'block'"
         [ngSrc]="src()"
         [priority]="priority()"
         width="196"
@@ -104,7 +116,17 @@ export class BrandLogo {
       : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
   );
 
-  protected readonly sizeClass = computed(() => (this.responsive() ? 'h-7 md:h-8' : ''));
+  /**
+   * Draws the monogram below `md` and the wordmark from `md`, in one link. The sticky
+   * section bar uses it (AECI-1768): a 320px phone has no room for the wordmark beside the
+   * section links. Size it with `[style.height]`-free classes, so it also sets the heights:
+   * the monogram 32px, the wordmark 24px. Off by default.
+   */
+  readonly monogramBelowMd = input(false);
+
+  protected readonly sizeClass = computed(() =>
+    this.monogramBelowMd() ? 'h-8 md:h-6' : this.responsive() ? 'h-7 md:h-8' : '',
+  );
 
   protected readonly src = computed(() =>
     this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',
