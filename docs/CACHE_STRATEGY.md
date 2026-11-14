@@ -177,6 +177,8 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 
 Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses themselves remain `Cache-Control: private, no-store`. Only SSR HTML is edge-cached.
 
+**`GET /api/taxonomy` carries `total_products` with no purge path (AECI-1773).** The Browse menu's "All products" count rides on this response. The header fetches it in the browser after hydration (`TaxonomyNavStore`), so no cached SSR HTML bakes the number in and no `Cache-Tag` or purge is needed. The response stays `private, no-store` at the edge, and the 5-minute `TAXONOMY_KV` read-through is its only staleness bound.
+
 Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/welcome`, `/admin*`, `/vendor*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
 
 **`/admin/*` is deliberately uncacheable, and that must stay true.** The operator console renders one admin's view of the site, and the edge cache is keyed by URL — so a single cacheable `/admin` response would serve that view to the next visitor who happened to hit the path. `ADMIN_PANEL_SPEC.md` §9.2 makes "absent from `ROUTE_CACHE_PATTERNS`" a standing requirement rather than a current fact, and `apps/web/src/server.spec.ts` asserts `isCacheableRoute` returns `false` for `/admin`, its children, and their locale-prefixed forms. The panel's own API responses carry the same posture from the other side: `json()` in the API Worker defaults every response to `private, no-store`, and the `/api/admin/*` reads set no `Cache-Tag`. Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS` or to `cacheTagInputsForPath`.
@@ -541,7 +543,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   not redundant: the product-detail integrations table renders a claims-aware
   `context_direction`, and since AECI-605 a claim every voting vendor **denies**
   stops contributing its direction to that arrow — so a denial with no product
-  purge would leave the table pointing the wrong way for a full TTL.
+  purge would leave the table pointing the wrong way for a full TTL. Since
+  AECI-1781 each product-detail row also carries its rolled-up `agreement`, which
+  any vote can move, so the same two tags keep it fresh.
   `index:products` is omitted for the same reason as versions: claims never render
   on the catalog.
 

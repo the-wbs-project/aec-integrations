@@ -69,7 +69,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
 | Account onboarding ("About you", `/welcome`, review pre-fill) | `docs/ACCOUNT_ONBOARDING_SPEC.md` |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
-| Empty pair page, product page and site design-language redesign (plan and mock-ups, not a build contract; AECI-1571) | `docs/design/mockups/redesign-2026-11/PLAN.md` |
+| Full site redesign: design language, product and pair pages (plan and mock-ups, not a build contract; AECI-1720) | `docs/design/mockups/redesign-2026-11/PLAN.md`; issue map `BUILD_PLAN.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement, versions, §13.9 maintenance, §15 row threads) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |

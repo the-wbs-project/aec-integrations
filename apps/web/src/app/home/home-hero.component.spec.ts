@@ -1,3 +1,9 @@
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+  type TestRequest,
+} from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -64,6 +70,8 @@ async function setup(
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
       { provide: TaxonomyNavStore, useValue: { categoriesTop10 } },
       { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
     ],
@@ -272,6 +280,7 @@ describe('HomeHero', () => {
     it('two products chosen: navigates to the pair page with the canonical first slug as context', async () => {
       const { fixture, host } = await setup();
       const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
       const [, tool, other] = widgets(fixture);
 
       tool!.suggestionChosen.emit(product('revit', 'Revit'));
@@ -279,6 +288,194 @@ describe('HomeHero', () => {
       const event = submitPairForm(host);
 
       expect(event.defaultPrevented).toBe(true);
+      // The finder reads the pair first, with the context slug first (AECI-1823).
+      http.expectOne('/api/products/bluebeam/integrations/revit').flush({ mechanisms: [] });
+      await fixture.whenStable();
+      expect(navigate).toHaveBeenCalledWith(['/products', 'bluebeam', 'integrations', 'revit']);
+      http.verify();
+    });
+
+    /** Let the async lookups after a flushed read issue their requests. */
+    const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    /** Flush a canonical NOT_FOUND envelope, optionally naming the missing slug. */
+    function flushNotFound(req: TestRequest, slug?: string): void {
+      req.flush(
+        { error: { code: 'NOT_FOUND', message: 'not found', details: slug ? { slug } : {} } },
+        { status: 404, statusText: 'Not Found' },
+      );
+    }
+
+    /** Two picks (revit, stale-slug) with their field text, pair read pending. */
+    async function pickStalePair(submit = true) {
+      const ctx = await setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const navigateByUrl = vi
+        .spyOn(TestBed.inject(Router), 'navigateByUrl')
+        .mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
+      const [, tool, other] = widgets(ctx.fixture);
+      tool!.suggestionChosen.emit(product('revit', 'Revit'));
+      other!.suggestionChosen.emit(product('stale-slug', 'Stale Product'));
+      ctx.host.querySelector<HTMLInputElement>('#hero-pair-tool')!.value = 'Revit';
+      ctx.host.querySelector<HTMLInputElement>('#hero-pair-other')!.value = 'Stale Product';
+      if (submit) submitPairForm(ctx.host);
+      return { ...ctx, navigate, navigateByUrl, http };
+    }
+
+    it('pair NOT_FOUND, no retired slug: routes to /search with the typed name (AECI-1823)', async () => {
+      const { navigate, navigateByUrl, http } = await pickStalePair();
+
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      // Both slugs are looked up in the retired-slug map; neither is mapped.
+      flushNotFound(http.expectOne('/api/slug-redirects/product/revit'));
+      flushNotFound(http.expectOne('/api/slug-redirects/product/stale-slug'));
+      await settle();
+
+      expect(navigateByUrl).not.toHaveBeenCalled();
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'Revit' } });
+    });
+
+    it('pair NOT_FOUND naming the second slug: searches the second typed name', async () => {
+      const { navigate, http } = await pickStalePair();
+
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'), 'stale-slug');
+      await settle();
+      flushNotFound(http.expectOne('/api/slug-redirects/product/revit'));
+      flushNotFound(http.expectOne('/api/slug-redirects/product/stale-slug'));
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'Stale Product' } });
+    });
+
+    it('pair NOT_FOUND but a slug was retired: navigates to the survivor pair, not search (AECI-991)', async () => {
+      const { navigate, navigateByUrl, http } = await pickStalePair();
+
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      flushNotFound(http.expectOne('/api/slug-redirects/product/revit'));
+      http
+        .expectOne('/api/slug-redirects/product/stale-slug')
+        .flush({ entity: 'product', from_slug: 'stale-slug', to_slug: 'survivor' });
+      await settle();
+
+      expect(navigateByUrl).toHaveBeenCalledWith('/products/revit/integrations/survivor');
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('a second submit while the read is in flight is ignored, and the form says it is busy', async () => {
+      const { fixture, host, http } = await pickStalePair();
+      const form = host.querySelector<HTMLFormElement>('form[aria-labelledby="hero-pair-title"]')!;
+      const button = form.querySelector('button[type="submit"]')!;
+      fixture.detectChanges();
+      expect(form.getAttribute('aria-busy')).toBe('true');
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.hasAttribute('disabled')).toBe(false);
+
+      const read = http.expectOne('/api/products/revit/integrations/stale-slug');
+      submitPairForm(host); // a second submit while the first read is in flight
+      http.expectNone('/api/products/revit/integrations/stale-slug'); // no second read
+
+      read.flush({ mechanisms: [] });
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(form.hasAttribute('aria-busy')).toBe(false);
+      expect(button.hasAttribute('aria-disabled')).toBe(false);
+    });
+
+    it('a pending slug-redirect lookup keeps the form busy and blocks a second pair read', async () => {
+      const { host, http } = await pickStalePair();
+      const form = host.querySelector<HTMLFormElement>('form[aria-labelledby="hero-pair-title"]')!;
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      const lookups = [
+        http.expectOne('/api/slug-redirects/product/revit'),
+        http.expectOne('/api/slug-redirects/product/stale-slug'),
+      ];
+
+      submitPairForm(host);
+      http.expectNone('/api/products/revit/integrations/stale-slug');
+      expect(form.getAttribute('aria-busy')).toBe('true');
+      expect(lookups).toHaveLength(2);
+    });
+
+    it('a slug-redirect lookup that outlasts the timeout falls through to /search', async () => {
+      const { host, navigate, navigateByUrl, http } = await pickStalePair(false);
+      vi.useFakeTimers();
+      try {
+        submitPairForm(host);
+        flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+        await vi.advanceTimersByTimeAsync(0);
+        http.expectOne('/api/slug-redirects/product/revit'); // never answered
+        http.expectOne('/api/slug-redirects/product/stale-slug');
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(navigateByUrl).not.toHaveBeenCalled();
+        expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'Revit' } });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a picker edited during the slug-redirect lookup drops the result', async () => {
+      const { host, navigate, navigateByUrl, http } = await pickStalePair();
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      host
+        .querySelector<HTMLInputElement>('#hero-pair-other')!
+        .dispatchEvent(new Event('input', { bubbles: true }));
+      flushNotFound(http.expectOne('/api/slug-redirects/product/revit'));
+      http
+        .expectOne('/api/slug-redirects/product/stale-slug')
+        .flush({ entity: 'product', from_slug: 'stale-slug', to_slug: 'survivor' });
+      await settle();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(navigateByUrl).not.toHaveBeenCalled();
+    });
+
+    it('a read that outlasts the timeout navigates to the pair page', async () => {
+      const { host, navigate, http } = await pickStalePair(false);
+      vi.useFakeTimers();
+      try {
+        submitPairForm(host);
+        http.expectOne('/api/products/revit/integrations/stale-slug');
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(navigate).toHaveBeenCalledWith(['/products', 'revit', 'integrations', 'stale-slug']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a picker edited while the read is in flight: the stale result is dropped', async () => {
+      const { fixture, host, navigate, navigateByUrl, http } = await pickStalePair();
+      host
+        .querySelector<HTMLInputElement>('#hero-pair-other')!
+        .dispatchEvent(new Event('input', { bubbles: true }));
+
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await fixture.whenStable();
+
+      http.expectNone('/api/slug-redirects/product/revit');
+      expect(navigate).not.toHaveBeenCalled();
+      expect(navigateByUrl).not.toHaveBeenCalled();
+    });
+
+    it('two products chosen and the pair read fails otherwise: still navigates to the pair page', async () => {
+      const { fixture, host } = await setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
+      const [, tool, other] = widgets(fixture);
+
+      tool!.suggestionChosen.emit(product('revit', 'Revit'));
+      other!.suggestionChosen.emit(product('bluebeam', 'Bluebeam'));
+      host.querySelector<HTMLInputElement>('#hero-pair-tool')!.value = 'Revit';
+      submitPairForm(host);
+
+      http
+        .expectOne('/api/products/bluebeam/integrations/revit')
+        .flush('boom', { status: 500, statusText: 'Server Error' });
+      await fixture.whenStable();
       expect(navigate).toHaveBeenCalledWith(['/products', 'bluebeam', 'integrations', 'revit']);
     });
 

@@ -59,7 +59,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §9                  | AECI-298                                                  | Search / SEO / Algolia follow-through                                                                                                                     |
 | §11                 | AECI-339                                                  | Addendum A — search-intent pair indexing (this addendum)                                                                                                  |
 | §11.2               | AECI-340                                                  | Dual-orientation indexable pair pages                                                                                                                     |
-| §11.3               | AECI-341                                                  | Context-specific suggestions module                                                                                                                       |
+| §11.3               | AECI-341                                                  | Closest matches                                                                                                                                           |
 | §11.4               | AECI-342                                                  | "Meaningful no" pair pages — scoring / template / tiered indexing                                                                                         |
 | §11.5               | AECI-343                                                  | Per-pair "report a missing integration" CTA                                                                                                               |
 | §11.6               | AECI-344                                                  | GSC measurement loop — gate + quarterly tier review                                                                                                       |
@@ -478,7 +478,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 - **`defaultIntegrationContext(a, b)`** in `packages/shared` (e.g. `packages/shared/src/integration-context.ts`) — given two product slugs, returns the canonical **context product** for the default pair URL: the **alphabetically-first slug** is the context. Deterministic, pure, shared by SSR and the 301.
 - **Nested route:** `/products/:contextSlug/integrations/:otherSlug`. The page resolves the two products, finds **all** integration rows between them (either source/target orientation), and renders one consolidated view. Multiple mechanisms → multiple rows on one page (§3.1), not multiple pages.
-- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction translated to the context product's frame. **Amended 2026-09-14 by AECI-921:** that used to be a _second_ translation — the row stored `one-way`/`bidirectional` and this sentence said it was "_not_ the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2". It is now exactly that translation, because the row stores exactly that vocabulary; `a_to_b` reads `outbound` when the context product is the row's `source`, `b_to_a` is the mirror, `both` reads `both`. Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (partner · connection, with direction on a meta line under the partner name — **amended 2026-09-10 by AECI-853**, which superseded the original "direction · partner · connection; direction leads the row so the relationship reads at a glance"; §13.3a carries the reasoning) rather than a card stack, one row per integration, the whole row clickable through to the pair page with the _other_ product linked separately. **Amended 2026-10-08:** the row is no longer a stretched `absolute inset-0` overlay link. Safari before 27 computes `position: relative` on a `<tr>` as `static`, so every row's overlay covered the whole viewport and a click near the page title opened a random integration. The pair-page link is now the row's trailing chevron, a real `<a>` with its own accessible name, and a click elsewhere on the row is forwarded to it (`apps/web/src/app/shared/row-link/row-link-click.ts`). The vendor page's products table (`VendorProductRow`) uses the same pattern. Its **direction** readout is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `a_to_b`/`b_to_a`/`both` (AECI-921), both framed to this product and now in the same vocabulary, so the aggregate and the fallback can no longer disagree about what an endpoint ordering means; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored direction, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as `ProductListItem`, and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`. **One exception since AECI-953 (§7.2a):** an empty pair whose edges were re-pointed onto another product answers `moved_to` and **301s** to the pair that now holds them.
+- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction translated to the context product's frame. **Amended 2026-09-14 by AECI-921:** that used to be a _second_ translation — the row stored `one-way`/`bidirectional` and this sentence said it was "_not_ the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2". It is now exactly that translation, because the row stores exactly that vocabulary; `a_to_b` reads `outbound` when the context product is the row's `source`, `b_to_a` is the mirror, `both` reads `both`. Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (partner · connection, with direction on a meta line under the partner name — **amended 2026-09-10 by AECI-853**, which superseded the original "direction · partner · connection; direction leads the row so the relationship reads at a glance"; §13.3a carries the reasoning) rather than a card stack, one row per integration, the whole row clickable through to the pair page with the _other_ product linked separately. **Amended 2026-10-08:** the row is no longer a stretched `absolute inset-0` overlay link. Safari before 27 computes `position: relative` on a `<tr>` as `static`, so every row's overlay covered the whole viewport and a click near the page title opened a random integration. The pair-page link is now the row's trailing chevron, a real `<a>` with its own accessible name, and a click elsewhere on the row is forwarded to it (`apps/web/src/app/shared/row-link/row-link-click.ts`). The vendor page's products table (`VendorProductRow`) uses the same pattern. Its **direction** readout is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `a_to_b`/`b_to_a`/`both` (AECI-921), both framed to this product and now in the same vocabulary, so the aggregate and the fallback can no longer disagree about what an endpoint ordering means; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored direction, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as the pair subject (`ProductPairSubject`: `ProductListItem` plus `claim_status`, `categories`, `audiences`, `phases`, `trades`, `api_docs_url` and `tool_integrations_url`, AECI-1822), the two links `null` while AECi has them hidden (AECI-1238), and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`. **One exception since AECI-953 (§7.2a):** an empty pair whose edges were re-pointed onto another product answers `moved_to` and **301s** to the pair that now holds them.
 - **Row order on the product-detail table: alphabetical by partner name** (2026-08-24). The `integrations_as_source` / `integrations_as_target` buckets **interleave** into one alphabetized list rather than concatenating — the split is invisible to the reader (every row shows `context_direction`, never its bucket), so concatenating would surface a distinction they cannot see as an unexplained break in the alphabet. Ties (one partner reachable by more than one mechanism) fall back to the integration name, then `id`, so the order is **total** and cannot reshuffle between renders. Before this the list carried **no** ordering at all — neither the `sourceIntegrations` / `targetIntegrations` read configs nor the client sorted — so rows arrived in D1 row order (effectively promote order) and the 20-row `@defer` cut fell at an arbitrary point. The sort lives in `product-detail.ts`, not SQL: those relations can only `ORDER BY` columns of `integrations` itself (the partner name is on the joined product), and ordering each bucket separately still would not interleave them. Contrast the sibling powered-hub section, which has always sorted (§12.3).
 
 - **Mechanism links are per side (AECI-1007, 2026-09-22).** Each endpoint vendor may set its own listing and docs link on an integration (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.7), carried on `ProductPairMechanism.vendor_links` as `{ context, other }`, framed like every other pair field. The card renders, **per kind**, each side's own link labelled with that side's product name, context side first: "Procore listing", "Revit listing". It was the vendor name until AECI-1141 (ruled 2026-09-28). One company owning both products then showed the same label twice, which fails link purpose (WCAG 2.4.4). Only when **neither** side has set that kind does it fall back to AECi's curated `listing_url` / `docs_url` under the old unlabelled copy ("View listing", "Documentation"). So a vendor link replaces the curated one for its kind rather than sitting beside it, which is what keeps the card from showing two listing links that disagree. All of them are external links: `target="_blank"`, `rel="noopener nofollow"` and `aecTrackExternalLink="pair_detail"`, so `external_link_clicked` keeps firing. Since AECI-933 each link also carries its owner in `[aecLinkContext]`. A side's own link is owned by that side's product's primary vendor, with `link_origin: 'vendor'`. A curated fallback is owned by `built_by_vendor`, else the connector's vendor, else `null`, with `link_origin: 'aeci'` (`VENDOR_PERFORMANCE_SPEC.md` §3.2). A connector-evidenced pair carries no vendor links (decision 9). Labels are `$localize` (`@@pair.mechanism.listingBy`, `@@pair.mechanism.docsBy`).
@@ -640,23 +640,140 @@ Scope — must ship as one change:
 - **Unchanged:** alphabetical default orientation everywhere per §11.1(3); empty-pair behaviour; orientation-independent cache tags (a `pair:{min}__{max}` purge already hits both cached URLs).
 - **Reversible:** rollback = restore the cross-canonicals + single sitemap entry.
 
-### 11.3 Context-specific suggestions module (AECI-341)
+### 11.3 Closest matches (AECI-341)
 
-_"Other tools that connect to {context product}"_ — ranked **purely algorithmically** from taxonomy overlap (category/audience/phase) + integration presence. **No pay-for-placement, ever.** Rendered on the pair page in both yes and no states, framed from the context product — the suggestion set genuinely differs by which tool the reader owns, making it the strongest per-orientation differentiator (§11.1(2)) and the content backbone of §11.4. API shape lands in `API_CONTRACTS.md`; suggested products join the pair page's embedded cache tags.
+_Rewritten 2026-11-14 by AECI-1821. It replaces the earlier "Other tools that connect to {context product}" suggestions module._ The page layout is in `docs/design/mockups/redesign-2026-11/PLAN.md` §5.1. The mock-up is `mockups/5-statement-first.html`. PLAN.md §10 lists the mock-up's known defects. The build must not copy them.
+
+The empty pair page is the first place this module ships. Whether it also renders on pair pages that have an integration is an open question put to Chris on 2026-11-14. No ruling has narrowed AECI-341, and §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list either way.
+
+**What the module is.**
+
+- One lane shows at a time. A two-option button group picks it: "Keep {A}" and "Keep {B}".
+- The default is the first product, "Keep {A}". The lane lists products that the kept product connects to.
+- The lane heading restates the choice in plain words. Example: "Construction accounting or ERP products that Bluebeam Revu connects to".
+- The categories of the product that is swapped out appear as toggle chips. All are on by default. Turning one off narrows what "similar" means.
+- A product appears when it shares a category that is on and has an integration on record with the kept product.
+- A live count shows. Each empty result has its own message.
+- Cards are the default view. A table is the alternative.
+- Each card shows the product, vendor, both ratings, review count, shared categories, the data objects moved, the direction, and the agreement state where there is one. It links to that pair page.
+
+**Ordering (ruling R1, AECI-1732, Chris, 2026-11-14).**
+
+- Closest matches are a new list. A new list is A to Z by name, with the id as the tie-break. Use `textAsc` for a D1 sort and `compareText` from `@aeci/shared/text-sort` in memory, never a bare `.sort()`. The list has no cap, or a cap taken from the A to Z order only.
+- Nothing in the order reads a rating, a review count, a plan, a license or a claim state.
+- The mock-up orders by data objects in common, then shared categories, then product quality, then review count. That order must not ship (PLAN.md §7.3).
+- The "How these are ordered" disclosure is required. It must say the list is A to Z by name. The mock-up's wording must not be copied.
+- The same text goes on the "How ranking works" help page before the code ships (PLAN.md §8.3).
+- Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs.
+- "Confirmed by both companies" is a label on a card or row only. There is no filter or sort on it.
+- The ordering is algorithmic. No pay-for-placement, ever. The legal verdict for the ordered lists is `none`.
+
+**Position and data object filter (ruling R6, AECI-1737, Chris, 2026-11-14: "However the mockup had it. I liked the mockup").**
+
+- Closest matches sit where mock-up 5 puts them. That is after the hero, the interest card and "What you would be moving", and before the side-by-side facts. They do not move up under the hero.
+- The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Nothing picked. Matches can move any data."
+- When chips are on, a product must move every picked data object to appear. The lane shows "must move {objects}" with a Clear control.
+- The AECI-1816 measurement ran on 2026-11-14 against production. Production has 0 Managed integrations. All 2,227 data-object rows are AECi seeds. 509 of 1,572 live integrations (32.4%) have no data object. The filter cannot hide Free vendors' rows unevenly today, and it is cleared to build.
+- The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
+- Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
+
+**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (owned by AECI-1822, which is not merged yet). The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 
-The searcher whose true answer is _no_ currently gets nothing from us; a good "no" page — honest answer, viable bridge, alternatives — is the trust-first positioning made concrete, and the anti-thin-content moat is that it is **data-derived and unique per pair**.
+The searcher whose true answer is _no_ currently gets nothing from us. A good "no" page is the trust-first positioning made concrete. It gives an honest answer and then somewhere useful to go. The anti-thin-content moat is that it is **data-derived and unique per pair**.
 
-- **Scoring function** (pure, `packages/shared`): an empty pair qualifies on same category cluster + `data_object` overlap + demonstrated GSC demand (§11.6). Below the bar → stays `noindex`.
-- **Content template** for qualifying pairs: existence answer → **data-object bridge** ("X and Y both handle _cost codes_ — a CSV/manual bridge is viable", derived from each product's claims on its other integrations) → suggestions (§11.3) → report CTA (§11.5).
-- **Indexing flip:** qualifying pairs lose `noindex` and enter the sitemap. Dual-orientation only where scoring shows demand in both directions.
-- **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs — indexable pages must not be sitemap-only orphans.
-- **Batched rollout:** first batch tens of pages; widen only on GSC evidence (§11.6). Gated behind the §11.2 GSC gate passing.
+**No bridges (ruling by Chris, comments on AECI-342 dated 2026-11-11 and 2026-11-14).**
+
+- There is no two-step route through a third product.
+- There are no connector-platform modules on this page. This supersedes the connector comparison columns that §13.7 gave curated reachable pair pages. See the supersession note at the top of §13.7.
+- There is no "data-object bridge" sentence. The earlier template said "X and Y both handle _cost codes_, a CSV/manual bridge is viable". That sentence is removed.
+- Data objects still appear as facts. "What you would be moving" lists what each product already exchanges. It never says a connection is viable or could be built.
+
+**Page template.** Sections run in this order. The layout and mock-up are in PLAN.md §5.1. The hero also shows a product card for each side, with name, vendor, logo and categories.
+
+1. **Statement and caveat.** A "Not on record" pill, the statement and the caveat. The pair has zero mechanisms.
+2. **Correction entry.** "Know of one?" with the button "It does exist". It opens the existing correction request (§11.5).
+3. **Interest card.** The look-up count, "I need this too" and "Watch this pair".
+4. **What you would be moving.** Data objects in three groups: only {A}, both, only {B}. They come from each product's other integrations on record.
+5. **Closest matches.** See §11.3.
+6. **The two products, side by side.** A facts table and "Who each product is for". The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
+7. **Look it up yourself.** Each vendor's API docs and integrations directory links.
+
+**Exact copy, fixed by the legal review (`docs/design/mockups/redesign-2026-11/records/legal-review-2026-11-12.md`) and PLAN.md §5.1.** Use these strings exactly. Do not reword them.
+
+| Element | Exact copy |
+| --- | --- |
+| Status pill | Not on record |
+| Statement | We have no integration between {A} and {B} on record. |
+| Caveat | Not on record means we have not found one. It is not proof that none exists. |
+| Correction heading | Know of one? |
+| Correction body | Tell us where you saw it and we will look at it. |
+| Correction button | It does exist |
+| Look-up count | Looked up {n} times in the last 90 days. Visits we identified as automated are not counted. |
+| Need button | I need this too |
+| Need caption | One click. No account needed. |
+| Watch heading | Watch this pair |
+| Watch promise | One email if we add an integration for this pair. Nothing else. |
+| Look it up intro | Linked as each vendor publishes them. What they say about building a connection is theirs, not ours. |
+| API sentence | An API is not an integration. We list an integration only when we can show that one exists. |
+| No directory page | We have not found an integrations page published by {vendor}. |
+| Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
+| Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
+
+- Never write that a product "does not integrate".
+- The caveat also appears in the page title and the meta description. The legal review asked for this.
+- The unclaimed note uses the shared component.
+- Every string needs an i18n id.
+
+**Correction entry style (ruling R6, AECI-1737).** The build follows mock-up 5 in its default state. The default is the inline strip. It sits in the hero under the lede. It shows the heading, the body and the button. The "Is this right?" prompt is an alternate in the mock-up's Options panel. It is not built.
+
+**Interest card.**
+
+- **Look-up count (ruling R7, AECI-1738).** It counts pair page views over 90 days with identified automated visits removed. It is hidden below a floor of 10. When it is hidden, the other two controls fill the card. A Privacy Policy line about published aggregate look-up counts is needed first.
+- **"I need this too" (R7).** It shows its count above the same floor of 10. The repeat-click guard is server-side, keyed on a hashed IP and the day. It uses no browser storage, so no cookie line is needed. It is a new server-side store of a keyed IP hash and a day. Under `docs/LEGAL_IMPACT_REVIEW.md` §3 it needs a "What we collect" line and a "Retention" line with a stated period in the Privacy Policy. The live policy names a keyed IP hash for visit statistics only. That text is AECI-1825, and the captures do not ship before it.
+- **"Watch this pair" (R7).** A watch address is deleted when the email is sent, or at 12 months, whichever comes first. The address never joins the mailing list.
+- **Shipping (R7).** The captures ship separately from the empty pair page. They do not ship before the Privacy Policy text is live (AECI-1825). Cached HTML is the same for every visitor. A visitor's own click or watch state is reconciled in the browser after hydration.
+- **Unclaimed products (R7).** They get no brand colours. An unclaimed product shows an initial tile.
+
+**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822, not merged yet). A corrected link must show AECi's "Corrected by" caption, or the row links to the product page instead (see the comment on AECI-1827). The "Corrected by" caption data is not in the pair payload, so AECI-1827 must add it or link to the product page. Never write that an API means a connection could be built.
+
+**States.**
+
+| State | Behaviour |
+| --- | --- |
+| Neither product has reviews | The reviews row and both rating rows are absent from the facts table. |
+| Look-ups below the floor | The count is hidden. The other two controls fill the card. |
+| No closest matches | A designed empty message. The page still shows the sections above and below it. |
+| One product unclaimed | It shows an initial tile and no brand colour. |
+
+**Rules that stay as they are.**
+
+- The page returns 200 with `noindex`.
+- No JSON-LD. The resolver skips it on the same condition.
+- No sitemap entry.
+- A pair whose integration moved still redirects with a 301 (AECI-953).
+- A pair finder pick whose slug does not resolve goes to `/search?q={typed name}`. AECI-1823 owns this and is not merged yet. The finder first checks the retired-slug map (AECI-991), then falls back to search.
+
+**Tiering for qualifying pairs.**
+
+- **Scoring function** (pure, `packages/shared`): an empty pair qualifies on same category cluster + `data_object` overlap + demonstrated GSC demand (§11.6). Data object overlap is a score input only. It is never shown as a bridge. Below the bar, the pair stays `noindex`.
+- **Content template** for qualifying pairs: the page template above. Nothing is added to it.
+- **Indexing flip:** qualifying pairs lose `noindex` and enter the sitemap. Dual-orientation only where scoring shows demand in both directions. Until a pair is promoted, the rules above hold.
+- **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs. Indexable pages must not be sitemap-only orphans. This list is a new on-page list. The score decides indexing eligibility only. Any `data_object` input to the score counts rows with `origin = 'aeci'` only (PLAN.md §7.6 option 2), because a Managed vendor can change the other rows. The list itself is A to Z by name with the id as the tie-break (R1). It has no cap, or a cap taken from the A to Z order only. It is in scope for the AECI-1814 firewall test.
+- **Batched rollout:** first batch tens of pages. Widen only on GSC evidence (§11.6). Gated behind the §11.2 GSC gate passing.
 
 ### 11.5 Per-pair "report a missing integration" CTA (AECI-343)
 
-_"Know of an integration between {X} and {Y} we're missing?"_ — a prefilled entry point into the **existing** Phase 6 requests + moderation pipeline (no new pipeline), carrying both product slugs with distinguishable type/metadata so **per-pair report counts are queryable**. Doubles as a coverage-gap demand signal feeding the §11.4 scoring. Writes obey the §26.1 audit-batch invariant.
+The entry point reads "Know of one?" with the button "It does exist". The exact copy is in §11.4. The button opens the **existing** correction request. It is not a new pipeline.
+
+- The report carries **both** products. A request must identify the pair, with distinguishable type or metadata, so per-pair report counts are queryable.
+- A correction request does not carry both products today. `context_product_id` is for claims only. A correction passes `contextProduct: null` (`apps/api/src/routes/requests.ts`). `RequestKindSchema` allows only `claim` and `correction`. The schema change is AECI-343. This section does not design it.
+- The dialog opens with a prefilled body that names both products. It asks for a public source, as the Listing Accuracy Policy requires.
+- A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route. **Open question put to Chris on 2026-11-14:** this policy covers a wrong value, not a report that an integration exists. The proposal is that the "not on record" statement on that pair page is flagged as under review. That is not settled.
+- The report count doubles as a coverage-gap demand signal that feeds the §11.4 scoring.
+- Writes obey the §26.1 audit-batch invariant. The `audit_log` row goes in the same `db.batch` as the write.
+- Rate limits go on the write only, after the authz guard.
 
 ### 11.6 Measurement, gates & rollback (AECI-344)
 
@@ -1392,6 +1509,38 @@ byte-identically to before, pinned by the hub case in `depth-axis-null.component
 AECI-1117 re-recorded that snapshot once for its own changes (chevron, header wrap, and direction and
 mechanism in the row name, §12.3). The depth axis still adds nothing to the null case.
 
+**Partner categories, agreement and data-object names (AECI-1781, 2026-11-14).** The site redesign's
+integrations section filters by partner category and shows an agreement state on each card
+(`docs/design/mockups/redesign-2026-11/PLAN.md` §6.2). Each `ProductIntegrationItem` in the two
+endpoint buckets now carries three more fields, on direct, Via and `powered_by` rows alike. The
+powered hub's `PoweredIntegrationItem` does not: its rows have no single partner.
+
+- **`partner_categories`**: the categories of the endpoint that is not the page product, in the
+  order a product's own categories take (AECI-1242): curated `display_order`, then name, then slug.
+  `[]` for a partner with none.
+- **`data_objects`**: the objects in `data_object_slugs`, each with its name, in the order the pair
+  page's claim lanes use: curated `display_order`, then name, then slug. Same claims, same set. The
+  names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.
+- **`agreement`**: Provisional until Chris rules on AECI-1781: the row's claims rolled up by
+  `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
+  confirmed`. So a row reads `confirmed` only when every flow it lists is confirmed by two
+  companies. One confirmed flow never lends its standing to flows nobody confirmed. It covers the
+  claims `data_objects` lists: refuted and unbacked claims are out, as they are out of the depth
+  axis. `null` when the row lists no claim. Two points are open. A flow every voting company denied
+  is left out of the roll-up. A rolled-up `single_source` names no vendor, so a card cannot render
+  the attributed "Confirmed by {vendor}" form (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3) from this field
+  alone. A claim marked `removed` on a versioned pair still counts on the product row, as
+  `data_object_slugs` has since AECI-711.
+
+All three are row data. None orders anything on the server, and the rows stay unordered on the
+wire. Until ruling R1 (AECI-1732), PLAN.md §7.8 orders every list of products and integrations A to
+Z by name. The two term lists are chips, not such lists, and `display_order` is set by AECi seeds
+only. A sort or filter on `agreement` would read an input only a Managed vendor can move, which
+PLAN.md §7.7 calls placement. The fields ride nested relations of the product read, so the read is the same 16
+statements in one `db.batch` for a product with 1 row or 58. The page's existing tags cover every
+change: an attestation write purges both `product:{slug}` tags, and a partner's category edit purges
+`product:{partnerSlug}`, which the page embeds for every partner (`CACHE_STRATEGY.md` §5).
+
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 
 This subsection records a **reversal**. §13.3 originally required a Direction column and said
@@ -2096,6 +2245,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
   the `RoleBadge`. A Connectors facet is still unbuilt (AECI-1662).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
+
+> **Superseded in part, 2026-11-14 (AECI-1821).** Chris's no-bridge ruling (comments on AECI-342, 2026-11-11, extended 2026-11-14) removed connector-platform modules from the pair page. The connector comparison columns below do not render on a pair page. Whether AECI-716's curated pair pages survive in another form is an open question put to Chris on 2026-11-14. The text below is kept as the record. See §11.4.
 
 Presentation only; the data lands in AECI-714 and the curation in the review app.
 

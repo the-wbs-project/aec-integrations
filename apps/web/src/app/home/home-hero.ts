@@ -25,7 +25,15 @@
  *
  * Pair finder routing (JS):
  *   - two different products chosen: the product-pair page, context = the
- *     canonical first slug from `defaultIntegrationContext`;
+ *     canonical first slug from `defaultIntegrationContext`. The finder first reads
+ *     the pair from the same-origin API (AECI-1823), with a 2.5 s timeout. On a
+ *     `NOT_FOUND` it first asks the retired-slug map, as the pair resolver does
+ *     (AECI-991), bounded by the same 2.5 s, and navigates to the survivor pair on a hit. Otherwise a stale
+ *     slug goes to `/search?q=` with the typed text of the side the envelope names
+ *     (`details.slug`), or the first typed text. A timeout or any other failure of
+ *     the read navigates to the pair page. A direct request to a bad pair URL still
+ *     returns a real 404. While the read runs the form carries `aria-busy`, the
+ *     button `aria-disabled`, and a second submit is ignored;
  *   - one product chosen: that product's page at its `#integrations` section;
  *   - nothing chosen but text typed: `/search?q=` with the first typed text.
  * Typing into a picker after choosing drops that picker's choice, so the route
@@ -43,13 +51,26 @@
  * An empty list leaves the row out of that HTML. After hydration the row then
  * shows the category fallback from `TaxonomyNavStore`.
  */
+import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { firstValueFrom, timeout } from 'rxjs';
 
-import { defaultIntegrationContext, type ProductListItem } from '@aeci/shared';
+import {
+  defaultIntegrationContext,
+  type ProductListItem,
+  type ProductPairResponse,
+} from '@aeci/shared';
 
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
+import { pairPath } from '../core/api/product-pairs';
+import { decodeNotFound } from '../core/api/http-get-or-null';
+import {
+  httpGetSlugRedirect,
+  movedPairPath,
+  rewriteRetiredPairSlugs,
+} from '../core/api/slug-redirects';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import { isReplayedEvent } from '../core/event-replay';
@@ -61,6 +82,18 @@ const PAIR_INPUT_IDS: Record<PairSide, string> = {
   tool: 'hero-pair-tool',
   other: 'hero-pair-other',
 };
+
+/** How long the finder waits on the pair read before it navigates anyway (AECI-1823). */
+const PAIR_READ_TIMEOUT_MS = 2500;
+
+/** Resolve with `fallback` if `work` has not settled within `ms`. */
+function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
 
 /** A chosen product suggestion's slug (`routerLink` is `['/products', slug]`). */
 function productSlug(s: AutocompleteSuggestion | null): string | null {
@@ -153,6 +186,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
             class="mt-5 flex flex-col gap-4"
             role="search"
             aria-labelledby="hero-pair-title"
+            [attr.aria-busy]="checking() ? 'true' : null"
             action="/search"
             method="get"
             (submit)="onPairSubmit($event)"
@@ -188,6 +222,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
             <button
               type="submit"
               class="mt-1 h-11 w-full rounded-(--radius-md) bg-(--accent-primary) px-5 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [attr.aria-disabled]="checking() ? 'true' : null"
               i18n="@@home.hero.pair.submit"
             >
               Show integrations
@@ -200,6 +235,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 })
 export class HomeHero {
   private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
   private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
@@ -260,18 +296,23 @@ export class HomeHero {
   protected onPairSubmit(event: Event): void {
     if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
-    this.submitPair();
+    void this.submitPair();
   }
 
   /** Route the finder: pair page, product page, or `/search?q=`. */
-  protected submitPair(): void {
+  protected async submitPair(): Promise<void> {
+    if (this.checking()) return; // a pair read is already in flight
     const tool = productSlug(this.chosen.tool());
     const other = productSlug(this.chosen.other());
 
     if (tool && other && tool !== other) {
-      const context = defaultIntegrationContext(tool, other);
-      const rest = context === tool ? other : tool;
-      void this.router.navigate(['/products', context, 'integrations', rest]);
+      // The busy state covers the whole check: the pair read and the retired-slug lookup.
+      this.checking.set(true);
+      try {
+        await this.routePair(tool, other);
+      } finally {
+        this.checking.set(false);
+      }
       return;
     }
     const single = tool ?? other;
@@ -280,12 +321,87 @@ export class HomeHero {
       return;
     }
 
-    const text = [this.fieldText('tool'), this.fieldText('other')].find((t) => t !== '');
+    const text = this.typedText();
     if (text) {
       navigateToSearchQuery(this.router, text);
       return;
     }
     this.field('tool')?.focus();
+  }
+
+  /** The pair branch of `submitPair`: read, retired-slug lookup, then navigate. */
+  private async routePair(tool: string, other: string): Promise<void> {
+    const context = defaultIntegrationContext(tool, other);
+    const rest = context === tool ? other : tool;
+    // The visitor edited a picker while a read was in flight: that choice is theirs
+    // now, so do not act on the captured pair (AECI-1823).
+    const changed = (): boolean =>
+      productSlug(this.chosen.tool()) !== tool || productSlug(this.chosen.other()) !== other;
+
+    const check = await this.checkPair(context, rest);
+    if (changed()) return;
+    if (check.missing) {
+      // A retired slug redirects to its survivor pair, as the pair resolver does
+      // (AECI-991). Bounded by the same budget as the read, here only: a timeout
+      // reads as "no redirect" and falls through to search.
+      const rewritten = await withTimeout(
+        rewriteRetiredPairSlugs(context, rest, (slug) =>
+          httpGetSlugRedirect(this.http, 'product', slug),
+        ),
+        PAIR_READ_TIMEOUT_MS,
+        null,
+      );
+      if (changed()) return;
+      if (rewritten) {
+        void this.router.navigateByUrl(movedPairPath(rewritten));
+        return;
+      }
+      // A stale slug: send the visitor to search, not the generic 404 (AECI-1823).
+      const typed = this.missingText(check.slug, tool, other) || this.typedText();
+      if (typed) {
+        navigateToSearchQuery(this.router, typed);
+        return;
+      }
+    }
+    void this.router.navigate(['/products', context, 'integrations', rest]);
+  }
+
+  /** True while the pair check runs. Drives `aria-busy` and `aria-disabled`. */
+  protected readonly checking = signal(false);
+
+  /**
+   * Read the pair from the endpoint its resolver uses. Only a canonical `NOT_FOUND`
+   * says it is missing, and then `slug` is the one the envelope names, if any. Any
+   * other failure, including the timeout, answers "not missing", so a slow or flaky
+   * read never strands the visitor: the pair page makes its own decision.
+   */
+  private async checkPair(
+    context: string,
+    other: string,
+  ): Promise<{ missing: boolean; slug: string | null }> {
+    try {
+      await firstValueFrom(
+        this.http
+          .get<ProductPairResponse>(pairPath(context, other, undefined))
+          .pipe(timeout(PAIR_READ_TIMEOUT_MS)),
+      );
+      return { missing: false, slug: null };
+    } catch (err) {
+      const notFound = decodeNotFound(err);
+      return { missing: notFound !== null, slug: notFound?.slug ?? null };
+    }
+  }
+
+  /** The typed text of the picker whose product the 404 named, or '' when it named neither. */
+  private missingText(slug: string | null, tool: string, other: string): string {
+    if (slug === tool) return this.fieldText('tool');
+    if (slug === other) return this.fieldText('other');
+    return '';
+  }
+
+  /** The first non-empty text typed in either picker. */
+  private typedText(): string {
+    return [this.fieldText('tool'), this.fieldText('other')].find((t) => t !== '') ?? '';
   }
 
   private field(side: PairSide): HTMLInputElement | null {

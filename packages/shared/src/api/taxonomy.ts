@@ -89,15 +89,23 @@ export function isPublishedTrade(term: { product_count: number }): boolean {
  * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS` floor exported above.
  * Each surface applies the floor itself (`TRADES_VOCABULARY.md` §6) so the gate
  * is tunable without an API deploy.
+ *
+ * `total_products` (AECI-1773) is the count behind the Browse menu's "All
+ * products" line. It uses the same visibility rule as `home.total_products`
+ * (`computeTotalProducts`), so a hidden listing counts nowhere public.
  */
 export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),
+  total_products: z.number().int().min(0),
 });
 
 export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
+
+/** The four term-list keys of {@link TaxonomyResponse}, excluding the `total_products` scalar. */
+export type TaxonomyFacetKey = 'categories' | 'audiences' | 'phases' | 'trades';
 
 /**
  * Response for the flat taxonomy list endpoints — `GET /api/categories`,

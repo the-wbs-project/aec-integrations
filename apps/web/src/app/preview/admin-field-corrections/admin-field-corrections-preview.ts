@@ -105,6 +105,7 @@ const TAXONOMY: TaxonomyResponse = {
   audiences: [term('general-contractors', 'General Contractors', 11), term('owners', 'Owners', 12)],
   phases: [term('construction', 'Construction', 21), term('closeout', 'Closeout', 22)],
   trades: [term('electrical', 'Electrical', 31), term('mechanical', 'Mechanical', 32)],
+  total_products: 0,
 };
 
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake

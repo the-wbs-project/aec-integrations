@@ -15,6 +15,7 @@ Nothing in this document is built. It is a plan, and it is not yet a build contr
 | Branch | `chris/aeci-1571-pair-page-with-no-integration-say-so-show` |
 | Conductor workspace | `tirana-v1` |
 | Code written | None |
+| Linear breakdown | 117 issues under AECI-1720 and the SEO epic AECI-1731. The map is `BUILD_PLAN.md`. |
 | Spec this would amend | `docs/STAGE_1_5_SPEC.md` §11 |
 
 How to use it:
@@ -408,7 +409,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301. That is AECI-953.
 
-**The second case in AECI-1571 is unchanged by this plan.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. Both stay in the issue.
+**The second case in AECI-1571 is outside this plan and is done by AECI-1823.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. The finder fallback shipped in AECI-1823. The slug check is AECI-1824.
 
 ### 5.2 The product details page
 
@@ -501,13 +502,13 @@ Shared constraints for every row below:
 
 ### 6.1 The empty pair page
 
-The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. It carries no categories, description, links or taxonomy. The type is in `packages/shared/src/api/product-pairs.ts`.
+The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. Since AECI-1822 it also carries each product's categories, audiences, phases, trades and the two links, `api_docs_url` and `tool_integrations_url`. It still carries no description. The type is in `packages/shared/src/api/product-pairs.ts`.
 
 | Element | Data needed | In the pair payload today | Work |
 | --- | --- | --- | --- |
 | Statement, status | `mechanisms.length === 0` | Yes | None |
-| Product cards | Categories of each product | No | Add categories to each side |
-| Correction entry | Both product ids on a request | Partly. Requests have `context_product_id`. | See below |
+| Product cards | Categories of each product | Yes, since AECI-1822 | Delivered by AECI-1822 |
+| Correction entry | Both product ids on a request | No. `context_product_id` is for claims only, and a correction sets it to null (`apps/api/src/routes/requests.ts:764`). | New storage. AECI-343. |
 | Look-up count | Pair page views, 90 days, automated visits removed | Views are recorded in `page_views` with pair columns. No public count exists. | New read, with a floor |
 | "I need this too" | A de-duplicated per-pair count | No | New table, new write, repeat-click guard |
 | "Watch this pair" | An email tied to a pair | No | New table, new write, new email |
@@ -515,10 +516,10 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Closest matches | The kept product's integrations, with each partner's categories, ratings and data objects | No | New read |
 | Category anchors | The swapped product's categories | No | Comes with the row above |
 | Facts table | Integration count, reviews, ratings, claim state | Yes | None |
-| Who each is for | Audiences, phases, trades of both | No | Add to each side |
-| Look it up yourself | `api_docs_url`, `tool_integrations_url` | No | Add to each side |
+| Who each is for | Audiences, phases, trades of both | Yes, since AECI-1822 | Delivered by AECI-1822 |
+| Look it up yourself | `api_docs_url`, `tool_integrations_url` | Yes, since AECI-1822, `null` while AECi has a link hidden | Delivered by AECI-1822 |
 
-**The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. One context product id is not enough to identify a pair. The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
+**The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
 **The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route.
 
@@ -527,16 +528,16 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Element | Data needed | In the product payload today | Work |
 | --- | --- | --- | --- |
 | Hero, facts card | Product record, ratings, vendor facts | Yes | None |
-| Maintenance chip date | `products.last_reviewed_at` | The column exists in `apps/api/src/db/schema.ts` | Confirm it is in the payload. Not confirmed. |
+| Maintenance chip date | `products.last_reviewed_at` | Yes, as `maintenance.last_reviewed_at` | None |
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
-| Partner category filter | Each partner's categories on the integration row | No | Add to the row |
-| Agreement state on cards | The agreement state per integration | Not confirmed on this payload | Check, then add |
+| Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
+| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. The roll-up rule is provisional until Chris rules. | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
 | Review excerpts | Role and years of use | Yes | See below |
-| Rating topic chips such as "Setup" and "Training" | Unknown | Not confirmed to exist | Treat as invented until checked |
+| Rating topic chips such as "Setup" and "Training" | None. Only overall and onboarding ratings exist. | No | Cut |
 
 **Reviews must not show company type.** The mock-up shows it. The live site shows role and years of use. The Privacy Policy says the firm "is not shown on your published review".
 
@@ -544,11 +545,11 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 
 | Element | Data needed | Exists today | Work |
 | --- | --- | --- | --- |
-| Product count per term | A count per category, audience, phase and trade | Not confirmed as one read | One cached read for the header |
-| Total product count | One number | Not confirmed | Same read |
+| Product count per term | A count per category, audience, phase and trade | Yes. `GET /api/taxonomy` returns `product_count` per term. The header fetches it in the browser after hydration. | None |
+| Total product count | One number | Only as `home.total_products` on `/api/stats/home` | Add to `/api/taxonomy`. AECI-1773. |
 | Key categories | A short list chosen by us | No | A config list, not a table |
 
-The header renders on every page. Its counts must come from a cached read and must purge when promote changes the catalog.
+The header renders on every page. Its counts come from `/api/taxonomy`, which is read through KV with a 5-minute TTL and fetched in the browser, so no SSR HTML carries them and no purge path is needed.
 
 ## 7. Ordering and the no pay-for-placement promise
 
@@ -599,7 +600,7 @@ The existing firewall tests would not catch it. They cover search attributes, so
 | Related products | Newest first, limit 6 | `apps/api/src/routes/products.ts` |
 | Search | `listing_tier`, then review count | `docs/SEARCH_RANKING.md` |
 
-All four are clean. No plan can move them.
+No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. The counts change only through promote and the seat-gated create, retire and restore, so no plan moves them (AECI-1814). Ruling R1 (AECI-1732) ruled on 2026-11-14 that existing orders stay. (Corrected 2026-11-14. This line first said "All four are clean.")
 
 AECI-1814 found one existing order that is not clean. The nav, home, `/search` facets and taxonomy index rank audience and trade terms by product count, and only a Managed plan can tag a product with them. It awaits a ruling (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8).
 
@@ -878,26 +879,26 @@ Chris has not answered these.
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
-| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | Inline strip | A |
-| 8 | What is the look-up count floor? | 10, or another number | 10 | B |
-| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | Delete on send, or at 12 months, whichever is first | B, F |
-| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | Separate issues | A, B |
-| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | Yes, above the same floor as look-ups | B |
+| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | **Ruled 2026-11-14 (AECI-1737, R6):** as mock-up 5's default shows it, the inline strip. (was: Inline strip) | A |
+| 8 | What is the look-up count floor? | 10, or another number | **Ruled 2026-11-14 (AECI-1738, R7):** the count is hidden below 10. (was: 10) | B |
+| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | **Ruled 2026-11-14 (AECI-1738, R7):** deleted when the email is sent, or at 12 months, whichever is first. (was: Delete on send, or at 12 months, whichever is first) | B, F |
+| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | **Ruled 2026-11-14 (AECI-1738, R7):** separate issues. The captures ship apart from the empty pair page. (was: Separate issues) | A, B |
+| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | **Ruled 2026-11-14 (AECI-1738, R7):** yes, above the same floor of 10. (was: Yes, above the same floor as look-ups) | B |
 | 12 | Does the "Reviewed" date return on the maintenance chip? | Yes or no | Yes. The column exists. | E |
 | 13 | Do review excerpts show role and years of use? | Yes. Keep company type. | Yes. Company type breaks the Privacy Policy. | E |
 | 14 | What colour is the active bar in the section nav? | Clay to match the header. Forest for contrast. | Clay | D |
 | 15 | Is the redesign site-wide, and in what order? | This page only. Product and pair pages. Everything. | Tokens and header first, then the pair and product pages, then the rest | D, E |
-| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | Measure how uneven data objects are before shipping | A, E |
+| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement ran 2026-11-14: 0 Managed integrations in production, so it is cleared to build. The count and empty state must say rows with no recorded data objects are left out. Re-run once a licensed vendor owns integrations. (was: Measure how uneven data objects are before shipping) | A, E |
 | 17 | How many products are in the AI category today? | Unknown | Check before making it a headline link | D |
 | 18 | Who makes the reversed wordmark? | Unknown | File it with the design language work | D |
 | 19 | Does the category chart on the empty product page stay? | Yes or no. It is a new aggregate. | Cut it for now | E |
 | 20 | Does the 58-integration list group by category by default? | Grouped. One list. | Grouped, raised under the same-behaviour rule | E |
 | 21 | Does trades, phases and audiences get the same key-item treatment as categories? | Yes or no | No | D |
-| 22 | Does the pair page move its matches up under the hero? | Yes or no | Yes | A |
+| 22 | Does the pair page move its matches up under the hero? | Yes or no | **Ruled 2026-11-14 (AECI-1737, R6):** no. Matches stay where mock-up 5 has them. (was: Yes) | A |
 
 ## 12. Proposed workstreams and issues
 
-AECI-1571 as written is now much smaller than this plan. I recommend re-scoping it to workstream A and filing the rest separately. None of the issues below has been created in Linear.
+**Superseded 2026-11-14 by `BUILD_PLAN.md`.** The issues are filed. AECI-1571 closed with no code. Workstreams A and B became the SEO epic AECI-1731. Workstreams C to F became Redesign 0 to 9 under AECI-1720. The tables below are the original proposal, kept for the record.
 
 Three issues may already cover part of this. `docs/STAGE_1_5_SPEC.md` names AECI-341 for the suggestions module, AECI-342 for the "meaningful no" page and AECI-343 for the per-pair report button. Their status was not checked. Check them before filing anything new.
 
@@ -913,7 +914,7 @@ This delivers the visitor value now, without waiting for the redesign.
 | A2 | Pair report carries both products | Record both product ids on a correction request so per-pair counts can be queried. Zod, contract row, audit in the same batch. | Pilot | `docs/STAGE_1_5_SPEC.md` §11.5 | none. It uses the existing correction path. | Check AECI-343 |
 | A3 | Closest matches on the empty pair page | The keep toggle, category anchors, cards and table, A to Z order, the ordering disclosure. A new read. | SEO | `docs/STAGE_1_5_SPEC.md` §11.3 | text. "How ranking works" must describe the order. | Decision 2, C2, check AECI-341 |
 | A4 | "What you would be moving" and the data object filter | The three groups and the filter on closest matches. | SEO | `docs/STAGE_1_5_SPEC.md` §11.4 | none | A3, decision 16 |
-| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
+| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. Finder fallback done by AECI-1823. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
 
 ### Workstream B: demand captures
 
