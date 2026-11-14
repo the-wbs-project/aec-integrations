@@ -15,6 +15,7 @@ Nothing in this document is built. It is a plan, and it is not yet a build contr
 | Branch | `chris/aeci-1571-pair-page-with-no-integration-say-so-show` |
 | Conductor workspace | `tirana-v1` |
 | Code written | None |
+| Linear breakdown | 117 issues under AECI-1720 and the SEO epic AECI-1731. The map is `BUILD_PLAN.md`. |
 | Spec this would amend | `docs/STAGE_1_5_SPEC.md` §11 |
 
 How to use it:
@@ -507,7 +508,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | --- | --- | --- | --- |
 | Statement, status | `mechanisms.length === 0` | Yes | None |
 | Product cards | Categories of each product | No | Add categories to each side |
-| Correction entry | Both product ids on a request | Partly. Requests have `context_product_id`. | See below |
+| Correction entry | Both product ids on a request | No. `context_product_id` is for claims only, and a correction sets it to null (`apps/api/src/routes/requests.ts:764`). | New storage. AECI-343. |
 | Look-up count | Pair page views, 90 days, automated visits removed | Views are recorded in `page_views` with pair columns. No public count exists. | New read, with a floor |
 | "I need this too" | A de-duplicated per-pair count | No | New table, new write, repeat-click guard |
 | "Watch this pair" | An email tied to a pair | No | New table, new write, new email |
@@ -518,7 +519,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Who each is for | Audiences, phases, trades of both | No | Add to each side |
 | Look it up yourself | `api_docs_url`, `tool_integrations_url` | No | Add to each side |
 
-**The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. One context product id is not enough to identify a pair. The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
+**The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
 **The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route.
 
@@ -527,16 +528,16 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Element | Data needed | In the product payload today | Work |
 | --- | --- | --- | --- |
 | Hero, facts card | Product record, ratings, vendor facts | Yes | None |
-| Maintenance chip date | `products.last_reviewed_at` | The column exists in `apps/api/src/db/schema.ts` | Confirm it is in the payload. Not confirmed. |
+| Maintenance chip date | `products.last_reviewed_at` | Yes, as `maintenance.last_reviewed_at` | None |
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
-| Partner category filter | Each partner's categories on the integration row | No | Add to the row |
-| Agreement state on cards | The agreement state per integration | Not confirmed on this payload | Check, then add |
+| Partner category filter | Each partner's categories on the integration row | No | Add to the row. AECI-1781. |
+| Agreement state on cards | The agreement state per integration | No. Only the pair payload has it. | Add. AECI-1781. |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
 | Review excerpts | Role and years of use | Yes | See below |
-| Rating topic chips such as "Setup" and "Training" | Unknown | Not confirmed to exist | Treat as invented until checked |
+| Rating topic chips such as "Setup" and "Training" | None. Only overall and onboarding ratings exist. | No | Cut |
 
 **Reviews must not show company type.** The mock-up shows it. The live site shows role and years of use. The Privacy Policy says the firm "is not shown on your published review".
 
@@ -544,11 +545,11 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 
 | Element | Data needed | Exists today | Work |
 | --- | --- | --- | --- |
-| Product count per term | A count per category, audience, phase and trade | Not confirmed as one read | One cached read for the header |
-| Total product count | One number | Not confirmed | Same read |
+| Product count per term | A count per category, audience, phase and trade | Yes. `GET /api/taxonomy` returns `product_count` per term. The header fetches it in the browser after hydration. | None |
+| Total product count | One number | Only as `home.total_products` on `/api/stats/home` | Add to `/api/taxonomy`. AECI-1773. |
 | Key categories | A short list chosen by us | No | A config list, not a table |
 
-The header renders on every page. Its counts must come from a cached read and must purge when promote changes the catalog.
+The header renders on every page. Its counts come from `/api/taxonomy`, which is read through KV with a 5-minute TTL and fetched in the browser, so no SSR HTML carries them and no purge path is needed.
 
 ## 7. Ordering and the no pay-for-placement promise
 
@@ -599,7 +600,7 @@ The existing firewall tests would not catch it. They cover search attributes, so
 | Related products | Newest first, limit 6 | `apps/api/src/routes/products.ts` |
 | Search | `listing_tier`, then review count | `docs/SEARCH_RANKING.md` |
 
-All four are clean. No plan can move them.
+No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. Any seat can create an integration, so the counts are not plan-gated. Ruling R1 (AECI-1732) asks whether they stay. (Corrected 2026-11-14. This line first said "All four are clean.")
 
 ### 7.5 What Chris has and has not ruled
 
@@ -895,7 +896,7 @@ Chris has not answered these.
 
 ## 12. Proposed workstreams and issues
 
-AECI-1571 as written is now much smaller than this plan. I recommend re-scoping it to workstream A and filing the rest separately. None of the issues below has been created in Linear.
+**Superseded 2026-11-14 by `BUILD_PLAN.md`.** The issues are filed. AECI-1571 closed with no code. Workstreams A and B became the SEO epic AECI-1731. Workstreams C to F became Redesign 0 to 9 under AECI-1720. The tables below are the original proposal, kept for the record.
 
 Three issues may already cover part of this. `docs/STAGE_1_5_SPEC.md` names AECI-341 for the suggestions module, AECI-342 for the "meaningful no" page and AECI-343 for the per-pair report button. Their status was not checked. Check them before filing anything new.
 
