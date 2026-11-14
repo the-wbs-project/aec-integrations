@@ -100,7 +100,7 @@ Twelve ideas were listed. Three wireframes followed: a route finder, a closest m
 | Ruling | Detail |
 | --- | --- |
 | Only data we already hold | Everything shown must come from data we can already look up. |
-| No bridges | No two-step routes through a third product. His words: "Saying you have to implement an ERP is just crazy talk." This also removed connector platform modules. |
+| No bridges | No two-step routes through a third product. His words: "Saying you have to implement an ERP is just crazy talk." On 2026-11-14 Chris limited this to two-step routes on the empty pair page. The connector comparison on curated reachable pairs stands, and AECI-1837 reconciles the template. |
 | Keep "Watch this pair" and "I need this too" | He liked both, with the count shown on "I need this too". |
 | One lane with a toggle | Closest matches is one list with a "Keep A / Keep B" button group, not two side-by-side lanes. |
 | Category anchors | The visitor can switch which categories define "similar". |
@@ -521,7 +521,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 
 **The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
-**The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route.
+**The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route. Chris ruled "A" on 2026-11-14: the "No integration on record" statement shows "Under review" until AECi adds the integration or declines the report.
 
 ### 6.2 The product details page
 
@@ -532,7 +532,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
 | Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
-| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. The roll-up rule is provisional until Chris rules. | None |
+| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. Chris ruled "A" on 2026-11-14: the weakest flow decides, and a `single_source` row reads "Confirmed by one company". | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
