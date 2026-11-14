@@ -47,8 +47,7 @@ import { AecButton } from '../shared/button/button';
         i18n-aria-label="@@analytics.consent.regionLabel"
       >
         <div
-          class="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 rounded-(--radius-lg)
-            border border-(--border-default) bg-(--surface-raised) p-5 shadow-lg
+          class="aec-popover pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 p-5
             sm:flex-row sm:items-center sm:justify-between"
         >
           <p class="text-sm/6 text-(--text-secondary)">
