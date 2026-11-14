@@ -32,8 +32,7 @@ import { AecButton } from '../../shared/button/button';
         <div
           role="status"
           aria-live="polite"
-          class="pointer-events-auto flex items-start gap-3 rounded-(--radius-lg) border
-              border-(--border-default) bg-(--surface-raised) p-4 shadow-lg"
+          class="aec-popover pointer-events-auto flex items-start gap-3 p-4"
         >
           <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold text-(--text-primary)" i18n="@@appUpdate.banner.title">

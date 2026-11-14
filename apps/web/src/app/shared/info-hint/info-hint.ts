@@ -75,8 +75,7 @@ export class InfoHint {
   }
 
   protected panelClass(): string {
-    const base =
-      'rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-3 py-2 text-xs leading-relaxed text-(--text-primary) shadow-lg';
+    const base = 'aec-popover px-3 py-2 text-xs leading-relaxed';
     return this.width() === 'wide' ? `${base} max-w-sm` : `${base} max-w-xs`;
   }
 

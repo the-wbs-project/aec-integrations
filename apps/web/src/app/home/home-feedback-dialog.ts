@@ -53,9 +53,7 @@ import { AecIcon } from '../shared/icon/icon';
   template: `
     <brn-dialog (closed)="onClosed()">
       <ng-template brnDialogContent>
-        <div
-          class="w-[min(92vw,32rem)] max-h-[85vh] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
-        >
+        <div class="aec-dialog w-[min(92vw,32rem)] max-h-[85vh] overflow-y-auto p-6 md:p-8">
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle

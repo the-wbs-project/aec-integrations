@@ -107,9 +107,7 @@ type State = 'pending' | 'ready' | 'off';
             <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
               <!-- The panel renders only with a row, never blank. -->
               @if (hits().length > 0) {
-                <div
-                  class="w-[min(24rem,calc(100vw-2rem))] rounded-md border border-(--border-default) bg-(--surface-raised) p-1.5"
-                >
+                <div class="aec-popover w-[min(24rem,calc(100vw-2rem))] p-1.5">
                   <ul
                     ngComboboxWidget
                     ngListbox
