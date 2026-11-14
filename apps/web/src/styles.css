@@ -1348,7 +1348,7 @@ textarea:-webkit-autofill:focus {
 .aec-prose code {
   background-color: var(--surface-muted);
   border-radius: 0.25rem;
-  font-size: 0.875em;
+  font-size: var(--t-14);
   padding-block: 0.1em;
   padding-inline: 0.35em;
 }
@@ -1487,7 +1487,7 @@ textarea:-webkit-autofill:focus {
 
 .aec-plan-price {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: var(--t-36);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
