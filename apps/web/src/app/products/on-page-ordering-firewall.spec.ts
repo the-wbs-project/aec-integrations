@@ -515,6 +515,10 @@ describe('on-page ordering firewall: product page integrations', () => {
     expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.query\(\)\)/);
     expect(src).toMatch(/applyDeferCut\(view, limit\)/);
     expect(src).not.toMatch(/\.(sort|toSorted|reverse)\(|compareText|localeCompare/);
+    // No row filter or cut of its own either. A filter the reader chooses belongs in
+    // `integration-filter.ts`, where the cases above cover it. The rendered check is
+    // the component half: no filter selected means every row renders.
+    expect(src).not.toMatch(/\.(filter|slice|splice)\(/);
   });
 });
 

@@ -42,7 +42,7 @@ import {
   type Capability,
 } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import type { Db } from '../db/client';
@@ -88,7 +88,13 @@ const DB_TIMEOUT = 30_000;
 /** One place that orders or cuts taxonomy terms by a count. */
 interface CountSite {
   readonly file: string;
-  readonly kind: 'top-by-count' | 'count-sort' | 'count-cut' | 'publish-floor' | 'algolia-facet';
+  readonly kind:
+    | 'top-by-count'
+    | 'count-sort'
+    | 'count-compare'
+    | 'count-cut'
+    | 'publish-floor'
+    | 'algolia-facet';
   /** The facet, or `*` when one comparator or cut serves every facet. */
   readonly facet: 'categories' | 'audiences' | 'phases' | 'trades' | 'vendor_name' | '*';
   /** For a sort or a cut, the expression as written, whitespace collapsed. */
@@ -221,9 +227,22 @@ const SURFACES: readonly Surface[] = [
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'trades' },
+      // `topByCount` itself: its comparator reads `SORT_KEY`, which is `product_count`.
+      {
+        file: 'core/taxonomy/taxonomy-rank.ts',
+        kind: 'count-sort',
+        facet: '*',
+        detail: '[SORT_KEY], [SORT_KEY]',
+      },
       {
         file: 'taxonomy/taxonomy-index.ts',
         kind: 'count-sort',
+        facet: '*',
+        detail: 'b.product_count, a.product_count',
+      },
+      {
+        file: 'taxonomy/taxonomy-index.ts',
+        kind: 'count-compare',
         facet: '*',
         detail: 'b.product_count - a.product_count',
       },
@@ -506,10 +525,27 @@ describe('on-page ordering firewall: the via-group and powered-hub counts', () =
     expect(rowWrites(stripComments('// db.insert(integrations)')).count).toBe(false);
   });
 
-  it('no row writer, nor the routes that rename a row, reads the plan', () => {
+  /** Every file that calls `fn(`, other than the one that defines it. */
+  const callersOf = (fn: string, definedIn: string) =>
+    files
+      .filter((rel) => rel !== definedIn)
+      .filter((rel) => new RegExp(`\\b${fn}\\(`).test(apiSource(rel)))
+      .sort();
+
+  it('derives the routes that hand columns to the opaque contest write', () => {
+    // `anchorUpdate` writes whatever columns its caller passes, `mechanism_kind`
+    // included, which can move a row into the unnamed Via group.
+    expect(callersOf('anchorUpdate', 'lib/integration-contests.ts')).toEqual([
+      'routes/admin-contests.ts',
+      'routes/vendor-contests.ts',
+    ]);
+  });
+
+  it('no row writer, nor the routes that rename a row or pass it columns, reads the plan', () => {
     for (const rel of [
       ...COUNT_WRITERS,
       ...OPAQUE_WRITERS,
+      ...callersOf('anchorUpdate', 'lib/integration-contests.ts'),
       'routes/vendor-integration-retire.ts',
       'routes/admin-integration-retire.ts',
       'routes/vendor-integration-edits.ts',
@@ -629,6 +665,7 @@ const DATA_OBJECTS: ReadonlyArray<[n: number, slug: string, name: string, order:
   [72, 'rfis', 'RFIs', 2],
   [73, 'submittals', 'Submittals', 3],
   [74, 'drawings', 'drawings', null],
+  [77, 'photos', 'Photos', 4],
   // Two objects with the same name and no order: a true tie.
   [75, 'logs-a', 'Logs', null],
   [76, 'logs-b', 'Logs', null],
@@ -741,7 +778,7 @@ async function seedPair(db: Db, world: World, renameLast = false) {
   await giveManagedProfile(db, u(2), GLOBEX, 2);
   const up = world === 'last' ? PAIR_LAST : PAIR_FIRST;
   const down = world === 'last' ? PAIR_FIRST : PAIR_LAST;
-  const vote = (claim: number, asserted: boolean, extra: object = {}) =>
+  const vote = (claim: number, asserted: boolean) =>
     db.insert(attestations).values([
       {
         id: u(claim + 300),
@@ -749,7 +786,6 @@ async function seedPair(db: Db, world: World, renameLast = false) {
         source: 'vendor_a',
         asserted,
         attestedByVendorId: ACME,
-        ...extra,
       },
       {
         id: u(claim + 400),
@@ -759,13 +795,15 @@ async function seedPair(db: Db, world: World, renameLast = false) {
         attestedByVendorId: GLOBEX,
       },
     ]);
-  // "Confirmed by both companies", with a version stamp, on the loaded claims.
-  for (const claim of up.claims) await vote(claim, true, { introducedVersionId: u(802) });
+  // "Confirmed by both companies" on the loaded claims.
+  for (const claim of up.claims) await vote(claim, true);
   // Both companies deny the lowered claims: refuted, so the data-flow count drops.
   for (const claim of down.claims) await vote(claim, false);
 
   // Vendor-added data objects on every loaded row, including one that sorts FIRST in
   // the vocabulary, and one withdrawn (its backing vote retracted) on a lowered row.
+  // Four on a loaded row, so the case-tied rows 12 and 13 never end level on votes:
+  // one is loaded and the other lowered in each world.
   let next = 500;
   const added = async (row: number, object: number, retracted: boolean) => {
     const id = next++;
@@ -788,11 +826,52 @@ async function seedPair(db: Db, world: World, renameLast = false) {
   };
   const seededOn = (row: number) => PAIR_CLAIMS.filter(([, r]) => r === row).map(([, , o]) => o);
   for (const row of up.rows.filter((r) => !isEvidenced(r))) {
-    for (const object of [71, 73, 74].filter((o) => !seededOn(row).includes(o))) {
+    for (const object of [71, 73, 74, 77].filter((o) => !seededOn(row).includes(o))) {
       await added(row, object, false);
     }
   }
   for (const row of down.rows.filter((r) => !isEvidenced(r))) await added(row, 73, true);
+
+  // A version stamp on every live vote on every loaded row, so the loaded rows carry
+  // all the stamps and the lowered rows none.
+  const loadedClaims = await db
+    .select({ id: claims.id })
+    .from(claims)
+    .where(
+      or(
+        inArray(claims.integrationId, up.rows.map(u)),
+        inArray(claims.connectorEvidencedPairId, up.rows.map(u)),
+      ),
+    );
+  await db
+    .update(attestations)
+    .set({ introducedVersionId: u(802) })
+    .where(
+      and(
+        inArray(
+          attestations.claimId,
+          loadedClaims.map((c) => c.id),
+        ),
+        isNull(attestations.retractedAt),
+      ),
+    );
+  // And one stamp on each lowered row, on the claim that sorts LAST in it, so a claim
+  // order that put stamped claims first would move inside the row.
+  const objectKey = (n: number) => {
+    const [, , name, order] = DATA_OBJECTS.find(([id]) => id === n)!;
+    return { order: order ?? Number.MAX_SAFE_INTEGER, name };
+  };
+  for (const row of down.rows) {
+    const last = PAIR_CLAIMS.filter(([, r]) => r === row)
+      .map(([id, , object]) => ({ id, ...objectKey(object) }))
+      .sort((x, y) => x.order - y.order || compareText(x.name, y.name) || x.id - y.id)
+      .at(-1);
+    if (!last) continue;
+    await db
+      .update(attestations)
+      .set({ introducedVersionId: u(802) })
+      .where(and(eq(attestations.claimId, u(last.id)), isNull(attestations.retractedAt)));
+  }
 
   for (const row of up.rows.filter((r) => !isEvidenced(r))) {
     await db
@@ -947,6 +1026,10 @@ async function seedRelated(db: Db, world: World, bumpOldest = false) {
   if (world === 'free') return;
 
   await seedTwoVendors(db);
+  // The page product gets every Managed input too, so an order that matched the
+  // page's own paid tags (a shared trade, say) would fire.
+  await db.insert(productVendors).values({ productId: u(1), vendorId: ACME, isPrimary: true });
+  await giveManagedProfile(db, u(1), ACME, 1);
   await db.insert(taxonomyDataObjects).values({ id: u(71), slug: 'invoices', name: 'Invoices' });
   for (const n of RELATED_LOADED[world]) {
     const vendorId = n % 2 === 0 ? GLOBEX : ACME;
@@ -1042,14 +1125,45 @@ const COMPARISON = '(?:>=|<=|===|!==|>|<)';
 /** The operator console, the vendor portal and design previews: not public pages. */
 const PRIVATE_AREAS = /^(admin|vendor|preview)\//;
 
+/** The argument text of every `.sort(` and `.toSorted(` call, parentheses balanced. */
+function sortCallArgs(src: string): string[] {
+  const args: string[] = [];
+  for (const m of src.matchAll(/\.(?:sort|toSorted)\(/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    const start = i;
+    while (i < src.length && depth > 0) {
+      if (src[i] === '(') depth += 1;
+      else if (src[i] === ')') depth -= 1;
+      i += 1;
+    }
+    args.push(src.slice(start, i - 1));
+  }
+  return args;
+}
+
+/** A count read: `x.product_count`, `x.count`, or the `topByCount` sort key. */
+const COUNT_READ = /\b\w+\.(?:product_count|count)\b|\[SORT_KEY\]/g;
+
+/** Each sort call that reads a count, as the reads it makes. */
+const countSorts = (src: string) =>
+  sortCallArgs(src)
+    .map((arg) => [...arg.matchAll(COUNT_READ)].map((m) => m[0]).join(', '))
+    .filter((reads) => reads !== '');
+
+/** Each subtraction of one count from another, anywhere: a comparator, inline or in a helper. */
+const countCompares = (src: string) =>
+  [...src.matchAll(/\b\w+\.(product_count|count)\s*-\s*\w+\.\1\b/g)].map((m) => collapse(m[0]));
+
 /**
  * Every place the browser orders or cuts terms by a count, found from source with
- * comments removed. A tripwire, not a proof: a count read through a helper that names
- * neither `product_count` nor `.count` would pass unseen.
+ * comments removed. A tripwire, not a proof: a count reached without naming
+ * `product_count`, `.count` or `SORT_KEY` (a destructured field, a computed key, a
+ * helper called with the whole term) would pass unseen.
  *
  *  - a `topByCount(` call, its facet read off the line (`unknown` fails);
- *  - a sort comparator that subtracts one `product_count` from another, over any
- *    number of lines;
+ *  - any count read inside a `.sort(` or `.toSorted(` call, a helper's arguments
+ *    included, and any subtraction of one count from another, over any number of lines;
  *  - a `product_count` compared with a number anywhere, and a `.filter` that compares
  *    an item's `.count` with a number;
  *  - a use of the trade publish floor;
@@ -1068,8 +1182,11 @@ function discoverCountSites(): CountSite[] {
         sites.push({ file, kind: 'publish-floor', facet: 'trades' });
       }
     }
-    for (const m of src.matchAll(/\b\w+\.product_count\s*-\s*\w+\.product_count\b/g)) {
-      sites.push({ file, kind: 'count-sort', facet: '*', detail: collapse(m[0]) });
+    for (const reads of countSorts(src)) {
+      sites.push({ file, kind: 'count-sort', facet: '*', detail: reads });
+    }
+    for (const compare of countCompares(src)) {
+      sites.push({ file, kind: 'count-compare', facet: '*', detail: compare });
     }
     for (const m of src.matchAll(
       new RegExp(`\\b[\\w.]*product_count\\s*${COMPARISON}\\s*\\d+`, 'g'),
@@ -1113,9 +1230,16 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
     expect(found).toEqual(allowed);
   });
 
-  it('the scan sees a comparator split over lines and a new floor', () => {
-    const probe = 'list.sort((a, b) =>\n  b.product_count -\n  a.product_count)';
-    expect(probe.match(/\b\w+\.product_count\s*-\s*\w+\.product_count\b/)?.[0]).toBeDefined();
+  it('the scan sees a comparator split over lines, a helper, a .count sort and a new floor', () => {
+    expect(countCompares('list.sort((a, b) =>\n  b.product_count -\n  a.product_count)')).toEqual([
+      'b.product_count - a.product_count',
+    ]);
+    expect(countSorts('terms.sort((a, b) => byCount(a.product_count, b.product_count))')).toEqual([
+      'a.product_count, b.product_count',
+    ]);
+    expect(
+      countSorts('items.filter((i) => i.count > 0).sort((a, b) => b.count - a.count)'),
+    ).toEqual(['b.count, a.count']);
     const floor = 'terms.filter((t) => t.product_count >= 3)';
     expect(
       floor.match(new RegExp(`\\b[\\w.]*product_count\\s*${COMPARISON}\\s*\\d+`)),
