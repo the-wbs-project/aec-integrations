@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -64,6 +66,8 @@ async function setup(
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
       { provide: TaxonomyNavStore, useValue: { categoriesTop10 } },
       { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
     ],
@@ -272,6 +276,7 @@ describe('HomeHero', () => {
     it('two products chosen: navigates to the pair page with the canonical first slug as context', async () => {
       const { fixture, host } = await setup();
       const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
       const [, tool, other] = widgets(fixture);
 
       tool!.suggestionChosen.emit(product('revit', 'Revit'));
@@ -279,6 +284,51 @@ describe('HomeHero', () => {
       const event = submitPairForm(host);
 
       expect(event.defaultPrevented).toBe(true);
+      // The finder reads the pair first, with the context slug first (AECI-1823).
+      http.expectOne('/api/products/bluebeam/integrations/revit').flush({ mechanisms: [] });
+      await fixture.whenStable();
+      expect(navigate).toHaveBeenCalledWith(['/products', 'bluebeam', 'integrations', 'revit']);
+      http.verify();
+    });
+
+    it('two products chosen but the pair is NOT_FOUND: routes to /search with the typed name (AECI-1823)', async () => {
+      const { fixture, host } = await setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
+      const [, tool, other] = widgets(fixture);
+
+      tool!.suggestionChosen.emit(product('revit', 'Revit'));
+      other!.suggestionChosen.emit(product('stale-slug', 'Stale Product'));
+      host.querySelector<HTMLInputElement>('#hero-pair-tool')!.value = 'Revit';
+      host.querySelector<HTMLInputElement>('#hero-pair-other')!.value = 'Stale Product';
+      submitPairForm(host);
+
+      http
+        .expectOne('/api/products/revit/integrations/stale-slug')
+        .flush(
+          { error: { code: 'NOT_FOUND', message: 'not found' } },
+          { status: 404, statusText: 'Not Found' },
+        );
+      await fixture.whenStable();
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'Revit' } });
+    });
+
+    it('two products chosen and the pair read fails otherwise: still navigates to the pair page', async () => {
+      const { fixture, host } = await setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const http = TestBed.inject(HttpTestingController);
+      const [, tool, other] = widgets(fixture);
+
+      tool!.suggestionChosen.emit(product('revit', 'Revit'));
+      other!.suggestionChosen.emit(product('bluebeam', 'Bluebeam'));
+      host.querySelector<HTMLInputElement>('#hero-pair-tool')!.value = 'Revit';
+      submitPairForm(host);
+
+      http
+        .expectOne('/api/products/bluebeam/integrations/revit')
+        .flush('boom', { status: 500, statusText: 'Server Error' });
+      await fixture.whenStable();
       expect(navigate).toHaveBeenCalledWith(['/products', 'bluebeam', 'integrations', 'revit']);
     });
 

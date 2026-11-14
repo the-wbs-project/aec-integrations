@@ -25,7 +25,12 @@
  *
  * Pair finder routing (JS):
  *   - two different products chosen: the product-pair page, context = the
- *     canonical first slug from `defaultIntegrationContext`;
+ *     canonical first slug from `defaultIntegrationContext`. The finder first reads
+ *     the pair from the same-origin API. When that read says the pair does not
+ *     resolve (a slug from the index went stale, AECI-1823), it routes to
+ *     `/search?q=` with the first typed text instead of the generic 404. Only the
+ *     finder does this. A direct request to a bad pair URL still returns a real 404;
+ *     any other failure of the read still navigates to the pair page;
  *   - one product chosen: that product's page at its `#integrations` section;
  *   - nothing chosen but text typed: `/search?q=` with the first typed text.
  * Typing into a picker after choosing drops that picker's choice, so the route
@@ -43,13 +48,20 @@
  * An empty list leaves the row out of that HTML. After hydration the row then
  * shows the category fallback from `TaxonomyNavStore`.
  */
+import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import { defaultIntegrationContext, type ProductListItem } from '@aeci/shared';
+import {
+  defaultIntegrationContext,
+  type ProductListItem,
+  type ProductPairResponse,
+} from '@aeci/shared';
 
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
+import { pairPath } from '../core/api/product-pairs';
+import { httpGetOrNull } from '../core/api/http-get-or-null';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import { isReplayedEvent } from '../core/event-replay';
@@ -200,6 +212,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 })
 export class HomeHero {
   private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
   private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
@@ -260,17 +273,26 @@ export class HomeHero {
   protected onPairSubmit(event: Event): void {
     if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
-    this.submitPair();
+    void this.submitPair();
   }
 
   /** Route the finder: pair page, product page, or `/search?q=`. */
-  protected submitPair(): void {
+  protected async submitPair(): Promise<void> {
+    if (this.checking) return; // a pair read is already in flight
     const tool = productSlug(this.chosen.tool());
     const other = productSlug(this.chosen.other());
 
     if (tool && other && tool !== other) {
       const context = defaultIntegrationContext(tool, other);
       const rest = context === tool ? other : tool;
+      if (!(await this.pairResolves(context, rest))) {
+        // A stale slug: send the visitor to search, not the generic 404 (AECI-1823).
+        const typed = this.typedText();
+        if (typed) {
+          navigateToSearchQuery(this.router, typed);
+          return;
+        }
+      }
       void this.router.navigate(['/products', context, 'integrations', rest]);
       return;
     }
@@ -280,12 +302,41 @@ export class HomeHero {
       return;
     }
 
-    const text = [this.fieldText('tool'), this.fieldText('other')].find((t) => t !== '');
+    const text = this.typedText();
     if (text) {
       navigateToSearchQuery(this.router, text);
       return;
     }
     this.field('tool')?.focus();
+  }
+
+  /** Guards `submitPair` against a second submit while the pair read is in flight. */
+  private checking = false;
+
+  /**
+   * Whether the pair page would resolve, read from the same endpoint its resolver
+   * uses. Only a canonical `NOT_FOUND` says no. Any other failure answers yes, so a
+   * flaky read never strands the visitor: the pair page makes its own decision.
+   */
+  private async pairResolves(context: string, other: string): Promise<boolean> {
+    this.checking = true;
+    try {
+      return (
+        (await httpGetOrNull<ProductPairResponse>(
+          this.http,
+          pairPath(context, other, undefined),
+        )) !== null
+      );
+    } catch {
+      return true;
+    } finally {
+      this.checking = false;
+    }
+  }
+
+  /** The first non-empty text typed in either picker. */
+  private typedText(): string {
+    return [this.fieldText('tool'), this.fieldText('other')].find((t) => t !== '') ?? '';
   }
 
   private field(side: PairSide): HTMLInputElement | null {
