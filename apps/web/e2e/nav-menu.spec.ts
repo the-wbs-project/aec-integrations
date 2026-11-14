@@ -594,6 +594,77 @@ test.describe('primary navigation menu (1280px)', () => {
   });
 });
 
+// AECI-1852. The Clay cue under "Browse" shows only while the panel is open. It
+// used to run a scale transition from full width to 0 on every load, because the
+// Tailwind `scale-x-0` rule was invalid until the full stylesheet arrived. Sample
+// the header's last pixel row, with the panel closed, right after load and after
+// 50, 100, 200 and 400ms. The full stylesheet is held back 600ms so the window in
+// which the bug showed is always hit. A flat row means no Clay pixel.
+test.describe('the Browse Clay cue (AECI-1852)', () => {
+  async function lastRow(page: Page, width: number): Promise<number[][]> {
+    const bottom = await page
+      .locator('header')
+      .first()
+      .evaluate((el) => Math.round(el.getBoundingClientRect().bottom));
+    const png = await page.screenshot({ clip: { x: 0, y: bottom - 1, width, height: 1 } });
+    return page.evaluate(async (b64) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, 1).data;
+      const out: number[][] = [];
+      for (let x = 0; x < img.width; x++) out.push([data[x * 4], data[x * 4 + 1], data[x * 4 + 2]]);
+      return out;
+    }, png.toString('base64'));
+  }
+
+  for (const width of [1024, 1440]) {
+    test(`no Clay pixel on the header's last row during load, panel closed (${width}px)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.route(/styles-[^/]+\.css/, async (route) => {
+        await new Promise((r) => setTimeout(r, 600));
+        await route.continue();
+      });
+      await page.goto(ROUTE, { waitUntil: 'domcontentloaded' });
+      const started = Date.now();
+      for (const at of [0, 50, 100, 200, 400]) {
+        const wait = at - (Date.now() - started);
+        if (wait > 0) await page.waitForTimeout(wait);
+        const row = await lastRow(page, width);
+        const ground = row[0];
+        const worst = Math.max(
+          ...row.map((px) => Math.max(...px.map((c, i) => Math.abs(c - ground[i])))),
+        );
+        console.log(`cue ${width}px at ${at}ms: worst channel delta ${worst}`);
+        expect(worst, `${width}px at ${at}ms`).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  test('the cue still draws and animates when the panel opens', async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    await page.goto(ROUTE);
+    const link = page
+      .locator('aec-site-header')
+      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('link', { name: 'Browse', exact: true });
+    await untilHydrated(link);
+    const cue = link.locator('[data-browse-cue]');
+    expect((await cue.boundingBox())?.width ?? 0).toBeLessThan(1);
+    await link.hover();
+    await expect(link).toHaveAttribute('aria-expanded', 'true');
+    await expect.poll(async () => (await cue.boundingBox())?.width ?? 0).toBeGreaterThan(20);
+    expect((await cue.boundingBox())?.height).toBe(3);
+  });
+});
+
 // No JavaScript-only dead end. With scripts off, "Browse" still goes to
 // /products, the server-rendered (hidden) panel carries every index link for
 // crawlers, and the footer's Directory column carries them visibly.
