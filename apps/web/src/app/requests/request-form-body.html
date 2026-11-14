@@ -219,7 +219,7 @@
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="correction-body-error"
-      class="text-xs font-medium text-(--text-primary)"
+      class="text-xs font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.correction.body.error"
     >
@@ -249,7 +249,7 @@
     @if (form.source_url().touched() && form.source_url().getError('standardSchema')) {
     <p
       id="correction-source-error"
-      class="text-xs font-medium text-(--text-primary)"
+      class="text-xs font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.correction.source.error"
     >
@@ -280,7 +280,7 @@
     @if (form.submitter_email().touched() && form.submitter_email().getError('standardSchema')) {
     <p
       id="correction-email-error"
-      class="text-xs font-medium text-(--text-primary)"
+      class="text-xs font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.email.invalid"
     >
@@ -306,7 +306,7 @@
   >
     @if (submitFailed()) {
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-sm font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.submitFailed"
     >
@@ -375,7 +375,7 @@
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="claim-body-error"
-      class="text-xs font-medium text-(--text-primary)"
+      class="text-xs font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.claim.body.error"
     >
@@ -413,7 +413,7 @@
   >
     @if (submitFailed()) {
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-sm font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.submitFailed"
     >

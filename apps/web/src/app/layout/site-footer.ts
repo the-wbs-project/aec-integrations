@@ -59,18 +59,6 @@ import { BrandLogo } from './brand-logo';
 @Component({
   selector: 'aec-site-footer',
   imports: [RouterLink, BrandLogo],
-  styles: `
-    /* styles.css sets an unlayered border-color on every element, which beats
-       Tailwind's layered border utilities. A component rule outranks it. */
-    .footer-rule {
-      border-color: var(--border-on-brand-subtle);
-    }
-    /* Same trap for the ring: an unlayered global :focus-visible sets the
-       outline colour to accent, which is invisible on Forest. */
-    .footer-link:focus-visible {
-      outline-color: var(--focus-ring-on-brand);
-    }
-  `,
   template: `
     <footer class="bg-(--surface-footer) text-(--text-on-brand)">
       <div
@@ -271,7 +259,7 @@ import { BrandLogo } from './brand-logo';
           </nav>
         </div>
       </div>
-      <div class="footer-rule border-t">
+      <div class="aec-on-brand-rule border-t">
         <p
           class="mx-auto max-w-7xl px-8 pb-8 pt-6 text-sm text-(--text-on-brand)"
           i18n="@@app.footer.copyright"
@@ -289,7 +277,7 @@ export class SiteFooter {
    * 24px line box meets the 24px target size (WCAG 2.5.8).
    */
   protected readonly linkClass =
-    'footer-link inline-block rounded-(--radius-sm) text-base leading-6 text-(--text-on-brand) underline-offset-[3px] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2';
+    'inline-block rounded-(--radius-sm) text-base leading-6 text-(--text-on-brand) underline-offset-[3px] hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)';
   protected readonly year = new Date().getFullYear();
   protected readonly accessibilityPublished = ACCESSIBILITY_STATEMENT_PUBLISHED;
 }

@@ -60,7 +60,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   template: `
     @if (submitted()) {
       <p
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-medium text-(--text-primary)"
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
         role="status"
         aria-live="polite"
         i18n="@@home.feedback.status.success"
@@ -112,7 +112,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         @if (atLeastOneError()) {
           <p
             id="home-feedback-fields-error"
-            class="-mt-2 text-xs font-medium text-(--text-primary)"
+            class="-mt-2 text-xs font-semibold text-(--text-primary)"
             role="alert"
             i18n="@@home.feedback.fields.error"
           >
@@ -143,7 +143,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           @if (emailInvalid()) {
             <p
               id="home-feedback-email-error"
-              class="text-xs font-medium text-(--text-primary)"
+              class="text-xs font-semibold text-(--text-primary)"
               role="alert"
               i18n="@@home.feedback.email.error"
             >
@@ -188,7 +188,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         @if (submitFailed()) {
           <p
-            class="text-sm font-medium text-(--text-primary)"
+            class="text-sm font-semibold text-(--text-primary)"
             role="alert"
             aria-live="polite"
             i18n="@@home.feedback.status.error"

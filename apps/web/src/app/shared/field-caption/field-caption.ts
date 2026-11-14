@@ -70,7 +70,7 @@ export interface FieldCaptionPage {
             [aecTrackExternalLink]="page().surface"
             [aecLinkContext]="sourceLinkContext()"
             data-testid="field-correction-source"
-            class="inline-flex items-center gap-1 rounded-(--radius-sm) font-medium underline
+            class="inline-flex items-center gap-1 rounded-(--radius-sm) font-semibold underline
               decoration-(--border-strong) underline-offset-4 transition-colors
               hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"

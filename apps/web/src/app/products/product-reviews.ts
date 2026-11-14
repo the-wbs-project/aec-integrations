@@ -11,6 +11,7 @@ import type {
 
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Page size for the reviews list. Matches the API's `EMBED_REVIEWS_PAGE_SIZE`
@@ -54,7 +55,7 @@ const REVIEWS_PER_PAGE = 24;
 @Component({
   selector: 'aec-product-reviews',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, ReviewCta, ReviewStars],
+  imports: [AecIcon, DatePipe, ReviewCta, ReviewStars],
   templateUrl: './product-reviews.html',
 })
 export class ProductReviews {

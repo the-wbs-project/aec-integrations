@@ -220,8 +220,103 @@
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
+  /* The type ramp (AECI-1748; DESIGN.md §3 "The type ramp", PLAN.md §4.2). Ten
+     sizes, and no other size is allowed on a public page. `--t-12` to `--t-16`
+     are sans, serif starts at `--t-20`. Tailwind's `text-xs` to `text-9xl` all
+     resolve to one of these (the `@theme inline` block below).
+
+     The four fluid steps use rem bounds and a rem-plus-vw middle term, so they
+     follow the reader's font size and zoom (WCAG 1.4.4). Never px bounds or a
+     vw-only middle term. Each line names the two CSS-px viewport widths where the
+     size leaves its lower bound and reaches its upper bound. Every fluid step
+     doubles by 300% zoom (Safari's limit) at every window width:
+     design-tokens.guard.spec.ts sweeps 320 to 4000px. For the two largest steps
+     that needs a rem term of at least half the upper bound, with
+     vw = (max - rem) / 1440. */
+  --t-12: 0.75rem;
+  --t-13: 0.8125rem;
+  --t-14: 0.875rem;
+  --t-16: 1rem;
+  --t-20: 1.25rem;
+  --t-24: 1.5rem;
+  /* 28 to 36px, 640 to 1440px wide. */
+  --t-36: clamp(1.75rem, 1vw + 1.35rem, 2.25rem);
+  /* 28 to 40px, 640 to 1120px wide. The pre-ramp h1 clamp, unchanged. */
+  --t-fig: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+  /* 34 to 56px, 222 to 1440px wide (35.8px at 320). */
+  --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
+  /* 40 to 72px, 83 to 1440px wide (45.7px at 320). */
+  --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
+
+  /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius.
+     UNCHANGED by AECI-1750, so rounded-sm|md|lg|xl still render 4.8, 6.4, 8 and
+     11.2px. Why not remap them (this departs from the issue text):
+     1. Order of work. Public pages are built first. Shared components are one
+        component everywhere. Vendor portal and admin page bodies are restyled
+        only after Chris has verified the public pages. The four utilities have
+        about 1,176 uses, roughly 800 of them in portal and admin page bodies,
+        and a remap would reshape those corners before that checkpoint.
+     2. A remap leaves rounded-lg (24px) larger than rounded-xl, and 2xl to 4xl
+        stay derived from --radius, so the scale would stop ascending.
+     3. Role names cannot be confused with Tailwind's meaning of md or lg. */
   --radius: 0.5rem;
+
+  /* ─── Radius roles (AECI-1750; DESIGN.md §4 "Radius", PLAN.md §4.3, clash 12)
+   *
+   * NEW role-named tokens beside the old scale, not a remap of it. Public pages
+   * adopt them (`rounded-card` and so on) as the page issues rebuild each
+   * surface. No component uses one yet. The old `rounded-sm|md|lg|xl` utilities
+   * and `--radius` keep their meaning. */
+  /* Small marks: logo tiles at 22 to 28px, icon tiles. */
+  --radius-mark: 0.5rem; /* 8px */
+  /* Buttons and inputs. The header search pill (clash 29) is the one named
+     exception and uses --radius-pill. Primary actions are never pills. */
+  --radius-control: 0.75rem; /* 12px */
+  /* Nested panels (a vendor reply inside a review card, the reach box). OPEN:
+     16px is measured in the mock-ups (6-product-detail.html lines 354, 428,
+     447) but Chris has not ruled it into the 8, 12, 24, pill scale. */
+  --radius-panel: 1rem; /* 16px */
+  /* Cards: product card grid, search hit cards, group card, facts card, panels. */
+  --radius-card: 1.5rem; /* 24px */
+  /* Chips. Never a primary action. */
+  --radius-pill: 9999px;
+
+  /* ─── Shadows (AECI-1750; DESIGN.md §4 "Shadow Vocabulary", clash 11)
+   *
+   * Pure black, as PLAN.md §4.3 rules ("One card shadow, in pure black"). It is
+   * also the form of the modal shadow and the CDK backdrop, so the three agree.
+   * This file defines the tokens and is exempt from the colour rules. Values are
+   * the mock-ups' default state: --sh-card and --sh-pop on line 15 of
+   * docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html (the same
+   * on 5, 7 and 8). design-tokens.guard.spec.ts pins both strings exactly.
+   *
+   * A shadow is NEVER the only cue for a boundary that needs 3:1. A card is not a
+   * control, so its shadow edge may stand alone, but a control on or inside a card
+   * keeps its own 3:1 edge. Forced-colours mode drops box-shadow entirely, so a
+   * card needs a visible edge there (a transparent 1px border, which the system
+   * colours). That belongs to AECI-1765. The modal shadow and the focus ring are
+   * unchanged and still written inline where they are used. */
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
+  --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
+
+  /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
+     taken from the default state of the approved mock-ups (mock-up 6,
+     `--ease` at line 15):
+       --duration-fast  120ms  press and row hover        (`.btn` line 88, `table.cmp tbody tr` line 334)
+       --duration-base  180ms  hover, focus, disclosure    (`.card` line 293, `.order .chev` line 287)
+       --duration-slow  280ms  menu open, ink bar, scrim   (`.cm` line 632, `.snl-ink` line 182)
+       --ease-standard         cubic-bezier(.2, .7, .2, 1) (`--ease`, line 15)
+     Utilities: `duration-fast|base|slow` and `ease-standard` (see @theme inline).
+     Reduced motion is a floor: under `prefers-reduced-motion: reduce` the global
+     block below forces every transition and animation duration to 0.01ms, so a
+     token-driven change lands instantly. A state change must never be conveyed by
+     motion alone, and no looping animation may run past 5s without a pause control
+     (WCAG 2.2.2). Nothing consumes these yet; later AECI-1720 issues adopt them on
+     public pages. The vendor portal and admin keep Tailwind's 150ms default. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* ─── Data-series palette — operator console ONLY (AECI-578, ADMIN_PANEL_SPEC §8)
@@ -399,12 +494,76 @@
   --color-surface-hero-glow: var(--surface-hero-glow);
   --color-surface-hero-glow-soft: var(--surface-hero-glow-soft);
   --color-surface-sticky: var(--surface-sticky);
+  /* AECI-1750: role-named radii and the two shadows. Same names as :root, so
+     rounded-card, rounded-control, rounded-panel, rounded-mark, rounded-pill,
+     shadow-card and shadow-menu exist. rounded-sm|md|lg|xl are not touched. */
+  --radius-mark: var(--radius-mark);
+  --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
+  --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
+  --shadow-card: var(--shadow-card);
+  --shadow-menu: var(--shadow-menu);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
+  /* Motion tokens (AECI-1751). Tailwind's `duration-*` utilities read the
+     `--transition-duration-*` namespace and `ease-*` reads `--ease-*`. */
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --ease-standard: var(--ease-standard);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves
      to the OS ui-serif stack. Bind it to the brand display face so any stray
      `font-serif` renders in Source Serif 4 instead of regressing to OS serif. */
   --font-serif: var(--font-display);
+
+  /* The ramp as utilities: `text-t-12` to `text-t-display` (AECI-1748). Each
+     carries its role's line height from DESIGN.md §3. A component that needs a
+     different leading for the same size (the card title at --t-20 is 1.1, the
+     lede is 1.5) adds a `leading-*` utility. */
+  --text-t-12: var(--t-12);
+  --text-t-12--line-height: 1.25rem;
+  --text-t-13: var(--t-13);
+  --text-t-13--line-height: 1.4;
+  --text-t-14: var(--t-14);
+  --text-t-14--line-height: 1.5;
+  --text-t-16: var(--t-16);
+  --text-t-16--line-height: 1.6;
+  --text-t-20: var(--t-20);
+  --text-t-20--line-height: 1.5;
+  --text-t-24: var(--t-24);
+  --text-t-24--line-height: 1.25;
+  --text-t-36: var(--t-36);
+  --text-t-36--line-height: 1.1;
+  --text-t-fig: var(--t-fig);
+  --text-t-fig--line-height: 1;
+  --text-t-statement: var(--t-statement);
+  --text-t-statement--line-height: 1.1;
+  --text-t-display: var(--t-display);
+  --text-t-display--line-height: 1;
+
+  /* Tailwind's named sizes, remapped onto the ramp (AECI-1748; the mapping table
+     is DESIGN.md §3 "Tailwind mapping"). Only the sizes move. Each step keeps
+     Tailwind's own line height (`--text-*--line-height` from the default theme),
+     so no multi-line text loses leading. xs, sm, base, xl and 2xl render the same
+     pixels as before. lg (18px) moves up to 20px and keeps its 1.556 ratio.
+     3xl and 4xl (30 and 36px) become the 28 to 36px section step. 5xl (48px)
+     becomes the 28 to 40px figure step: its only live non-heading use is the
+     vendor portal's glance figure, a Figure role. 6xl to 9xl are unused and land
+     on display so that no utility can render off the ramp. */
+  --text-xs: var(--t-12);
+  --text-sm: var(--t-14);
+  --text-base: var(--t-16);
+  --text-lg: var(--t-20);
+  --text-xl: var(--t-20);
+  --text-2xl: var(--t-24);
+  --text-3xl: var(--t-36);
+  --text-4xl: var(--t-36);
+  --text-5xl: var(--t-fig);
+  --text-6xl: var(--t-display);
+  --text-7xl: var(--t-display);
+  --text-8xl: var(--t-display);
+  --text-9xl: var(--t-display);
 }
 
 html {
@@ -438,18 +597,22 @@ h3 {
   letter-spacing: -0.005em;
 }
 
+/* The global heading sizes sit on ramp tokens (AECI-1748) at the same pixels as
+   before: h1 is the Headline role at --t-fig (the old clamp), h2 is --t-24 and
+   h3 is --t-20. Still unlayered, so a `text-*` utility on the element itself
+   stays dead (DESIGN.md "The Unlayered-Heading Rule"). */
 h1 {
-  font-size: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+  font-size: var(--t-fig);
 }
 
 h2 {
-  font-size: 1.5rem;
+  font-size: var(--t-24);
   line-height: 1.25;
   letter-spacing: normal;
 }
 
 h3 {
-  font-size: 1.25rem;
+  font-size: var(--t-20);
   line-height: 1.3;
   letter-spacing: normal;
 }
@@ -462,7 +625,7 @@ h3 {
    giving up heading semantics. */
 .aec-overline {
   font-family: var(--font-body);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 600;
   letter-spacing: 0.08em;
   line-height: 1.4;
@@ -556,6 +719,19 @@ h3 {
   border-color: var(--status-error);
 }
 
+/* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
+   Unlayered for the reason `.aec-nav-tab` records: a `border-(--x)` utility
+   loses to the `*` rule. Pair it with a width utility such as `border-t`.
+   `.aec-on-brand-edge` is the 3:1 control edge on Forest (4.01:1): the header
+   search icon, menu toggle and account trigger. */
+.aec-on-brand-rule {
+  border-color: var(--border-on-brand-subtle);
+}
+
+.aec-on-brand-edge {
+  border-color: var(--border-on-brand-strong);
+}
+
 /* A scroll box whose last row may be clipped (the "About you" audience list).
    A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */
@@ -593,8 +769,15 @@ hr {
   color: var(--text-tertiary);
 }
 
-:focus-visible {
-  outline-color: var(--accent-primary);
+/* The default focus ring colour (AECI-1845). In `@layer base` for the anchor
+   reason above: unlayered, it beat every `focus-visible:outline-(--x)` utility,
+   so a Bone ring on Forest could not be set. Now a plain
+   `focus-visible:outline-(--focus-ring-on-brand)` wins with no `!`. Width,
+   style and offset still come from each control's utilities. */
+@layer base {
+  :focus-visible {
+    outline-color: var(--accent-primary);
+  }
 }
 
 input,
@@ -677,7 +860,10 @@ html {
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
    than relying on every component to opt in. Additive — only active when the
-   user has set the preference. See `harden` (motion sensitivity). */
+   user has set the preference. See `harden` (motion sensitivity).
+   The `--duration-*` motion tokens need nothing extra: they only ever feed
+   `transition-duration` and `animation-duration`, which this block overrides with
+   `!important` on every element (design-tokens.guard.spec.ts pins that). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -735,7 +921,7 @@ html {
 .aec-prose h6 {
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 1rem;
+  font-size: var(--t-16);
   font-weight: 600;
   line-height: 1.4;
   margin-block: 1.75rem 0;
@@ -836,10 +1022,11 @@ html {
    - The rail's open panel needs a border colour, which a layered utility cannot
      set past the unlayered `*` rule (the `.aec-nav-tab` note). */
 
-/* Page h1 on the home, a section index and an article: the Headline role at
-   ~30px, DeepWiki's quiet title rather than a hero. Serif, above the 18px floor. */
+/* Page h1 on the home, a section index and an article: DeepWiki's quiet title
+   rather than a hero. Was 30px, off the ramp. AECI-1748 snaps it to --t-36 (28 to
+   36px), the step `text-3xl` lands on, so it stays below the site's --t-fig h1. */
 .aec-docs-title {
-  font-size: 1.875rem;
+  font-size: var(--t-36);
   line-height: 1.2;
 }
 
@@ -847,7 +1034,7 @@ html {
    Serif-Floor Rule keeps Source Serif at 18px and up. */
 .aec-docs-subhead {
   font-family: var(--font-body);
-  font-size: 1rem;
+  font-size: var(--t-16);
   font-weight: 600;
   letter-spacing: normal;
   line-height: 1.4;
@@ -875,14 +1062,16 @@ html {
   margin-block-start: 0.375rem;
 }
 
+/* Article h2 and h3 were 22px and 18px, both off the ramp. AECI-1748 snaps them
+   to --t-24 and --t-20, which also lifts the serif h3 to the ramp's 20px floor. */
 .aec-docs-prose h2 {
-  font-size: 1.375rem;
+  font-size: var(--t-24);
   line-height: 1.3;
   margin-block: 2.25rem 0;
 }
 
 .aec-docs-prose h3 {
-  font-size: 1.125rem;
+  font-size: var(--t-20);
   line-height: 1.35;
   margin-block: 1.75rem 0;
 }
@@ -913,7 +1102,7 @@ html {
 /* A card's plan name: serif at 20px, above the Serif-Floor Rule's 18px. A class
    beats the unlayered `h3` rule; a `text-*` utility would not. */
 .aec-plan-card-name {
-  font-size: 1.25rem;
+  font-size: var(--t-20);
   line-height: 1.3;
 }
 
@@ -936,7 +1125,7 @@ html {
    on Forest. A class beats the unlayered `h3` rule. */
 .aec-plan-cta-heading {
   color: var(--surface-base);
-  font-size: 1.5rem;
+  font-size: var(--t-24);
   line-height: 1.25;
 }
 
@@ -978,7 +1167,7 @@ html {
 
 .aec-plan-table-group {
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 600;
   letter-spacing: 0.04em;
   padding-block-start: 1.5rem;
@@ -1012,7 +1201,7 @@ html {
   align-items: center;
   color: var(--text-secondary);
   display: flex;
-  font-size: 0.875rem;
+  font-size: var(--t-14);
   gap: 0.75rem;
   justify-content: flex-end;
   line-height: 1.4;

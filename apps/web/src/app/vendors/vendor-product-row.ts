@@ -53,7 +53,7 @@ import { forwardRowClick } from '../shared/row-link/row-link-click';
     '(click)': 'onRowClick($event)',
   },
   template: `
-    <td class="px-4 py-3 font-medium">
+    <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
         <aec-logo-or-initial [src]="product().logo_url" [name]="product().name" size="sm" />
         <span class="min-w-0 break-words">{{ product().name }}</span>

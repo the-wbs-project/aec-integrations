@@ -50,20 +50,12 @@ export type BrandLogoTone = 'default' | 'on-dark';
   // hamburger button in the `items-center` header row. Flex layout drops the
   // strut so the host box hugs the wordmark exactly.
   host: { class: 'inline-flex items-center' },
-  // The global unlayered `:focus-visible` sets the ring to accent, which a
-  // utility cannot override and which is invisible on Forest. The on-dark
-  // tone takes the on-brand ring from a component rule instead (AECI-1776).
-  styles: `
-    a.on-dark:focus-visible {
-      outline-color: var(--focus-ring-on-brand);
-    }
-  `,
   imports: [RouterLink, NgOptimizedImage],
   template: `
     <a
       routerLink="/"
-      class="inline-flex items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      [class.on-dark]="tone() === 'on-dark'"
+      class="inline-flex items-center rounded-md"
+      [class]="ringClass()"
       [style.height.px]="height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"
@@ -92,6 +84,18 @@ export class BrandLogo {
 
   /** Which wordmark file to draw. The default is the Forest-on-light mark. */
   readonly tone = input<BrandLogoTone>('default');
+
+  /**
+   * The focus ring follows the ground (DESIGN.md §4 "Focus ring"). A Forest ring
+   * on a Forest ground is invisible, so the on-dark tone takes the Bone ring at
+   * 3px with a 3px offset. A plain utility works because the global focus colour
+   * sits in `@layer base` (AECI-1845). The default tone is unchanged.
+   */
+  protected readonly ringClass = computed(() =>
+    this.tone() === 'on-dark'
+      ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+      : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
 
   protected readonly src = computed(() =>
     this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',

@@ -47,7 +47,25 @@ describe('SiteFooter', () => {
 
   it('uses the on-dark wordmark', () => {
     const img = render().querySelector('aec-brand-logo img')!;
-    expect(img.getAttribute('src')).toContain('wordmark-on-dark');
+    expect(img.getAttribute('src')).toBe('/branding/wordmark-on-dark.svg');
+  });
+
+  it('draws the hairline with the shared on-brand rule class', () => {
+    const rule = render().querySelector('footer > div.border-t')!;
+    expect(rule.classList.contains('aec-on-brand-rule')).toBe(true);
+  });
+
+  it('gives every footer link the 3px Bone ring as plain utilities', () => {
+    const links = Array.from(render().querySelectorAll('footer nav a'));
+    expect(links.length).toBeGreaterThan(20);
+    for (const a of links) {
+      const cls = a.className;
+      expect(cls).toContain('focus-visible:outline-3');
+      expect(cls).toContain('focus-visible:outline-offset-3');
+      expect(cls).toContain('focus-visible:outline-(--focus-ring-on-brand)');
+      expect(cls).toContain('text-(--text-on-brand)');
+      expect(cls).toContain('hover:underline');
+    }
   });
 
   it('keeps column labels as overline paragraphs, not headings', () => {

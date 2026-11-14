@@ -109,7 +109,7 @@ interface Idea {
                 target="_blank"
                 rel="noopener nofollow"
                 [attr.aria-describedby]="s.id + '-source'"
-                class="inline-flex items-center gap-1.5 rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="inline-flex items-center gap-1.5 rounded-(--radius-sm) text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               >
                 <span i18n="@@home.why.sourceLabel">Source</span>
                 <span class="sr-only">{{ s.source.linkSuffix }}</span>

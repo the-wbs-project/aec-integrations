@@ -18,6 +18,7 @@ import { IntegrationListFilter } from './integration-list-filter';
 import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" section on a
@@ -86,7 +87,14 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
   // different element.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-powered-hub]',
-  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter, RequestTrigger],
+  imports: [
+    AecIcon,
+    RouterLink,
+    LogoOrInitial,
+    IntegrationGroupCard,
+    IntegrationListFilter,
+    RequestTrigger,
+  ],
   template: `
     <!-- Heading row: title left, filter right. The filter lives HERE rather
          than in a band under the heading so an idle one costs no vertical
@@ -162,7 +170,9 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     size="sm"
                   />
                   <span class="flex min-w-0 flex-1 flex-col">
-                    <span class="min-w-0 font-medium break-words">{{ partner.partner.name }}</span>
+                    <span class="min-w-0 font-semibold break-words">{{
+                      partner.partner.name
+                    }}</span>
                     <!-- The meta line under the partner name. Direction sits
                          here at every width and the mechanism joins it below md,
                          the same fold ProductIntegrationRow uses (AECI-853).
@@ -237,21 +247,16 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
-                  <svg
-                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
+                  <aec-icon
+                    class="text-(--text-tertiary)"
+                    name="chevron-right"
+                    decorative
+                    [size]="4"
+                    [mirrorRtl]="true"
+                  />
                 </a>
               </li>
             }
@@ -285,7 +290,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                   <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.a.logo_url" [name]="pair.a.name" size="sm" />
-                      <span class="min-w-0 font-medium break-words">{{ pair.a.name }}</span>
+                      <span class="min-w-0 font-semibold break-words">{{ pair.a.name }}</span>
                     </span>
                     <span
                       class="font-display inline-block text-xl leading-none text-(--accent-primary)
@@ -295,7 +300,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     >
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.b.logo_url" [name]="pair.b.name" size="sm" />
-                      <span class="min-w-0 font-medium break-words">{{ pair.b.name }}</span>
+                      <span class="min-w-0 font-semibold break-words">{{ pair.b.name }}</span>
                     </span>
                   </span>
                   @if (pairDirectionLabel(pair); as label) {
@@ -323,21 +328,16 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
-                  <svg
-                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
+                  <aec-icon
+                    class="text-(--text-tertiary)"
+                    name="chevron-right"
+                    decorative
+                    [size]="4"
+                    [mirrorRtl]="true"
+                  />
                 </a>
               </li>
             }

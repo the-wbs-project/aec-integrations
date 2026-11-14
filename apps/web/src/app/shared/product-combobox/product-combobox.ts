@@ -19,6 +19,7 @@ import {
 import type { ProductListItem } from '@aeci/shared';
 
 import { LogoOrInitial } from '../logo-or-initial/logo-or-initial';
+import { AecIcon } from '../icon/icon';
 
 /**
  * One row the picker can offer. `GET /api/products` returns the full
@@ -79,23 +80,24 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
 @Component({
   selector: 'aec-product-combobox',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule, LogoOrInitial],
+  imports: [
+    AecIcon,
+    Combobox,
+    ComboboxPopup,
+    ComboboxWidget,
+    Listbox,
+    Option,
+    OverlayModule,
+    LogoOrInitial,
+  ],
   host: { class: 'block' },
   template: `
     <div class="relative w-full" #origin>
-      <svg
-        class="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
+      <span
+        class="pointer-events-none absolute start-3 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
       >
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
+        <aec-icon name="search" decorative [size]="4" />
+      </span>
       <input
         ngCombobox
         #cb="ngCombobox"
@@ -144,19 +146,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
             (click)="clear()"
             data-product-combobox-clear
           >
-            <svg
-              class="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <aec-icon name="x" decorative [size]="4" />
           </button>
         }
       </span>
@@ -200,7 +190,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                   >
                     <aec-logo-or-initial [src]="p.logo_url ?? null" [name]="p.name" size="sm" />
                     <span class="flex min-w-0 flex-col">
-                      <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                      <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                         p.name
                       }}</span>
                       @if (p.vendor; as vendor) {

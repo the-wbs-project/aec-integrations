@@ -53,7 +53,7 @@ interface FactRow {
                   <aec-under-review />
                 </dd>
               } @else {
-                <dd class="mt-0.5 break-words text-sm font-medium text-(--text-primary)">
+                <dd class="mt-0.5 break-words text-sm font-semibold text-(--text-primary)">
                   {{ row.value }}
                 </dd>
                 <dd class="mt-0.5 text-xs text-(--text-secondary)">
@@ -63,7 +63,7 @@ interface FactRow {
                       [href]="url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
+                      class="rounded-(--radius-sm) text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
                     >
                       <span i18n="@@vendors.detail.companyFacts.source">Source</span>
                       <span class="sr-only">: {{ row.label }}</span>
