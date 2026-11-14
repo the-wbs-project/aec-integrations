@@ -61,7 +61,7 @@ typography:
     # declare (clash 7 rules only on detail pages). Not a ramp token. It does
     # not render today: those heroes put it on the h1 element, and the unlayered
     # h1 rule wins, so they show the h1 size (--t-fig, 28 to 40px, weight 600).
-    # A follow-up issue moves the size onto an inner span.
+    # AECI-1847 moves the size onto an inner span.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
     fontWeight: 400
@@ -585,7 +585,7 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 
 ### Hierarchy
 
-- **Display** (Source Serif 4, 400): clash 7 (new) allows it on detail pages, where it is the product name at `--t-display`, 40 to 72px fluid. Start values from the mock-up: line-height 1, tracking -0.02em. The About and Home heroes declare today's Display clamp (`clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em), because clash 7 rules only on detail pages. That clamp does not render: both heroes put it on the `h1` element, and the unlayered `h1` rule beats it, so they show the h1 size (`--t-fig`, 28 to 40px, weight 600). A follow-up issue moves the size onto an inner `<span>`. The home hero is re-decided in its own mock-up issue (AECI-1789). The vendor masthead stays Display, as clash 7's recommendation names vendor pages. Used at most once per page. Statement is the pair page's Display use and counts toward that once. An H1 at this size follows the Unlayered-Heading Rule: put the size on an inner `<span>`.
+- **Display** (Source Serif 4, 400): clash 7 (new) allows it on detail pages, where it is the product name at `--t-display`, 40 to 72px fluid. Start values from the mock-up: line-height 1, tracking -0.02em. The About and Home heroes declare today's Display clamp (`clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em), because clash 7 rules only on detail pages. That clamp does not render: both heroes put it on the `h1` element, and the unlayered `h1` rule beats it, so they show the h1 size (`--t-fig`, 28 to 40px, weight 600). AECI-1847 moves the size onto an inner `<span>`. The home hero is re-decided in its own mock-up issue (AECI-1789). The vendor masthead stays Display, as clash 7's recommendation names vendor pages. Used at most once per page. Statement is the pair page's Display use and counts toward that once. An H1 at this size follows the Unlayered-Heading Rule: put the size on an inner `<span>`.
 - **Statement** (Source Serif 4, 400, `--t-statement`, 34 to 56px fluid, line-height 1.1, tracking -0.02em): the pair page statement, its H1 (clash 7, new). It is the pair page's one display-scale line.
 - **Figure** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1, tracking -0.01em): score and count figures (clashes 8 and 9). **One large figure per band** (clash 8, blend). The figure is Forest and sits at the Score Display role (§5 → Score Display). Every other number in the band drops to inline text. The hero-metric template stays banned (§6).
 - **Section** (Source Serif 4, 600, `--t-36`, 28 to 36px fluid, line-height 1.1, tracking -0.02em): section headings, the H2 on a detail page. Clash 9's blend added a larger section-heading role to the system. This is it.
