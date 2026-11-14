@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 // AECI-94 (originally the monogram swap). The header renders the brand wordmark
-// as an `<img>` of /branding/wordmark.svg with alt "AEC Integrations", so a
-// crawler (Google's OAuth branding check) sees a logo image and the brand name
-// on the page. See apps/web/src/app/layout/brand-logo.ts.
+// as an `<img>` with alt "AEC Integrations", so a crawler (Google's OAuth
+// branding check) sees a logo image and the brand name on the page. Since the
+// header moved onto Forest (AECI-1771) the file is the reversed lock-up,
+// /branding/wordmark-on-dark.svg (AECI-1754). See
+// apps/web/src/app/layout/brand-logo.ts.
 //
 // Target a static preview shell (no API resolver). The global header/footer
 // (and therefore the wordmark) render around every route via the app.ts shell.
@@ -21,7 +23,7 @@ test.describe('brand wordmark', () => {
 
     const img = brandLink.locator('img');
     await expect(img).toBeVisible();
-    await expect(img).toHaveAttribute('src', '/branding/wordmark.svg');
+    await expect(img).toHaveAttribute('src', '/branding/wordmark-on-dark.svg');
     await expect(img).toHaveAttribute('alt', 'AEC Integrations');
     // The SVG actually loaded (a broken src leaves naturalWidth at 0).
     expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);

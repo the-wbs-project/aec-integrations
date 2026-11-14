@@ -7,7 +7,7 @@
  * success-path coverage to (see `products-detail.spec.ts` header). The 404 and
  * empty-state paths stay in those seed-free specs; this one needs data.
  *
- * COVERAGE — 14 representative URLs (15 axe assertions incl. the open flyout
+ * COVERAGE — 14 representative URLs (15 axe assertions incl. the open Browse
  *   nav) = zero WCAG-AA violations:
  *   product index/detail, vendor index/detail, integration index/detail, the
  *   product-PAIR page (AECI-303), category/audience/phase browse, the three flat
@@ -40,6 +40,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
+import { untilHydrated } from './hydration';
 
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -167,26 +168,25 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
     });
   }
 
-  // AECI-155 flyout nav — validate the OPEN disclosure panel state, which the
-  // per-page closed-state scans above never reach. Defensive: skips if the
-  // desktop flyout trigger isn't rendered (e.g. a future layout change).
+  // The Browse menu (AECI-1774) — validate the OPEN panel, which the per-page
+  // closed-state scans above never reach. Defensive: skips if the desktop row is
+  // not rendered (e.g. a future layout change).
   //
-  // Open via the KEYBOARD path (focus + ArrowDown), not click: the trigger is the
-  // facet's index LINK, so a click navigates, and a pointer click would first move
-  // the mouse over the host (opening it) anyway. ArrowDown has no such race and is
-  // the documented a11y path (`nav-flyout-trigger.ts`).
-  test('open taxonomy flyout nav has zero AA violations', async ({ page }) => {
+  // Open via the KEYBOARD path (focus + ArrowDown), not click: "Browse" is a link
+  // to /products, so a click navigates. ArrowDown is the documented a11y path
+  // (`browse-menu.ts`).
+  test('open Browse menu has zero AA violations', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const trigger = page
-      .locator('aec-nav-flyout-trigger a[aria-haspopup="true"][aria-expanded]')
-      .first();
-    test.skip((await trigger.count()) === 0, 'desktop flyout trigger not present at this viewport');
+    const trigger = page.locator('aec-browse-menu a[aria-controls][aria-expanded]').first();
+    test.skip(!(await trigger.isVisible()), 'desktop Browse trigger not shown at this viewport');
 
+    await untilHydrated(trigger);
     await trigger.focus();
     await trigger.press('ArrowDown');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#browse-menu-panel')).toBeVisible();
 
     const violations = await aaViolations(page);
     expect(violations, formatViolations(violations)).toEqual([]);

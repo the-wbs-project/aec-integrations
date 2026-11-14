@@ -293,11 +293,12 @@ test.describe('/ — home assembly', () => {
   test('fires POST /api/page-views with route "/" on in-app navigation home', async ({ page }) => {
     // The SSR Worker counts the initial landing server-side (not browser-visible);
     // the client PageViewTracker counts subsequent in-app navigations. Land on
-    // /products, then navigate home via the Primary-nav link and observe the POST.
+    // /products, then navigate home via the header wordmark (the row has no Home
+    // link since AECI-1774) and observe the POST.
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const homeLink = page.locator('nav[aria-label="Primary"] a[href="/"]').first();
+    const homeLink = page.locator('aec-site-header aec-brand-logo a[href="/"]').first();
     await expect(homeLink).toBeVisible();
     await untilHydrated(homeLink);
 

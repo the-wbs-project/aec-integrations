@@ -16,8 +16,8 @@ import {
  * button that reveals its group's screens.
  *
  * The trigger is the group label (plus its pending badge) and nothing else —
- * **no arrow icon**. The public nav dropped its arrow buttons first
- * (`layout/nav-flyout-trigger.ts`), and a triangle here with none there would
+ * **no arrow icon**. The public nav dropped its arrow buttons first (the
+ * taxonomy flyouts, now the Browse menu in `layout/browse-menu.ts`), and a triangle here with none there would
  * read as two different products; `aria-haspopup` / `aria-expanded` carry the
  * disclosure to assistive tech, which is what the icon was never doing.
  *

@@ -11,7 +11,8 @@
  *    (`connector-lane-grouping.ts`), the reader's filter (`integration-filter.ts`) and
  *    the rows above the `@defer` cut, which are a featured subset;
  *  - the connector page's "Integrations it powers" hubs and their filter;
- *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception.
+ *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception;
+ *  - the header's Browse menu (`core/taxonomy/browse-menu-model.ts`, AECI-1774).
  *
  * How the flips are built, because a flip that agrees with today's order proves
  * nothing:
@@ -35,10 +36,12 @@ import { join } from 'node:path';
 import {
   PoweredIntegrationItemSchema,
   ProductIntegrationItemSchema,
+  TaxonomyResponseSchema,
   TaxonomyTermWithCountSchema,
   type PoweredIntegrationItem,
   type ProductIntegrationItem,
   type ProductLink,
+  type TaxonomyResponse,
   type TaxonomyTermWithCount,
 } from '@aeci/shared';
 import {
@@ -50,6 +53,11 @@ import {
 import { compareText } from '@aeci/shared/text-sort';
 import { describe, expect, it } from 'vitest';
 
+import {
+  BROWSE_COLUMN_LENGTH,
+  type BrowseMenuModel,
+  buildBrowseMenu,
+} from '../core/taxonomy/browse-menu-model';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 import type { RefinementItem } from '../shared/facets/refinement-item';
 import { orderFacetItems } from '../search/search-facet-order';
@@ -753,5 +761,177 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
       'Construction',
       'Closeout & Operations',
     ]);
+  });
+});
+
+// ─── The Browse menu ──────────────────────────────────────────────────────────
+
+/**
+ * `browse-menu-term-order` (AECI-1774). The Browse menu orders five lists from
+ * `GET /api/taxonomy`, which carries no plan, license or review field. The inputs a
+ * paid plan can change there are the audience, phase and trade product counts
+ * (`product.taxonomy.edit`). Categories are Free to tag.
+ *
+ * Flipped both ways, with real ties:
+ *  - the Managed-only counts move nothing in the key column, the Categories column or
+ *    the Phases column, and the set of rows in each stays the same;
+ *  - every non-count field moves nothing anywhere;
+ *  - a category count change, which is Free, still never moves the key column: that
+ *    list is the editorial pick, not a count order.
+ *
+ * Audiences and trades are the accepted exception: their counts order them.
+ */
+function browseFixture(): TaxonomyResponse {
+  return {
+    categories: [
+      term('accounting-erp', 'Accounting & ERP', 9, 10),
+      term('ai', 'AI', 4, 20),
+      term('field', 'Field Management', 4, 30),
+      term('bim-authoring', 'BIM Authoring', 2, 60),
+      term('documents', 'document Management', 4, 40),
+      term('estimating', 'Estimating', 6, 50),
+      term('project-management', 'Project Management', 7, 230),
+      term('safety', 'Safety', 2, 70),
+      term('scheduling', 'Scheduling', 6, 80),
+      term('bids', 'Bid Management', 2, 90),
+      term('robotics', 'Robotics', 0, 100),
+    ],
+    audiences: termsFixture(),
+    phases: [
+      term('closeout', 'Closeout', 9, 5),
+      term('concept', 'Concept', 2, 1),
+      term('construction', 'Construction', 9, 4),
+      term('design', 'Design', 2, 2),
+      term('precon', 'Pre-Construction', 4, 3),
+    ],
+    trades: termsFixture(),
+    total_products: 40,
+  };
+}
+
+const MANAGED_COUNT_FACETS = ['audiences', 'phases', 'trades'] as const;
+
+/** New counts that run against the fixture order, never below `floor`. */
+function flipCounts(
+  terms: TaxonomyTermWithCount[],
+  dir: Direction,
+  floor = 1,
+): TaxonomyTermWithCount[] {
+  return terms.map((t, i) => ({
+    ...t,
+    product_count: floor + (dir === 'rising' ? i * 3 : (terms.length - i) * 3),
+  }));
+}
+
+const columnSlugs = (menu: BrowseMenuModel) => ({
+  keyCategories: menu.keyCategories.map((t) => t.slug),
+  categories: menu.categories.map((t) => t.slug),
+  phases: menu.phases.map((t) => t.slug),
+  audiences: menu.audiences.map((t) => t.slug),
+  trades: menu.trades.map((t) => t.slug),
+});
+
+describe('on-page ordering firewall: the Browse menu', () => {
+  const base = columnSlugs(buildBrowseMenu(browseFixture()));
+
+  /**
+   * The menu's whole input is `GET /api/taxonomy`. Pin every field of it, so a
+   * field added to the payload (a plan, a license, a "featured" flag, a review
+   * count) fails here and forces a firewall review before the menu can read it.
+   * The API builds each term through `toTaxonomyTermWithCount`, which is typed
+   * to this schema, so an extra key fails the API typecheck as well. A trade's
+   * "published" state is not a field: `isPublishedTrade` derives it from
+   * `product_count`.
+   */
+  it('[surface:browse-menu-term-order] pins every field of the payload the menu reads', () => {
+    expect(Object.keys(TaxonomyResponseSchema.shape).sort()).toEqual([
+      'audiences',
+      'categories',
+      'phases',
+      'total_products',
+      'trades',
+    ]);
+    expect(Object.keys(TaxonomyTermWithCountSchema.shape).sort()).toEqual([
+      'description',
+      'display_order',
+      'id',
+      'integration_count',
+      'name',
+      'product_count',
+      'slug',
+    ]);
+  });
+
+  it('[surface:browse-menu-term-order] the baseline has real ties and the documented orders', () => {
+    expect(base.keyCategories).toEqual([
+      'ai',
+      'project-management',
+      'bim-authoring',
+      'accounting-erp',
+    ]);
+    // Count, then name ignoring case: categories tie at 6, at 4 and at 2.
+    expect(base.categories).toEqual([
+      'estimating',
+      'scheduling',
+      'documents',
+      'field',
+      'bids',
+      'safety',
+    ]);
+    expect(base.phases).toEqual(['concept', 'design', 'precon', 'construction', 'closeout']);
+    expect(base.audiences).toEqual([
+      'roofing',
+      'hvac',
+      'acoustics',
+      'electrical',
+      'plumbing',
+      'concrete',
+      'masonry',
+    ]);
+  });
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it(`[surface:browse-menu-term-order] Managed-only counts move no key, category or phase row (${dir})`, () => {
+      const fixture = browseFixture();
+      for (const facet of MANAGED_COUNT_FACETS) fixture[facet] = flipCounts(fixture[facet], dir);
+      const flipped = columnSlugs(buildBrowseMenu(fixture));
+      expect(flipped.keyCategories).toEqual(base.keyCategories);
+      expect(flipped.categories).toEqual(base.categories);
+      expect(flipped.phases).toEqual(base.phases);
+    });
+
+    it(`[surface:browse-menu-term-order] no non-count field moves any column (${dir})`, () => {
+      const fixture = browseFixture();
+      for (const facet of ['categories', ...MANAGED_COUNT_FACETS] as const) {
+        const terms = fixture[facet];
+        fixture[facet] = terms.map((t, i) => {
+          const level = dir === 'rising' ? i : terms.length - 1 - i;
+          return {
+            ...t,
+            description: `Described ${level}`,
+            integration_count: level * 10,
+            // Phases read display order, so it is an order input there only.
+            display_order: facet === 'phases' ? t.display_order : level,
+          };
+        });
+      }
+      expect(columnSlugs(buildBrowseMenu(fixture))).toEqual(base);
+    });
+
+    it(`[surface:browse-menu-term-order] a category count change never moves the key column (${dir})`, () => {
+      const fixture = browseFixture();
+      fixture.categories = flipCounts(fixture.categories, dir);
+      expect(columnSlugs(buildBrowseMenu(fixture)).keyCategories).toEqual(base.keyCategories);
+    });
+  }
+
+  it('[surface:browse-menu-term-order] audiences and trades are the named exception: count, then name', () => {
+    const fixture = browseFixture();
+    fixture.audiences = flipCounts(fixture.audiences, 'falling');
+    const audiences = columnSlugs(buildBrowseMenu(fixture)).audiences;
+    // Not vacuous: the count is the one input that moves them.
+    expect(audiences).not.toEqual(base.audiences);
+    const byName = [...fixture.audiences].sort((a, b) => compareText(a.name, b.name));
+    expect(audiences).toEqual(topByCount(byName, BROWSE_COLUMN_LENGTH).map((t) => t.slug));
   });
 });

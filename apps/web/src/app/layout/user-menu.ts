@@ -156,7 +156,7 @@ import { AecIcon } from '../shared/icon/icon';
             <a
               routerLink="/account"
               (click)="menu.close()"
-              class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="block rounded-md px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.account"
             >
               Account
@@ -165,7 +165,7 @@ import { AecIcon } from '../shared/icon/icon';
               <a
                 routerLink="/admin"
                 (click)="menu.close()"
-                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="block rounded-md px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.adminPortal"
               >
                 Admin portal
@@ -175,7 +175,7 @@ import { AecIcon } from '../shared/icon/icon';
               <a
                 routerLink="/vendor"
                 (click)="menu.close()"
-                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="block rounded-md px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.vendorPortal"
               >
                 Vendor portal
@@ -187,7 +187,7 @@ import { AecIcon } from '../shared/icon/icon';
             <button
               type="button"
               (click)="onSignOut()"
-              class="block w-full cursor-pointer rounded-md px-3 py-2 text-start text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="block w-full cursor-pointer rounded-md px-3 py-2 text-start text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.signOut"
             >
               Sign out
