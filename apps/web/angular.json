@@ -177,10 +177,21 @@
                 // recipe adds about 1 kB of eager CSS (`.aec-field-control` edge,
                 // focus, error and disabled rules, the forced-colours rule and
                 // the error glyph mask).
+                //
+                // AECI-1766: raised 1.10MB -> 1.11MB. Measured with `ng build`
+                // (the budget's own total): base (`batch/redesign-shell`) at
+                // 1,098,450 B, this branch at 1,100,939 B, so +2,489 B. All
+                // of it is eager CSS. About 1,000 B is rules in `styles.css`:
+                // the hero band (glow, base-layer ring and link rules, chip
+                // ring), the Bone band forced-colours edge and the
+                // `on-brand-secondary` button edge. The rest is Tailwind
+                // utilities generated from the band and demo templates.
+                // The `aec-hero-band` and `aec-bone-band` components are lazy
+                // (no initial route uses them yet) and add no initial bytes.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.10MB"
+                  "maximumError": "1.11MB"
                 },
                 {
                   "type": "anyComponentStyle",
