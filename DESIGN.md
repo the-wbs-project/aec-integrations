@@ -673,7 +673,7 @@ The system is still flat by default. Depth is conveyed through color (Bone callo
 
 ### Shadow Vocabulary
 
-The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two tokens are in `apps/web/src/styles.css` (AECI-1750). No component uses either yet. The card, dialog and menu issues replace the old `shadow-sm` and `shadow-lg` usages.
+The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two tokens are in `apps/web/src/styles.css` (AECI-1750). `--shadow-card` is on the shared card recipe (`aecCard`, AECI-1765, §5 "Cards"). `--shadow-menu` is not used yet. The dialog and menu issues replace the old `shadow-sm` and `shadow-lg` usages.
 
 | Token | Recipe | Where | Clash |
 | -- | -- | -- | -- |
@@ -684,7 +684,7 @@ The recipes are written here once. Every other section and every component point
 - **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the four components in the table.
 - **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
 - **Both are pure black, measured.** The values are `--sh-card` and `--sh-pop` on line 15 of mock-up 6 (the same on mock-ups 5, 7 and 8). Pure black is what `PLAN.md` §4.3 rules ("One card shadow, in pure black"). It is also the form of the modal shadow and of the CDK backdrop, so the three agree. `styles.css` is the token definition site and is exempt from the colour rules, so lint is not the reason. The guard spec pins both strings exactly.
-- **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. AECI-1765 gives it a transparent 1px border, which the system colours. The token comment says so.
+- **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. The card recipe gives it a transparent 1px border, which the system colours (AECI-1765). Verified in Chromium with `forcedColors: 'active'`: `box-shadow` computes to `none` and the border computes to a system colour. `e2e/card.spec.ts` pins it.
 - **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop. No ruling touched it, so it is unchanged and has no token yet.
 - **Focus ring** (`outline: 3px solid var(--accent-primary)` at `outline-offset: 3px`, mock-up 6, line 29): the keyboard-focus indicator. It is an outline and not a `box-shadow`, because forced-colours mode drops shadows and keeps outlines. The shipped ring is an outline too (`apps/web/src/styles.css`, the `:focus-visible` rule). Never `outline: none` without a replacement. On a Forest ground, the hero panel and the footer ground the ring is Bone (`--focus-ring-on-brand`, AECI-1747, 11.03:1 on Forest). A Forest ring there is invisible, and on the hero panel it is 1.20:1. §6 "Floors" lists this floor. The global `:focus-visible` colour rule sits in `@layer base` (AECI-1845). So a control on Forest takes the Bone ring from the plain utility `focus-visible:outline-(--focus-ring-on-brand)`, at 3px with a 3px offset. It needs no component CSS and no `!`. The shipped default ring is still 2px at a 2px offset (`focus-visible:outline-2 focus-visible:outline-offset-2`), not the mock-up's 3px. That changes only when each surface is rebuilt.
 - **Buttons, chips, inputs and tabs keep borders and take no shadow** (clash 11). Hover lift on cards is clash 37 and belongs to §5 "Motion", not to this section.
@@ -831,9 +831,9 @@ The mock-up builds the glow with `color-mix()`, which clash 6 bans in components
 - **Radius of a logo tile by size (AECI-1750, see §5 "Logos").** The mock-up's mark is `border-radius: 22%`, with 8px at 22 to 28px and 24px at 104px. Only "small marks 8px" is ruled.
 - ~~**The `radius-xl` mapping (AECI-1750).**~~ Settled: there is no mapping. `rounded-xl` stays Spartan's 11.2px (5 uses: 2 on public pages, 3 in previews), and the 16px nested panel is `rounded-panel`. The sm, md and lg utilities stay as they are for the same reason.
 - ~~**Sweep of off-scale spacing in the code (AECI-1750).**~~ Settled: no sweep in AECI-1750. Each redesigned public component snaps when its issue rebuilds it, and a follow-up issue sweeps the rest of the public and shell uses. See "Spacing" above.
-- **The card border (AECI-1765).** The mock-up's card has no border. Confirm whether a hairline stays beside the shadow. Check forced-colors mode, where `box-shadow` is dropped, because a card may need a transparent 1px border that the system colours. This is a check, not a ruled rule.
-- **Which surfaces take the card shadow (AECI-1765).** `PLAN.md` names the facts card and entity cards. `PLAN.md` says "entity cards", which in §5 means the index-row table rows that take no shadow, so the table in "Shadow Vocabulary" names the components instead. The mock-up also puts the shadow on panels, review cards, score cards and table wrappers. Confirm the set.
-- **The nested panel fill (AECI-1765).** The mock-up's reply uses `--band-cool`, which equals the Forest-soft hex and which clash 6 drops. Pick an existing token such as `accent-primary-soft` or `surface-sunken`.
+- ~~**The card border (AECI-1765).**~~ Settled: no hairline beside the shadow. The card keeps a 1px border that is `transparent` (the unlayered `.aec-card` rule), so the box does not change size and forced-colors mode paints the edge. Measured on a white card on the white page ground at 1440px: the shadow alone gives the side edge 247 against 255 (1.07:1) and the bottom edge 238 (1.14:1). That is faint by design. A card is not a control, so no 3:1 floor applies (§4 "Shadow Vocabulary"). A hairline would double the edge the mock-up draws with the shadow alone. Chris may overrule: it is one colour change in `.aec-card`.
+- ~~**Which surfaces take the card shadow (AECI-1765).**~~ Settled to the §4 table, not widened. Built on the shared recipe: the product card grid (`/products` and the taxonomy pages), the three search hit cards and the integration group card. Not built, because the facts card does not exist yet (AECI-1778 builds it on the recipe). Not moved, and open for Chris: the mock-up's panels, review cards, score cards and table wrappers, and the Free and Managed plan cards (the AECI-1765 issue text lists the plan cards, this section does not). Each is one `aecCard` on the element when ruled in.
+- ~~**The nested panel fill (AECI-1765).**~~ Settled: `--accent-primary-soft` (the same hex as the mock-up's `--band-cool`), with `rounded-panel` and no shadow, as `<div aecCard nested>`. Text on it: `--text-primary` 17.33:1, `--text-secondary` 6.77:1, Forest 10.80:1. `--text-tertiary` is 4.23:1 and stays banned there, as on `--surface-sunken` (4.40:1). Chosen over `--surface-sunken` because it separates from the white card a little more (1.14:1 against 1.10:1) and is the mock-up's own colour. Nothing nests a card yet. AECI-1788 (reviews) is the first caller.
 - **Wide first items in the reviews, extensions and similar-products grids (AECI-1765).** R3 dropped the integrations lead card only.
 - **Page wrap for the other shells (AECI-1790, the browse mock-up).** The wrap is 1328px with 48px gutters on the band shell. The Browse and form shells still use the 7xl canvas (§5 "Layout shells"). Whether they move is Chris's call under the same-behaviour rule.
 - **The glow (AECI-1766).** The token and opacity that give the glow without `color-mix()`.
@@ -991,16 +991,18 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 
 ### Cards
 
-Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive. The redesign rewrites this subsection (clashes 11 and 12, see ADR 0056, and clash 18, recorded in `design-rulings.md`). AECI-1765 builds the card surface.
+Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive. The redesign rewrites this subsection (clashes 11 and 12, see ADR 0056, and clash 18, recorded in `design-rulings.md`). AECI-1765 built the card surface: `aecCard` in `apps/web/src/app/shared/card/card.ts`, with the unlayered `.aec-card`, `.aec-card-stripe` and `.aec-card-grid` rules in `styles.css`.
 
 - **Corner style:** `rounded-card` (24px, clash 12).
 - **Background:** `surface-base`, which is white (mock-up 6, line 293). The old text said `surface-raised`.
 - **Shadow:** `--shadow-card` (§4 "Shadow Vocabulary", clash 11). The old "Shadow Strategy: None" is rewritten. Only the components named in that table take it. A card nested in a card takes none (clash 14).
-- **Border:** the mock-up's card has no border. A hairline beside the shadow is open (AECI-1765, §4 "Open values").
+- **Border:** no visible hairline. A 1px `transparent` border (`.aec-card`) keeps the box size and gives forced-colors mode an edge (settled, §4 "Open values").
+- **The recipe:** `<section aecCard class="p-6">` is the frame (radius, fill, edge, shadow). Padding and layout stay on the element. `interactive` adds the lift and a 3px focus ring at a 3px offset. `tone="warm"` swaps the fill to Bone for a featured card. `nested` is the panel form: `rounded-panel`, `--accent-primary-soft`, no shadow. `stripe="forest|clay"` adds the 7px leading-edge score stripe (clash 15), beside a text label. `aec-card-grid` is the three-column cap: one column, two from `md`, three from `lg`, 24px gap.
+- **Card title:** the Card-title role (`text-t-20`) with `leading-tight` (25px line). A heading carries the size on an inner `span` or block link (the Unlayered-Heading Rule). `text-lg` left a 31px line.
 - **Internal padding:** `spacing.6` (24px, mock-up 6, line 293). Dense list contexts may use `spacing.4` (16px).
-- **Hover, when interactive:** the card lifts. The mock-up moves it `translateY(-4px)` on hover and `-1px` on press (lines 294 and 295). Clash 37 sets this and §5 "Motion" owns the timing. It is off under reduced motion. It replaces "raises to 1px `border-strong`, no shadow, no scale".
+- **Hover, when interactive:** the card lifts. The mock-up moves it `translateY(-4px)` on hover and `-1px` on press (lines 294 and 295). Clash 37 sets this and §5 "Motion" owns the timing. The classes are `motion-safe:hover:-translate-y-1` and `motion-safe:active:-translate-y-px` over `duration-base` and `ease-standard`, so reduced motion removes the move. The card's title also turns Forest on hover, so the move is not the only cue. A card that is not interactive never lifts. It replaces "raises to 1px `border-strong`, no shadow, no scale".
 - **Grids** cap at three columns with a 24px gap (clash 18, §4).
-- **A card that is one link** names the product or vendor and nothing more. The whole card text is not the link name (`PLAN.md` §10.2). AECI-1765 checks it.
+- **A card that is one link** names the product or vendor and nothing more. The whole card text is not the link name (`PLAN.md` §10.2). The product and search cards set `aria-label` to the name. The integration search card is a stretched link on its heading, so its name is the heading text.
 
 ### Disclosure group card
 
@@ -1008,11 +1010,11 @@ Used for vendor profiles, integration cards, the `/search` result tiles (see Sea
 both product-detail integration sections. The header bar is the disclosure control; the body is the
 group's rows.
 
-- **Frame:** `rounded-card` (24px), `--shadow-card`, `overflow-hidden`. The §4 table names this card. The old 0.5px `border-default` and "no shadow" are rewritten by clashes 11 and 12. A hairline beside the shadow is open (AECI-1765).
+- **Frame:** `aecCard` with `overflow-hidden`: `rounded-card` (24px), `--shadow-card`, no hairline. The §4 table names this card. The old 0.5px `border-default` and "no shadow" are rewritten by clashes 11 and 12.
 - **Header:** `surface-sunken` fill with a `border-default` bottom rule. Contents in order: a chevron
   (the `chevron-down` icon, rotated 180° when open), the subject's logo, the subject name at
   `--t-20` (the card title role) on an inner `<span>` (the Serif-Floor Rule — the size cannot go on the `<h3>`, see the
-  Unlayered-Heading Rule), and the group size at `--t-13` in text secondary. The shipped code says `text-lg`, which AECI-1748 maps to `--t-20`, so the name renders 20px.
+  Unlayered-Heading Rule), and the group size at `--t-13` in text secondary. The code says `text-t-20 leading-tight`: 20px on a 25px line.
 - **Behavior is hand-rolled, not Angular Aria.** A `<button aria-expanded aria-controls>` inside the
   `<h3>`, over a `role="region"` panel hidden with the `hidden` attribute. Aria's accordion renders
   its panel through a client-only `afterRenderEffect`, which would ship an empty card to crawlers on
@@ -1544,7 +1546,7 @@ Each value is set by the code issue named. A value the mock-ups set is not liste
 - **Ghost and secondary buttons on a Forest ground (no code issue).** AECI-1758 did not build them, see §5 Buttons. The mock-up builds its ghost button with `color-mix()`, which clash 6 bans. AECI-1758 settled the danger colours and the on-brand hover (`--surface-on-brand-hover`, from AECI-1747).
 - **The field edge token name (AECI-1747 and AECI-1764).** AECI-1764 calls it `--border-field`. §2 calls it field edge. Whether it replaces `--border-input` is open in §2.
 - **The error icon and message wiring (AECI-1764).** The 2px edge, an icon and a message are ruled. The icon is not.
-- **The card hairline and which surfaces take the shadow, including the plan cards (AECI-1765).** Listed in §4 "Open values" too.
+- **Which more surfaces take the card shadow, including the plan cards (AECI-1765).** The hairline is settled (none). The rest is listed in §4 "Open values" too.
 - **The lead cards in the reviews, extensions and similar-products grids (AECI-1765).** R3 dropped the integrations lead card only.
 - **The score figure size above 40px (AECI-1767, with AECI-1748).** See Score Display. Chris to confirm the reviews-band exception on AECI-1767.
 - **Whether the inline and badge weights of the integration stat follow the large zero (AECI-1767).** The card spec pins "Not yet connected".
