@@ -340,7 +340,7 @@ The redesign rulings of 2026-11-13 changed this section (clashes 7 to 10 and 17)
 
 ### The type ramp (clashes 9 and 17)
 
-Chris's note on clash 17: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The plan's answer is one limited ramp. The audit of the mock-ups went from 36 distinct sizes to 10, and from 9 weights to 5 (`PLAN.md` §4.2). Clash 9 was ruled as a blend. Every size on a public page is one of these ten tokens.
+Chris's note on clash 17: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The plan's answer is one limited ramp. The audit of the mock-ups went from 36 distinct sizes to 10, and from 9 weights to 5 (`PLAN.md` §4.2). Clash 9 was ruled as a blend. Once AECI-1748 and AECI-1749 land, every size on a public page is one of these ten tokens.
 
 | Token | Size | rem | Family | Use |
 | -- | -- | -- | -- | -- |
