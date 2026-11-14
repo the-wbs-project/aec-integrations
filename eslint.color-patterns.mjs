@@ -160,3 +160,38 @@ export const COLOR_LITERAL_ALLOW = {
   hex: ['apps/web/src/styles.css', 'apps/web/src/app/auth/login.html'],
   colorFunction: ['apps/web/src/styles.css'],
 };
+
+/**
+ * A Tailwind opacity modifier on a COLOUR utility (`text-(--surface-base)/70`,
+ * `bg-(--accent-primary)/40`, `bg-forest/40`). AECI-1747, redesign clash 6.
+ *
+ * Why it is banned: the modifier mints an alpha nobody measured, and Tailwind v4
+ * blends it in OKLab (`color-mix(in oklab, …)`), not in the gamma-encoded sRGB
+ * the contrast figures in `styles.css` assume. Every alpha the design uses is a
+ * named token there (`--surface-on-brand-wash`, `--border-on-brand-strong`, …).
+ *
+ * Not caught, on purpose: type-size line-height shorthands (`text-sm/6`,
+ * `text-base/7`), arbitrary lengths (`text-[13px]/6`) and fractions (`w-1/2`).
+ * Only a colour-shaped value before the slash counts: a paren token, a bracketed
+ * `color:` / `#` / `var(` / `oklch(` / `rgb(` / `hsl(` value, or a bare name
+ * that is not a type size.
+ *
+ * The slash is written `\/` because the same source is embedded in an esquery
+ * regex selector in `eslint.config.base.mjs`.
+ */
+export const COLOR_OPACITY_MODIFIER = String.raw`(^|[\s:"'\x60])(?:bg|text|border|ring|outline|fill|stroke|divide|from|via|to|decoration|shadow|accent|caret|placeholder)-(?:\(--[\w-]+\)|\[(?:color:|#|var\(|oklch|rgb|hsl)[^\]\s]*\]|(?!(?:xs|sm|base|lg|xl|[2-9]xl)\/)[a-z][\w-]*)\/(?:[0-9]{1,3}|\[[0-9.]+\]|\([^)]*\))(?![0-9a-zA-Z-])`;
+
+/**
+ * Files allowed to carry a colour opacity modifier, by repo-relative path.
+ *
+ * Empty today: the AECI-1747 sweep found every existing use on a public page
+ * and replaced it with a token. Ruling R2 (2026-11-14) says the vendor portal
+ * and admin are NOT restyled for the redesign, so a use there is added here, not
+ * rewritten. Each entry needs a comment naming why, and AECI-1813 (the portal
+ * and admin token fallout sweep) is the issue that removes the entries.
+ *
+ * The scanner (`check-source-constraints.mjs`) honours this list for `.html` and
+ * `.css`. For `.ts` the ESLint rule has no per-path allow-list: an inline
+ * `// eslint-disable-next-line no-restricted-syntax -- AECI-1813` is the entry.
+ */
+export const COLOR_OPACITY_MODIFIER_ALLOW = [];

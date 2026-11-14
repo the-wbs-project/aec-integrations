@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Guard test (AECI-1747): every colour token in `styles.css` that documents a
- * hex in its trailing comment must render that hex.
+ * Guard test (AECI-1747): every colour token in `styles.css` renders the hex its
+ * comment documents, and every alpha token states and matches its alpha.
  *
  * Why: Forest, Forest hover, Clay and Bone drifted. Their OKLCH values rendered
  * #213928, #345D40, #ED9A71 and #F3F1E6 while DESIGN.md, the brand guide and the
@@ -14,9 +14,9 @@ import { describe, expect, it } from 'vitest';
  * compared the two, so the drift sat unseen. This converts each OKLCH value to
  * sRGB (Ottosson's OKLab matrices) and requires an exact hex match.
  *
- * Alpha tokens (`oklch(... / N%)`) are skipped: their comment names the base
- * colour, not a rendered hex. Their colour part is checked against the opaque
- * token it is built from.
+ * The strict form is enforced, not assumed: a token that does not read
+ * `--name: oklch(N% C H); /* #HEX *\/` fails the "strict form" test instead of
+ * being skipped by the hex check.
  */
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,11 @@ const rootBlock = css.slice(css.indexOf(':root {'), css.indexOf('/* ─── Da
 
 const TOKEN_RE =
   /^\s*--([\w-]+):\s*(oklch\(([\d.]+)%\s+([\d.]+)\s+([\d.]+)\))\s*;\s*\/\*\s*(#[0-9A-Fa-f]{6})\b/gm;
-const ALPHA_RE = /^\s*--([\w-]+):\s*oklch\(([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s*\/\s*(\d+)%\)\s*;/gm;
+const ALPHA_RE =
+  /^\s*--([\w-]+):\s*oklch\(([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s*\/\s*(\d+)%\)\s*;(\s*\/\*(.*?)\*\/)?/gm;
+/** `--x: var(--y); /* #HEX *\/`: an alias that must keep the target's hex. */
+const ALIAS_RE = /^\s*--([\w-]+):\s*var\(--([\w-]+)\)\s*;\s*\/\*\s*(#[0-9A-Fa-f]{6})\b/gm;
+const STATED_ALPHA_RE = /\bat (\d+)%/;
 
 function oklchToHex(lPct: number, c: number, hDeg: number): string {
   const L = lPct / 100;
@@ -54,21 +58,6 @@ function oklchToHex(lPct: number, c: number, hDeg: number): string {
   );
 }
 
-/**
- * Three shipped tokens render one sRGB step (1/255 on a channel) away from their
- * documented hex because their OKLCH was rounded to four places: surface-sunken
- * and surface-muted render #F4F4F6 for #F4F4F5, text-secondary renders #51515A
- * for #52525B. The change is imperceptible and AECI-1747 leaves those values
- * alone. Every other token must match exactly.
- */
-const ONE_STEP_LEGACY = new Set(['surface-sunken', 'surface-muted', 'text-secondary']);
-
-function withinOneStep(a: string, b: string): boolean {
-  return [1, 3, 5].every(
-    (i) => Math.abs(parseInt(a.slice(i, i + 2), 16) - parseInt(b.slice(i, i + 2), 16)) <= 1,
-  );
-}
-
 describe('design tokens render their documented hex (AECI-1747)', () => {
   const tokens = [...rootBlock.matchAll(TOKEN_RE)].map((m) => ({
     name: m[1],
@@ -77,10 +66,10 @@ describe('design tokens render their documented hex (AECI-1747)', () => {
     h: Number(m[5]),
     hex: m[6].toUpperCase(),
   }));
+  const byName = new Map(tokens.map((t) => [t.name, t]));
 
   it('finds the colour tokens it is meant to check', () => {
     expect(tokens.length).toBeGreaterThanOrEqual(28);
-    const names = tokens.map((t) => t.name);
     for (const required of [
       'accent-primary',
       'accent-primary-hover',
@@ -89,20 +78,45 @@ describe('design tokens render their documented hex (AECI-1747)', () => {
       'surface-hero-panel',
       'surface-footer',
       'border-field',
+      'surface-sunken',
+      'text-secondary',
     ]) {
-      expect(names).toContain(required);
+      expect(byName.has(required), required).toBe(true);
     }
   });
 
-  it('renders the hex in every comment', () => {
+  it('gives every opaque colour token the strict `oklch(N% C H); /* #HEX */` form', () => {
+    const declared = [...rootBlock.matchAll(/^\s*--([\w-]+):\s*oklch\(([^)]*)\)/gm)]
+      .filter((m) => !m[2].includes('/'))
+      .map((m) => m[1]);
+    const strict = new Set(tokens.map((t) => t.name));
+    expect(declared.filter((n) => !strict.has(n))).toEqual([]);
+  });
+
+  it('renders the documented hex exactly, for every token', () => {
     const wrong = tokens
       .map((t) => ({ name: t.name, documented: t.hex, renders: oklchToHex(t.l, t.c, t.h) }))
-      .filter((t) =>
-        ONE_STEP_LEGACY.has(t.name)
-          ? !withinOneStep(t.documented, t.renders)
-          : t.documented !== t.renders,
-      );
+      .filter((t) => t.documented !== t.renders);
     expect(wrong).toEqual([]);
+  });
+
+  it('keeps each var() alias pointing at a defined token with the same hex', () => {
+    const aliases = [...rootBlock.matchAll(ALIAS_RE)];
+    expect(aliases.length).toBeGreaterThanOrEqual(2);
+    const bad = aliases
+      .filter((m) => byName.get(m[2])?.hex !== m[3].toUpperCase())
+      .map((m) => m[1]);
+    expect(bad).toEqual([]);
+  });
+
+  it('states the alpha in the comment and matches it to the value', () => {
+    const alphas = [...rootBlock.matchAll(ALPHA_RE)];
+    expect(alphas.length).toBeGreaterThanOrEqual(8);
+    const bad = alphas.filter((m) => {
+      const stated = (m[7] ?? '').match(STATED_ALPHA_RE);
+      return !stated || stated[1] !== m[5];
+    });
+    expect(bad.map((m) => m[1])).toEqual([]);
   });
 
   it('builds every alpha token from an opaque token of the same colour', () => {
@@ -117,7 +131,7 @@ describe('design tokens render their documented hex (AECI-1747)', () => {
     const theme = css.slice(css.indexOf('@theme inline {'));
     const rootNames = [
       ...rootBlock.matchAll(
-        /^\s*--((?:surface|border|text|accent|status|focus)-[\w-]+):\s*oklch\(/gm,
+        /^\s*--((?:surface|border|text|accent|status|focus)-[\w-]+):\s*(?:oklch|var)\(/gm,
       ),
     ].map((m) => m[1]);
     const missing = rootNames.filter((n) => !theme.includes(`--color-${n}: var(--${n});`));

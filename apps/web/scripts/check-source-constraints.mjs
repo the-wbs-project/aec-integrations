@@ -35,6 +35,8 @@ import { fileURLToPath } from 'node:url';
 import {
   COLOR_FUNCTION,
   COLOR_LITERAL_ALLOW,
+  COLOR_OPACITY_MODIFIER,
+  COLOR_OPACITY_MODIFIER_ALLOW,
   HEX_COLOR,
   NAMED_COLOR_CLASS,
   TAILWIND_PALETTE,
@@ -178,6 +180,22 @@ const RULES = [
     pattern: new RegExp(NAMED_COLOR_CLASS),
     label: '`white` / `black` color class',
     hint: COLOR_HINT,
+  },
+  {
+    id: 'no-color-opacity-modifier',
+    // AECI-1747 (redesign clash 6). `text-(--surface-base)/70` mints an alpha
+    // that no contrast figure covers and blends it in OKLab. Every alpha is a
+    // named token in styles.css. `.ts` is ESLint's, as with the other colour rules.
+    extensions: ['.html', '.css'],
+    pattern: new RegExp(COLOR_OPACITY_MODIFIER),
+    label: 'colour opacity modifier (`/NN` on a colour utility)',
+    allow: COLOR_OPACITY_MODIFIER_ALLOW,
+    hint:
+      '  An opacity modifier on a colour utility is an unmeasured alpha. Use a\n' +
+      '  named alpha token from styles.css (e.g. bg-(--surface-on-brand-wash),\n' +
+      '  border-(--border-on-brand-strong)), or add a measured one there.\n' +
+      '  Vendor portal and admin files are listed in COLOR_OPACITY_MODIFIER_ALLOW\n' +
+      '  in eslint.color-patterns.mjs until AECI-1813 clears them (ruling R2).',
   },
 ];
 
