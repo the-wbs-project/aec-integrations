@@ -881,7 +881,7 @@ export const integrationTimelineConfig = {
  * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
  *
  * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
- * pair read itself already carries this via `productListConfig`. It reuses
+ * pair read itself already carries this via `productPairSubjectConfig`. It reuses
  * `vendorLinkColumns` and `pickPrimaryVendorRow` rather than a bespoke
  * "is-this-vendor-verified" selection so the two reads and the public payload's
  * `vendor` cannot disagree about *which* vendor of a multi-vendor product the gate

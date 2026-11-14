@@ -28,6 +28,12 @@ const productListItem = (n: number, slug: string, name: string) => ({
   rating_onboarding_avg: null,
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-02T00:00:00.000Z',
+  categories: [],
+  audiences: [],
+  phases: [],
+  trades: [],
+  api_docs_url: null,
+  tool_integrations_url: null,
 });
 
 const validMechanism = {

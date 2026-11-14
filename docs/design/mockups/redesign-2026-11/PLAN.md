@@ -501,7 +501,7 @@ Shared constraints for every row below:
 
 ### 6.1 The empty pair page
 
-The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. It carries no categories, description, links or taxonomy. The type is in `packages/shared/src/api/product-pairs.ts`.
+The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. Since AECI-1822 it also carries each product's categories, audiences, phases, trades and the two links, `api_docs_url` and `tool_integrations_url`. It still carries no description. The type is in `packages/shared/src/api/product-pairs.ts`.
 
 | Element | Data needed | In the pair payload today | Work |
 | --- | --- | --- | --- |
