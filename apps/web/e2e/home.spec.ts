@@ -343,6 +343,55 @@ test.describe('/ — home link and landmark names (AECI-830)', () => {
   });
 });
 
+// AECI-1823: the pair finder routes a pick whose pair does not resolve to
+// `/search?q=`, while a direct request to a bad pair URL stays a real 404.
+test.describe('pair finder: a pick that does not resolve (AECI-1823)', () => {
+  test('a direct request to a bad pair URL still returns 404, not a redirect to search', async ({
+    request,
+  }) => {
+    const res = await request.get('/products/no-such-product-a/integrations/no-such-product-b', {
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  test('a finder pick whose pair is NOT_FOUND lands on /search?q= with the typed name', async ({
+    page,
+  }) => {
+    await page.route('**/api/products/*/integrations/*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Not found' } }),
+      }),
+    );
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
+    const hasAlgolia = await page.evaluate(
+      () => !!(window as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__,
+    );
+    test.skip(!hasAlgolia, 'no Algolia config here, so the finder cannot offer picks to choose');
+
+    const form = page.locator('form[aria-labelledby="hero-pair-title"]');
+    await untilHydrated(form);
+    const pickFirst = async (id: string, term: string): Promise<string> => {
+      const input = form.locator(`#${id}`);
+      await input.fill(term);
+      const option = page.getByRole('option').first();
+      await option.waitFor({ state: 'visible', timeout: 15_000 });
+      await input.press('ArrowDown');
+      await input.press('Enter');
+      return input.inputValue();
+    };
+    const first = await pickFirst('hero-pair-tool', 'procore');
+    await pickFirst('hero-pair-other', 'revit');
+    await form.getByRole('button', { name: 'Show integrations' }).click();
+
+    await expect(page).toHaveURL(/\/search\?q=/);
+    expect(new URL(page.url()).searchParams.get('q')).toBe(first);
+  });
+});
+
 /** Each element's computed accessible name, read from its ARIA snapshot line. */
 async function accessibleNames(locator: Locator): Promise<string[]> {
   const names: string[] = [];

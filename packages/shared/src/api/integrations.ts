@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AGREEMENT_STATES } from '../agreement';
 import {
   paginatedResponseSchema,
   PageQuerySchema,
@@ -147,6 +148,17 @@ export const IntegrationListItemSchema = z.object({
 export type IntegrationListItem = z.infer<typeof IntegrationListItemSchema>;
 
 /**
+ * A vocabulary term on a product-detail integration row (AECI-1781): a partner
+ * category or a data object, by slug and display name.
+ */
+export const IntegrationTermSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+});
+
+export type IntegrationTerm = z.infer<typeof IntegrationTermSchema>;
+
+/**
  * Product-detail embed of an integration — the rows in
  * `ProductDetail.integrations_as_source` / `integrations_as_target`. Extends the
  * list item with `context_direction`: the effective flow direction **relative to
@@ -195,6 +207,37 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    * edges' objects. Two counts cannot be unioned; two slug lists can.
    */
   data_object_slugs: z.array(z.string()).default([]),
+  /**
+   * The same objects as `data_object_slugs`, with their names (AECI-1781). Ordered as
+   * the pair page orders its claims: curated `display_order`, NULLs last, then name,
+   * then slug. Same set as the slugs: refuted and unbacked claims are skipped by the
+   * same filter.
+   *
+   * Resolved on the server rather than from the vocabulary in the browser. The pair
+   * page already reads the name from `taxonomy_data_objects`, so both pages name an
+   * object from one source, and the browser bundle does not carry the vocabulary.
+   */
+  data_objects: z.array(IntegrationTermSchema).default([]),
+  /**
+   * The partner's categories (AECI-1781): the endpoint that is not the page product.
+   * Ordered as a product's own categories are (AECI-1242): curated `display_order`,
+   * NULLs last, then name, then slug. `[]` for a partner with none. Row data for the
+   * section's category filter. No order of rows on the server reads it.
+   */
+  partner_categories: z.array(IntegrationTermSchema).default([]),
+  /**
+   * The row's agreement state (AECI-1781), one of the pair page's four claim states.
+   * Provisional until Chris rules on AECI-1781: rolled up by `integrationAgreement`
+   * (`../agreement`), where any `conflict` wins, else
+   * the weakest claim's state. It reads `confirmed` only when every flow the row lists
+   * is confirmed by two companies. It covers the claims `data_objects` lists. `null`
+   * when the row lists none.
+   *
+   * Row data only. Adding a data flow or voting on one needs a Managed capability, so
+   * no server order reads this, and a client sort or filter on it would be placement
+   * (`docs/design/mockups/redesign-2026-11/PLAN.md` §7.7).
+   */
+  agreement: z.enum(AGREEMENT_STATES).nullable().default(null),
   /**
    * The row's "Maintained by" caption and its AECi corrections (AECI-1614,
    * `./field-captions`). `null` and `[]` when the row has neither. Evidenced pairs and

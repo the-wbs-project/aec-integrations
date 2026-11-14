@@ -271,6 +271,7 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
       'Structural steel fabrication and erection, plus miscellaneous metals.',
     ),
   ],
+  total_products: 18,
 };
 
 /** The Managed block, as the server serves it for an active `verified` row. */
@@ -2077,6 +2078,9 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             context_direction: 'outbound',
             powered_by_product: null,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
         // AECI-1092: the delivered pair can be contested from here. Kroo's vendor
