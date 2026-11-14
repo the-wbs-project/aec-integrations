@@ -246,7 +246,7 @@
           {
           <p
             id="overall-error"
-            class="text-xs font-semibold text-(--text-primary)"
+            class="aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@reviews.rating.overall.error"
           >
@@ -292,7 +292,7 @@
           form.rating_onboarding().getError('standardSchema')) {
           <p
             id="onboarding-error"
-            class="text-xs font-semibold text-(--text-primary)"
+            class="aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@reviews.rating.onboarding.error"
           >
@@ -317,7 +317,7 @@
             [formField]="form.title"
             [attr.aria-invalid]="form.title().touched() && form.title().invalid() ? 'true' : null"
             [attr.aria-describedby]="form.title().touched() && form.title().getError('standardSchema') ? 'review-title-hint review-title-error' : 'review-title-hint'"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           <p
             id="review-title-hint"
@@ -330,7 +330,7 @@
           @if (form.title().touched() && form.title().getError('standardSchema')) {
           <p
             id="review-title-error"
-            class="text-xs font-semibold text-(--text-primary)"
+            class="aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@reviews.title.error"
           >
@@ -355,7 +355,7 @@
             [formField]="form.body"
             [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
             [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'review-body-hint review-body-error' : 'review-body-hint'"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
           <p
             id="review-body-hint"
@@ -368,7 +368,7 @@
           @if (form.body().touched() && form.body().getError('standardSchema')) {
           <p
             id="review-body-error"
-            class="text-xs font-semibold text-(--text-primary)"
+            class="aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@reviews.body.error"
           >
@@ -399,7 +399,7 @@
               type="button"
               [(expanded)]="roleExpanded"
               aria-labelledby="role-label role-trigger"
-              class="flex w-full items-center justify-between rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-start text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="aec-field-control flex w-full items-center justify-between rounded-control border bg-(--surface-base) px-4 py-2 text-start text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >
               <span [style.color]="roleSel().length === 0 ? 'var(--text-secondary)' : null"
                 >{{ roleTriggerLabel() }}</span
@@ -486,7 +486,7 @@
             aria-describedby="reviewer-firm-hint"
             [value]="firm()"
             (input)="onFirmInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           <p
             id="reviewer-firm-hint"
@@ -520,12 +520,12 @@
             (blur)="yearsTouched.set(true)"
             [attr.aria-invalid]="yearsTouched() && yearsInvalid() ? 'true' : null"
             [attr.aria-describedby]="yearsTouched() && yearsInvalid() ? 'years-using-error' : null"
-            class="w-28 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-28 aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           @if (yearsTouched() && yearsInvalid()) {
           <p
             id="years-using-error"
-            class="text-xs font-semibold text-(--text-primary)"
+            class="aec-field-error text-t-14 font-semibold text-(--status-error)"
             role="alert"
             i18n="@@reviews.years.error"
           >

@@ -91,7 +91,7 @@ const BTN_BASE =
                 placeholder="you@yourfirm.com"
                 [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                 [attr.aria-describedby]="emailErrorShown() ? 'mailing-list-email-error' : null"
-                class="aec-field-control min-w-0 flex-1 rounded-(--radius-sm) border bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
               <button
                 type="submit"
@@ -112,7 +112,7 @@ const BTN_BASE =
             @if (emailErrorShown()) {
               <p
                 id="mailing-list-email-error"
-                class="mt-2 text-sm font-semibold text-(--text-primary)"
+                class="aec-field-error mt-2 text-t-14 font-semibold text-(--status-error)"
                 role="alert"
                 i18n="@@mailing-list-signup.email.error"
               >

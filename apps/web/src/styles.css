@@ -64,9 +64,10 @@
   --surface-muted: oklch(96.74% 0.0013 286.38); /* #F4F4F5 */
   --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
   --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
-  /* Form control boundary (inputs, select triggers). WCAG 1.4.11 needs 3:1 for
-     the edge that identifies a control: 3.42:1 on white, 3.28:1 on raised,
-     3.11:1 on sunken. --border-default (1.25:1) stays for separators. */
+  /* Non-control 3:1 line: the scroll-box scrollbar, the dashed "not measured"
+     chart outline and the "suspected automation" chart fill. 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken. A form
+     control takes --border-field, never this (AECI-1764). --border-default
+     (1.25:1) stays for separators. */
   --border-input: oklch(63.63% 0.0133 286.02); /* #8A8A93 */
   --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
   --text-secondary: oklch(44.19% 0.0146 285.79); /* #52525B */
@@ -145,11 +146,10 @@
      invisible there. */
   --focus-ring-on-brand: var(--accent-warm); /* #F5F2EA (Bone) */
   /* Border of every form control. 3.71:1 on white, 3.55 on raised, 3.37 on
-     sunken, 3.31 on Bone. It sits beside --border-input (#8A8A93, unchanged)
-     until AECI-1764 retires the old one. Never on the hero panel (2.77:1).
-     A `border-border-field` utility will NOT apply: the unlayered
-     `* { border-color }` rule wins. Apply it from an unlayered class, as
-     `.aec-field-control` does for --border-input. */
+     sunken, 3.31 on Bone. AECI-1764 moved every control onto it. Never on the
+     hero panel (2.77:1). A `border-border-field` utility will NOT apply: the
+     unlayered `* { border-color }` rule wins. Apply it from an unlayered
+     class, as `.aec-field-control` does. */
   --border-field: oklch(61.63% 0.0134 286); /* #84848D */
   /* The ONE hover fill for the Bone main button on Forest (mock-up --cta-hover).
      Forest text on it 9.46:1, text-primary 15.18:1. */
@@ -710,6 +710,16 @@ h3 {
   border-color: var(--border-strong);
 }
 
+/* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
+   trigger), AECI-1764. Unlayered for the reason `.aec-nav-tab` records: a
+   border-colour utility loses to the `*` rule, and an unlayered rule here moves
+   every caller at once, including hand-written copies of the class.
+   Edge: `--border-field`, 3.71:1 on white. Shape: 12px radius, 44px floor, no
+   shadow. Focus: the edge goes Forest and the 3px outline sits 3px out (an
+   outline, so forced colours keeps it). Invalid: a 2px `--status-error` edge,
+   keyed off `aria-invalid` so the attribute that tells a screen reader is the
+   one that paints it. Invalid is declared last, so it also wins while focused. */
+
 /* The one chip (AECI-1763, DESIGN.md §5 Badges, clash 22). `aec-chip` sets the
    data attributes and nothing else, so this block is the whole recipe. It is
    unlayered for the reason `.aec-nav-tab` records: a border-colour utility loses
@@ -869,11 +879,56 @@ button.aec-chip:focus-visible {
    `--status-error`, keyed off `aria-invalid` so the attribute that tells a
    screen reader is the one that paints the edge. */
 .aec-field-control {
-  border-color: var(--border-input);
+  border-color: var(--border-field);
+  border-radius: var(--radius-control);
+  min-height: 2.75rem;
+}
+
+.aec-field-control:is(:disabled, [aria-disabled='true']) {
+  background-color: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.aec-field-control:focus-visible {
+  border-color: var(--accent-primary);
+  outline-width: 3px;
+  outline-offset: 3px;
 }
 
 .aec-field-control[aria-invalid='true'] {
   border-color: var(--status-error);
+  border-width: 2px;
+  /* The extra 1px of edge is taken out of the padding on the top, bottom and
+     start sides, so the box size and the text position do not move when a field
+     turns invalid. The end side keeps its padding (a select's chevron room). An
+     inset box-shadow would do this without padding, but it beats the autofill
+     guard, so it is not used. These match the recipe's py-2 and ps-4. */
+  padding-block: calc(0.5rem - 1px);
+  padding-inline-start: calc(1rem - 1px);
+}
+
+/* The inline field error (FIELD_ERROR_CLASS): an alert-circle glyph 8px before
+   the message, drawn as a mask so it takes the message colour. The drawing is
+   the registry's `alert-circle` (`shared/icon/icon-registry.ts`). It is a CSS
+   mask because the error line sits in every form's template, portal and admin
+   included, and no caller template changes. Colour is never the only signal. */
+/* The layout lives here, not only in FIELD_ERROR_CLASS: hand-copied error lines
+   carry `aec-field-error` alone, and without a flex parent the glyph has no box. */
+.aec-field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.aec-field-error::before {
+  --aec-error-glyph: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M12 7.5v5.5M12 16.5h.01'/></svg>");
+  content: '';
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-block-start: 0.1875rem;
+  background-color: currentcolor;
+  mask: var(--aec-error-glyph) center / contain no-repeat;
 }
 
 /* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
@@ -900,6 +955,16 @@ button.aec-chip:focus-visible {
 
 .aec-btn-secondary {
   border-color: var(--border-strong);
+}
+
+/* The error glyph is a background-painted mask, and forced colours replaces
+   background colours, which would erase it. Opt it out and paint the system
+   text colour. */
+@media (forced-colors: active) {
+  .aec-field-error::before {
+    forced-color-adjust: none;
+    background-color: CanvasText;
+  }
 }
 
 /* A scroll box whose last row may be clipped (the "About you" audience list).

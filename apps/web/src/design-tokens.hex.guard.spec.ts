@@ -85,6 +85,33 @@ describe('design tokens render their documented hex (AECI-1747)', () => {
     }
   });
 
+  it('keeps the form-control edge at 3:1 on every ground a control sits on (AECI-1764)', () => {
+    const lum = (hex: string) => {
+      const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const [r, g, b] = ch.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    const edge = byName.get('border-field')!.hex;
+    for (const ground of ['surface-base', 'surface-raised', 'surface-sunken', 'accent-warm']) {
+      expect(ratio(edge, byName.get(ground)!.hex), ground).toBeGreaterThanOrEqual(3);
+    }
+    // The ground DESIGN.md records as failing: a control never sits on the hero panel.
+    expect(ratio(edge, byName.get('surface-hero-panel')!.hex)).toBeLessThan(3);
+  });
+
+  it('no form control reads the retired --border-input edge (AECI-1764)', () => {
+    const rule = css.slice(
+      css.indexOf('.aec-field-control {'),
+      css.indexOf('/* The inline field error'),
+    );
+    expect(rule).toContain('border-color: var(--border-field)');
+    expect(rule).not.toContain('--border-input');
+  });
+
   it('gives every oklch() token the strict opaque or alpha form', () => {
     // Every `--x: oklch(` must match the opaque pattern (`N% C H); /* #HEX */`)
     // or the alpha pattern (`N% C H / N%); /* ... at N% */`). A bare-number

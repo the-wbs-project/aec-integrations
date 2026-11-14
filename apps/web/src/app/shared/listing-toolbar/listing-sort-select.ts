@@ -69,9 +69,10 @@ export class ListingSortIds {
         >Sort</span
       >
       <div #origin class="relative">
-        <!-- py-2.5 is not arbitrary: it makes the trigger 42px, matching the view
-             toggle beside it (2px border + 8px p-1 + 12px py-1.5 + 20px text-sm
-             line box). Change one side and change the other. -->
+        <!-- The shared field recipe (AECI-1764): 44px, 12px radius, field edge.
+             The view toggle beside it is 42px (2px border + 8px p-1 + 12px py-1.5
+             + 20px text-sm line box), so the pair is 2px apart until AECI-1759
+             migrates the toggle. -->
         <button
           ngCombobox
           #cb="ngCombobox"
@@ -79,9 +80,9 @@ export class ListingSortIds {
           type="button"
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId + ' ' + triggerId"
-          class="flex items-center justify-between gap-2 rounded-(--radius-md) border border-(--border-default)
-            bg-(--surface-base) py-2.5 ps-3 pe-3 text-sm text-(--text-primary)
-            focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="aec-field-control flex items-center justify-between gap-2 rounded-control border
+            bg-(--surface-base) py-2 ps-4 pe-3 text-t-16 text-(--text-primary)
+            focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
           <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
