@@ -385,6 +385,55 @@ describe('HomeHero', () => {
       expect(button.hasAttribute('aria-disabled')).toBe(false);
     });
 
+    it('a pending slug-redirect lookup keeps the form busy and blocks a second pair read', async () => {
+      const { host, http } = await pickStalePair();
+      const form = host.querySelector<HTMLFormElement>('form[aria-labelledby="hero-pair-title"]')!;
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      const lookups = [
+        http.expectOne('/api/slug-redirects/product/revit'),
+        http.expectOne('/api/slug-redirects/product/stale-slug'),
+      ];
+
+      submitPairForm(host);
+      http.expectNone('/api/products/revit/integrations/stale-slug');
+      expect(form.getAttribute('aria-busy')).toBe('true');
+      expect(lookups).toHaveLength(2);
+    });
+
+    it('a slug-redirect lookup that outlasts the timeout falls through to /search', async () => {
+      const { host, navigate, navigateByUrl, http } = await pickStalePair(false);
+      vi.useFakeTimers();
+      try {
+        submitPairForm(host);
+        flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+        await vi.advanceTimersByTimeAsync(0);
+        http.expectOne('/api/slug-redirects/product/revit'); // never answered
+        http.expectOne('/api/slug-redirects/product/stale-slug');
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(navigateByUrl).not.toHaveBeenCalled();
+        expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'Revit' } });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a picker edited during the slug-redirect lookup drops the result', async () => {
+      const { host, navigate, navigateByUrl, http } = await pickStalePair();
+      flushNotFound(http.expectOne('/api/products/revit/integrations/stale-slug'));
+      await settle();
+      host
+        .querySelector<HTMLInputElement>('#hero-pair-other')!
+        .dispatchEvent(new Event('input', { bubbles: true }));
+      flushNotFound(http.expectOne('/api/slug-redirects/product/revit'));
+      http
+        .expectOne('/api/slug-redirects/product/stale-slug')
+        .flush({ entity: 'product', from_slug: 'stale-slug', to_slug: 'survivor' });
+      await settle();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(navigateByUrl).not.toHaveBeenCalled();
+    });
+
     it('a read that outlasts the timeout navigates to the pair page', async () => {
       const { host, navigate, http } = await pickStalePair(false);
       vi.useFakeTimers();

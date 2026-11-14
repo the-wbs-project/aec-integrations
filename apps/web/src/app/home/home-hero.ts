@@ -28,7 +28,7 @@
  *     canonical first slug from `defaultIntegrationContext`. The finder first reads
  *     the pair from the same-origin API (AECI-1823), with a 2.5 s timeout. On a
  *     `NOT_FOUND` it first asks the retired-slug map, as the pair resolver does
- *     (AECI-991), and navigates to the survivor pair on a hit. Otherwise a stale
+ *     (AECI-991), bounded by the same 2.5 s, and navigates to the survivor pair on a hit. Otherwise a stale
  *     slug goes to `/search?q=` with the typed text of the side the envelope names
  *     (`details.slug`), or the first typed text. A timeout or any other failure of
  *     the read navigates to the pair page. A direct request to a bad pair URL still
@@ -85,6 +85,15 @@ const PAIR_INPUT_IDS: Record<PairSide, string> = {
 
 /** How long the finder waits on the pair read before it navigates anyway (AECI-1823). */
 const PAIR_READ_TIMEOUT_MS = 2500;
+
+/** Resolve with `fallback` if `work` has not settled within `ms`. */
+function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
 
 /** A chosen product suggestion's slug (`routerLink` is `['/products', slug]`). */
 function productSlug(s: AutocompleteSuggestion | null): string | null {
@@ -297,31 +306,13 @@ export class HomeHero {
     const other = productSlug(this.chosen.other());
 
     if (tool && other && tool !== other) {
-      const context = defaultIntegrationContext(tool, other);
-      const rest = context === tool ? other : tool;
-      const check = await this.checkPair(context, rest);
-      // The visitor edited a picker while the read was in flight: that choice is
-      // theirs now, so do not act on the captured pair (AECI-1823).
-      if (productSlug(this.chosen.tool()) !== tool || productSlug(this.chosen.other()) !== other) {
-        return;
+      // The busy state covers the whole check: the pair read and the retired-slug lookup.
+      this.checking.set(true);
+      try {
+        await this.routePair(tool, other);
+      } finally {
+        this.checking.set(false);
       }
-      if (check.missing) {
-        // A retired slug redirects to its survivor pair, as the pair resolver does (AECI-991).
-        const rewritten = await rewriteRetiredPairSlugs(context, rest, (slug) =>
-          httpGetSlugRedirect(this.http, 'product', slug),
-        );
-        if (rewritten) {
-          void this.router.navigateByUrl(movedPairPath(rewritten));
-          return;
-        }
-        // A stale slug: send the visitor to search, not the generic 404 (AECI-1823).
-        const typed = this.missingText(check.slug, tool, other) || this.typedText();
-        if (typed) {
-          navigateToSearchQuery(this.router, typed);
-          return;
-        }
-      }
-      void this.router.navigate(['/products', context, 'integrations', rest]);
       return;
     }
     const single = tool ?? other;
@@ -338,7 +329,44 @@ export class HomeHero {
     this.field('tool')?.focus();
   }
 
-  /** True while the pair read is in flight. Drives `aria-busy` and `aria-disabled`. */
+  /** The pair branch of `submitPair`: read, retired-slug lookup, then navigate. */
+  private async routePair(tool: string, other: string): Promise<void> {
+    const context = defaultIntegrationContext(tool, other);
+    const rest = context === tool ? other : tool;
+    // The visitor edited a picker while a read was in flight: that choice is theirs
+    // now, so do not act on the captured pair (AECI-1823).
+    const changed = (): boolean =>
+      productSlug(this.chosen.tool()) !== tool || productSlug(this.chosen.other()) !== other;
+
+    const check = await this.checkPair(context, rest);
+    if (changed()) return;
+    if (check.missing) {
+      // A retired slug redirects to its survivor pair, as the pair resolver does
+      // (AECI-991). Bounded by the same budget as the read, here only: a timeout
+      // reads as "no redirect" and falls through to search.
+      const rewritten = await withTimeout(
+        rewriteRetiredPairSlugs(context, rest, (slug) =>
+          httpGetSlugRedirect(this.http, 'product', slug),
+        ),
+        PAIR_READ_TIMEOUT_MS,
+        null,
+      );
+      if (changed()) return;
+      if (rewritten) {
+        void this.router.navigateByUrl(movedPairPath(rewritten));
+        return;
+      }
+      // A stale slug: send the visitor to search, not the generic 404 (AECI-1823).
+      const typed = this.missingText(check.slug, tool, other) || this.typedText();
+      if (typed) {
+        navigateToSearchQuery(this.router, typed);
+        return;
+      }
+    }
+    void this.router.navigate(['/products', context, 'integrations', rest]);
+  }
+
+  /** True while the pair check runs. Drives `aria-busy` and `aria-disabled`. */
   protected readonly checking = signal(false);
 
   /**
@@ -351,7 +379,6 @@ export class HomeHero {
     context: string,
     other: string,
   ): Promise<{ missing: boolean; slug: string | null }> {
-    this.checking.set(true);
     try {
       await firstValueFrom(
         this.http
@@ -362,8 +389,6 @@ export class HomeHero {
     } catch (err) {
       const notFound = decodeNotFound(err);
       return { missing: notFound !== null, slug: notFound?.slug ?? null };
-    } finally {
-      this.checking.set(false);
     }
   }
 

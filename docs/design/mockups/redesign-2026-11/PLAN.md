@@ -408,7 +408,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301. That is AECI-953.
 
-**The second case in AECI-1571 is unchanged by this plan.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. The finder fallback is done (AECI-1823). The slug check stays in the issue.
+**The second case in AECI-1571 is outside this plan and is done by AECI-1823.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. The finder fallback shipped in AECI-1823. The slug check stays in AECI-1571.
 
 ### 5.2 The product details page
 
