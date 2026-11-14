@@ -18,8 +18,16 @@ import {
   integrationVendorLinks,
   products,
   productVendors,
+  productAudiences,
+  productCategories,
+  productPhases,
+  productTrades,
   productVersions,
+  taxonomyAudiences,
+  taxonomyCategories,
   taxonomyDataObjects,
+  taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import { resolveMovedPair } from '../lib/pair-redirect';
@@ -247,6 +255,80 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     });
     expect(body.other_product.vendor?.logo_url).toBeNull();
     expect(body.mechanisms[0]!.powered_by_product?.logo_url).toBeNull();
+  });
+
+  it('each side carries its taxonomy A to Z and its two links, never display order (AECI-1822)', async () => {
+    await seedProducts();
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(301), slug: 'zeta', name: 'Zeta', displayOrder: 1 },
+      { id: u(302), slug: 'alpha', name: 'alpha', displayOrder: 2 },
+      { id: u(303), slug: 'beta', name: 'Beta', displayOrder: null },
+      { id: u(304), slug: 'beta-two', name: 'Beta', displayOrder: 3 },
+    ]);
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(311), slug: 'pm', name: 'Project managers' },
+      { id: u(312), slug: 'arch', name: 'Architects' },
+    ]);
+    await t.db.insert(taxonomyPhases).values([
+      { id: u(321), slug: 'build', name: 'Construction', displayOrder: 1 },
+      { id: u(322), slug: 'plan', name: 'Design', displayOrder: 2 },
+    ]);
+    await t.db
+      .insert(taxonomyTrades)
+      .values([{ id: u(331), slug: 'elec', name: 'Electrical', description: 'Electrical work' }]);
+    await t.db.insert(productCategories).values([
+      { productId: u(1), categoryId: u(301) },
+      { productId: u(1), categoryId: u(302) },
+      { productId: u(1), categoryId: u(304) },
+      { productId: u(1), categoryId: u(303) },
+      { productId: u(2), categoryId: u(301) },
+    ]);
+    await t.db.insert(productAudiences).values([
+      { productId: u(1), audienceId: u(311) },
+      { productId: u(1), audienceId: u(312) },
+    ]);
+    await t.db.insert(productPhases).values([
+      { productId: u(1), phaseId: u(322) },
+      { productId: u(1), phaseId: u(321) },
+    ]);
+    await t.db.insert(productTrades).values([{ productId: u(1), tradeId: u(331) }]);
+    await t.db
+      .update(products)
+      .set({
+        apiDocsUrl: 'https://developers.example/procore',
+        toolIntegrationsUrl: 'https://marketplace.example/procore',
+      })
+      .where(eq(products.id, u(1)));
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    const ctx = body.context_product;
+    // Case never decides the order; the id breaks the "Beta" tie.
+    expect(ctx.categories.map((c) => c.id)).toEqual([u(302), u(303), u(304), u(301)]);
+    expect(ctx.audiences.map((a) => a.name)).toEqual(['Architects', 'Project managers']);
+    expect(ctx.phases.map((p) => p.name)).toEqual(['Construction', 'Design']);
+    expect(ctx.trades).toEqual([{ id: u(331), name: 'Electrical', slug: 'elec' }]);
+    expect(ctx.api_docs_url).toBe('https://developers.example/procore');
+    expect(ctx.tool_integrations_url).toBe('https://marketplace.example/procore');
+    // The other side is its own row: no bleed, and empty lists are `[]` and `null`.
+    expect(body.other_product.categories.map((c) => c.id)).toEqual([u(301)]);
+    expect(body.other_product).toMatchObject({
+      audiences: [],
+      phases: [],
+      trades: [],
+      api_docs_url: null,
+      tool_integrations_url: null,
+    });
+    // The mirror page frames the same facts to the other product.
+    const mirror = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(mirror.other_product.categories.map((c) => c.id)).toEqual([
+      u(302),
+      u(303),
+      u(304),
+      u(301),
+    ]);
   });
 
   it('translates a one-way direction relative to the context product', async () => {

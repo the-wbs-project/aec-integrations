@@ -928,6 +928,26 @@ export const productListConfig = {
   },
 } as const;
 
+/**
+ * One side of the product-PAIR page (AECI-1822): the list hydration plus the two
+ * link columns and the four taxonomy joins. Loaded in the pair read's own
+ * `db.batch`, beside the rest, so it adds no round trip. Pair read only.
+ */
+export const productPairSubjectConfig = {
+  columns: {
+    ...productListConfig.columns,
+    toolIntegrationsUrl: true,
+    apiDocsUrl: true,
+  },
+  with: {
+    ...productListConfig.with,
+    productCategories: { columns: {}, with: { category: { columns: taxonomyLinkColumns } } },
+    productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
+    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
+    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
+  },
+} as const;
+
 /** Detail adds editorial fields, taxonomy joins, both integration sides. */
 export const productDetailConfig = {
   columns: {
@@ -1511,6 +1531,15 @@ export interface RawProductListRow {
   createdAt: string;
   updatedAt: string;
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
+}
+/** A pair page's subject row (AECI-1822): the list row plus links and taxonomy. */
+export interface RawProductPairSubjectRow extends RawProductListRow {
+  toolIntegrationsUrl: string | null;
+  apiDocsUrl: string | null;
+  productCategories: Array<{ category: RawTaxonomyLink }>;
+  productAudiences: Array<{ audience: RawTaxonomyLink }>;
+  productPhases: Array<{ phase: RawTaxonomyLink }>;
+  productTrades: Array<{ trade: RawTaxonomyLink }>;
 }
 export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
@@ -2202,7 +2231,7 @@ export { toProductPairMechanismFromEvidencedPair };
 
 /**
  * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
- * `ProductListItem` (vendor + review recap) for the rail; each integration row
+ * `ProductPairSubject` (vendor, review recap, taxonomy, links) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every public claim on the pair (an
  * unbacked vendor-added claim is already gone, AECI-1314), less `removed` and
@@ -2213,17 +2242,35 @@ export { toProductPairMechanismFromEvidencedPair };
  * one-sided assertion is never folded into the bilateral figure.
  */
 /** A pair page's subject keeps its logo and says whether it is claimed (AECI-1618). */
-function toPairSubject(raw: RawProductListRow): ProductPairSubject {
+/**
+ * AECI-1822: each side also carries its four taxonomy facets and two links. Every
+ * facet list is A to Z by name with the id as the tie-break (`PLAN.md` §7.8), the
+ * rule for every new list on the redesigned pages. Unlike the product page it never
+ * reads `display_order`, and nothing here reads a plan-gated input.
+ */
+function sortedTaxonomyLinks(terms: readonly RawTaxonomyLink[]): RawTaxonomyLink[] {
+  return terms
+    .map(toTaxonomyLink)
+    .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function toPairSubject(raw: RawProductPairSubjectRow): ProductPairSubject {
   return {
     ...toProductListItem(raw),
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
+    categories: sortedTaxonomyLinks(raw.productCategories.map((r) => r.category)),
+    audiences: sortedTaxonomyLinks(raw.productAudiences.map((r) => r.audience)),
+    phases: sortedTaxonomyLinks(raw.productPhases.map((r) => r.phase)),
+    trades: sortedTaxonomyLinks(raw.productTrades.map((r) => r.trade)),
+    api_docs_url: raw.apiDocsUrl,
+    tool_integrations_url: raw.toolIntegrationsUrl,
   };
 }
 
 export function toProductPairResponse(
-  contextProduct: RawProductListRow,
-  otherProduct: RawProductListRow,
+  contextProduct: RawProductPairSubjectRow,
+  otherProduct: RawProductPairSubjectRow,
   integrations: RawIntegrationPairRow[],
   /**
    * Connector-evidenced pairs between the same two products (AECI-721).

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AGREEMENT_STATES } from '../agreement';
 import { VERSION_DIFF_ACCESS, VERSION_STATUSES } from '../version-diff';
 import {
+  LinkRefSchema,
   SubjectClaimStatusSchema,
   MaintenanceSchema,
   ProductLinkSchema,
@@ -402,13 +403,27 @@ export type SyncHeadline = z.infer<typeof SyncHeadlineSchema>;
 
 /**
  * Response for `GET /api/products/:slug/integrations/:otherSlug`. Both products
- * are hydrated as `ProductListItem` (vendor, logo, review recap) so the rail
- * renders without a second fetch. `mechanisms` is `[]` for a valid-but-empty
+ * are hydrated as `ProductPairSubject` (`ProductListItem` plus claim status, taxonomy
+ * and the two docs links, AECI-1822) so the rail renders without a second fetch. `mechanisms` is `[]` for a valid-but-empty
  * pair (both products exist, no integration between them) — a 200, not a 404.
  */
 /** A pair page's two subjects (AECI-1618): each keeps its logo and says if it is claimed. */
 export const ProductPairSubjectSchema = ProductListItemSchema.extend({
   claim_status: SubjectClaimStatusSchema,
+  /**
+   * AECI-1822: what the empty pair page's cards and "look it up yourself" row read.
+   * The four facets are every term the product carries, each list A to Z by name
+   * with the id as the tie-break (`PLAN.md` §7.8). `trades` is sparse by design, so
+   * `[]` is the common case. Same facts the product page already shows.
+   * `.default` so an SSR Worker on this schema still parses a response from an API
+   * Worker that predates the fields.
+   */
+  categories: z.array(LinkRefSchema).default([]),
+  audiences: z.array(LinkRefSchema).default([]),
+  phases: z.array(LinkRefSchema).default([]),
+  trades: z.array(LinkRefSchema).default([]),
+  api_docs_url: z.string().url().nullable().default(null),
+  tool_integrations_url: z.string().url().nullable().default(null),
 });
 export type ProductPairSubject = z.infer<typeof ProductPairSubjectSchema>;
 

@@ -1037,6 +1037,12 @@ The **product-PAIR read**. Consolidates every integration between two products i
 
 **`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
 
+**Taxonomy and links on both subjects (AECI-1822, 2026-11-14).** `context_product` and `other_product` each also carry `categories`, `audiences`, `phases` and `trades` (`LinkRef[]`), plus `api_docs_url` and `tool_integrations_url` (`string | null`). They feed the empty pair page's cards and its "look it up yourself" row (`PLAN.md` §6.1). They are the same facts `GET /api/products/:slug` returns. Three differences from that read:
+
+- **Order.** Every list is A to Z by name, with the term `id` as the tie-break (`PLAN.md` §7.8). It never reads `display_order`, so a curated order that a paid plan could move cannot reach it. The product page keeps its own display-order sort.
+- **One read.** The terms hydrate through `productPairSubjectConfig`, inside the same `db.batch` as the two product lookups. No statement or round trip is added.
+- **Cache.** No new tag. The page already carries `product:{slug}` for both products, so a promote or vendor edit that changes either product's terms purges it. A rename of a term itself repaints on the TTL, exactly as on the product page, which does not tag `taxonomy` either (`CACHE_STRATEGY.md` rule 2).
+
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 
 | Param | Value | Default |
@@ -1158,8 +1164,8 @@ export const SyncHeadlineSchema = z.object({
 });
 
 export const ProductPairResponseSchema = z.object({
-  context_product: ProductListItemSchema,   // both products hydrate as ProductListItem (vendor + review recap)
-  other_product: ProductListItemSchema,
+  context_product: ProductPairSubjectSchema, // ProductListItem + claim_status + the six AECI-1822 fields
+  other_product: ProductPairSubjectSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
   // The page-header maintenance marker (AECI-616), folded across all mechanisms by

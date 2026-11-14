@@ -55,7 +55,7 @@ import {
   integrationPairConfig,
   integrationTimelineConfig,
   pickPrimaryVendorRow,
-  productListConfig,
+  productPairSubjectConfig,
   productVersionDiffGateConfig,
   publicProductLinkConfig,
   toIntegrationDetail,
@@ -567,12 +567,12 @@ export function createProductPairHandler(
       evidencedHideRows,
     ] = await db.batch([
       db.query.products.findMany({
-        ...productListConfig,
+        ...productPairSubjectConfig,
         where: and(eq(products.slug, contextSlug), visibleProductWhere),
         limit: 1,
       }),
       db.query.products.findMany({
-        ...productListConfig,
+        ...productPairSubjectConfig,
         where: and(eq(products.slug, otherSlug), visibleProductWhere),
         limit: 1,
       }),
