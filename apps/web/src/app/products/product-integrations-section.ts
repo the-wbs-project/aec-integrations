@@ -189,8 +189,15 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           <aec-integration-group-card
             [headingId]="'integrations-via-' + lane.lane.key"
             [heading]="viaHeading(lane.lane)"
-            [logoSrc]="lane.lane.connector?.logo_url ?? null"
-            [logoName]="lane.lane.connector?.name ?? null"
+            [logo]="
+              lane.lane.connector
+                ? {
+                    src: lane.lane.connector.logo_url,
+                    name: lane.lane.connector.name,
+                    claimStatus: 'server-filtered',
+                  }
+                : null
+            "
             [countLabel]="countLabel(lane.lane.rows.length, viaTotal(lane.lane.key))"
             [link]="viaLink(lane.lane)"
             i18n-linkLabel="@@products.detail.group.link"

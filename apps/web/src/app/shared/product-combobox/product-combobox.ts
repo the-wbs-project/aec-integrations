@@ -188,7 +188,12 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                     class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 data-[active=true]:bg-(--surface-sunken)"
                     data-product-option
                   >
-                    <aec-logo-or-initial [src]="p.logo_url ?? null" [name]="p.name" size="sm" />
+                    <aec-logo-or-initial
+                      [claimStatus]="'server-filtered'"
+                      [src]="p.logo_url ?? null"
+                      [name]="p.name"
+                      size="sm"
+                    />
                     <span class="flex min-w-0 flex-col">
                       <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                         p.name

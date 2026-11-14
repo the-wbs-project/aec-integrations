@@ -57,6 +57,7 @@ import { Chip, type ChipTone } from '../shared/chip/chip';
       <!-- Empty alt: the name is in the adjacent text, so a described photo
            would make a screen reader announce the same person twice. -->
       <aec-logo-or-initial
+        [claimStatus]="'stored'"
         size="sm"
         shape="circle"
         alt=""

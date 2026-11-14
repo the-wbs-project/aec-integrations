@@ -72,7 +72,12 @@ export type ProductRow = Pick<
   template: `
     <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
-        <aec-logo-or-initial [src]="product().logo_url" [name]="product().name" size="sm" />
+        <aec-logo-or-initial
+          [claimStatus]="'server-filtered'"
+          [src]="product().logo_url"
+          [name]="product().name"
+          size="sm"
+        />
         <span class="flex min-w-0 flex-col">
           <a
             [routerLink]="['/products', product().slug]"

@@ -844,7 +844,7 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 Errors: `NOT_FOUND` if no product matches the slug.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed` so an SSR Worker on this schema can parse an older API response. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value. No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
+**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`. It is required, with no default (AECI-1851). The API always sends it, and the web never Zod-parses this response, so the old `claimed` default only hid a missing field. A client that meets a missing `claim_status` treats it as not claimed for the logo: no subject logo, no share-card logo. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value, by an explicit choice: they map product links with `toOwnedProductLink`. The public `toProductLink` shows a logo only when the row carries a truthy `claimed`, so a public read that forgets that column hides the logo (AECI-1851). No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
 
 **Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
 statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
@@ -901,7 +901,7 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 Errors: `NOT_FOUND`.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed`. A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
+**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, required, with no default (AECI-1851, as for `ProductDetail`). A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
 
 ### 6.2a Slug redirects (AECI-978)
 

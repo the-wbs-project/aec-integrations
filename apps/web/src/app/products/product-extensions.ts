@@ -61,7 +61,13 @@ const CARD_CLASS =
             [class]="cardClass"
             class="bg-(--surface-base) lg:bg-(--surface-raised) lg:p-4"
           >
-            <aec-logo-or-initial [src]="host.logo_url" [name]="host.name" alt="" size="sm" />
+            <aec-logo-or-initial
+              [claimStatus]="'server-filtered'"
+              [src]="host.logo_url"
+              [name]="host.name"
+              alt=""
+              size="sm"
+            />
             <span class="min-w-0">
               <span class="block break-words font-semibold text-(--text-primary)">{{
                 host.name
@@ -113,6 +119,7 @@ export class ProductBuiltWithin {
             class="bg-(--surface-raised) hover:bg-(--surface-sunken)"
           >
             <aec-logo-or-initial
+              [claimStatus]="'server-filtered'"
               [src]="extension.logo_url"
               [name]="extension.name"
               alt=""

@@ -67,7 +67,12 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
           class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-raised) p-6 md:gap-8 md:p-8"
         >
           <div class="flex flex-col items-center gap-2 text-center">
-            <aec-logo-or-initial [name]="v.context.name" [src]="v.context.logo_url" size="lg" />
+            <aec-logo-or-initial
+              [claimStatus]="'stored'"
+              [name]="v.context.name"
+              [src]="v.context.logo_url"
+              size="lg"
+            />
             <span class="font-display text-lg text-(--text-primary)">{{ v.context.name }}</span>
             <span class="text-xs text-(--text-tertiary)">{{ v.context.vendorName }}</span>
             <span
@@ -86,7 +91,12 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
           </div>
           <span class="h-12 w-px bg-(--border-default) md:h-16" aria-hidden="true"></span>
           <div class="flex flex-col items-center gap-2 text-center">
-            <aec-logo-or-initial [name]="v.other.name" [src]="v.other.logo_url" size="lg" />
+            <aec-logo-or-initial
+              [claimStatus]="'stored'"
+              [name]="v.other.name"
+              [src]="v.other.logo_url"
+              size="lg"
+            />
             <span class="font-display text-lg text-(--text-primary)">{{ v.other.name }}</span>
             <span class="text-xs text-(--text-tertiary)">{{ v.other.vendorName }}</span>
             <span

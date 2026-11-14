@@ -123,12 +123,14 @@ const SPY_TOP_PX = 80;
           <div class="mx-auto flex h-14 max-w-7xl items-center gap-3 px-6 md:px-8">
             <span aria-hidden="true" class="hidden shrink-0 items-center sm:flex">
               <aec-logo-or-initial
+                [claimStatus]="'stored'"
                 [src]="i.context_product.logo_url"
                 [name]="i.context_product.name"
                 size="sm"
               />
               <span class="h-px w-3 bg-(--border-strong)"></span>
               <aec-logo-or-initial
+                [claimStatus]="'stored'"
                 [src]="i.other_product.logo_url"
                 [name]="i.other_product.name"
                 size="sm"
@@ -162,12 +164,14 @@ const SPY_TOP_PX = 80;
         <div class="flex min-w-0 items-start gap-4">
           <span aria-hidden="true" class="flex shrink-0 items-center pt-0.5">
             <aec-logo-or-initial
+              [claimStatus]="'stored'"
               [src]="i.context_product.logo_url"
               [name]="i.context_product.name"
               size="sm"
             />
             <span class="h-px w-3 bg-(--border-strong)"></span>
             <aec-logo-or-initial
+              [claimStatus]="'stored'"
               [src]="i.other_product.logo_url"
               [name]="i.other_product.name"
               size="sm"
