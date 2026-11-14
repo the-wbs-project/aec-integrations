@@ -42,6 +42,12 @@ const STATE = {} as RouterStateSnapshot;
 /** A `ProductListItem`. Its `vendor` carries no `verified` mirror (AECI-1266). */
 const productListItem = (slug: string, name: string) => ({
   claim_status: 'claimed' as const,
+  categories: [],
+  audiences: [],
+  phases: [],
+  trades: [],
+  api_docs_url: null,
+  tool_integrations_url: null,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,

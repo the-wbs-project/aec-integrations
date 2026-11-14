@@ -881,7 +881,7 @@ export const integrationTimelineConfig = {
  * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
  *
  * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
- * pair read itself already carries this via `productListConfig`. It reuses
+ * pair read itself already carries this via `productPairSubjectConfig`. It reuses
  * `vendorLinkColumns` and `pickPrimaryVendorRow` rather than a bespoke
  * "is-this-vendor-verified" selection so the two reads and the public payload's
  * `vendor` cannot disagree about *which* vendor of a multi-vendor product the gate
@@ -925,6 +925,29 @@ export const productListConfig = {
     productVendors: {
       with: { vendor: { columns: vendorLinkColumns } },
     },
+  },
+} as const;
+
+/**
+ * One side of the product-PAIR page (AECI-1822): the list hydration plus the two
+ * link columns and the four taxonomy joins. Loaded in the pair read's own
+ * `db.batch`, beside the rest, so it adds no round trip. Pair read only.
+ */
+export const productPairSubjectConfig = {
+  columns: {
+    ...productListConfig.columns,
+    toolIntegrationsUrl: true,
+    apiDocsUrl: true,
+  },
+  with: {
+    ...productListConfig.with,
+    productCategories: {
+      columns: {},
+      with: { category: { columns: taxonomyLinkWithOrderColumns } },
+    },
+    productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
+    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkWithOrderColumns } } },
+    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkWithOrderColumns } } },
   },
 } as const;
 
@@ -1511,6 +1534,15 @@ export interface RawProductListRow {
   createdAt: string;
   updatedAt: string;
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
+}
+/** A pair page's subject row (AECI-1822): the list row plus links and taxonomy. */
+export interface RawProductPairSubjectRow extends RawProductListRow {
+  toolIntegrationsUrl: string | null;
+  apiDocsUrl: string | null;
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
+  productAudiences: Array<{ audience: RawTaxonomyLink }>;
+  productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
+  productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
 }
 export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
@@ -2202,7 +2234,7 @@ export { toProductPairMechanismFromEvidencedPair };
 
 /**
  * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
- * `ProductListItem` (vendor + review recap) for the rail; each integration row
+ * `ProductPairSubject` (vendor, review recap, taxonomy, links) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every public claim on the pair (an
  * unbacked vendor-added claim is already gone, AECI-1314), less `removed` and
@@ -2213,17 +2245,35 @@ export { toProductPairMechanismFromEvidencedPair };
  * one-sided assertion is never folded into the bilateral figure.
  */
 /** A pair page's subject keeps its logo and says whether it is claimed (AECI-1618). */
-function toPairSubject(raw: RawProductListRow): ProductPairSubject {
+function toPairSubject(raw: RawProductPairSubjectRow): ProductPairSubject {
   return {
     ...toProductListItem(raw),
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
+    // AECI-1822: the same four lists, in the same order, as `toProductDetail` (AECI-1242).
+    // A product's own terms follow the curated order, not A to Z: PLAN §7.8 governs lists
+    // of products and integrations. Audiences by name; the rest by `display_order`.
+    categories: raw.productCategories
+      .map((r) => r.category)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    audiences: raw.productAudiences.map((r) => r.audience).sort(compareTermsByName),
+    phases: raw.productPhases
+      .map((r) => r.phase)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    trades: raw.productTrades
+      .map((r) => r.trade)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    api_docs_url: raw.apiDocsUrl,
+    tool_integrations_url: raw.toolIntegrationsUrl,
   };
 }
 
 export function toProductPairResponse(
-  contextProduct: RawProductListRow,
-  otherProduct: RawProductListRow,
+  contextProduct: RawProductPairSubjectRow,
+  otherProduct: RawProductPairSubjectRow,
   integrations: RawIntegrationPairRow[],
   /**
    * Connector-evidenced pairs between the same two products (AECI-721).
