@@ -24,6 +24,8 @@ colors:
   accent-rating:          "oklch(75.16% 0.1469 83.99)"
   accent-warm:            "oklch(96.13% 0.0111 89.72)"
   status-error:           "oklch(50.13% 0.1783 28.70)"
+  # Added by AECI-1758. #8C1D18, the danger button's hover fill only.
+  status-error-hover:     "oklch(42.00% 0.1473 28.14)"
   # Added by AECI-1747. Hex in order: #26473A, #15291F, #84848D, #C5D3CA,
   # #B9C7BF, #E7E1D2, #3B6E55, #DADADC, #B5B5B5, #C6C6CA.
   surface-hero-panel:     "oklch(36.82% 0.0453 166.67)"
@@ -229,6 +231,17 @@ components:
     rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
+  # A destructive action, always with a text label (AECI-1758). White text 6.54:1, 9.11:1 on hover.
+  button-danger:
+    backgroundColor: "{colors.status-error}"
+    textColor: "{colors.surface-base}"
+    fontSize: "0.875rem"
+    fontWeight: 600
+    rounded: "{rounded.control}"
+    minHeight: "44px"
+    padding: "{spacing.0} {spacing.6}"
+  button-danger-hover:
+    backgroundColor: "{colors.status-error-hover}"
   # --shadow-card does not exist in styles.css yet. Section 4 defines it and
   # AECI-1750 adds it. The mock-up card fill is white.
   card:
@@ -933,22 +946,38 @@ Ruling R3 (AECI-1734, 2026-11-14, "A") sets the default for the long list. Decis
 
 ### Buttons
 
-Spartan `BrnButton` directive provides the headless behavior, and Tailwind utility classes bind to tokens. The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0056). AECI-1758 builds one `aecButton` directive for `<button>` and `<a>`.
+The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0056). AECI-1758 built one `aecButton` directive for `<button>` and `<a>`, in `apps/web/src/app/shared/button/button.ts`. A native `<button>` needs no headless behaviour, so `aecButton` does not wrap Spartan's `BrnButton`. The two can sit on one element.
+
+**How to use it.** `<button aecButton type="submit">` is a primary button. `<a aecButton variant="secondary" routerLink="…">` is a link that looks like a secondary button and stays a link. The inputs are `variant` (`primary`, `on-brand`, `secondary`, `ghost` or `danger`), `compact` and `iconOnly`. Layout classes such as `w-full` and `sm:me-auto` still go on the element. Height, radius, fill, edge and text colour never do. Code that binds `[class]` uses `buttonClass(variant, options)` from the same file. `BUTTON_PRIMARY_CLASS` and `BUTTON_SECONDARY_CLASS` are that recipe, so their callers render the new button. The edge colour lives on the unlayered `.aec-btn` and `.aec-btn-secondary` rules in `styles.css`, because a `border-(--x)` utility loses to the unlayered `* { border-color }` rule.
 
 Chris's note on clash 20 was "I kind of like same size buttons". The ruling is BLEND: one height, a 12px radius, a bordered secondary and no shadow.
 
 - **One height: 44px** (clash 20). Every button of every variant has it. The survey found no shared button and five heights in use (32, 36, 40, 44 and 48px). The mock-up's `.btn` sets `min-height: 44px`, and its small button keeps the same 44px with less side padding (mock-up 6, lines 88 and 98). The height is a minimum, so a label that wraps grows the button. An icon-only button is 44 by 44px. That clears the 24 by 24px target floor (WCAG 2.5.8) by 20px, so no button needs its own target-size check. A segmented control is one frame of 44px holding 36px segments (mock-up 6, lines 255 and 256). Each segment is above the floor.
 - **Shape: 12px** (`rounded-control`, clash 12). Never a pill. "Sign in" and every primary action is a rounded rectangle. A chip may be a pill. A button, a link styled as a button and a primary action may not.
 - **Label:** 14px (`--t-14`) at weight 600, sentence case (mock-up 6, line 88). This is not the 13px `label` role. §3 leaves the button size to this subsection.
-- **Padding:** 24px at the side (`spacing.6`) and 16px on the compact variant (`spacing.4`). The icon and the label sit 8px apart (`spacing.2`).
+- **Padding:** 24px at the side (`spacing.6`) and 16px on the compact variant (`spacing.4`). Ghost always takes 16px. The icon and the label sit 8px apart (`spacing.2`). Every variant has a 1px edge, transparent unless it is secondary, so all variants measure the same. Forced-colours mode paints the transparent edge as a real one.
 - **Primary** (`button-primary` and `button-primary-hover`): Forest fill, white text at 12.34:1. Hover brightens to Forest hover. Never a pill, never Clay.
-- **On a Forest ground** (`button-on-brand`, clash 3): Bone fill with Forest text, 11.03:1 (§2). It is the one main action in the Forest hero. Clay never fills a button.
+- **On a Forest ground** (`button-on-brand`, clash 3): Bone fill with Forest text, 11.03:1 (§2). It is the one main action in the Forest hero. Hover fills with `--surface-on-brand-hover` (`button-on-brand-hover`), where Forest text is 9.46:1. Its focus ring is Bone. Clay never fills a button.
 - **Secondary** (`button-secondary` and `button-secondary-hover`): `surface-raised` fill, `text-primary` text and a 1px `border-strong` edge. "Secondary buttons are bordered." Hover sinks the fill to `surface-sunken` and the text to Forest (mock-up 6, lines 96 and 97). `border-strong` measures 1.48:1 on white, 1.42:1 on raised and 1.32:1 on Bone. WCAG 1.4.11 does not require a boundary on a button when its text label identifies it, so the mock-up's edge stays. The 3:1 boundary rule applies to form controls whose boundary is the only thing identifying them: inputs, selects, checkboxes and switches (see Inputs below). A text-labelled button is identified by its label.
-- **Ghost** (`button-ghost`): transparent fill, `text-primary` text, no border, 44px high. Used for tertiary actions in dense surfaces. Hover shifts the text to Forest.
+- **Ghost** (`button-ghost`): transparent fill, `text-primary` text, no visible border, 44px high. Used for tertiary actions in dense surfaces. Hover shifts the text to Forest.
+- **Danger** (`button-danger` and `button-danger-hover`, AECI-1758): `status-error` fill with white text at 6.54:1. Hover darkens the fill to `--status-error-hover` (`#8C1D18`), 9.11:1. It always carries a text label, so colour is never the only sign. It is for a destructive action and counts as the surface's filled button.
+- **Ghost and secondary on a Forest ground are not built.** The mock-up's ghost uses `color-mix()`, which clash 6 bans. The header's own controls use `.aec-on-brand-edge` and the wash tokens. A page that needs a second button on Forest raises it first.
 - **One filled button per surface** (clash 21, the Link Treatment Rule stands). The filled primary, or the on-brand button on Forest, is the surface's one main action. Everything else is secondary, ghost or a link. The clash record found three filled primaries in view on page 6 ("Visit website", the sticky bar's "Write a review" and the review panel's "Write a review"). Only one of them stays filled. Which one is the product page's call.
 - **No shadow** on any button, resting or hovering (clash 11). Press movement is clash 37 and §5 "Motion" owns it. The mock-up presses with `translateY(1px) scale(.98)` (line 89). The old line "no transform, no scale" is rewritten by clash 37, and the movement is off under reduced motion.
-- **States:** `:focus-visible` draws a 3px outline at a 3px offset in Forest. On a Forest ground, the hero panel and the footer ground it is Bone, set by AECI-1747 as `--focus-ring-on-brand`. A Forest ring on the hero panel is 1.20:1 and must not be used (mock-up 6, line 29). It is an outline and not a box-shadow, because forced-colours mode drops shadows. `:disabled` reduces opacity to 0.6 and disables pointer events. It does not change colour.
+- **States:** `:focus-visible` draws a 3px outline at a 3px offset in Forest. On a Forest ground, the hero panel and the footer ground it is Bone, set by AECI-1747 as `--focus-ring-on-brand`. A Forest ring on the hero panel is 1.20:1 and must not be used (mock-up 6, line 29). It is an outline and not a box-shadow, because forced-colours mode drops shadows. `:disabled` reduces opacity to 0.6 and disables pointer events. It does not change colour. A link cannot be disabled, so `aria-disabled="true"` gives it the same look. Disabled text is exempt from the contrast minimum (WCAG 1.4.3), and the measured values are in the table below.
+- **Press:** `motion-safe:` `translateY(1px) scale(.98)` over `--duration-fast` with `--ease-standard`. Colour changes run on the same step.
+- **Icon-only:** `iconOnly` draws a 44 by 44px square with no side padding. The caller gives it `aria-label`, `aria-labelledby` or visually hidden text. A decorative `<aec-icon>` is not a name. Dev mode logs an error when the name is missing.
 - **Scope:** one button on every surface. The portal and admin inherit it (Chris, 2026-11-14, see the section introduction). The page restyle is public pages only (R2). AECI-1813 sweeps any portal or admin layout it breaks.
+
+**Measured contrast (AECI-1758).** WCAG 2 ratios from the token hexes. The secondary edge is not a required boundary, see Secondary above.
+
+| Variant | Rest | Hover | Focus ring | Disabled (0.6) |
+| -- | -- | -- | -- | -- |
+| Primary | white on Forest 12.34:1 | white on Forest hover 7.68:1 | Forest on white 12.34:1 | 3.68:1 |
+| On-brand | Forest on Bone 11.03:1 | Forest on `#E7E1D2` 9.46:1 | Bone on Forest 11.03:1, hero panel 9.18:1, footer 13.71:1 | 5.04:1 |
+| Secondary | ink on raised 18.97:1 | Forest on sunken 11.23:1 | Forest on white 12.34:1 | 5.12:1 |
+| Ghost | ink on white 19.80:1 | Forest on white 12.34:1 | Forest on white 12.34:1 | 5.25:1 |
+| Danger | white on error 6.54:1 | white on `#8C1D18` 9.11:1 | Forest on white 12.34:1 | 3.04:1 |
 
 ### Cards
 
@@ -1467,7 +1496,7 @@ Clash 19 was ruled BLEND with no note. The blend is the clash recommendation: al
 
 ### Starting values from the mock-ups (components)
 
-Measured from the default state of the mock-ups in `docs/design/mockups/redesign-2026-11/mockups/`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in mock-up 6 (`6-product-detail.html`) unless the first column names another.
+Measured from the default state of the mock-ups in `docs/design/mockups/redesign-2026-11/mockups/`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in mock-up 6 (`6-product-detail.html`) unless the first column names another. AECI-1758 confirmed the button rows and the focus ring row as built. The on-brand hover is the `--surface-on-brand-hover` token.
 
 | Value | Starting value | Line |
 | -- | -- | -- |
@@ -1475,7 +1504,7 @@ Measured from the default state of the mock-ups in `docs/design/mockups/redesign
 | Compact button | The same height and radius, padding 0 16px | 98 |
 | Button press | `translateY(1px) scale(.98)`, clash 37 | 89 |
 | Secondary button | White-grey fill, 1px `border-strong`, hover sunken fill and Forest text | 96, 97 |
-| On-brand button | Bone fill, Forest text. Its hover fill `#E7E1D2` is a hex and not a token | 12, 90, 91 |
+| On-brand button | Bone fill, Forest text. Hover fill `#E7E1D2`, built as `--surface-on-brand-hover` | 12, 90, 91 |
 | Focus ring | `outline: 3px solid`, offset 3px, radius 12px. Bone on a Forest ground | 29, 12 |
 | Segmented control | 3px padding, 1px `border-strong`, 12px radius, 36px segments, pressed Forest | 255 to 258 |
 | Field | `height: 44px`, padding 0 16px (48px left with an icon), 12px radius, 1px field edge, 16px text | 251, 254 |
@@ -1501,9 +1530,7 @@ Measured from the default state of the mock-ups in `docs/design/mockups/redesign
 
 Each value is set by the code issue named. A value the mock-ups set is not listed here, it is in the table above.
 
-- **The danger button's colours (AECI-1758).** AECI-1758 names a `danger` variant. The rulings and mock-ups do not draw one. It must use the error token with a text label.
-- **The on-brand hover fill (AECI-1758, with AECI-1747).** `#E7E1D2` is a loose hex. Clash 6 asks for a named token.
-- **Ghost and secondary buttons on a Forest ground (AECI-1758).** The mock-up builds its ghost button with `color-mix()`, which clash 6 bans.
+- **Ghost and secondary buttons on a Forest ground (no code issue).** AECI-1758 did not build them, see §5 Buttons. The mock-up builds its ghost button with `color-mix()`, which clash 6 bans. AECI-1758 settled the danger colours and the on-brand hover (`--surface-on-brand-hover`, from AECI-1747).
 - **The field edge token name (AECI-1747 and AECI-1764).** AECI-1764 calls it `--border-field`. §2 calls it field edge. Whether it replaces `--border-input` is open in §2.
 - **The error icon and message wiring (AECI-1764).** The 2px edge, an icon and a message are ruled. The icon is not.
 - **Chip padding without an icon, the dense chip's padding, and the pill on the two weight-500 chips (AECI-1763).** The mock-up never draws a chip without an icon and draws the 500 chips at a 4px radius.
