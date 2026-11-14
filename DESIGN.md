@@ -139,20 +139,20 @@ typography:
     letterSpacing: "0.08em"
     textTransform: "uppercase"
 rounded:
-  # The new scale (clash 12, PLAN.md section 4.3): 8px marks, 12px controls,
-  # 24px cards, full-pill chips. The shipped code does not match yet. --radius
-  # is 0.5rem, so Spartan derives 4.8, 6.4, 8 and 11.2px for sm, md, lg and xl.
-  # AECI-1750 fixes the code.
+  # The new scale (clash 12, PLAN.md section 4.3). The keys are the role names
+  # and equal the utility suffix and the CSS token: mark is rounded-mark and
+  # --radius-mark. Do not write rounded-sm, md, lg or xl on a redesigned
+  # component. Those are Spartan's scale and render 4.8, 6.4, 8 and 11.2px.
   none: "0"
   # 8px small marks (was 0.25rem).
-  sm: "0.5rem"
+  mark: "0.5rem"
   # 12px controls: buttons, inputs (was 0.5rem).
-  md: "0.75rem"
+  control: "0.75rem"
   # 16px, measured on nested panels in the mock-ups. Not ruled. It sits between
-  # md and lg so the scale ascends. See "Open values" in section 4.
-  xl: "1rem"
+  # control and card so the scale ascends. See "Open values" in section 4.
+  panel: "1rem"
   # 24px cards (was 0.75rem).
-  lg: "1.5rem"
+  card: "1.5rem"
   # Chips. Never a primary action.
   pill: "9999px"
 spacing:
@@ -180,7 +180,7 @@ components:
     textColor: "{colors.surface-base}"
     fontSize: "0.875rem"
     fontWeight: 600
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.6}"
   button-primary-hover:
@@ -191,7 +191,7 @@ components:
     textColor: "{colors.accent-primary}"
     fontSize: "0.875rem"
     fontWeight: 600
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.6}"
   button-secondary:
@@ -199,7 +199,7 @@ components:
     textColor: "{colors.text-primary}"
     fontSize: "0.875rem"
     fontWeight: 600
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.6}"
     border: "1px solid {colors.border-strong}"
@@ -212,7 +212,7 @@ components:
     textColor: "{colors.text-primary}"
     fontSize: "0.875rem"
     fontWeight: 600
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
   # --shadow-card does not exist in styles.css yet. Section 4 defines it and
@@ -220,14 +220,14 @@ components:
   card:
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.card}"
     padding: "{spacing.6}"
     shadow: "var(--shadow-card)"
   input:
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
     typography: "{typography.body}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
     border: "1px solid {colors.border-field}"
@@ -351,14 +351,14 @@ components:
   nav-toggle:
     backgroundColor: "{colors.surface-on-brand-wash}"
     textColor: "{colors.accent-warm}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.control}"
     width: "44px"
     height: "44px"
   # The Browse panel and the mobile panel share this white ground.
   menu-panel:
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
-    rounded: "0 0 {rounded.lg} {rounded.lg}"
+    rounded: "0 0 {rounded.card} {rounded.card}"
     padding: "{spacing.12} {spacing.12} {spacing.8}"
     shadow: "var(--shadow-menu)"
   # The stuck bar is solid. No blur (clash 13). Once stuck it takes a hairline edge.
@@ -606,16 +606,18 @@ The system is still flat by default. Depth is conveyed through color (Bone callo
 
 ### Shadow Vocabulary
 
-The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two new tokens are added to `apps/web/src/styles.css` by AECI-1750.
+The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two tokens are in `apps/web/src/styles.css` (AECI-1750). No component uses either yet. The card, dialog and menu issues replace the old `shadow-sm` and `shadow-lg` usages.
 
 | Token | Recipe | Where | Clash |
 | -- | -- | -- | -- |
-| `--shadow-card` (to add) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
-| `--shadow-menu` (to add) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
+| `--shadow-card` (`shadow-card`) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
+| `--shadow-menu` (`shadow-menu`) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
 
 - **Card shadow (clash 11, blend).** One recipe, pure black, for a card that stands on the page ground. A card nested inside another card takes no shadow of its own (see "Cards may nest" below). Chris's ruling was BLEND with no note, so the recipe is the clash recommendation and the plan's value.
 - **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the four components in the table.
 - **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
+- **Both are pure black, measured.** The values are `--sh-card` and `--sh-pop` on line 15 of mock-up 6 (the same on mock-ups 5, 7 and 8). Pure black is what `PLAN.md` §4.3 rules ("One card shadow, in pure black"). It is also the form of the modal shadow and of the CDK backdrop, so the three agree. `styles.css` is the token definition site and is exempt from the colour rules, so lint is not the reason. The guard spec pins both strings exactly.
+- **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. AECI-1765 gives it a transparent 1px border, which the system colours. The token comment says so.
 - **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop. No ruling touched it, so it is unchanged and has no token yet.
 - **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state, never `outline: none` without a replacement. Forest on a Forest ground is invisible. The ring on Forest is open in §2 (AECI-1747).
 - **Buttons, chips, inputs and tabs keep borders and take no shadow** (clash 11). Hover lift on cards is clash 37 and belongs to the motion rules, not to this section.
@@ -627,24 +629,41 @@ The recipes are written here once. Every other section and every component point
 
 Chris's ruling was BLEND with no note. The blend is the clash recommendation: add a 24px card radius and a 12px control radius, let public chips be pills, and keep primary actions off the pill.
 
-| Role | Radius | Frontmatter token | Clashes |
-| -- | -- | -- | -- |
-| Cards | 24px | `rounded.lg` | 12 |
-| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.md` | 12, 20 |
-| Chips | Full pill | `rounded.pill` | 12, 22 |
-| Small marks | 8px | `rounded.sm` | 12 |
+| Role | Radius | Frontmatter key | CSS token and utility | Clashes |
+| -- | -- | -- | -- | -- |
+| Cards | 24px | `rounded.card` | `--radius-card`, `rounded-card` | 12 |
+| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.control` | `--radius-control`, `rounded-control` | 12, 20 |
+| Chips | Full pill | `rounded.pill` | `--radius-pill`, `rounded-pill` | 12, 22 |
+| Small marks | 8px | `rounded.mark` | `--radius-mark`, `rounded-mark` | 12 |
+| Nested panels (open) | 16px | `rounded.panel` | `--radius-panel`, `rounded-panel` | 12 |
+
+On a redesigned public component use the role utilities `rounded-mark|control|panel|card|pill`. `rounded-sm|md|lg|xl` still render Spartan's 4.8, 6.4, 8 and 11.2px and are for surfaces not yet rebuilt. The frontmatter key equals the utility suffix, so `{rounded.control}` is `rounded-control`.
 
 - **No pill buttons** (clash 12, a rule that stands). "Sign in" is a rounded rectangle at 12px. A chip may be a pill. A button, a link styled as a button and a primary action may not.
-- **The old scale is gone.** The frontmatter used to say 4, 8, 12 and 16px, and §5 still quotes it in places. The code never matched it either. `--radius` is `0.5rem`, so Spartan's derived scale renders 4.8, 6.4, 8 and 11.2px for `sm`, `md`, `lg` and `xl` (AECI-1750). The table above is the rule. AECI-1750 replaces `--radius` with explicit tokens and maps `radius-sm` to `radius-xl` onto them.
+- **The old scale stays (AECI-1750, rulings of 2026-11-14).** `--radius` is `0.5rem`, so Spartan derives 4.8, 6.4, 8 and 11.2px for `rounded-sm`, `rounded-md`, `rounded-lg` and `rounded-xl`. AECI-1750 did not remap those four utilities. This departs from the issue text ("map `--radius-sm`, `--radius-md`, `--radius-lg` and `--radius-xl` onto them so existing usages land on the new scale"). The reasons:
+  - **Order of work.** Chris ruled that public pages are built first, that shared components (header, footer, button, input) are one component on every surface, and that the vendor portal and admin page bodies are restyled only after he has verified the public pages: "We will do admin pages i just want a good natural stopping point where i can verify the work." The four utilities appear 1,176 times in `apps/web/src` (admin 548, vendor portal 253, shared components 76, public 247, previews 40, mostly in the `rounded-(--radius-md)` form). A remap would reshape about 800 portal and admin page-body corners at once, before that checkpoint.
+  - **The scale would stop ascending.** Mapping `lg` to 24px leaves `rounded-lg` larger than `rounded-xl`. Spartan's `2xl`, `3xl` and `4xl` stay derived from `--radius`, so they would be smaller than `lg`.
+  - **Names.** A role name cannot be confused with Tailwind's meaning of `md` or `lg`. That confusion is the trap in the frontmatter below: `rounded.md` once meant 12px while `rounded-md` renders 6.4px.
+- **Code tokens by role.** Each is declared on `:root` and exposed in `@theme inline`, so the utility exists. No component uses one yet.
 - **Chip shape and the header's pills.** The chip vocabulary is clash 22 and §5 owns it. The header search and nav hover shapes belong to the header, and §5 Navigation owns them.
 
 ### Spacing (clash 17)
 
 Chris's note on clash 17 was about type: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The spacing blend is the clash recommendation: snap to the scale and the look survives.
 
-- **The scale is 4, 8, 12, 16, 24, 32, 48, 64 and 96px** (clash 17). It is Tailwind's default spacing, steps 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens.
+- **The scale is 4, 8, 12, 16, 24, 32, 48, 64 and 96px** (clash 17). It is Tailwind's default spacing, steps 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens, and `styles.css` declares none. It sweeps nothing.
 - **Snap, do not invent.** The clash recommendation names the mock-up's strays: 22 goes to 24, 26 and 28 go to 24 or 32, and 104 goes to 96. Padding, margin and gap sit on the scale. A control's height is not spacing, and clash 20 sets it.
-- **Tailwind steps off the scale** include 5, 7, 9, 10 and 11 (20, 28, 36, 40 and 44px).
+- **Tailwind steps off the scale** include 5, 7, 9, 10 and 11 (20, 28, 36, 40 and 44px). The half steps 0.5, 1.5, 2.5 and 3.5 (2, 6, 10 and 14px) are off the scale too.
+- **Half steps snap.** Clash 17 says snap and names no optical-alignment exception, so a half step is not allowed because it looks right inside a control. A real exception needs a ruling from Chris.
+- **Who snaps what.** Each redesigned public component uses the role radius utilities and on-scale spacing when its own issue rebuilds it. The remaining public and shared-shell uses are swept by a follow-up issue. The vendor portal and admin page bodies wait for Chris's checkpoint above. Counts at AECI-1750 (utilities with a spacing prefix, specs excluded): integer steps off the scale 503, half steps 869.
+
+| Surface | Integer off-scale (5, 7, 9, 10, 11, 14, 20, `[...]`) | Half steps |
+| -- | -- | -- |
+| Public | 151 | 157 |
+| Shared components and shell | 30 | 53 |
+| Vendor portal | 109 | 161 |
+| Admin | 169 | 485 |
+| Previews | 44 | 13 |
 
 ### Layout: bands, grids and nesting
 
@@ -741,10 +760,10 @@ The mock-up builds the glow with `color-mix()`, which clash 6 bans in components
 
 ### Open values (set by AECI-1750, AECI-1765, AECI-1766, AECI-1778 and AECI-1790)
 
-- **Nested panel radius (AECI-1750).** The mock-ups use 16px on nested panels and 12px on score tiles. Neither value is in the ruled scale of 8, 12, 24 and pill. `rounded.xl` keeps 16px in the frontmatter, ordered between `md` and `lg` so the scale ascends, until AECI-1750 snaps it to the scale or Chris adds it.
+- **Nested panel radius (AECI-1750, still open for Chris).** The mock-ups use 16px on nested panels and 12px on score tiles. Neither value is in the ruled scale of 8, 12, 24 and pill. The 12px tile is `--radius-control`. The 16px value has a token, `--radius-panel`, so a page issue can use it without an arbitrary value. Whether 16px joins the scale or snaps to 12 or 24 is Chris's call, and deleting the token is one line.
 - **Radius of a logo tile by size (AECI-1750, with the logo work in AECI-1746).** The mock-up's mark is `border-radius: 22%`, with 8px at 22 to 28px and 24px at 104px. Only "small marks 8px" is ruled.
-- **The `radius-xl` mapping (AECI-1750).** The issue maps `radius-sm` to `radius-xl` onto the new scale and names no value for `radius-xl`. It renders 11.2px today.
-- **Sweep of off-scale spacing in the code (AECI-1750).** The ruling says snap to the scale. It does not say whether existing `p-5` or `gap-5` utilities are swept or snap only when their surface is rebuilt.
+- ~~**The `radius-xl` mapping (AECI-1750).**~~ Settled: there is no mapping. `rounded-xl` stays Spartan's 11.2px (5 uses: 2 on public pages, 3 in previews), and the 16px nested panel is `rounded-panel`. The sm, md and lg utilities stay as they are for the same reason.
+- ~~**Sweep of off-scale spacing in the code (AECI-1750).**~~ Settled: no sweep in AECI-1750. Each redesigned public component snaps when its issue rebuilds it, and a follow-up issue sweeps the rest of the public and shell uses. See "Spacing" above.
 - **The card border (AECI-1765).** The mock-up's card has no border. Confirm whether a hairline stays beside the shadow. Check forced-colors mode, where `box-shadow` is dropped, because a card may need a transparent 1px border that the system colours. This is a check, not a ruled rule.
 - **Which surfaces take the card shadow (AECI-1765).** `PLAN.md` names the facts card and entity cards. `PLAN.md` says "entity cards", which in §5 means the index-row table rows that take no shadow, so the table in "Shadow Vocabulary" names the components instead. The mock-up also puts the shadow on panels, review cards, score cards and table wrappers. Confirm the set.
 - **The nested panel fill (AECI-1765).** The mock-up's reply uses `--band-cool`, which equals the Forest-soft hex and which clash 6 drops. Pick an existing token such as `accent-primary-soft` or `surface-sunken`.
@@ -860,7 +879,7 @@ Spartan `BrnButton` directive provides the headless behavior, and Tailwind utili
 Chris's note on clash 20 was "I kind of like same size buttons". The ruling is BLEND: one height, a 12px radius, a bordered secondary and no shadow.
 
 - **One height: 44px** (clash 20). Every button of every variant has it. The survey found no shared button and five heights in use (32, 36, 40, 44 and 48px). The mock-up's `.btn` sets `min-height: 44px`, and its small button keeps the same 44px with less side padding (mock-up 6, lines 88 and 98). The height is a minimum, so a label that wraps grows the button. An icon-only button is 44 by 44px. That clears the 24 by 24px target floor (WCAG 2.5.8) by 20px, so no button needs its own target-size check. A segmented control is one frame of 44px holding 36px segments (mock-up 6, lines 255 and 256). Each segment is above the floor.
-- **Shape: 12px** (`rounded.md`, clash 12). Never a pill. "Sign in" and every primary action is a rounded rectangle. A chip may be a pill. A button, a link styled as a button and a primary action may not.
+- **Shape: 12px** (`rounded-control`, clash 12). Never a pill. "Sign in" and every primary action is a rounded rectangle. A chip may be a pill. A button, a link styled as a button and a primary action may not.
 - **Label:** 14px (`--t-14`) at weight 600, sentence case (mock-up 6, line 88). This is not the 13px `label` role. §3 leaves the button size to this subsection.
 - **Padding:** 24px at the side (`spacing.6`) and 16px on the compact variant (`spacing.4`). The icon and the label sit 8px apart (`spacing.2`).
 - **Primary** (`button-primary` and `button-primary-hover`): Forest fill, white text at 12.34:1. Hover brightens to Forest hover. Never a pill, never Clay.
@@ -876,7 +895,7 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 
 Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive. The redesign rewrites this subsection (clashes 11 and 12, see ADR 0056, and clash 18, recorded in `design-rulings.md`). AECI-1765 builds the card surface.
 
-- **Corner style:** `rounded.lg` (24px, clash 12).
+- **Corner style:** `rounded-card` (24px, clash 12).
 - **Background:** `surface-base`, which is white (mock-up 6, line 293). The old text said `surface-raised`.
 - **Shadow:** `--shadow-card` (§4 "Shadow Vocabulary", clash 11). The old "Shadow Strategy: None" is rewritten. Only the components named in that table take it. A card nested in a card takes none (clash 14).
 - **Border:** the mock-up's card has no border. A hairline beside the shadow is open (AECI-1765, §4 "Open values").
@@ -891,7 +910,7 @@ Used for vendor profiles, integration cards, the `/search` result tiles (see Sea
 both product-detail integration sections. The header bar is the disclosure control; the body is the
 group's rows.
 
-- **Frame:** `rounded.lg` (24px), `--shadow-card`, `overflow-hidden`. The §4 table names this card. The old 0.5px `border-default` and "no shadow" are rewritten by clashes 11 and 12. A hairline beside the shadow is open (AECI-1765).
+- **Frame:** `rounded-card` (24px), `--shadow-card`, `overflow-hidden`. The §4 table names this card. The old 0.5px `border-default` and "no shadow" are rewritten by clashes 11 and 12. A hairline beside the shadow is open (AECI-1765).
 - **Header:** `surface-sunken` fill with a `border-default` bottom rule. Contents in order: a chevron
   (the Lucide `chevron-down` glyph, rotated 180° when open), the subject's logo, the subject name at
   `--t-20` (the card title role) on an inner `<span>` (the Serif-Floor Rule — the size cannot go on the `<h3>`, see the
@@ -934,7 +953,7 @@ freed of its row threshold by AECI-848). The name filter over a section of group
   it onto a second line at `sm` and above: `justify-between` puts a lone item on a wrapped line at
   flex-start, so without the auto inline-start margin a wrapped filter would render at the start
   edge.
-- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. *(2026-11-14: the shipped code still uses `rounded.sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it.)* That width is set by the placeholder
+- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. *(2026-11-14: the shipped code still uses `rounded-sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it.)* That width is set by the placeholder
   ("Filter by product or connection") reading in full rather than by the row's spare space, so the
   control looks like somewhere to type. *(AECI-966 widened that string from "Filter by product
   name" when the filter learned to match the mechanism label; `w-96` still holds it in full.)*
@@ -977,7 +996,7 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 
 - **Entity tabs** — the products / vendors / integrations switcher (`role="tablist"` with `role="tab"` / `role="tabpanel"`), implementing the APG tabs pattern: roving `tabindex` (active = 0), `aria-selected` / `aria-controls` / `aria-labelledby`, and ←/→/Home/End key handling that moves and activates. Active tab carries a 2px `accent-primary` bottom border (the **Navigation** active-route treatment); inactive tabs are `text-secondary` with a transparent border. Per-tab hit counts render as `tabular-nums` `text-secondary`. Switching tabs is pure show/hide of already-materialized signal slices — it never re-queries.
 
-- **Search hit cards** (`<aec-search-product-card>` / `<aec-search-vendor-card>` / `<aec-search-integration-card>`) — grid hit tiles for the `/search` results, the **canonical instantiation of the Cards primitive** (the Cards entry above: `rounded.lg` at 24px, `--shadow-card`, `spacing.6` padding. The old 0.5px border, 1px `border-strong` hover and "no shadow" are rewritten by clashes 11 and 12). Distinct from the **Entity cards (index rows)** above: those are `<tr>` table rows for the index/browse pages; these are tiles bound to the **denormalized Algolia record** (Spec §7.1), so there is no follow-up fetch. **The product and vendor tiles are the `/products` card-grid tile** (`product-card-grid.ts`), field for field: the whole card is one link; `aec-logo-or-initial` (the record's `logo_url`) and the `aec-integration-stat` badge share the top row; the name (the card title role, `--t-20`, truncated) and vendor sit beneath, with "Independent" when there is no vendor; products end with the inline rating. The vendor tile puts headquarters where the vendor line goes. Neither shows a description, taxonomy chips, product count or founded year, because the `/products` tile does not. The product tile carries the tile's connector/hybrid `RoleBadge` row too, from the record's `product_role` (AECI-1086); a record indexed before that field existed shows no chip. The integration tile reuses the shared `mechanism-labels` so badges match the `/integrations` table exactly, and is empty until integration seeding returns (AECI-86).
+- **Search hit cards** (`<aec-search-product-card>` / `<aec-search-vendor-card>` / `<aec-search-integration-card>`) — grid hit tiles for the `/search` results, the **canonical instantiation of the Cards primitive** (the Cards entry above: `rounded-card` at 24px, `--shadow-card`, `spacing.6` padding. The old 0.5px border, 1px `border-strong` hover and "no shadow" are rewritten by clashes 11 and 12). Distinct from the **Entity cards (index rows)** above: those are `<tr>` table rows for the index/browse pages; these are tiles bound to the **denormalized Algolia record** (Spec §7.1), so there is no follow-up fetch. **The product and vendor tiles are the `/products` card-grid tile** (`product-card-grid.ts`), field for field: the whole card is one link; `aec-logo-or-initial` (the record's `logo_url`) and the `aec-integration-stat` badge share the top row; the name (the card title role, `--t-20`, truncated) and vendor sit beneath, with "Independent" when there is no vendor; products end with the inline rating. The vendor tile puts headquarters where the vendor line goes. Neither shows a description, taxonomy chips, product count or founded year, because the `/products` tile does not. The product tile carries the tile's connector/hybrid `RoleBadge` row too, from the record's `product_role` (AECI-1086); a record indexed before that field existed shows no chip. The integration tile reuses the shared `mechanism-labels` so badges match the `/integrations` table exactly, and is empty until integration seeding returns (AECI-86).
 
 - **In-page facet widgets** (`search/widgets/`) — four generic, **i18n-free chrome** widgets bound to InstantSearch connector render-state slices; the page passes each one its localized heading and the localized labels for any boolean/"all" values (facet _values_ are data and render verbatim). Each names its group with `<fieldset>` + `<legend>` and wraps every control in its `<label>`, and renders nothing when its slice is empty (keeps the rail clean for an empty index):
   - **`<aec-search-refinement-list>`** — checkbox group (multi-select) over string facets (`accent-(--accent-primary)` checkboxes). Shows the first 10 values plus any checked value further down, then a "Show more (N)" text button (`aria-expanded`, `aria-controls`) that reveals the rest in place and becomes "Show fewer" (2026-10-26). The `/products` sidebar renders through it too, so both pages collapse alike. `/search` asks Algolia for up to 100 values per facet, its default cap; it used to ask for 12 and silently dropped the rest.
@@ -1233,7 +1252,7 @@ Three surfaces, home → section → article (`apps/web/src/app/docs/`), all ins
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens. Clash 23 (NEW) rewrites the look. The floor stays: every form control has a visible edge at 3:1 (WCAG 1.4.11). AECI-1764 builds it for `FIELD_INPUT_CLASS`, `.aec-field-control` and `aec-select`.
 
-- **Style (clash 23):** 44px high, `rounded.md` (12px), a 1px solid **field edge** (§2), a `surface-base` fill, and 16px of side padding (`spacing.4`). Body typography role at 16px (`--t-16`). A leading icon moves the text start to 48px (mock-up 6, lines 251 and 254). The field edge measures 3.71:1 on white and 3.55:1 on raised (§2). The shipped `.aec-field-control` still paints `--border-input` (3.42:1). Which token survives is open (§2 "Open values", AECI-1747 and AECI-1764). The shared recipe (`shared/form-field/form-field-classes.ts`) and the `aec-select` trigger draw the colour through `.aec-field-control`, an unlayered class in `styles.css`. Do not reach for `border-(--token)` utilities on a control: the unlayered `* { border-color }` rule beats every layered utility, so they never apply.
+- **Style (clash 23):** 44px high, `rounded-control` (12px), a 1px solid **field edge** (§2), a `surface-base` fill, and 16px of side padding (`spacing.4`). Body typography role at 16px (`--t-16`). A leading icon moves the text start to 48px (mock-up 6, lines 251 and 254). The field edge measures 3.71:1 on white and 3.55:1 on raised (§2). The shipped `.aec-field-control` still paints `--border-input` (3.42:1). Which token survives is open (§2 "Open values", AECI-1747 and AECI-1764). The shared recipe (`shared/form-field/form-field-classes.ts`) and the `aec-select` trigger draw the colour through `.aec-field-control`, an unlayered class in `styles.css`. Do not reach for `border-(--token)` utilities on a control: the unlayered `* { border-color }` rule beats every layered utility, so they never apply.
 - **The fill is always `surface-base`.** The mock-up's pre-ruling look was borderless with a shadow, and it is dropped because the edge is what carries the 3:1.
 - **A control on Forest or on the hero panel** takes a `surface-base` fill. Field edge on the hero panel is only 2.77:1 (§2). A white fill on Forest is 12.34:1, so the boundary holds. A translucent Bone wash is never a field's only boundary. It measures about 1.29:1 on Forest. The header search belongs to AECI-1744.
 - **Placeholders** are `text-tertiary`, which is 4.83:1 on white. They sit on the field's white fill, never on Bone or sunken.
@@ -1257,9 +1276,9 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > removed that label (2026-10-09), and it must not come back as a glyph or a badge. This is also why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
-**The public chip (clash 22, BLEND).** Chris ruled BLEND with no note. The blend is the clash recommendation: one public pill chip with an optional leading icon, one dense variant, and no Clay-soft category chip. This rewrites the AECI-841 "one chip spec" (`px-2.5 py-1`, `0.75rem`, `font-medium`, `rounded.sm`, 29px). The AECI-841 lesson stands: **chip metrics travel with the vocabulary, not the component**. A second set of padding is a second vocabulary. AECI-1763 builds `aec-chip` and moves the badge components onto it.
+**The public chip (clash 22, BLEND).** Chris ruled BLEND with no note. The blend is the clash recommendation: one public pill chip with an optional leading icon, one dense variant, and no Clay-soft category chip. This rewrites the AECI-841 "one chip spec" (`px-2.5 py-1`, `0.75rem`, `font-medium`, `rounded-mark`, 29px). The AECI-841 lesson stands: **chip metrics travel with the vocabulary, not the component**. A second set of padding is a second vocabulary. AECI-1763 builds `aec-chip` and moves the badge components onto it.
 
-- **Recipe** (mock-up 6, `.tagchip` line 130 and `.aud` line 223): a pill (`rounded.pill`), `surface-raised` fill, `text-primary`, a 1px `border-default` edge, 13px (`--t-13`) at weight **400**, sentence case. Padding is 4px 12px 4px 8px (`spacing.1`, `spacing.3`, `spacing.2`). The leading icon is 14px with an 8px gap (line 131). The chip is about 31px tall: 13px text at the 1.6 line height it inherits from the body, plus 8px of padding and a 2px edge. That clears the 24px target floor. The mock-up never draws a chip without an icon, so the padding for one is open (AECI-1763).
+- **Recipe** (mock-up 6, `.tagchip` line 130 and `.aud` line 223): a pill (`rounded-pill`), `surface-raised` fill, `text-primary`, a 1px `border-default` edge, 13px (`--t-13`) at weight **400**, sentence case. Padding is 4px 12px 4px 8px (`spacing.1`, `spacing.3`, `spacing.2`). The leading icon is 14px with an 8px gap (line 131). The chip is about 31px tall: 13px text at the 1.6 line height it inherits from the body, plus 8px of padding and a 2px edge. That clears the 24px target floor. The mock-up never draws a chip without an icon, so the padding for one is open (AECI-1763).
 - **A link chip** (taxonomy) hovers to a `border-strong` edge and Forest text (line 225).
 - **A selected filter chip** (clash 5) takes `accent-primary-soft` fill, Forest text and a 1px Forest edge, with `aria-pressed` (lines 265 and 273). **Selection is never colour alone.** A selected filter chip and a pressed segment each show a tick, as the mock-up draws on the filter chips (lines 268 and 269, and `.cat .on` at lines 274 and 275). The mock-up's pressed segment has no tick, so it needs one. The tick marks selection, not verification, so the no-verification-icon rule at the top of this subsection does not apply. In forced-colours mode a pressed or selected state maps to `Highlight` fill and `HighlightText` text, because the wash and the Forest fill both vanish there.
 - **A filter chip is a button.** It is a pill at `min-height: 44px`, 14px at weight 600, with a 1px `border-strong` edge, and may carry a count (lines 260 and 270). It is a chip and not a primary action, so the pill is allowed. The mock-up sets the count inside at 12px. §3 allows `--t-12` only for overlines, the two weight-500 chips and field captions, so the count sits at `--t-13`.
@@ -1359,7 +1378,7 @@ Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge
 
 > **The non-link card-grid chip** (`RoleBadge`, see "Role chip" above) is the same public chip without the link hover.
 
-- **Shape:** a pill (`rounded.pill`), no longer `rounded.sm`.
+- **Shape:** a pill (`rounded-pill`), no longer `rounded-sm`.
 - **Surface:** `surface-raised` fill, a 1px solid `border-default` edge raising to `border-strong` on hover. The mock-up draws 1px (line 130). The shipped 0.5px is confirmed or replaced by AECI-1763.
 - **Typography:** Atkinson Hyperlegible Next at weight **400**, 13px (`--t-13`). The 500 this entry used to state is gone (clash 9). The mock-up sets 400 (line 130). `text-primary` shifts to `accent-primary` on hover.
 - **Case:** sentence case, per the Sentence-Case Rule.
@@ -1649,7 +1668,7 @@ The mock-up's columns need about 1,130px of its 1,216px row (comment above line 
 
 Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2): the toggle has an accessible name, and the open menu traps focus.
 
-- **The toggle keeps the new look.** 44 by 44px, `rounded.md` (12px), a `--surface-on-brand-wash` fill, a Bone icon, at the end edge of the header (mock-up line 46). The icon swaps to a close glyph while open (lines 694 and 695). The shipped toggle is 36px, bordered and at the start edge, so this is a change. The wash is decoration. The Bone glyph (11.03:1) identifies the control.
+- **The toggle keeps the new look.** 44 by 44px, `rounded-control` (12px), a `--surface-on-brand-wash` fill, a Bone icon, at the end edge of the header (mock-up line 46). The icon swaps to a close glyph while open (lines 694 and 695). The shipped toggle is 36px, bordered and at the start edge, so this is a change. The wash is decoration. The Bone glyph (11.03:1) identifies the control.
 - **A spoken name.** The toggle has an accessible name. The shipped name is "Open menu". The name becomes "Menu", as the mock-up has it (line 1196), and `aria-expanded` carries the state. The name stays true while the menu is open and the glyph is a close mark. AECI-1775 updates `nav-menu.component.spec.ts` and `e2e/nav-menu.spec.ts`, which assert the old name.
 - **The open menu traps focus and closes on Escape,** and Escape returns focus to the toggle. The shipped panel is a `BrnPopover` (a dialog primitive, `aria-haspopup="dialog"`) that supplies the trap, the Escape close and the focus return. Keep it. The mock-up has its own trap in script (`src/catmenu.js` line 49). Do not copy the script. The page behind the popover must be inert. `BrnPopover`'s trap leaves out the toggle, so either the close control is reachable inside the trap or Escape is the documented close path. AECI-1775 owns this.
 - **Background scroll is locked while open** (AECI-1775).
@@ -1879,7 +1898,7 @@ Until clash 16, all three shared the same outer container. DetailLayout now has 
 - **Form + context rail** (AECI-987; a pattern, not a shell component): for single-step forms, namely the review form, the routed claim and correction pages, `/welcome`. Anchor: Stripe (the AECi chrome anchor), whose settings and checkout forms pair a capped form with a quiet summary column.
   - **Grid:** the standard canvas, then from `lg` a 12-column grid with `gap-x-12`. The header and the form take columns 1 to 7, the controls capped at `max-w-2xl`. The `aside` takes columns 9 to 12 (`lg:col-start-9 lg:col-span-4`), spans the header and form rows, and is `lg:sticky lg:top-8 lg:self-start`.
   - **Sticky goes on the tall column's child.** The sticky classes sit on the `aside` itself, a direct grid child whose grid area is the full row height. Never on a `nav` or `aside` inside a short host box: sticky travels only within its containing block, so it would not stick.
-  - **Below `lg`** the rail stacks between the page header and the form as a contained panel: `surface-raised` fill, `border-default` hairline, `radius-lg`, `p-6`. Docked at `lg` it is bare on the page background. *(2026-11-14: `radius-lg` is now 24px (clash 12). `p-5` is 20px, off the spacing scale, so it is `p-6`. The rail's content is short copy, so nothing nests in it today, though clash 14 would allow it. Whether it takes the card shadow is open, with the rest of that set in §4 "Open values" (AECI-1765). Until then it takes none.)*
+  - **Below `lg`** the rail stacks between the page header and the form as a contained panel: `surface-raised` fill, `border-default` hairline, `rounded-card`, `p-6`. Docked at `lg` it is bare on the page background. *(2026-11-14: the card radius is now 24px, `rounded-card` and `--radius-card` (clash 12). `rounded-lg` still renders 8px. `p-5` is 20px, off the spacing scale, so it is `p-6`. The rail's content is short copy, so nothing nests in it today, though clash 14 would allow it. Whether it takes the card shadow is open, with the rest of that set in §4 "Open values" (AECI-1765). Until then it takes none.)*
   - **Content:** only data the page already loads (no new API call) and short static copy: what you are acting on, what happens next, one docs link that opens a new tab so a half-filled form survives. All copy is `i18n` / `$localize`.
 
 Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
