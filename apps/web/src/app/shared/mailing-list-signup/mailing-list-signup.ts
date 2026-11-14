@@ -122,7 +122,7 @@ const BTN_BASE =
             @if (emailErrorShown()) {
               <p
                 id="mailing-list-email-error"
-                class="mt-2 text-sm font-medium text-(--text-primary)"
+                class="mt-2 text-sm font-semibold text-(--text-primary)"
                 role="alert"
                 i18n="@@mailing-list-signup.email.error"
               >
@@ -149,7 +149,7 @@ const BTN_BASE =
               @switch (status()) {
                 @case ('subscribed') {
                   <p
-                    class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-medium text-(--accent-primary)"
+                    class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-semibold text-(--accent-primary)"
                   >
                     <svg
                       class="mt-0.5 h-4 w-4 shrink-0"
@@ -170,7 +170,7 @@ const BTN_BASE =
                 }
                 @case ('exists') {
                   <p
-                    class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-medium text-(--text-primary)"
+                    class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
                   >
                     <svg
                       class="mt-0.5 h-4 w-4 shrink-0"
@@ -193,7 +193,7 @@ const BTN_BASE =
                 }
                 @case ('error') {
                   <p
-                    class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-medium text-(--status-error)"
+                    class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-semibold text-(--status-error)"
                   >
                     <svg
                       class="mt-0.5 h-4 w-4 shrink-0"

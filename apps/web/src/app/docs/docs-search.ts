@@ -140,7 +140,7 @@ type State = 'pending' | 'ready' | 'off';
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
                         >
                         <!-- Every run is an element, so no collapsed space lands between runs. -->
-                        <span class="text-sm font-medium text-(--text-primary)">
+                        <span class="text-sm font-semibold text-(--text-primary)">
                           @for (part of hit.heading; track $index) {
                             @if (part.match) {
                               <mark class="bg-transparent text-inherit underline">{{
@@ -155,7 +155,7 @@ type State = 'pending' | 'ready' | 'off';
                           <span class="line-clamp-2 text-xs text-(--text-secondary)">
                             @for (part of hit.snippet; track $index) {
                               @if (part.match) {
-                                <mark class="bg-transparent font-medium text-(--text-primary)">{{
+                                <mark class="bg-transparent font-semibold text-(--text-primary)">{{
                                   part.text
                                 }}</mark>
                               } @else {

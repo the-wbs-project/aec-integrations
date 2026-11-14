@@ -30,7 +30,7 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus|t)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
@@ -90,5 +90,58 @@ describe('design tokens', () => {
         .map((v) => `  ${v.token} — ${v.file}`)
         .join('\n')}`,
     ).toEqual([]);
+  });
+
+  describe('the type ramp (AECI-1748, DESIGN.md §3)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const RAMP = [
+      't-12',
+      't-13',
+      't-14',
+      't-16',
+      't-20',
+      't-24',
+      't-36',
+      't-fig',
+      't-statement',
+      't-display',
+    ];
+    const FLUID = new Set(['t-36', 't-fig', 't-statement', 't-display']);
+    const TAILWIND_STEPS = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl'];
+
+    /** The value of a custom-property declaration, or undefined. */
+    function valueOf(name: string): string | undefined {
+      return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
+    }
+
+    it('defines all ten ramp tokens', () => {
+      for (const token of RAMP) {
+        expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
+      }
+    });
+
+    it('writes each fluid step as a rem clamp with a rem-plus-vw middle term (WCAG 1.4.4)', () => {
+      for (const token of FLUID) {
+        expect(valueOf(token), `--${token}`).toMatch(
+          /^clamp\([\d.]+rem,\s*[\d.]+vw \+ [\d.]+rem,\s*[\d.]+rem\)$/,
+        );
+      }
+    });
+
+    it('keeps the fixed steps in rem', () => {
+      for (const token of RAMP.filter((t) => !FLUID.has(t))) {
+        expect(valueOf(token), `--${token}`).toMatch(/^[\d.]+rem$/);
+      }
+    });
+
+    it('resolves every Tailwind text-* size to a ramp token', () => {
+      for (const step of [...TAILWIND_STEPS, '6xl', '7xl', '8xl', '9xl']) {
+        const value = valueOf(`text-${step}`);
+        const token = value?.match(/^var\(--(t-[\w]+)\)$/)?.[1];
+        expect(token !== undefined && RAMP.includes(token), `--text-${step} is "${value}"`).toBe(
+          true,
+        );
+      }
+    });
   });
 });

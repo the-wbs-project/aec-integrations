@@ -46,7 +46,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(name())) {
         <p
           [id]="idPrefix() + '-name-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          class="text-xs font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@requests.claim.name.error"
         >
@@ -75,7 +75,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(title())) {
         <p
           [id]="idPrefix() + '-title-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          class="text-xs font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@requests.claim.title.error"
         >
@@ -119,7 +119,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(linkedin())) {
         <p
           [id]="idPrefix() + '-linkedin-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          class="text-xs font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@requests.claim.linkedin.error"
         >
@@ -164,7 +164,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(email())) {
         <p
           [id]="idPrefix() + '-email-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          class="text-xs font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@requests.email.invalid"
         >
@@ -193,7 +193,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(legalName())) {
         <p
           [id]="idPrefix() + '-legal-name-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          class="text-xs font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@requests.claim.legalName.error"
         >

@@ -166,7 +166,7 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
           </p>
           @if (audiencesFailed()) {
             <p
-              class="mt-3 text-sm font-medium text-(--text-primary)"
+              class="mt-3 text-sm font-semibold text-(--text-primary)"
               role="alert"
               i18n="@@profileDetails.audiences.failed"
             >

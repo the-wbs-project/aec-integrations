@@ -162,7 +162,9 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     size="sm"
                   />
                   <span class="flex min-w-0 flex-1 flex-col">
-                    <span class="min-w-0 font-medium break-words">{{ partner.partner.name }}</span>
+                    <span class="min-w-0 font-semibold break-words">{{
+                      partner.partner.name
+                    }}</span>
                     <!-- The meta line under the partner name. Direction sits
                          here at every width and the mechanism joins it below md,
                          the same fold ProductIntegrationRow uses (AECI-853).
@@ -285,7 +287,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                   <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.a.logo_url" [name]="pair.a.name" size="sm" />
-                      <span class="min-w-0 font-medium break-words">{{ pair.a.name }}</span>
+                      <span class="min-w-0 font-semibold break-words">{{ pair.a.name }}</span>
                     </span>
                     <span
                       class="font-display inline-block text-xl leading-none text-(--accent-primary)
@@ -295,7 +297,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     >
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.b.logo_url" [name]="pair.b.name" size="sm" />
-                      <span class="min-w-0 font-medium break-words">{{ pair.b.name }}</span>
+                      <span class="min-w-0 font-semibold break-words">{{ pair.b.name }}</span>
                     </span>
                   </span>
                   @if (pairDirectionLabel(pair); as label) {

@@ -52,38 +52,49 @@ colors:
   surface-sticky:              "oklch(100% 0 0 / 94%)"
 typography:
   # The limited ramp (clashes 9 and 17, PLAN.md §4.2): ten sizes, weights 400
-  # and 600. Settled values are real CSS. The fluid size ranges are comments
-  # because no clamp() is ruled yet. AECI-1748 writes the clamp() expressions
-  # with rem bounds and a rem-plus-vw middle term. Weights, line heights and
-  # tracking marked "start" are measured from the mock-ups. AECI-1748 confirms.
+  # and 600. Every value is real CSS. The four fluid sizes are the clamp()
+  # expressions in apps/web/src/styles.css (AECI-1748): rem bounds and a
+  # rem-plus-vw middle term. AECI-1748 confirmed the weights, line heights and
+  # tracking measured from mock-up 6.
   display:
-    # Today's Display, kept for the About and Home heroes and vendor mastheads.
-    # AECI-1748 replaces its size with the --t-display clamp, 40 to 72px in rem.
-    # Start values for --t-display: weight 400, line-height 1, tracking -0.02em.
+    # Today's Display clamp, kept for the About and Home heroes and vendor
+    # mastheads (clash 7 rules only on detail pages). Not a ramp token.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
     fontWeight: 400
     lineHeight: 1.05
     letterSpacing: "-0.01em"
-  statement:
-    # --t-statement, 34 to 56px fluid. Start: line-height 1.1, tracking -0.02em.
+  display-detail:
+    # --t-display, 40 to 72px: the product name on a detail page (clash 7). The
+    # page adopts it when it is rebuilt (AECI-1778).
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.5rem, 4vw + 0.9rem, 4.5rem)"
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: "-0.02em"
+  statement:
+    # --t-statement, 34 to 56px.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.125rem, 2.75vw + 1.025rem, 3.5rem)"
     fontWeight: 400
     lineHeight: 1.1
     letterSpacing: "-0.02em"
   figure:
-    # --t-fig, 28 to 40px fluid. Start: line-height 1, tracking -0.01em.
+    # --t-fig, 28 to 40px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "-0.01em"
   section:
-    # --t-36, 28 to 36px fluid. Start: line-height 1.1, tracking -0.02em.
+    # --t-36, 28 to 36px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1.75rem, 1vw + 1.35rem, 2.25rem)"
     fontWeight: 600
     lineHeight: 1.1
     letterSpacing: "-0.02em"
   headline:
+    # --t-fig, the global h1 rule. Same pixels as before the ramp.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
     fontWeight: 600
@@ -459,7 +470,27 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 
 - **Weights are 400 and 600** (clash 9). Bold 700 stays only for inline emphasis, as before. Weight 500 survives on exactly two chips that copy the live site: the maintenance marker (`.mchip`) and the agreement badge (`.agree`). Both are 12px at 500, matching §5 Badges "The public chip". They stay at 12px, which is already today's smallest text size. It is not a general weight.
 - **What may sit at `--t-12`.** Overlines, the two 500 chips above, and field captions (12px, 20px line height). Counts sit at `--t-13` (`PLAN.md`).
-- **Tailwind mapping: to confirm.** AECI-1748 remaps Tailwind's `text-*` scale onto these tokens. It decides where `text-lg` (18px) and `text-3xl` (30px) land, because neither is on the ramp. That mapping table goes here when AECI-1748 lands. Until then the `text-*` names in §5 describe today's code.
+- **Tailwind mapping (AECI-1748).** Every `text-*` size utility resolves to a ramp token. `styles.css` overrides Tailwind's `--text-*` theme variables, so the call sites did not change. Each step keeps Tailwind's own line height, so no multi-line text lost leading. The mapping changes as little as it can: five steps keep their pixels. This applies on every surface, the vendor portal and admin included.
+
+  | Utility | Before | Token | After, 320 / 768 / 1280 / 1920px wide | Line height |
+  | -- | -- | -- | -- | -- |
+  | `text-xs` | 12px | `--t-12` | 12px, unchanged | 16px (1.333) |
+  | `text-sm` | 14px | `--t-14` | 14px, unchanged | 20px (1.429) |
+  | `text-base` | 16px | `--t-16` | 16px, unchanged | 24px (1.5) |
+  | `text-lg` | 18px | `--t-20` | 20px | 1.556, so 31px |
+  | `text-xl` | 20px | `--t-20` | 20px, unchanged | 28px (1.4) |
+  | `text-2xl` | 24px | `--t-24` | 24px, unchanged | 32px (1.333) |
+  | `text-3xl` | 30px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.2 |
+  | `text-4xl` | 36px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.111 |
+  | `text-5xl` | 48px | `--t-statement` | 34 / 37.5 / 51.6 / 56px | 1 |
+  | `text-6xl` to `text-9xl` | 60 to 128px | `--t-display` | 40 / 45.1 / 65.6 / 72px | 1 |
+
+  - **`text-lg` lands on `--t-20`, not `--t-16`.** Most `text-lg` call sites are serif names and titles. Dropping them to 16px would break the Serif-Floor Rule, and `--t-20` is the card-title step. The sans ledes at `text-lg` carry `leading-relaxed`, so they keep 1.625.
+  - **`text-3xl` and `text-4xl` both land on `--t-36`.** It is the nearest step at every width, and both are used as section headings and figures. The common `text-3xl md:text-4xl` pair now renders one fluid size.
+  - **`text-5xl` lands on `--t-statement`.** At 1280px it is 51.6px, the nearest step to 48px. `--t-display` would be 65.6px.
+  - **`text-6xl` to `text-9xl` are unused.** They land on `--t-display` so no utility can render off the ramp.
+  - **The ramp itself is exposed as `text-t-12` to `text-t-display`**, each with its role's line height: 20px for `--t-12` (the field caption), 1.4 for `--t-13`, 1.5 for `--t-14`, 1.6 for `--t-16`, 1.5 for `--t-20`, 1.25 for `--t-24`, 1.1 for `--t-36` and `--t-statement`, and 1 for `--t-fig` and `--t-display`. New code uses these names. A role that needs another leading at the same size adds a `leading-*` utility.
+  - **A `text-*` utility on an `h1`, `h2` or `h3` element is still dead.** See the Unlayered-Heading Rule. Most `text-3xl` to `text-5xl` call sites sit on headings, so the remap does not move them.
 - **Serif never sits on a sans-only step.** `--t-12` to `--t-16` are sans. Serif starts at `--t-20`.
 
 ### Hierarchy
@@ -468,7 +499,7 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 - **Statement** (Source Serif 4, 400, `--t-statement`, 34 to 56px fluid, line-height 1.1, tracking -0.02em): the pair page statement, its H1 (clash 7, new). It is the pair page's one display-scale line.
 - **Figure** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1, tracking -0.01em): score and count figures (clashes 8 and 9). **One large figure per band** (clash 8, blend). The figure is Forest and sits at the Score Display role (§5 → Score Display). Every other number in the band drops to inline text. The hero-metric template stays banned (§6).
 - **Section** (Source Serif 4, 600, `--t-36`, 28 to 36px fluid, line-height 1.1, tracking -0.02em): section headings, the H2 on a detail page. Clash 9's blend added a larger section-heading role to the system. This is it.
-- **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages that are not detail pages. This is today's value, kept. It equals the `--t-fig` range (28 to 40px). The ramp names no H1 token, so the token for it is open.
+- **Headline** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1.15, tracking -0.005em): page H1 on content pages that are not detail pages. AECI-1748 put the global `h1` rule on `--t-fig`. Its clamp is the pre-ramp h1 value, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, so no h1 moved.
 - **Title** (Source Serif 4, 600, `--t-24`, 1.5rem / 24px, line-height 1.25): sub-headings and section H2 within long-form content.
 - **Card title** (Source Serif 4, 600, `--t-20`, 1.25rem / 20px, line-height 1.1): the name on a card (`.card .nm` in the mock-up).
 - **Lede** (Atkinson Hyperlegible Next, 400, `--t-20`, 1.25rem / 20px, line-height 1.5): lede text under a heading (clash 9, blend). The mock-ups set it in the body sans. The blend named a lede role of about 1.1875rem. The ramp snaps it to 20px.
@@ -481,23 +512,37 @@ Floors that hold whatever the ramp: the smallest text is 12px, body is 16px, pro
 
 **Fluid tokens use rem.** Each fluid bound is in rem, and the middle term is rem plus vw. They are checked at 200% zoom (WCAG 1.4.4). Do not copy the mock-ups' `clamp(40px, 5vw, 72px)` style values. Px bounds and a viewport-only middle term ignore the reader's font size and zoom.
 
-### Open values (set by AECI-1748 and AECI-1749)
+### Settled values (AECI-1748)
 
-The weights, line heights and tracking stated above are starting values measured from the mock-ups. AECI-1748 confirms them. These stay open:
+AECI-1748 confirmed the weights, line heights and tracking stated above. They are the values measured from mock-up 6: Display 400, 1, -0.02em; Statement 400, 1.1, -0.02em; Section 600, 1.1, -0.02em; Figure 600, 1, -0.01em; Lede sans 400, 1.5; field caption 12px on a 20px line. It settled these too:
 
-- The `clamp()` expressions for the four fluid tokens, written to the rem rule above. `PLAN.md` gives the pixel bounds only, not the viewport widths.
-- The Tailwind `text-*` mapping table, including where `text-lg` and `text-3xl` land (AECI-1748).
-- The token for the H1 on content pages (Headline role).
-- The sizes of the global `h1`, `h2` and `h3` rules in `styles.css`, which the Unlayered-Heading Rule quotes (AECI-1748).
-- Any stray size that reaches the build snaps to the ramp (AECI-1749). The 18px card title is `text-lg`, so its landing step belongs to the mapping above (AECI-1748).
+- **The fluid clamps.** All four use rem bounds and a rem-plus-vw middle term. Three anchor between 640px and 1440px wide, the mock-up canvas. `--t-fig` keeps the pre-ramp h1 clamp, which anchors at 640px and 1120px and equals the mock-up's `2.5vw + 12px`.
+
+  | Token | `clamp()` | 320px | 768px | 1280px | 1920px | Doubles at zoom, 1280 / 1920px window |
+  | -- | -- | -- | -- | -- | -- | -- |
+  | `--t-36` | `clamp(1.75rem, 1vw + 1.35rem, 2.25rem)` | 28 | 29.3 | 34.4 | 36 | 246% / 245% |
+  | `--t-fig` | `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)` | 28 | 31.2 | 40 | 40 | 286% / 267% |
+  | `--t-statement` | `clamp(2.125rem, 2.75vw + 1.025rem, 3.5rem)` | 34 | 37.5 | 51.6 | 56 | 304% / 330% |
+  | `--t-display` | `clamp(2.5rem, 4vw + 0.9rem, 4.5rem)` | 40 | 45.1 | 65.6 | 72 | 329% / 361% |
+
+  Sizes are CSS px at 100% zoom. Browser zoom shrinks the CSS viewport and grows the rem, so a fluid size grows less than the zoom factor until it reaches its lower bound. At 200% zoom every token doubles in a window up to 640px wide, where it already sits on its lower bound. Every upper bound is at most 1.8 times its lower bound, so each token doubles before the browser's 500% zoom limit. The last column gives the zoom where it does. WCAG 1.4.4 asks that text can reach 200%. It does not require that at exactly 200% zoom.
+- **The Tailwind mapping.** The table is under "The type ramp" above.
+- **The Headline token** is `--t-fig`.
+- **The global heading rules** sit on ramp tokens at the same pixels as before: `h1` at `--t-fig`, `h2` at `--t-24`, `h3` at `--t-20`. They stay unlayered. See the Unlayered-Heading Rule.
+- **The `/docs` headings snapped to the ramp.** The page title went from 30px to `--t-36`, the article h2 from 22px to `--t-24` and the article h3 from 18px to `--t-20`.
+- **Weight 500 left the public pages** except the maintenance marker and the agreement badge. AECI-1748 moved the public and shared templates' `font-medium` to `font-semibold`, keeping the emphasis the author meant. It left 500 on surfaces another issue rebuilds: chips (AECI-1763), buttons and toggles (AECI-1758 to AECI-1762), tabs and section navs (AECI-1768), and the header and menus (AECI-1771, AECI-1774, AECI-1775). The vendor portal and admin were not edited.
+
+### Open values (set by AECI-1749)
+
+- Any stray size that reaches the build snaps to the ramp (AECI-1749). That covers the arbitrary `text-[…]` sizes and the `.aec-plan-price` 32px figure in `styles.css`.
 
 ### Named Rules
 
 **The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
 
-**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. The live `/docs` h3 (serif, 1.125rem) is off the ramp until AECI-1748.
+**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. AECI-1748 moved the `/docs` article h3 from 18px to `--t-20`.
 
-**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (today h1 `clamp(1.75rem…2.5rem)`, h2 1.5rem, h3 1.25rem) and the author's intent never renders. Two consequences:
+**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (h1 `--t-fig`, 28 to 40px; h2 `--t-24`; h3 `--t-20`) and the author's intent never renders. Two consequences:
 
 - **To size a heading, put the `text-*` utility on an inner `<span>`**, not on the heading element. The span inherits the display face from the heading and takes its own size. (`product-powered-hub.ts` does this for its card titles.)
 - **Don't "fix" it by moving the block into `@layer base` without an audit.** Doing so silently resizes every heading that currently carries a losing `text-*` utility — at the time of writing that is ~7 surfaces, including the `/search` integration hit card (`text-base` → would drop 1.25rem → 1rem, which the Serif-Floor Rule then forbids; the product and vendor hit cards no longer use a heading element, so the rule does not reach them), `browse-grid`, `products-pair` mechanism titles, `admin-shell`, and both taxonomy `h1`s. The block being unlayered is a bug, but unwinding it is its own scoped piece of work with per-surface decisions, not a drive-by.

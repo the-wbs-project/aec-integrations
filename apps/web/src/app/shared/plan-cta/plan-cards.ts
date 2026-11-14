@@ -63,7 +63,7 @@ import { PORTAL_PATH } from './plan-cta';
             >Claim your listing</a
           >
         }
-        <p class="mt-5 text-xs font-medium text-(--text-secondary)">{{ copy.free.includes }}</p>
+        <p class="mt-5 text-xs font-semibold text-(--text-secondary)">{{ copy.free.includes }}</p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
           @for (item of copy.free.highlights; track item) {
             <li class="flex gap-2">
@@ -112,7 +112,7 @@ import { PORTAL_PATH } from './plan-cta';
             >Claim your listing</a
           >
         }
-        <p class="mt-5 text-xs font-medium text-(--text-secondary)">
+        <p class="mt-5 text-xs font-semibold text-(--text-secondary)">
           {{ copy.managed.includes }}
         </p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">

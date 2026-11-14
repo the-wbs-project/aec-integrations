@@ -303,7 +303,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             role="status"
           >
             <p
-              class="text-base font-medium text-(--text-primary)"
+              class="text-base font-semibold text-(--text-primary)"
               i18n="@@search.unavailable.title"
             >
               Search is temporarily unavailable.
@@ -368,28 +368,28 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                                       <tr>
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
                                           i18n="@@products.index.col.name"
                                         >
                                           Name
                                         </th>
                                         <th
                                           scope="col"
-                                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
                                           i18n="@@products.index.col.vendor"
                                         >
                                           Vendor
                                         </th>
                                         <th
                                           scope="col"
-                                          class="hidden px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          class="hidden px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
                                           i18n="@@products.index.col.rating"
                                         >
                                           Rating
                                         </th>
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
                                           i18n="@@products.index.col.integrations"
                                         >
                                           Integrations
@@ -451,21 +451,21 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                                       <tr>
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
                                           i18n="@@search.vendors.col.name"
                                         >
                                           Name
                                         </th>
                                         <th
                                           scope="col"
-                                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
                                           i18n="@@search.vendors.col.headquarters"
                                         >
                                           Headquarters
                                         </th>
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
                                           i18n="@@search.vendors.col.integrations"
                                         >
                                           Integrations
@@ -549,7 +549,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
           No results. Try a broader search or
           <a
             routerLink="/categories"
-            class="font-medium text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="font-semibold text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >browse by category</a
           >.
         </p>

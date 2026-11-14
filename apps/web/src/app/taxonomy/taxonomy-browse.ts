@@ -162,7 +162,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
             </p>
             <a
               routerLink="/products"
-              class="inline-block rounded-sm text-sm font-medium text-(--accent-primary) underline
+              class="inline-block rounded-sm text-sm font-semibold text-(--accent-primary) underline
                 decoration-(--border-strong) underline-offset-4 transition-colors
                 hover:decoration-(--accent-primary) focus-visible:outline-2
                 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
@@ -218,33 +218,33 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                   aria-label="Products"
                 >
                   <thead
-                    class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
+                    class="border-b border-(--border-default) text-xs font-semibold tracking-wide text-(--text-secondary)"
                   >
                     <tr>
                       <th
                         scope="col"
-                        class="px-4 py-3 font-medium"
+                        class="px-4 py-3 font-semibold"
                         i18n="@@taxonomy.browse.col.name"
                       >
                         Name
                       </th>
                       <th
                         scope="col"
-                        class="hidden px-4 py-3 font-medium md:table-cell"
+                        class="hidden px-4 py-3 font-semibold md:table-cell"
                         i18n="@@taxonomy.browse.col.vendor"
                       >
                         Vendor
                       </th>
                       <th
                         scope="col"
-                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
+                        class="hidden px-4 py-3 text-end font-semibold md:table-cell"
                         i18n="@@taxonomy.browse.col.rating"
                       >
                         Rating
                       </th>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-end font-medium"
+                        class="px-4 py-3 text-end font-semibold"
                         i18n="@@taxonomy.browse.col.integrations"
                       >
                         Integrations

@@ -83,7 +83,7 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
             </p>
           }
 
-          <p class="flex items-center gap-2 text-sm font-medium text-(--text-secondary)">
+          <p class="flex items-center gap-2 text-sm font-semibold text-(--text-secondary)">
             <svg
               class="h-4 w-4 shrink-0 text-(--accent-primary)"
               viewBox="0 0 24 24"

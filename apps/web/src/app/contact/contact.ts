@@ -127,7 +127,7 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
             <p class="mt-4 text-base">
               <a
                 [href]="mailtoHref"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                class="font-semibold text-(--accent-primary) hover:text-(--accent-primary-hover)"
               >
                 {{ email }}
               </a>

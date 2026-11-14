@@ -200,7 +200,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                   >
                     <aec-logo-or-initial [src]="p.logo_url ?? null" [name]="p.name" size="sm" />
                     <span class="flex min-w-0 flex-col">
-                      <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                      <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                         p.name
                       }}</span>
                       @if (p.vendor; as vendor) {

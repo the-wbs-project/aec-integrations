@@ -483,26 +483,26 @@ const HERO_LINK_FIELDS = [
                 >
                   <thead
                     class="border-b border-(--border-default) text-start text-xs
-                      font-medium tracking-wide text-(--text-secondary)"
+                      font-semibold tracking-wide text-(--text-secondary)"
                   >
                     <tr>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-start font-medium"
+                        class="px-4 py-3 text-start font-semibold"
                         i18n="@@vendors.detail.body.products.col.product"
                       >
                         Product
                       </th>
                       <th
                         scope="col"
-                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
+                        class="hidden px-4 py-3 text-end font-semibold md:table-cell"
                         i18n="@@vendors.detail.body.products.col.rating"
                       >
                         Rating
                       </th>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-end font-medium"
+                        class="px-4 py-3 text-end font-semibold"
                         i18n="@@vendors.detail.body.products.col.integrations"
                       >
                         Integrations

@@ -106,7 +106,7 @@ import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload
           >
             <label
               [for]="inputId() + '-file'"
-              class="mb-2 block text-sm font-medium text-(--text-primary)"
+              class="mb-2 block text-sm font-semibold text-(--text-primary)"
               i18n="@@logo.drop"
               >Drop an image here or choose a file</label
             >
@@ -149,7 +149,7 @@ import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload
           type="button"
           [disabled]="disabled()"
           (click)="setValue('')"
-          class="rounded-(--radius-md) px-1 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="rounded-(--radius-md) px-1 py-2 text-sm font-semibold text-(--text-secondary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@logo.remove"
         >
           Remove logo
@@ -159,7 +159,7 @@ import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload
         <p class="text-xs text-(--text-secondary)">{{ status() }}</p>
       }
       @if (error()) {
-        <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ error() }}</p>
+        <p role="alert" class="text-sm font-semibold text-(--text-primary)">{{ error() }}</p>
       }
       @if (invalidUrl()) {
         <p

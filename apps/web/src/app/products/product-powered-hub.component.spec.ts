@@ -329,7 +329,7 @@ describe('ProductPoweredHub', () => {
         poweredEdge(HUB, link('cmic', 'CMiC')),
         poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
       ]);
-      const names = [...el.querySelectorAll('ul li a span.font-medium')];
+      const names = [...el.querySelectorAll('ul li a span.font-semibold.break-words')];
       expect(names).toHaveLength(4);
       for (const name of names) {
         expect(name.classList).not.toContain('truncate');

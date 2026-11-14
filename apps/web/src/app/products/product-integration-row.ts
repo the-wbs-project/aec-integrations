@@ -109,7 +109,7 @@ import { routeIntegrationLane } from './connector-lane-grouping';
     '(click)': 'onRowClick($event)',
   },
   template: `
-    <td class="px-4 py-3 font-medium">
+    <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
         <aec-logo-or-initial [src]="other().logo_url" [name]="other().name" size="sm" />
         <span class="flex min-w-0 flex-col">

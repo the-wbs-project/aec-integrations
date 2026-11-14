@@ -195,7 +195,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
                   class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span class="flex items-center justify-between gap-2">
-                    <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                    <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                       s.title
                     }}</span>
                     <span

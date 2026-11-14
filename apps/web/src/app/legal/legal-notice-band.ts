@@ -98,7 +98,7 @@ function writeDismissed(ids: readonly string[]): void {
             {{ notice.summary }}
             <a
               [routerLink]="href(notice)"
-              class="font-medium text-(--accent-primary) underline underline-offset-2
+              class="font-semibold text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
               i18n="@@legal.notice.readNewVersion"
               >Read the new version</a

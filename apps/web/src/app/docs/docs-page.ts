@@ -125,7 +125,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
               {{ vendorProgram.before
               }}<a
                 [routerLink]="vendorProgramPath"
-                class="rounded-sm font-medium text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-sm font-semibold text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >{{ vendorProgram.link }}</a
               >{{ vendorProgram.after }}
             </p>
@@ -189,7 +189,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
                 >Previous</span
               >
               <span
-                class="mt-0.5 block font-medium text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-0.5 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ prev.title }}</span
               >
             </a>
@@ -202,7 +202,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.next">Next</span>
               <span
-                class="mt-0.5 block font-medium text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-0.5 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ next.title }}</span
               >
             </a>
