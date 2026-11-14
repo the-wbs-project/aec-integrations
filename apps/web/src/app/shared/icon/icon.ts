@@ -38,7 +38,9 @@ const SIZE_CLASS: Record<AecIconSize, string> = {
  * Shapes are real SVG elements built from data, so the server renders them and
  * nothing goes through `innerHTML`. Colour is `currentColor` and nothing else:
  * set it with a text colour class on the parent. The host is `display: contents`,
- * so a class on `<aec-icon>` does not reach the SVG. Use `size` and `mirrorRtl`.
+ * so size and margin classes on `<aec-icon>` do not apply, while inherited
+ * properties such as `color` do. Use `size` and `mirrorRtl`, and put spacing on
+ * a wrapper.
  *
  * The registry is one object, so every icon ships whenever any icon is used. It
  * is plain data of a few KB, which is cheaper than a lazy-loaded chunk per icon.

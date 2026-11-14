@@ -131,6 +131,18 @@ describe('AecIcon: the decorative form', () => {
 
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('decorative wins over a label: hidden, no role, no name, no warning', () => {
+    TestBed.overrideComponent(Host, {
+      set: { template: '<aec-icon name="search" decorative label="Ignored" />' },
+    });
+    const el = svg(create());
+
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+    expect(el.hasAttribute('role')).toBe(false);
+    expect(el.hasAttribute('aria-label')).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('AecIcon: the label forms', () => {

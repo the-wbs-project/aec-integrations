@@ -83,7 +83,10 @@ export const DATA_OBJECT_ICONS: Record<DataObjectSlug, AecIconName | null> = {
 
 /**
  * Taxonomy facets the mock-ups gave a heading icon. `category` and `data_object`
- * have none: a data object takes its own term's icon from `DATA_OBJECT_ICONS`.
+ * have none here. A data object takes its own term's icon from `DATA_OBJECT_ICONS`.
+ * Categories are not a static vocabulary in the app, so no typed map exists yet:
+ * the mock-ups' `CAT_IC` mapping (10 categories) is recorded on the product page
+ * issue.
  */
 export type FacetIconKey = 'phase' | 'audience' | 'trade';
 
