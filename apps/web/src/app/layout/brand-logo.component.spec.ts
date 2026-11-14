@@ -49,6 +49,20 @@ describe('BrandLogo', () => {
     }
   });
 
+  it('sizes by class when responsive, and keeps the px height otherwise', async () => {
+    const fixture = TestBed.createComponent(BrandLogo);
+    fixture.detectChanges();
+    const link = (fixture.nativeElement as HTMLElement).querySelector('a')!;
+    expect(link.style.height).toBe('32px');
+    expect(link.className).not.toContain('h-7');
+
+    fixture.componentRef.setInput('responsive', true);
+    fixture.detectChanges();
+    expect(link.style.height).toBe('');
+    expect(link.classList).toContain('h-7');
+    expect(link.classList).toContain('md:h-8');
+  });
+
   it('takes the Bone focus ring on a Forest ground and the Forest ring on a light one', async () => {
     const onDark = (await render('on-dark')).querySelector('a')!.className;
     expect(onDark).toContain('outline-(--focus-ring-on-brand)!');

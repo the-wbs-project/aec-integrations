@@ -68,7 +68,7 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="panel"
       type="button"
-      class="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
+      class="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-control border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
       i18n-aria-label="@@app.header.search.toggle.aria"
       aria-label="Open search"
     >

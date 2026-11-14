@@ -21,7 +21,7 @@ export const ON_FOREST_FOCUS_RING =
  * `HEADER_LINK_ACTIVE`.
  */
 export const HEADER_LINK =
-  'inline-flex flex-col items-center rounded-(--radius-md) px-2.5 py-2.5 text-base font-normal whitespace-nowrap text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash) after:invisible after:block after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-label)] ' +
+  'inline-flex flex-col items-center rounded-control px-2.5 py-2.5 text-base font-normal whitespace-nowrap text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash) after:invisible after:block after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-label)] ' +
   ON_FOREST_FOCUS_RING;
 
 /** The active route is weight 600 plus `aria-current`, never colour alone. */

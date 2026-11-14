@@ -74,14 +74,14 @@ import { UserMenu } from './user-menu';
     <header class="bg-(--accent-primary) text-(--text-on-brand)">
       <!--
         The gaps are load-bearing, not taste. AECI-1771 measured the row on Forest
-        at 768, 1024 and 1280px, signed out and signed in; DESIGN.md §Navigation
-        has the table. Re-measure at 1024 before adding anything to this row.
+        at 768, 1024 and 1280px, signed out. The signed-in widths are an
+        estimate, not a measurement. DESIGN.md §Navigation has the table. Re-measure at 1024 before adding anything to this row.
       -->
       <div
-        class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-3 md:gap-8 md:py-4 lg:gap-4 xl:gap-8"
+        class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-2.5 md:gap-8 md:py-4 lg:gap-4 xl:gap-8"
       >
         <aec-nav-menu />
-        <aec-brand-logo tone="on-dark" />
+        <aec-brand-logo tone="on-dark" [responsive]="true" />
         <!--
           AECI-544: the inline nav takes over from the hamburger at lg, not md.
           AECI-1771 re-measured it on Forest and it still does not fit at md.
@@ -130,6 +130,8 @@ import { UserMenu } from './user-menu';
             invisible on this ground).
           -->
           <aec-search-trigger />
+          <!-- The 36px white field is an interim. AECI-1772 replaces it with
+               the 44px pill. -->
           <aec-search-autocomplete
             class="hidden xl:block"
             inputId="header-search"
@@ -175,7 +177,7 @@ export class SiteHeader {
   };
   /** The Bone main button at the header's compact width: 44px high, 16px sides. */
   protected readonly signInClass =
-    'inline-flex min-h-11 shrink-0 items-center rounded-(--radius-md) bg-(--accent-warm) px-4 text-sm font-semibold whitespace-nowrap text-(--accent-primary) transition-colors hover:bg-(--surface-on-brand-hover) ' +
+    'inline-flex min-h-11 shrink-0 items-center rounded-control bg-(--accent-warm) px-4 text-sm font-semibold whitespace-nowrap text-(--accent-primary) transition-colors hover:bg-(--surface-on-brand-hover) ' +
     ON_FOREST_FOCUS_RING;
 
   protected onSearchQuery(query: string): void {

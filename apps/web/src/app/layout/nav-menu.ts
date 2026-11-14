@@ -101,7 +101,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
+      class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-control border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
       i18n-aria-label="@@app.nav.menu.toggle.aria"
       aria-label="Open menu"
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"

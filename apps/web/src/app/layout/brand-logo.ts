@@ -55,8 +55,8 @@ export type BrandLogoTone = 'default' | 'on-dark';
     <a
       routerLink="/"
       class="inline-flex items-center rounded-md"
-      [class]="ringClass()"
-      [style.height.px]="height()"
+      [class]="ringClass() + ' ' + sizeClass()"
+      [style.height.px]="responsive() ? null : height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"
     >
@@ -77,6 +77,13 @@ export class BrandLogo {
   readonly height = input(32);
 
   /**
+   * Size by class instead of `height`: 28px below `md`, 32px from `md` (the
+   * header's wordmark, DESIGN.md §5). Off by default, so every other caller keeps
+   * its px height.
+   */
+  readonly responsive = input(false);
+
+  /**
    * Loads the image eagerly at high fetch priority. True for the header, where
    * the wordmark is above the fold. The footer passes `false`.
    */
@@ -94,6 +101,8 @@ export class BrandLogo {
       ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!'
       : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
   );
+
+  protected readonly sizeClass = computed(() => (this.responsive() ? 'h-7 md:h-8' : ''));
 
   protected readonly src = computed(() =>
     this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',
