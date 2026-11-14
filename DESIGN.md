@@ -25,9 +25,10 @@ colors:
   # To add by AECI-1747 (the colour token issue), from the redesign
   # (docs/design/mockups/redesign-2026-11/PLAN.md §4.1). Not yet in
   # styles.css. Forest hover is already accent-primary-hover.
-  hero-panel:             "oklch(36.82% 0.0453 166.67)"  # #26473A
-  footer-ground:          "oklch(26.02% 0.0324 161.25)"  # #15291F
-  field-edge:             "oklch(61.63% 0.0134 286.00)"  # #84848D
+  # Hex, in order: #26473A, #15291F, #84848D.
+  hero-panel:             "oklch(36.82% 0.0453 166.67)"
+  footer-ground:          "oklch(26.02% 0.0324 161.25)"
+  field-edge:             "oklch(61.63% 0.0134 286.00)"
 typography:
   # The limited ramp (clashes 9 and 17, PLAN.md §4.2): ten sizes, weights 400
   # and 600. Settled values are real CSS. The fluid size ranges are comments
