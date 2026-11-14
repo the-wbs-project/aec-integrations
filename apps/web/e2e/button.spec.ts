@@ -67,6 +67,7 @@ test.describe('aecButton rendered (AECI-1758)', () => {
       'btn-link',
       'btn-compact',
       'btn-on-brand',
+      'btn-on-brand-secondary',
     ]) {
       const s = await style(page.getByTestId(id));
       expect(s.height, id).toBe(44);
@@ -126,6 +127,33 @@ test.describe('aecButton rendered (AECI-1758)', () => {
     await expect
       .poll(async () => (await style(page.getByTestId('btn-on-brand'))).outlineColor)
       .toBe(BONE);
+  });
+
+  test('the on-brand secondary button is a Bone wash with a Bone edge and a Bone ring (AECI-1766)', async ({
+    page,
+  }) => {
+    const button = page.getByTestId('btn-on-brand-secondary');
+    const rest = await style(button);
+    expect(rest.color).toBe(BONE);
+    expect(rest.radius).toBe('12px');
+    // The unlayered `.aec-btn-on-brand-secondary` rule must beat `* { border-color }`:
+    // Bone at 50% over Forest, not the transparent base edge and not --border-default.
+    expect(rest.borderColor).not.toBe('transparent');
+    expect(rest.borderColor).not.toBe('rgb(228, 228, 231)');
+    expect(rest.background).not.toBe('transparent');
+    await button.hover();
+    await expect.poll(async () => (await style(button)).background).not.toBe(rest.background);
+    await button.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect.poll(async () => (await style(button)).outlineColor).toBe(BONE);
+    const ring = await style(button);
+    expect([ring.outlineStyle, ring.outlineWidth, ring.outlineOffset]).toEqual([
+      'solid',
+      '3px',
+      '3px',
+    ]);
+    expect((await style(page.getByTestId('btn-on-brand-secondary-disabled'))).opacity).toBe('0.6');
   });
 
   test('disabled is 60% opacity', async ({ page }) => {
