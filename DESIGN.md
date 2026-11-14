@@ -30,12 +30,38 @@ colors:
   footer-ground:          "oklch(26.02% 0.0324 161.25)"
   field-edge:             "oklch(61.63% 0.0134 286.00)"
 typography:
+  # The limited ramp (clashes 9 and 17, PLAN.md §4.2): ten sizes, weights 400
+  # and 600. Settled values are real CSS. The fluid size ranges are comments
+  # because no clamp() is ruled yet. AECI-1748 writes the clamp() expressions
+  # with rem bounds and a rem-plus-vw middle term. Weights, line heights and
+  # tracking marked "start" are measured from the mock-ups. AECI-1748 confirms.
   display:
+    # Today's Display, kept for the About and Home heroes and vendor mastheads.
+    # AECI-1748 replaces its size with the --t-display clamp, 40 to 72px in rem.
+    # Start values for --t-display: weight 400, line-height 1, tracking -0.02em.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
     fontWeight: 400
     lineHeight: 1.05
     letterSpacing: "-0.01em"
+  statement:
+    # --t-statement, 34 to 56px fluid. Start: line-height 1.1, tracking -0.02em.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontWeight: 400
+    lineHeight: 1.1
+    letterSpacing: "-0.02em"
+  figure:
+    # --t-fig, 28 to 40px fluid. Start: line-height 1, tracking -0.01em.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontWeight: 600
+    lineHeight: 1
+    letterSpacing: "-0.01em"
+  section:
+    # --t-36, 28 to 36px fluid. Start: line-height 1.1, tracking -0.02em.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontWeight: 600
+    lineHeight: 1.1
+    letterSpacing: "-0.02em"
   headline:
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
     fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
@@ -48,12 +74,36 @@ typography:
     fontWeight: 600
     lineHeight: 1.25
     letterSpacing: "normal"
+  card-title:
+    # --t-20. The mock-up's line-height is 1.1.
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "1.25rem"
+    fontWeight: 600
+    lineHeight: 1.1
+  lede:
+    # --t-20, in the body sans.
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "1.25rem"
+    fontWeight: 400
+    lineHeight: 1.5
   body:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
     fontSize: "1rem"
     fontWeight: 400
     lineHeight: 1.6
     letterSpacing: "normal"
+  caption:
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "0.875rem"
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: "normal"
+  field-caption:
+    # --t-12 with a 20px line height (start).
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: "1.25rem"
   label:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
     fontSize: "0.8125rem"
@@ -67,12 +117,6 @@ typography:
     lineHeight: 1.4
     letterSpacing: "0.08em"
     textTransform: "uppercase"
-  caption:
-    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "0.875rem"
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: "normal"
 rounded:
   none: "0"
   sm: "0.25rem"
@@ -289,27 +333,72 @@ The dark palette was removed from the active design system in **AECI-226**: AECi
 **Body Font:** Atkinson Hyperlegible Next (with system-ui, -apple-system, "Segoe UI", sans-serif fallback)
 **Label Font:** Atkinson Hyperlegible Next (same family as body, distinct role via size + weight)
 
+The redesign rulings of 2026-11-13 changed this section (clashes 7 to 10 and 17). A clash number beside a rule means that ruling set it. The fonts did not change. The scope sentence under "Forest grounds" in §2 applies to this section too: these changes are for public pages, and the vendor portal and admin take the new tokens and nothing more. Values the rulings left open are listed under "Open values (set by AECI-1748 and AECI-1749)".
+
 **Character:** Source Serif 4 carries the editorial / industry-publication posture of a printed reference — calmer and more grounded than the SaaS-default sans cohort, but without the stylized affectation of the reflex-reject serifs (Fraunces, Playfair Display, Cormorant, DM Serif, Instrument Serif). Atkinson Hyperlegible Next is an a11y-first sans designed by the Braille Institute for low-vision readers; pairing it with a serif display face makes the trust/transparency principle visible in the typography itself. The pairing is the brand statement: a system that treats the reader's vision as a constraint to engineer for, not an afterthought to "support."
 
 > **Why Next (AECI-230):** the classic Atkinson Hyperlegible ships only 400/700, so this system's 500 (chips) and 600 (labels) weights could not actually render — CSS font matching silently resolved 500 to 400. Atkinson Hyperlegible Next is the Braille Institute's expanded release (loaded as a 400–700 variable font), making every specified weight real. Same lineage, same a11y story.
 
+### The type ramp (clashes 9 and 17)
+
+Chris's note on clash 17: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The plan's answer is one limited ramp. The audit of the mock-ups went from 36 distinct sizes to 10, and from 9 weights to 5 (`PLAN.md` §4.2). Clash 9 was ruled as a blend. Once AECI-1748 and AECI-1749 land, every size on a public page is one of these ten tokens.
+
+| Token | Size | rem | Family | Use |
+| -- | -- | -- | -- | -- |
+| `--t-12` | 12px | 0.75 | Sans | Overlines, captions |
+| `--t-13` | 13px | 0.8125 | Sans | Chips, counts, small labels |
+| `--t-14` | 14px | 0.875 | Sans | Buttons, secondary text |
+| `--t-16` | 16px | 1 | Sans | Body, nav links |
+| `--t-20` | 20px | 1.25 | Both | Lede text, card titles |
+| `--t-24` | 24px | 1.5 | Serif | Sub-headings |
+| `--t-36` | 28 to 36px, fluid | 1.75 to 2.25 | Serif | Section headings |
+| `--t-fig` | 28 to 40px, fluid | 1.75 to 2.5 | Serif | Score and count figures |
+| `--t-statement` | 34 to 56px, fluid | 2.125 to 3.5 | Serif | The pair page statement |
+| `--t-display` | 40 to 72px, fluid | 2.5 to 4.5 | Serif | The product name |
+
+rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is allowed on a public page. The mock-ups hold 19px and 22px serif and 12.5px sans only under their `html.r-type-orig` restore toggle, not in the default state. AECI-1749 snaps any that reach the build to the ramp.
+
+- **Weights are 400 and 600** (clash 9). Bold 700 stays only for inline emphasis, as before. Weight 500 survives on exactly two chips that copy the live site: the maintenance marker (`.mchip`) and the agreement badge (`.agree`). Both are 12px at 500, matching §5 "One chip spec". They stay at 12px, which is already today's smallest text size. It is not a general weight.
+- **What may sit at `--t-12`.** Overlines, the two 500 chips above, and field captions (12px, 20px line height). Counts sit at `--t-13` (`PLAN.md`).
+- **Tailwind mapping: to confirm.** AECI-1748 remaps Tailwind's `text-*` scale onto these tokens. It decides where `text-lg` (18px) and `text-3xl` (30px) land, because neither is on the ramp. That mapping table goes here when AECI-1748 lands. Until then the `text-*` names in §5 describe today's code.
+- **Serif never sits on a sans-only step.** `--t-12` to `--t-16` are sans. Serif starts at `--t-20`.
+
 ### Hierarchy
 
-- **Display** (Source Serif 4, 400, `clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em): hero headlines on About, Home, vendor profile mastheads. Used at most once per page.
-- **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages and product surfaces.
-- **Title** (Source Serif 4, 600, 1.5rem / 24px, line-height 1.25): section H2 within long-form content; product surface card titles where editorial weight is wanted.
-- **Body** (Atkinson Hyperlegible Next, 400, 1rem / 16px, line-height 1.6): default body and reading text. Measure (65 to 75ch) caps prose blocks, never the page shell; see the Page-Width Rule below. **Use 700 (Bold) only for inline emphasis or product-surface affordances** — never for headings (those are Source Serif 4).
-- **Label** (Atkinson Hyperlegible Next, 600, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). Moved 700 → 600 in AECI-230: with a real 600 cut available, the calmer weight is the premium read at 13px. **Navigational taxonomy chips/tags use the same family and size at medium (500), not 600** — they are content links, not button affordances (see §5 → Tags / taxonomy chips).
-- **Overline** (Atkinson Hyperlegible Next, 600, 0.75rem / 12px, line-height 1.4, tracking +0.08em, **uppercase**): eyebrows, kickers, and sidebar microheadings ("Vendor", "Categories", "Filters", "At a glance") — the print-kicker role and the *only* sanctioned uppercase in the system (see the Sentence-Case Rule). Shipped as the `.aec-overline` class in `styles.css`; apply it on whatever element carries the right semantics (often `h2`/`h3` — the class beats the global heading serif rule, which is the point). Default color text secondary; Forest for emphasis.
-- **Caption** (Atkinson Hyperlegible Next, 400, 0.875rem / 14px, line-height 1.5): metadata, hints, timestamps, helper text. Maps to `text-sm` + text secondary; defined as a role so components stop improvising this size.
+- **Display** (Source Serif 4, 400): clash 7 (new) allows it on detail pages, where it is the product name at `--t-display`, 40 to 72px fluid. Start values from the mock-up: line-height 1, tracking -0.02em. The About and Home heroes stay at today's Display clamp (`clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em), because clash 7 rules only on detail pages. The home hero is re-decided in its own mock-up issue (AECI-1789). The vendor masthead stays Display, as clash 7's recommendation names vendor pages. Used at most once per page. Statement is the pair page's Display use and counts toward that once. An H1 at this size follows the Unlayered-Heading Rule: put the size on an inner `<span>`.
+- **Statement** (Source Serif 4, 400, `--t-statement`, 34 to 56px fluid, line-height 1.1, tracking -0.02em): the pair page statement, its H1 (clash 7, new). It is the pair page's one display-scale line.
+- **Figure** (Source Serif 4, 600, `--t-fig`, 28 to 40px fluid, line-height 1, tracking -0.01em): score and count figures (clashes 8 and 9). **One large figure per band** (clash 8, blend). The figure is Forest and sits at the Score Display role (§5 → Score Display). Every other number in the band drops to inline text. The hero-metric template stays banned (§6).
+- **Section** (Source Serif 4, 600, `--t-36`, 28 to 36px fluid, line-height 1.1, tracking -0.02em): section headings, the H2 on a detail page. Clash 9's blend added a larger section-heading role to the system. This is it.
+- **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages that are not detail pages. This is today's value, kept. It equals the `--t-fig` range (28 to 40px). The ramp names no H1 token, so the token for it is open.
+- **Title** (Source Serif 4, 600, `--t-24`, 1.5rem / 24px, line-height 1.25): sub-headings and section H2 within long-form content.
+- **Card title** (Source Serif 4, 600, `--t-20`, 1.25rem / 20px, line-height 1.1): the name on a card (`.card .nm` in the mock-up).
+- **Lede** (Atkinson Hyperlegible Next, 400, `--t-20`, 1.25rem / 20px, line-height 1.5): lede text under a heading (clash 9, blend). The mock-ups set it in the body sans. The blend named a lede role of about 1.1875rem. The ramp snaps it to 20px.
+- **Body** (Atkinson Hyperlegible Next, 400, `--t-16`, 1rem / 16px, line-height 1.6): default body and reading text, and nav links. Measure (65 to 75ch) caps prose blocks, never the page shell; see the Page-Width Rule below. **Use 700 (Bold) only for inline emphasis** — never for headings (those are Source Serif 4).
+- **Caption** (Atkinson Hyperlegible Next, 400, `--t-14`, 0.875rem / 14px, line-height 1.5): metadata, hints, timestamps, helper text. Defined as a role so components stop improvising this size. `PLAN.md` also lists "captions" at `--t-12`. Field captions take `--t-12` (below). Which other captions do is open.
+- **Label** (Atkinson Hyperlegible Next, 600, `--t-13`, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): chips, counts, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). Moved 700 → 600 in AECI-230: with a real 600 cut available, the calmer weight is the premium read at 13px. The taxonomy chip is weight 400 in the mock-up, so the 500 this section used to state for it no longer holds. §5 → Tags / taxonomy chips is updated by AECI-1743. Button text is `--t-14` in the ramp. The button size and weight belong to the button ruling (clash 20), which §5 owns.
+- **Overline** (Atkinson Hyperlegible Next, 600, `--t-12`, 0.75rem / 12px, line-height 1.4, tracking +0.08em, **uppercase**; clash 10, current): eyebrows, kickers, and sidebar microheadings ("Vendor", "Categories", "Filters", "At a glance") — the print-kicker role and the *only* sanctioned uppercase in the system (see the Sentence-Case Rule). Clash 10 kept this rule and changed the mock-up. Every kicker and microheading, including the Browse menu's, uses `.aec-overline`. The mock-up's sentence-case 14px kickers, its 12.5 to 13px bold microheadings and its 11px menu overline are dropped. So are the Clay-deep kicker icons (clash 4). Shipped as the `.aec-overline` class in `styles.css`; apply it on whatever element carries the right semantics (often `h2`/`h3` — the class beats the global heading serif rule, which is the point). Default color text secondary on a light ground. Forest for emphasis. The overline colour on a Forest ground is open (set by AECI-1747).
+
+Floors that hold whatever the ramp: the smallest text is 12px, body is 16px, prose measure is 65 to 75ch, and all text meets AA contrast (§2). No token goes below `--t-12`.
+
+**Fluid tokens use rem.** Each fluid bound is in rem, and the middle term is rem plus vw. They are checked at 200% zoom (WCAG 1.4.4). Do not copy the mock-ups' `clamp(40px, 5vw, 72px)` style values. Px bounds and a viewport-only middle term ignore the reader's font size and zoom.
+
+### Open values (set by AECI-1748 and AECI-1749)
+
+The weights, line heights and tracking stated above are starting values measured from the mock-ups. AECI-1748 confirms them. These stay open:
+
+- The `clamp()` expressions for the four fluid tokens, written to the rem rule above. `PLAN.md` gives the pixel bounds only, not the viewport widths.
+- The Tailwind `text-*` mapping table, including where `text-lg` and `text-3xl` land (AECI-1748).
+- The token for the H1 on content pages (Headline role).
+- The sizes of the global `h1`, `h2` and `h3` rules in `styles.css`, which the Unlayered-Heading Rule quotes (AECI-1748).
+- Any stray size that reaches the build snaps to the ramp (AECI-1749). The 18px card title is `text-lg`, so its landing step belongs to the mapping above (AECI-1748).
 
 ### Named Rules
 
 **The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
 
-**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.)
+**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. The live `/docs` h3 (serif, 1.125rem) is off the ramp until AECI-1748.
 
-**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (h1 `clamp(1.75rem…2.5rem)`, h2 1.5rem, h3 1.25rem) and the author's intent never renders. Two consequences:
+**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (today h1 `clamp(1.75rem…2.5rem)`, h2 1.5rem, h3 1.25rem) and the author's intent never renders. Two consequences:
 
 - **To size a heading, put the `text-*` utility on an inner `<span>`**, not on the heading element. The span inherits the display face from the heading and takes its own size. (`product-powered-hub.ts` does this for its card titles.)
 - **Don't "fix" it by moving the block into `@layer base` without an audit.** Doing so silently resizes every heading that currently carries a losing `text-*` utility — at the time of writing that is ~7 surfaces, including the `/search` integration hit card (`text-base` → would drop 1.25rem → 1rem, which the Serif-Floor Rule then forbids; the product and vendor hit cards no longer use a heading element, so the rule does not reach them), `browse-grid`, `products-pair` mechanism titles, `admin-shell`, and both taxonomy `h1`s. The block being unlayered is a bug, but unwinding it is its own scoped piece of work with per-surface decisions, not a drive-by.
@@ -323,7 +412,7 @@ The dark palette was removed from the active design system in **AECI-226**: AECi
 
 Inside the docs shell the canvas is the shell's content column: the docs home and section index widen into it, and articles keep 42rem.
 
-**The Two-Family Rule.** Source Serif 4 for display, headline, title. Atkinson Hyperlegible Next for body, label, overline, and caption. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
+**The Two-Family Rule.** Source Serif 4 for display, statement, figure, section, headline, title and card title. Atkinson Hyperlegible Next for lede, body, label, overline, and caption. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
 
 **The Reflex-Reject Rule.** This system explicitly does not use, and will reject any proposal to introduce: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson, Crimson Pro, Crimson Text, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair (Source Serif 4 + Atkinson Hyperlegible) is the answer; the reflex list is the question that has already been refused.
 
