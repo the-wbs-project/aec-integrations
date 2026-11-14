@@ -328,6 +328,149 @@ for (const viewport of [
   });
 }
 
+// Search inside the mobile menu (AECI-1775). Local dev has no Algolia keys, so
+// the config is injected and the query endpoint answered with ten hits: five
+// products and five vendors, the most the box shows.
+async function mockMenuSearch(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as unknown as { __AECI_ALGOLIA__: unknown }).__AECI_ALGOLIA__ = {
+      appId: 'E2ETEST',
+      searchKey: 'e2e',
+      indexes: { products: 'products', vendors: 'vendors', integrations: 'integrations' },
+    };
+  });
+  await page.route('**/1/indexes/*/queries**', async (route) => {
+    const body = route.request().postDataJSON() as { requests: { query?: string }[] };
+    const query = body.requests[0]?.query ?? '';
+    const products = Array.from({ length: 5 }, (_, i) => ({
+      objectID: `p${i}`,
+      name: `Fixture product ${i + 1}`,
+      slug: `fixture-product-${i + 1}`,
+      vendor_name: 'Fixture Vendor',
+    }));
+    const vendors = Array.from({ length: 5 }, (_, i) => ({
+      objectID: `v${i}`,
+      company_name: `Fixture vendor ${i + 1}`,
+      slug: `fixture-vendor-${i + 1}`,
+    }));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        results: [
+          { hits: products, nbHits: 5, query, params: '', index: 'products' },
+          { hits: vendors, nbHits: 5, query, params: '', index: 'vendors' },
+        ],
+      }),
+    });
+  });
+}
+
+type Box = { top: number; bottom: number; left: number; right: number };
+
+async function rect(locator: ReturnType<Page['locator']>): Promise<Box> {
+  return locator.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  });
+}
+
+/** True when the list hangs from the field: just below it, or just above it. */
+function attached(list: Box, field: Box): boolean {
+  return Math.abs(list.top - field.bottom - 4) <= 2 || Math.abs(field.top - list.bottom - 4) <= 2;
+}
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 844, height: 390 },
+] as const) {
+  test.describe(`mobile menu search (${viewport.width} by ${viewport.height})`, () => {
+    test.use({ viewport });
+
+    test('every suggestion can be reached, the list follows the field, and Escape closes the list first', async ({
+      page,
+    }) => {
+      await mockMenuSearch(page);
+      await page.goto(ROUTE);
+      await openMenu(page);
+
+      const field = menuPanel(page).getByRole('combobox', { name: 'Search' });
+      await field.scrollIntoViewIfNeeded();
+      // 44px, as the header pill is.
+      expect((await field.boundingBox())!.height).toBe(44);
+      await field.fill('fixture');
+
+      const list = page.getByRole('listbox', { name: 'Search suggestions' });
+      await expect(list).toBeVisible();
+      await expect(list.getByRole('option')).toHaveCount(10);
+
+      // The list sits on the screen, on one side of the field.
+      const listBox = await rect(list);
+      const fieldBox = await rect(field);
+      console.log(
+        `[AECI-1775] ${viewport.width}x${viewport.height} field ${JSON.stringify(fieldBox)} list ${JSON.stringify(listBox)}`,
+      );
+      expect(listBox.top).toBeGreaterThanOrEqual(0);
+      expect(listBox.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(listBox.right).toBeLessThanOrEqual(viewport.width);
+      expect(attached(listBox, fieldBox), 'the list hangs from the field').toBe(true);
+
+      // Every suggestion can be scrolled into view inside the list.
+      const options = list.getByRole('option');
+      for (let i = 0; i < 10; i++) {
+        await options.nth(i).scrollIntoViewIfNeeded();
+        await expect(options.nth(i)).toBeInViewport();
+      }
+
+      // The panel scrolls while the list is open: the list stays on the field.
+      await menuPanel(page).evaluate((el) => el.scrollBy(0, -60));
+      await expect
+        .poll(async () => attached(await rect(list), await rect(field)), {
+          message: 'the list is attached to the field after the panel scrolls',
+        })
+        .toBe(true);
+      await menuPanel(page).evaluate((el) => el.scrollBy(0, 60));
+      await expect.poll(async () => attached(await rect(list), await rect(field))).toBe(true);
+
+      // Escape: the first closes the list, the second the menu.
+      await field.focus();
+      await page.keyboard.press('Escape');
+      await expect(list).toBeHidden();
+      await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Escape');
+      await expect(menuPanel(page)).toBeHidden();
+      await expect(toggle(page)).toBeFocused();
+    });
+  });
+}
+
+// Decision C (AECI-1775): between md and lg the header shows its own Sign in.
+// While the menu is open it is inert, so it is hidden, keeping its space.
+test.describe('header right-hand group while the menu is open (900px)', () => {
+  test.use({ viewport: { width: 900, height: 800 } });
+
+  test('the inert Sign in is invisible while open, nothing shifts, and it returns on close', async ({
+    page,
+  }) => {
+    await page.goto(ROUTE);
+    // The header's own Sign in comes before the menu's in the DOM. A role query
+    // would skip it once it is invisible and find the menu's instead.
+    const headerSignIn = page.locator('aec-site-header a[href^="/auth/login"]').first();
+    await expect(headerSignIn).toBeVisible();
+    const before = (await toggle(page).boundingBox())!;
+
+    await openMenu(page);
+    expect(await computed(headerSignIn, 'visibility')).toBe('hidden');
+    const during = (await toggle(page).boundingBox())!;
+    expect(during.x).toBe(before.x);
+    // Only the menu's own Sign in is visible.
+    await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCount(1);
+
+    await page.keyboard.press('Escape');
+    await expect(headerSignIn).toBeVisible();
+    expect((await toggle(page).boundingBox())!.x).toBe(before.x);
+  });
+});
+
 test.describe('mobile menu on short and zoomed screens', () => {
   // A landscape phone: below `lg`, so the menu carries navigation, but only
   // 390px tall. The panel stops at the viewport and scrolls inside.
@@ -1150,15 +1293,6 @@ async function analyzeHeader(page: Page) {
   const results = await new AxeBuilder({ page })
     .withTags(AXE_TAGS)
     .include('aec-site-header')
-    .analyze();
-  return results.violations.map(formatViolation);
-}
-
-async function analyzeHeaderAndOverlay(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(AXE_TAGS)
-    .include('aec-site-header')
-    .include('.cdk-overlay-container')
     .analyze();
   return results.violations.map(formatViolation);
 }

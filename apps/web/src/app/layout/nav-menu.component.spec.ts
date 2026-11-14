@@ -173,6 +173,36 @@ describe('NavMenu (the mobile menu)', () => {
     expect(document.documentElement.style.overflow).toBe('');
   });
 
+  it('makes an element added while open inert too, and releases it on close', async () => {
+    const { settle } = await open();
+    const toast = document.createElement('div');
+    document.body.appendChild(toast);
+    const banner = document.createElement('section');
+    root.appendChild(banner);
+    const scrim = document.createElement('div');
+    scrim.setAttribute('data-nav-scrim', '');
+    root.appendChild(scrim);
+    // MutationObserver callbacks run as microtasks.
+    await Promise.resolve();
+    expect(toast.inert).toBe(true);
+    expect(banner.inert).toBe(true);
+    // The dimmer takes the click that closes the menu, so it stays live.
+    expect(scrim.inert).toBeFalsy();
+
+    key(document.activeElement!, 'Escape');
+    await settle();
+    expect(toast.inert).toBe(false);
+    expect(banner.inert).toBe(false);
+
+    // Closed, nothing watches: a new element stays live.
+    const late = document.createElement('div');
+    document.body.appendChild(late);
+    await Promise.resolve();
+    expect(late.inert).toBeFalsy();
+    toast.remove();
+    late.remove();
+  });
+
   it('traps focus: Tab from the last control wraps to the toggle, Shift+Tab from the toggle to the last', async () => {
     const { host, toggle } = await open();
     const focusable = Array.from(

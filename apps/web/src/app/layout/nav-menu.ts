@@ -24,10 +24,18 @@
  * host is hidden.
  *
  * **The page behind does not scroll.** `overflow: hidden` on the root element,
- * set on open and removed on close. Nothing moves the page, so its scroll
- * position is untouched and the router's scroll restoration never sees a
- * change (CLAUDE.md, "Router scroll restoration is already solved"). The panel
- * scrolls inside itself and does not chain to the page.
+ * set on open and removed on close. The lock itself never moves the page and
+ * never touches the router's scroll restoration (CLAUDE.md, "Router scroll
+ * restoration is already solved"). Focus can: opening focuses "All products"
+ * and closing focuses the toggle, and the browser scrolls a focused element
+ * into view if it is off screen. The panel scrolls inside itself and does not
+ * chain to the page.
+ *
+ * **Focus after a route change** goes where the router leaves it, which today is
+ * `<body>`, as for every other link on the site. Growing to `lg` hides the
+ * focused control, so focus drops to `<body>` too. The inline row that replaces
+ * the menu has no single counterpart to the toggle, so this menu does not pick
+ * one. A site-wide rule for focus after navigation is its own issue.
  *
  * **Why not `BrnPopover`.** The shipped menu was a Spartan popover in the CDK
  * overlay. Its dialog had no name (axe `aria-dialog-name`), its focus trap left
@@ -62,6 +70,7 @@ import {
   Injector,
   signal,
 } from '@angular/core';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationSkipped, NavigationStart, Router, RouterLink } from '@angular/router';
 
@@ -76,6 +85,7 @@ import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AecButton } from '../shared/button/button';
 import { AecIcon } from '../shared/icon/icon';
 
+import { inAppLinkPath } from './in-app-link-click';
 import { NavMenuAccount } from './nav-menu-account';
 import { NavMenuPanel } from './nav-menu-panel';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
@@ -108,7 +118,15 @@ const FOCUSABLE =
     // The panel's links are plain hrefs, so the eager host routes them.
     '(click)': 'onPanelClick($event)',
   },
-  imports: [AecButton, AecIcon, RouterLink, SearchAutocomplete, NavMenuAccount, NavMenuPanel],
+  imports: [
+    AecButton,
+    AecIcon,
+    CdkScrollable,
+    RouterLink,
+    SearchAutocomplete,
+    NavMenuAccount,
+    NavMenuPanel,
+  ],
   template: `
     <button
       type="button"
@@ -137,8 +155,11 @@ const FOCUSABLE =
 
     <!-- The panel's containing block is the header (relative in site-header.ts),
          so it spans the header under its bottom edge. Its height stops at the
-         viewport: 64px header below md, 76px from md. -->
+         viewport: 64px header below md, 76px from md. cdkScrollable registers
+         it as a scroll container, so the search list follows the field when the
+         panel scrolls. -->
     <div
+      cdkScrollable
       [id]="panelId"
       [hidden]="!isOpen()"
       class="absolute inset-x-0 top-full z-10 max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain rounded-b-card border-x border-b bg-(--surface-base) text-start text-(--text-primary) shadow-menu md:max-h-[calc(100dvh-76px)]"
@@ -159,6 +180,8 @@ const FOCUSABLE =
             class="mt-6 block"
             inputId="mobile-search"
             inputClass="w-full"
+            inputHeightClass="h-11"
+            [fitToViewport]="true"
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
@@ -221,6 +244,8 @@ export class NavMenu {
 
   /** Elements this menu made inert, so close undoes exactly those. */
   private inerted: HTMLElement[] = [];
+  /** Watches the walked parents while open, so a late sibling goes inert too. */
+  private inertObserver: MutationObserver | null = null;
   /** The root element's inline styles before the scroll lock, restored on close. */
   private lockedStyles: { overflow: string; scrollbarGutter: string } | null = null;
 
@@ -285,6 +310,8 @@ export class NavMenu {
 
   /** Undo the scroll lock and the inert walk. */
   private release(): void {
+    this.inertObserver?.disconnect();
+    this.inertObserver = null;
     for (const element of this.inerted) element.inert = false;
     this.inerted = [];
     if (this.lockedStyles) {
@@ -296,9 +323,9 @@ export class NavMenu {
   }
 
   /**
-   * `overflow: hidden` on the root element stops the page scrolling without
-   * moving it. Where the page shows a classic scrollbar, `scrollbar-gutter`
-   * keeps its width, so the header does not shift sideways.
+   * `overflow: hidden` on the root element stops the page scrolling, and setting
+   * it does not move the page. Where the page shows a classic scrollbar,
+   * `scrollbar-gutter` keeps its width, so the header does not shift sideways.
    */
   private lockScroll(): void {
     const root = this.document.documentElement;
@@ -318,21 +345,42 @@ export class NavMenu {
    * closes the menu on a click, and the CDK overlay container, where a popup
    * opened from inside the menu would render. Elements already inert are not
    * touched, so close restores exactly what open changed.
+   *
+   * The walk is a snapshot, so a `MutationObserver` watches each walked parent
+   * while open. An element added later beside the path (a toast, a banner)
+   * goes inert too, and close releases it with the rest.
    */
   private setInert(): void {
+    const parents: HTMLElement[] = [];
     let node: HTMLElement | null = this.host;
     while (node && node !== this.document.body) {
       const parent: HTMLElement | null = node.parentElement;
       if (!parent) break;
-      for (const sibling of Array.from(parent.children) as HTMLElement[]) {
-        if (sibling === node || sibling.inert) continue;
-        if (sibling.hasAttribute('data-nav-scrim')) continue;
-        if (sibling.classList.contains('cdk-overlay-container')) continue;
-        sibling.inert = true;
-        this.inerted.push(sibling);
-      }
+      for (const sibling of Array.from(parent.children)) this.makeInert(sibling, node);
+      parents.push(parent);
       node = parent;
     }
+    const Observer = this.document.defaultView?.MutationObserver;
+    if (!Observer) return;
+    this.inertObserver = new Observer((records) => {
+      for (const record of records) {
+        const path = Array.from(record.target.childNodes).find((child) =>
+          child.contains(this.host),
+        );
+        for (const added of Array.from(record.addedNodes)) this.makeInert(added, path);
+      }
+    });
+    for (const parent of parents) this.inertObserver.observe(parent, { childList: true });
+  }
+
+  /** Make `element` inert unless it is on the path to the host or is left alone. */
+  private makeInert(element: Node, path: Node | null | undefined): void {
+    if (!(element instanceof this.document.defaultView!.HTMLElement)) return;
+    if (element === path || element.inert || element.contains(this.host)) return;
+    if (element.hasAttribute('data-nav-scrim')) return;
+    if (element.classList.contains('cdk-overlay-container')) return;
+    element.inert = true;
+    this.inerted.push(element);
   }
 
   /**
@@ -384,16 +432,8 @@ export class NavMenu {
    * browser. A replayed click already ran its native default, a full page load.
    */
   protected onPanelClick(event: MouseEvent): void {
-    if (isReplayedEvent(event) || event.defaultPrevented) return;
-    const link = (event.target as Element | null)?.closest?.(`#${this.panelId} a[href]`);
-    const href = link?.getAttribute('href');
-    // Only a same-origin path is routed in the app. A protocol-relative
-    // `//host` href, a `target` or a `download` link stays the browser's.
-    if (!href?.startsWith('/') || href.startsWith('//')) return;
-    if (link?.hasAttribute('target') || link?.hasAttribute('download')) return;
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-      return;
-    }
+    const href = inAppLinkPath(event, `#${this.panelId} a[href]`);
+    if (!href) return;
     event.preventDefault();
     this.close(false);
     void this.router.navigateByUrl(href);

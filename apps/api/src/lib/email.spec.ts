@@ -691,7 +691,7 @@ describe('sendClaimApprovedEmail', () => {
       const text = String(body.text);
       const html = String(body.html);
       expect(text).toContain(
-        'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left. You can also go to https://aecintegrations.com/vendor?utm_source=email&utm_campaign=claim-approved',
+        'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right. You can also go to https://aecintegrations.com/vendor?utm_source=email&utm_campaign=claim-approved',
       );
       expect(html).toContain(
         'href="https://aecintegrations.com/vendor?utm_source=email&amp;utm_campaign=claim-approved"',
@@ -711,7 +711,7 @@ describe('sendClaimApprovedEmail', () => {
     });
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain(
-      'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.',
+      'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right.',
     );
     expect(text).not.toContain('You can also go to');
   });

@@ -45,7 +45,7 @@ If your sign-in has fully ended, most pages simply show you as signed out. Pages
 
 ## Sign out
 
-Open the account menu, the round button at the top right of any page. On a phone, open the menu at the top left instead. Choose **Sign out**. You are signed out and taken to the home page. If it shows "Couldn't sign out. Try again.", choose Sign out again.
+Open the account menu, the round button at the top right of any page. On a phone, open the menu (**Menu**, at the top right) instead. Choose **Sign out**. You are signed out and taken to the home page. If it shows "Couldn't sign out. Try again.", choose Sign out again.
 
 ## Related
 

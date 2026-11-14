@@ -1050,7 +1050,7 @@ export function sendVendorReviewPublishedEmail(
  *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
  *     copy tells them it exists and which address to use. A second line (AECI-1437)
  *     says where the portal lives for later visits: the header's account menu
- *     (top left on a phone), or `/vendor` as an inline link. Sign in stays the one button.
+ *     (top right on a phone, inside the menu), or `/vendor` as an inline link. Sign in stays the one button.
  *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
  *  3. **How Managed works:** licenses on the company's billing account, one per
  *     product, bought later from Billing. It names no price.
@@ -1086,7 +1086,7 @@ export function sendClaimApprovedEmail(
   // (`layout/user-menu.ts`). Without a host the line names the menu only.
   const portal = portalUrl(c.env);
   const findAgain =
-    'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.';
+    'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right.';
 
   // Block 2: what Free includes (§13.3). Every seat holds these on every plan.
   const free =

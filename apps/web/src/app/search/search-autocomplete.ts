@@ -71,6 +71,7 @@ import {
   effect,
   ElementRef,
   inject,
+  Injector,
   input,
   output,
   signal,
@@ -78,7 +79,13 @@ import {
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
-import { OverlayModule } from '@angular/cdk/overlay';
+import {
+  type ConnectedPosition,
+  createRepositionScrollStrategy,
+  OverlayModule,
+  type ScrollStrategy,
+} from '@angular/cdk/overlay';
+import { ScrollDispatcher } from '@angular/cdk/scrolling';
 import { NgTemplateOutlet } from '@angular/common';
 
 import { Analytics } from '../analytics/analytics';
@@ -99,6 +106,13 @@ const DEFAULT_FIELD_CLASS =
  * the field's hover.
  */
 const PILL_FIELD_CLASS = 'peer pe-20 ps-12 [&::-webkit-search-cancel-button]:appearance-none';
+
+/** `fitToViewport`: the gap to the field, the margin to the screen edge, the cap. */
+const LIST_GAP = 4;
+const LIST_MARGIN = 8;
+const LIST_MAX = 384;
+/** With less room than this under the field, the list opens above if there is more room there. */
+const LIST_PREFERRED_MIN = 240;
 
 /** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
 const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
@@ -199,7 +213,11 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
         w-[min(22rem,…)] (the header input is only w-52, so matchWidth would truncate titles).
       -->
       <ng-template
-        [cdkConnectedOverlay]="{ origin: acOrigin, usePopover: 'inline', matchWidth: false }"
+        [cdkConnectedOverlay]="
+          fitToViewport()
+            ? fitOverlayConfig()
+            : { origin: acOrigin, usePopover: 'inline', matchWidth: false }
+        "
         [cdkConnectedOverlayOpen]="expanded()"
       >
         <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
@@ -223,6 +241,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
               selectionMode="explicit"
               i18n-aria-label="@@app.search.autocomplete.listbox.aria"
               aria-label="Search suggestions"
+              [style.max-height.px]="listMaxHeight()"
               class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
             >
               @for (s of suggestions(); track s.objectID) {
@@ -315,6 +334,17 @@ export class SearchAutocomplete {
    * the field must show which product was picked.
    */
   readonly fillOnSelect = input(false);
+  /**
+   * Fit the suggestion list to the visible screen (AECI-1775). Off by default, so
+   * the header pill, the home hero and the claim dialog keep the shipped
+   * placement. The mobile menu sets it: there the field sits low in a panel that
+   * scrolls while the page is locked, so a list that only opens downward runs off
+   * the screen. With it set, the list opens below the field when there is room
+   * and above it when there is more room there, its height is capped to the space
+   * on that side (it scrolls inside), and it follows the field when a
+   * `cdkScrollable` ancestor scrolls.
+   */
+  readonly fitToViewport = input(false);
 
   /** Emitted when Enter is pressed with no suggestion chosen → `/search?q=`. */
   readonly querySubmitted = output<string>();
@@ -340,6 +370,46 @@ export class SearchAutocomplete {
   protected readonly placeholderText = computed(
     () => this.placeholder() ?? this.defaultPlaceholder,
   );
+
+  private readonly injector = inject(Injector);
+  private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly scrollDispatcher = inject(ScrollDispatcher);
+  /** The list's height cap while `fitToViewport` is set; null leaves the class cap. */
+  protected readonly listMaxHeight = signal<number | null>(null);
+  /** Open above the field: there is more room above than below. */
+  private readonly listAbove = signal(false);
+  private repositionStrategy: ScrollStrategy | undefined;
+
+  /**
+   * The overlay config for a `fitToViewport` mount. The side with more room comes
+   * first and the other is the fallback. The reposition strategy moves the list
+   * with the field when a registered scroll container scrolls. The default
+   * mounts bind the literal config in the template, unchanged.
+   */
+  protected readonly fitOverlayConfig = computed(() => {
+    this.repositionStrategy ??= createRepositionScrollStrategy(this.injector);
+    const below: ConnectedPosition = {
+      originX: 'start',
+      originY: 'bottom',
+      overlayX: 'start',
+      overlayY: 'top',
+      offsetY: LIST_GAP,
+    };
+    const above: ConnectedPosition = {
+      originX: 'start',
+      originY: 'top',
+      overlayX: 'start',
+      overlayY: 'bottom',
+      offsetY: -LIST_GAP,
+    };
+    return {
+      origin: this.inputEl(),
+      usePopover: 'inline' as const,
+      matchWidth: false,
+      positions: this.listAbove() ? [above, below] : [below, above],
+      scrollStrategy: this.repositionStrategy,
+    };
+  });
 
   private readonly factory = inject(AUTOCOMPLETE_SEARCH_FACTORY);
   private readonly analytics = inject(Analytics);
@@ -399,6 +469,19 @@ export class SearchAutocomplete {
         });
     });
 
+    // fitToViewport: measure the room on each side when the list opens, and again
+    // whenever a scroll container around the field scrolls.
+    effect(() => {
+      if (this.fitToViewport() && this.expanded()) this.fitList();
+    });
+    afterNextRender(() => {
+      if (!this.fitToViewport()) return;
+      const sub = this.scrollDispatcher
+        .ancestorScrolled(this.hostRef, 0)
+        .subscribe(() => this.fitList());
+      this.destroyRef.onDestroy(() => sub.unsubscribe());
+    });
+
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.controller()?.dispose();
@@ -422,6 +505,25 @@ export class SearchAutocomplete {
   isFocused(): boolean {
     const el = this.inputEl()?.nativeElement;
     return !!el && el.ownerDocument.activeElement === el;
+  }
+
+  /**
+   * Pick the side with room and cap the list to it. The visible viewport is
+   * used where the browser reports one, so a phone keyboard counts as taken
+   * space. The cap is never above the shipped 24rem.
+   */
+  private fitList(): void {
+    const el = this.inputEl()?.nativeElement;
+    const view = el?.ownerDocument.defaultView;
+    if (!el || !view) return;
+    const rect = el.getBoundingClientRect();
+    const top = view.visualViewport?.offsetTop ?? 0;
+    const bottom = top + (view.visualViewport?.height ?? view.innerHeight);
+    const below = bottom - rect.bottom - LIST_GAP - LIST_MARGIN;
+    const above = rect.top - top - LIST_GAP - LIST_MARGIN;
+    const useAbove = below < LIST_PREFERRED_MIN && above > below;
+    this.listAbove.set(useAbove);
+    this.listMaxHeight.set(Math.max(0, Math.min(LIST_MAX, Math.floor(useAbove ? above : below))));
   }
 
   protected onInput(event: Event): void {

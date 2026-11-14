@@ -121,7 +121,7 @@ import { UserMenu } from './user-menu';
           (suggestionChosen)="onSuggestion($event)"
         />
         <!--
-          AECI-544: the inline nav takes over from the hamburger at lg, not md.
+          AECI-544: the inline nav takes over from the mobile menu at lg, not md.
           AECI-1771 re-measured it on Forest and it still does not fit at md.
           If this ever moves, three classes move together: this lg:flex,
           aec-nav-menu's lg:hidden and the search pill's lg:block. A mismatch
