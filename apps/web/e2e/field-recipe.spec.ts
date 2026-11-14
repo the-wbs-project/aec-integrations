@@ -77,11 +77,21 @@ test.describe('the shared field recipe (AECI-1764)', () => {
       const cs = getComputedStyle(el, '::before');
       return {
         width: cs.width,
+        lineDisplay: getComputedStyle(el).display,
+        boxWidth: (() => {
+          // A pseudo-element with no box still reports a computed width, so
+          // measure the room the glyph takes: the text must start 24px in.
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return range.getBoundingClientRect().left - el.getBoundingClientRect().left;
+        })(),
         mask: cs.maskImage !== 'none' ? cs.maskImage : cs.getPropertyValue('-webkit-mask-image'),
         colour: cs.backgroundColor,
       };
     });
     expect(icon.width).toBe('16px');
+    expect(icon.lineDisplay).toBe('flex');
+    expect(icon.boxWidth).toBeGreaterThanOrEqual(23);
     expect(icon.mask).toContain('url(');
 
     // Forced colours: the glyph must not paint the canvas colour.

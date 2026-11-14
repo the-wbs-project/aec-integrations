@@ -54,6 +54,12 @@ describe('.aec-field-control', () => {
 });
 
 describe('.aec-field-error', () => {
+  it('lays the line out as a flex row in CSS, so hand-copied lines get the glyph box', () => {
+    const line = rule('.aec-field-error');
+    expect(line).toMatch(/display:\s*flex/);
+    expect(line).toMatch(/gap:\s*0\.5rem/);
+  });
+
   it('draws a 16px glyph before the message as a mask', () => {
     const before = rule('.aec-field-error::before');
     expect(before).toContain('mask:');
