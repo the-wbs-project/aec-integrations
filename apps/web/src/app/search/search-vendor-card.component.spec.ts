@@ -64,3 +64,16 @@ describe('SearchVendorCard', () => {
     expect(el.textContent).not.toContain('account active');
   });
 });
+
+describe('SearchVendorCard surface (AECI-1765)', () => {
+  it('is a lifting shadowed card whose link name is the company alone', () => {
+    const el = setup();
+    const link = el.querySelector('a')!;
+    expect(link.classList.contains('shadow-card')).toBe(true);
+    expect(link.classList.contains('motion-safe:hover:-translate-y-1')).toBe(true);
+    expect(link.getAttribute('aria-label')).toBe('Procore Technologies');
+    const title = el.querySelector('p')!;
+    expect(title.classList.contains('text-t-20')).toBe(true);
+    expect(title.classList.contains('leading-tight')).toBe(true);
+  });
+});

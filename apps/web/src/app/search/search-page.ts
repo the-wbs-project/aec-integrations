@@ -405,7 +405,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                                 </div>
                               }
                               @default {
-                                <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                <ul role="list" class="aec-card-grid">
                                   @for (hit of hits; track hit.objectID) {
                                     <li class="min-w-0">
                                       <aec-search-product-card [record]="hit" />
@@ -481,7 +481,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                                 </div>
                               }
                               @default {
-                                <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                <ul role="list" class="aec-card-grid">
                                   @for (hit of hits; track hit.objectID) {
                                     <li class="min-w-0">
                                       <aec-search-vendor-card [record]="hit" />
@@ -567,11 +567,11 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     -->
     <ng-template #resultsSkeleton>
       <div aria-hidden="true">
-        <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul class="aec-card-grid">
           @for (card of skeletonCards; track card) {
             <li>
               <div
-                class="flex min-h-32 flex-col gap-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+                class="flex min-h-32 flex-col gap-3 rounded-card border border-(--border-default) bg-(--surface-raised) p-5"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div

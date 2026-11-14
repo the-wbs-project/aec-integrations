@@ -1,6 +1,8 @@
 import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard } from '../shared/card/card';
+
 import type { AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
 import { IntegrationStat } from '../products/integration-stat';
@@ -19,21 +21,24 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  */
 @Component({
   selector: 'aec-search-vendor-card',
-  imports: [RouterLink, IntegrationStat, LogoOrInitial],
+  imports: [RouterLink, AecCard, IntegrationStat, LogoOrInitial],
   host: { class: 'block h-full' },
   template: `
     <a
+      aecCard
+      interactive
       [routerLink]="['/vendors', record().slug]"
-      class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-        bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
-        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [attr.aria-label]="record().company_name"
+      class="group flex h-full flex-col gap-4 p-6 no-underline focus-visible:outline-(--accent-primary)"
     >
       <div class="flex items-start justify-between gap-3">
         <aec-logo-or-initial [src]="record().logo_url" [name]="record().company_name" size="sm" />
         <aec-integration-stat [count]="record().integration_count" variant="badge" />
       </div>
       <div class="min-w-0 flex-1">
-        <p class="truncate font-display text-lg font-semibold text-(--text-primary)">
+        <p
+          class="truncate font-display text-t-20 leading-tight font-semibold text-(--text-primary) transition-colors group-hover:text-(--accent-primary)"
+        >
           {{ record().company_name }}
         </p>
         @if (record().headquarters; as hq) {

@@ -100,3 +100,17 @@ describe('SearchProductCard', () => {
     expect(el.textContent).toMatch(/1\s*integration(?!s)/);
   });
 });
+
+describe('SearchProductCard surface (AECI-1765)', () => {
+  it('is a lifting shadowed card whose link name is the product alone', () => {
+    const el = setup();
+    const link = el.querySelector('a')!;
+    expect(link.classList.contains('shadow-card')).toBe(true);
+    expect(link.classList.contains('rounded-card')).toBe(true);
+    expect(link.classList.contains('motion-safe:hover:-translate-y-1')).toBe(true);
+    expect(link.getAttribute('aria-label')).toBe(baseRecord.name);
+    const title = el.querySelector('p')!;
+    expect(title.classList.contains('text-t-20')).toBe(true);
+    expect(title.classList.contains('leading-tight')).toBe(true);
+  });
+});

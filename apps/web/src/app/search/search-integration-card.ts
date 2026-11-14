@@ -1,6 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard } from '../shared/card/card';
+
 import { defaultIntegrationContext } from '@aeci/shared';
 import type { AlgoliaIntegrationRecord } from '@aeci/shared/algolia-records';
 
@@ -21,16 +23,17 @@ import { directionLabel, mechanismKindLabel } from './mechanism-labels';
  */
 @Component({
   selector: 'aec-search-integration-card',
-  imports: [RouterLink],
+  imports: [RouterLink, AecCard],
   host: { class: 'block h-full' },
   template: `
-    <article
-      class="group relative flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 transition-colors hover:border-(--border-strong)"
-    >
-      <h3 class="font-display text-base font-semibold tracking-tight text-(--text-primary)">
+    <article aecCard interactive class="group relative flex h-full flex-col p-6">
+      <h3 class="text-(--text-primary)">
+        <!-- The card title is the heading's link (a stretched link). The size sits on the
+             block anchor, not the h3: the unlayered h3 rule beats a text-* utility on
+             the h3 itself (DESIGN.md, the Unlayered-Heading Rule). -->
         <a
           [routerLink]="pairLink()"
-          class="rounded-sm transition-colors after:absolute after:inset-0 group-hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="block rounded-sm text-t-20 leading-tight transition-colors after:absolute after:inset-0 after:rounded-card group-hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >
           {{ record().source_product_name }}
           <span class="inline-block text-(--text-secondary) rtl:-scale-x-100" aria-hidden="true"

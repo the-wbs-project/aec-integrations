@@ -63,3 +63,18 @@ describe('SearchIntegrationCard', () => {
     expect(el.textContent).not.toContain('Bidirectional');
   });
 });
+
+describe('SearchIntegrationCard surface (AECI-1765)', () => {
+  it('is a shadowed card with the title size on the block link, not the h3', () => {
+    const el = setup();
+    const article = el.querySelector('article')!;
+    expect(article.classList.contains('shadow-card')).toBe(true);
+    expect(article.classList.contains('rounded-card')).toBe(true);
+    const h3 = el.querySelector('h3')!;
+    // The unlayered h3 rule beats a text-* utility on the h3 itself.
+    expect(h3.className).not.toMatch(/text-(t-|base|lg)/);
+    const link = h3.querySelector('a')!;
+    expect(link.classList.contains('text-t-20')).toBe(true);
+    expect(link.classList.contains('leading-tight')).toBe(true);
+  });
+});

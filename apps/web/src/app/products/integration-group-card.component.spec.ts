@@ -151,3 +151,17 @@ describe('IntegrationGroupCard', () => {
     expect(el.querySelector('a')).toBeNull();
   });
 });
+
+describe('IntegrationGroupCard surface (AECI-1765)', () => {
+  it('is the shared card, clipped, with the name at the card-title role', () => {
+    const { el } = setup();
+    const section = el.querySelector('section')!;
+    expect(section.classList.contains('shadow-card')).toBe(true);
+    expect(section.classList.contains('rounded-card')).toBe(true);
+    expect(section.classList.contains('overflow-hidden')).toBe(true);
+    const name = el.querySelector('h3 button span span')!;
+    expect(name.classList.contains('text-t-20')).toBe(true);
+    expect(name.classList.contains('leading-tight')).toBe(true);
+    expect(name.classList.contains('text-lg')).toBe(false);
+  });
+});

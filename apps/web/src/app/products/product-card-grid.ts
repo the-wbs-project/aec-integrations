@@ -1,6 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard, CARD_GRID_CLASS } from '../shared/card/card';
+
 import type { ProductListItem } from '@aeci/shared';
 
 import { RatingSummary } from '../reviews/rating-summary';
@@ -28,17 +30,18 @@ import { RoleBadge } from './role-badge';
  */
 @Component({
   selector: 'aec-product-card-grid',
-  imports: [RouterLink, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
+  imports: [RouterLink, AecCard, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
   template: `
-    <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <ul role="list" [class]="gridClass">
       @if (featured(); as product) {
         <li class="sm:col-span-2 lg:col-span-2">
           <a
+            aecCard
+            interactive
+            tone="warm"
             [routerLink]="['/products', product.slug]"
-            class="flex h-full flex-col gap-4 rounded-(--radius-lg) border border-(--border-default)
-              bg-(--accent-warm) p-6 no-underline transition-colors hover:border-(--border-strong)
-              focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              md:p-8"
+            [attr.aria-label]="product.name"
+            class="group flex h-full flex-col gap-4 p-6 no-underline focus-visible:outline-(--accent-primary) md:p-8"
           >
             <div class="flex items-start justify-between gap-4">
               <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="lg" />
@@ -60,7 +63,9 @@ import { RoleBadge } from './role-badge';
               }
             </div>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-2xl font-semibold text-(--text-primary) md:text-3xl">
+              <p
+                class="font-display text-2xl leading-tight font-semibold text-(--text-primary) transition-colors group-hover:text-(--accent-primary) md:text-3xl"
+              >
                 {{ product.name }}
               </p>
               <p class="mt-1 text-sm text-(--text-secondary)">
@@ -94,17 +99,20 @@ import { RoleBadge } from './role-badge';
       @for (product of rest(); track product.id) {
         <li>
           <a
+            aecCard
+            interactive
             [routerLink]="['/products', product.slug]"
-            class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-              bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
-              focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [attr.aria-label]="product.name"
+            class="group flex h-full flex-col gap-4 p-6 no-underline focus-visible:outline-(--accent-primary)"
           >
             <div class="flex items-start justify-between gap-3">
               <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="sm" />
               <aec-integration-stat [count]="product.integration_count" variant="badge" />
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate font-display text-lg font-semibold text-(--text-primary)">
+              <p
+                class="truncate font-display text-t-20 leading-tight font-semibold text-(--text-primary) transition-colors group-hover:text-(--accent-primary)"
+              >
                 {{ product.name }}
               </p>
               <p class="mt-0.5 truncate text-sm text-(--text-secondary)">
@@ -134,6 +142,8 @@ import { RoleBadge } from './role-badge';
   `,
 })
 export class ProductCardGrid {
+  protected readonly gridClass = CARD_GRID_CLASS;
+
   readonly products = input.required<readonly ProductListItem[]>();
   /**
    * When true, the first product is promoted to the wide "broken-grid" lead

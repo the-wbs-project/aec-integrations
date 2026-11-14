@@ -82,3 +82,32 @@ describe('ProductCardGrid role chip row', () => {
     expect(root.querySelector('a[href^="/categories/"]')).toBeNull();
   });
 });
+
+describe('ProductCardGrid card surface (AECI-1765)', () => {
+  it('caps the grid at three columns with the shared grid class', () => {
+    const root = render(DefaultHost);
+    expect(root.querySelector('ul')?.classList.contains('aec-card-grid')).toBe(true);
+  });
+
+  it('each card is a lifting 24px shadowed card named by the product alone', () => {
+    const root = render(DefaultHost);
+    const links = Array.from(root.querySelectorAll('li > a'));
+    expect(links).toHaveLength(2);
+    for (const [i, a] of links.entries()) {
+      expect(a.classList.contains('shadow-card')).toBe(true);
+      expect(a.classList.contains('rounded-card')).toBe(true);
+      expect(a.classList.contains('motion-safe:hover:-translate-y-1')).toBe(true);
+      expect(a.className).not.toContain('hover:border');
+      // The whole card text is not the link name (PLAN.md 10.2).
+      expect(a.getAttribute('aria-label')).toBe(`Product ${i + 1}`);
+    }
+  });
+
+  it('the card title takes the card-title role with a tight line', () => {
+    const root = render(DefaultHost);
+    const title = root.querySelectorAll('li > a')[1].querySelector('p')!;
+    expect(title.classList.contains('text-t-20')).toBe(true);
+    expect(title.classList.contains('leading-tight')).toBe(true);
+    expect(title.classList.contains('text-lg')).toBe(false);
+  });
+});
