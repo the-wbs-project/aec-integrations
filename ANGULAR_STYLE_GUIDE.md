@@ -245,6 +245,28 @@ Lint: ✅ `@angular-eslint/template/prefer-ngsrc`.
 
 ---
 
+## 14a. Icons: `aec-icon`
+
+AECI-1753, ruling 34 (ADR 0056). A custom icon set at 1.75 stroke replaces "Lucide icons exclusively". New icons go through `aec-icon` (`apps/web/src/app/shared/icon/`). Do not paste an inline `<svg>` for a UI glyph. Existing inline SVGs migrate page by page under AECI-1720. Charts, brand marks and filled social glyphs are not icons and stay as they are.
+
+Every use states its intent. The selector is `aec-icon[label], aec-icon[decorative]`, so an `<aec-icon>` with neither fails to compile with NG8001.
+
+- **Decorative:** `<aec-icon name="search" decorative />`. The SVG is `aria-hidden="true"` with no name. Use it whenever visible text beside the icon says the same thing, and inside a control that has its own name.
+- **Meaningful:** `<aec-icon name="alert-circle" label="Needs review" />` or `[label]="alertLabel"`. The SVG becomes `role="img"` with that accessible name. Pass the label already localised (`$localize` or an `i18n-label` attribute on the caller). A bound label that resolves blank falls back to decorative and logs a `console.warn` in dev mode only.
+- **Size:** `[size]="3.5 | 4 | 5 | 6"` is 14, 16, 20 or 24px. The default is 5. Never size an icon with arbitrary pixel classes.
+- **Colour:** the icon is `currentColor` only. Set a text colour on the parent. Inherited properties such as `color` reach the SVG through the host. A class on `<aec-icon>` does not size, space or flip it, because the host is `display: contents`. Use `size` and `mirrorRtl`, and put spacing on a wrapper.
+- **Direction:** set `[mirrorRtl]="true"` for an icon that points along the line, such as an arrow or chevron.
+- **Name:** `name` is typed `AecIconName`, derived from the registry keys. An unknown name fails to compile.
+- **Vocabulary icons:** a drawing is named for what it shows. The data-object and facet icons live in `DATA_OBJECT_ICONS` and `FACET_ICONS` in `icon-maps.ts`, typed over the full vocabulary. `null` means no drawing exists yet.
+
+**Adding an icon:** add one kebab-case key to `AEC_ICONS` in `icon-registry.ts`, in alphabetical order, named for what it draws and not where it is used. Write it as shapes (`p` path, `c` circle, `r` rounded rect), stroke-only, in the 24 x 24 box. Do not add colours or fills. If the path data is copied from Lucide, mark the entry `// Lucide` and keep the licence notice at the top of the file and in `apps/web/public/third-party-notices.txt`. esbuild strips source comments, so the public file is the notice that ships (`/third-party-notices.txt`). Add no other icon dependency. `icon.component.spec.ts` checks key format, that no shape carries colour, and that no two icons draw the same.
+
+**Adding a vocabulary slug:** add it to `DATA_OBJECT_SLUGS` and `DATA_OBJECT_ICONS` in `icon-maps.ts`. `icon-maps.spec.ts` compares the slugs with `docs/data-object-vocabulary.json`.
+
+Lint: the label rule is compile-enforced (NG8001). "No inline `<svg>` for a UI glyph" is 🟡 review-only.
+
+---
+
 ## 15. Lifecycle hooks
 
 - Implement the matching interface (`OnInit`, `OnDestroy`, etc.) on the class — don't just define the method. Lint: ✅ `@angular-eslint/use-lifecycle-interface`.
@@ -511,6 +533,7 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 | `@angular-eslint/template/no-any` | error | §8 |
 | `@angular-eslint/template/prefer-ngsrc` | error | §14 |
 | `angular.configs.templateAccessibility` (full set) | error | §21 |
+| `aec-icon` must carry `label` or `decorative` (selector `aec-icon[label], aec-icon[decorative]`, NG8001 at build, not lint) | compile error | §14a |
 
 ### Review-only (no lint enforcement)
 
@@ -518,6 +541,7 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 |---|---|
 | Hydration provider order and `withI18nSupport()` presence (the zoneless *provider* is lint-enforced via the `NgZone` / `provideZoneChangeDetection` import ban; ordering is not, and a missing `withI18nSupport()` is caught by `e2e/ssr-hydration-contract.spec.ts`, not lint) | §3 |
 | Omit explicit `changeDetection` (OnPush is the v22 default) | §5 |
+| No inline `<svg>` for a UI glyph (use `aec-icon`) | §14a |
 | `ngStyle` ban (use `[style.X]`) | §8 |
 | Async pipe for observables | §8 |
 | No browser globals at template render (`new Date()`) | §8, §16 |
