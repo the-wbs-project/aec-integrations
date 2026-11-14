@@ -32,6 +32,24 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 /** App design-token namespaces this guard governs. */
 const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus)-/;
 
+/**
+ * AECI-1750: the role-named radius and shadow tokens. `--radius-sm|md|lg|xl|2xl…`
+ * are Spartan's, defined outside `styles.css`, so the radius namespace is guarded
+ * by name, not by prefix: a `--radius-<x>` or `--shadow-<x>` reference whose name
+ * is neither Spartan's nor in this list is an undefined token.
+ */
+const ROLE_TOKENS = [
+  'radius-mark',
+  'radius-control',
+  'radius-panel',
+  'radius-card',
+  'radius-pill',
+  'shadow-card',
+  'shadow-menu',
+];
+const SPARTAN_RADII = /^radius-(sm|md|lg|xl|2xl|3xl|4xl)$/;
+const ROLE_NAMESPACE = /^(radius|shadow)-/;
+
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
 
@@ -87,6 +105,47 @@ describe('design tokens', () => {
     expect(
       violations,
       `Undefined design tokens referenced (define them in styles.css):\n${violations
+        .map((v) => `  ${v.token} — ${v.file}`)
+        .join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('declares every radius and shadow role token in :root and exposes it in @theme inline (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    for (const token of ROLE_TOKENS) {
+      expect(definedTokens, `--${token} must be declared in styles.css`).toContain(token);
+      expect(theme, `--${token} must be exposed in @theme inline`).toContain(
+        `--${token}: var(--${token});`,
+      );
+    }
+  });
+
+  it('keeps the shadows pure black and the modal shadow out of the tokens (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    for (const name of ['shadow-card', 'shadow-menu']) {
+      const value = css.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1] ?? '';
+      expect(value, `--${name} must declare a value`).not.toBe('');
+      for (const rgb of value.matchAll(/rgb\(([^)]*)\)/g)) {
+        expect(rgb[1], `--${name} must be pure black`).toMatch(/^0 0 0 \//);
+      }
+    }
+  });
+
+  it('has no reference to an undefined radius or shadow role token (AECI-1750)', () => {
+    const violations: { token: string; file: string }[] = [];
+    for (const file of walk(SRC_DIR)) {
+      if (file === SELF) continue;
+      for (const token of collectMatches(readFileSync(file, 'utf8'), REFERENCE_RE)) {
+        if (!ROLE_NAMESPACE.test(token) || SPARTAN_RADII.test(token)) continue;
+        if (!definedTokens.has(token)) {
+          violations.push({ token: `--${token}`, file: file.slice(SRC_DIR.length + 1) });
+        }
+      }
+    }
+    expect(
+      violations,
+      `Undefined radius/shadow tokens referenced:\n${violations
         .map((v) => `  ${v.token} — ${v.file}`)
         .join('\n')}`,
     ).toEqual([]);

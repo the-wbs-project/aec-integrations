@@ -220,8 +220,50 @@
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
+  /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius.
+     UNCHANGED by AECI-1750: rounded-sm|md|lg|xl still render 4.8, 6.4, 8 and
+     11.2px, because the vendor portal and admin use them 812 times and ruling R2
+     (2026-11-14) says those surfaces take the new tokens and nothing more. */
   --radius: 0.5rem;
+
+  /* ─── Radius roles (AECI-1750; DESIGN.md §4 "Radius", PLAN.md §4.3, clash 12)
+   *
+   * NEW role-named tokens beside the old scale, not a remap of it. Public pages
+   * adopt them (`rounded-card` and so on) as the page issues rebuild each
+   * surface. No component uses one yet. The old `rounded-sm|md|lg|xl` utilities
+   * and `--radius` keep their meaning. */
+  /* Small marks: logo tiles at 22 to 28px, icon tiles. */
+  --radius-mark: 0.5rem; /* 8px */
+  /* Buttons and inputs. The header search pill (clash 29) is the one named
+     exception and uses --radius-pill. Primary actions are never pills. */
+  --radius-control: 0.75rem; /* 12px */
+  /* Nested panels (a vendor reply inside a review card, the reach box). OPEN:
+     16px is measured in the mock-ups (6-product-detail.html lines 354, 428,
+     447) but Chris has not ruled it into the 8, 12, 24, pill scale. */
+  --radius-panel: 1rem; /* 16px */
+  /* Cards: product card grid, search hit cards, group card, facts card, panels. */
+  --radius-card: 1.5rem; /* 24px */
+  /* Chips. Never a primary action. */
+  --radius-pill: 9999px;
+
+  /* ─── Shadows (AECI-1750; DESIGN.md §4 "Shadow Vocabulary", clash 11)
+   *
+   * Pure black: lint allows rgb() only with all-zero channels
+   * (eslint.color-patterns.mjs COLOR_FUNCTION). A shadow cannot use an ink token
+   * at an alpha, because the repo's browser targets predate relative colour
+   * syntax and color-mix() is banned in components (clash 6). Values are the
+   * mock-ups' default state: --sh-card and --sh-pop on line 15 of
+   * docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html (the same
+   * on 5, 7 and 8).
+   *
+   * A shadow is NEVER the only cue for a boundary that needs 3:1. A card is not a
+   * control, so its shadow edge may stand alone, but a control on or inside a card
+   * keeps its own 3:1 edge. Forced-colours mode drops box-shadow entirely, so a
+   * card needs a visible edge there (a transparent 1px border, which the system
+   * colours). That belongs to AECI-1765. The modal shadow and the focus ring are
+   * unchanged and still written inline where they are used. */
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
+  --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
 }
 
 /* ─── Data-series palette — operator console ONLY (AECI-578, ADMIN_PANEL_SPEC §8)
@@ -399,6 +441,16 @@
   --color-surface-hero-glow: var(--surface-hero-glow);
   --color-surface-hero-glow-soft: var(--surface-hero-glow-soft);
   --color-surface-sticky: var(--surface-sticky);
+  /* AECI-1750: role-named radii and the two shadows. Same names as :root, so
+     rounded-card, rounded-control, rounded-panel, rounded-mark, rounded-pill,
+     shadow-card and shadow-menu exist. rounded-sm|md|lg|xl are not touched. */
+  --radius-mark: var(--radius-mark);
+  --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
+  --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
+  --shadow-card: var(--shadow-card);
+  --shadow-menu: var(--shadow-menu);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves

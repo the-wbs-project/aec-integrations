@@ -140,16 +140,19 @@ typography:
     textTransform: "uppercase"
 rounded:
   # The new scale (clash 12, PLAN.md section 4.3): 8px marks, 12px controls,
-  # 24px cards, full-pill chips. The shipped code does not match yet. --radius
-  # is 0.5rem, so Spartan derives 4.8, 6.4, 8 and 11.2px for sm, md, lg and xl.
-  # AECI-1750 fixes the code.
+  # 24px cards, full-pill chips. The keys are the scale names. The code tokens
+  # are role-named: --radius-mark (sm), --radius-control (md), --radius-panel
+  # (xl), --radius-card (lg) and --radius-pill (AECI-1750). Spartan's --radius
+  # is unchanged, so rounded-sm, md, lg and xl still render 4.8, 6.4, 8 and
+  # 11.2px for the vendor portal and admin.
   none: "0"
   # 8px small marks (was 0.25rem).
   sm: "0.5rem"
   # 12px controls: buttons, inputs (was 0.5rem).
   md: "0.75rem"
   # 16px, measured on nested panels in the mock-ups. Not ruled. It sits between
-  # md and lg so the scale ascends. See "Open values" in section 4.
+  # md and lg so the scale ascends. Code token --radius-panel. See "Open values"
+  # in section 4.
   xl: "1rem"
   # 24px cards (was 0.75rem).
   lg: "1.5rem"
@@ -525,16 +528,18 @@ The system is still flat by default. Depth is conveyed through color (Bone callo
 
 ### Shadow Vocabulary
 
-The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two new tokens are added to `apps/web/src/styles.css` by AECI-1750.
+The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two tokens are in `apps/web/src/styles.css` (AECI-1750). No component uses either yet. The card, dialog and menu issues replace the old `shadow-sm` and `shadow-lg` usages.
 
 | Token | Recipe | Where | Clash |
 | -- | -- | -- | -- |
-| `--shadow-card` (to add) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
-| `--shadow-menu` (to add) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
+| `--shadow-card` (`shadow-card`) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
+| `--shadow-menu` (`shadow-menu`) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
 
 - **Card shadow (clash 11, blend).** One recipe, pure black, for a card that stands on the page ground. A card nested inside another card takes no shadow of its own (see "Cards may nest" below). Chris's ruling was BLEND with no note, so the recipe is the clash recommendation and the plan's value.
 - **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the four components in the table.
 - **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
+- **Both are pure black, measured.** The values are `--sh-card` and `--sh-pop` on line 15 of mock-up 6 (the same on mock-ups 5, 7 and 8). A shadow cannot be built from an ink token at an alpha: `color-mix()` is banned in components (clash 6) and the browser targets predate relative colour syntax. All-zero `rgb()` is the one form lint allows, so each alpha is written in the token and the guard spec checks the channels are zero.
+- **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. AECI-1765 gives it a transparent 1px border, which the system colours. The token comment says so.
 - **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop. No ruling touched it, so it is unchanged and has no token yet.
 - **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state, never `outline: none` without a replacement. Forest on a Forest ground is invisible. The ring on Forest is open in §2 (AECI-1747).
 - **Buttons, chips, inputs and tabs keep borders and take no shadow** (clash 11). Hover lift on cards is clash 37 and belongs to the motion rules, not to this section.
@@ -546,22 +551,24 @@ The recipes are written here once. Every other section and every component point
 
 Chris's ruling was BLEND with no note. The blend is the clash recommendation: add a 24px card radius and a 12px control radius, let public chips be pills, and keep primary actions off the pill.
 
-| Role | Radius | Frontmatter token | Clashes |
-| -- | -- | -- | -- |
-| Cards | 24px | `rounded.lg` | 12 |
-| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.md` | 12, 20 |
-| Chips | Full pill | `rounded.pill` | 12, 22 |
-| Small marks | 8px | `rounded.sm` | 12 |
+| Role | Radius | Frontmatter token | Code token and utility | Clashes |
+| -- | -- | -- | -- | -- |
+| Cards | 24px | `rounded.lg` | `--radius-card`, `rounded-card` | 12 |
+| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.md` | `--radius-control`, `rounded-control` | 12, 20 |
+| Chips | Full pill | `rounded.pill` | `--radius-pill`, `rounded-pill` | 12, 22 |
+| Small marks | 8px | `rounded.sm` | `--radius-mark`, `rounded-mark` | 12 |
+| Nested panels (open) | 16px | `rounded.xl` | `--radius-panel`, `rounded-panel` | 12 |
 
 - **No pill buttons** (clash 12, a rule that stands). "Sign in" is a rounded rectangle at 12px. A chip may be a pill. A button, a link styled as a button and a primary action may not.
-- **The old scale is gone.** The frontmatter used to say 4, 8, 12 and 16px, and §5 still quotes it in places. The code never matched it either. `--radius` is `0.5rem`, so Spartan's derived scale renders 4.8, 6.4, 8 and 11.2px for `sm`, `md`, `lg` and `xl` (AECI-1750). The table above is the rule. AECI-1750 replaces `--radius` with explicit tokens and maps `radius-sm` to `radius-xl` onto them.
+- **The old scale stays for the vendor portal and admin (AECI-1750, ruling R2).** The frontmatter used to say 4, 8, 12 and 16px, and §5 still quotes it in places. The code never matched it. `--radius` is `0.5rem`, so Spartan's derived scale renders 4.8, 6.4, 8 and 11.2px for `rounded-sm`, `rounded-md`, `rounded-lg` and `rounded-xl`. The table above is the rule for public pages. AECI-1750 did not remap those four utilities, because the inventory found 812 uses of them in the vendor portal and admin (and shared components used on both) against 247 on public pages. A remap would reshape every portal and admin card at once. It added role-named tokens instead, and the page issues adopt them.
+- **Code tokens by role.** Each is declared on `:root` and exposed in `@theme inline`, so the utility exists. No component uses one yet.
 - **Chip shape and the header's pills.** The chip vocabulary is clash 22 and §5 owns it. The header search and nav hover shapes belong to the header, and §5 Navigation owns them.
 
 ### Spacing (clash 17)
 
 Chris's note on clash 17 was about type: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The spacing blend is the clash recommendation: snap to the scale and the look survives.
 
-- **The scale is 4, 8, 12, 16, 24, 32, 48, 64 and 96px** (clash 17). It is Tailwind's default spacing, steps 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens.
+- **The scale is 4, 8, 12, 16, 24, 32, 48, 64 and 96px** (clash 17). It is Tailwind's default spacing, steps 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens, and `styles.css` declares none.
 - **Snap, do not invent.** The clash recommendation names the mock-up's strays: 22 goes to 24, 26 and 28 go to 24 or 32, and 104 goes to 96. Padding, margin and gap sit on the scale. A control's height is not spacing, and clash 20 sets it.
 - **Tailwind steps off the scale** include 5, 7, 9, 10 and 11 (20, 28, 36, 40 and 44px).
 
@@ -660,10 +667,10 @@ The mock-up builds the glow with `color-mix()`, which clash 6 bans in components
 
 ### Open values (set by AECI-1750, AECI-1765, AECI-1766, AECI-1778 and AECI-1790)
 
-- **Nested panel radius (AECI-1750).** The mock-ups use 16px on nested panels and 12px on score tiles. Neither value is in the ruled scale of 8, 12, 24 and pill. `rounded.xl` keeps 16px in the frontmatter, ordered between `md` and `lg` so the scale ascends, until AECI-1750 snaps it to the scale or Chris adds it.
+- **Nested panel radius (AECI-1750, still open for Chris).** The mock-ups use 16px on nested panels and 12px on score tiles. Neither value is in the ruled scale of 8, 12, 24 and pill. The 12px tile is `--radius-control`. The 16px value has a token, `--radius-panel`, so a page issue can use it without an arbitrary value. Whether 16px joins the scale or snaps to 12 or 24 is Chris's call, and deleting the token is one line.
 - **Radius of a logo tile by size (AECI-1750, with the logo work in AECI-1746).** The mock-up's mark is `border-radius: 22%`, with 8px at 22 to 28px and 24px at 104px. Only "small marks 8px" is ruled.
-- **The `radius-xl` mapping (AECI-1750).** The issue maps `radius-sm` to `radius-xl` onto the new scale and names no value for `radius-xl`. It renders 11.2px today.
-- **Sweep of off-scale spacing in the code (AECI-1750).** The ruling says snap to the scale. It does not say whether existing `p-5` or `gap-5` utilities are swept or snap only when their surface is rebuilt.
+- ~~**The `radius-xl` mapping (AECI-1750).**~~ Settled: there is no mapping. `rounded-xl` stays Spartan's 11.2px (5 uses: 2 on public pages, 3 in previews), and the 16px nested panel is `rounded-panel`. The sm, md and lg utilities stay as they are for the same reason.
+- **Sweep of off-scale spacing in the code (AECI-1750).** Settled for this issue: no sweep. The inventory is in the AECI-1750 report: about 500 off-scale utilities, mostly `p-5`, `px-5`, `mt-5` and `py-10`, of which 153 are on public pages. A public surface snaps them when its page issue rebuilds it. The vendor portal and admin keep theirs under ruling R2.
 - **The card border (AECI-1765).** The mock-up's card has no border. Confirm whether a hairline stays beside the shadow. Check forced-colors mode, where `box-shadow` is dropped, because a card may need a transparent 1px border that the system colours. This is a check, not a ruled rule.
 - **Which surfaces take the card shadow (AECI-1765).** `PLAN.md` names the facts card and entity cards. `PLAN.md` says "entity cards", which in §5 means the index-row table rows that take no shadow, so the table in "Shadow Vocabulary" names the components instead. The mock-up also puts the shadow on panels, review cards, score cards and table wrappers. Confirm the set.
 - **The nested panel fill (AECI-1765).** The mock-up's reply uses `--band-cool`, which equals the Forest-soft hex and which clash 6 drops. Pick an existing token such as `accent-primary-soft` or `surface-sunken`.
