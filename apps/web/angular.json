@@ -163,10 +163,19 @@
                 // (header, nav menu, search trigger, user menu, update banner,
                 // legal notice band) use four of its icons. The registry is not
                 // split: one object is cheaper than a chunk per icon (ADR 0056).
+                //
+                // AECI-1763: raised 1.09MB -> 1.10MB. Measured with `ng build`
+                // (the budget's own total): base (`batch/redesign-shell`) at
+                // 1,088,350 B, this branch at 1,092,930 B, so +4,580 B (about
+                // +1.2 kB transferred). The growth is the one chip recipe: +2.34 kB
+                // in `styles.css` (the `.aec-chip` rules) and the rest in the
+                // `aec-chip` component, which the header's account role pill and
+                // the search autocomplete tag load eagerly. The chip needs
+                // `AecIcon` for the selected tick, already in the initial bundle.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.09MB"
+                  "maximumError": "1.10MB"
                 },
                 {
                   "type": "anyComponentStyle",

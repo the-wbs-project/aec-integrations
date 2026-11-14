@@ -19,6 +19,7 @@ import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
 import { AecIcon } from '../shared/icon/icon';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" section on a
@@ -94,6 +95,7 @@ import { AecIcon } from '../shared/icon/icon';
     IntegrationGroupCard,
     IntegrationListFilter,
     RequestTrigger,
+    Chip,
   ],
   template: `
     <!-- Heading row: title left, filter right. The filter lives HERE rather
@@ -229,22 +231,17 @@ import { AecIcon } from '../shared/icon/icon';
                     </span>
                   </span>
                   @if (mechanismSummary(partner); as summary) {
-                    <span
-                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
-                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
-                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
-                      >{{ summary }}</span
+                    <span class="hidden shrink-0 md:inline-flex"
+                      ><aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip></span
                     >
                   }
                   @if (dataObjectLabel(partner); as objects) {
                     <!-- AECI-1080: the depth chip beside the mechanism badge, at
                          the same weight. Depth is orthogonal to mechanism. -->
-                    <span
-                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
-                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
-                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
-                      data-testid="hub-data-objects"
-                      >{{ objects }}</span
+                    <span class="hidden shrink-0 md:inline-flex"
+                      ><aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
+                        objects
+                      }}</aec-chip></span
                     >
                   }
                   <!-- Navigation affordance, not direction: the aec-icon chevron
@@ -309,23 +306,18 @@ import { AecIcon } from '../shared/icon/icon';
                     }}</span>
                   }
                   @if (mechanismSummary(pair); as summary) {
-                    <span
-                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
-                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
-                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
-                      >{{ summary }}</span
+                    <span class="hidden shrink-0 md:inline-flex"
+                      ><aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip></span
                     >
                   }
                   @if (dataObjectLabel(pair); as objects) {
                     <!-- Same md breakpoint as the mechanism badge beside it: a
                          flat row has no meta line to fold into below md, and the
                          link's accessible name carries the count at every width. -->
-                    <span
-                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
-                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
-                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
-                      data-testid="hub-data-objects"
-                      >{{ objects }}</span
+                    <span class="hidden shrink-0 md:inline-flex"
+                      ><aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
+                        objects
+                      }}</aec-chip></span
                     >
                   }
                   <!-- Navigation affordance, not direction: the aec-icon chevron

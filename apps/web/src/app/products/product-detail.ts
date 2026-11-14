@@ -36,6 +36,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
 import { AecIcon } from '../shared/icon/icon';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -108,6 +109,7 @@ import { AecIcon } from '../shared/icon/icon';
     RouterLink,
     SectionNav,
     TaxonomyBadge,
+    Chip,
   ],
   template: `
     @let p = product();
@@ -250,14 +252,7 @@ import { AecIcon } from '../shared/icon/icon';
               }}</span>
               <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
             } @else if (p.review_count > 0) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-                  bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
-                  text-(--text-secondary)"
-                i18n="@@products.detail.hero.notRated"
-              >
-                Not yet rated
-              </span>
+              <aec-chip tone="quiet" i18n="@@products.detail.hero.notRated">Not yet rated</aec-chip>
               <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
             }
             @if (p.review_count > 0) {

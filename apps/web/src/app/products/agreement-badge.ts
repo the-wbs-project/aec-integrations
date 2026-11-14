@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 import type { AgreementState } from '@aeci/shared';
 
+import { Chip, type ChipTone } from '../shared/chip/chip';
+import { AecIcon } from '../shared/icon/icon';
+
 /**
  * The agreement pill for a `data_object` claim on the pair page (Stage 1.5 §8 —
  * AECI-300; four states from `STAGE_2_ATTESTATIONS_SPEC.md` §4.3 — AECI-605).
@@ -42,32 +45,18 @@ import type { AgreementState } from '@aeci/shared';
 @Component({
   selector: 'aec-agreement-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Chip, AecIcon],
   template: `
-    <span
-      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border px-2.5 py-1
-        text-[0.75rem] font-medium tracking-[0.01em]"
-      [class]="toneClass()"
-      [attr.aria-label]="ariaLabel()"
-    >
+    <aec-chip label [tone]="tone()" [ariaLabel]="ariaLabel()">
       @if (agreement() === 'conflict') {
         <!-- A shape, not just a hue: the conflict state must survive both
              greyscale and a colour-vision deficiency. -->
-        <svg
-          aria-hidden="true"
-          class="h-3 w-3 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-        >
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
+        <aec-icon name="x" decorative [size]="3.5" />
       } @else {
         <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full" [class]="dotClass()"></span>
       }
       {{ label() }}
-    </span>
+    </aec-chip>
   `,
 })
 export class AgreementBadge {
@@ -132,17 +121,17 @@ export class AgreementBadge {
     }
   });
 
-  /** Border + ground + text per state. Only `conflict` is red; only `confirmed`
-   *  gets the Forest wash. `unverified` and `single_source` share the neutral
-   *  chip — by design, so a lone affirmation cannot read as agreement. */
-  protected readonly toneClass = computed<string>(() => {
+  /** Tone per state. Only `conflict` is red; only `confirmed` gets the Forest
+   *  wash. `unverified` and `single_source` share the neutral chip, quiet text
+   *  included, by design, so a lone affirmation cannot read as agreement. */
+  protected readonly tone = computed<ChipTone>(() => {
     switch (this.agreement()) {
       case 'confirmed':
-        return 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--accent-primary)';
+        return 'wash';
       case 'conflict':
-        return 'border-(--status-error) bg-(--surface-base) text-(--status-error)';
+        return 'error';
       default:
-        return 'border-(--border-default) bg-(--surface-raised) text-(--text-secondary)';
+        return 'quiet';
     }
   });
 
