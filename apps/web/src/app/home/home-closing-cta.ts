@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../shared/button/button';
 import { HomeFeedbackDialog } from './home-feedback-dialog';
 
 /**
@@ -26,7 +27,7 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
   selector: 'aec-home-closing-cta',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [RouterLink, HomeFeedbackDialog],
+  imports: [AecButton, RouterLink, HomeFeedbackDialog],
   template: `
     <section class="border-t border-(--border-default) bg-(--accent-warm)">
       <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
@@ -53,8 +54,9 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
               never for sale.
             </p>
             <a
+              aecButton
               routerLink="/vendor-program"
-              class="mt-8 inline-flex items-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-3 font-label text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-8 self-start"
               i18n="@@home.cta.vendor.action"
             >
               Claim or list your product
@@ -77,9 +79,11 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
               Tell us what to add or what to cover next.
             </p>
             <button
+              aecButton
+              variant="secondary"
               type="button"
               (click)="openFeedback()"
-              class="mt-5 self-start rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-4 py-2 font-label text-(--text-primary) transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-5 self-start"
               i18n="@@home.cta.feedback.action"
             >
               Suggest a tool

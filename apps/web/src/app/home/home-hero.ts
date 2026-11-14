@@ -62,6 +62,7 @@ import {
   type ProductPairResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
 import { pairPath } from '../core/api/product-pairs';
@@ -103,7 +104,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 
 @Component({
   selector: 'aec-home-hero',
-  imports: [RouterLink, SearchAutocomplete],
+  imports: [AecButton, RouterLink, SearchAutocomplete],
   host: { class: 'block' },
   template: `
     <section class="bg-(--accent-warm)">
@@ -220,8 +221,9 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
               (querySubmitted)="submitPair()"
             />
             <button
+              aecButton
               type="submit"
-              class="mt-1 h-11 w-full rounded-(--radius-md) bg-(--accent-primary) px-5 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-1 w-full aria-disabled:opacity-100!"
               [attr.aria-disabled]="checking() ? 'true' : null"
               i18n="@@home.hero.pair.submit"
             >

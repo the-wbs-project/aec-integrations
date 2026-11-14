@@ -7,6 +7,7 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../button/button';
 import { ClaimDialogFlow } from './claim-dialog-flow';
 import { ClaimDialogService } from './claim-dialog.service';
 import { AecIcon } from '../icon/icon';
@@ -35,6 +36,7 @@ import { AecIcon } from '../icon/icon';
   selector: 'aec-claim-dialog',
   host: { class: 'contents' },
   imports: [
+    AecButton,
     AecIcon,
     BrnDialog,
     BrnDialogContent,
@@ -90,9 +92,12 @@ import { AecIcon } from '../icon/icon';
               </p>
             </div>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
-              class="-me-1 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-(--radius-sm) text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-1 -mt-1"
               i18n-aria-label="@@claimDialog.close"
               aria-label="Close"
             >

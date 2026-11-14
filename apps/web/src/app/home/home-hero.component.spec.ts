@@ -262,7 +262,8 @@ describe('HomeHero', () => {
       );
       const button = form.querySelector('button[type="submit"]')!;
       expect(button.textContent?.trim()).toBe('Show integrations');
-      expect(button.className).toContain('bg-(--accent-primary)');
+      expect(button.getAttribute('data-variant')).toBe('primary');
+      expect(button.getAttribute('type')).toBe('submit');
     });
 
     it('limits both pickers to product suggestions and leaves the hero search unfiltered', async () => {

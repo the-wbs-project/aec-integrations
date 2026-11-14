@@ -17,6 +17,7 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../shared/button/button';
 import { HomeFeedbackForm } from './home-feedback-form';
 import { AecIcon } from '../shared/icon/icon';
 
@@ -40,6 +41,7 @@ import { AecIcon } from '../shared/icon/icon';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   imports: [
+    AecButton,
     AecIcon,
     BrnDialog,
     BrnDialogContent,
@@ -63,9 +65,12 @@ import { AecIcon } from '../shared/icon/icon';
               Suggest a tool or share feedback
             </h2>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
-              class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-1 -mt-1"
               i18n-aria-label="@@home.feedback.close"
               aria-label="Close"
             >
