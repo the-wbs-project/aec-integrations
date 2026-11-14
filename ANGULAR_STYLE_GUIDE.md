@@ -245,6 +245,23 @@ Lint: ✅ `@angular-eslint/template/prefer-ngsrc`.
 
 ---
 
+## 14a. Icons: `aec-icon`
+
+AECI-1753, ruling 34 (ADR 0056). A custom icon set at 1.75 stroke replaces "Lucide icons exclusively". New icons go through `aec-icon` (`apps/web/src/app/shared/icon/`). Do not paste an inline `<svg>` for a UI glyph. Existing inline SVGs migrate page by page under AECI-1720. Charts, brand marks and filled social glyphs are not icons and stay as they are.
+
+- **Decorative:** `<aec-icon name="search" />`. The SVG is `aria-hidden="true"` with no name. Use it whenever visible text beside the icon says the same thing.
+- **Meaningful:** `<aec-icon name="alert-circle" [label]="alertLabel" />`. The SVG becomes `role="img"` with that accessible name. Pass the label already localised (`$localize` or an `i18n` attribute on the caller). A blank label counts as no label.
+- **Size:** `[size]="4 | 5 | 6"` is 16, 20 or 24px. The default is 5. Never size an icon with arbitrary pixel classes.
+- **Colour:** the icon is `currentColor` only. Set a text colour on the parent. A class on `<aec-icon>` does not reach the SVG because the host is `display: contents`.
+- **Direction:** set `[mirrorRtl]="true"` for an icon that points along the line, such as an arrow or chevron.
+- **Name:** `name` is typed `AecIconName`, derived from the registry keys. An unknown name fails to compile.
+
+**Adding an icon:** add one kebab-case key to `AEC_ICONS` in `icon-registry.ts`, in alphabetical order, named for what it shows and not where it is used. Write it as shapes (`p` path, `c` circle, `r` rounded rect), stroke-only, in the 24 x 24 box. Do not add colours or fills. If the path data is copied from Lucide, mark the entry `// Lucide` and keep the ISC notice at the top of the file. Add no other icon dependency. The spec in `icon.component.spec.ts` checks key format and that no shape carries colour.
+
+Lint: 🟡 review-only.
+
+---
+
 ## 15. Lifecycle hooks
 
 - Implement the matching interface (`OnInit`, `OnDestroy`, etc.) on the class — don't just define the method. Lint: ✅ `@angular-eslint/use-lifecycle-interface`.
