@@ -341,6 +341,30 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(document.activeElement).toBe(error);
   });
 
+  it('takes focus back when a blank click left it on <main> during the re-read (AECI-1839)', async () => {
+    startCheckout.mockRejectedValueOnce(
+      apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS', { interval: 'year' }),
+    );
+    const main = document.createElement('main');
+    main.id = 'main';
+    main.tabIndex = -1;
+    document.body.appendChild(main);
+    try {
+      const fixture = await create();
+      getBilling.mockResolvedValue(SUBSCRIBED);
+      (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+      // The vendor clicks empty space while the re-read runs: focus lands on <main>.
+      main.focus();
+      await settle(fixture);
+      await settle(fixture);
+
+      const error = q(fixture, 'stripe-error') as HTMLElement;
+      expect(document.activeElement).toBe(error);
+    } finally {
+      main.remove();
+    }
+  });
+
   // ── With a subscription ───────────────────────────────────────────────────
 
   it('shows the subscription, Add licenses and Manage billing in Stripe', async () => {

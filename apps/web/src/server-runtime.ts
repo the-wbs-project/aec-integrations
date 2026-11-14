@@ -109,9 +109,8 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
-import { LISTING_CACHE_KEY_PARAMS } from './app/core/listing-cache-key-params';
 import {
-  PAIR_PAGE_CACHE_KEY_PARAMS,
+  cacheKeyParamsForPath,
   cacheKeyQuery,
   isAdminPath,
   isAudiencesPath,
@@ -459,14 +458,12 @@ export function legalPageTtl(
 type RoutePattern = {
   match: (path: string) => boolean;
   ttl: CacheTtl;
-  // AECI-100 / WC-4 (AECI-318) — query params that genuinely affect this route's
-  // rendered HTML. The gateway entrypoint's normalized cache key (`cacheKeyFor`)
-  // keeps only these (canonically ordered) and drops everything else (utm_*,
-  // fbclid, …). Omitted ⇒ the route is query-independent and the key strips the
-  // query string entirely. This list MUST be a superset of every param the page
-  // component reads from the URL — under-including collapses distinct renders
-  // onto one key and serves wrong HTML. See docs/CACHE_STRATEGY.md §4a.
-  cacheKeyParams?: readonly string[];
+  // The query params that affect a route's HTML, and so stay in its cache key, are NOT on this
+  // table. They live in `app/core/route-cache-key.ts` (`cacheKeyParamsForPath`), which the
+  // skip link's server render also reads (AECI-1839). A route whose rendered HTML reads a new
+  // query param adds it THERE, in the same change. Omitted ⇒ the key strips the whole query.
+  // This list MUST be a superset of every param the page component reads from the URL:
+  // under-including collapses distinct renders onto one key. See docs/CACHE_STRATEGY.md §4a.
 };
 
 /**
@@ -484,7 +481,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300, ...RESILIENCE } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
   // AECI-536 — /updates signup page: static + visitor-state-neutral, same static-
-  // page TTL as /about. No `cacheKeyParams`, so the whole query string (incl. UTM)
+  // page TTL as /about. No cache-key params, so the whole query string (incl. UTM)
   // is dropped from the cache key; UTM still survives in the real browser URL for
   // `buildAttribution` at submit time (same as every other lead-capture surface).
   { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
@@ -496,7 +493,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/roadmap', ttl: { edge: 86_400, browser: 3_600 } },
   // AECI-804 — /methodology, the editorial methodology page. Static and
   // visitor-state-neutral like /about, so the same static-page TTL and, like the
-  // other static pages, deliberately NO `...RESILIENCE`. No `cacheKeyParams`, so
+  // other static pages, deliberately NO `...RESILIENCE`. No cache-key params, so
   // the whole query string (incl. UTM) is dropped from the cache key — the page
   // reads no query params at all. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/methodology', ttl: { edge: 86_400, browser: 3_600 } },
@@ -510,7 +507,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // AECI-1283 — /vendor-program, the public vendor landing page
   // (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2). Static and visitor-neutral (every
   // signed-in variant is applied after hydration), so the /about TTL with no
-  // `...RESILIENCE`. No `cacheKeyParams`: LinkedIn and outreach links carry UTM,
+  // `...RESILIENCE`. No cache-key params: LinkedIn and outreach links carry UTM,
   // which PostHog reads from the browser URL, so the query string stays out of the
   // cache key. `?vendor=` (§2.4) is read in the browser after hydration only, so
   // it does not change the HTML either. Indexable and in `sitemap.xml`.
@@ -518,7 +515,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // AECI-1474 — /vendor-program/list-your-product, the listing request form on a
   // page of its own (§2.5). The same rules as /vendor-program: the form renders
   // empty on the server (cookies are stripped, so no email prefill), the /about
-  // TTL, no `...RESILIENCE`, no `cacheKeyParams`. Indexable and in `sitemap.xml`.
+  // TTL, no `...RESILIENCE`, no cache-key params. Indexable and in `sitemap.xml`.
   {
     match: (p) => p === '/vendor-program/list-your-product',
     ttl: { edge: 86_400, browser: 3_600 },
@@ -562,7 +559,6 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: isPairPagePath,
     ttl: { edge: 900, browser: 0, ...RESILIENCE },
-    cacheKeyParams: PAIR_PAGE_CACHE_KEY_PARAMS,
   },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
@@ -573,7 +569,6 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: isProductsIndexPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index are
   // `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav), same
@@ -582,17 +577,14 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: isCategoriesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
     match: isAudiencesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
     match: isPhasesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   // AECI-544: trades, the fourth facet. Cacheable on the same terms as its three
   // siblings, `...RESILIENCE` included, published or not: the publication gate
@@ -600,7 +592,6 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: isTradesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
 ];
 
@@ -678,14 +669,14 @@ export function buildCacheControl(ttl: CacheTtl): string {
  * params declared per route in `ROUTE_CACHE_PATTERNS`, and canonicalizes order —
  * `URLSearchParams.sort()` on names (`?sort=name&page=2` == `?page=2&sort=name`)
  * plus a value sort on multi-select facet CSVs (`category_id=a,b` == `b,a`). A
- * path with no matching pattern (or no `cacheKeyParams`) yields the bare
+ * path with no matching pattern (or no cache-key params) yields the bare
  * `pathname` — the safe "strip everything" default. The pathname (incl. any
  * locale prefix) is preserved verbatim; locale variance is segmented by URL
  * prefix, so the key must keep it.
  */
 export function cacheKeyFor(url: URL): string {
   const { path } = stripLocalePrefix(url.pathname);
-  const allowed = ROUTE_CACHE_PATTERNS.find((pattern) => pattern.match(path))?.cacheKeyParams ?? [];
+  const allowed = cacheKeyParamsForPath(path);
   const query = cacheKeyQuery(allowed, url.searchParams);
   return query ? `${url.pathname}?${query}` : url.pathname;
 }

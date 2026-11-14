@@ -36,6 +36,7 @@ import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
 import { VendorPendingGrantCard } from '../components/vendor-pending-grant-card';
+import { focusIsLost } from '../focus-is-lost';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -110,16 +111,6 @@ function documentLabel(document: string): string {
     default:
       return document;
   }
-}
-
-/**
- * Whether keyboard focus has been lost. A click on empty space puts focus on `<body>`, or on
- * `<main id="main">` since AECI-1839 made it focusable for the skip link. Both mean the
- * vendor moved nowhere, so a re-read may take focus back.
- */
-export function focusIsLost(doc: Document): boolean {
-  const active = doc.activeElement;
-  return !active || active === doc.body || active.matches('main#main') || !active.isConnected;
 }
 
 /**
