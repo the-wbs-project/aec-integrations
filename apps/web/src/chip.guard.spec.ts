@@ -55,10 +55,23 @@ describe('the chip recipe in styles.css', () => {
     expect(focus).toContain('outline-offset: 3px');
   });
 
-  it('keeps hover, pointer and focus off a static chip', () => {
-    expect(rule('.aec-chip')).toContain('cursor: default');
-    // The pointer and hover rules are scoped to a and button only.
+  it('sets no cursor on a static chip, so it keeps the pointer of a link around it', () => {
+    expect(rule('.aec-chip')).not.toMatch(/cursor/);
+    // Hover is scoped to a and button only.
     expect(ALL_CHIP_RULES).not.toMatch(/(^|\n)\.aec-chip:hover/);
+  });
+
+  it('allows no radius but the pill on any chip rule', () => {
+    const radii = [...ALL_CHIP_RULES.matchAll(/border-(?:\w+-)*radius:\s*([^;]+);/g)].map(
+      (m) => m[1],
+    );
+    expect(radii.length).toBeGreaterThan(0);
+    for (const r of radii) expect(r).toBe('var(--radius-pill)');
+  });
+
+  it('gaps the icon 8px on the default chip and 4px on dense', () => {
+    expect(rule('.aec-chip')).toContain('gap: 0.5rem');
+    expect(rule(".aec-chip[data-density='dense']")).toContain('gap: 0.25rem');
   });
 
   it('keeps a selected filter chip on the Forest wash with a Forest edge', () => {

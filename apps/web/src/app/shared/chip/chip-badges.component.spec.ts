@@ -52,16 +52,21 @@ describe('badges on the one chip', () => {
     expect(render(RoleBadge, { role: 'application' }).querySelector('.aec-chip')).toBeNull();
   });
 
-  it('renders the plan badge as Managed on the strong edge and Free quiet', () => {
-    const managed = render(VendorPlanBadge, {
-      plan: { plan: 'managed' } as unknown as VendorEntitlementBlock,
-    });
-    const free = render(VendorPlanBadge, {
-      plan: { plan: 'free' } as unknown as VendorEntitlementBlock,
-    });
-    // Whatever the plan helper decides, the two must differ and neither is a status colour.
-    const tones = [chip(managed), chip(free)].map((c) => c.getAttribute('data-tone'));
-    expect(tones.every((t) => t === 'strong-sunken' || t === 'quiet')).toBe(true);
+  it('renders the plan badge as Managed on the strong sunken edge and Free quiet', () => {
+    const block = (status: 'active' | null, tier: 'verified' | 'unclaimed') =>
+      ({
+        tier,
+        status,
+        period_end: null,
+        ended_at: null,
+        capabilities: [],
+      }) as unknown as VendorEntitlementBlock;
+    const managed = render(VendorPlanBadge, { plan: block('active', 'verified') });
+    const free = render(VendorPlanBadge, { plan: block(null, 'unclaimed') });
+    expect(chip(managed).textContent!.trim()).toBe('Managed');
+    expect(chip(managed).getAttribute('data-tone')).toBe('strong-sunken');
+    expect(chip(free).textContent!.trim()).toBe('Free');
+    expect(chip(free).getAttribute('data-tone')).toBe('quiet');
   });
 
   it('renders the maintenance marker in the 500-weight label face with its two labels', () => {
