@@ -17,7 +17,8 @@ import { describe, expect, it } from 'vitest';
  * the whole class of bug.
  *
  * Scope: only the app's own design-token namespaces (`--surface-*`, `--text-*`,
- * `--border-*`, `--accent-*`, `--font-*`, `--status-*`, `--focus-*`). Spartan/Tailwind preset internals
+ * `--border-*`, `--accent-*`, `--font-*`, `--status-*`, `--focus-*`, `--duration-*`,
+ * `--ease-*`). Spartan/Tailwind preset internals
  * (`--radius`, `--spacing`, `--color-*`, `--tw-*`, …) are deliberately excluded —
  * they are defined outside `styles.css` and are not the bug class this guards.
  */
@@ -30,7 +31,7 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus|duration|ease)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
@@ -90,5 +91,64 @@ describe('design tokens', () => {
         .map((v) => `  ${v.token} — ${v.file}`)
         .join('\n')}`,
     ).toEqual([]);
+  });
+
+  describe('motion tokens (AECI-1751)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    /** Values come from the mock-ups' default state (PLAN.md §4.6, clash 36). */
+    const DURATIONS: Record<string, string> = {
+      fast: '120ms',
+      base: '180ms',
+      slow: '280ms',
+    };
+    const EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+
+    it('defines the three durations and the easing with the ruled values', () => {
+      for (const [name, value] of Object.entries(DURATIONS)) {
+        expect(css).toMatch(new RegExp(`^\\s*--duration-${name}:\\s*${value};`, 'm'));
+      }
+      expect(css).toContain(`--ease-standard: ${EASING};`);
+    });
+
+    it('exposes every motion token through @theme inline, so the utilities exist', () => {
+      for (const name of Object.keys(DURATIONS)) {
+        expect(theme, `--transition-duration-${name}`).toContain(
+          `--transition-duration-${name}: var(--duration-${name});`,
+        );
+      }
+      expect(theme).toContain('--ease-standard: var(--ease-standard);');
+    });
+
+    it('defines every --duration-* / --ease-* token that @theme inline points at', () => {
+      const exposed = [...theme.matchAll(/var\(--((?:duration|ease)-[\w-]+)\)/g)].map((m) => m[1]);
+      expect(exposed.length).toBeGreaterThan(0);
+      for (const token of exposed) {
+        expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
+      }
+    });
+
+    it('collapses every transition and animation duration under reduced motion', () => {
+      const start = css.indexOf('@media (prefers-reduced-motion: reduce)');
+      expect(start).toBeGreaterThan(-1);
+      const block = css.slice(start, css.indexOf('\n}\n', start));
+      expect(block).toMatch(/\*,\s*\*::before,\s*\*::after\s*\{/);
+      expect(block).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+      expect(block).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    });
+
+    it('never feeds a duration token into a delay or a timer', () => {
+      const offenders: string[] = [];
+      for (const file of walk(SRC_DIR)) {
+        if (file === SELF || file.endsWith('.spec.ts')) continue;
+        for (const line of readFileSync(file, 'utf8').split('\n')) {
+          if (!/var\(--duration-/.test(line)) continue;
+          if (/(transition-delay|animation-delay|setTimeout)/.test(line)) {
+            offenders.push(`${file.slice(SRC_DIR.length + 1)}: ${line.trim()}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
   });
 });

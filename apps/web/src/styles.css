@@ -222,6 +222,25 @@
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
   --radius: 0.5rem;
+
+  /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
+     taken from the default state of the approved mock-ups (mock-up 6,
+     `--ease` at line 15):
+       --duration-fast  120ms  press and row hover        (`.btn` line 88, `table.cmp tbody tr` line 334)
+       --duration-base  180ms  hover, focus, disclosure    (`.card` line 293, `.order .chev` line 287)
+       --duration-slow  280ms  menu open, ink bar, scrim   (`.cm` line 632, `.snl-ink` line 182)
+       --ease-standard         cubic-bezier(.2, .7, .2, 1) (`--ease`, line 15)
+     Utilities: `duration-fast|base|slow` and `ease-standard` (see @theme inline).
+     Reduced motion is a floor: under `prefers-reduced-motion: reduce` the global
+     block below forces every transition and animation duration to 0.01ms, so a
+     token-driven change lands instantly. A state change must never be conveyed by
+     motion alone, and no looping animation may run past 5s without a pause control
+     (WCAG 2.2.2). Nothing consumes these yet; later AECI-1720 issues adopt them on
+     public pages. The vendor portal and admin keep Tailwind's 150ms default. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* ─── Data-series palette — operator console ONLY (AECI-578, ADMIN_PANEL_SPEC §8)
@@ -401,6 +420,12 @@
   --color-surface-sticky: var(--surface-sticky);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
+  /* Motion tokens (AECI-1751). Tailwind's `duration-*` utilities read the
+     `--transition-duration-*` namespace and `ease-*` reads `--ease-*`. */
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --ease-standard: var(--ease-standard);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves
      to the OS ui-serif stack. Bind it to the brand display face so any stray
      `font-serif` renders in Source Serif 4 instead of regressing to OS serif. */
@@ -677,7 +702,10 @@ html {
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
    than relying on every component to opt in. Additive — only active when the
-   user has set the preference. See `harden` (motion sensitivity). */
+   user has set the preference. See `harden` (motion sensitivity).
+   The `--duration-*` motion tokens need nothing extra: they only ever feed
+   `transition-duration` and `animation-duration`, which this block overrides with
+   `!important` on every element (design-tokens.guard.spec.ts pins that). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
