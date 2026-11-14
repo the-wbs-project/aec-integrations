@@ -262,7 +262,7 @@ import { AecIcon } from '../shared/icon/icon';
               <a
                 [href]="'/products/' + p.slug + '#reviews'"
                 data-smooth-scroll
-                class="text-sm font-medium text-(--text-secondary) no-underline transition-colors
+                class="text-sm font-semibold text-(--text-secondary) no-underline transition-colors
                   hover:text-(--accent-primary) focus-visible:outline-none
                   focus-visible:rounded-(--radius-sm) focus-visible:ring-2
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
@@ -271,7 +271,7 @@ import { AecIcon } from '../shared/icon/icon';
                 {{ reviewCountLabel(p.review_count) }}
               </a>
             } @else {
-              <span class="text-sm font-medium text-(--text-secondary)">{{
+              <span class="text-sm font-semibold text-(--text-secondary)">{{
                 reviewCountLabel(p.review_count)
               }}</span>
             }
@@ -359,7 +359,7 @@ import { AecIcon } from '../shared/icon/icon';
                   size="sm"
                 />
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
+                  <span class="min-w-0 break-words font-semibold text-(--text-primary)">{{
                     v.name
                   }}</span>
                   @if (vendorFactsLine(); as line) {
@@ -680,7 +680,7 @@ import { AecIcon } from '../shared/icon/icon';
               target="_blank"
               rel="noopener"
               data-testid="product-vendor-program-link"
-              class="inline-flex items-center gap-1 text-sm font-medium text-(--accent-primary)
+              class="inline-flex items-center gap-1 text-sm font-semibold text-(--accent-primary)
                 underline-offset-4 hover:text-(--accent-primary-hover) hover:underline
                 focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
@@ -898,7 +898,7 @@ export class ProductDetailPage {
   }
 
   protected readonly resourceLinkClass =
-    'inline-flex items-center gap-1.5 text-sm font-medium text-(--accent-primary) ' +
+    'inline-flex items-center gap-1.5 text-sm font-semibold text-(--accent-primary) ' +
     'underline-offset-4 hover:text-(--accent-primary-hover) hover:underline ' +
     'focus-visible:outline-none focus-visible:rounded-(--radius-sm) focus-visible:ring-2 ' +
     'focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 ' +

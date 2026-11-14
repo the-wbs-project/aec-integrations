@@ -147,28 +147,28 @@ import { ProductCardGrid } from './product-card-grid';
                       <tr>
                         <th
                           scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
                           i18n="@@products.index.col.name"
                         >
                           Name
                         </th>
                         <th
                           scope="col"
-                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
                           i18n="@@products.index.col.vendor"
                         >
                           Vendor
                         </th>
                         <th
                           scope="col"
-                          class="hidden px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                          class="hidden px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
                           i18n="@@products.index.col.rating"
                         >
                           Rating
                         </th>
                         <th
                           scope="col"
-                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
                           i18n="@@products.index.col.integrations"
                         >
                           Integrations

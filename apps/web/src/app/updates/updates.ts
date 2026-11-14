@@ -167,7 +167,7 @@ const BTN =
                   @if (emailErrorShown()) {
                     <p
                       id="updates-email-error"
-                      class="mt-2 text-sm font-medium text-(--text-primary)"
+                      class="mt-2 text-sm font-semibold text-(--text-primary)"
                       role="alert"
                       i18n="@@app.updates.email.error"
                     >

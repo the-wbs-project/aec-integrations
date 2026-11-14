@@ -91,7 +91,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
                     <li>
                       <a
                         [routerLink]="section.path"
-                        class="rounded-sm font-medium text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        class="rounded-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         >{{ section.label }}</a
                       >
                     </li>

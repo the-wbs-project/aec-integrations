@@ -85,7 +85,7 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
             </p>
           }
 
-          <p class="flex items-center gap-2 text-sm font-medium text-(--text-secondary)">
+          <p class="flex items-center gap-2 text-sm font-semibold text-(--text-secondary)">
             <aec-icon class="text-(--accent-primary)" name="scale" decorative [size]="4" />
             <span i18n="@@home.credibility.promise">Independent. Rankings are algorithmic.</span>
           </p>

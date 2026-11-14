@@ -43,19 +43,19 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
       >
         <thead
           class="border-b border-(--border-default) text-start text-xs
-            font-medium tracking-wide text-(--text-secondary)"
+            font-semibold tracking-wide text-(--text-secondary)"
         >
           <tr>
             <th
               scope="col"
-              class="px-4 py-3 text-start font-medium"
+              class="px-4 py-3 text-start font-semibold"
               i18n="@@products.detail.body.integrations.col.product"
             >
               Integrates with
             </th>
             <th
               scope="col"
-              class="hidden px-4 py-3 text-start font-medium md:table-cell"
+              class="hidden px-4 py-3 text-start font-semibold md:table-cell"
               i18n="@@products.detail.body.integrations.col.connection"
             >
               Connection

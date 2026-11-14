@@ -457,7 +457,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.listing_name)) {
                         <p
                           id="claim-dialog-listing-name-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          class="text-xs font-semibold text-(--text-primary)"
                           role="alert"
                           i18n="@@claimDialog.you.listingName.error"
                         >
@@ -489,7 +489,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.website)) {
                         <p
                           id="claim-dialog-website-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          class="text-xs font-semibold text-(--text-primary)"
                           role="alert"
                           i18n="@@claimDialog.you.website.error"
                         >
@@ -566,7 +566,7 @@ interface ClaimDialogModel {
                   @if (invalid(form.body)) {
                     <p
                       id="claim-dialog-comments-error"
-                      class="text-xs font-medium text-(--text-primary)"
+                      class="text-xs font-semibold text-(--text-primary)"
                       role="alert"
                       i18n="@@requests.claim.body.error"
                     >
@@ -584,7 +584,7 @@ interface ClaimDialogModel {
                   (detailChange)="form.found_via_detail().value.set($event)"
                 />
                 @if (submitError() === 'gone') {
-                  <p class="mt-4 text-sm font-medium text-(--text-primary)" role="alert">
+                  <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">
                     <span i18n="@@claimDialog.error.gone"
                       >That listing is no longer available.</span
                     >
@@ -600,7 +600,7 @@ interface ClaimDialogModel {
                   </p>
                 } @else if (submitError() === 'failed') {
                   <p
-                    class="mt-4 text-sm font-medium text-(--text-primary)"
+                    class="mt-4 text-sm font-semibold text-(--text-primary)"
                     role="alert"
                     i18n="@@requests.submitFailed"
                   >

@@ -72,7 +72,7 @@ interface ProvenanceEntry {
           <ul class="space-y-2">
             @for (e of entries(); track e.key) {
               <li class="space-y-1">
-                <p class="text-sm font-medium text-(--text-primary)">
+                <p class="text-sm font-semibold text-(--text-primary)">
                   {{ e.who }}
                   @if (e.stance) {
                     <span

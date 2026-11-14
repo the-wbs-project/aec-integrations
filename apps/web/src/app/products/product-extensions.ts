@@ -63,7 +63,7 @@ const CARD_CLASS =
           >
             <aec-logo-or-initial [src]="host.logo_url" [name]="host.name" alt="" size="sm" />
             <span class="min-w-0">
-              <span class="block break-words font-medium text-(--text-primary)">{{
+              <span class="block break-words font-semibold text-(--text-primary)">{{
                 host.name
               }}</span>
               @if (host.vendor; as v) {
@@ -119,7 +119,7 @@ export class ProductBuiltWithin {
               size="sm"
             />
             <span class="min-w-0">
-              <span class="block break-words font-medium text-(--text-primary)">{{
+              <span class="block break-words font-semibold text-(--text-primary)">{{
                 extension.name
               }}</span>
               @if (extension.vendor; as v) {

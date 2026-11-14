@@ -156,7 +156,7 @@ const GUIDE_LINK =
                     >{{ crumb.label }}</a
                   >
                 } @else {
-                  <span aria-current="page" class="truncate font-medium text-(--text-primary)">{{
+                  <span aria-current="page" class="truncate font-semibold text-(--text-primary)">{{
                     crumb.label
                   }}</span>
                 }

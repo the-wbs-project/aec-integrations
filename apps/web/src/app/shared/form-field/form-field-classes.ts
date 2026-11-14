@@ -34,7 +34,7 @@ export const FIELD_INPUT_CLASS =
 export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
 
 /** A field's inline error, under the hint. Carries `role="alert"`. */
-export const FIELD_ERROR_CLASS = 'text-xs font-medium text-(--text-primary)';
+export const FIELD_ERROR_CLASS = 'text-xs font-semibold text-(--text-primary)';
 
 /**
  * One bordered choice row wrapping a native radio or checkbox: the plan

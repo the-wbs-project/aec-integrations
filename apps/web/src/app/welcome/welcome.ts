@@ -149,7 +149,7 @@ export function welcomeNextPath(raw: string | null): string {
           } @else if (loadFailed()) {
             <div class="mt-8 space-y-3">
               <p
-                class="text-sm font-medium text-(--text-primary)"
+                class="text-sm font-semibold text-(--text-primary)"
                 role="alert"
                 i18n="@@welcome.loadFailed"
               >
@@ -213,7 +213,7 @@ export function welcomeNextPath(raw: string | null): string {
 
                 @if (saveFailed()) {
                   <p
-                    class="text-sm font-medium text-(--text-primary)"
+                    class="text-sm font-semibold text-(--text-primary)"
                     role="alert"
                     i18n="@@welcome.saveFailed"
                   >
