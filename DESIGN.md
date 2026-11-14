@@ -637,7 +637,7 @@ AECI-1748 confirmed the weights, line heights and tracking stated above. They ar
 
 ### Stray sizes (settled by AECI-1749)
 
-- Every size in public and shared code now reads a ramp token. Sizes under 12px went up to `--t-12`. `0.8125rem` became `--t-13`. The `.aec-plan-price` 32px figure now reads `--t-36` (28 to 36px). `.aec-prose code` reads `--t-14`.
+- Every size in public and shared code now reads a ramp token. Sizes under 12px went up to `--t-12`. `0.8125rem` became `--t-13`. The `.aec-plan-price` 32px figure now reads `--t-36` (28 to 36px). `.aec-prose code` stays `0.875em`: it is relative on purpose, so inline code scales with the heading or sentence around it.
 - Still off the ramp, because they sit in `admin/` and `vendor/`, which AECI-1749 does not hand-edit: arbitrary `text-[0.6875rem]`, `text-[0.625rem]` and `text-[0.65rem]` utilities in admin templates and charts, one in `vendor/components/vendor-checklist.ts`, and the `rem` sizes in `vendor/integration-detail/integration-detail-styles.ts`. The same goes for the count badge in `layout/nav-menu.ts`, owned by another agent.
 
 ### Named Rules
