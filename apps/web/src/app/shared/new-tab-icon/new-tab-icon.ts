@@ -14,7 +14,8 @@ import { AecIcon } from '../icon/icon';
  * links announced the new tab to a screen reader via an `sr-only` span and gave
  * a sighted reader no warning whatsoever. `DESIGN.md` §"Named Rules" → "The Link
  * Treatment Rule" now pins the drawn glyph, and this component is the only place
- * it is drawn.
+ * it is used. Since AECI-1753 `aec-icon` draws it, as the registry's `external`
+ * icon at 14px (size 3.5), so the cue keeps the size it always had.
  *
  * The `↗` spelling had a second problem. `DESIGN.md`'s Arrow Rule reserves arrow
  * characters for data-flow direction, and the pair page rendered `↗` in the same
@@ -48,7 +49,7 @@ import { AecIcon } from '../icon/icon';
   template: `
     <!-- AECI-1753: drawn by aec-icon. mirrorRtl is there because the cue points
          away from the start of the line, which flips with direction. -->
-    <aec-icon name="external" [size]="4" [mirrorRtl]="true" />
+    <aec-icon name="external" decorative [size]="3.5" [mirrorRtl]="true" />
     @if (announce()) {
       <span class="sr-only" i18n="@@shared.newTabIcon.label">(opens in a new tab)</span>
     }

@@ -1,11 +1,17 @@
 /**
  * AECI-1753 - `AecIcon`. The accessibility contract fails silently: a wrongly
- * named or wrongly hidden icon still draws. These specs pin the two states
- * (decorative and meaningful), the stroke, and the registry shape.
+ * named or wrongly hidden icon still draws. These specs pin the three valid
+ * forms (`decorative`, `label="x"`, `[label]="x"`), the stroke, and the registry
+ * shape.
+ *
+ * Compile-level contract: the selector is `aec-icon[label], aec-icon[decorative]`,
+ * so `<aec-icon name="x" />` with neither fails AOT with NG8001. The last
+ * describe block pins the runtime half of that: such an element is unknown (NG0304). The compile error itself is checked by `pnpm build`, which
+ * fails the moment a call site omits both.
  */
 import { Component, provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AecIcon, type AecIconSize } from './icon';
 import { AEC_ICONS, type AecIconName } from './icon-registry';
@@ -13,12 +19,25 @@ import { AEC_ICONS, type AecIconName } from './icon-registry';
 @Component({
   selector: 'aec-icon-host',
   imports: [AecIcon],
-  template: `<aec-icon [name]="name" [size]="size" [label]="label" [mirrorRtl]="mirror" />`,
+  template: `
+    @switch (form) {
+      @case ('decorative') {
+        <aec-icon [name]="name" decorative [size]="size" [mirrorRtl]="mirror" />
+      }
+      @case ('static') {
+        <aec-icon [name]="name" label="Needs review" [size]="size" [mirrorRtl]="mirror" />
+      }
+      @case ('bound') {
+        <aec-icon [name]="name" [label]="label" [size]="size" [mirrorRtl]="mirror" />
+      }
+    }
+  `,
 })
 class Host {
+  form: 'decorative' | 'static' | 'bound' = 'decorative';
   name: AecIconName = 'search';
   size: AecIconSize = 5;
-  label: string | undefined = undefined;
+  label: string | null | undefined = undefined;
   mirror = false;
 }
 
@@ -32,9 +51,16 @@ function create(setup: (h: Host) => void = () => undefined): ComponentFixture<Ho
 const svg = (f: ComponentFixture<Host>) =>
   (f.nativeElement as HTMLElement).querySelector('svg') as SVGElement;
 
+let warn: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  warn.mockRestore();
 });
 
 describe('AecIcon', () => {
@@ -62,44 +88,16 @@ describe('AecIcon', () => {
     expect(el.getAttribute('viewBox')).toBe('0 0 24 24');
   });
 
-  it('is decorative without a label: aria-hidden, no role, no name', () => {
-    const el = svg(create());
-
-    expect(el.getAttribute('aria-hidden')).toBe('true');
-    expect(el.hasAttribute('role')).toBe(false);
-    expect(el.hasAttribute('aria-label')).toBe(false);
-  });
-
-  it('is an image with a name when given a label, and not hidden', () => {
-    const el = svg(
-      create((h) => {
-        h.name = 'alert-circle';
-        h.label = 'Needs review';
-      }),
-    );
-
-    expect(el.getAttribute('role')).toBe('img');
-    expect(el.getAttribute('aria-label')).toBe('Needs review');
-    expect(el.hasAttribute('aria-hidden')).toBe(false);
-  });
-
-  it('treats a blank label as decorative, never an image with an empty name', () => {
-    const el = svg(create((h) => (h.label = '   ')));
-
-    expect(el.getAttribute('aria-hidden')).toBe('true');
-    expect(el.hasAttribute('role')).toBe(false);
-    expect(el.hasAttribute('aria-label')).toBe(false);
-  });
-
   it('is never keyboard focusable', () => {
     expect(svg(create()).getAttribute('focusable')).toBe('false');
   });
 
   it.each([
+    [3.5, 'h-3.5 w-3.5'],
     [4, 'h-4 w-4'],
     [5, 'h-5 w-5'],
     [6, 'h-6 w-6'],
-  ] as const)('maps size %i to Tailwind classes %s', (size, classes) => {
+  ] as const)('maps size %s to Tailwind classes %s', (size, classes) => {
     const cls = svg(create((h) => (h.size = size))).getAttribute('class') ?? '';
 
     for (const c of classes.split(' ')) expect(cls).toContain(c);
@@ -119,6 +117,77 @@ describe('AecIcon', () => {
   });
 });
 
+describe('AecIcon: the decorative form', () => {
+  it('is aria-hidden with no role and no name', () => {
+    const el = svg(create((h) => (h.form = 'decorative')));
+
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+    expect(el.hasAttribute('role')).toBe(false);
+    expect(el.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('does not warn', () => {
+    create((h) => (h.form = 'decorative'));
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('AecIcon: the label forms', () => {
+  it('a static label="x" makes an image with that name, not hidden', () => {
+    const el = svg(create((h) => (h.form = 'static')));
+
+    expect(el.getAttribute('role')).toBe('img');
+    expect(el.getAttribute('aria-label')).toBe('Needs review');
+    expect(el.hasAttribute('aria-hidden')).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('a bound [label]="x" makes an image with that name, not hidden', () => {
+    const el = svg(
+      create((h) => {
+        h.form = 'bound';
+        h.label = 'Verified by both';
+      }),
+    );
+
+    expect(el.getAttribute('role')).toBe('img');
+    expect(el.getAttribute('aria-label')).toBe('Verified by both');
+    expect(el.hasAttribute('aria-hidden')).toBe(false);
+  });
+
+  it.each([['   '], [''], [null], [undefined]])(
+    'a bound blank label (%j) falls back to decorative and warns in dev',
+    (blank) => {
+      const el = svg(
+        create((h) => {
+          h.form = 'bound';
+          h.name = 'alert-circle';
+          h.label = blank;
+        }),
+      );
+
+      expect(el.getAttribute('aria-hidden')).toBe('true');
+      expect(el.hasAttribute('role')).toBe(false);
+      expect(el.hasAttribute('aria-label')).toBe(false);
+      expect(warn).toHaveBeenCalledOnce();
+      expect(String(warn.mock.calls[0]?.[0])).toContain('alert-circle');
+    },
+  );
+});
+
+describe('AecIcon: neither form', () => {
+  it('is not a known element at runtime, which is why the build fails it', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    TestBed.overrideComponent(Host, {
+      set: { template: '<aec-icon name="search" />' },
+    });
+
+    expect(() => TestBed.createComponent(Host).detectChanges()).toThrow(/NG0304/);
+    error.mockRestore();
+  });
+});
+
 describe('AEC_ICONS registry', () => {
   it('has only kebab-case keys', () => {
     for (const key of Object.keys(AEC_ICONS)) expect(key).toMatch(/^[a-z]+(-[a-z]+)*$/);
@@ -128,6 +197,15 @@ describe('AEC_ICONS registry', () => {
     for (const [key, shapes] of Object.entries(AEC_ICONS)) {
       expect(shapes.length, key).toBeGreaterThan(0);
       expect(JSON.stringify(shapes), key).not.toMatch(/#|fill|stroke/);
+    }
+  });
+
+  it('draws no two icons identically', () => {
+    const seen = new Map<string, string>();
+    for (const [key, shapes] of Object.entries(AEC_ICONS)) {
+      const drawing = JSON.stringify(shapes);
+      expect(seen.get(drawing), `${key} duplicates ${seen.get(drawing)}`).toBeUndefined();
+      seen.set(drawing, key);
     }
   });
 });

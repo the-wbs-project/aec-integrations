@@ -1,12 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, booleanAttribute, computed, effect, input, isDevMode } from '@angular/core';
 
 import { AEC_ICONS, type AecIconName, type IconShape } from './icon-registry';
 
-/** Icon size as a Tailwind step: 4 is 16px, 5 is 20px, 6 is 24px. */
-export type AecIconSize = 4 | 5 | 6;
+/** Icon size as a Tailwind step: 3.5 is 14px, 4 is 16px, 5 is 20px, 6 is 24px. */
+export type AecIconSize = 3.5 | 4 | 5 | 6;
 
 // Whole class names, so Tailwind's scanner sees every one.
 const SIZE_CLASS: Record<AecIconSize, string> = {
+  3.5: 'h-3.5 w-3.5',
   4: 'h-4 w-4',
   5: 'h-5 w-5',
   6: 'h-6 w-6',
@@ -16,17 +17,22 @@ const SIZE_CLASS: Record<AecIconSize, string> = {
  * `AecIcon` (AECI-1753) - the one icon component. Ruling 34 (ADR 0056): a custom
  * set at 1.75 stroke. The drawings live in `icon-registry.ts`.
  *
- * Decorative: `<aec-icon name="search" />`, hidden from assistive tech.
- * Meaningful: `<aec-icon name="alert-circle" label="Needs review" />`, announced
- * as an image with that name.
+ * Every use states its intent, and the compiler checks it. The selector is
+ * `aec-icon[label], aec-icon[decorative]`, so an `<aec-icon>` with neither fails
+ * with NG8001 and a nameless icon button cannot be written by accident.
+ *
+ * Decorative: `<aec-icon name="search" decorative />`, hidden from assistive tech.
+ * Meaningful: `<aec-icon name="alert-circle" label="Needs review" />` or
+ * `[label]="text"`, announced as an image with that name.
  *
  * ACCESSIBILITY
- * With no `label` the SVG is `aria-hidden="true"` and has no name. That is
- * correct whenever visible text beside the icon already says the same thing. When
- * the icon is the only carrier of meaning, pass `label` (already localised by
- * the caller): the SVG becomes `role="img"` with that accessible name. A blank
- * label counts as no label, so a meaningful icon can never render as an image
- * with an empty name. `focusable="false"` keeps legacy Edge from tabbing in.
+ * `decorative` makes the SVG `aria-hidden="true"` with no name. Use it whenever
+ * visible text beside the icon says the same thing, and for an icon inside a
+ * control that has its own name. `label` (already localised by the caller)
+ * makes the SVG `role="img"` with that accessible name. A blank bound label
+ * falls back to decorative so the page never carries an image with an empty
+ * name, and warns in dev mode so the bug is seen. `decorative` wins if both are
+ * given. `focusable="false"` keeps legacy Edge from tabbing in.
  *
  * RENDERING
  * Shapes are real SVG elements built from data, so the server renders them and
@@ -40,8 +46,7 @@ const SIZE_CLASS: Record<AecIconSize, string> = {
  * Light theme only.
  */
 @Component({
-  selector: 'aec-icon',
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  selector: 'aec-icon[label], aec-icon[decorative]',
   template: `
     <svg
       [class]="svgClass()"
@@ -83,14 +88,19 @@ export class AecIcon {
   /** Which drawing. A name that is not in the registry fails to compile. */
   readonly name = input.required<AecIconName>();
 
-  /** Tailwind size step. Default 5 (20px). */
+  /** Tailwind size step: 3.5, 4, 5 or 6. Default 5 (20px). */
   readonly size = input<AecIconSize>(5);
 
   /**
-   * The accessible name, already localised. Omit it for a decorative icon.
-   * Provide it when the icon carries meaning that nothing beside it states.
+   * The accessible name, already localised. Give it when the icon carries meaning
+   * that nothing beside it states. Use `decorative` instead when it does not.
    */
-  readonly label = input<string | undefined>(undefined);
+  readonly label = input<string | null | undefined>(undefined);
+
+  /**
+   * Marks the icon as decoration. Write it as a bare attribute: `decorative`.
+   */
+  readonly decorative = input(false, { transform: booleanAttribute });
 
   /**
    * Flip the drawing in right-to-left text. Set it for an icon that points along
@@ -98,7 +108,22 @@ export class AecIcon {
    */
   readonly mirrorRtl = input(false);
 
-  protected readonly accessibleName = computed(() => this.label()?.trim() || null);
+  protected readonly accessibleName = computed(() =>
+    this.decorative() ? null : this.label()?.trim() || null,
+  );
+
+  constructor() {
+    // A bound label that resolves blank is a bug in the caller. Say so in dev.
+    // Never in production: the icon degrades to decorative instead.
+    effect(() => {
+      if (isDevMode() && !this.decorative() && !this.accessibleName()) {
+        console.warn(
+          `aec-icon "${this.name()}" has a blank label and renders as decorative. ` +
+            'Pass a label, or use the decorative attribute.',
+        );
+      }
+    });
+  }
 
   protected readonly shapes = computed<readonly IconShape[]>(() => AEC_ICONS[this.name()] ?? []);
 
