@@ -106,10 +106,13 @@ The files differ only in canvas, field and type colour:
 | `primary-logo-transparent.svg`          | `0 0 280 80`    | 1120x320       | none   | Forest | 1120x320, alpha |
 | `primary-logo-trimmed.svg`              | `3 25 196 30`   | 679x104        | Bone   | Forest | 679x104    |
 | `primary-logo-dark-trimmed.svg`         | `3 25 196 30`   | 679x104        | Forest | Bone   | 679x104    |
+| `wordmark-on-dark.svg` (also `apps/web/public/branding/`) | `3 25 196 30` | 196x30 | none | Bone, Clay connector | none |
 | `primary-logo-transparent-trimmed.svg`  | `3 25 196 30`   | 679x104        | none   | Forest | 679x104, alpha |
 | `email-logo-banner.png` (no SVG file)   | `-15.9 14.05 336 54.6` | 1120x182 | none | Bone | 1120x182, alpha |
 
 Each PNG is its SVG rendered at the PNG size in the table, so the full-canvas exports are 4 px per unit. The trimmed PNGs were 770x104 while the system-font mark was wider. They are now 679x104, so the 104 px height and the 7-unit padding both hold. `email-logo-banner.png` has no SVG of its own. It is the trimmed-family geometry in Bone with no field, rendered at 10/3 px per unit. Its viewBox is measured from the old banner: the same scale, `AEC` starting at the same pixel, and the connector on the same row (y 86.5 px). See "`email-logo-banner.png` is a published asset now" below for the rules on that file.
+
+`wordmark-on-dark.svg` is the reversed lock-up (AECI-1754). It is `primary-logo-dark-trimmed.svg` with the background `<rect>` removed and the size attribute set to 196x30, so the letter outlines and the connector are identical to every other file in the family. Clay never flips: the connector stays `#E89668`. Only Forest and Bone swap, so the type is Bone `#F5F2EA`. The field is transparent, so it sits on any Forest ground, including a header or footer that is a slightly different green. Bone on Forest is 11.03:1. The `aec-brand-logo` component picks it with `tone="on-dark"`. The two copies must stay identical.
 
 The stacked logo, the monogram, the lockup and the OpenGraph cards are covered in their own sections.
 
@@ -403,7 +406,10 @@ wordmark-primary-light.svg
 wordmark-primary-light-tight.svg
 lockup-dark.svg
 monogram-transparent-inverted.svg
+wordmark-on-dark.svg
 ```
+
+`wordmark-on-dark.svg` is the one deliberate exception to the pattern. It is a transparent, tight-crop, Bone-type wordmark, and it keeps the Clay connector. It is named for where it sits, not for a `{light|dark|transparent}` field.
 
 ### Original vs tight crop
 
