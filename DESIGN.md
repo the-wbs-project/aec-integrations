@@ -253,7 +253,7 @@ The rules the rulings set:
 - **Clay and text (clash 4, blend).** Clay does not carry text. Product names highlighted on Forest are Bone. Clay deep stays the onboarding series colour. Kicker icons, chip fills and the focus ring do not take Clay.
 - **Selected states (clash 5, blend).** A pressed toggle or segmented control is solid Forest with white text (12.34:1). A selected filter chip keeps the Forest-soft wash, with a border or other selected-state cue. The view toggle is Forest, never near-black.
 - **Tokens only (clash 6, blend).** Every colour is a named OKLCH token in `apps/web/src/styles.css`. The new surfaces (hero panel, footer ground) become tokens. The mock-up's other loose values are dropped, including its extra band, soft-accent and empty-star tokens. No `color-mix()` in components, no tinted shadows, no hex in components. The lint (root `eslint.color-patterns.mjs`, and `apps/web/scripts/check-source-constraints.mjs` for `.html` and `.css`) catches colour literals only. A `color-mix()` over two tokens is review-only.
-- **Field edge (PLAN.md §4.1 and clash 23, not clash 6).** `#84848D` is the border of every form control. It becomes a token with the inputs work.
+- **Field edge (PLAN.md §4.1 and clash 23, not clash 6).** `#84848D` is the border of every form control. It becomes a token in AECI-1747. The inputs work applies it.
 
 Scope: the rules in this subsection apply to public pages only (ruling R2, 2026-11-14). The vendor portal and admin take the new tokens and nothing more.
 
@@ -263,7 +263,7 @@ Scope: the rules in this subsection apply to public pages only (ruling R2, 2026-
 - Whether field edge replaces Border input or sits beside it. They differ (`#84848D` and `#8A8A93`).
 - Text and link colours on Forest other than Bone, with their measured ratios.
 - The focus ring on a Forest ground. The shipped ring is Forest, which is invisible there. Confirm the mock-up's Bone focus ring on Forest (`--hero-focus: #F5F2EA`, 11.03:1).
-- Four shipped tokens do not render the hex this file documents: Forest `#1E3A2F` renders `#213928`, Forest hover `#2E5C45` renders `#345D40`, Clay `#E89668` renders `#ED9A71`, Bone `#F5F2EA` renders `#F3F1E6`. AECI-1747 fixes the token or the documented hex.
+- Four shipped tokens do not render the hex this file documents: Forest `#1E3A2F` renders `#213928`, Forest hover `#2E5C45` renders `#345D40`, Clay `#E89668` renders `#ED9A71`, Bone `#F5F2EA` renders `#F3F1E6`. AECI-1747 changes each token's OKLCH value so it renders the documented hex, which is the value the approved mock-ups use.
 - Which mock-up tokens are dropped. Clash 6 says "the rest are dropped" and does not list them.
 
 ### Dark theme — dropped from the roadmap (not shipped)
@@ -272,7 +272,7 @@ The dark palette was removed from the active design system in **AECI-226**: AECi
 
 ### Named Rules
 
-**The Surfaces-Are-Neutral Rule** (rewritten by clashes 1 and 2; see ADR 0056). The reading area is neutral. The `<body>` is `#FFFFFF`. Forest may fill the header, the hero of a detail page and the footer, and nothing else. Bone is *not* a page background. It is one warm-tinted band per page. Forest soft is never a band. The old form of this rule banned every brand colour as a ground. That ban is lifted for those three Forest bands only.
+**The Surfaces-Are-Neutral Rule** (rewritten by clashes 1 and 2, see ADR 0056). The reading area is neutral. The `<body>` is `#FFFFFF`. Forest may fill the header, the hero of a detail page and the footer, and nothing else. Bone is *not* a page background. It is one warm-tinted band per page. Forest soft is never a band. The old form of this rule banned every brand colour as a ground. That ban is lifted for those three Forest bands only.
 
 **The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected. One change (clash 3): on a Forest ground a Forest button vanishes, so the main button there is the inverse, Bone with Forest text. It is still the one primary action, and it is not Clay.
 
