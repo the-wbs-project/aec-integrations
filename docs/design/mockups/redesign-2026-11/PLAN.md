@@ -409,7 +409,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301. That is AECI-953.
 
-**The second case in AECI-1571 is unchanged by this plan.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. Both stay in the issue.
+**The second case in AECI-1571 is outside this plan and is done by AECI-1823.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. The finder fallback shipped in AECI-1823. The slug check is AECI-1824.
 
 ### 5.2 The product details page
 
@@ -502,12 +502,12 @@ Shared constraints for every row below:
 
 ### 6.1 The empty pair page
 
-The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. It carries no categories, description, links or taxonomy. The type is in `packages/shared/src/api/product-pairs.ts`.
+The pair payload today carries, for each product: id, slug, name, logo, product role, vendor, integration count, review count, the two rating averages and claim status. Since AECI-1822 it also carries each product's categories, audiences, phases, trades and the two links, `api_docs_url` and `tool_integrations_url`. It still carries no description. The type is in `packages/shared/src/api/product-pairs.ts`.
 
 | Element | Data needed | In the pair payload today | Work |
 | --- | --- | --- | --- |
 | Statement, status | `mechanisms.length === 0` | Yes | None |
-| Product cards | Categories of each product | No | Add categories to each side |
+| Product cards | Categories of each product | Yes, since AECI-1822 | Delivered by AECI-1822 |
 | Correction entry | Both product ids on a request | No. `context_product_id` is for claims only, and a correction sets it to null (`apps/api/src/routes/requests.ts:764`). | New storage. AECI-343. |
 | Look-up count | Pair page views, 90 days, automated visits removed | Views are recorded in `page_views` with pair columns. No public count exists. | New read, with a floor |
 | "I need this too" | A de-duplicated per-pair count | No | New table, new write, repeat-click guard |
@@ -516,8 +516,8 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Closest matches | The kept product's integrations, with each partner's categories, ratings and data objects | No | New read |
 | Category anchors | The swapped product's categories | No | Comes with the row above |
 | Facts table | Integration count, reviews, ratings, claim state | Yes | None |
-| Who each is for | Audiences, phases, trades of both | No | Add to each side |
-| Look it up yourself | `api_docs_url`, `tool_integrations_url` | No | Add to each side |
+| Who each is for | Audiences, phases, trades of both | Yes, since AECI-1822 | Delivered by AECI-1822 |
+| Look it up yourself | `api_docs_url`, `tool_integrations_url` | Yes, since AECI-1822, `null` while AECi has a link hidden | Delivered by AECI-1822 |
 
 **The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
@@ -531,8 +531,8 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Maintenance chip date | `products.last_reviewed_at` | Yes, as `maintenance.last_reviewed_at` | None |
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
-| Partner category filter | Each partner's categories on the integration row | No | Add to the row. AECI-1781. |
-| Agreement state on cards | The agreement state per integration | No. Only the pair payload has it. | Add. AECI-1781. |
+| Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
+| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. The roll-up rule is provisional until Chris rules. | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
@@ -912,7 +912,7 @@ This delivers the visitor value now, without waiting for the redesign.
 | A2 | Pair report carries both products | Record both product ids on a correction request so per-pair counts can be queried. Zod, contract row, audit in the same batch. | Pilot | `docs/STAGE_1_5_SPEC.md` §11.5 | none. It uses the existing correction path. | Check AECI-343 |
 | A3 | Closest matches on the empty pair page | The keep toggle, category anchors, cards and table, A to Z order, the ordering disclosure. A new read. | SEO | `docs/STAGE_1_5_SPEC.md` §11.3 | text. "How ranking works" must describe the order. | Decision 2, C2, check AECI-341 |
 | A4 | "What you would be moving" and the data object filter | The three groups and the filter on closest matches. | SEO | `docs/STAGE_1_5_SPEC.md` §11.4 | none | A3, decision 16 |
-| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
+| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. Finder fallback done by AECI-1823. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
 
 ### Workstream B: demand captures
 

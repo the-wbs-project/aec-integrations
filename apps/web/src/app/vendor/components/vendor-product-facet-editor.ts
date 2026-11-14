@@ -22,6 +22,7 @@ import {
   lockedField,
   type LockedField,
   type ProductUsefulness,
+  type TaxonomyFacetKey,
   type TaxonomyResponse,
   type TaxonomyTermWithCount,
   type UpdateVendorProductInput,
@@ -45,7 +46,7 @@ type NarrativeFacet = 'audiences' | 'phases';
 
 interface FacetConfig {
   readonly slugKey: SlugKey;
-  readonly vocabulary: keyof TaxonomyResponse;
+  readonly vocabulary: TaxonomyFacetKey;
   readonly legend: string;
   readonly hint: string;
   /** Set for the two facets that carry "How teams use it" points. */
@@ -528,7 +529,7 @@ export class VendorProductFacetEditor {
 
   private readonly vocabulary = computed<readonly TaxonomyTermWithCount[]>(() => {
     const t = this.taxonomy();
-    return t ? (t[this.config().vocabulary] as readonly TaxonomyTermWithCount[]) : [];
+    return t ? t[this.config().vocabulary] : [];
   });
 
   /**

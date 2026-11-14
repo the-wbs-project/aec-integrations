@@ -151,5 +151,15 @@ export function maskPairResponse(
   body: ProductPairResponse,
   hides: HidesByEntity,
 ): ProductPairResponse {
-  return { ...body, mechanisms: body.mechanisms.map((m) => maskPairMechanism(m, hides)) };
+  return {
+    ...body,
+    // AECI-1822: each subject's two links are product fields AECi may hide. Silent, like
+    // a list item: the subject card shows no "Under review" marker.
+    context_product: maskHiddenFields(
+      body.context_product,
+      hiddenOf(hides, body.context_product.id),
+    ),
+    other_product: maskHiddenFields(body.other_product, hiddenOf(hides, body.other_product.id)),
+    mechanisms: body.mechanisms.map((m) => maskPairMechanism(m, hides)),
+  };
 }

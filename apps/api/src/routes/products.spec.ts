@@ -9,7 +9,11 @@
  * promoted rows and exercise the mechanical query/hydration/sort/filter behavior.
  */
 
-import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
+import {
+  ProductDetailSchema,
+  ProductPairResponseSchema,
+  ProductsListResponseSchema,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -40,6 +44,7 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { createProductPairHandler } from './integrations';
 import { createProductDetailHandler, createProductsListHandler } from './products';
 
 // Valid UUIDs (the response schema validates `id` as a uuid; prod ids are real).
@@ -62,6 +67,12 @@ const detailApp = () =>
     method: 'get',
     path: '/api/products/:slug',
     handler: createProductDetailHandler(t.factory),
+  });
+const pairApp = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/products/:slug/integrations/:otherSlug',
+    handler: createProductPairHandler(t.factory),
   });
 const get = (app: ReturnType<typeof listApp>, url: string) =>
   app.request(url, {}, TEST_ENV, fakeExecutionContext());
@@ -1105,6 +1116,322 @@ describe('GET /api/products/:slug', () => {
   it('404s an unknown slug', async () => {
     const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug — partner categories, agreement, data-object names (AECI-1781)', () => {
+  // Two vendor companies, so a claim can reach `confirmed` (two distinct voters).
+  beforeEach(async () => {
+    await t.db.insert(vendors).values([
+      { id: u(91), companyName: 'Acme', slug: 'acme' },
+      { id: u(92), companyName: 'Globex', slug: 'globex' },
+    ]);
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(21), slug: 'erp', name: 'ERP', displayOrder: 1 },
+      { id: u(22), slug: 'accounting', name: 'accounting', displayOrder: 2 },
+      { id: u(23), slug: 'field', name: 'Field Management', displayOrder: 3 },
+      // No curated order: sorts last.
+      { id: u(24), slug: 'bim', name: 'BIM', displayOrder: null },
+    ]);
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'rfis', name: 'RFIs', displayOrder: 1 },
+      { id: u(72), slug: 'drawings', name: 'drawings', displayOrder: 2 },
+      { id: u(73), slug: 'invoices', name: 'Invoices', displayOrder: 3 },
+      { id: u(74), slug: 'budgets', name: 'Budgets', displayOrder: null },
+    ]);
+  });
+
+  const vote = (id: number, claimId: number, vendor: number, asserted = true) => ({
+    id: u(id),
+    claimId: u(claimId),
+    source: vendor === 91 ? 'vendor_a' : 'vendor_b',
+    asserted,
+    attestedByVendorId: u(vendor),
+  });
+
+  const rows = async (slug: string) => {
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), `/api/products/${slug}`)).json(),
+    );
+    const all = [...detail.integrations_as_source, ...detail.integrations_as_target];
+    return (id: string) => all.find((i) => i.id === id);
+  };
+
+  it('carries all three on a direct row, in curated order, from the partner side in both buckets', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await t.db.insert(productCategories).values([
+      // The page product's own category must not leak onto the row.
+      { productId: u(1), categoryId: u(23) },
+      { productId: u(2), categoryId: u(21) },
+      { productId: u(2), categoryId: u(22) },
+      { productId: u(2), categoryId: u(24) },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'a_to_b' },
+      // The same object twice: named once.
+      { id: u(83), integrationId: u(51), dataObjectId: u(71), direction: 'b_to_a' },
+      { id: u(84), integrationId: u(51), dataObjectId: u(74), direction: 'a_to_b' },
+    ]);
+    // RFIs a_to_b confirmed by both, the others single-source: the row is single_source.
+    await t.db
+      .insert(attestations)
+      .values([
+        vote(1, 81, 91),
+        vote(2, 81, 92),
+        vote(3, 82, 91),
+        vote(4, 83, 92),
+        vote(5, 84, 91),
+      ]);
+
+    const fromSource = (await rows('procore'))(u(51));
+    // Curated `display_order` first, NULLs last: not the A to Z order.
+    expect(fromSource?.partner_categories).toEqual([
+      { slug: 'erp', name: 'ERP' },
+      { slug: 'accounting', name: 'accounting' },
+      { slug: 'bim', name: 'BIM' },
+    ]);
+    expect(fromSource?.data_objects).toEqual([
+      { slug: 'rfis', name: 'RFIs' },
+      { slug: 'drawings', name: 'drawings' },
+      { slug: 'budgets', name: 'Budgets' },
+    ]);
+
+    // The pair page lists the same objects in the same order (`compareClaims`).
+    const pair = ProductPairResponseSchema.parse(
+      await (await get(pairApp(), '/api/products/procore/integrations/sage-intacct')).json(),
+    );
+    const pairOrder = [...new Set(pair.mechanisms[0]!.claims.map((c) => c.data_object_slug))];
+    expect(fromSource?.data_objects.map((o) => o.slug)).toEqual(pairOrder);
+    expect(fromSource?.agreement).toBe('single_source');
+
+    // From the other endpoint the partner is Procore.
+    const fromTarget = (await rows('sage-intacct'))(u(51));
+    expect(fromTarget?.partner_categories).toEqual([{ slug: 'field', name: 'Field Management' }]);
+    expect(fromTarget?.agreement).toBe('single_source');
+  });
+
+  it('returns [] for a partner with no categories, and a null agreement with no claims', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'bare', 'Bare');
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+
+    const row = (await rows('procore'))(u(51));
+    expect(row?.partner_categories).toEqual([]);
+    expect(row?.data_objects).toEqual([]);
+    expect(row?.agreement).toBeNull();
+  });
+
+  it('reads confirmed only when every claim is, and lets a conflict win', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(3), 'acumatica', 'Acumatica');
+    await t.db.insert(integrations).values([
+      { id: u(51), sourceProductId: u(1), targetProductId: u(2) },
+      { id: u(52), sourceProductId: u(1), targetProductId: u(3) },
+    ]);
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'a_to_b' },
+      { id: u(83), integrationId: u(52), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(84), integrationId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+    ]);
+    await t.db.insert(attestations).values([
+      // u(51): both claims confirmed by two companies.
+      vote(1, 81, 91),
+      vote(2, 81, 92),
+      vote(3, 82, 91),
+      vote(4, 82, 92),
+      // u(52): one confirmed, one where the two companies disagree.
+      vote(5, 83, 91),
+      vote(6, 83, 92),
+      vote(7, 84, 91),
+      vote(8, 84, 92, false),
+    ]);
+
+    const row = await rows('procore');
+    expect(row(u(51))?.agreement).toBe('confirmed');
+    expect(row(u(52))?.agreement).toBe('conflict');
+  });
+
+  it('skips a refuted claim in both the names and the agreement, as data_object_slugs does', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(73), direction: 'a_to_b' },
+    ]);
+    // RFIs confirmed by both. Invoices denied by the only company that voted.
+    await t.db
+      .insert(attestations)
+      .values([vote(1, 81, 91), vote(2, 81, 92), vote(3, 82, 91, false)]);
+
+    const row = (await rows('procore'))(u(51));
+    expect(row?.data_object_slugs).toEqual(['rfis']);
+    expect(row?.data_objects).toEqual([{ slug: 'rfis', name: 'RFIs' }]);
+    expect(row?.agreement).toBe('confirmed');
+  });
+
+  it('carries all three on a via row and on a powered_by row', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(3), 'agave', 'Agave', { productRole: 'connector' });
+    await seedProduct(u(4), 'acumatica', 'Acumatica');
+    await t.db.insert(productCategories).values([
+      { productId: u(2), categoryId: u(21) },
+      { productId: u(4), categoryId: u(22) },
+    ]);
+    // Via: an evidenced pair. Procore is A, so the partner is B. `b_to_a` files the
+    // row in Procore's target bucket.
+    const [a, b] = [u(1), u(4)].sort();
+    expect(b).toBe(u(4));
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'b_to_a',
+      mechanismName: 'Agave Sync',
+    });
+    // Powered: an `integrations` row whose powered_by is neither endpoint.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(1),
+      mechanismKind: 'iPaaS',
+      poweredByProductId: u(3),
+    });
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(73), direction: 'a_to_b' },
+      { id: u(82), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'both' },
+    ]);
+
+    const row = await rows('procore');
+    const powered = row(u(51));
+    expect(powered?.powered_by_product?.id).toBe(u(3));
+    expect(powered?.partner_categories).toEqual([{ slug: 'erp', name: 'ERP' }]);
+    expect(powered?.data_objects).toEqual([{ slug: 'invoices', name: 'Invoices' }]);
+    expect(powered?.agreement).toBe('unverified');
+
+    const via = row(u(52));
+    expect(via?.via?.id).toBe(u(3));
+    expect(via?.partner_categories).toEqual([{ slug: 'accounting', name: 'accounting' }]);
+    expect(via?.data_objects).toEqual([{ slug: 'drawings', name: 'drawings' }]);
+    expect(via?.agreement).toBe('unverified');
+  });
+
+  // The other canonical slot: the page product sorts AFTER its partner, so it is
+  // `product_b_id` and the partner is A (`evidencedPairsAsB`).
+  it('reads the partner from slot A on a via row where the page product is B', async () => {
+    await seedProduct(u(5), 'bluebeam', 'Bluebeam');
+    await seedProduct(u(9), 'vista', 'Vista');
+    await seedProduct(u(3), 'agave', 'Agave', { productRole: 'connector' });
+    await t.db.insert(productCategories).values([
+      // The page product's own category must not appear on the row.
+      { productId: u(9), categoryId: u(23) },
+      { productId: u(5), categoryId: u(21) },
+      { productId: u(5), categoryId: u(22) },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(3),
+      productAId: u(5),
+      productBId: u(9),
+      direction: 'a_to_b',
+      mechanismName: 'Agave Sync',
+    });
+    await t.db.insert(claims).values([
+      { id: u(81), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+      { id: u(82), connectorEvidencedPairId: u(52), dataObjectId: u(71), direction: 'a_to_b' },
+    ]);
+    await t.db
+      .insert(attestations)
+      .values([vote(1, 81, 91), vote(2, 81, 92), vote(3, 82, 91), vote(4, 82, 92)]);
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/vista')).json(),
+    );
+    // a_to_b from A (Bluebeam) files the row in Vista's target bucket.
+    expect(detail.integrations_as_source).toEqual([]);
+    const via = detail.integrations_as_target.find((i) => i.id === u(52));
+    expect(via?.via?.id).toBe(u(3));
+    expect(via?.source.id).toBe(u(5));
+    expect(via?.partner_categories).toEqual([
+      { slug: 'erp', name: 'ERP' },
+      { slug: 'accounting', name: 'accounting' },
+    ]);
+    expect(via?.data_objects).toEqual([
+      { slug: 'rfis', name: 'RFIs' },
+      { slug: 'drawings', name: 'drawings' },
+    ]);
+    expect(via?.agreement).toBe('confirmed');
+  });
+
+  // No N+1: the fields ride nested relations of the one product read, so the batch
+  // holds the same statements for 1 row as for 58.
+  it('runs the same statements for a product with 1 integration as with 58', async () => {
+    const statementsFor = async (slug: string) => {
+      const prepared: string[] = [];
+      const prepare = t.raw.prepare.bind(t.raw);
+      const spy = vi.spyOn(t.raw, 'prepare').mockImplementation((source: string) => {
+        prepared.push(source);
+        return prepare(source);
+      });
+      const batch = vi.spyOn(t.db, 'batch');
+      const res = await get(detailApp(), `/api/products/${slug}`);
+      expect(res.status).toBe(200);
+      expect(batch).toHaveBeenCalledTimes(1);
+      const sent = batch.mock.calls[0]![0].length;
+      spy.mockRestore();
+      batch.mockRestore();
+      return { sent, prepared: prepared.length };
+    };
+
+    await seedProduct(u(1), 'one', 'One');
+    await seedProduct(u(2), 'many', 'Many');
+    await seedProduct(u(3), 'partner', 'Partner');
+    await t.db.insert(productCategories).values({ productId: u(3), categoryId: u(21) });
+    await t.db
+      .insert(integrations)
+      .values({ id: u(500), sourceProductId: u(1), targetProductId: u(3) });
+    for (let n = 0; n < 58; n++) {
+      const partner = u(1000 + n);
+      await seedProduct(partner, `p${n}`, `P${n}`);
+      await t.db
+        .insert(productCategories)
+        .values({ productId: partner, categoryId: u(21 + (n % 3)) });
+      await t.db
+        .insert(integrations)
+        .values({ id: u(2000 + n), sourceProductId: u(2), targetProductId: partner });
+      await t.db.insert(claims).values({
+        id: u(3000 + n),
+        integrationId: u(2000 + n),
+        dataObjectId: u(71),
+        direction: 'a_to_b',
+      });
+    }
+
+    const one = await statementsFor('one');
+    const many = await statementsFor('many');
+    expect(many).toEqual(one);
+    // The response really carries the 58 rows, each with its partner's category.
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/many')).json(),
+    );
+    expect(detail.integrations_as_source).toHaveLength(58);
+    expect(detail.integrations_as_source.every((r) => r.partner_categories.length === 1)).toBe(
+      true,
+    );
+    expect(detail.integrations_as_source.every((r) => r.data_objects.length === 1)).toBe(true);
   });
 });
 
