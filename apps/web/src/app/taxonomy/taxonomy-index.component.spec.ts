@@ -8,6 +8,7 @@ import { type CategoriesListResponse, TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/s
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { TaxonomyIndexPage } from './taxonomy-index';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 function listOf(
   ...terms: Array<{ slug: string; name: string; count: number; integrations?: number }>
@@ -276,5 +277,20 @@ describe('TaxonomyIndexPage', () => {
     };
     const root = render('phase', list);
     expect(root.textContent).toContain('Schematic and detailed design.');
+  });
+});
+
+describe('TaxonomyIndexPage breadcrumb (AECI-1777)', () => {
+  it.each([
+    ['category', 'Categories'],
+    ['audience', 'Audiences'],
+    ['phase', 'Phases'],
+    ['trade', 'Trades'],
+  ] as const)('reads Home, then the %s index as the current page', (kind, title) => {
+    const root = render(kind, listOf({ slug: 'bim', name: 'BIM Authoring', count: 24 }));
+    expect(trail(root)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: title, href: null, current: true },
+    ]);
   });
 });

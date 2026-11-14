@@ -79,6 +79,30 @@ test.describe('skip link (AECI-1839)', () => {
     });
   }
 
+  // AECI-1777: the focused skip link is a 44px target with the 12px control radius and a
+  // 3px ring at a 3px offset.
+  test('is 44px high with a 12px radius and a 3px ring when focused', async ({ page }) => {
+    await page.goto('/docs');
+    const link = page.getByRole('link', { name: 'Skip to main content' });
+    await page.keyboard.press('Tab');
+    await expect(link).toBeFocused();
+    const style = await link.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        height: el.getBoundingClientRect().height,
+        radius: s.borderTopLeftRadius,
+        outlineWidth: s.outlineWidth,
+        outlineStyle: s.outlineStyle,
+        outlineOffset: s.outlineOffset,
+      };
+    });
+    expect(style.height).toBe(44);
+    expect(style.radius).toBe('12px');
+    expect(style.outlineStyle).toBe('solid');
+    expect(style.outlineWidth).toBe('3px');
+    expect(style.outlineOffset).toBe('3px');
+  });
+
   test('still correct after a client-side navigation', async ({ page, request }) => {
     const product = await firstProductPath(request);
     test.skip(product === null, 'no products seeded in this environment');

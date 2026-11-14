@@ -249,3 +249,43 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     await expect(page).toHaveURL(/context_version=/);
   });
 });
+
+// AECI-1777: the one `aec-breadcrumb` on the pair page and the product page. The pair trail
+// reads Home, context product, Integrations, other product, and the order is load-bearing.
+test.describe('breadcrumb on the pair and product pages (AECI-1777)', () => {
+  const crumbs = (page: import('@playwright/test').Page) =>
+    page.getByRole('navigation', { name: 'Breadcrumb' }).first().getByRole('listitem');
+
+  test('the pair page reads Home, product, Integrations, product', async ({ page, request }) => {
+    const pair = await findPair(request);
+    test.skip(pair === null, 'no integration in the local catalog to build a pair from');
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+
+    const items = crumbs(page);
+    await expect(items).toHaveCount(4);
+    await expect(items.nth(0)).toHaveText(/Home/);
+    await expect(items.nth(1).getByRole('link')).toHaveAttribute(
+      'href',
+      `/products/${pair!.context}`,
+    );
+    await expect(items.nth(2)).toHaveText(/Integrations/);
+    await expect(items.nth(2).getByRole('link')).toHaveAttribute(
+      'href',
+      `/products/${pair!.context}#integrations`,
+    );
+    await expect(items.nth(3).locator('[aria-current="page"]')).toBeVisible();
+    await expect(items.nth(3).getByRole('link')).toHaveCount(0);
+  });
+
+  test('the product page reads Home, Products, the product', async ({ page, request }) => {
+    const pair = await findPair(request);
+    test.skip(pair === null, 'no integration in the local catalog to build a pair from');
+    await page.goto(`/products/${pair!.context}`);
+
+    const items = crumbs(page);
+    await expect(items).toHaveCount(3);
+    await expect(items.nth(0).getByRole('link')).toHaveAttribute('href', '/');
+    await expect(items.nth(1).getByRole('link')).toHaveAttribute('href', '/products');
+    await expect(items.nth(2).locator('[aria-current="page"]')).toBeVisible();
+  });
+});
