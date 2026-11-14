@@ -92,9 +92,11 @@ const FOCUSABLE =
 
 @Component({
   selector: 'aec-nav-menu',
-  // The handover is `lg` (AECI-544, re-measured by AECI-1774). If it moves,
-  // three classes move together: this `lg:hidden`, the inline row's `lg:flex`
-  // in `site-header.ts` and `aec-search-trigger`'s `lg:block`.
+  // The handover is `lg` (AECI-544, re-measured by AECI-1774). From `lg` the
+  // header shows the inline row and its own search. Below `lg` this menu carries
+  // navigation and search. If the handover moves, this `lg:hidden` moves with
+  // the inline row's `lg:flex` and the header search's `lg:` class in
+  // `site-header.ts`, or a width band gets two searches or none.
   host: {
     class: 'lg:hidden',
     '[attr.role]': 'isOpen() ? "dialog" : null',

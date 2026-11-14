@@ -170,8 +170,11 @@ for (const viewport of [
       await page.waitForTimeout(200);
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
-      // The dimmer covers the page under the header.
+      // The dimmer covers the page under the header. The open menu is modal, so
+      // the header and dimmer lift above the consent (z-50) and update (z-60) banners.
       await expect(page.locator('[data-nav-scrim]')).toBeVisible();
+      expect(await computed(page.locator('aec-site-header header'), 'z-index')).toBe('70');
+      expect(await computed(page.locator('[data-nav-scrim]'), 'z-index')).toBe('65');
     });
 
     test('Tab and Shift+Tab cycle inside the open menu and never reach the page', async ({
