@@ -948,6 +948,12 @@ button.aec-chip:focus-visible {
   border-color: var(--border-on-brand-strong);
 }
 
+/* The shortcut cap inside the header search pill (AECI-1772). A decorative hint,
+   not a control, so it takes the quieter 32% edge and no fill. */
+.aec-on-brand-keycap {
+  border-color: var(--border-on-brand);
+}
+
 /* The shared button's edge (AECI-1758, `shared/button/button.ts`). Unlayered for
    the reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*`
    rule. Every variant carries a 1px edge so all of them are 44px. Filled and
@@ -1054,6 +1060,13 @@ hr {
 
 ::placeholder {
   color: var(--text-tertiary);
+}
+
+/* The placeholder on a Forest ground (AECI-1772). The unlayered rule above beats
+   a `placeholder:` utility, so this is a class. Secondary ink is 6.00:1 on the
+   10% wash over Forest and 5.04:1 on the 16% hover wash. Tertiary would fail. */
+.aec-on-brand-placeholder::placeholder {
+  color: var(--text-on-brand-secondary);
 }
 
 /* The default focus ring colour (AECI-1845). In `@layer base` for the anchor

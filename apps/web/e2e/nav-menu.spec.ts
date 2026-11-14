@@ -29,11 +29,6 @@ const MOBILE = { width: 375, height: 667 } as const;
 // iPhone SE (1st gen). Short enough that the open menu outgrows the viewport.
 const SHORT_MOBILE = { width: 375, height: 568 } as const;
 const DESKTOP = { width: 1280, height: 800 } as const;
-// The `lg`-`xl` band. Neither the hamburger nor the inline search box renders
-// here, so it is the width the compact `aec-search-trigger` exists to cover.
-// 1100 rather than 1024 so the assertions aren't sitting on the exact edge; the
-// row's fit at 1024 is pinned by measurement in `site-header.ts`, not here.
-const NARROW_DESKTOP = { width: 1100, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 // The mobile menu's plain links (the facets are disclosures), and the desktop row.
@@ -622,67 +617,139 @@ test.describe('header with JavaScript off (1280px)', () => {
   });
 });
 
-// The 1024-1279 band used to render NO search affordance at all: the hamburger
-// (which carries a search box) is `lg:hidden`, and the inline header box is
-// `hidden xl:block`, so the two breakpoints never met. The inline box genuinely
-// does not fit at 1024 - the row has ~1px of slack - so the fix is the compact
-// icon trigger rather than widening the box. These tests are the regression
-// guard: the failure mode is silent (nothing throws, search just disappears at
-// some widths), so both "exactly one affordance" and "it actually works" are
-// pinned here.
-test.describe('header search in the lg-xl band (1100px)', () => {
-  test.use({ viewport: NARROW_DESKTOP });
+// The header search is a 44px pill on Forest from `lg` (AECI-1772). Below `lg` the
+// mobile menu carries search. The failure mode of a bad handover is silent
+// (search just disappears at some width, or two inputs mount), so both "exactly
+// one affordance" and "it actually works" are pinned here.
+const PILL_WIDTHS = [
+  { width: 1024, height: 800 },
+  { width: 1100, height: 800 },
+  { width: 1280, height: 800 },
+  { width: 1440, height: 900 },
+] as const;
 
-  function searchTrigger(page: Page) {
-    return page.locator('aec-search-trigger button');
-  }
+function pill(page: Page) {
+  return page.locator('#header-search');
+}
 
-  test('the compact trigger is the only search affordance at this width', async ({ page }) => {
-    await page.goto(ROUTE);
-    await expect(page.locator('app-root')).toBeAttached();
+for (const viewport of PILL_WIDTHS) {
+  test.describe(`header search pill (${viewport.width}px)`, () => {
+    test.use({ viewport });
 
-    // The hamburger (and its search box) is gone above `lg`...
-    await expect(toggle(page)).toBeHidden();
-    // ...and the inline box has not arrived yet below `xl`.
-    await expect(page.locator('aec-site-header aec-search-autocomplete')).toBeHidden();
-    // ...so this is what carries search here.
-    await expect(searchTrigger(page)).toBeVisible();
-    await expect(searchTrigger(page)).toHaveAttribute('aria-expanded', 'false');
+    test('is the only search affordance, fits the row, and nothing overflows', async ({ page }) => {
+      await page.goto(ROUTE);
+      await untilHydrated(pill(page));
+      await expect(toggle(page)).toBeHidden();
+      await expect(page.locator('aec-search-trigger')).toHaveCount(0);
+      await expect(pill(page)).toBeVisible();
+      await expect(pill(page)).toHaveAttribute('placeholder', 'Search directory');
+
+      const box = await pill(page).boundingBox();
+      expect(box!.height).toBe(44);
+      expect(box!.width).toBeGreaterThanOrEqual(240);
+      expect(box!.width).toBeLessThanOrEqual(460);
+
+      // The row does not wrap or overflow: every part sits on one line.
+      const row = await page.evaluate(() => {
+        const header = document.querySelector('aec-site-header header > div') as HTMLElement;
+        return {
+          overflow: header.scrollWidth - header.clientWidth,
+          doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          height: header.getBoundingClientRect().height,
+        };
+      });
+      expect(row.overflow).toBeLessThanOrEqual(0);
+      expect(row.doc).toBeLessThanOrEqual(0);
+      // One row: 76px at `md` and up. A wrap would add a whole row.
+      expect(row.height).toBeLessThanOrEqual(76);
+    });
+
+    test('the pill edge and ring compute to the Bone tokens, and the header is axe-clean', async ({
+      page,
+    }) => {
+      await page.goto(ROUTE);
+      await untilHydrated(pill(page));
+      expect(await computed(pill(page), 'border-top-color')).toBe(
+        await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
+      );
+      expect(await computed(pill(page), 'border-top-width')).toBe('1px');
+      // The placeholder is secondary Bone ink (6.00:1), not the global tertiary grey
+      // that an unlayered `::placeholder` rule would give it.
+      const placeholder = await pill(page).evaluate(
+        (el) => getComputedStyle(el, '::placeholder').color,
+      );
+      expect(placeholder).toBe(await tokenColor(page, '--text-on-brand-secondary', 'color'));
+      expect(await computed(page.locator('aec-site-header kbd'), 'border-top-color')).toBe(
+        await tokenColor(page, '--border-on-brand', 'border-top-color'),
+      );
+      expect(await computed(pill(page), 'border-top-left-radius')).not.toBe('12px');
+      expect(parseFloat(await computed(pill(page), 'border-top-left-radius'))).toBeGreaterThan(100);
+
+      await page.keyboard.press('Tab');
+      await pill(page).focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      await expect(pill(page)).toBeFocused();
+      await expect
+        .poll(async () => computed(pill(page), 'outline-color'))
+        .toBe(await tokenColor(page, '--focus-ring-on-brand', 'color'));
+      expect(await computed(pill(page), 'outline-width')).toBe('3px');
+      expect(await computed(pill(page), 'outline-offset')).toBe('3px');
+
+      expect(await analyzeHeader(page), 'axe').toEqual([]);
+    });
+  });
+}
+
+test.describe('header search shortcut (Ctrl+/ or Cmd+/)', () => {
+  test.use({ viewport: DESKTOP });
+
+  const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+  test('focuses the search from the page body and the key is not typed', async ({ page }) => {
+    await page.goto('/products');
+    await untilHydrated(pill(page));
+    await expect(pill(page)).toHaveAttribute('aria-keyshortcuts', 'Control+/ Meta+/');
+    await page.locator('body').click({ position: { x: 5, y: 400 } });
+    await page.keyboard.press(`${MOD}+/`);
+    await expect(pill(page)).toBeFocused();
+    await expect(pill(page)).toHaveValue('');
   });
 
-  test('the trigger opens a focused search box and Escape returns focus', async ({ page }) => {
-    await page.goto(ROUTE);
-    await searchTrigger(page).click();
-
-    const input = overlay(page).getByRole('combobox', { name: 'Search' });
-    await expect(input).toBeVisible();
-    // Opening a search affordance that does not take focus is a dead control.
-    await expect(input).toBeFocused();
-    // Same popover, same one-tick gap before Escape is heard (see `openMenu`).
-    await expect(searchTrigger(page)).toHaveAttribute('aria-expanded', 'true');
-
-    await page.keyboard.press('Escape');
-    await expect(input).toHaveCount(0);
-    await expect(searchTrigger(page)).toBeFocused();
+  test('a bare "/" does nothing (WCAG 2.1.4)', async ({ page }) => {
+    await page.goto('/products');
+    await untilHydrated(pill(page));
+    await page.locator('body').click({ position: { x: 5, y: 400 } });
+    await page.keyboard.press('/');
+    await expect(pill(page)).not.toBeFocused();
   });
 
-  test('submitting a query from the panel reaches /search', async ({ page }) => {
-    await page.goto(ROUTE);
-    await searchTrigger(page).click();
+  test('does not fire while typing in another field', async ({ page }) => {
+    await page.goto('/products');
+    await untilHydrated(pill(page));
+    const other = page.locator('main input, main textarea, main select').first();
+    test.skip((await other.count()) === 0, 'no other field on this page');
+    await other.focus();
+    await page.keyboard.press(`${MOD}+/`);
+    await expect(other).toBeFocused();
+  });
 
-    await overlay(page).getByRole('combobox', { name: 'Search' }).fill('revit');
+  test('does not fire with a dialog open', async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    await page.goto(ROUTE);
+    await openMenu(page);
+    await page.keyboard.press(`${MOD}+/`);
+    await expect(pill(page)).not.toBeFocused();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
+  });
+
+  test('typing and submitting from the pill reaches /search', async ({ page }) => {
+    await page.goto('/products');
+    await untilHydrated(pill(page));
+    await page.keyboard.press(`${MOD}+/`);
+    await pill(page).fill('revit');
     await page.keyboard.press('Enter');
-
     await expect(page).toHaveURL(/\/search\?q=revit/);
-  });
-
-  test('the header and the open search panel are axe-clean', async ({ page }) => {
-    await page.goto(ROUTE);
-    expect(await analyzeHeader(page), 'closed').toEqual([]);
-
-    await searchTrigger(page).click();
-    await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
-    expect(await analyzeHeaderAndOverlay(page), 'search panel open').toEqual([]);
   });
 });
 
@@ -722,17 +789,6 @@ test.describe('header on Forest (computed styles)', () => {
       await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
     );
     expect(await computed(toggle(page), 'border-top-width')).toBe('1px');
-  });
-
-  test('the compact search icon edge computes to the strong Bone edge', async ({ page }) => {
-    await page.setViewportSize(NARROW_DESKTOP);
-    await page.goto(ROUTE);
-    const trigger = page.locator('aec-search-trigger button');
-    await untilHydrated(trigger);
-    expect(await computed(trigger, 'border-top-color')).toBe(
-      await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
-    );
-    expect(await computed(trigger, 'border-top-width')).toBe('1px');
   });
 
   test('a focused header link has a Bone 3px ring, and a panel link a Forest ring', async ({
