@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { cacheGateway, cacheKeyFor, type Bindings } from './server-runtime';
+import { inPageHref } from './app/shared/in-page-href-url';
+import {
+  cacheControlForRoute,
+  cacheGateway,
+  cacheKeyFor,
+  isNeverCacheablePath,
+  stripLocalePrefix,
+  type Bindings,
+} from './server-runtime';
 
 // WC-4 (AECI-318) restored the cache-key normalization WC-3 removed with the
 // hand-rolled `caches.default` pipeline. Native Cloudflare Workers Cache keys on
@@ -899,5 +907,282 @@ describe('cacheGateway — stamps Server-Timing: geo (AECI-1581)', () => {
     expect(eu.headers.get('Vary')).toBeNull();
     expect(eu.headers.get('Server-Timing')).toContain(GEO);
     expect(us.headers.get('Server-Timing')).not.toContain('geo');
+  });
+});
+
+// AECI-1839: one source for the cache-key query rule. `cacheKeyFor` reads the per-route
+// params from `cacheKeyParamsForPath` (`app/core/route-cache-key.ts`), the same function the
+// skip link's server render uses (`injectInPageHref`). The rows below pin, for each URL, the
+// key and the TTL exactly as they were before that change (captured from the route table at
+// 87d0432e5), so the refactor cannot move a key or flip cacheability. A `null` TTL is a route
+// the edge does not cache.
+type CacheTtl = NonNullable<ReturnType<typeof cacheControlForRoute>>;
+
+const KEY_TABLE: readonly (readonly [string, string, CacheTtl | null])[] = [
+  [
+    '/products',
+    '/products',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?page=2',
+    '/products?page=2',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?page=2&sort=name',
+    '/products?page=2&sort=name',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?sort=name&page=2',
+    '/products?page=2&sort=name',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?view=table',
+    '/products?view=table',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?view=cards&perPage=24',
+    '/products?perPage=24&view=cards',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?category_id=b,a',
+    '/products?category_id=a%2Cb',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?category_id=a,b&audience_id=y,x',
+    '/products?audience_id=x%2Cy&category_id=a%2Cb',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?phase_id=p2,p1&trade_id=t2,t1',
+    '/products?phase_id=p1%2Cp2&trade_id=t1%2Ct2',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?category_id=a&category_id=b',
+    '/products?category_id=a&category_id=b',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?page=',
+    '/products?page=',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?page=1&page=2',
+    '/products?page=1&page=2',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?q=a%20b&page=3',
+    '/products?page=3',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?sort=name%20desc',
+    '/products?sort=name+desc',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?unknown=1&page=2',
+    '/products?page=2',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?utm_source=x&utm_campaign=y&page=2',
+    '/products?page=2',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products?fbclid=1&gclid=2&n=7',
+    '/products',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/products/', '/products/', null],
+  ['/products/?page=2', '/products/', null],
+  ['/Products?page=2', '/Products', null],
+  ['/en-US/products?page=2', '/en-US/products', null],
+  [
+    '/products/egnyte',
+    '/products/egnyte',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products/egnyte?page=2&utm_source=x',
+    '/products/egnyte',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/products/egnyte/', '/products/egnyte/', null],
+  [
+    '/products/revit/integrations/procore',
+    '/products/revit/integrations/procore',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products/revit/integrations/procore?view=basic',
+    '/products/revit/integrations/procore?view=basic',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products/revit/integrations/procore?view=basic&utm_source=x&fbclid=1',
+    '/products/revit/integrations/procore?view=basic',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products/revit/integrations/procore?other_version=R2024,SP1&context_version=2025&view=detailed',
+    '/products/revit/integrations/procore?context_version=2025&other_version=R2024%2CSP1&view=detailed',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/products/revit/integrations/procore?page=2',
+    '/products/revit/integrations/procore',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/products/revit/integrations/procore/', '/products/revit/integrations/procore/', null],
+  [
+    '/vendors/autodesk',
+    '/vendors/autodesk',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/vendors/autodesk?page=2&utm_source=x',
+    '/vendors/autodesk',
+    { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/vendors', '/vendors', null],
+  [
+    '/categories',
+    '/categories',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/categories?page=2&sort=name',
+    '/categories?page=2&sort=name',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/categories/bim?page=2&category_id=b,a&view=table',
+    '/categories/bim?category_id=a%2Cb&page=2&view=table',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/audiences/architects?audience_id=z,y',
+    '/audiences/architects?audience_id=y%2Cz',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/phases/design?phase_id=b,a&n=1',
+    '/phases/design?phase_id=a%2Cb',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  [
+    '/trades/electrical?trade_id=b,a&page=3',
+    '/trades/electrical?page=3&trade_id=a%2Cb',
+    { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/trades', '/trades', { edge: 300, browser: 0, staleWhileRevalidate: 60, staleIfError: 86400 }],
+  ['/docs', '/docs', { edge: 86400, browser: 3600 }],
+  ['/docs?x=1', '/docs', { edge: 86400, browser: 3600 }],
+  ['/docs/vendors', '/docs/vendors', { edge: 86400, browser: 3600 }],
+  [
+    '/docs/reviewers/requests-and-corrections?utm_source=x',
+    '/docs/reviewers/requests-and-corrections',
+    { edge: 86400, browser: 3600 },
+  ],
+  ['/legal/terms', '/legal/terms', { edge: 86400, browser: 3600 }],
+  ['/legal/terms?probe=1', '/legal/terms', { edge: 86400, browser: 3600 }],
+  ['/legal', '/legal', { edge: 86400, browser: 3600 }],
+  ['/about?utm_source=x', '/about', { edge: 86400, browser: 3600 }],
+  ['/updates?n=5', '/updates', { edge: 86400, browser: 3600 }],
+  ['/roadmap', '/roadmap', { edge: 86400, browser: 3600 }],
+  ['/methodology?x=1', '/methodology', { edge: 86400, browser: 3600 }],
+  ['/vendor-program?vendor=acme', '/vendor-program', { edge: 86400, browser: 3600 }],
+  [
+    '/vendor-program/list-your-product?utm_source=x',
+    '/vendor-program/list-your-product',
+    { edge: 86400, browser: 3600 },
+  ],
+  ['/', '/', { edge: 900, browser: 300, staleWhileRevalidate: 60, staleIfError: 86400 }],
+  [
+    '/?utm_source=x',
+    '/',
+    { edge: 900, browser: 300, staleWhileRevalidate: 60, staleIfError: 86400 },
+  ],
+  ['/search', '/search', null],
+  ['/search?q=x', '/search', null],
+  ['/search?q=x&page=2&utm_source=y', '/search', null],
+  ['/admin', '/admin', null],
+  ['/admin/claims?status=open', '/admin/claims', null],
+  ['/admin/claims/abc?tab=1', '/admin/claims/abc', null],
+  ['/vendor', '/vendor', null],
+  ['/vendor/acme?tab=integrations', '/vendor/acme', null],
+  ['/auth/callback?code=1&state=2', '/auth/callback', null],
+  ['/auth/login?next=/x', '/auth/login', null],
+  ['/account?tab=1', '/account', null],
+  ['/account/security', '/account/security', null],
+  ['/welcome', '/welcome', null],
+  ['/welcome?x=1', '/welcome', null],
+  ['/api/products?page=2', '/api/products', null],
+  ['/api/health', '/api/health', null],
+  ['/unsubscribe/abc123?n=1', '/unsubscribe/abc123', null],
+  ['/unsubscribe?token=abc', '/unsubscribe', null],
+  ['/claim/abc?utm_source=x', '/claim/abc', null],
+  ['/contact?utm_source=x', '/contact', null],
+  ['/totally-unknown', '/totally-unknown', null],
+  ['/totally-unknown?page=2&sort=name', '/totally-unknown', null],
+  ['/administrator', '/administrator', null],
+  ['/administrator?x=1', '/administrator', null],
+  ['/authors', '/authors', null],
+  ['/authors?page=2', '/authors', null],
+  ['/searching', '/searching', null],
+  ['/searching?q=x', '/searching', null],
+  ['/vendors-program', '/vendors-program', null],
+  ['/vendors-program?x=1', '/vendors-program', null],
+  ['/accounts', '/accounts', null],
+  ['/welcomes', '/welcomes', null],
+  ['/productsx?page=2', '/productsx', null],
+  ['/products-x/y?page=2', '/products-x/y', null],
+  ['/docsx', '/docsx', null],
+  ['/legalx?x=1', '/legalx', null],
+  ['/categoriesx?page=2', '/categoriesx', null],
+  ['/PRODUCTS?page=2', '/PRODUCTS', null],
+  ['/Admin/claims?x=1', '/Admin/claims', null],
+  ['/Search?q=x', '/Search', null],
+];
+
+describe('cacheKeyFor and cacheControlForRoute are pinned per URL (AECI-1839)', () => {
+  it.each(KEY_TABLE)('%s', (url, expectedKey, expectedTtl) => {
+    const u = new URL(url, ORIGIN);
+    expect(cacheKeyFor(u)).toBe(expectedKey);
+    expect(cacheControlForRoute(u)).toEqual(expectedTtl);
+  });
+
+  it('covers at least 60 URLs', () => {
+    expect(KEY_TABLE.length).toBeGreaterThanOrEqual(60);
+  });
+});
+
+describe('skip link server href matches the cache key (AECI-1839)', () => {
+  const queryOf = (s: string): string => (s.includes('?') ? s.slice(s.indexOf('?')) : '');
+
+  it.each(KEY_TABLE)('%s', (url, expectedKey, expectedTtl) => {
+    const u = new URL(url, ORIGIN);
+    const href = inPageHref(`${u.pathname}${u.search}`, 'main', false);
+    const hrefQuery = queryOf(href.replace(/#main$/, ''));
+    if (expectedTtl === null && isNeverCacheablePath(stripLocalePrefix(u.pathname).path)) {
+      // Never cached: the whole query survives, untouched.
+      expect(hrefQuery).toBe(u.search);
+    } else {
+      // A cached route: exactly the key's query, so every request that shares the cache
+      // entry renders the same href. An uncached route outside the never-cached list fails
+      // closed to no query, which is also what the key carries.
+      expect(hrefQuery).toBe(queryOf(expectedKey));
+    }
   });
 });

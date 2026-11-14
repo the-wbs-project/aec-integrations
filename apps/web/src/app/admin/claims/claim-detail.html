@@ -73,7 +73,7 @@
         >
         @if (c.is_duplicate) {
         <a
-          href="#admin-claim-duplicate"
+          [href]="duplicateHref()"
           class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) no-underline transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.claims.detail.duplicateChip"
           >Possible duplicate — see why</a

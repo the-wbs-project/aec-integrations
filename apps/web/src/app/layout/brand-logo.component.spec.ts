@@ -60,4 +60,39 @@ describe('BrandLogo', () => {
       expect(el.querySelector('img')!.getAttribute('alt')).toBe('AEC Integrations');
     }
   });
+
+  /**
+   * AECI-1845: the ring follows the ground. The on-dark tone draws the Bone ring
+   * at 3px with a 3px offset from plain utilities, with no `!`. The default tone
+   * keeps the Forest ring it always had.
+   */
+  it('gives the on-dark tone the Bone ring at 3px with a 3px offset, with no !important', async () => {
+    const link = (await render('on-dark')).querySelector('a')!;
+    const classes = [...link.classList];
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'focus-visible:outline-3',
+        'focus-visible:outline-offset-3',
+        'focus-visible:outline-(--focus-ring-on-brand)',
+      ]),
+    );
+    expect(classes).not.toContain('focus-visible:outline-(--accent-primary)');
+    expect(classes.some((c) => c.endsWith('!') || c.startsWith('!'))).toBe(false);
+  });
+
+  it('keeps the default ring exactly as before', async () => {
+    for (const tone of [undefined, 'default'] as const) {
+      const link = (await render(tone)).querySelector('a')!;
+      expect([...link.classList].sort()).toEqual(
+        [
+          'inline-flex',
+          'items-center',
+          'rounded-md',
+          'focus-visible:outline-2',
+          'focus-visible:outline-offset-2',
+          'focus-visible:outline-(--accent-primary)',
+        ].sort(),
+      );
+    }
+  });
 });

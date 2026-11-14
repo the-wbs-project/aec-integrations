@@ -757,6 +757,19 @@ h3 {
     center / contain no-repeat;
 }
 
+/* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
+   Unlayered for the reason `.aec-nav-tab` records: a `border-(--x)` utility
+   loses to the `*` rule. Pair it with a width utility such as `border-t`.
+   `.aec-on-brand-edge` is the 3:1 control edge on Forest (4.01:1): the header
+   search icon, menu toggle and account trigger. */
+.aec-on-brand-rule {
+  border-color: var(--border-on-brand-subtle);
+}
+
+.aec-on-brand-edge {
+  border-color: var(--border-on-brand-strong);
+}
+
 /* A scroll box whose last row may be clipped (the "About you" audience list).
    A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */
@@ -794,8 +807,15 @@ hr {
   color: var(--text-tertiary);
 }
 
-:focus-visible {
-  outline-color: var(--accent-primary);
+/* The default focus ring colour (AECI-1845). In `@layer base` for the anchor
+   reason above: unlayered, it beat every `focus-visible:outline-(--x)` utility,
+   so a Bone ring on Forest could not be set. Now a plain
+   `focus-visible:outline-(--focus-ring-on-brand)` wins with no `!`. Width,
+   style and offset still come from each control's utilities. */
+@layer base {
+  :focus-visible {
+    outline-color: var(--accent-primary);
+  }
 }
 
 input,
@@ -858,20 +878,24 @@ textarea:-webkit-autofill:focus {
   animation: aeci-drawer-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Smooth same-document anchor jumps — the in-page section nav
-   (`aec-section-nav`) and the skip link rely on native fragment scrolling.
-   CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`
-   JS path), so it degrades to an instant jump where smooth scrolling is off.
-   The reduced-motion block below resets it to `auto`. Programmatic scrolls do
-   exist and must stay instant: router scroll restoration, router-driven anchor
-   scrolls, and `InitialFragmentScroller`. The router's follow-up on these same
-   fragment clicks (a same-document fragment navigation fires `popstate`) is
-   skipped by `ScrollMarginViewportScroller`, because interrupting this animation
-   desyncs Safari. `ScrollBehaviorManager` forces inline
-   `scroll-behavior: auto` for the span of each router navigation so this rule
-   never animates them. */
-html {
-  scroll-behavior: smooth;
+/* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
+   ADR 0056). It is never a global setting and is off under reduced motion.
+   `InPageSmoothScroll` (`app/core/in-page-smooth-scroll.ts`) adds this class to
+   <html> for the span of one jump from an `<a data-smooth-scroll>` link, so the
+   browser's own fragment scroll animates and honours `scroll-margin-top`.
+   Everything else scrolls instantly: the skip link, router scroll restoration,
+   `InitialFragmentScroller` and every `scrollIntoView()` call.
+   THE SWITCH BACK to the old global smooth scroll: add
+   `class="aeci-smooth-scroll"` to <html> in `src/index.html`. The service then
+   stands down and leaves the class on. `ScrollBehaviorManager` keeps router
+   scrolls instant either way. Flipping it fails two e2e tests in
+   `e2e/scroll-restoration.spec.ts` that assert the scoped behaviour, so update
+   them with it: "a section-nav click animates and lands the section below the
+   nav" and the two "the skip link jumps without animation" tests. */
+@media (prefers-reduced-motion: no-preference) {
+  html.aeci-smooth-scroll {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's

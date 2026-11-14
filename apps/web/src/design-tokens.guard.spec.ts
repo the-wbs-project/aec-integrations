@@ -174,6 +174,63 @@ describe('design tokens', () => {
     ).toEqual([]);
   });
 
+  /**
+   * AECI-1845: an unlayered rule beats every Tailwind utility. The global focus
+   * colour must sit in `@layer base`, or `focus-visible:outline-(--focus-ring-on-brand)`
+   * is dead and the ring is invisible on Forest. The on-Forest hairline is one
+   * shared unlayered class, because the `*` border rule stays unlayered.
+   */
+  describe('focus ring and on-Forest hairline (AECI-1845)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+
+    /** Top-level `@layer base { … }` blocks, by brace matching. */
+    function baseLayerBlocks(source: string): string[] {
+      const blocks: string[] = [];
+      for (const m of source.matchAll(/@layer base\s*\{/g)) {
+        let depth = 0;
+        const start = m.index + m[0].length - 1;
+        for (let i = start; i < source.length; i++) {
+          if (source[i] === '{') depth++;
+          else if (source[i] === '}' && --depth === 0) {
+            blocks.push(source.slice(start + 1, i));
+            break;
+          }
+        }
+      }
+      return blocks;
+    }
+
+    /** The CSS with every `@layer base` block and every comment removed. */
+    function unlayered(source: string): string {
+      let out = source.replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const block of baseLayerBlocks(out)) out = out.replace(block, '');
+      return out;
+    }
+
+    it('declares the global :focus-visible colour inside @layer base', () => {
+      const inBase = baseLayerBlocks(css).some((b) =>
+        /(^|[\s,}]):focus-visible\s*\{\s*outline-color:\s*var\(--accent-primary\);\s*\}/.test(b),
+      );
+      expect(inBase, ':focus-visible { outline-color } must sit in @layer base').toBe(true);
+    });
+
+    it('has no unlayered bare :focus-visible rule left to beat the utilities', () => {
+      expect(unlayered(css)).not.toMatch(/(^|[\s,}]):focus-visible\s*\{/);
+    });
+
+    it('defines the shared aec-on-brand-rule hairline class, unlayered', () => {
+      const rule =
+        /\.aec-on-brand-rule\s*\{\s*border-color:\s*var\(--border-on-brand-subtle\);\s*\}/;
+      expect(unlayered(css)).toMatch(rule);
+    });
+
+    it('defines the shared aec-on-brand-edge control-edge class, unlayered', () => {
+      const rule =
+        /\.aec-on-brand-edge\s*\{\s*border-color:\s*var\(--border-on-brand-strong\);\s*\}/;
+      expect(unlayered(css)).toMatch(rule);
+    });
+  });
+
   describe('motion tokens (AECI-1751)', () => {
     const css = readFileSync(STYLES_PATH, 'utf8');
     const theme = css.slice(css.indexOf('@theme inline {'));

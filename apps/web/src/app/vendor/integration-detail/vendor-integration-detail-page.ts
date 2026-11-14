@@ -257,6 +257,7 @@ const SPY_TOP_PX = 80;
               <li>
                 <a
                   [href]="pagePath() + '#' + item.id"
+                  data-smooth-scroll
                   class="id-navlink block rounded-e-(--radius-sm) px-3 py-2 text-sm text-(--text-secondary) no-underline hover:bg-(--surface-sunken) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
                   [attr.aria-current]="active() === item.id ? 'location' : null"
                   [attr.data-testid]="'section-nav-' + item.id"
