@@ -957,6 +957,54 @@ button.aec-chip:focus-visible {
   border-color: var(--border-strong);
 }
 
+/* The shared card surface (AECI-1765, `shared/card/card.ts`). Unlayered for the
+   reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*` rule.
+   The 1px edge is transparent. A resting card has no hairline beside its shadow
+   (DESIGN.md section 4, "Open values"). Forced-colours mode drops `box-shadow` and
+   paints a transparent border in a system colour, so the card keeps an edge there.
+   `.aec-card-stripe` is the leading-edge score stripe (clash 15), always beside a
+   text label. `.aec-card-grid` caps every card grid at three columns (clash 18):
+   one below `md`, two from `md`, three from `lg`, with a 24px gap. */
+.aec-card {
+  border-color: transparent;
+}
+
+.aec-card-stripe {
+  position: relative;
+  overflow: hidden;
+}
+
+.aec-card-stripe::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 7px;
+  background-color: var(--accent-primary);
+}
+
+.aec-card-stripe-clay::before {
+  background-color: var(--accent-secondary-deep);
+}
+
+.aec-card-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .aec-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .aec-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 /* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
    the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
    gradients in a single colour, Forest hover at 75% and 45%, taken from the
