@@ -69,6 +69,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   input,
   output,
@@ -87,6 +88,17 @@ import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { isReplayedEvent } from '../core/event-replay';
 import { Chip } from '../shared/chip/chip';
+import { AecIcon } from '../shared/icon/icon';
+
+const DEFAULT_FIELD_CLASS =
+  'rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)';
+
+/**
+ * What a pill adds: room for the glyph at the start and the cap at the end, and
+ * no native clear button (it would sit under the cap). `peer` lets the cap follow
+ * the field's hover.
+ */
+const PILL_FIELD_CLASS = 'peer pe-20 ps-12 [&::-webkit-search-cancel-button]:appearance-none';
 
 /** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
 const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
@@ -102,6 +114,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
     Option,
     OverlayModule,
     Chip,
+    AecIcon,
   ],
   template: `
     @if (ownForm()) {
@@ -153,9 +166,30 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
           inputHeightClass() +
           ' ' +
           focusRingClass() +
-          ' rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)'
+          ' ' +
+          fieldClass() +
+          (pill() ? ' ' + pillFieldClass : '')
         "
+        [attr.aria-keyshortcuts]="keyShortcuts() ?? null"
       />
+      @if (pill()) {
+        <!-- The icon host is display: contents, so the wrapper takes the position. -->
+        <span
+          class="pointer-events-none absolute start-4 top-1/2 flex -translate-y-1/2 text-(--text-on-brand-secondary)"
+        >
+          <aec-icon name="search" decorative [size]="5" />
+        </span>
+        @if (shortcutHint(); as hint) {
+          <!-- Decorative: the shortcut is announced once, through aria-keyshortcuts
+               on the field. The cap has no fill (a second wash fails on contrast),
+               only a 1px edge. -->
+          <kbd
+            aria-hidden="true"
+            class="aec-on-brand-keycap pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 rounded-mark border px-2 py-0.5 font-sans text-t-13 text-(--text-on-brand-secondary) transition-colors peer-hover:text-(--text-on-brand)"
+            >{{ hint }}</kbd
+          >
+        }
+      }
 
       <!--
         Aria's ComboboxPopup renders the listbox in-flow (DeferredContent.createEmbeddedView)
@@ -241,6 +275,22 @@ export class SearchAutocomplete {
   readonly labelClass = input('mb-2 block text-sm font-semibold text-(--text-primary)');
   /** Tailwind height utility for the input. The header keeps `h-9`. */
   readonly inputHeightClass = input('h-9');
+  /**
+   * The field's surface: radius, edge, fill, padding, ink. The default is the
+   * white field of a light ground. A mount on another ground passes its own set.
+   */
+  readonly fieldClass = input(DEFAULT_FIELD_CLASS);
+  /**
+   * The header pill on Forest (clash 29): a leading search glyph and room for a
+   * shortcut cap. The caller still passes `fieldClass`, `inputHeightClass` and
+   * `focusRingClass` for the ground it sits on.
+   */
+  readonly pill = input(false);
+  /** The visible shortcut cap inside the pill (already localized). Decorative. */
+  readonly shortcutHint = input<string | undefined>(undefined);
+  /** The `aria-keyshortcuts` value on the field. Unset leaves the attribute off. */
+  readonly keyShortcuts = input<string | undefined>(undefined);
+  protected readonly pillFieldClass = PILL_FIELD_CLASS;
   /**
    * Which suggestion kinds to show. Unset (the default) shows products and
    * vendors, as the header does. The home pair finder passes `['product']`.
@@ -353,6 +403,25 @@ export class SearchAutocomplete {
       this.destroyed = true;
       this.controller()?.dispose();
     });
+  }
+
+  private readonly inputEl = viewChild<ElementRef<HTMLInputElement>>('acOrigin');
+
+  /** Move focus to the field. The header shortcut calls this. */
+  focusInput(): void {
+    this.inputEl()?.nativeElement.focus();
+  }
+
+  /** Whether the field is laid out (false while a breakpoint class hides it). */
+  isVisible(): boolean {
+    const el = this.inputEl()?.nativeElement;
+    return !!el && el.getClientRects().length > 0;
+  }
+
+  /** Whether this field is the element holding focus. */
+  isFocused(): boolean {
+    const el = this.inputEl()?.nativeElement;
+    return !!el && el.ownerDocument.activeElement === el;
   }
 
   protected onInput(event: Event): void {
