@@ -75,8 +75,11 @@
      sunken/muted surfaces (4.40:1 there, below AA-normal) — step up to
      --text-secondary. */
   --text-tertiary: oklch(55.17% 0.0138 285.94); /* #71717A */
-  --accent-primary: oklch(31.92% 0.0436 152.32); /* #1E3A2F (Forest) */
-  --accent-primary-hover: oklch(43.83% 0.0658 152.61); /* #2E5C45 (Forest hover) */
+  /* AECI-1747: the four values below were re-solved so each renders the hex
+     DESIGN.md and the approved mock-ups document. They had drifted: Forest
+     rendered #213928, Forest hover #345D40, Clay #ED9A71, Bone #F3F1E6. */
+  --accent-primary: oklch(32.24% 0.0397 166.73); /* #1E3A2F (Forest) */
+  --accent-primary-hover: oklch(43.47% 0.0641 160.3); /* #2E5C45 (Forest hover) */
   /* Forest wash for selected/active/verified-soft state fills. A wash, not a
      boundary (1.14:1 vs white) — always pair with a border or another selected
      affordance. Forest text on it: 10.80:1. */
@@ -85,7 +88,7 @@
      3:1 large-text/non-text floor; fills carry --text-primary at 8.48:1,
      never white). Meaning-bearing clay (star ratings, text, icons) uses
      --accent-secondary-deep. */
-  --accent-secondary: oklch(76.1% 0.1144 47.1); /* #E89668 (Clay) */
+  --accent-secondary: oklch(74.64% 0.1164 49.55); /* #E89668 (Clay) */
   /* Text-capable Clay: 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone.
      Doubles as the warning hue. */
   --accent-secondary-deep: oklch(51.86% 0.1245 45.13); /* #A14D22 (Clay deep) */
@@ -99,10 +102,114 @@
      rating is selected the whole control is empties and a faint track would be
      near-invisible. Editorial gold tuned to the warm Clay/Bone family, not neon. */
   --accent-rating: oklch(75.16% 0.1469 83.99); /* #DAA520 (Goldenrod — rating stars) */
-  --accent-warm: oklch(95.62% 0.0149 95.45); /* #F5F2EA (Bone) */
+  --accent-warm: oklch(96.13% 0.0111 89.72); /* #F5F2EA (Bone) */
   /* Form/validation error text + icons (6.54:1 on white). Success maps to
      Forest, warning to Clay deep — no separate tokens. */
   --status-error: oklch(50.13% 0.1783 28.7); /* #B3261E */
+
+  /* ─── Forest grounds (AECI-1747; DESIGN.md §2 "Forest grounds", PLAN.md §4.1)
+   *
+   * Public pages only (ruling R2, 2026-11-14): the vendor portal and admin take
+   * these tokens and nothing more. Forest may fill the header, the hero of a
+   * detail page and the footer. No component uses a token in this block yet;
+   * the shell and page issues that follow do.
+   *
+   * Every value is OKLCH converted from the hex in its comment (Ottosson's
+   * OKLab matrices, rounded to 4 places, round-trips to the same hex). The WCAG 2
+   * ratios were scripted from those hexes. Text needs 4.5:1, large text and
+   * boundaries 3:1. A pairing not listed as allowed is not allowed.
+   *
+   *   ground          hex      Bone    text-on-brand-  text-on-footer-
+   *                           (on-brand)  secondary      secondary
+   *   Forest          #1E3A2F  11.03   7.96            7.04
+   *   Forest hover    #2E5C45   6.87   4.96            4.39  (FAILS, not allowed)
+   *   Hero panel      #26473A   9.18   6.62            5.86
+   *   Footer ground   #15291F  13.71   9.89            8.76
+   *
+   * Known failures that must not be built: tertiary text on Bone (4.32:1), field
+   * edge on the hero panel (2.77:1, a control on a hero panel needs a filled
+   * background) and field edge on Forest hover (2.07:1). The hero panel against
+   * Forest is 1.20:1, a surface cue and never a boundary. */
+  --surface-hero-panel: oklch(36.82% 0.0453 166.67); /* #26473A */
+  --surface-footer: oklch(26.02% 0.0324 161.25); /* #15291F */
+  --text-on-brand: oklch(96.13% 0.0111 89.72); /* #F5F2EA (Bone) */
+  --text-on-brand-secondary: oklch(85.36% 0.0195 157.8); /* #C5D3CA */
+  --text-on-footer-secondary: oklch(81.66% 0.0189 161.01); /* #B9C7BF */
+  /* Focus ring on any Forest ground: 11.03:1 on Forest, 6.87 on Forest hover,
+     9.18 on the hero panel, 13.71 on the footer. The shipped Forest ring is
+     invisible there. */
+  --focus-ring-on-brand: oklch(96.13% 0.0111 89.72); /* #F5F2EA (Bone) */
+  /* Border of every form control. 3.71:1 on white, 3.55 on raised, 3.37 on
+     sunken, 3.31 on Bone. It sits beside --border-input (#8A8A93, unchanged):
+     the inputs issue (AECI-1764) applies it. Never on the hero panel (2.77:1).
+     A `border-border-field` utility will NOT apply: the unlayered
+     `* { border-color }` rule wins. Apply it from an unlayered class, as
+     `.aec-field-control` does for --border-input. */
+  --border-field: oklch(61.63% 0.0134 286); /* #84848D */
+
+  /* Opaque mixes the mock-ups wrote as color-mix(), measured and named here
+     (clash 6: no color-mix() in components). sRGB mix, as color-mix(in srgb).
+     Forest on the Bone-hover fill 8.59:1; ink 13.79:1, secondary 5.38:1 on it. */
+  --surface-on-brand-hover: oklch(87.92% 0.0109 112.39); /* #D7D8D0, 86% Bone + 14% Forest */
+  /* -soft is 80% sunken and 20% tertiary; -strong is 70% and 30%. On soft:
+     Forest 8.84, text-primary 14.18, text-secondary 5.54, tertiary 3.46 (fails
+     for text). On strong: Forest 7.78, ink 12.48, secondary 4.87, tertiary
+     3.05 (fails for text). */
+  --surface-sunken-hover-soft: oklch(88.89% 0.0027 286.34); /* #DADADC, 80% sunken, 20% tertiary */
+  --surface-sunken-hover-strong: oklch(84.92% 0.0041 286.31); /* #CDCDD0 */
+
+  /* Alpha washes, rules and edges (the mock-ups' color-mix(in srgb, X N%,
+   * transparent)). The suffix is the percentage. They composite over the ground
+   * they sit on. None is a text colour and none is a control boundary. Against
+   * Forest the Bone alphas measure 1.22:1 (7%), 1.50 (14%), 1.90 (22%), 2.51
+   * (32%), 3.12 (40%) and 4.01 (50%). Over the hero panel 40% is 2.86:1 and 50%
+   * is 3.59:1. Use them as fills, hairlines, dividers and underline colours. A
+   * control on a white ground takes --border-field. On Forest a wash-only fill
+   * is not a 3:1 boundary.
+   *
+   * Text on a wash, highest alpha that still passes 4.5:1 (first fail beside it):
+   *   ground          Bone (on-brand)   on-brand-secondary   on-footer-secondary
+   *   Forest          22 (32: 4.39)     16 (22: 4.20)        14 (16: 4.43)
+   *   Hero panel      22 (32: 3.91)     14 (16: 4.28)         9 (10: 4.46)
+   *   Footer ground   32 (40: 4.03)     22 (32: 3.70)        16 (22: 4.48) */
+  --text-on-brand-alpha-7: oklch(96.13% 0.0111 89.72 / 7%); /* Bone at 7% */
+  --text-on-brand-alpha-8: oklch(96.13% 0.0111 89.72 / 8%); /* Bone at 8% */
+  --text-on-brand-alpha-9: oklch(96.13% 0.0111 89.72 / 9%); /* Bone at 9% */
+  --text-on-brand-alpha-10: oklch(96.13% 0.0111 89.72 / 10%); /* Bone at 10% */
+  --text-on-brand-alpha-12: oklch(96.13% 0.0111 89.72 / 12%); /* Bone at 12% */
+  --text-on-brand-alpha-14: oklch(96.13% 0.0111 89.72 / 14%); /* Bone at 14% */
+  --text-on-brand-alpha-16: oklch(96.13% 0.0111 89.72 / 16%); /* Bone at 16% */
+  --text-on-brand-alpha-22: oklch(96.13% 0.0111 89.72 / 22%); /* Bone at 22% */
+  --text-on-brand-alpha-32: oklch(96.13% 0.0111 89.72 / 32%); /* Bone at 32% */
+  --text-on-brand-alpha-40: oklch(96.13% 0.0111 89.72 / 40%); /* Bone at 40% */
+  --text-on-brand-alpha-50: oklch(96.13% 0.0111 89.72 / 50%); /* Bone at 50% */
+  /* The hero glow (radial gradients). Decorative; Bone on the 75% glow over
+     Forest is 7.74:1, secondary 5.59:1. */
+  --accent-primary-hover-alpha-45: oklch(43.47% 0.0641 160.3 / 45%); /* Forest hover at 45% */
+  --accent-primary-hover-alpha-75: oklch(43.47% 0.0641 160.3 / 75%); /* Forest hover at 75% */
+  --accent-primary-hover-alpha-80: oklch(43.47% 0.0641 160.3 / 80%); /* Forest hover at 80% */
+  /* Hairlines and dividers on white. 1.11:1 (5%), 1.19:1 (8%), 1.21:1 (9%),
+     2.04:1 (30%) against white. Text-primary on any of them is above 8.9:1. */
+  --text-primary-alpha-5: oklch(14.48% 0 0 / 5%); /* ink at 5% */
+  --text-primary-alpha-8: oklch(14.48% 0 0 / 8%); /* ink at 8% */
+  --text-primary-alpha-9: oklch(14.48% 0 0 / 9%); /* ink at 9% */
+  --text-primary-alpha-30: oklch(14.48% 0 0 / 30%); /* ink at 30% */
+  /* Empty-count edges. 1.47:1 (30%), 1.70:1 (40%), 1.83:1 (45%) on white, so
+     they are never the only cue. */
+  --text-tertiary-alpha-30: oklch(55.17% 0.0138 285.94 / 30%); /* tertiary at 30% */
+  --text-tertiary-alpha-40: oklch(55.17% 0.0138 285.94 / 40%); /* tertiary at 40% */
+  --text-tertiary-alpha-45: oklch(55.17% 0.0138 285.94 / 45%); /* tertiary at 45% */
+  /* Forest washes on white. 12% composites to #E4E7E6 (Forest 9.94:1 on it),
+     16% to #DBDFDE (9.21:1), 40% to #A5B0AC (5.54:1). */
+  --accent-primary-alpha-12: oklch(32.24% 0.0397 166.73 / 12%); /* Forest at 12% */
+  --accent-primary-alpha-16: oklch(32.24% 0.0397 166.73 / 16%); /* Forest at 16% */
+  --accent-primary-alpha-40: oklch(32.24% 0.0397 166.73 / 40%); /* Forest at 40% */
+  /* White over Forest (count pill on a Forest button 20%, ring on a Forest mark
+     70%) and the sticky section bar's 94% frosted white. White text on the 20%
+     pill over Forest is 6.63:1. */
+  --surface-base-alpha-20: oklch(100% 0 0 / 20%); /* white at 20% */
+  --surface-base-alpha-70: oklch(100% 0 0 / 70%); /* white at 70% */
+  --surface-base-alpha-94: oklch(100% 0 0 / 94%); /* white at 94% */
 
   /* Typography (DESIGN.md §3 source of truth) */
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
@@ -266,6 +373,44 @@
   --color-accent-rating: var(--accent-rating);
   --color-accent-warm: var(--accent-warm);
   --color-status-error: var(--status-error);
+  /* AECI-1747: Forest grounds, field edge, washes. Same names as :root. */
+  --color-surface-hero-panel: var(--surface-hero-panel);
+  --color-surface-footer: var(--surface-footer);
+  --color-text-on-brand: var(--text-on-brand);
+  --color-text-on-brand-secondary: var(--text-on-brand-secondary);
+  --color-text-on-footer-secondary: var(--text-on-footer-secondary);
+  --color-focus-ring-on-brand: var(--focus-ring-on-brand);
+  --color-border-field: var(--border-field);
+  --color-surface-on-brand-hover: var(--surface-on-brand-hover);
+  --color-surface-sunken-hover-soft: var(--surface-sunken-hover-soft);
+  --color-surface-sunken-hover-strong: var(--surface-sunken-hover-strong);
+  --color-text-on-brand-alpha-7: var(--text-on-brand-alpha-7);
+  --color-text-on-brand-alpha-8: var(--text-on-brand-alpha-8);
+  --color-text-on-brand-alpha-9: var(--text-on-brand-alpha-9);
+  --color-text-on-brand-alpha-10: var(--text-on-brand-alpha-10);
+  --color-text-on-brand-alpha-12: var(--text-on-brand-alpha-12);
+  --color-text-on-brand-alpha-14: var(--text-on-brand-alpha-14);
+  --color-text-on-brand-alpha-16: var(--text-on-brand-alpha-16);
+  --color-text-on-brand-alpha-22: var(--text-on-brand-alpha-22);
+  --color-text-on-brand-alpha-32: var(--text-on-brand-alpha-32);
+  --color-text-on-brand-alpha-40: var(--text-on-brand-alpha-40);
+  --color-text-on-brand-alpha-50: var(--text-on-brand-alpha-50);
+  --color-accent-primary-hover-alpha-45: var(--accent-primary-hover-alpha-45);
+  --color-accent-primary-hover-alpha-75: var(--accent-primary-hover-alpha-75);
+  --color-accent-primary-hover-alpha-80: var(--accent-primary-hover-alpha-80);
+  --color-text-primary-alpha-5: var(--text-primary-alpha-5);
+  --color-text-primary-alpha-8: var(--text-primary-alpha-8);
+  --color-text-primary-alpha-9: var(--text-primary-alpha-9);
+  --color-text-primary-alpha-30: var(--text-primary-alpha-30);
+  --color-text-tertiary-alpha-30: var(--text-tertiary-alpha-30);
+  --color-text-tertiary-alpha-40: var(--text-tertiary-alpha-40);
+  --color-text-tertiary-alpha-45: var(--text-tertiary-alpha-45);
+  --color-accent-primary-alpha-12: var(--accent-primary-alpha-12);
+  --color-accent-primary-alpha-16: var(--accent-primary-alpha-16);
+  --color-accent-primary-alpha-40: var(--accent-primary-alpha-40);
+  --color-surface-base-alpha-20: var(--surface-base-alpha-20);
+  --color-surface-base-alpha-70: var(--surface-base-alpha-70);
+  --color-surface-base-alpha-94: var(--surface-base-alpha-94);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves

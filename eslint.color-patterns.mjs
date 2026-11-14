@@ -144,7 +144,7 @@ export const NAMED_COLOR_CLASS = String.raw`(^|[\s:"'\x60])(?:bg|text|border|rin
  * Kept to two, and both are principled rather than grandfathered:
  *
  *  - `styles.css` is the TOKEN DEFINITION SITE. Colors are defined in exactly
- *    one place and that place has to write them down — the 17 `oklch()` tokens,
+ *    one place and that place has to write them down — the 55 `oklch()` tokens (18 base, 37 from AECI-1747),
  *    their documented `/* #HEX *\/` cross-references, and the eight
  *    `--chart-series-*` values that `DESIGN.md` keeps outside `@theme inline`
  *    on purpose so they can never become Tailwind utilities.
