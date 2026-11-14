@@ -104,6 +104,9 @@ export const TaxonomyResponseSchema = z.object({
 
 export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
 
+/** The four term-list keys of {@link TaxonomyResponse}, excluding the `total_products` scalar. */
+export type TaxonomyFacetKey = 'categories' | 'audiences' | 'phases' | 'trades';
+
 /**
  * Response for the flat taxonomy list endpoints — `GET /api/categories`,
  * `GET /api/audiences`, `GET /api/phases`, and `GET /api/trades` — all

@@ -119,6 +119,29 @@ describe('GET /api/taxonomy', () => {
     expect(body.total_products).toBe(2);
   });
 
+  it('refetches a KV value cached in the old four-list shape and writes the new shape back', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    const puts: Array<{ key: string; value: string }> = [];
+    const kv = {
+      get: async () => ({ categories: [], audiences: [], phases: [], trades: [] }),
+      put: async (key: string, value: string) => {
+        puts.push({ key, value });
+      },
+    } as unknown as KVNamespace;
+    const res = await app().request(
+      '/api/taxonomy',
+      {},
+      { ...TEST_ENV, TAXONOMY_KV: kv },
+      fakeExecutionContext(),
+    );
+    const body = TaxonomyResponseSchema.parse(await res.json());
+    expect(body.total_products).toBe(1);
+    expect(puts).toHaveLength(1);
+    expect(TaxonomyResponseSchema.parse(JSON.parse(puts[0]!.value)).total_products).toBe(1);
+  });
+
   it('returns total_products 0 on an empty catalog', async () => {
     const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
     expect(TaxonomyResponseSchema.parse(await res.json()).total_products).toBe(0);
