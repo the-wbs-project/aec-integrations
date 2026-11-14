@@ -275,32 +275,149 @@ describe('SiteHeader auth affordance', () => {
   });
 
   /**
-   * Search mounts three times at three widths (hamburger / icon / inline box).
-   * The header owns two of them, and their visibility classes are complementary
-   * by construction: the icon is `lg:block xl:hidden`, the box is `xl:block`.
-   * If either drifts, one width band renders two search inputs or none — the
-   * second being the bug this trigger was added to fix (1024–1279 was bare).
+   * The pill is the header's one inline search. It is hidden below `lg` (the
+   * mobile menu carries search there) and flexible from `lg`, so no width band
+   * is bare and none holds two inputs. The old icon trigger is gone.
    */
-  it('mounts both the compact search trigger and the inline box, on complementary bands', () => {
+  it('mounts one search pill from lg, with no icon trigger beside it', () => {
     const el = render().nativeElement as HTMLElement;
+    expect(el.querySelector('aec-search-trigger')).toBeNull();
 
-    const compact = el.querySelector('aec-search-trigger')!;
-    expect(compact).not.toBeNull();
-    const compactClasses = compact.className.split(/\s+/);
-    expect(compactClasses).toContain('lg:block');
-    expect(compactClasses).toContain('xl:hidden');
+    const pill = el.querySelector('aec-search-autocomplete')!;
+    const classes = pill.className.split(/\s+/);
+    expect(classes).toContain('hidden');
+    expect(classes).toContain('lg:block');
+    expect(classes).toContain('flex-1');
+    expect(classes).toContain('max-w-[460px]');
+    expect(classes).not.toContain('xl:block');
+  });
 
-    const inline = el.querySelector('aec-search-autocomplete')!;
-    const inlineClasses = inline.className.split(/\s+/);
-    expect(inlineClasses).toContain('hidden');
-    expect(inlineClasses).toContain('xl:block');
+  it('styles the pill on Forest: full radius, strong edge, wash fill, ink and one ring set', () => {
+    const el = render().nativeElement as HTMLElement;
+    const input = el.querySelector<HTMLInputElement>('#header-search')!;
+    const classes = input.className.split(/\s+/);
+    expect(classes).toContain('rounded-pill');
+    expect(classes).toContain('aec-on-brand-edge');
+    expect(classes).toContain('h-11');
+    expect(classes).toContain('bg-(--surface-on-brand-wash)');
+    expect(classes).toContain('aec-on-brand-placeholder');
+    expect(classes).toContain('focus-visible:outline-3');
+    expect(classes).toContain('focus-visible:outline-(--focus-ring-on-brand)');
+    // One ring set: the default Forest ring is not also on the field.
+    expect(input.className).not.toContain('outline-(--accent-primary)');
+    expect(input.placeholder).toBe('Search directory');
+    expect(input.getAttribute('aria-keyshortcuts')).toBe('Control+/ Meta+/');
+    const cap = el.querySelector('kbd')!;
+    expect(cap.getAttribute('aria-hidden')).toBe('true');
+    expect(cap.textContent?.trim()).toBe('Ctrl /');
+  });
+
+  describe('the Ctrl+/ shortcut', () => {
+    function press(init: KeyboardEventInit, target: EventTarget = document.body) {
+      const event = new KeyboardEvent('keydown', {
+        key: '/',
+        code: 'Slash',
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    /** jsdom has no layout, so the pill reports no boxes. Pretend it is laid out. */
+    function renderLaidOut() {
+      const fixture = render();
+      const input = fixture.nativeElement.querySelector('#header-search') as HTMLInputElement;
+      input.getClientRects = () => [{}] as unknown as DOMRectList;
+      return { fixture, input };
+    }
+
+    it('focuses the search from the page body and consumes the key', () => {
+      const { input } = renderLaidOut();
+      const event = press({ ctrlKey: true });
+      expect(document.activeElement).toBe(input);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('works with Cmd as well as Ctrl', () => {
+      const { input } = renderLaidOut();
+      press({ metaKey: true });
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('ignores a bare "/" (a character key shortcut, WCAG 2.1.4)', () => {
+      const { input } = renderLaidOut();
+      const event = press({});
+      expect(document.activeElement).not.toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('ignores Alt, Ctrl+Alt and Ctrl+Meta', () => {
+      const { input } = renderLaidOut();
+      for (const init of [
+        { altKey: true },
+        { ctrlKey: true, altKey: true },
+        { ctrlKey: true, metaKey: true },
+      ]) {
+        press(init);
+        expect(document.activeElement).not.toBe(input);
+      }
+    });
+
+    it('does nothing while the reader types in another field', () => {
+      const { input } = renderLaidOut();
+      for (const tag of ['input', 'textarea', 'select']) {
+        const field = document.createElement(tag);
+        document.body.appendChild(field);
+        field.focus();
+        const event = press({ ctrlKey: true }, field);
+        expect(document.activeElement, tag).toBe(field);
+        expect(document.activeElement).not.toBe(input);
+        expect(event.defaultPrevented, tag).toBe(false);
+        field.remove();
+      }
+      const editable = document.createElement('div');
+      editable.setAttribute('contenteditable', 'true');
+      document.body.appendChild(editable);
+      press({ ctrlKey: true }, editable);
+      expect(document.activeElement).not.toBe(input);
+      editable.remove();
+    });
+
+    it('does nothing while a dialog is open', () => {
+      const { input } = renderLaidOut();
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      document.body.appendChild(dialog);
+      const event = press({ ctrlKey: true });
+      expect(document.activeElement).not.toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+      dialog.remove();
+    });
+
+    it('does not hijack the key inside the search field itself', () => {
+      const { input } = renderLaidOut();
+      input.focus();
+      const event = press({ ctrlKey: true }, input);
+      expect(document.activeElement).toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('does nothing when the pill is not laid out (below lg)', () => {
+      const fixture = render();
+      const input = fixture.nativeElement.querySelector('#header-search') as HTMLInputElement;
+      const event = press({ ctrlKey: true });
+      expect(document.activeElement).not.toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+    });
   });
 
   /**
    * The `<label for>` in each `aec-search-autocomplete` is only correct while the
-   * ids are unique. The inline box is the header's own; `header-search-compact`
-   * lives in the trigger's overlay and `mobile-search` in the mobile menu, both
-   * unmounted until opened — so the only id in the SSR'd header must be this one.
+   * ids are unique. The pill is the header's own; `mobile-search` lives in the
+   * mobile menu, mounted only while it is open, so the only id in the SSR'd
+   * header must be this one.
    */
   it('renders exactly one search input server-side, with the inline id', () => {
     const el = render().nativeElement as HTMLElement;
