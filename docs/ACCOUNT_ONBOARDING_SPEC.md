@@ -335,8 +335,8 @@ scrollbar, so a clipped last row reads as scrollable.
 
 Layout follows the claim dialog (`apps/web/src/app/shared/form-field/form-field-classes.ts`).
 Each field stacks label, control, then hint, and fields sit `space-y-6` apart. Audiences render as
-the claim dialog's choice cards. Control borders use `--border-input` (3:1), and an invalid field
-takes a `--status-error` border (`DESIGN.md` "Inputs / Fields"). `/welcome` ends in the dialog's
+the claim dialog's choice cards. Control borders use `--border-field` (3:1), and an invalid field
+takes a 2px `--status-error` border (`DESIGN.md` "Inputs / Fields"). `/welcome` ends in the dialog's
 footer row: "Skip for now" at the start, "Save and continue" at the end. Below `sm` the two stack
 full width with "Save and continue" on top.
 

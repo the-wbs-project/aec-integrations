@@ -454,7 +454,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.listing_name)) {
                         <p
                           id="claim-dialog-listing-name-error"
-                          class="text-xs font-semibold text-(--text-primary)"
+                          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
                           role="alert"
                           i18n="@@claimDialog.you.listingName.error"
                         >
@@ -486,7 +486,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.website)) {
                         <p
                           id="claim-dialog-website-error"
-                          class="text-xs font-semibold text-(--text-primary)"
+                          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
                           role="alert"
                           i18n="@@claimDialog.you.website.error"
                         >
@@ -563,7 +563,7 @@ interface ClaimDialogModel {
                   @if (invalid(form.body)) {
                     <p
                       id="claim-dialog-comments-error"
-                      class="text-xs font-semibold text-(--text-primary)"
+                      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
                       role="alert"
                       i18n="@@requests.claim.body.error"
                     >

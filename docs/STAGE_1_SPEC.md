@@ -83,7 +83,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--surface-muted` | `#F4F4F5` | Interactive row hover / `focus-within` (index tables); shares the sunken value in light by design |
 | `--border-default` | `#E4E4E7` | Standard borders |
 | `--border-strong` | `#D4D4D8` | Emphasized borders |
-| `--border-input` | `#8A8A93` | Form control boundary: shared text inputs and the `aec-select` trigger (3.42:1 on white, 3.28:1 on raised, WCAG 1.4.11). AECI-1296 |
+| `--border-input` | `#8A8A93` | Non-control 3:1 line: the scroll-box scrollbar, the dashed chart outline and the suspected-automation chart fill. No longer a control edge (AECI-1764) |
 | `--text-primary` | `#0A0A0A` | Body text |
 | `--text-secondary` | `#52525B` | Supporting text |
 | `--text-tertiary` | `#71717A` | Hints, placeholders, metadata (4.83:1 on white; never on sunken/muted surfaces — re-pointed from `#A1A1AA` in AECI-230, which measured 2.56:1) |
@@ -97,7 +97,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 | `--surface-hero-panel` | `#26473A` | Panel on the Forest hero (AECI-1747; redesign, `DESIGN.md` §2 "Forest grounds") |
 | `--surface-footer` | `#15291F` | Footer ground (AECI-1747) |
-| `--border-field` | `#84848D` | Border of every form control; 3.71:1 on white. Beside `--border-input` until AECI-1764 (AECI-1747) |
+| `--border-field` | `#84848D` | Border of every form control (shared text inputs, textareas, the `aec-select` trigger); 3.71:1 on white, 3.55:1 on raised, WCAG 1.4.11. AECI-1747, AECI-1764 |
 | `--text-on-brand` | `#F5F2EA` | Bone ink on a Forest ground; alias of `--accent-warm` (AECI-1747) |
 | `--text-on-brand-secondary` | `#C5D3CA` | Secondary ink on Forest (7.96:1) and hero panel (6.62:1) (AECI-1747) |
 | `--text-on-footer-secondary` | `#B9C7BF` | Secondary ink on the footer ground (8.76:1) (AECI-1747) |
