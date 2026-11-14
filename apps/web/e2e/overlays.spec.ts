@@ -10,6 +10,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Locator, type Page, expect, test } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
+import { untilHydrated } from './hydration';
 
 const MODAL_SHADOW = 'rgba(0, 0, 0, 0.18) 0px 16px 48px -8px, rgba(0, 0, 0, 0.1) 0px 4px 16px -2px';
 const MENU_SHADOW = 'rgba(0, 0, 0, 0.12) 0px 8px 24px -4px, rgba(0, 0, 0, 0.06) 0px 2px 8px -1px';
@@ -130,7 +131,8 @@ test.describe('overlay surfaces (AECI-1770)', () => {
     const { dialog } = await openClaimDialog(page);
     const s = await dialog.locator('.aec-dialog').first().evaluate(surface);
     expect(s.radiusTL).toBe('0px');
-    expect(s.shadow).toBe('none');
+    // `shadow-none` leaves transparent ring layers, so assert no visible layer.
+    expect(s.shadow).not.toMatch(/rgba\(0, 0, 0, 0\.\d/);
     expect(s.width).toBe('0px');
   });
 
@@ -164,10 +166,10 @@ test.describe('overlay surfaces (AECI-1770)', () => {
     expect(s.radiusBL).toBe('0px');
   });
 
-  test('a popover is 16px round on the menu shadow, and axe is clean', async ({ page }) => {
+  test('a popover is 12px round on the menu shadow, and axe is clean', async ({ page }) => {
     const { trigger, popover } = await openSort(page);
     const s = await popover.evaluate(surface);
-    expect(s.radiusTL).toBe('16px');
+    expect(s.radiusTL).toBe('12px');
     expect(s.width).toBe('1px');
     expect(s.shadow.endsWith(MENU_SHADOW)).toBe(true);
     expect(s.bg).toMatch(WHITE);
@@ -200,6 +202,25 @@ test.describe('overlay surfaces (AECI-1770)', () => {
       .last()
       .evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration) * 1000);
     expect(b).toBeLessThan(1);
+  });
+
+  test('the open Browse menu dims the page at 40%, a dialog backdrop at 50%', async ({ page }) => {
+    await page.goto('/preview/layouts/browse');
+    const browse = page
+      .locator('aec-site-header')
+      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('link', { name: 'Browse', exact: true });
+    await untilHydrated(browse);
+    await browse.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(browse).toHaveAttribute('aria-expanded', 'true');
+    const dimmer = page.locator('[data-browse-dimmer]');
+    await expect(dimmer).toBeVisible();
+    expect(await dimmer.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+      'rgba(0, 0, 0, 0.4)',
+    );
+    await openClaimDialog(page);
+    expect(await backdropColor(page)).toBe('rgba(0, 0, 0, 0.5)');
   });
 
   test('the scrim fade takes the slow step', async ({ page }) => {

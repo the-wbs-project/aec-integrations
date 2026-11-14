@@ -234,16 +234,41 @@ describe('design tokens', () => {
     });
   });
 
-  describe('overlay scrim (AECI-1770)', () => {
+  describe('overlay scrims and surfaces (AECI-1770)', () => {
     const css = readFileSync(STYLES_PATH, 'utf8');
 
-    it('has one scrim value, 50%, and the CDK backdrop reads it', () => {
-      expect(css).toMatch(/^\s*--scrim:\s*rgb\(0 0 0 \/ 0\.5\);/m);
+    it('has two scrim tokens: 40% for the menu dimmer, 50% for the modal backdrop', () => {
+      expect(css).toMatch(/^\s*--scrim:\s*rgb\(0 0 0 \/ 0\.4\);/m);
+      expect(css).toMatch(/^\s*--scrim-modal:\s*rgb\(0 0 0 \/ 0\.5\);/m);
       expect(css.match(/^\s*--scrim:/gm)?.length).toBe(1);
+      expect(css.match(/^\s*--scrim-modal:/gm)?.length).toBe(1);
       const rule = css.match(
         /\.cdk-overlay-backdrop\.cdk-overlay-backdrop-showing\s*\{([^}]*)\}/,
       )?.[1];
-      expect(rule).toContain('background-color: var(--scrim);');
+      expect(rule).toContain('background-color: var(--scrim-modal);');
+    });
+
+    it('declares the three overlay surfaces in @layer components, so a utility overrides them', () => {
+      const start = css.indexOf('@layer components {');
+      expect(start, '@layer components block').toBeGreaterThan(-1);
+      let depth = 0;
+      let end = start;
+      for (let i = css.indexOf('{', start); i < css.length; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}' && --depth === 0) {
+          end = i;
+          break;
+        }
+      }
+      const block = css.slice(start, end);
+      for (const cls of ['.aec-dialog', '.aec-drawer', '.aec-popover']) {
+        expect(block, cls).toContain(cls);
+      }
+      expect(block).toMatch(/\.aec-popover\s*\{[^}]*border-radius:\s*var\(--radius-control\)/);
+      expect(block).toMatch(
+        /\.aec-dialog,\s*\.aec-drawer\s*\{[^}]*border-radius:\s*var\(--radius-card\)/,
+      );
+      expect(block).not.toMatch(/border-color/);
     });
 
     it('writes no second backdrop colour in a template or a component', () => {

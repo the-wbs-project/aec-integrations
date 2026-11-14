@@ -302,11 +302,13 @@
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
   --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
   --shadow-modal: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.1);
-  /* The one scrim: the CDK backdrop behind every dialog and the Browse and mobile
-     menu dimmer (AECI-1770). 50%, as DESIGN.md section 4 pairs it with the modal
-     shadow. The mock-up dimmer was 40% (mock-up 6 lines 15 and 690) and DESIGN.md
-     wins. Decorative only: it is never the boundary of anything. */
-  --scrim: rgb(0 0 0 / 0.5);
+  /* Two scrims (AECI-1770). `--scrim` is the menu dimmer behind the open Browse
+     menu: 40%, the mock-up's value (mock-up 6 lines 15 and 690), ruled NEW on
+     clashes 27 and 30. `--scrim-modal` is the CDK backdrop behind a dialog: 50%,
+     which DESIGN.md section 4 pairs with the modal shadow. Decorative only:
+     neither is ever the boundary of anything. */
+  --scrim: rgb(0 0 0 / 0.4);
+  --scrim-modal: rgb(0 0 0 / 0.5);
 
   /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
      taken from the default state of the approved mock-ups (mock-up 6,
@@ -1184,61 +1186,43 @@ textarea:-webkit-autofill:focus {
 }
 
 /* The shared overlay surfaces (AECI-1770, DESIGN.md section 4 "Shadow Vocabulary"
-   and section 5 "Overlays"). One class per overlay type. Unlayered, so every
-   caller takes it whatever utilities sit beside it, including the admin and
-   portal templates when they adopt it.
+   and section 5 "Overlays"). One class per overlay type, in `@layer components`
+   so a caller's utility (`max-sm:rounded-none`, `p-6`) overrides them.
    `.aec-dialog` is a modal panel and `.aec-drawer` a drawer: 24px radius, white
    fill, `--shadow-modal`. `.aec-popover` is a menu pane, listbox, autocomplete
-   panel, info hint or tooltip body: 16px radius, white fill, `--shadow-menu`.
+   panel, info hint or tooltip body: 12px radius, white fill, `--shadow-menu`.
    Layout (width, padding, height, position) stays with the caller. Z-index stays
    with the CDK overlay container.
-   EDGE: a real 1px hairline in the `*` border colour above. A shadow is never the
-   only edge, so forced-colours mode, which drops `box-shadow`, still draws one.
-   RADIUS: DESIGN.md names no overlay radius. Card for the two modal surfaces, panel
-   for the popover. The drawer is a bottom sheet below `sm`, rounded on top only. */
-.aec-dialog,
-.aec-drawer,
-.aec-popover {
-  border-style: solid;
-  border-width: 1px;
-  background-color: var(--surface-base);
-  color: var(--text-primary);
-}
+   EDGE: a real 1px hairline. The colour is the unlayered `*` border rule above
+   (`--border-default`), which is why none is set here. A shadow is never the only
+   edge, so forced-colours mode, which drops `box-shadow`, still draws one.
+   RADIUS: DESIGN.md names no overlay radius. Card for the two modal surfaces and
+   control for the popover, chosen by the orchestrator and flagged for Chris. A
+   drawer is a bottom sheet below `sm`: the request drawer adds `max-sm:rounded-b-none`. */
+@layer components {
+  .aec-dialog,
+  .aec-drawer,
+  .aec-popover {
+    border-style: solid;
+    border-width: 1px;
+    background-color: var(--surface-base);
+    color: var(--text-primary);
+  }
 
-.aec-dialog,
-.aec-drawer {
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-modal);
-}
-
-.aec-drawer {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-@media (min-width: 40rem) {
+  .aec-dialog,
   .aec-drawer {
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-modal);
+  }
+
+  .aec-popover {
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-menu);
   }
 }
 
-/* The claim dialog fills the screen below `sm`. It has no edge, corner or shadow
-   there, because nothing shows around it. It is a dialog from `sm` up. */
-@media (max-width: 39.9988rem) {
-  .aec-dialog-sheet {
-    border-width: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-}
-
-.aec-popover {
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-menu);
-}
-
-/* CDK overlay defaults: dim the backdrop and center dialog panes. The scrim token
-   is the only colour (AECI-1770). The fade takes the slow step and the standard
+/* CDK overlay defaults: dim the backdrop and center dialog panes. The modal scrim
+   token is the only colour (AECI-1770). The fade takes the slow step and the standard
    easing, in place of the CDK's 400ms; the reduced-motion block below makes it
    instant. The selector is two classes deep so it beats the CDK's own rule
    whichever stylesheet loads last. */
@@ -1248,7 +1232,7 @@ textarea:-webkit-autofill:focus {
 }
 
 .cdk-overlay-backdrop.cdk-overlay-backdrop-showing {
-  background-color: var(--scrim);
+  background-color: var(--scrim-modal);
 }
 
 .cdk-global-overlay-wrapper {
