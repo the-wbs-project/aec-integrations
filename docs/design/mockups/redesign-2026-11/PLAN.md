@@ -602,7 +602,7 @@ The existing firewall tests would not catch it. They cover search attributes, so
 
 No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. The counts change only through promote and the seat-gated create, retire and restore, so no plan moves them (AECI-1814). Ruling R1 (AECI-1732) ruled on 2026-11-14 that existing orders stay. (Corrected 2026-11-14. This line first said "All four are clean.")
 
-AECI-1814 found one existing order that is not clean. The nav, home, `/search` facets and taxonomy index rank audience and trade terms by product count, and only a Managed plan can tag a product with them. It awaits a ruling (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8).
+AECI-1814 found one existing order that is not clean. The nav, home, `/search` facets, taxonomy index and facet sidebar order or cut audience and trade terms by product count, and only a Managed plan can tag a product with them. Chris accepted it on 2026-11-14: "A, create a ticket to address later". The Browse menu keeps that order for those columns. The permanent rule is AECI-1836 (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8).
 
 ### 7.5 What Chris has and has not ruled
 
@@ -875,7 +875,7 @@ Chris has not answered these.
 | --- | --- | --- | --- | --- |
 | 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | Workstream E |
 | 2 | What is the ordering rule for new lists? | The four options in 7.6 | Ruled 2026-11-14 (R1): new lists A to Z, existing orders kept. See 7.8 | A, C, E |
-| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | Ruled 2026-11-14 (R1): no new list uses a count. Taxonomy term counts are open, see 7.4 | C |
+| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | Ruled 2026-11-14 (R1): no new list uses a count. Taxonomy term counts accepted as they are, follow-up AECI-1836, see 7.4 | C |
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |

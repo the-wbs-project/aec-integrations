@@ -261,7 +261,7 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 7. **A company fact never reaches a ranking input (added 2026-11-05, AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** Size, funding and ownership describe a vendor and must not rank small vendors down. Block 7 asserts that no `INDEX_SETTINGS` attribute, Algolia record field, public `?sort=` key or `listing_tier` input names a company fact or its provenance. `headquarters` and `founded_year` predate the rule and keep their existing search roles.
 
-8. **No on-page order reads an input a paid plan can change (added 2026-11-14, AECI-1814).** The first seven assertions cover search attributes, sort keys and `listing_tier` inputs. This one covers the order of lists on a page. No on-page sort, default order or featured subset may read an input that only a capability outside `TIER_CAPABILITIES.unclaimed` can change. The tests are `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.spec.ts`.
+8. **No on-page order reads an input a paid plan can change (added 2026-11-14, AECI-1814).** The first seven assertions cover search attributes, sort keys and `listing_tier` inputs. This one covers the order of lists on a page. No on-page sort, default order or featured subset may read an input that only a capability outside `TIER_CAPABILITIES.unclaimed` can change. The tests are `apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.component.spec.ts`.
 
    **The rule is ruling R1** (Chris, 2026-11-14, AECI-1732): "Maintain orders as they are. If its a new feature a to z". As applied:
    - Every new on-page list is A to Z by name, with the id as the tie-break.
@@ -276,30 +276,41 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
    | `product.edit` | `tool_integrations_url`, `api_docs_url` (from `PRODUCT_FIELD_CAPABILITIES`) |
    | `product.taxonomy.edit` | `audience_slugs`, `phase_slugs`, `trade_slugs`, so each term's product count |
    | `product.usefulness.edit` | `usefulness` |
-   | `attestation.author` | Claim agreement ("confirmed by both companies"), vendor-added data objects and so the data-flow count, product versions, and the maintenance stamps an attestation write moves |
+   | `attestation.author` | Claim agreement ("confirmed by both companies"). A denial, which can refute a claim and lower the data-flow count. Vendor-added data objects, which raise it. Deleting or withdrawing an added object, which lowers it. Product versions and the version stamps on a claim. The maintenance stamps an attestation write moves |
    | `integration.version_diff` | The depth of the pair page version diff |
    | `analytics.view`, `profile.rich_fields` | Nothing public today |
 
-   Plan state itself is flipped too: a live license, the `vendors.verified` mirror, and the plan-end mirrors and edit stamps.
+   Plan state itself is set too: a live license, the `vendors.verified` mirror, and the plan-end mirrors and edit stamps.
 
-   **How each surface is tested.**
+   **How each surface is tested.** Every behavioural case runs in two directions, so an order that rewards a plan and one that punishes it both disagree with today's order in at least one run. Every fixture holds a real tie at each comparator level, so the tie-breaks run too.
 
    | Surface | Order | How |
    |---|---|---|
-   | Product page, direct lane | Partner name, edge name, id | Behavioural: every non-order row field is changed and the order must not move |
-   | Product page, "Via" groups | Row count, connector name, unnamed last. Rows A to Z | Same |
-   | Product page, rows above the `@defer` cut | The first 20 of the two orders above | Same |
-   | Connector page, powered hubs | Partner count, hub name. Partners A to Z | Same |
-   | Pair page mechanisms and claims | Integrations A to Z, then evidenced pairs A to Z. Claims by the data object vocabulary | Behavioural over the D1 harness: two databases that differ only in Managed-only inputs |
-   | `related_products` | Newest first, id tie-break, six shown | Same |
+   | Product page, direct lane | Partner name, edge name, id | Behavioural. Every non-order row field is set rising and falling along the fixture. Each partner in turn also gets every paid input at once |
+   | Product page, "Via" groups | Row count, connector name, unnamed last. Rows A to Z | Same, and each group in turn gets every paid input |
+   | Product page, the reader's filter | Removes rows. Never reorders | Same, with no query and with one |
+   | Product page, rows above the `@defer` cut | The first `INTEGRATIONS_ABOVE_FOLD` (20) rows of the two orders above | Same, with cuts that split a lane and the real 20-row cut over 32 rows |
+   | Product page, the section component | Split, then filter, then cut | A structural check: the component calls the three functions and holds no comparator of its own |
+   | Connector page, powered hubs | Partner count, hub name. Partners and flat pairs A to Z | Behavioural, as above, with the filter |
+   | Pair page mechanisms and claims | Integrations A to Z then id, then evidenced pairs A to Z then id. Claims by the data object vocabulary, nulls last | Behavioural over the D1 harness: a free database and two paid ones. One paid database loads the rows and claims that sort last and denies those that sort first. The other does the opposite |
+   | `related_products` | Newest first, id tie-break, six shown | Behavioural, two paid databases. Four products share one `created_at` across the sixth place, as promote writes them |
 
-   Every row field of `ProductIntegrationItemSchema` and `PoweredIntegrationItemSchema` is classified as an order input or a payload field. A new field fails until it is classified. AECI-1781's `agreement`, `data_objects` and `partner_categories` are classified and flipped already.
+   Every row field of `ProductIntegrationItemSchema` and `PoweredIntegrationItemSchema` is classified as an order input or a payload field. A new field fails until it is classified. AECI-1781's `agreement`, `data_objects` and `partner_categories` are payload fields.
 
-   **Why the count orders pass.** Via-group and powered-hub counts change only through promote, the vendor integration create, and the shared retire and restore write. A source scan finds exactly those three writers, and asserts that none of them, nor the routes that call them, calls a capability gate. A vendor create cannot make a via-lane row at all: its body has no `powered_by` field and refuses `iPaaS`.
+   **Why the count orders pass.** Via-group and powered-hub counts change only through promote, the vendor integration create, and the shared retire and restore write. A source scan finds those three writers. It reads aliased and namespace imports of the two row tables, and flags any `.set(` it cannot read. It asserts that none of them, nor the three files whose `.set(` it cannot read, nor the routes that rename a row, calls a plan check: a capability gate, `productTier`, `hasActiveEntitlement`, `assertFieldsEntitled` or `entitlementRequired`. It is a tripwire, not a proof. A write through a generic table variable would pass unseen. A vendor create cannot make a via-lane row at all: its body has no `powered_by` field and refuses `iPaaS`.
 
-   **Surfaces not built yet are pending entries,** each owned by the issue that builds it: closest matches (AECI-1829), the Browse menu's term order (AECI-1774), the redesigned integrations list (AECI-1782, AECI-1783), the hero visual (AECI-1787) and similar products (AECI-1785). They show as `todo` in the test run.
+   **The surface list is hand-written.** A surface is covered only once it is registered. Surfaces not built yet are pending entries, each owned by the issue that builds it: closest matches (AECI-1829), the Browse menu's term order (AECI-1774), the redesigned integrations list (AECI-1782, AECI-1783), the hero visual (AECI-1787) and similar products (AECI-1785). They show as `todo` in the test run. No scan yet fails on an unregistered `orderBy` or `.sort(` on a public read path.
 
-   **Open ruling: taxonomy term counts.** The nav flyouts, the home page, the `/search` facets and the taxonomy index's "Most products" sort rank audience and trade terms by product count. The `/trades` publish floor cuts on the same count. Tagging a product with an audience, phase or trade needs `product.taxonomy.edit`, which only a Managed plan holds. So a Managed vendor can move a term up, or publish a trade. This is tolerated as one named exception, `taxonomy-term-product-count`, because it orders terms, not vendors, and R1 keeps existing orders. **It is not settled. It awaits Chris's ruling, asked on Slack 2026-11-14.** The exception is narrow: a source scan finds every count order in `apps/web` and fails on any site the entry does not name. The browser half proves `topByCount` reads the count and nothing else, and that phases never order by count. The taxonomy index's comparator breaks a count tie on the term's integration count, then name. That integration count moves with the same tags and with seat-gated integration writes, so it adds no new Managed-only input. A ruling changes that one entry. The Browse menu (AECI-1774) inherits it.
+   **Accepted exception: taxonomy term counts.** The nav flyouts, the home page, the `/search` facets and the taxonomy index's "Most products" sort rank audience and trade terms by product count. The facet sidebar on browse pages hides terms with no matching products. The `/trades` publish floor cuts on the same count. Tagging a product with an audience, phase or trade needs `product.taxonomy.edit`, which only a Managed plan holds. So a Managed vendor can move a term up, or publish a trade. It is one named exception, `taxonomy-term-product-count`, because it orders terms, not vendors, and R1 keeps existing orders. **Accepted by Chris on 2026-11-14, by Slack: "A, create a ticket to address later".** The permanent rule is follow-up AECI-1836. The `/trades/:slug` noindex rule reads the same floor. It is an indexing decision, not an order, and the entry records it separately.
+
+   How the exception is kept narrow:
+   - `topByCount` is tested behaviourally. Every field but `product_count` is set rising and falling, on terms that tie on count, and the order and the top-N cut do not move.
+   - The taxonomy index's "Most products" sort is tested behaviourally in a component spec. Its declared inputs are the count, then the term's integration count, then the name. The integration count moves with the same tags and with seat-gated integration writes, so it adds no new Managed-only input.
+   - Phases never order by count: the nav uses display order, and `/search` re-sorts phases into lifecycle order. Both are tested behaviourally.
+   - The `/search` audience and trade facet order is Algolia's own count order. It is pinned by source only.
+   - A source scan of the public pages in `apps/web` (not the admin console, the vendor portal or previews) lists every `topByCount` call, every comparator that subtracts one `product_count` from another, every `product_count` compared with a number, every `.filter` that compares an item's `.count` with a number, and every use of the trade publish floor. It fails on any site the entry does not name. It is a tripwire, not a proof: a count read through a helper that names neither `product_count` nor `.count` would pass.
+
+   AECI-1836 changes that one entry. The new Browse menu (AECI-1774) orders its audience and trade columns the same way, so it inherits the accepted count order.
 
 **Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds a live subscription (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live subscription. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the seven assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
 
@@ -896,7 +907,7 @@ The four tests below are **invariant tests** — they encode decisions, not beha
 | Mirror sole-writer | §2 | `grantSeatStatements` (and every route handler) emits no statement touching `vendors.verified`. Only `lib/license.ts` does, and never without the subscription statement in the same batch. **Live**: Guard 1 plus `apps/api/src/lib/vendor-grant.spec.ts`, which AECI-612 created |
 | Ranking disjointness | §3 | the capability vocabulary and the union of `INDEX_SETTINGS` searchable/facet/customRanking attributes are disjoint sets (§3.2) — **live** in `packages/shared/src/entitlements.spec.ts` |
 | Reads are never gated | §4 | `GET /api/vendor/me` returns 200 for a vendor whose only subscription ended, `revoked` or `expired`, with the downgraded `entitlement` block. **Live** in `apps/api/src/routes/vendor.entitlement.spec.ts` |
-| On-page ordering | §3.2 assertion 8 | No on-page sort, default order or featured subset reads an input only a Managed plan can change, except the one open exception named there. **Live** in `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` (AECI-1814) |
+| On-page ordering | §3.2 assertion 8 | The registered on-page sorts, default orders and featured subsets do not move when any Managed-only input changes, except the one accepted exception named there. **Live** in `apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and its `.component.spec.ts` (AECI-1814) |
 
 > **Correction:** this table originally implied `vendor-grant.spec.ts` already existed and merely gained an assertion. **It never did** — `git log --all --diff-filter=A` finds no such file on any branch before AECI-612, and `grantSeatStatements` was covered only indirectly through `admin-claims.spec.ts`. AECI-612 created it.
 

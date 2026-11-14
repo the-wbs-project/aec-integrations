@@ -17,15 +17,17 @@
  *
  * Six blocks:
  *
- *  1. The registry of every ordered surface (`SURFACES`): covered here, covered in the
- *     browser half (`apps/web/src/app/products/on-page-ordering-firewall.spec.ts`),
+ *  1. The registry of ordered surfaces (`SURFACES`). It is hand-written: a surface is
+ *     covered only once it is registered. Each entry is covered here, covered in the
+ *     browser halves (`apps/web/src/app/products/on-page-ordering-firewall*.spec.ts`),
  *     pending with the issue that will build it, or the one tolerated exception.
  *  2. The Managed-only inputs, derived from the capability registry.
- *  3. Why the count orders pass: every write that changes an integration row count is
- *     capability-free. Promote is AECi's; the rest need a seat and nothing else.
+ *  3. Why the count orders pass: the writes that change an integration row count call
+ *     no plan check. A source scan, so a tripwire rather than a proof.
  *  4. The pair page, behaviourally, over the in-memory D1 harness.
  *  5. `related_products`, behaviourally.
- *  6. The taxonomy term-count exception, kept narrow by a source scan.
+ *  6. The accepted taxonomy term-count exception (Chris, 2026-11-14; permanent rule in
+ *     AECI-1836), kept narrow by a source scan (a tripwire).
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -72,17 +74,25 @@ import { seedLicense } from '../test/licenses';
 /** Vitest runs with cwd = apps/api. */
 const API_SRC = join(process.cwd(), 'src');
 const WEB_APP = join(process.cwd(), '..', 'web', 'src', 'app');
-const WEB_SPEC = join(WEB_APP, 'products', 'on-page-ordering-firewall.spec.ts');
+const WEB_SPECS = [
+  join(WEB_APP, 'products', 'on-page-ordering-firewall.spec.ts'),
+  join(WEB_APP, 'products', 'on-page-ordering-firewall.component.spec.ts'),
+];
 const THIS_SPEC = join(API_SRC, 'lib', 'on-page-ordering-firewall.spec.ts');
+
+/** A cold in-memory D1 plus two worlds takes several seconds on a loaded machine. */
+const DB_TIMEOUT = 30_000;
 
 // ─── 1. The registry ──────────────────────────────────────────────────────────
 
-/** One site that orders or cuts taxonomy terms by count: a file, how, which facet. */
+/** One place that orders or cuts taxonomy terms by a count. */
 interface CountSite {
   readonly file: string;
-  readonly kind: 'top-by-count' | 'count-comparator' | 'publish-floor' | 'algolia-facet';
-  /** `*` when one comparator serves every facet. */
+  readonly kind: 'top-by-count' | 'count-sort' | 'count-cut' | 'publish-floor' | 'algolia-facet';
+  /** The facet, or `*` when one comparator or cut serves every facet. */
   readonly facet: 'categories' | 'audiences' | 'phases' | 'trades' | 'vendor_name' | '*';
+  /** For a sort or a cut, the expression as written, whitespace collapsed. */
+  readonly detail?: string;
 }
 
 type Surface =
@@ -103,15 +113,20 @@ type Surface =
       readonly status: 'exception';
       readonly capability: Capability;
       readonly surfaces: readonly string[];
+      /** Orders and featured subsets. */
       readonly sites: readonly CountSite[];
+      /** Indexing decisions on the same input. Not orders, but they move with the ruling. */
+      readonly indexing: readonly CountSite[];
       readonly reason: string;
       readonly ruling: string;
+      /** The issue that holds the permanent rule. */
+      readonly followUp: `AECI-${number}`;
     };
 
 /**
- * Every ordered list on a public page. A pending entry names the issue that builds the
- * surface: that issue moves it to `covered` and adds its case. The exception is ONE
- * entry, so Chris's ruling changes one place.
+ * The registered ordered lists on public pages. A pending entry names the issue that
+ * builds the surface: that issue moves it to `covered` and adds its case. The
+ * exception is ONE entry, so the permanent rule (AECI-1836) changes one place.
  */
 const SURFACES: readonly Surface[] = [
   {
@@ -148,7 +163,7 @@ const SURFACES: readonly Surface[] = [
     key: 'pair-page-claims',
     status: 'covered',
     spec: 'api',
-    order: 'Data object display order, then data object name',
+    order: 'Data object display order, nulls last, then data object name',
   },
   {
     key: 'related-products',
@@ -166,7 +181,8 @@ const SURFACES: readonly Surface[] = [
     key: 'browse-menu-term-order',
     status: 'pending',
     owner: 'AECI-1774',
-    order: 'Inherits the taxonomy-term-product-count ruling for its term order',
+    order:
+      'Audience and trade columns inherit the accepted count order (taxonomy-term-product-count); other lists A to Z (R1)',
   },
   {
     key: 'product-page-integrations-redesign',
@@ -193,9 +209,9 @@ const SURFACES: readonly Surface[] = [
     surfaces: [
       'Nav flyouts: audiences and trades top 10 by product count; trades behind the publish floor',
       'Home: trades top 10 by product count, behind the publish floor',
-      '/search: audience and trade facet values in Algolia count order',
+      '/search: audience and trade facet values in Algolia count order (pinned by source only)',
       '/audiences, /phases, /trades: the reader-chosen "Most products" sort; /trades behind the floor',
-      '/trades/:slug: noindex below the publish floor',
+      'Browse pages: the facet sidebar hides terms with no matching products',
     ],
     sites: [
       { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'audiences' },
@@ -205,12 +221,27 @@ const SURFACES: readonly Surface[] = [
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'trades' },
-      { file: 'taxonomy/taxonomy-index.ts', kind: 'count-comparator', facet: '*' },
+      {
+        file: 'taxonomy/taxonomy-index.ts',
+        kind: 'count-sort',
+        facet: '*',
+        detail: 'b.product_count - a.product_count',
+      },
       { file: 'taxonomy/taxonomy-index.ts', kind: 'publish-floor', facet: 'trades' },
+      {
+        file: 'shared/facets/facet-sidebar.ts',
+        kind: 'count-cut',
+        facet: '*',
+        detail: 'item.count > 0',
+      },
+    ],
+    indexing: [
+      // `/trades/:slug` is noindex below the publish floor. An indexing decision, not an order.
       { file: 'taxonomy/taxonomy-browse.resolver.ts', kind: 'publish-floor', facet: 'trades' },
     ],
     reason: 'orders terms, not vendors; existing order kept under R1',
-    ruling: 'awaiting ruling (Slack 2026-11-14)',
+    ruling: 'accepted by Chris 2026-11-14 (Slack): "A, create a ticket to address later"',
+    followUp: 'AECI-1836',
   },
 ];
 
@@ -218,7 +249,7 @@ const SURFACES: readonly Surface[] = [
  * Count orders over an input no plan gates. Categories are Free
  * (`product.categories.edit`). Phases on `/search` are re-sorted into lifecycle order,
  * so their counts never order them. The vendor facet counts products per vendor,
- * which promote and the seat-gated product create write (block 3).
+ * which promote and the product create write (block 3).
  */
 const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'categories' },
@@ -228,12 +259,26 @@ const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'vendor_name' },
 ];
 
+/** Count comparisons that only choose what to print, never an order or a cut. */
+const DISPLAY_COUNT_SITES: readonly CountSite[] = [
+  // The browse chip prints a count only when there is one.
+  { file: 'home/browse-grid.ts', kind: 'count-cut', facet: '*', detail: 'term.product_count > 0' },
+  // The term page's empty state.
+  {
+    file: 'taxonomy/taxonomy-browse.ts',
+    kind: 'count-cut',
+    facet: '*',
+    detail: 't.product_count === 0',
+  },
+];
+
 const surfaceTags = (file: string): string[] =>
   [...readFileSync(file, 'utf8').matchAll(/\[surface:([a-z0-9-]+)\]/g)].map((m) => m[1]!);
+const webTags = () => WEB_SPECS.flatMap(surfaceTags);
 
 describe('on-page ordering firewall: the surface registry', () => {
   it('every covered surface has a test tagged with its key, in the spec it names', () => {
-    const tags = { api: surfaceTags(THIS_SPEC), web: surfaceTags(WEB_SPEC) };
+    const tags = { api: surfaceTags(THIS_SPEC), web: webTags() };
     for (const surface of SURFACES) {
       if (surface.status === 'covered') {
         expect(tags[surface.spec], surface.key).toContain(surface.key);
@@ -243,7 +288,7 @@ describe('on-page ordering firewall: the surface registry', () => {
 
   it('every surface tag names a registry entry', () => {
     const keys = SURFACES.map((s) => s.key);
-    for (const tag of [...surfaceTags(THIS_SPEC), ...surfaceTags(WEB_SPEC)]) {
+    for (const tag of [...surfaceTags(THIS_SPEC), ...webTags()]) {
       expect(keys, tag).toContain(tag);
     }
   });
@@ -279,14 +324,16 @@ const fieldsWrittenBy = (cap: Capability): string[] =>
  * Field-edit capabilities are derived from the field tables instead. A Managed-only
  * capability with neither fails the test, so moving one out of the Free set forces a
  * decision about its inputs. Plan state itself (licenses, `vendors.verified`, the
- * plan-end mirrors and edit stamps) is written by no capability: blocks 4 and 5 flip
+ * plan-end mirrors and edit stamps) is written by no capability: blocks 4 and 5 set
  * it too.
  */
 const ROUTE_CAPABILITY_INPUTS: Readonly<Partial<Record<Capability, readonly string[]>>> = {
-  // The six attestation and product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)).
+  // The attestation and product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)).
   'attestation.author': [
     'claim agreement ("confirmed by both companies")',
-    'vendor-added data objects, so the data-flow count',
+    'a denial, which can refute a claim and so lower the data-flow count',
+    'vendor-added data objects, so a higher data-flow count',
+    'the deletion or withdrawal of a vendor-added data object, so a lower count',
     'product versions and the version stamps on a claim',
     'the integration maintenance stamps an attestation write moves',
   ],
@@ -352,24 +399,92 @@ function sourceFiles(root: string, dir = root, acc: string[] = []): string[] {
   return acc;
 }
 
-const apiSource = (rel: string) => readFileSync(join(API_SRC, rel), 'utf8');
+/** Source with comments removed, so a comment can neither hide nor fake a match. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+}
 
-/** A write that adds, removes, retires or restores an integration row. */
-const ROW_COUNT_WRITE =
-  /\.(insert|delete)\((integrations|connectorEvidencedPairs)\)|\.set\(\{[^}]*\bretiredAt\b/;
-/** A route-level capability gate. A per-field check (`assertFieldsEntitled`) is not one. */
-const CAPABILITY_GATE =
-  /\b(requireCapability|requireProductCapability|requireAttestationCapability|hasCapability|capabilitiesFor)\(/;
+const apiSource = (rel: string) => stripComments(readFileSync(join(API_SRC, rel), 'utf8'));
+
+const ROW_TABLES = ['integrations', 'connectorEvidencedPairs'] as const;
+
+/**
+ * The names a file reaches the two row tables by: the plain import, an aliased import
+ * (`integrations as rows`), and a namespace import (`schema.integrations`).
+ */
+function rowTableNames(src: string): string[] {
+  const names: string[] = [...ROW_TABLES];
+  for (const m of src.matchAll(/\b(integrations|connectorEvidencedPairs)\s+as\s+(\w+)/g)) {
+    names.push(m[2]!);
+  }
+  for (const m of src.matchAll(/import\s+\*\s+as\s+(\w+)\s+from\s+['"][./]*(?:db\/)?schema['"]/g)) {
+    for (const table of ROW_TABLES) names.push(`${m[1]}.${table}`);
+  }
+  return names;
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** How a file writes the two row tables. */
+function rowWrites(src: string): { count: boolean; opaque: boolean } {
+  const table = `(?:${rowTableNames(src).map(escapeRegExp).join('|')})`;
+  const insertOrDelete = new RegExp(`\\.(?:insert|delete)\\(\\s*${table}\\s*\\)`);
+  const literalRetire = new RegExp(
+    `\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*\\{[^}]*\\bretiredAt\\b`,
+  );
+  // A `.set(` whose argument is not an object literal: the scan cannot see its columns.
+  const opaque = new RegExp(`\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*[^\\s{]`);
+  return { count: insertOrDelete.test(src) || literalRetire.test(src), opaque: opaque.test(src) };
+}
+
+/**
+ * A plan check. `requireCapability` and its product twin are the route gates.
+ * `productTier`, `hasActiveEntitlement` and `assertFieldsEntitled` read the plan,
+ * and `entitlementRequired` builds the refusal. Any one inside a row writer would
+ * let a plan decide whether a row is created or retired.
+ */
+const PLAN_CHECK =
+  /\b(requireCapability|requireProductCapability|hasCapability|capabilitiesFor|productTier|hasActiveEntitlement|assertFieldsEntitled|entitlementRequired)\(/g;
+const planChecks = (src: string) => [...src.matchAll(PLAN_CHECK)].map((m) => m[1]!);
+
+/** Every file that adds, removes, retires or restores an integration row. */
+const COUNT_WRITERS = [
+  'routes/integration-retire-write.ts',
+  'routes/promote.ts',
+  'routes/vendor-integration-create.ts',
+];
+
+/**
+ * Files that update a row table through a `.set(` the scan cannot read. Each is
+ * reviewed: none writes `retiredAt`, and each is plan-free, so none can hide a count
+ * change behind a plan.
+ */
+const OPAQUE_WRITERS = [
+  // A contest accept writes the edited fields (`EDIT_FIELD_COLUMNS`).
+  'lib/integration-contests.ts',
+  // A claim writes `claimColumns`: claimed_at, maintained_by, last_reviewed_at.
+  'routes/vendor-integration-claims.ts',
+  // Clears the links of an endpoint that left the row.
+  'routes/vendor-integration-links.ts',
+];
 
 describe('on-page ordering firewall: the via-group and powered-hub counts', () => {
   const files = sourceFiles(API_SRC);
 
-  it('finds every write that changes an integration row count', () => {
-    expect(files.filter((rel) => ROW_COUNT_WRITE.test(apiSource(rel))).sort()).toEqual([
-      'routes/integration-retire-write.ts',
-      'routes/promote.ts',
-      'routes/vendor-integration-create.ts',
-    ]);
+  it('finds the files that write an integration row (a tripwire, not a proof)', () => {
+    const writes = files.map((rel) => ({ rel, ...rowWrites(apiSource(rel)) }));
+    expect(
+      writes
+        .filter((w) => w.count)
+        .map((w) => w.rel)
+        .sort(),
+    ).toEqual(COUNT_WRITERS);
+    expect(
+      writes
+        .filter((w) => w.opaque)
+        .map((w) => w.rel)
+        .sort(),
+    ).toEqual(OPAQUE_WRITERS);
     // The shared retire write runs from these two routes and nowhere else.
     expect(
       files
@@ -379,22 +494,45 @@ describe('on-page ordering firewall: the via-group and powered-hub counts', () =
     ).toEqual(['routes/admin-integration-retire.ts', 'routes/vendor-integration-retire.ts']);
   });
 
-  it('none of those writes, nor the edits that rename a row, consults a capability', () => {
+  it('the scan sees through an alias, a namespace import and an opaque set', () => {
+    expect(
+      rowWrites('import { integrations as rows } from "../db/schema"; db.insert(rows)').count,
+    ).toBe(true);
+    expect(
+      rowWrites("import * as schema from '../db/schema'; db.insert(schema.integrations)").count,
+    ).toBe(true);
+    expect(rowWrites('db.update(integrations).set(patch)').opaque).toBe(true);
+    expect(rowWrites('db.update(integrations).set({ retiredAt: now })').count).toBe(true);
+    expect(rowWrites(stripComments('// db.insert(integrations)')).count).toBe(false);
+  });
+
+  it('no row writer, nor the routes that rename a row, reads the plan', () => {
     for (const rel of [
-      'routes/integration-retire-write.ts',
-      'routes/promote.ts',
-      'routes/vendor-integration-create.ts',
+      ...COUNT_WRITERS,
+      ...OPAQUE_WRITERS,
       'routes/vendor-integration-retire.ts',
       'routes/admin-integration-retire.ts',
       'routes/vendor-integration-edits.ts',
       'routes/vendor-evidenced-pair-edits.ts',
-      // The /search vendor facet counts products per vendor.
-      'routes/vendor-product-create.ts',
     ]) {
-      expect(CAPABILITY_GATE.test(apiSource(rel)), rel).toBe(false);
+      expect(planChecks(apiSource(rel)), rel).toEqual([]);
     }
-    // The pattern does match a gated route, so the absence above is real.
-    expect(CAPABILITY_GATE.test(apiSource('routes/vendor-attestations.ts'))).toBe(true);
+  });
+
+  it('the plan-check pattern catches a route gate and a tier read (controls)', () => {
+    expect(planChecks(apiSource('routes/vendor-attestations.ts'))).toContain(
+      'requireProductCapability',
+    );
+    expect(planChecks(apiSource('routes/vendor-attestations.ts'))).toContain('productTier');
+  });
+
+  it('the product create reads the plan only to limit its fields, never the act', () => {
+    // The /search vendor facet counts products per vendor. The create is open to any
+    // seat; the plan only decides which fields it may set. A new plan check here fails.
+    expect(planChecks(apiSource('routes/vendor-product-create.ts')).sort()).toEqual([
+      'assertFieldsEntitled',
+      'productTier',
+    ]);
   });
 
   it('no capability id names an integration write', () => {
@@ -470,6 +608,13 @@ async function seedTwoVendors(db: Db) {
   ]);
 }
 
+/**
+ * Which rows the paid inputs land on. `last` loads the rows that sort last and
+ * lowers the rows that sort first; `first` does the opposite. One of the two
+ * disagrees with today's order for any order that rewards or punishes a plan.
+ */
+type World = 'free' | 'last' | 'first';
+
 // ─── 4. The pair page ─────────────────────────────────────────────────────────
 
 const pairRoute: Route = {
@@ -478,25 +623,70 @@ const pairRoute: Route = {
   handler: (t) => createProductPairHandler(t.factory),
 };
 
-interface PairOptions {
-  /** Add every Managed-only input, weighted onto the rows that sort LAST. */
-  readonly managed: boolean;
-  /** Rename the last integration so it sorts first: the order input, for non-vacuity. */
-  readonly renameLast?: boolean;
-}
+/** The data object vocabulary: slug → display order and name. */
+const DATA_OBJECTS: ReadonlyArray<[n: number, slug: string, name: string, order: number | null]> = [
+  [71, 'invoices', 'Invoices', 1],
+  [72, 'rfis', 'RFIs', 2],
+  [73, 'submittals', 'Submittals', 3],
+  [74, 'drawings', 'drawings', null],
+  // Two objects with the same name and no order: a true tie.
+  [75, 'logs-a', 'Logs', null],
+  [76, 'logs-b', 'Logs', null],
+];
+const OBJECT_BY_SLUG = new Map(
+  DATA_OBJECTS.map(([, slug, name, order]) => [slug, { name, order }]),
+);
 
-async function seedPair(db: Db, { managed, renameLast = false }: PairOptions) {
+/**
+ * Integrations, with a tie: `Mid bridge` and `mid bridge` are equal under NOCASE, so the
+ * id decides. Evidenced pairs, with the same kind of tie.
+ */
+const PAIR_INTEGRATIONS: ReadonlyArray<[n: number, name: string]> = [
+  [10, 'Zeta sync'],
+  [11, 'alpha link'],
+  [12, 'Mid bridge'],
+  [13, 'mid bridge'],
+];
+const PAIR_EVIDENCED: ReadonlyArray<[n: number, name: string, connector: number]> = [
+  [60, 'Zulu', 3],
+  [61, 'bravo', 4],
+  [62, 'Bravo', 5],
+];
+/** Today's order, written out: integrations A to Z then id, then evidenced pairs. */
+const PAIR_ORDER = [11, 12, 13, 10, 61, 62, 60].map(u);
+/**
+ * What each paid world loads. `rows` sort last (or first) in their table. `claims`
+ * sort last (or first) inside their mechanism. Of the two tied "Logs" claims only 103
+ * is listed, so in either world it carries more votes than 102.
+ */
+const PAIR_LAST = { rows: [10, 13, 60, 62], claims: [100, 103, 105, 106, 107, 109] };
+const PAIR_FIRST = { rows: [11, 12, 61], claims: [101, 104, 108] };
+
+/** The AECi seed: claim id, row, data object. */
+const PAIR_CLAIMS: ReadonlyArray<[id: number, row: number, object: number]> = [
+  [100, 10, 72],
+  [101, 11, 71],
+  [102, 11, 76],
+  [103, 11, 75],
+  [104, 12, 71],
+  [105, 12, 72],
+  [106, 13, 72],
+  [107, 60, 71],
+  [108, 61, 72],
+  [109, 62, 72],
+];
+
+async function seedPair(db: Db, world: World, renameLast = false) {
   await db.insert(products).values([
     { id: u(1), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
     { id: u(2), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
-    {
-      id: u(3),
-      slug: 'agave',
-      name: 'Agave',
-      productRole: 'connector',
-      promotionStatus: 'promoted',
-    },
-    { id: u(4), slug: 'kroo', name: 'Kroo', productRole: 'connector', promotionStatus: 'promoted' },
+    ...[3, 4, 5].map((n) => ({
+      id: u(n),
+      slug: `connector-${n}`,
+      name: `Connector ${n}`,
+      productRole: 'connector' as const,
+      promotionStatus: 'promoted' as const,
+    })),
   ]);
   await seedTwoVendors(db);
   await db.insert(productVendors).values([
@@ -504,23 +694,18 @@ async function seedPair(db: Db, { managed, renameLast = false }: PairOptions) {
     { productId: u(2), vendorId: GLOBEX, isPrimary: true },
   ]);
   await seedFacetTerms(db);
-  await db.insert(taxonomyDataObjects).values([
-    { id: u(71), slug: 'invoices', name: 'Invoices', displayOrder: 1 },
-    { id: u(72), slug: 'rfis', name: 'RFIs', displayOrder: 2 },
-    { id: u(73), slug: 'submittals', name: 'Submittals', displayOrder: 3 },
-    { id: u(74), slug: 'drawings', name: 'drawings' },
-  ]);
-
-  // Mixed case on purpose: A to Z must not be case-sensitive.
-  const rows: Array<[number, string]> = [
-    [10, renameLast ? 'Aardvark sync' : 'Zeta sync'],
-    [11, 'alpha link'],
-    [12, 'Mid bridge'],
-  ];
-  await db.insert(integrations).values(
-    rows.map(([n, name]) => ({
+  await db.insert(taxonomyDataObjects).values(
+    DATA_OBJECTS.map(([n, slug, name, order]) => ({
       id: u(n),
+      slug,
       name,
+      ...(order === null ? {} : { displayOrder: order }),
+    })),
+  );
+  await db.insert(integrations).values(
+    PAIR_INTEGRATIONS.map(([n, name]) => ({
+      id: u(n),
+      name: renameLast && n === 10 ? 'Aardvark sync' : name,
       sourceProductId: u(1),
       targetProductId: u(2),
       mechanismKind: 'native' as const,
@@ -528,38 +713,21 @@ async function seedPair(db: Db, { managed, renameLast = false }: PairOptions) {
     })),
   );
   const [a, b] = [u(1), u(2)].sort();
-  await db.insert(connectorEvidencedPairs).values([
-    {
-      id: u(60),
-      name: 'Zulu',
-      connectorProductId: u(3),
+  await db.insert(connectorEvidencedPairs).values(
+    PAIR_EVIDENCED.map(([n, name, connector]) => ({
+      id: u(n),
+      name,
+      connectorProductId: u(connector),
       productAId: a!,
       productBId: b!,
       direction: 'a_to_b',
-    },
-    {
-      id: u(61),
-      name: 'bravo',
-      connectorProductId: u(4),
-      productAId: a!,
-      productBId: b!,
-      direction: 'both',
-    },
-  ]);
-
-  // The AECi seed: one or two claims per row.
-  const seedClaims: Array<[id: number, table: 'i' | 'e', row: number, object: number]> = [
-    [100, 'i', 10, 72],
-    [101, 'i', 11, 71],
-    [102, 'i', 12, 72],
-    [103, 'i', 12, 71],
-    [104, 'e', 60, 71],
-    [105, 'e', 61, 72],
-  ];
-  for (const [id, table, row, object] of seedClaims) {
+    })),
+  );
+  const isEvidenced = (row: number) => row >= 60;
+  for (const [id, row, object] of PAIR_CLAIMS) {
     await db.insert(claims).values({
       id: u(id),
-      ...(table === 'i' ? { integrationId: u(row) } : { connectorEvidencedPairId: u(row) }),
+      ...(isEvidenced(row) ? { connectorEvidencedPairId: u(row) } : { integrationId: u(row) }),
       dataObjectId: u(object),
       direction: 'a_to_b',
     });
@@ -567,35 +735,43 @@ async function seedPair(db: Db, { managed, renameLast = false }: PairOptions) {
       .insert(attestations)
       .values({ id: u(id + 100), claimId: u(id), source: 'aeci', asserted: true });
   }
-  if (!managed) return;
+  if (world === 'free') return;
 
-  // "Confirmed by both companies" on the row that sorts last in each table.
-  for (const id of [100, 104]) {
-    await db.insert(attestations).values([
+  await giveManagedProfile(db, u(1), ACME, 1);
+  await giveManagedProfile(db, u(2), GLOBEX, 2);
+  const up = world === 'last' ? PAIR_LAST : PAIR_FIRST;
+  const down = world === 'last' ? PAIR_FIRST : PAIR_LAST;
+  const vote = (claim: number, asserted: boolean, extra: object = {}) =>
+    db.insert(attestations).values([
       {
-        id: u(id + 300),
-        claimId: u(id),
+        id: u(claim + 300),
+        claimId: u(claim),
         source: 'vendor_a',
-        asserted: true,
+        asserted,
         attestedByVendorId: ACME,
+        ...extra,
       },
       {
-        id: u(id + 400),
-        claimId: u(id),
+        id: u(claim + 400),
+        claimId: u(claim),
         source: 'vendor_b',
-        asserted: true,
+        asserted,
         attestedByVendorId: GLOBEX,
       },
     ]);
-  }
-  // Vendor-added data objects: the most data flows on the row that sorts last.
-  for (const [id, object] of [
-    [110, 73],
-    [111, 74],
-  ] as const) {
+  // "Confirmed by both companies", with a version stamp, on the loaded claims.
+  for (const claim of up.claims) await vote(claim, true, { introducedVersionId: u(802) });
+  // Both companies deny the lowered claims: refuted, so the data-flow count drops.
+  for (const claim of down.claims) await vote(claim, false);
+
+  // Vendor-added data objects on every loaded row, including one that sorts FIRST in
+  // the vocabulary, and one withdrawn (its backing vote retracted) on a lowered row.
+  let next = 500;
+  const added = async (row: number, object: number, retracted: boolean) => {
+    const id = next++;
     await db.insert(claims).values({
       id: u(id),
-      integrationId: u(10),
+      ...(isEvidenced(row) ? { connectorEvidencedPairId: u(row) } : { integrationId: u(row) }),
       dataObjectId: u(object),
       direction: 'a_to_b',
       origin: 'vendor',
@@ -607,82 +783,115 @@ async function seedPair(db: Db, { managed, renameLast = false }: PairOptions) {
       source: 'vendor_a',
       asserted: true,
       attestedByVendorId: ACME,
+      ...(retracted ? { retractedAt: '2026-11-12T00:00:00.000Z' } : {}),
     });
+  };
+  const seededOn = (row: number) => PAIR_CLAIMS.filter(([, r]) => r === row).map(([, , o]) => o);
+  for (const row of up.rows.filter((r) => !isEvidenced(r))) {
+    for (const object of [71, 73, 74].filter((o) => !seededOn(row).includes(o))) {
+      await added(row, object, false);
+    }
   }
-  await db
-    .update(integrations)
-    .set({
-      maintainedBy: 'vendor',
-      lastReviewedAt: '2026-11-10T00:00:00.000Z',
-      vendorEditedAt: '2026-11-10T00:00:00.000Z',
-    })
-    .where(eq(integrations.id, u(10)));
-  await giveManagedProfile(db, u(1), ACME, 1);
-  await giveManagedProfile(db, u(2), GLOBEX, 2);
+  for (const row of down.rows.filter((r) => !isEvidenced(r))) await added(row, 73, true);
+
+  for (const row of up.rows.filter((r) => !isEvidenced(r))) {
+    await db
+      .update(integrations)
+      .set({
+        maintainedBy: 'vendor',
+        lastReviewedAt: '2026-11-10T00:00:00.000Z',
+        vendorEditedAt: '2026-11-10T00:00:00.000Z',
+      })
+      .where(eq(integrations.id, u(row)));
+  }
 }
 
-async function pairOrder(options: PairOptions) {
+async function pairWorld(world: World, renameLast = false) {
   const body = ProductPairResponseSchema.parse(
-    await readWorld((db) => seedPair(db, options), pairRoute),
+    await readWorld((db) => seedPair(db, world, renameLast), pairRoute),
   );
-  const shared = new Set(['invoices', 'rfis']);
+  const seeded = new Set(PAIR_CLAIMS.map(([id]) => u(id)));
   return {
     mechanisms: body.mechanisms.map((m) => m.id),
-    // Claim order inside each mechanism, over the AECi-seeded objects both worlds share.
-    claims: body.mechanisms.map((m) =>
-      m.claims.map((c) => c.data_object_slug).filter((slug) => shared.has(slug)),
+    /** The AECi claims both worlds share, by id, in rendered order, per mechanism. */
+    seededClaims: Object.fromEntries(
+      body.mechanisms.map((m) => [m.id, m.claims.map((c) => c.id).filter((id) => seeded.has(id!))]),
     ),
-    /** Every claim, by mechanism id, so a reordered world is still read row by row. */
-    allClaims: Object.fromEntries(
+    /** Every rendered claim's data object, per mechanism. */
+    objects: Object.fromEntries(
       body.mechanisms.map((m) => [m.id, m.claims.map((c) => c.data_object_slug)]),
     ),
     confirmed: body.sync_headline.confirmed,
+    total: body.sync_headline.total,
   };
 }
 
+/** Whether a mechanism's claims follow the vocabulary: display order (nulls last), then name. */
+function inVocabularyOrder(slugs: readonly string[]): boolean {
+  const key = (slug: string) => OBJECT_BY_SLUG.get(slug)!;
+  return slugs.every((slug, i) => {
+    if (i === 0) return true;
+    const x = key(slugs[i - 1]!);
+    const y = key(slug);
+    const ox = x.order ?? Number.MAX_SAFE_INTEGER;
+    const oy = y.order ?? Number.MAX_SAFE_INTEGER;
+    return ox < oy || (ox === oy && compareText(x.name, y.name) <= 0);
+  });
+}
+
 describe('on-page ordering firewall: the pair page', () => {
-  it('[surface:pair-page-mechanisms] follows R1: integrations A to Z, then evidenced pairs A to Z', async () => {
-    const { mechanisms } = await pairOrder({ managed: false });
-    const byName = (rows: Array<[string, string]>) =>
-      [...rows]
-        .sort(([idX, x], [idY, y]) => compareText(x, y) || idX.localeCompare(idY))
-        .map(([id]) => id);
-    expect(mechanisms).toEqual([
-      ...byName([
-        [u(10), 'Zeta sync'],
-        [u(11), 'alpha link'],
-        [u(12), 'Mid bridge'],
-      ]),
-      ...byName([
-        [u(60), 'Zulu'],
-        [u(61), 'bravo'],
-      ]),
-    ]);
-    expect(mechanisms).toEqual([u(11), u(12), u(10), u(61), u(60)]);
-  });
+  it(
+    '[surface:pair-page-mechanisms] follows R1: integrations A to Z, then evidenced pairs A to Z, id on a tie',
+    async () => {
+      const { mechanisms } = await pairWorld('free');
+      expect(mechanisms).toEqual(PAIR_ORDER);
+    },
+    DB_TIMEOUT,
+  );
 
-  it('[surface:pair-page-mechanisms] [surface:pair-page-claims] does not move when every Managed-only input changes', async () => {
-    const free = await pairOrder({ managed: false });
-    const managed = await pairOrder({ managed: true });
-    // The fixture really did change what a plan buys.
-    expect(managed.confirmed).toBeGreaterThan(free.confirmed);
-    expect(managed.allClaims[u(10)]!.length).toBeGreaterThan(free.allClaims[u(10)]!.length);
+  for (const world of ['last', 'first'] as const) {
+    it(
+      `[surface:pair-page-mechanisms] [surface:pair-page-claims] does not move when the paid inputs load the ${world} rows`,
+      async () => {
+        const free = await pairWorld('free');
+        const paid = await pairWorld(world);
+        // The fixture really did change what a plan buys.
+        expect(paid.confirmed).toBeGreaterThan(free.confirmed);
+        expect(paid.objects).not.toEqual(free.objects);
 
-    expect(managed.mechanisms).toEqual(free.mechanisms);
-    expect(managed.claims).toEqual(free.claims);
-  });
+        expect(paid.mechanisms).toEqual(free.mechanisms);
+        expect(paid.seededClaims).toEqual(free.seededClaims);
+        for (const [id, slugs] of Object.entries(paid.objects)) {
+          expect(inVocabularyOrder(slugs), `${id}: ${slugs.join(', ')}`).toBe(true);
+        }
+      },
+      DB_TIMEOUT,
+    );
+  }
 
-  it('[surface:pair-page-claims] orders claims by the data object vocabulary, whoever added them', async () => {
-    const { allClaims } = await pairOrder({ managed: true });
-    // The AECi claim (display_order 2), then the two vendor-added ones (3, then none):
-    // vocabulary order, whoever added the claim.
-    expect(allClaims[u(10)]).toEqual(['rfis', 'submittals', 'drawings']);
-  });
+  it(
+    '[surface:pair-page-claims] a claim tie on name keeps the same order whoever voted',
+    async () => {
+      const free = await pairWorld('free');
+      // u(11) carries two "Logs" objects with no display order: a true tie.
+      expect(free.objects[u(11)]).toEqual(['invoices', 'logs-b', 'logs-a']);
+      for (const world of ['last', 'first'] as const) {
+        expect((await pairWorld(world)).seededClaims[u(11)], world).toEqual(
+          free.seededClaims[u(11)],
+        );
+      }
+    },
+    DB_TIMEOUT * 2,
+  );
 
-  it('sees a move when an order input changes (the comparison is not vacuous)', async () => {
-    const renamed = await pairOrder({ managed: false, renameLast: true });
-    expect(renamed.mechanisms[0]).toBe(u(10));
-  });
+  it(
+    'sees a move when an order input changes (the comparison is not vacuous)',
+    async () => {
+      const renamed = await pairWorld('free', true);
+      expect(renamed.mechanisms[0]).toBe(u(10));
+    },
+    DB_TIMEOUT,
+  );
 });
 
 // ─── 5. related_products ──────────────────────────────────────────────────────
@@ -693,19 +902,30 @@ const detailRoute: Route = {
   handler: (t) => createProductDetailHandler(t.factory),
 };
 
-interface RelatedOptions {
-  readonly managed: boolean;
-  /** Make the oldest candidate the newest: the order input, for non-vacuity. */
-  readonly bumpOldest?: boolean;
-}
-
 /**
- * The page product and nine candidates sharing its category, one created per day.
- * Six show, so the three oldest are outside the featured subset. The Managed world
- * gives exactly those three every Managed-only input, plus an integration confirmed
- * by both companies, so any order that rewarded a plan would pull them in.
+ * The page product and nine candidates sharing its category. Four share one
+ * `created_at` across the sixth-place boundary, as promote writes them in bulk: p4,
+ * p5 and p6 show, p7 does not, on the id tie-break alone.
  */
-async function seedRelated(db: Db, { managed, bumpOldest = false }: RelatedOptions) {
+const CREATED_DAY: Readonly<Record<number, number>> = {
+  2: 2,
+  3: 3,
+  4: 6,
+  5: 6,
+  6: 6,
+  7: 6,
+  8: 8,
+  9: 9,
+  10: 10,
+};
+const RELATED_ORDER = [10, 9, 8, 4, 5, 6].map(u);
+/** `last` loads the products just outside the six (p7 inside the tie); `first` the ones inside. */
+const RELATED_LOADED: Readonly<Record<Exclude<World, 'free'>, number[]>> = {
+  last: [7, 3, 2],
+  first: [10, 4, 5],
+};
+
+async function seedRelated(db: Db, world: World, bumpOldest = false) {
   const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
   await db
     .insert(taxonomyCategories)
@@ -713,23 +933,23 @@ async function seedRelated(db: Db, { managed, bumpOldest = false }: RelatedOptio
   await seedFacetTerms(db);
   await db.insert(products).values([
     { id: u(1), slug: 'page', name: 'Page', promotionStatus: 'promoted', createdAt: at(1) },
-    ...[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
-      id: u(n),
+    ...Object.entries(CREATED_DAY).map(([n, day]) => ({
+      id: u(Number(n)),
       slug: `p${n}`,
       name: `P${n}`,
       promotionStatus: 'promoted' as const,
-      createdAt: bumpOldest && n === 2 ? at(28) : at(n),
+      createdAt: bumpOldest && n === '2' ? at(28) : at(day),
     })),
   ]);
   await db
     .insert(productCategories)
     .values([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ productId: u(n), categoryId: u(21) })));
-  if (!managed) return;
+  if (world === 'free') return;
 
   await seedTwoVendors(db);
   await db.insert(taxonomyDataObjects).values({ id: u(71), slug: 'invoices', name: 'Invoices' });
-  for (const n of [2, 3, 4]) {
-    const vendorId = n === 2 ? GLOBEX : ACME;
+  for (const n of RELATED_LOADED[world]) {
+    const vendorId = n % 2 === 0 ? GLOBEX : ACME;
     await db.insert(productVendors).values({ productId: u(n), vendorId, isPrimary: true });
     await giveManagedProfile(db, u(n), vendorId, n);
     await db.insert(integrations).values({
@@ -765,30 +985,44 @@ async function seedRelated(db: Db, { managed, bumpOldest = false }: RelatedOptio
   }
 }
 
-async function relatedOrder(options: RelatedOptions) {
+async function relatedOrder(world: World, bumpOldest = false) {
   const body = ProductDetailSchema.parse(
-    await readWorld((db) => seedRelated(db, options), detailRoute),
+    await readWorld((db) => seedRelated(db, world, bumpOldest), detailRoute),
   );
   return body.related_products.map((p) => p.id);
 }
 
 describe('on-page ordering firewall: related_products', () => {
-  it('[surface:related-products] newest first, id breaking a tie, six shown', async () => {
-    expect(await relatedOrder({ managed: false })).toEqual([10, 9, 8, 7, 6, 5].map(u));
-  });
+  it(
+    '[surface:related-products] newest first, id breaking a tie across the sixth place, six shown',
+    async () => {
+      expect(await relatedOrder('free')).toEqual(RELATED_ORDER);
+    },
+    DB_TIMEOUT,
+  );
 
-  it('[surface:related-products] neither the order nor the six shown move when every Managed-only input changes', async () => {
-    expect(await relatedOrder({ managed: true })).toEqual(await relatedOrder({ managed: false }));
-  });
+  for (const world of ['last', 'first'] as const) {
+    it(
+      `[surface:related-products] neither the order nor the six shown move when the paid inputs load the ${world} products`,
+      async () => {
+        expect(await relatedOrder(world)).toEqual(RELATED_ORDER);
+      },
+      DB_TIMEOUT,
+    );
+  }
 
-  it('sees a move when an order input changes (the comparison is not vacuous)', async () => {
-    expect((await relatedOrder({ managed: false, bumpOldest: true }))[0]).toBe(u(2));
-  });
+  it(
+    'sees a move when an order input changes (the comparison is not vacuous)',
+    async () => {
+      expect((await relatedOrder('free', true))[0]).toBe(u(2));
+    },
+    DB_TIMEOUT,
+  );
 });
 
 // ─── 6. The taxonomy term-count exception ─────────────────────────────────────
 
-const webSource = (rel: string) => readFileSync(join(WEB_APP, rel), 'utf8');
+const webSource = (rel: string) => stripComments(readFileSync(join(WEB_APP, rel), 'utf8'));
 const FACETS = ['categories', 'audiences', 'phases', 'trades'] as const;
 
 /** The wire field a facet's slugs are written through. */
@@ -799,29 +1033,55 @@ const FACET_FIELD = {
   trades: 'trade_slugs',
 } as const;
 
-const siteKey = (s: CountSite) => `${s.file} | ${s.kind} | ${s.facet}`;
+const siteKey = (s: CountSite) =>
+  `${s.file} | ${s.kind} | ${s.facet}${s.detail ? ` | ${s.detail}` : ''}`;
+const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+const COMPARISON = '(?:>=|<=|===|!==|>|<)';
+
+/** The operator console, the vendor portal and design previews: not public pages. */
+const PRIVATE_AREAS = /^(admin|vendor|preview)\//;
 
 /**
- * Every place the browser orders or cuts taxonomy terms by `product_count`, found from
- * source: a `topByCount(` call (its facet read off the line), a `product_count`
- * subtraction comparator, a use of the trade publish floor, and each `/search`
- * refinement list (Algolia's default order is by count). A call whose facet the scan
- * cannot name is reported as `unknown` and fails.
+ * Every place the browser orders or cuts terms by a count, found from source with
+ * comments removed. A tripwire, not a proof: a count read through a helper that names
+ * neither `product_count` nor `.count` would pass unseen.
+ *
+ *  - a `topByCount(` call, its facet read off the line (`unknown` fails);
+ *  - a sort comparator that subtracts one `product_count` from another, over any
+ *    number of lines;
+ *  - a `product_count` compared with a number anywhere, and a `.filter` that compares
+ *    an item's `.count` with a number;
+ *  - a use of the trade publish floor;
+ *  - each `/search` refinement list, whose order Algolia sets by count.
  */
 function discoverCountSites(): CountSite[] {
   const sites: CountSite[] = [];
-  for (const file of sourceFiles(WEB_APP)) {
-    for (const line of webSource(file).split('\n')) {
+  for (const file of sourceFiles(WEB_APP).filter((rel) => !PRIVATE_AREAS.test(rel))) {
+    const src = webSource(file);
+    for (const line of src.split('\n')) {
       if (/\btopByCount\(/.test(line) && !/function topByCount\(/.test(line)) {
         const facet = FACETS.find((f) => new RegExp(`\\b${f}\\b`).test(line)) ?? 'unknown';
         sites.push({ file, kind: 'top-by-count', facet: facet as CountSite['facet'] });
       }
-      if (/\b\w+\.product_count\s*-\s*\w+\.product_count\b/.test(line)) {
-        sites.push({ file, kind: 'count-comparator', facet: '*' });
-      }
       if (/isPublishedTrade[()]/.test(line) && !/function isPublishedTrade/.test(line)) {
         sites.push({ file, kind: 'publish-floor', facet: 'trades' });
       }
+    }
+    for (const m of src.matchAll(/\b\w+\.product_count\s*-\s*\w+\.product_count\b/g)) {
+      sites.push({ file, kind: 'count-sort', facet: '*', detail: collapse(m[0]) });
+    }
+    for (const m of src.matchAll(
+      new RegExp(`\\b[\\w.]*product_count\\s*${COMPARISON}\\s*\\d+`, 'g'),
+    )) {
+      sites.push({ file, kind: 'count-cut', facet: '*', detail: collapse(m[0]) });
+    }
+    const filterCut = new RegExp(
+      `\\.filter\\(\\s*\\(?(\\w+)\\)?\\s*=>[^;]*?\\b(\\1\\.count\\s*${COMPARISON}\\s*\\d+)`,
+      'g',
+    );
+    for (const m of src.matchAll(filterCut)) {
+      sites.push({ file, kind: 'count-cut', facet: '*', detail: collapse(m[2]!) });
     }
   }
   const lists = webSource('search/search-controller.ts').match(/refinementLists:\s*\[([^\]]*)\]/);
@@ -840,21 +1100,39 @@ const exception = SURFACES.find(
 )!;
 
 describe('on-page ordering firewall: the taxonomy term-count exception', () => {
-  it('[surface:taxonomy-term-product-count] is tolerated only at the sites it names, and every count site is accounted for', () => {
+  it('[surface:taxonomy-term-product-count] is tolerated only at the sites it names, and every count site found is registered', () => {
     const found = discoverCountSites().map(siteKey).sort();
-    const allowed = [...exception.sites, ...FREE_COUNT_SITES].map(siteKey).sort();
+    const allowed = [
+      ...exception.sites,
+      ...exception.indexing,
+      ...FREE_COUNT_SITES,
+      ...DISPLAY_COUNT_SITES,
+    ]
+      .map(siteKey)
+      .sort();
     expect(found).toEqual(allowed);
   });
 
+  it('the scan sees a comparator split over lines and a new floor', () => {
+    const probe = 'list.sort((a, b) =>\n  b.product_count -\n  a.product_count)';
+    expect(probe.match(/\b\w+\.product_count\s*-\s*\w+\.product_count\b/)?.[0]).toBeDefined();
+    const floor = 'terms.filter((t) => t.product_count >= 3)';
+    expect(
+      floor.match(new RegExp(`\\b[\\w.]*product_count\\s*${COMPARISON}\\s*\\d+`)),
+    ).not.toBeNull();
+  });
+
   it('every tolerated site orders by the one capability the entry names, which is still Managed-only', () => {
-    for (const site of exception.sites) {
+    for (const site of [...exception.sites, ...exception.indexing]) {
       if (site.facet === '*' || site.facet === 'vendor_name') continue;
       expect(PRODUCT_FIELD_CAPABILITIES[FACET_FIELD[site.facet]], siteKey(site)).toBe(
         exception.capability,
       );
     }
-    // If a ruling frees the capability, this fails: retire the entry.
+    // If AECI-1836 frees the capability, this fails: retire the entry.
     expect(MANAGED_ONLY).toContain(exception.capability);
+    expect(exception.ruling).toMatch(/^accepted by Chris 2026-11-14/);
+    expect(exception.followUp).toBe('AECI-1836');
   });
 
   it('every count site outside the exception reads a Free input', () => {
@@ -866,7 +1144,7 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
         // The browser half asserts the behaviour; this pins the branch.
         expect(webSource('search/search-facet-order.ts')).toMatch(/attribute !== 'phases'/);
       } else {
-        // Products per vendor: promote and the seat-gated product create (block 3).
+        // Products per vendor: promote and the product create (block 3).
         expect(site.facet).toBe('vendor_name');
       }
     }

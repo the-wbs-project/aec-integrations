@@ -4,25 +4,33 @@
  *
  * No on-page sort, default order or featured subset may read an input that only a
  * paid plan can change. The browser orders three lists itself, so they are tested
- * here, behaviourally: build a fixture, change one input that is not an order input,
- * and assert that nothing moved.
+ * here, behaviourally: build a fixture, change inputs that are not order inputs, and
+ * assert that nothing moved and nothing entered or left a cut.
  *
- *  - the endpoint product page's Integrations section (`connector-lane-grouping.ts`):
- *    the direct lane, the "Via {connector}" groups, and the rows above the `@defer`
- *    cut, which are a featured subset;
- *  - the connector page's "Integrations it powers" hubs (`powered-hub-grouping.ts`);
- *  - the taxonomy term ranking (`taxonomy-rank.ts`, `search-facet-order.ts`), which is
- *    the one tolerated exception (`taxonomy-term-product-count`, below).
+ *  - the endpoint product page's Integrations section: the lane split
+ *    (`connector-lane-grouping.ts`), the reader's filter (`integration-filter.ts`) and
+ *    the rows above the `@defer` cut, which are a featured subset;
+ *  - the connector page's "Integrations it powers" hubs and their filter;
+ *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception.
  *
- * The API half, and the registry of every ordered surface, is
- * `apps/api/src/lib/on-page-ordering-firewall.spec.ts`. That spec checks that every
- * `[surface:…]` tag in a test title below names a surface in its registry.
+ * How the flips are built, because a flip that agrees with today's order proves
+ * nothing:
  *
- * Ruling R1 (Chris, 2026-11-14): "Maintain orders as they are. If its a new feature a
- * to z". So the existing orders below are asserted exactly as they ship. The via
- * groups and the powered hubs keep their count order, which is safe because no
- * capability gates any write that changes those counts (proved in the API half).
+ *  - every field is flipped twice, with weights RISING and FALLING along the fixture,
+ *    so a "most first" and a "least first" order both disagree with A to Z in one run;
+ *  - every group-level input is also loaded onto ONE group or partner at a time (all
+ *    paid inputs at their highest there, absent everywhere else), for every group;
+ *  - the fixtures carry real ties at every comparator level, so the tie-breaks run.
+ *
+ * The API half, and the registry of ordered surfaces, is
+ * `apps/api/src/lib/on-page-ordering-firewall.spec.ts`. It checks that every
+ * `[surface:…]` tag in a test title below names an entry in its registry. The
+ * component half (`on-page-ordering-firewall.component.spec.ts`) covers the taxonomy
+ * index's "Most products" sort, which lives inside a component.
  */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   PoweredIntegrationItemSchema,
@@ -46,7 +54,13 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import type { RefinementItem } from '../shared/facets/refinement-item';
 import { orderFacetItems } from '../search/search-facet-order';
 
-import { applyDeferCut, splitIntegrationLanes } from './connector-lane-grouping';
+import {
+  INTEGRATIONS_ABOVE_FOLD,
+  applyDeferCut,
+  routeIntegrationLane,
+  splitIntegrationLanes,
+} from './connector-lane-grouping';
+import { filterIntegrationLanes, filterPoweredHubView } from './integration-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
 // ─── The registry ─────────────────────────────────────────────────────────────
@@ -57,8 +71,8 @@ const MANAGED_ONLY = CAPABILITIES.filter((c) => !FREE.has(c));
 
 /**
  * Who can change an order input. A capability writer must be in the Free set. The
- * named writers are capability-free by proof in the API half: `seat` writes are
- * the integration create, edit and retire routes, none of which consults the registry.
+ * named writers are capability-free by the API half's scan: `seat` writes are the
+ * integration create, edit and retire routes.
  */
 type Writer = 'not-vendor-editable' | 'promote-only' | 'seat' | Capability;
 
@@ -82,12 +96,22 @@ const ENDPOINT_ORDER_INPUTS: Readonly<Record<string, Writer>> = {
   mechanism_kind: 'seat',
 };
 
+/**
+ * The fields no order may read. `mechanism_name` is also a filter input (the reader
+ * types it), so it is flipped only in the order cases, never in the filter cases.
+ */
 const ENDPOINT_PAYLOAD_FIELDS = [
   'mechanism_name',
   'direction',
   'context_direction',
   // The data-flow count. Vendor-added data objects need `attestation.author`.
   'data_object_slugs',
+  // AECI-1781. The same objects with names, the partner's categories (Free, but R1
+  // orders new lists by name alone), and "confirmed by both companies", which R1
+  // keeps a row label only.
+  'data_objects',
+  'partner_categories',
+  'agreement',
   // "Maintained by" and corrections: edit stamps a Managed vendor moves.
   'caption',
   'corrections',
@@ -95,15 +119,6 @@ const ENDPOINT_PAYLOAD_FIELDS = [
   'created_at',
   'updated_at',
 ] as const;
-
-/**
- * Row fields AECI-1781 (PR #1275) adds and the redesign will be tempted to sort by.
- * Classified now, so they are flipped below before they exist and the schema check
- * passes the day they land. `agreement` is "confirmed by both companies", which R1
- * keeps a row label only. `data_objects` is the data-flow count with names.
- * `partner_categories` is Free-editable, but R1 orders new lists by name alone.
- */
-const PENDING_ROW_FIELDS = ['agreement', 'data_objects', 'partner_categories'] as const;
 
 /** The connector page's hub rows read only the two endpoints. */
 const POWERED_ORDER_INPUTS: Readonly<Record<string, Writer>> = {
@@ -123,7 +138,95 @@ const POWERED_PAYLOAD_FIELDS = [
   'updated_at',
 ] as const;
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
+/** Text the filters match on. Flipping it would change what a query matches, which
+ *  is the filter working, not an order reading a paid input. */
+const FILTER_TEXT_FIELDS = new Set<string>(['mechanism_name']);
+
+// ─── Flips ────────────────────────────────────────────────────────────────────
+
+/**
+ * The value a paid input takes at `level`, 0 being none. Higher is "more evidence":
+ * more data objects, confirmed agreement, a later date, a name that sorts first.
+ * A level of 0 gives empty lists, so a cut on "has data objects" has rows on both
+ * sides.
+ */
+function paidValue(field: string, level: number): unknown {
+  const many = Array.from({ length: level }, (_, i) => `object-${level}-${i}`);
+  switch (field) {
+    case 'data_object_slugs':
+      return many;
+    case 'data_objects':
+      return many.map((slug) => ({ slug, name: slug }));
+    case 'agreement':
+      // The loaded level is "confirmed by both companies"; neighbours differ.
+      return level === 0
+        ? null
+        : level >= 9
+          ? 'confirmed'
+          : (['unverified', 'single_source', 'confirmed', 'conflict'] as const)[level % 4];
+    case 'partner_categories':
+      return many.map((slug) => ({ slug, name: slug }));
+    case 'caption':
+      return level === 0
+        ? null
+        : { form: 'updated', vendor_names: [`Vendor ${level}`], date: `2026-11-${10 + level}` };
+    case 'corrections':
+      return many.map((f) => ({ field: f, date: '2026-11-01', source_url: null, cleared: false }));
+    case 'under_review':
+      return level === 0 ? [] : ['description'];
+    case 'context_direction':
+    case 'direction':
+      return level === 0 ? null : level % 2 === 0 ? 'both' : 'outbound';
+    case 'mechanism_kind':
+      return level % 2 === 0 ? 'api' : 'webhook';
+    case 'mechanism_name':
+    case 'name':
+      return `${String.fromCharCode(90 - (level % 26))} label ${level}`;
+    case 'id':
+      return `ffffffff-0000-4000-8000-${String(1000 - level).padStart(12, '0')}`;
+    case 'via':
+      return level === 0
+        ? null
+        : { id: `id-via-${level}`, slug: `via-${level}`, name: `Via ${level}`, logo_url: null };
+    case 'created_at':
+    case 'updated_at':
+      return `2026-${String((level % 12) + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+    default:
+      throw new Error(`No paid value for ${field}: add one before classifying it`);
+  }
+}
+
+type Direction = 'rising' | 'falling';
+
+/** The same rows, with `fields` set by position: rising or falling along the fixture. */
+function flipRows<T extends object>(
+  rows: readonly T[],
+  fields: readonly string[],
+  dir: Direction,
+): T[] {
+  return rows.map((row, i) => {
+    const level = dir === 'rising' ? i : rows.length - 1 - i;
+    return { ...row, ...Object.fromEntries(fields.map((f) => [f, paidValue(f, level)])) } as T;
+  });
+}
+
+/** The same rows, with every paid input at its highest on the rows `loaded` picks
+ *  and absent on the rest. */
+function loadOne<T extends object>(
+  rows: readonly T[],
+  fields: readonly string[],
+  loaded: (row: T) => boolean,
+): T[] {
+  return rows.map(
+    (row) =>
+      ({
+        ...row,
+        ...Object.fromEntries(fields.map((f) => [f, paidValue(f, loaded(row) ? 9 : 0)])),
+      }) as T,
+  );
+}
+
+// ─── Endpoint fixtures ────────────────────────────────────────────────────────
 
 const link = (slug: string, name: string): ProductLink => ({
   id: `id-${slug}`,
@@ -156,6 +259,9 @@ const endpointEdge = (
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   caption: null,
   corrections: [],
   created_at: '2026-01-01T00:00:00.000Z',
@@ -163,11 +269,18 @@ const endpointEdge = (
   ...extra,
 });
 
+const viaEdge = (partner: ProductLink, connector: ProductLink, name: string) =>
+  endpointEdge(partner, name, { via: connector, mechanism_kind: null });
+
 /**
- * A product page with every lane case: mixed-case partner names (A to Z must not be
- * case-sensitive), a partner with two direct edges (the edge-name tie-break), a
- * Convention-A self-reference, three named Via groups of 3, 2 and 2 rows (the count
- * order and its name tie-break), a collapsed Via row, and the unnamed iPaaS bucket.
+ * A product page with every lane case and a tie at every comparator level:
+ *  - mixed-case partner names (A to Z must not be case-sensitive);
+ *  - one partner with two edges (the edge-name tie-break);
+ *  - two partners with the same name AND the same edge name (the id tie-break;
+ *    `compareText` breaks on case, so a true tie needs identical strings);
+ *  - a Convention-A self-reference, which stays direct;
+ *  - Via groups of 3, 2 and 2 rows (the count order and its name tie-break), a
+ *    collapsed Via row whose two edges tie on name, and the unnamed iPaaS bucket.
  */
 function endpointFixture(): {
   asSource: ProductIntegrationItem[];
@@ -177,6 +290,8 @@ function endpointFixture(): {
   const zeta = link('zeta-erp', 'Zeta ERP');
   const alpha = link('alpha-docs', 'alpha docs');
   const mid = link('mid-field', 'Mid Field');
+  const twinA = link('twin-a', 'Twin Co');
+  const twinB = link('twin-b', 'Twin Co');
   const sage = link('sage-intacct', 'Sage Intacct');
   const vista = link('viewpoint-vista', 'Viewpoint Vista');
   const acumatica = link('acumatica', 'Acumatica');
@@ -185,19 +300,21 @@ function endpointFixture(): {
   return {
     asSource: [
       endpointEdge(zeta, 'Zeta sync'),
+      endpointEdge(twinB, 'Twin link'),
       endpointEdge(alpha, 'Alpha link'),
       endpointEdge(mid, 'mid bridge B'),
+      endpointEdge(twinA, 'Twin link'),
       endpointEdge(mid, 'Mid bridge A'),
       // Convention A: powered_by is one of the row's own endpoints, so it stays direct.
       endpointEdge(agave, 'Procore on Agave', { powered_by_product: agave }),
-      endpointEdge(sage, 'Sage via Agave', { via: agave, mechanism_kind: null }),
-      endpointEdge(vista, 'Vista via Agave', { via: agave, mechanism_kind: null }),
-      endpointEdge(acumatica, 'Acumatica via Agave', { via: agave, mechanism_kind: null }),
-      endpointEdge(quickbooks, 'QuickBooks via Kroo 2', { via: kroo, mechanism_kind: null }),
-      endpointEdge(quickbooks, 'QuickBooks via Kroo 1', { via: kroo, mechanism_kind: null }),
-      endpointEdge(xero, 'Xero via Kroo', { via: kroo, mechanism_kind: null }),
-      endpointEdge(sage, 'Sage via Boomi', { via: boomi, mechanism_kind: null }),
-      endpointEdge(xero, 'Xero via Boomi', { via: boomi, mechanism_kind: null }),
+      viaEdge(xero, kroo, 'Xero via Kroo'),
+      viaEdge(sage, agave, 'Sage via Agave'),
+      viaEdge(quickbooks, kroo, 'QuickBooks via Kroo'),
+      viaEdge(vista, agave, 'Vista via Agave'),
+      viaEdge(xero, boomi, 'Xero via Boomi'),
+      viaEdge(quickbooks, kroo, 'quickbooks via kroo'),
+      viaEdge(acumatica, agave, 'Acumatica via Agave'),
+      viaEdge(sage, boomi, 'Sage via Boomi'),
       endpointEdge(zeta, 'Zeta over iPaaS', { mechanism_kind: 'iPaaS' }),
     ],
     asTarget: [
@@ -207,78 +324,55 @@ function endpointFixture(): {
   };
 }
 
-/** Everything about a lane view's order, and nothing else. */
-function laneOrder(asSource: ProductIntegrationItem[], asTarget: ProductIntegrationItem[]) {
+/** Thirty direct partners and a Via group, so the real 20-row cut lands mid-lane. */
+function largeEndpointFixture(): ProductIntegrationItem[] {
+  seq = 100;
+  const rows: ProductIntegrationItem[] = [];
+  for (let i = 0; i < 30; i++) {
+    // Names deliberately out of insertion order, with case and a few ties.
+    const n = (i * 7) % 30;
+    const name = `${n % 2 === 0 ? 'Partner' : 'partner'} ${String(Math.floor(n / 2)).padStart(2, '0')}`;
+    rows.push(endpointEdge(link(`partner-${i}`, name), `Edge ${n % 5}`));
+  }
+  rows.push(viaEdge(link('extra-a', 'Extra A'), agave, 'A via Agave'));
+  rows.push(viaEdge(link('extra-b', 'Extra B'), kroo, 'B via Kroo'));
+  return rows;
+}
+
+/** Where a row lands: the key a group-loaded flip targets. */
+function groupOf(row: ProductIntegrationItem): string {
+  const route = routeIntegrationLane(row);
+  return route.lane === 'direct'
+    ? `direct:${row.target.slug}:${row.source.slug}`
+    : `via:${route.connector?.slug ?? ''}`;
+}
+
+/** Everything about the section's order and cuts, and nothing else. */
+function sectionOrder(asSource: ProductIntegrationItem[], asTarget: ProductIntegrationItem[]) {
   const view = splitIntegrationLanes(asSource, asTarget);
-  const cut = applyDeferCut(view, 6);
-  return {
-    direct: view.direct.map((r) => r.key),
-    via: view.via.map((g) => ({ group: g.key, rows: g.rows.map((r) => r.key) })),
-    // The edge a collapsed Via row shows as its representative.
-    representatives: view.via.flatMap((g) => g.rows.map((r) => r.integration.id)),
-    // The featured subset: rows rendered before the `@defer` boundary.
-    aboveTheFold: [
+  const keys = (v: typeof view) => ({
+    direct: v.direct.map((r) => r.key),
+    via: v.via.map((g) => ({ group: g.key, rows: g.rows.map((r) => r.key) })),
+  });
+  const above = (limit: number) => {
+    const cut = applyDeferCut(view, limit);
+    return [
       ...cut.direct.above.map((r) => r.key),
       ...cut.via.flatMap((g) => g.above.map((r) => r.key)),
-    ],
+    ];
   };
-}
-
-/**
- * A value for a non-order field that would reorder the rows if the order read it.
- * `weight` is the row's position in the fixture, which is not A to Z order, so a
- * "most evidence first" or "least first" order would differ from today's. The
- * deliberate-failure run in AECI-1814 showed exactly that for `data_object_slugs`.
- */
-function managedValue(field: string, weight: number): unknown {
-  const many = Array.from({ length: weight + 1 }, (_, i) => `object-${weight}-${i}`);
-  switch (field) {
-    case 'data_object_slugs':
-      return many;
-    case 'data_objects':
-      return many.map((slug) => ({ slug, name: slug }));
-    case 'agreement':
-      return weight % 2 === 0 ? 'confirmed' : 'unverified';
-    case 'partner_categories':
-      return [{ slug: `category-${weight}`, name: `Category ${String.fromCharCode(90 - weight)}` }];
-    case 'caption':
-      return {
-        form: 'updated',
-        vendor_names: [`Vendor ${weight}`],
-        date: `2026-11-${10 + weight}`,
-      };
-    case 'corrections':
-      return many.map((f) => ({ field: f, date: '2026-11-01', source_url: null, cleared: false }));
-    case 'under_review':
-      return weight % 2 === 0 ? ['description'] : [];
-    case 'context_direction':
-    case 'direction':
-      return weight % 2 === 0 ? 'both' : 'outbound';
-    case 'mechanism_name':
-      return `${String.fromCharCode(90 - weight)} mechanism`;
-    case 'mechanism_kind':
-      return weight % 2 === 0 ? 'api' : 'webhook';
-    case 'id':
-      return `ffffffff-0000-4000-8000-${String(1000 - weight).padStart(12, '0')}`;
-    case 'name':
-      return `${String.fromCharCode(90 - weight)} edge`;
-    case 'via':
-      return weight % 2 === 0 ? link(`via-${weight}`, `Via ${weight}`) : null;
-    case 'created_at':
-    case 'updated_at':
-      return `2026-${String((weight % 12) + 1).padStart(2, '0')}-01T00:00:00.000Z`;
-    default:
-      throw new Error(`No managed value for ${field}: add one before classifying it`);
-  }
-}
-
-/** The same rows, with `fields` rewritten. The cast is what lets a field AECI-1781
- *  has not landed yet ride on today's type. */
-function flip<T extends object>(rows: readonly T[], fields: readonly string[]): T[] {
-  return rows.map(
-    (row, i) =>
-      ({ ...row, ...Object.fromEntries(fields.map((f) => [f, managedValue(f, i)])) }) as T,
-  );
+  return {
+    ...keys(view),
+    // The edge a collapsed Via row shows as its representative.
+    representatives: view.via.flatMap((g) => g.rows.map((r) => r.integration.id)),
+    // Featured subsets: a cut inside the direct lane, one inside a Via group, and the real one.
+    above4: above(4),
+    above11: above(11),
+    aboveFold: above(INTEGRATIONS_ABOVE_FOLD),
+    // The reader's filter, with no query and with one.
+    unfiltered: keys(filterIntegrationLanes(view, '')),
+    filtered: keys(filterIntegrationLanes(view, 'a')),
+  };
 }
 
 // ─── The product page Integrations section ────────────────────────────────────
@@ -286,18 +380,9 @@ function flip<T extends object>(rows: readonly T[], fields: readonly string[]): 
 describe('on-page ordering firewall: product page integrations', () => {
   it('classifies every row field as an order input or a payload field', () => {
     const shape = Object.keys(ProductIntegrationItemSchema.shape);
-    const classified = new Set<string>([
-      ...Object.keys(ENDPOINT_ORDER_INPUTS),
-      ...ENDPOINT_PAYLOAD_FIELDS,
-      ...PENDING_ROW_FIELDS,
-    ]);
-    expect(shape.filter((field) => !classified.has(field))).toEqual([]);
-    // No stale entries: every classified field except the pending three is on the row.
-    expect(
-      [...Object.keys(ENDPOINT_ORDER_INPUTS), ...ENDPOINT_PAYLOAD_FIELDS].filter(
-        (field) => !shape.includes(field),
-      ),
-    ).toEqual([]);
+    const classified = [...Object.keys(ENDPOINT_ORDER_INPUTS), ...ENDPOINT_PAYLOAD_FIELDS];
+    expect(shape.filter((field) => !classified.includes(field))).toEqual([]);
+    expect(classified.filter((field) => !shape.includes(field))).toEqual([]);
   });
 
   it('every order input is written without a Managed-only capability', () => {
@@ -312,15 +397,16 @@ describe('on-page ordering firewall: product page integrations', () => {
     expect(Object.keys(PRODUCT_FIELD_CAPABILITIES)).not.toContain('slug');
   });
 
-  it('[surface:product-integrations-direct-lane] [surface:product-integrations-via-groups] [surface:product-integrations-above-fold] follows R1 as it ships today', () => {
+  it('[surface:product-integrations-direct-lane] [surface:product-integrations-via-groups] follows R1 as it ships today', () => {
     const { asSource, asTarget } = endpointFixture();
     const view = splitIntegrationLanes(asSource, asTarget);
 
     // Direct lane: A to Z by partner name, then edge name, then id.
-    const direct = view.direct.map((r) => [r.other.name, r.integration.name, r.integration.id]);
+    const direct = view.direct.map(
+      (r) => [r.other.name, r.integration.name, r.integration.id] as const,
+    );
     const expected = [...direct].sort(
-      (a, b) =>
-        compareText(a[0]!, b[0]!) || compareText(a[1]!, b[1]!) || a[2]!.localeCompare(b[2]!),
+      (a, b) => compareText(a[0], b[0]) || compareText(a[1], b[1]) || a[2].localeCompare(b[2]),
     );
     expect(direct).toEqual(expected);
     expect(direct.map((r) => r[0])).toEqual([
@@ -329,41 +415,85 @@ describe('on-page ordering firewall: product page integrations', () => {
       'Bluebeam',
       'Mid Field',
       'Mid Field',
+      'Twin Co',
+      'Twin Co',
       'Zeta ERP',
     ]);
-    expect(direct.slice(3, 5).map((r) => r[1])).toEqual(['Mid bridge A', 'mid bridge B']);
+    // The twins tie on partner name and on edge name: the id decides.
+    const twins = view.direct.filter((r) => /^twin-/.test(r.other.slug));
+    expect(twins[0]!.integration.id.localeCompare(twins[1]!.integration.id)).toBeLessThan(0);
 
-    // Via groups: kept count order (R1), connector name breaking a tie, unnamed last.
+    // Via groups: kept count order (R1), connector name breaking the 2-row tie, unnamed last.
     expect(view.via.map((g) => [g.connector?.name ?? null, g.rows.length])).toEqual([
       ['Agave ERP Sync', 3],
       ['Boomi', 2],
       ['Kroo Connector', 2],
       [null, 1],
     ]);
-    // Rows inside a group: A to Z by partner name.
     for (const group of view.via) {
       const names = group.rows.map((r) => r.other.name);
       expect(names).toEqual([...names].sort(compareText));
     }
   });
 
-  const baseline = (() => {
-    const { asSource, asTarget } = endpointFixture();
-    return laneOrder(asSource, asTarget);
-  })();
+  const { asSource: baseSource, asTarget: baseTarget } = endpointFixture();
+  const baseline = sectionOrder(baseSource, baseTarget);
+  const orderFields = ENDPOINT_PAYLOAD_FIELDS;
+  const filterSafeFields = ENDPOINT_PAYLOAD_FIELDS.filter((f) => !FILTER_TEXT_FIELDS.has(f));
 
-  it.each([...ENDPOINT_PAYLOAD_FIELDS, ...PENDING_ROW_FIELDS])(
-    '[surface:product-integrations-direct-lane] does not move when %s changes',
-    (field) => {
+  for (const dir of ['rising', 'falling'] as const) {
+    it.each(filterSafeFields)(
+      `[surface:product-integrations-direct-lane] does not move when %s changes (${dir})`,
+      (field) => {
+        const { asSource, asTarget } = endpointFixture();
+        expect(
+          sectionOrder(flipRows(asSource, [field], dir), flipRows(asTarget, [field], dir)),
+        ).toEqual(baseline);
+      },
+    );
+
+    it(`[surface:product-integrations-via-groups] [surface:product-integrations-above-fold] does not move when every payload field changes at once (${dir})`, () => {
       const { asSource, asTarget } = endpointFixture();
-      expect(laneOrder(flip(asSource, [field]), flip(asTarget, [field]))).toEqual(baseline);
-    },
-  );
+      // Every field, the filter text included, so the query case is left out here.
+      const flipped = sectionOrder(
+        flipRows(asSource, orderFields, dir),
+        flipRows(asTarget, orderFields, dir),
+      );
+      expect({ ...flipped, filtered: null }).toEqual({ ...baseline, filtered: null });
+    });
+  }
 
-  it('[surface:product-integrations-via-groups] [surface:product-integrations-above-fold] does not move when every payload field changes at once', () => {
-    const fields = [...ENDPOINT_PAYLOAD_FIELDS, ...PENDING_ROW_FIELDS];
+  it('[surface:product-integrations-via-groups] [surface:product-integrations-above-fold] does not move when every paid input is loaded onto one group', () => {
     const { asSource, asTarget } = endpointFixture();
-    expect(laneOrder(flip(asSource, fields), flip(asTarget, fields))).toEqual(baseline);
+    const targets = new Set([...asSource, ...asTarget].map(groupOf));
+    expect(targets.size).toBeGreaterThan(8);
+    for (const target of targets) {
+      const loaded = (row: ProductIntegrationItem) => groupOf(row) === target;
+      expect(
+        sectionOrder(
+          loadOne(asSource, filterSafeFields, loaded),
+          loadOne(asTarget, filterSafeFields, loaded),
+        ),
+        target,
+      ).toEqual(baseline);
+    }
+  });
+
+  it('[surface:product-integrations-above-fold] the real 20-row cut takes the same rows whatever the paid inputs', () => {
+    const rows = largeEndpointFixture();
+    const cut = (r: ProductIntegrationItem[]) => {
+      const view = splitIntegrationLanes(r, []);
+      const c = applyDeferCut(view, INTEGRATIONS_ABOVE_FOLD);
+      return [...c.direct.above, ...c.via.flatMap((g) => g.above)].map((x) => x.key);
+    };
+    const base = cut(rows);
+    expect(base).toHaveLength(INTEGRATIONS_ABOVE_FOLD);
+    for (const dir of ['rising', 'falling'] as const) {
+      expect(cut(flipRows(rows, filterSafeFields, dir)), dir).toEqual(base);
+    }
+    for (let i = 0; i < rows.length; i++) {
+      expect(cut(loadOne(rows, filterSafeFields, (r) => r === rows[i])), `row ${i}`).toEqual(base);
+    }
   });
 
   it('sees a move when an order input changes (the comparison is not vacuous)', () => {
@@ -371,7 +501,20 @@ describe('on-page ordering firewall: product page integrations', () => {
     const renamed = asSource.map((row) =>
       row.target.slug === 'zeta-erp' ? { ...row, target: link('zeta-erp', 'Aaron ERP') } : row,
     );
-    expect(laneOrder(renamed, asTarget)).not.toEqual(baseline);
+    expect(sectionOrder(renamed, asTarget)).not.toEqual(baseline);
+  });
+
+  it('[surface:product-integrations-direct-lane] the section applies the lane order and adds none of its own', () => {
+    // A structural check, not a proof: the component's chain is split, then filter,
+    // then cut, and it holds no comparator that could re-sort what they return.
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/products/product-integrations-section.ts'),
+      'utf8',
+    );
+    expect(src).toMatch(/splitIntegrationLanes\(this\.asSource\(\), this\.asTarget\(\)\)/);
+    expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.query\(\)\)/);
+    expect(src).toMatch(/applyDeferCut\(view, limit\)/);
+    expect(src).not.toMatch(/\.(sort|toSorted|reverse)\(|compareText|localeCompare/);
   });
 });
 
@@ -391,50 +534,57 @@ const poweredEdge = (source: ProductLink, target: ProductLink): PoweredIntegrati
   updated_at: '2026-01-01T00:00:00.000Z',
 });
 
-/** Hub ACC (3 partners), hub QuickBooks (2), and two pairs that earn no hub. */
+/**
+ * Hub ACC (3 partners, two of them sharing a name), then hubs Procore and QuickBooks
+ * tied at 2 partners, and two flat pairs that earn no hub.
+ */
 function poweredFixture(): PoweredIntegrationItem[] {
   seq = 0;
   const acc = link('acc', 'Autodesk Construction Cloud');
   const qb = link('quickbooks', 'QuickBooks');
-  const p = (slug: string, name: string) => link(slug, name);
+  const pc = link('procore', 'Procore');
   return [
-    poweredEdge(acc, p('roofr', 'roofr')),
-    poweredEdge(acc, p('bluebeam', 'Bluebeam')),
-    poweredEdge(p('zeta', 'Zeta'), acc),
-    poweredEdge(qb, p('xero', 'Xero')),
-    poweredEdge(qb, p('fieldwire', 'fieldwire')),
-    poweredEdge(p('sage', 'Sage'), p('vista', 'Vista')),
-    poweredEdge(p('archicad', 'Archicad'), p('revit', 'Revit')),
+    poweredEdge(acc, link('roofr', 'roofr')),
+    poweredEdge(link('zeta', 'Bluebeam'), acc),
+    poweredEdge(acc, link('bluebeam', 'Bluebeam')),
+    poweredEdge(qb, link('xero', 'Xero')),
+    poweredEdge(qb, link('fieldwire', 'fieldwire')),
+    poweredEdge(link('sage', 'Sage'), link('vista', 'Vista')),
+    poweredEdge(pc, link('pc-two', 'Two')),
+    poweredEdge(link('archicad', 'Archicad'), link('revit', 'Revit')),
+    poweredEdge(pc, link('pc-one', 'One')),
   ];
 }
 
 function hubOrder(items: PoweredIntegrationItem[]) {
   const view = groupPoweredIntegrations(items, 'agave-erp-sync');
+  const keys = (v: typeof view) => ({
+    groups: v.groups.map((g) => ({ hub: g.hub.slug, partners: g.partners.map((x) => x.key) })),
+    others: v.others.map((o) => o.key),
+  });
   return {
-    groups: view.groups.map((g) => ({ hub: g.hub.slug, partners: g.partners.map((x) => x.key) })),
-    others: view.others.map((o) => o.key),
+    ...keys(view),
+    unfiltered: keys(filterPoweredHubView(view, '')),
+    filtered: keys(filterPoweredHubView(view, 'o')),
   };
 }
 
 describe('on-page ordering firewall: connector page powered hubs', () => {
   it('classifies every row field as an order input or a payload field', () => {
     const shape = Object.keys(PoweredIntegrationItemSchema.shape);
-    const classified = new Set<string>([
-      ...Object.keys(POWERED_ORDER_INPUTS),
-      ...POWERED_PAYLOAD_FIELDS,
-      ...PENDING_ROW_FIELDS,
-    ]);
-    expect(shape.filter((field) => !classified.has(field))).toEqual([]);
+    const classified = [...Object.keys(POWERED_ORDER_INPUTS), ...POWERED_PAYLOAD_FIELDS];
+    expect(shape.filter((field) => !classified.includes(field))).toEqual([]);
+    expect(classified.filter((field) => !shape.includes(field))).toEqual([]);
   });
 
   it('[surface:connector-powered-hub] follows R1 as it ships today', () => {
     const view = groupPoweredIntegrations(poweredFixture(), 'agave-erp-sync');
-    // Hubs: kept count order (R1), hub name breaking a tie.
+    // Hubs: kept count order (R1), hub name breaking the 2-partner tie.
     expect(view.groups.map((g) => [g.hub.name, g.partners.length])).toEqual([
       ['Autodesk Construction Cloud', 3],
+      ['Procore', 2],
       ['QuickBooks', 2],
     ]);
-    // Partners inside a hub, and the flat pairs: A to Z by name.
     for (const group of view.groups) {
       const names = group.partners.map((x) => x.partner.name);
       expect(names).toEqual([...names].sort(compareText));
@@ -443,13 +593,23 @@ describe('on-page ordering firewall: connector page powered hubs', () => {
   });
 
   const baseline = hubOrder(poweredFixture());
+  const safe = POWERED_PAYLOAD_FIELDS.filter((f) => !FILTER_TEXT_FIELDS.has(f));
 
-  it.each([...POWERED_PAYLOAD_FIELDS, ...PENDING_ROW_FIELDS])(
-    '[surface:connector-powered-hub] does not move when %s changes',
-    (field) => {
-      expect(hubOrder(flip(poweredFixture(), [field]))).toEqual(baseline);
-    },
-  );
+  for (const dir of ['rising', 'falling'] as const) {
+    it.each(safe)(
+      `[surface:connector-powered-hub] does not move when %s changes (${dir})`,
+      (field) => {
+        expect(hubOrder(flipRows(poweredFixture(), [field], dir))).toEqual(baseline);
+      },
+    );
+  }
+
+  it('[surface:connector-powered-hub] does not move when every paid input is loaded onto one pair', () => {
+    const rows = poweredFixture();
+    for (let i = 0; i < rows.length; i++) {
+      expect(hubOrder(loadOne(rows, safe, (r) => r === rows[i])), `pair ${i}`).toEqual(baseline);
+    }
+  });
 
   it('sees a move when an order input changes (the comparison is not vacuous)', () => {
     const renamed = poweredFixture().map((row) =>
@@ -459,16 +619,15 @@ describe('on-page ordering firewall: connector page powered hubs', () => {
   });
 });
 
-// ─── The tolerated exception: taxonomy term counts ────────────────────────────
+// ─── The accepted exception: taxonomy term counts ─────────────────────────────
 
 /**
- * `taxonomy-term-product-count` (registry entry in the API half, status "awaiting
- * ruling (Slack 2026-11-14)"). The nav flyouts, the home page, the `/search` facets
- * and the taxonomy index's "Most products" sort rank audience and trade terms by
- * `product_count`, and a Managed product's `product.taxonomy.edit` writes move that
- * count. It is tolerated because it orders terms, not vendors, and R1 keeps
- * existing orders. These cases keep it narrow: `product_count` must stay the ONLY
- * input, so the surfaces cannot start reading anything else a plan can change.
+ * `taxonomy-term-product-count` (registry entry in the API half). Accepted by Chris on
+ * 2026-11-14: "A, create a ticket to address later". The permanent rule is AECI-1836.
+ * Terms rank by `product_count`, which a Managed product's
+ * `product.taxonomy.edit` writes move. These cases keep it narrow: `topByCount` must
+ * read `product_count` and nothing else, including on a tie, where it must keep the
+ * input order rather than reach for another field.
  */
 const term = (slug: string, name: string, count: number, order: number): TaxonomyTermWithCount => ({
   id: `id-${slug}`,
@@ -480,13 +639,16 @@ const term = (slug: string, name: string, count: number, order: number): Taxonom
   integration_count: 0,
 });
 
+/** Ties on count at 4 and at 2, in an input order that is neither A to Z nor display order. */
 function termsFixture(): TaxonomyTermWithCount[] {
   return [
-    term('electrical', 'Electrical', 4, 3),
-    term('roofing', 'roofing', 9, 1),
     term('plumbing', 'Plumbing', 4, 2),
+    term('roofing', 'roofing', 9, 1),
+    term('electrical', 'Electrical', 4, 3),
+    term('masonry', 'Masonry', 2, 6),
     term('hvac', 'HVAC', 7, 4),
-    term('concrete', 'Concrete', 1, 5),
+    term('concrete', 'Concrete', 2, 5),
+    term('acoustics', 'Acoustics', 4, 7),
   ];
 }
 
@@ -500,20 +662,23 @@ const TERM_NON_COUNT_FIELDS = [
   'integration_count',
 ] as const;
 
-function flipTerm(t: TaxonomyTermWithCount, i: number): TaxonomyTermWithCount {
-  const values: Record<(typeof TERM_NON_COUNT_FIELDS)[number], unknown> = {
-    id: `id-flipped-${9 - i}`,
-    slug: `flipped-${9 - i}`,
-    name: `${String.fromCharCode(90 - i)} term`,
-    description: `Described ${i}`,
-    display_order: 100 - i,
-    integration_count: 100 - i * 10,
-  };
-  return { ...t, ...values } as TaxonomyTermWithCount;
+function flipTerms(terms: TaxonomyTermWithCount[], dir: Direction): TaxonomyTermWithCount[] {
+  return terms.map((t, i) => {
+    const level = dir === 'rising' ? i : terms.length - 1 - i;
+    const values: Record<(typeof TERM_NON_COUNT_FIELDS)[number], unknown> = {
+      id: `id-flipped-${level}`,
+      slug: `flipped-${level}`,
+      name: `${String.fromCharCode(65 + level)} term`,
+      description: `Described ${level}`,
+      display_order: level,
+      integration_count: level * 10,
+    };
+    return { ...t, ...values } as TaxonomyTermWithCount;
+  });
 }
 
 describe('on-page ordering firewall: the taxonomy term-count exception', () => {
-  it('the exception capability is still Managed-only (retire the entry if a ruling frees it)', () => {
+  it('the exception capability is still Managed-only (retire the entry if AECI-1836 frees it)', () => {
     for (const field of ['audience_slugs', 'phase_slugs', 'trade_slugs'] as const) {
       expect(MANAGED_ONLY).toContain(PRODUCT_FIELD_CAPABILITIES[field]);
     }
@@ -527,29 +692,39 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
     );
   });
 
-  it('[surface:taxonomy-term-product-count] topByCount reads product_count and nothing else', () => {
+  it('[surface:taxonomy-term-product-count] topByCount reads product_count and nothing else, and keeps input order on a tie', () => {
     // Positions, not slugs: the flip rewrites the slugs.
-    const positions = (terms: TaxonomyTermWithCount[]) =>
-      topByCount(terms, TOP_N).map((t) => terms.indexOf(t));
-    const baseline = positions(termsFixture());
-    expect(topByCount(termsFixture(), TOP_N).map((t) => t.slug)).toEqual([
+    const positions = (terms: TaxonomyTermWithCount[], n: number) =>
+      topByCount(terms, n).map((t) => terms.indexOf(t));
+    const base = termsFixture();
+    expect(topByCount(base, TOP_N).map((t) => t.slug)).toEqual([
       'roofing',
       'hvac',
-      'electrical',
       'plumbing',
+      'electrical',
+      'acoustics',
+      'masonry',
       'concrete',
     ]);
-    expect(positions(termsFixture().map(flipTerm))).toEqual(baseline);
-    // The top-N cut is a featured subset of the same order.
-    expect(topByCount(termsFixture(), 2).map((t) => t.slug)).toEqual(['roofing', 'hvac']);
+    for (const dir of ['rising', 'falling'] as const) {
+      for (const n of [TOP_N, 3, 4]) {
+        // 3 and 4 cut through the tie at 4 products: the featured subset.
+        expect(positions(flipTerms(base, dir), n), `${dir} top ${n}`).toEqual(positions(base, n));
+      }
+    }
   });
 
   it('[surface:taxonomy-term-product-count] phases never rank by count: display order in the nav, lifecycle on /search', () => {
     const counts = termsFixture();
-    const recounted = counts.map((t, i) => ({ ...t, product_count: 50 - i * 7 }));
-    expect(byDisplayOrder(recounted).map((t) => t.slug)).toEqual(
-      byDisplayOrder(counts).map((t) => t.slug),
-    );
+    for (const dir of ['rising', 'falling'] as const) {
+      const recounted = counts.map((t, i) => ({
+        ...t,
+        product_count: dir === 'rising' ? i * 7 : 50 - i * 7,
+      }));
+      expect(byDisplayOrder(recounted).map((t) => t.slug)).toEqual(
+        byDisplayOrder(counts).map((t) => t.slug),
+      );
+    }
 
     const items = (countFor: (i: number) => number): RefinementItem[] =>
       ['Closeout & Operations', 'Design', 'Concept & Planning', 'Construction'].map((value, i) => ({
