@@ -1,4 +1,4 @@
-import { isPlatformBrowser } from '@angular/common';
+import { isPlatformBrowser, NgOptimizedImage } from '@angular/common';
 import {
   afterNextRender,
   afterRenderEffect,
@@ -13,6 +13,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+
+import { RouterLink } from '@angular/router';
 
 import { BrandLogo } from '../../layout/brand-logo';
 import { injectInPageHrefFor } from '../in-page-href';
@@ -40,7 +42,7 @@ const FADE_PX = 40;
  * **It leads with our wordmark, never a vendor's.** Once the bar sticks, our header has
  * scrolled away (the header is not sticky), and the bar reads "AEC Integrations › {pageName}":
  * `aec-brand-logo` linked home, then the page name as plain text. Below `md` it shows our
- * monogram and no name. Never a vendor logo, a product mark or a vendor colour, on any listing:
+ * monogram in a home link of its own, and no name. Never a vendor logo, a product mark or a vendor colour, on any listing:
  * a vendor logo there would read as the vendor's own site, which on an unclaimed listing
  * contradicts "not affiliated with or endorsed by this vendor" (PLAN.md §8.5, counsel's ruling
  * 9, ADR 0056). There is no input that could put one there. The brand link renders only while
@@ -95,7 +97,7 @@ const FADE_PX = 40;
  */
 @Component({
   selector: 'aec-section-nav',
-  imports: [BrandLogo],
+  imports: [BrandLogo, NgOptimizedImage, RouterLink],
   // Sticky lives on the HOST, not an inner element: position:sticky only travels within its
   // containing block. The host itself must be projected into DetailLayout's `nav` slot, which
   // renders it bare into the page container, so it stays pinned for the whole page.
@@ -152,7 +154,19 @@ const FADE_PX = 40;
           class="flex min-w-0 shrink items-center gap-3 md:max-w-[min(24rem,40%)]"
           data-testid="section-nav-brand"
         >
-          <aec-brand-logo class="shrink-0" [priority]="false" [monogramBelowMd]="true" />
+          <!-- From md, the shared wordmark. Below md, our monogram in a link of its own,
+               so the header's BrandLogo (initial bundle) carries no phone-only branch. Only
+               one of the two is displayed, so a screen reader meets one home link. -->
+          <span class="hidden shrink-0 md:flex">
+            <aec-brand-logo [height]="24" [priority]="false" />
+          </span>
+          <a
+            routerLink="/"
+            class="flex shrink-0 rounded-mark md:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n-aria-label="@@app.brand.aria"
+            aria-label="AEC Integrations home"
+            ><img ngSrc="/branding/monogram-light.svg" width="32" height="32" alt=""
+          /></a>
           @if (pageName(); as name) {
             <span
               class="hidden min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary) md:inline-flex"

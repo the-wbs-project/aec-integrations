@@ -291,19 +291,24 @@ describe('SectionNav', () => {
       expect(host.hasAttribute('data-stuck')).toBe(true);
 
       const brand = el.querySelector('[data-testid="section-nav-brand"]')!;
-      const home = brand.querySelector('a')!;
-      expect(home.getAttribute('href')).toBe('/');
-      expect(home.getAttribute('aria-label')).toBe('AEC Integrations home');
+      // The wordmark link (from md) and the monogram link (below md). CSS shows one.
+      const homes = [...brand.querySelectorAll('a')];
+      expect(homes).toHaveLength(2);
+      for (const home of homes) {
+        expect(home.getAttribute('href')).toBe('/');
+        expect(home.getAttribute('aria-label')).toBe('AEC Integrations home');
+        // The brand links sit outside the "On this page" landmark.
+        expect(home.closest('nav')).toBeNull();
+      }
+      expect(homes[0]!.closest('.md\\:flex')).not.toBeNull();
+      expect(homes[1]!.className).toContain('md:hidden');
       expect(brand.textContent).toContain('Bluebeam Revu');
       // The name is text, not a link and not a heading.
-      expect(brand.querySelectorAll('a')).toHaveLength(1);
       expect(brand.querySelector('h1, h2, h3, h4')).toBeNull();
       // Every image in the bar is one of ours. No vendor logo can reach it.
       const srcs = [...host.querySelectorAll('img')].map((i) => i.getAttribute('src'));
       expect(srcs.length).toBeGreaterThan(0);
       for (const src of srcs) expect(src).toMatch(/^\/branding\/(wordmark|monogram-light)\.svg$/);
-      // The brand link sits outside the "On this page" landmark.
-      expect(home.closest('nav')).toBeNull();
     });
 
     it('omits the name when the page gives none', async () => {
