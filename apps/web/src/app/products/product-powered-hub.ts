@@ -245,7 +245,7 @@ import { AecIcon } from '../shared/icon/icon';
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
                   <aec-icon
@@ -326,7 +326,7 @@ import { AecIcon } from '../shared/icon/icon';
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
                   <aec-icon

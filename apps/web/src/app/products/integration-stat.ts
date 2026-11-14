@@ -14,8 +14,8 @@ import { AecIcon } from '../shared/icon/icon';
  *
  * Pluralization is handled in the component (1 → "integration", n →
  * "integrations") rather than ICU in the template, keeping the markup readable.
- * Both themes via tokens (§11.4). The glyph is a hand-inlined Lucide "link" path
- * (DESIGN.md: Lucide only, no emoji) and is `aria-hidden` — the visible number +
+ * Both themes via tokens (§11.4). The glyph is the `aec-icon` "link" drawing
+ * (DESIGN.md: the aec-icon set, no emoji) and is `aria-hidden` — the visible number +
  * noun carry the meaning for assistive tech.
  */
 export type IntegrationStatVariant = 'inline' | 'badge' | 'headline';

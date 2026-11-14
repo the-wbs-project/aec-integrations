@@ -250,7 +250,7 @@ import { AecIcon } from '../shared/icon/icon';
            put a direction arrow on the meta line of this very row, one row carried
            two arrows meaning two different things. A chevron is the site's existing
            "there is more this way" mark and carries no direction vocabulary.
-           Hand-inlined Lucide chevron-right (DESIGN.md: Lucide only, no emoji).
+           The aec-icon chevron-right glyph (DESIGN.md: no emoji).
            The chevron is the row's pair-page link: the <a> carries the
            accessible name, so the glyph is aria-hidden. size-6 keeps the
            target at 24px (WCAG 2.2 SC 2.5.8). A click anywhere else on the row

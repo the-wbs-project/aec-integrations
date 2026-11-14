@@ -29,7 +29,7 @@ import { AecIcon } from '../shared/icon/icon';
  * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` rule),
  * Forest (`--accent-primary`) on every figure, `--text-secondary` for labels
  * (never `--text-tertiary`, which fails AA). Sentence case, no em dashes. Light
- * theme only (Stage 1). i18n throughout; the Lucide scale glyph is `aria-hidden`
+ * theme only (Stage 1). i18n throughout; the aec-icon scale glyph is `aria-hidden`
  * (the visible text carries the meaning). Anchor site: Faire (AECI-270).
  *
  * The glyph is a BALANCE SCALE, deliberately not a shield-check. A checkmark on a

@@ -40,9 +40,8 @@
  * overlay on click, so the server renders just the static, visitor-state-neutral
  * icon button — nothing per-visitor reaches cached HTML.
  *
- * The glyph is the canonical Lucide `search` inlined as SVG with
- * `stroke="currentColor"` so it themes via `--text-primary` (DESIGN.md: Lucide
- * icons exclusively).
+ * The glyph is the `aec-icon` `search` drawing. It is `currentColor`, so it
+ * themes via `--text-primary` (DESIGN.md: the aec-icon set).
  *
  * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-144 (the autocomplete).
  */

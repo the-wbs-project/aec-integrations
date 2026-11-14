@@ -45,9 +45,8 @@
  * (The taxonomy values likewise only appear client-side; the SSR-crawlable
  * facet links live on the desktop bar + the footer.)
  *
- * The toggle is the canonical Lucide `menu` glyph inlined as SVG with
- * `stroke="currentColor"` so it themes via `--text-primary` (DESIGN.md: Lucide
- * icons exclusively — no icon library needed for a single glyph).
+ * The toggle is the `aec-icon` `menu` glyph. It is `currentColor`, so it themes
+ * via `--text-primary` (DESIGN.md: the aec-icon set).
  *
  * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96/158/159.
  */
