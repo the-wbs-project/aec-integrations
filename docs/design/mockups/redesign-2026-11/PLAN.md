@@ -408,7 +408,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301. That is AECI-953.
 
-**The second case in AECI-1571 is unchanged by this plan.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. Both stay in the issue.
+**The second case in AECI-1571 is outside this plan and is done by AECI-1823.** A pair-finder pick whose slug does not resolve should land on `/search?q={typed name}`, not the generic 404. The issue also asks to confirm that the production search index and the database agree on slugs for the top 50 products. Neither was explored in the mock-ups. The finder fallback shipped in AECI-1823. The slug check is AECI-1824.
 
 ### 5.2 The product details page
 
@@ -911,7 +911,7 @@ This delivers the visitor value now, without waiting for the redesign.
 | A2 | Pair report carries both products | Record both product ids on a correction request so per-pair counts can be queried. Zod, contract row, audit in the same batch. | Pilot | `docs/STAGE_1_5_SPEC.md` §11.5 | none. It uses the existing correction path. | Check AECI-343 |
 | A3 | Closest matches on the empty pair page | The keep toggle, category anchors, cards and table, A to Z order, the ordering disclosure. A new read. | SEO | `docs/STAGE_1_5_SPEC.md` §11.3 | text. "How ranking works" must describe the order. | Decision 2, C2, check AECI-341 |
 | A4 | "What you would be moving" and the data object filter | The three groups and the filter on closest matches. | SEO | `docs/STAGE_1_5_SPEC.md` §11.4 | none | A3, decision 16 |
-| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
+| A5 | Unresolved slug from the pair finder goes to search | The second case in AECI-1571, plus the production slug check for the top 50 products. Finder fallback done by AECI-1823. | Pilot | `docs/STAGE_1_SPEC.md` §4.6 | none | Nothing |
 
 ### Workstream B: demand captures
 
