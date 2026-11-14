@@ -957,6 +957,41 @@ button.aec-chip:focus-visible {
   border-color: var(--border-strong);
 }
 
+/* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
+   the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
+   gradients in a single colour, Forest hover at 75% and 45%, taken from the
+   alpha tokens so no colour function is needed. Unlayered because a component
+   `background-image` utility cannot express it. The first centre is held at
+   least 200px down so the glow is fully clear at the top edge and the header
+   above reads as one ground with the band. Bone on the glow's lightest point is
+   7.69:1. No blur, no noise. */
+.aec-hero-band {
+  background-image:
+    radial-gradient(900px 560px at 78% max(42%, 200px), var(--surface-hero-glow), transparent 70%),
+    radial-gradient(600px 400px at 6% 100%, var(--surface-hero-glow-soft), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+/* Every keyboard focus ring inside the band is Bone, 3px at a 3px offset. A
+   Forest ring on Forest is invisible and on the hero panel it is 1.20:1. */
+.aec-hero-band :focus-visible {
+  outline: 3px solid var(--focus-ring-on-brand);
+  outline-offset: 3px;
+}
+
+/* Forced colours drops background colours and images. Keep a boundary and
+   readable text: system colours, with a hairline above and below. */
+@media (forced-colors: active) {
+  .aec-hero-band {
+    background-image: none;
+    border-block: 1px solid CanvasText;
+  }
+
+  .aec-hero-panel {
+    border: 1px solid CanvasText;
+  }
+}
+
 /* The error glyph is a background-painted mask, and forced colours replaces
    background colours, which would erase it. Opt it out and paint the system
    text colour. */

@@ -10,6 +10,7 @@ import {
 } from '@spartan-ng/brain/dialog';
 
 import { AecButton } from '../shared/button/button';
+import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 
 @Component({
@@ -24,6 +25,7 @@ import { AecIcon } from '../shared/icon/icon';
     BrnDialogDescription,
     BrnDialogTitle,
     BrnDialogTrigger,
+    HeroBand,
   ],
   template: `
     <section class="mx-auto max-w-2xl px-6 py-12 space-y-6">
@@ -209,6 +211,61 @@ import { AecIcon } from '../shared/icon/icon';
           </button>
         </div>
       </section>
+    </section>
+
+    <!-- AECI-1766: the Forest hero band, full width, with and without a panel. -->
+    <section aria-labelledby="demo-hero-heading" data-testid="hero-band-specimen">
+      <h2
+        id="demo-hero-heading"
+        class="mx-auto max-w-2xl px-6 pb-4 text-xl font-semibold"
+        i18n="@@demo.hero.heading"
+      >
+        Hero band
+      </h2>
+      <aec-hero-band data-testid="hero-band-with-panel">
+        <p heroCrumbs class="text-t-14 text-(--text-on-brand-secondary)" i18n="@@demo.hero.crumbs">
+          Products / Review
+        </p>
+        <p heroKicker class="mt-4 text-t-14 text-(--text-on-brand)" i18n="@@demo.hero.kicker">
+          Maintained by the vendor
+        </p>
+        <span heroTitle i18n="@@demo.hero.title">A product name that is long enough to wrap</span>
+        <p
+          class="mt-4 max-w-prose text-t-18 text-(--text-on-brand-secondary)"
+          i18n="@@demo.hero.lede"
+        >
+          One line about what the product does for the people who use it.
+        </p>
+        <button heroActions aecButton variant="on-brand" type="button" i18n="@@demo.hero.action">
+          Write a review
+        </button>
+        <a
+          heroActions
+          href="/docs"
+          class="inline-flex min-h-11 items-center text-(--text-on-brand) underline underline-offset-4"
+          i18n="@@demo.hero.link"
+        >
+          Visit website
+        </a>
+        <div heroPanel class="text-(--text-on-brand)">
+          <p class="text-(--text-on-brand-secondary)" i18n="@@demo.hero.panel">
+            The hero panel sits on Forest. The visual for a page goes here.
+          </p>
+        </div>
+      </aec-hero-band>
+      <div class="h-8"></div>
+      <aec-hero-band data-testid="hero-band-plain">
+        <span heroTitle i18n="@@demo.hero.titlePlain">A band with no panel</span>
+        <button
+          heroActions
+          aecButton
+          variant="on-brand"
+          type="button"
+          i18n="@@demo.hero.actionPlain"
+        >
+          Main action
+        </button>
+      </aec-hero-band>
     </section>
   `,
 })
