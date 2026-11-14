@@ -70,6 +70,16 @@ describe('SiteHeader auth affordance', () => {
     return fixture;
   }
 
+  /** Sign in, then wait for the lazy account menu (`@defer (on immediate)`). */
+  async function signIn(fixture: ReturnType<typeof render>) {
+    signedIn.set(true);
+    fixture.detectChanges();
+    for (const block of await fixture.getDeferBlocks()) {
+      await block.render(DeferBlockState.Complete);
+    }
+    fixture.detectChanges();
+  }
+
   it('shows the neutral "Sign in" link and no account link when signed out', () => {
     const el = render().nativeElement as HTMLElement;
     const signIn = el.querySelector('a[href="/auth/login"]');
@@ -102,10 +112,9 @@ describe('SiteHeader auth affordance', () => {
     expect(signIn?.getAttribute('href')).toBe('/auth/login?return=%2Fproducts%2Fprocore');
   });
 
-  it('swaps to the account menu (no "Sign in") once the probe reports a session', () => {
+  it('swaps to the account menu (no "Sign in") once the probe reports a session', async () => {
     const fixture = render();
-    signedIn.set(true);
-    fixture.detectChanges();
+    await signIn(fixture);
 
     const el = fixture.nativeElement as HTMLElement;
     const menu = el.querySelector('aec-user-menu');
@@ -203,10 +212,9 @@ describe('SiteHeader auth affordance', () => {
     expect(classes).toContain('focus-visible:outline-(--focus-ring-on-brand)');
   });
 
-  it('gives the signed-in account trigger a Bone edge, wash and ring on Forest', () => {
+  it('gives the signed-in account trigger a Bone edge, wash and ring on Forest', async () => {
     const fixture = render();
-    signedIn.set(true);
-    fixture.detectChanges();
+    await signIn(fixture);
     const trigger = (fixture.nativeElement as HTMLElement).querySelector('aec-user-menu button')!;
     expect(trigger.classList).toContain('aec-on-brand-edge');
     expect(trigger.className).toContain('bg-(--surface-on-brand-wash)');
