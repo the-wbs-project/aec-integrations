@@ -131,7 +131,7 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
             >
               <header class="flex flex-wrap items-center gap-3">
                 <span
-                  class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                  class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-t-13 font-bold tracking-[0.01em] text-(--text-secondary)"
                   >{{ mechanismLabel(m.kind) }}</span
                 >
                 <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>

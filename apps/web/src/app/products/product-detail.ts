@@ -160,6 +160,7 @@ import { Chip } from '../shared/chip/chip';
                 [src]="p.logo_url"
                 [name]="p.name"
                 [alt]="logoAlt(p.name)"
+                [claimStatus]="p.claim_status"
                 size="lg"
                 [priority]="true"
               />
@@ -206,6 +207,8 @@ import { Chip } from '../shared/chip/chip';
                     [src]="p.logo_url"
                     [name]="p.name"
                     [alt]="logoAlt(p.name)"
+                    [claimStatus]="p.claim_status"
+                    [ownPage]="true"
                     size="sm"
                     [priority]="true"
                   />

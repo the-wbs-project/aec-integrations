@@ -54,6 +54,13 @@ export function isBrowseSection(url: string): boolean {
  * (hovering it must count as leaving): `site-header.ts` renders it from
  * `expanded()` and closes the menu through `dismiss()`.
  *
+ * The Clay cue sets `scale` as a literal (`[scale:0_1]`), never `scale-x-0`. The
+ * Tailwind utility reads `--tw-scale-y`, which only the late-loading full
+ * stylesheet registers with `@property`. In the inlined critical CSS the `scale`
+ * was invalid, so the bar painted full width, then transitioned to 0 when the full
+ * sheet arrived (AECI-1852). A literal has no variable, so it is closed from the
+ * first paint and the transition runs only on a real open or close.
+ *
  * Cached HTML: the server renders "All products", every column label and every
  * "See all" link, and no terms or counts. `TaxonomyNavStore` is idle on the
  * server and fetches `/api/taxonomy` once in the browser, so every visitor gets
@@ -86,7 +93,7 @@ export function isBrowseSection(url: string): boolean {
         aria-hidden="true"
         data-browse-cue
         class="pointer-events-none absolute inset-x-3.5 -bottom-4 h-[3px] rounded-t-[3px] bg-(--accent-secondary) transition-transform duration-slow ease-standard"
-        [class.scale-x-0]="!isOpen()"
+        [class]="isOpen() ? '[scale:none]' : '[scale:0_1]'"
       ></span
     ></a>
 

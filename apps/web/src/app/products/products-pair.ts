@@ -719,6 +719,8 @@ function writePairViewCookie(mode: PairViewMode): void {
                     [name]="context.name"
                     [src]="context.logo_url"
                     [alt]="logoAlt(context.name)"
+                    [claimStatus]="context.claim_status"
+                    [ownPage]="true"
                     size="sm"
                   />
                   <aec-unclaimed-note />
@@ -728,6 +730,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                   [name]="context.name"
                   [src]="context.logo_url"
                   [alt]="logoAlt(context.name)"
+                  [claimStatus]="context.claim_status"
                   size="lg"
                 />
               }
@@ -766,6 +769,8 @@ function writePairViewCookie(mode: PairViewMode): void {
                     [name]="other.name"
                     [src]="other.logo_url"
                     [alt]="logoAlt(other.name)"
+                    [claimStatus]="other.claim_status"
+                    [ownPage]="true"
                     size="sm"
                   />
                   <aec-unclaimed-note />
@@ -775,6 +780,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                   [name]="other.name"
                   [src]="other.logo_url"
                   [alt]="logoAlt(other.name)"
+                  [claimStatus]="other.claim_status"
                   size="lg"
                 />
               }

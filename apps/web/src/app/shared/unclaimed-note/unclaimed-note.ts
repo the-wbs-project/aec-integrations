@@ -13,7 +13,7 @@ import { Component } from '@angular/core';
 @Component({
   selector: 'aec-unclaimed-note',
   host: {
-    class: 'block min-w-0 text-[0.8125rem] leading-snug text-(--text-secondary)',
+    class: 'block min-w-0 text-t-13 leading-snug text-(--text-secondary)',
     'data-testid': 'unclaimed-note',
   },
   template: `{{ text }}`,
