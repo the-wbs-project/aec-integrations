@@ -142,6 +142,26 @@ describe('AecSelect', () => {
     expect(trigger(setup().el).hasAttribute('aria-describedby')).toBe(false);
   });
 
+  it('shares the field recipe in both layouts: control class, 12px radius, ring, no shadow (AECI-1764)', () => {
+    for (const layout of ['inline', 'stacked']) {
+      TestBed.resetTestingModule();
+      const btn = trigger(setup(null, OPTIONS, { layout }).el);
+      expect(btn.classList).toContain('aec-field-control');
+      expect(btn.classList).toContain('rounded-control');
+      expect(btn.classList).toContain('focus-visible:outline-3');
+      expect(btn.className).not.toMatch(/(^|\s)shadow/);
+      expect(btn.className).not.toContain('rounded-(--radius-md)');
+    }
+  });
+
+  it('marks the trigger aria-invalid, which the control class paints as the error edge', () => {
+    expect(trigger(setup(null, OPTIONS, { invalid: true }).el).getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    TestBed.resetTestingModule();
+    expect(trigger(setup().el).hasAttribute('aria-invalid')).toBe(false);
+  });
+
   it('renders a full-width stacked field when asked, without changing the ARIA wiring', () => {
     const { el } = setup('Google', OPTIONS, { layout: 'stacked' });
     const btn = trigger(el);

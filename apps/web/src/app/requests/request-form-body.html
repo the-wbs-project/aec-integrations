@@ -206,7 +206,7 @@
       [formField]="form.body"
       [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
       [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'correction-body-hint correction-body-error' : 'correction-body-hint'"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     ></textarea>
     <p
       id="correction-body-hint"
@@ -219,7 +219,7 @@
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="correction-body-error"
-      class="text-xs font-semibold text-(--text-primary)"
+      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
       role="alert"
       i18n="@@requests.correction.body.error"
     >
@@ -244,12 +244,12 @@
       [formField]="form.source_url"
       [attr.aria-invalid]="form.source_url().touched() && form.source_url().invalid() ? 'true' : null"
       [attr.aria-describedby]="form.source_url().touched() && form.source_url().getError('standardSchema') ? 'correction-source-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     />
     @if (form.source_url().touched() && form.source_url().getError('standardSchema')) {
     <p
       id="correction-source-error"
-      class="text-xs font-semibold text-(--text-primary)"
+      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
       role="alert"
       i18n="@@requests.correction.source.error"
     >
@@ -275,12 +275,12 @@
       [formField]="form.submitter_email"
       [attr.aria-invalid]="form.submitter_email().touched() && form.submitter_email().invalid() ? 'true' : null"
       [attr.aria-describedby]="form.submitter_email().touched() && form.submitter_email().getError('standardSchema') ? 'correction-email-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     />
     @if (form.submitter_email().touched() && form.submitter_email().getError('standardSchema')) {
     <p
       id="correction-email-error"
-      class="text-xs font-semibold text-(--text-primary)"
+      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
       role="alert"
       i18n="@@requests.email.invalid"
     >
@@ -362,7 +362,7 @@
       [formField]="form.body"
       [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
       [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'claim-body-hint claim-body-error' : 'claim-body-hint'"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     ></textarea>
     <p
       id="claim-body-hint"
@@ -375,7 +375,7 @@
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="claim-body-error"
-      class="text-xs font-semibold text-(--text-primary)"
+      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
       role="alert"
       i18n="@@requests.claim.body.error"
     >

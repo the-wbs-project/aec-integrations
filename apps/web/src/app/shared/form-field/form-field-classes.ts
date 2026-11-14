@@ -22,19 +22,26 @@ export const FIELD_LABEL_CLASS =
 export const FIELD_OPTIONAL_CLASS = 'font-normal normal-case text-(--text-tertiary)';
 
 /**
- * A text input or textarea. `aec-field-control` (unlayered, `styles.css`) draws
- * the border: `--border-input` at rest (3:1, WCAG 1.4.11) and `--status-error`
- * when `aria-invalid="true"`. A border-colour utility here would never apply,
- * because the unlayered `* { border-color }` rule beats every layered utility.
+ * A text input, textarea or select. `aec-field-control` (unlayered,
+ * `styles.css`) draws the edge: `--border-field` at rest (3:1, WCAG 1.4.11), a
+ * 2px `--status-error` edge when `aria-invalid="true"`, Forest on focus. It also
+ * pins the 44px height and the 12px radius. A border-colour utility here would
+ * never apply, because the unlayered `* { border-color }` rule beats every
+ * layered utility. The fill is always `surface-base` and a control takes no
+ * shadow (DESIGN.md "Inputs / Fields"). Disabled is the sunken tint, never opacity.
  */
 export const FIELD_INPUT_CLASS =
-  'aec-field-control w-full rounded-(--radius-md) border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-field-control w-full rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
 /** Persistent help text, directly under the control. */
 export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
 
-/** A field's inline error, under the hint. Carries `role="alert"`. */
-export const FIELD_ERROR_CLASS = 'text-xs font-semibold text-(--text-primary)';
+/**
+ * A field's inline error, under the hint. Carries `role="alert"`. `aec-field-error`
+ * (unlayered, `styles.css`) draws the alert icon before the message, so colour is
+ * never the only error signal and no caller template changes.
+ */
+export const FIELD_ERROR_CLASS = 'aec-field-error text-t-14 font-semibold text-(--status-error)';
 
 /**
  * One bordered choice row wrapping a native radio or checkbox: the plan
