@@ -11,8 +11,11 @@
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
  * `/welcome` and the `/account` "About you" section.
  * Light only. The strings are byte-identical to what the claim dialog had
- * inline, so moving them here changed no rendered class.
+ * inline, so moving them here changed no rendered class. The two button
+ * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
  */
+
+import { buttonClass } from '../button/button';
 
 /** A field label, or a `legend` acting as one: the uppercase overline role. */
 export const FIELD_LABEL_CLASS =
@@ -47,13 +50,15 @@ export const CHOICE_CARD_CLASS =
 export const CHOICE_INPUT_CLASS =
   'size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
-/** The primary action: Continue, Send, Save. */
-export const BUTTON_PRIMARY_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+/**
+ * The primary action: Continue, Send, Save. The `aecButton` recipe
+ * (`shared/button/button.ts`, AECI-1758), so every caller binding `[class]` to it
+ * renders the shared button. New code uses `<button aecButton>` instead.
+ */
+export const BUTTON_PRIMARY_CLASS = buttonClass('primary');
 
-/** The secondary action beside it: Back, Skip, Not now. */
-export const BUTTON_SECONDARY_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+/** The secondary action beside it: Back, Skip, Not now. `aecButton variant="secondary"`. */
+export const BUTTON_SECONDARY_CLASS = buttonClass('secondary');
 
 /**
  * The action row under a form: secondary at the start, primary at the end.
