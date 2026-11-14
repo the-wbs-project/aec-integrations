@@ -1328,10 +1328,17 @@ export const TaxonomyResponseSchema = z.object({
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
+  total_products: z.number().int().min(0),         // AECI-1773
 });
 ```
 
 Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
+
+`total_products` (AECI-1773) feeds the Browse menu's "All products" line. It uses the same visibility
+rule as `home.total_products` on `GET /api/stats/home` (`computeTotalProducts`: hidden listings are
+not counted), so the two agree for the same data. It is computed live inside the KV read-through, so it
+is at most 5 minutes stale. A cached KV value written before this field fails `safeParse` and is
+refetched. This is a read and carries no rate limit.
 
 ### 6.5 Stats
 

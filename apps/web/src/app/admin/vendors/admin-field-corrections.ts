@@ -66,7 +66,9 @@ type ValueControl =
 export const MAX_FACET_TERMS = 10;
 
 /** Which `GET /api/taxonomy` list holds a facet's vocabulary. */
-const FACET_VOCABULARY: Readonly<Record<ProductFacetOverrideField, keyof TaxonomyResponse>> = {
+const FACET_VOCABULARY: Readonly<
+  Record<ProductFacetOverrideField, 'categories' | 'audiences' | 'phases' | 'trades'>
+> = {
   category_slugs: 'categories',
   audience_slugs: 'audiences',
   phase_slugs: 'phases',

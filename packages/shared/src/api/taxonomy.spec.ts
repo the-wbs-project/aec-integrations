@@ -96,7 +96,9 @@ describe('TaxonomyResponseSchema', () => {
       audiences: [validTerm],
       phases: [validTerm],
       trades: [validTerm],
+      total_products: 7,
     });
+    expect(parsed.total_products).toBe(7);
     expect(parsed.categories).toHaveLength(1);
     expect(parsed.audiences).toHaveLength(1);
     expect(parsed.phases).toHaveLength(1);
@@ -109,6 +111,12 @@ describe('TaxonomyResponseSchema', () => {
       audiences: [],
     });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects when total_products is missing or negative (AECI-1773)', () => {
+    const base = { categories: [], audiences: [], phases: [], trades: [] };
+    expect(TaxonomyResponseSchema.safeParse(base).success).toBe(false);
+    expect(TaxonomyResponseSchema.safeParse({ ...base, total_products: -1 }).success).toBe(false);
   });
 
   it('rejects when only trades is missing (the fourth facet is required)', () => {
@@ -129,6 +137,7 @@ describe('TaxonomyResponseSchema', () => {
         { ...validTerm, slug: 'paving-asphalt', name: 'Paving & Asphalt', product_count: 0 },
         { ...validTerm, slug: 'glazing', name: 'Glazing', product_count: 2 },
       ],
+      total_products: 2,
     });
     expect(parsed.trades.map((t) => t.product_count)).toEqual([0, 2]);
   });
