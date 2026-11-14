@@ -172,6 +172,11 @@
                 // `aec-chip` component, which the header's account role pill and
                 // the search autocomplete tag load eagerly. The chip needs
                 // `AecIcon` for the selected tick, already in the initial bundle.
+                //
+                // AECI-1764: no raise, uses the 1.10MB above. The shared field
+                // recipe adds about 1 kB of eager CSS (`.aec-field-control` edge,
+                // focus, error and disabled rules, the forced-colours rule and
+                // the error glyph mask).
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",

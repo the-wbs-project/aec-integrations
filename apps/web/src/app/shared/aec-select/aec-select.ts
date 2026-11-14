@@ -235,18 +235,17 @@ export class AecSelect {
     // ever taking the native attribute the `disabled:` variant keys off. That is
     // the better accessible behaviour (a disabled control stays discoverable),
     // but it means the obvious Tailwind variant silently never fires.
-    // The border colour (3:1 `--border-input`, red when invalid) comes from the
+    // The border colour (3:1 `--border-field`, red when invalid) comes from the
     // unlayered `.aec-field-control` rule in `styles.css`: a border-colour
     // utility never applies in this app.
     const base =
-      'aec-field-control flex items-center justify-between gap-2 rounded-(--radius-md) border' +
-      ' bg-(--surface-base) text-sm text-(--text-primary)' +
-      ' focus-visible:outline-2 focus-visible:outline-offset-2' +
-      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed' +
-      ' aria-disabled:opacity-50';
+      'aec-field-control flex items-center justify-between gap-2 rounded-control border' +
+      ' bg-(--surface-base) text-t-16 text-(--text-primary)' +
+      ' focus-visible:outline-3 focus-visible:outline-offset-3' +
+      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed';
     return this.layout() === 'stacked'
-      ? `${base} w-full py-2 ps-3 pe-2`
-      : `${base} min-w-[8rem] py-1.5 ps-3 pe-2`;
+      ? `${base} w-full py-2 ps-4 pe-3`
+      : `${base} min-w-[8rem] py-2 ps-4 pe-3`;
   });
 
   /** The selection bridged into Aria's array-valued listbox model, re-derived
