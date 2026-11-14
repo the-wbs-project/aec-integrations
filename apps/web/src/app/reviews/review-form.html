@@ -38,10 +38,7 @@
         Thanks — your review will appear once moderated (usually within 24 hours).
       </p>
       <div class="mt-8">
-        <a
-          [routerLink]="backRouterLink()"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-        >
+        <a aecButton variant="secondary" [routerLink]="backRouterLink()">
           <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
           <span i18n="@@reviews.back">Back to {{ product.name }}</span>
         </a>
@@ -150,16 +147,17 @@
         </p>
         <div class="mt-5 flex flex-wrap gap-3">
           <a
+            aecButton
             [routerLink]="['/auth/login']"
             [queryParams]="{ return: reviewPath() }"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@reviews.signIn.notice.cta"
           >
             Sign in
           </a>
           <a
+            aecButton
+            variant="secondary"
             [routerLink]="backRouterLink()"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
             i18n="@@reviews.signIn.notice.back"
           >
             Back to {{ product.name }}
@@ -186,16 +184,13 @@
           You can only submit one review per product. View or manage your review from your account.
         </p>
         <div class="mt-5 flex flex-wrap gap-3">
-          <a
-            routerLink="/account"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@reviews.alreadyReviewed.viewYourReview"
-          >
+          <a aecButton routerLink="/account" i18n="@@reviews.alreadyReviewed.viewYourReview">
             View your review
           </a>
           <a
+            aecButton
+            variant="secondary"
             [routerLink]="backRouterLink()"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
             i18n="@@reviews.alreadyReviewed.back"
           >
             Back to {{ product.name }}
@@ -608,11 +603,7 @@
         </p>
         }
 
-        <button
-          type="submit"
-          [disabled]="form().submitting()"
-          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button aecButton type="submit" [disabled]="form().submitting()">
           @if (form().submitting()) {
           <span i18n="@@reviews.submitting">Submitting…</span>
           } @else {
@@ -653,17 +644,18 @@
         </p>
         <div class="mt-6 flex flex-wrap justify-end gap-3">
           <button
+            aecButton
+            variant="secondary"
             brnDialogClose
             type="button"
-            class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@reviews.signIn.dialog.cancel"
           >
             Not now
           </button>
           <a
+            aecButton
             [routerLink]="['/auth/login']"
             [queryParams]="{ return: reviewPath() }"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@reviews.signIn.dialog.signIn"
           >
             Sign in

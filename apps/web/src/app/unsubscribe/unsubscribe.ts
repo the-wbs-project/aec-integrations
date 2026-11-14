@@ -26,6 +26,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { LandingApi } from '../shared/landing/landing-api';
+import { AecButton } from '../shared/button/button';
 
 /**
  * `no-token` — reached without a `?token=` (a bare visit / stripped link).
@@ -37,12 +38,9 @@ import { LandingApi } from '../shared/landing/landing-api';
  */
 type UnsubscribeStatus = 'no-token' | 'idle' | 'unsubscribing' | 'done' | 'invalid' | 'error';
 
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
-
 @Component({
   selector: 'app-unsubscribe',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment), matching
@@ -76,8 +74,9 @@ const BTN =
                   rejoin any time from the site.
                 </p>
                 <a
+                  aecButton
                   routerLink="/products"
-                  [class]="btn + ' mt-6'"
+                  class="mt-6"
                   i18n="@@app.unsubscribe.done.browse"
                 >
                   Browse integrations
@@ -130,9 +129,10 @@ const BTN =
                   Confirm below and we'll stop sending you AEC Integrations mailing-list updates.
                 </p>
                 <button
+                  aecButton
                   type="button"
+                  class="mt-6"
                   [disabled]="status() === 'unsubscribing'"
-                  [class]="btn + ' mt-6'"
                   (click)="onConfirm()"
                 >
                   @if (status() === 'unsubscribing') {
@@ -165,8 +165,6 @@ export class UnsubscribePage {
   private readonly meta = inject(MetaService);
   private readonly api = inject(LandingApi);
   private readonly route = inject(ActivatedRoute);
-
-  protected readonly btn = BTN;
 
   /** The opaque token from `?token=`. Read once from the route snapshot (available
    *  under SSR for this routed component). Null → the `no-token` guidance state. */

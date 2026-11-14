@@ -43,6 +43,7 @@ import { ClaimantFields } from './claimant-fields';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 import { isReplayedEvent } from '../core/event-replay';
+import { AecButton } from '../shared/button/button';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -111,6 +112,7 @@ interface RequestModel {
 @Component({
   selector: 'aec-request-form-body',
   imports: [
+    AecButton,
     FormField,
     RouterLink,
     ClaimantFields,

@@ -26,8 +26,6 @@ import {
 
 import { Analytics } from '../analytics/analytics';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
@@ -35,6 +33,7 @@ import {
 } from '../shared/form-field/form-field-classes';
 import { AccountApi } from './account-api';
 import { ReviewStatusBadge } from './review-status-badge';
+import { AecButton } from '../shared/button/button';
 
 /** Why the last submit failed, mapped from the API's error code. */
 type SubmitError =
@@ -75,7 +74,7 @@ const NO_ERRORS: FieldErrors = { body: null, rating_overall: false, rating_onboa
 @Component({
   selector: 'aec-review-update-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, Listbox, Option, ReviewStatusBadge],
+  imports: [AecButton, DatePipe, Listbox, Option, ReviewStatusBadge],
   templateUrl: './review-update-panel.html',
 })
 export class ReviewUpdatePanel {
@@ -96,8 +95,6 @@ export class ReviewUpdatePanel {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
 
   protected readonly formOpen = signal(false);
   protected readonly body = signal('');

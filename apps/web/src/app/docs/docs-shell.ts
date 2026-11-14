@@ -57,6 +57,7 @@ import { filter, map } from 'rxjs';
 
 import { DOCS_SECTIONS, type DocsGuide, type DocsPage, type DocsSection } from './docs-content';
 import { DocsSearchComponent } from './docs-search';
+import { AecButton } from '../shared/button/button';
 
 export interface Crumb {
   readonly label: string;
@@ -105,7 +106,7 @@ const GUIDE_LINK =
 
 @Component({
   selector: 'app-docs-shell',
-  imports: [DocsSearchComponent, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [AecButton, DocsSearchComponent, RouterLink, RouterLinkActive, RouterOutlet],
   host: {
     class: 'block border-t border-(--border-default)',
     // On the host, not the panel: a key handler on a non-focusable element fails
@@ -118,9 +119,12 @@ const GUIDE_LINK =
         class="flex min-h-12 items-center gap-3 border-b border-(--border-default) px-4 py-2 md:px-6 lg:col-start-2 lg:row-start-1 lg:px-8"
       >
         <button
+          aecButton
+          variant="secondary"
+          iconOnly
           #menuButton
           type="button"
-          class="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-(--border-default) text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) lg:hidden"
+          class="lg:hidden"
           aria-controls="docs-nav-panel"
           [attr.aria-expanded]="menuOpen()"
           i18n-aria-label="@@app.docs.nav.toggle.aria"

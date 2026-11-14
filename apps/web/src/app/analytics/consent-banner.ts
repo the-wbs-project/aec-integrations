@@ -11,6 +11,7 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { ConsentService } from './consent';
+import { AecButton } from '../shared/button/button';
 
 /**
  * Analytics consent banner (AECI-239 / Phase 7.4).
@@ -34,7 +35,7 @@ import { ConsentService } from './consent';
  */
 @Component({
   selector: 'aec-consent-banner',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     @if (show()) {
       <div aria-hidden="true" [style.height.px]="reserve()"></div>
@@ -64,29 +65,20 @@ import { ConsentService } from './consent';
           </p>
           <div class="flex shrink-0 gap-3">
             <button
+              aecButton
+              variant="secondary"
               id="consent-decline"
               type="button"
               (click)="decline()"
-              class="inline-flex items-center justify-center rounded-(--radius-md)
-                border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm
-                font-medium text-(--text-primary) transition-colors
-                hover:border-(--border-strong) focus-visible:outline-none
-                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
               i18n="@@analytics.consent.decline"
             >
               Decline
             </button>
             <button
+              aecButton
               id="consent-accept"
               type="button"
               (click)="accept()"
-              class="inline-flex items-center justify-center rounded-(--radius-md)
-                border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm
-                font-bold text-(--surface-base) transition-colors
-                hover:bg-(--accent-primary-hover) focus-visible:outline-none
-                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
               i18n="@@analytics.consent.accept"
             >
               Accept

@@ -34,10 +34,7 @@ import {
 } from './profile-details/profile-details-model';
 import { ReviewStatusBadge } from './review-status-badge';
 import { ReviewUpdatePanel } from './review-update-panel';
-import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
-} from '../shared/form-field/form-field-classes';
+import { AecButton } from '../shared/button/button';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -73,6 +70,7 @@ const REVIEWS_PER_PAGE = 24;
 @Component({
   selector: 'aec-account-page',
   imports: [
+    AecButton,
     DatePipe,
     FormField,
     RouterLink,
@@ -138,9 +136,6 @@ export class AccountPage {
   protected readonly aboutStatus = signal('');
   private readonly aboutForm = viewChild(ProfileDetailsForm);
   /** Show the onboarding card while the server still reports `pending`. */
-  // The claim dialog's button recipe (`shared/form-field/form-field-classes.ts`).
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
   /** The `lg` section nav's links (AECI-987). Plain anchors with absolute hrefs. */
   protected readonly navLinkClass =
     'block rounded-sm py-1.5 ps-4 font-medium text-(--text-secondary) no-underline ' +

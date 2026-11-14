@@ -60,9 +60,10 @@
   </p>
   <div class="mt-8">
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="useDifferentEmail()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
       i18n="@@auth.login.sent.differentEmail"
     >
       Use a different email
@@ -151,11 +152,13 @@
   <!-- ── Google ───────────────────────────────────────────────────────── -->
   <div class="relative mt-8">
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="onGoogle()"
       [disabled]="unavailable() || googlePending()"
       [attr.aria-describedby]="lastMethod() === 'google' ? 'login-last-used' : null"
-      class="inline-flex h-11 w-full items-center justify-center gap-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      class="w-full"
     >
       <!--
         Google's "G" mark, per the Sign in with Google branding guidelines: the
@@ -247,10 +250,11 @@
 
     <div class="relative">
       <button
+        aecButton
         type="submit"
         [disabled]="unavailable() || !hydrated() || form().submitting()"
         [attr.aria-describedby]="lastMethod() === 'email' ? 'login-last-used' : null"
-        class="inline-flex h-11 w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        class="w-full"
       >
         @if (form().submitting()) {
         <span i18n="@@auth.login.submitting">Sending…</span>

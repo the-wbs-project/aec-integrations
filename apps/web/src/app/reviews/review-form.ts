@@ -40,6 +40,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ReviewsApi } from './reviews-api';
+import { AecButton } from '../shared/button/button';
 
 type RoleValue = NonNullable<SubmitReviewInput['role_at_company']>;
 type RecommendValue = NonNullable<SubmitReviewInput['would_recommend']>;
@@ -103,6 +104,7 @@ interface ReviewModel {
 @Component({
   selector: 'aec-review-form',
   imports: [
+    AecButton,
     FormField,
     Listbox,
     Option,
