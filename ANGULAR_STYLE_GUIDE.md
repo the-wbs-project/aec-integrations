@@ -59,7 +59,7 @@ Lint: ✅ `no-restricted-imports` bans `zone.js`, `zone.js/*`, and the `NgZone` 
 - Full paths for the other helpers: `apps/web/src/app/core/scroll-behavior-manager.ts` (`ScrollBehaviorManager`, which toggles `scroll-behavior: auto` for the span of each navigation), the fragment scroller and `PreStableScrollReset` above. All three are started from `App`.
 - **Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of ADR 0056).** `styles.css` has no global `html { scroll-behavior: smooth }`. The rule is `html.aeci-smooth-scroll { scroll-behavior: smooth }`, inside `@media (prefers-reduced-motion: no-preference)`. `InPageSmoothScroll` (`apps/web/src/app/core/in-page-smooth-scroll.ts`, started from `App`) adds that class when a reader clicks an `<a data-smooth-scroll>` link to a `#fragment` on the current page. It removes the class at `scrollend`, or after 1.5 seconds. The browser still does the scroll, so the target's `scroll-mt-*` holds. Everything else scrolls instantly: the skip link, router restoration, `InitialFragmentScroller`, `routerLink [fragment]` links such as the `/vendor-program` plan links, and every programmatic scroll. Every `scrollIntoView()` and `scrollTo()` outside the router passes `behavior: 'instant'`. Safari 17.0 to 26.1 have no `scrollend`, so there the class stays on for the full 1.5 seconds, and a call with no `behavior` in that window would animate.
 - **Opting a link in.** Add the bare `data-smooth-scroll` attribute to a plain `<a href="{path}#id">`. The attribute has no effect on a `routerLink`: `RouterLink` cancels the click, and the router's scroll is always instant. An in-page section nav that should animate must therefore be plain anchors, with any click listener on a non-anchor ancestor (the AECI-1655 rule above). Opted in today: the product page section nav and its "N reviews" link, the docs "On this page" rail, the `/account` section nav, and the vendor integration page nav. Never put it on the skip link.
-- **One mechanism, one switch.** Never turn smooth scrolling on any other way: no `scroll-behavior: smooth` in a stylesheet, no Tailwind `scroll-smooth`, no inline `scrollBehavior`, no `behavior: 'smooth'` option on a scroll call. Lint: ✅ `no-smooth-scroll` in `apps/web/scripts/check-source-constraints.mjs`, which allow-lists only `styles.css` and `core/in-page-smooth-scroll.ts`. The scanner reads comments too, so describe the banned forms in prose.
+- **One mechanism, one switch.** Never turn smooth scrolling on any other way: no `scroll-behavior: smooth` in a stylesheet or via `style.setProperty`, no Tailwind `scroll-smooth`, no inline `scrollBehavior` or `[style.scroll-behavior]` binding, no `behavior: 'smooth'` option on a scroll call, and no use of the `aeci-smooth-scroll` class outside the service. Lint: ✅ `no-smooth-scroll` in `apps/web/scripts/check-source-constraints.mjs`, which allow-lists only `styles.css`, `core/in-page-smooth-scroll.ts` and `index.html` (the switch site). The scanner reads comments too, so describe the banned forms in prose.
 - **The switch back to the old global smooth scroll.** Add `class="aeci-smooth-scroll"` to the `<html>` element in `apps/web/src/index.html`. The rule then applies from the first paint, server-rendered HTML included. `InPageSmoothScroll.start()` sees the class and stands down, so it never strips it. `ScrollBehaviorManager` keeps router scrolls instant and reduced motion still wins. Two e2e tests in `apps/web/e2e/scroll-restoration.spec.ts` assert the scoped behaviour and fail when the switch is flipped, so update them in the same change: "a section-nav click animates and lands the section below the nav" (it checks `<html>` is `auto` at rest) and the two "the skip link jumps without animation …" tests. The test "the switch: with the class on <html>, …" covers the flipped state. Chris asked for this switch (clash 38, "Make sure we know how to adopt the old way if needed").
 
 ---
@@ -246,6 +246,28 @@ Lint: 🟡 review-only.
 - Inline base64 images are exempt — `NgOptimizedImage` doesn't support `data:` URLs. Add an `eslint-disable-next-line @angular-eslint/template/prefer-ngsrc` with a comment explaining the carve-out.
 
 Lint: ✅ `@angular-eslint/template/prefer-ngsrc`.
+
+---
+
+## 14a. Icons: `aec-icon`
+
+AECI-1753, ruling 34 (ADR 0056). A custom icon set at 1.75 stroke replaces "Lucide icons exclusively". New icons go through `aec-icon` (`apps/web/src/app/shared/icon/`). Do not paste an inline `<svg>` for a UI glyph. Existing inline SVGs migrate page by page under AECI-1720. Charts, brand marks and filled social glyphs are not icons and stay as they are.
+
+Every use states its intent. The selector is `aec-icon[label], aec-icon[decorative]`, so an `<aec-icon>` with neither fails to compile with NG8001.
+
+- **Decorative:** `<aec-icon name="search" decorative />`. The SVG is `aria-hidden="true"` with no name. Use it whenever visible text beside the icon says the same thing, and inside a control that has its own name.
+- **Meaningful:** `<aec-icon name="alert-circle" label="Needs review" />` or `[label]="alertLabel"`. The SVG becomes `role="img"` with that accessible name. Pass the label already localised (`$localize` or an `i18n-label` attribute on the caller). A bound label that resolves blank falls back to decorative and logs a `console.warn` in dev mode only.
+- **Size:** `[size]="3.5 | 4 | 5 | 6"` is 14, 16, 20 or 24px. The default is 5. Never size an icon with arbitrary pixel classes.
+- **Colour:** the icon is `currentColor` only. Set a text colour on the parent. Inherited properties such as `color` reach the SVG through the host. A class on `<aec-icon>` does not size, space or flip it, because the host is `display: contents`. Use `size` and `mirrorRtl`, and put spacing on a wrapper.
+- **Direction:** set `[mirrorRtl]="true"` for an icon that points along the line, such as an arrow or chevron.
+- **Name:** `name` is typed `AecIconName`, derived from the registry keys. An unknown name fails to compile.
+- **Vocabulary icons:** a drawing is named for what it shows. The data-object and facet icons live in `DATA_OBJECT_ICONS` and `FACET_ICONS` in `icon-maps.ts`, typed over the full vocabulary. `null` means no drawing exists yet.
+
+**Adding an icon:** add one kebab-case key to `AEC_ICONS` in `icon-registry.ts`, in alphabetical order, named for what it draws and not where it is used. Write it as shapes (`p` path, `c` circle, `r` rounded rect), stroke-only, in the 24 x 24 box. Do not add colours or fills. If the path data is copied from Lucide, mark the entry `// Lucide` and keep the licence notice at the top of the file and in `apps/web/public/third-party-notices.txt`. esbuild strips source comments, so the public file is the notice that ships (`/third-party-notices.txt`). Add no other icon dependency. `icon.component.spec.ts` checks key format, that no shape carries colour, and that no two icons draw the same.
+
+**Adding a vocabulary slug:** add it to `DATA_OBJECT_SLUGS` and `DATA_OBJECT_ICONS` in `icon-maps.ts`. `icon-maps.spec.ts` compares the slugs with `docs/data-object-vocabulary.json`.
+
+Lint: the label rule is compile-enforced (NG8001). "No inline `<svg>` for a UI glyph" is 🟡 review-only.
 
 ---
 
@@ -441,7 +463,7 @@ A constraint that spans layers 1 and 4 keeps its patterns in a **shared leaf mod
 | `@angular-eslint/no-async-lifecycle-method` | error | §15 |
 | `@angular-eslint/use-injectable-provided-in` | error | §17 |
 | `no-restricted-syntax` (em dash in copy) | error | `PRODUCT.md` / `DESIGN.md` |
-| `no-restricted-syntax` (color literals — hex, `rgb()`/`hsl()`/`oklch()`, Tailwind palette, `white`/`black`) | error | §20 |
+| `no-restricted-syntax` (color literals — hex, `rgb()`/`hsl()`/`oklch()`, Tailwind palette, `white`/`black`, opacity modifier on a colour utility) | error | §20 |
 
 Scope note: the em-dash guard is shipped-source only (`**/*.spec.ts`, `**/*.harness.ts`, and `e2e/**` are exempt) because `describe()` / `it()` titles and assertion messages are developer-facing, not rendered copy. The AECI-597 color guard shares that exemption for the same reason, and it is load-bearing: `login.component.spec.ts` pins the four Google brand fills as a fixture.
 
@@ -493,11 +515,12 @@ ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme and 
 | `no-color-function` | `.html`, `.css` | `rgb()`, `hsl()`, `oklch()`, `oklab()` — except pure black | Tokens, not literals (AECI-597, §20) |
 | `no-tailwind-palette` | `.html`, `.css` | `bg-zinc-100` and every other palette-with-shade class | Tokens, not literals (AECI-597, §20) |
 | `no-named-color-class` | `.html`, `.css` | `text-white`, `bg-black`, … — not `-transparent` | Tokens, not literals (AECI-597, §20) |
-| `no-smooth-scroll` | `.ts`, `.html`, `.css` | `scroll-behavior: smooth`, Tailwind `scroll-smooth`, inline `scrollBehavior = 'smooth'`, a `behavior: 'smooth'` scroll option. Allow-lists `styles.css` and `core/in-page-smooth-scroll.ts` | One smooth-scroll mechanism, one switch (AECI-1752, §3 scroll notes) |
+| `no-color-opacity-modifier` | `.html`, `.css` | `text-(--surface-base)/70`, `bg-forest/40`: a `/NN` on a colour utility. Not `text-sm/6` or `w-1/2`. Allow-list `COLOR_OPACITY_MODIFIER_ALLOW` is empty and cleared by AECI-1813 | Every alpha is a measured named token (AECI-1747, redesign clash 6) |
+| `no-smooth-scroll` | `.ts`, `.html`, `.css` | A smooth `scroll-behavior` from CSS, `scrollBehavior =` or `style.setProperty`; a smooth `behavior` scroll option, key bare or quoted, value on the same or the next line; any `[style.scroll-behavior]` binding; Tailwind `scroll-smooth` incl. `[class.scroll-smooth]`; the switch class `aeci-smooth-scroll`. Allow-lists `styles.css`, `core/in-page-smooth-scroll.ts` and `index.html` | One smooth-scroll mechanism, one switch (AECI-1752, §3 scroll notes) |
 
 **Two escape hatches, and they are not interchangeable.**
 
-A rule may carry an `allow` array of repo-relative paths. It is per-RULE, not per-file, on purpose: `styles.css` is exempt from the color rules because it is the token definition site, yet stays fully covered by both dark-theme rules — the one stylesheet most able to reintroduce a second theme. A file-level skip would have silently dropped that. The colour rules' two entries are declared in `eslint.color-patterns.mjs`. The `no-smooth-scroll` rule declares its own two (`styles.css` and `core/in-page-smooth-scroll.ts`) in the script. `source-constraints.spec.ts` asserts each allow-listed file still *contains* what it is exempted for, so an exemption cannot outlive its reason.
+A rule may carry an `allow` array of repo-relative paths. It is per-RULE, not per-file, on purpose: `styles.css` is exempt from the color rules because it is the token definition site, yet stays fully covered by both dark-theme rules — the one stylesheet most able to reintroduce a second theme. A file-level skip would have silently dropped that. The colour rules' two entries are declared in `eslint.color-patterns.mjs`. The `no-smooth-scroll` rule declares its own three (`styles.css`, `core/in-page-smooth-scroll.ts` and `index.html`) in the script. `source-constraints.spec.ts` asserts each allow-listed file still *contains* what it is exempted for, so an exemption cannot outlive its reason.
 
 For a one-off line, `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment or a test fixture that legitimately *names* a banned pattern does not make the file uneditable. Its first real uses are in `source-constraints.spec.ts`, where the fixture proving `text-left` is caught has to contain `text-left`.
 
@@ -515,6 +538,7 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 | `@angular-eslint/template/no-any` | error | §8 |
 | `@angular-eslint/template/prefer-ngsrc` | error | §14 |
 | `angular.configs.templateAccessibility` (full set) | error | §21 |
+| `aec-icon` must carry `label` or `decorative` (selector `aec-icon[label], aec-icon[decorative]`, NG8001 at build, not lint) | compile error | §14a |
 
 ### Review-only (no lint enforcement)
 
@@ -522,6 +546,7 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 |---|---|
 | Hydration provider order and `withI18nSupport()` presence (the zoneless *provider* is lint-enforced via the `NgZone` / `provideZoneChangeDetection` import ban; ordering is not, and a missing `withI18nSupport()` is caught by `e2e/ssr-hydration-contract.spec.ts`, not lint) | §3 |
 | Omit explicit `changeDetection` (OnPush is the v22 default) | §5 |
+| No inline `<svg>` for a UI glyph (use `aec-icon`) | §14a |
 | `ngStyle` ban (use `[style.X]`) | §8 |
 | Async pipe for observables | §8 |
 | No browser globals at template render (`new Date()`) | §8, §16 |

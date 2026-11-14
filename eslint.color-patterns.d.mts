@@ -28,3 +28,9 @@ export const COLOR_LITERAL_ALLOW: {
   readonly hex: readonly string[];
   readonly colorFunction: readonly string[];
 };
+
+/** A `/NN` opacity modifier on a colour utility, e.g. `text-(--surface-base)/70`. */
+export const COLOR_OPACITY_MODIFIER: string;
+
+/** Repo-relative paths exempt from the opacity-modifier rule. Empty until a portal or admin use needs it; AECI-1813 clears it. */
+export const COLOR_OPACITY_MODIFIER_ALLOW: readonly string[];

@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 
 import { AppUpdateService } from './app-update.service';
+import { AecIcon } from '../../shared/icon/icon';
 
 /**
  * "A new version is available" notice (AECI-1493).
@@ -20,6 +21,7 @@ import { AppUpdateService } from './app-update.service';
  */
 @Component({
   selector: 'aec-update-banner',
+  imports: [AecIcon],
   template: `
     @if (show()) {
       <div
@@ -66,17 +68,7 @@ import { AppUpdateService } from './app-update.service';
                 focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-(--accent-primary)"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              class="size-4"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-            >
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <aec-icon name="x" decorative [size]="4" />
           </button>
         </div>
       </div>

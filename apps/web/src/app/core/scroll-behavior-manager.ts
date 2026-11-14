@@ -2,7 +2,7 @@
  * Forces router-driven scroll restoration to be *instant* whenever smooth
  * scrolling is on for `<html>`.
  *
- * Since AECI-1752 smooth scrolling is not global: `html.aeci-smooth-scroll`
+ * Since AECI-1752 smooth scrolling is not global: the smooth-scroll class on `<html>`
  * (styles.css) is on only for the span of one in-page link jump
  * (`core/in-page-smooth-scroll.ts`), or always if someone flips the switch back
  * to the old global behaviour. This manager is what keeps router scrolls instant

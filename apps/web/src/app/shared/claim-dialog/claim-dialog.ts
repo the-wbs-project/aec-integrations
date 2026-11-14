@@ -9,6 +9,7 @@ import {
 
 import { ClaimDialogFlow } from './claim-dialog-flow';
 import { ClaimDialogService } from './claim-dialog.service';
+import { AecIcon } from '../icon/icon';
 
 /**
  * The claim dialog (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): a BrnDialog
@@ -34,6 +35,7 @@ import { ClaimDialogService } from './claim-dialog.service';
   selector: 'aec-claim-dialog',
   host: { class: 'contents' },
   imports: [
+    AecIcon,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -94,18 +96,7 @@ import { ClaimDialogService } from './claim-dialog.service';
               i18n-aria-label="@@claimDialog.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative [size]="5" />
             </button>
           </div>
 

@@ -126,7 +126,7 @@ export class PreStableScrollReset {
     if (position) {
       this.viewportScroller.scrollToPosition(position, instant);
     } else if (anchor) {
-      this.viewportScroller.scrollToAnchor(anchor);
+      this.viewportScroller.scrollToAnchor(anchor, instant);
     } else {
       this.viewportScroller.scrollToPosition([0, 0], instant);
     }

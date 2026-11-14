@@ -34,6 +34,7 @@ import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -79,6 +80,7 @@ import { RoleBadge } from './role-badge';
 @Component({
   selector: 'aec-product-detail',
   imports: [
+    AecIcon,
     DetailLayout,
     ExternalLinkTracker,
     FieldCaptionLine,
@@ -632,19 +634,7 @@ import { RoleBadge } from './role-badge';
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                  <path d="M4 22v-7" />
-                </svg>
+                <aec-icon name="flag" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3),
                      so the button names the product's vendor. -->
                 @if (p.vendor?.name; as company) {
@@ -672,19 +662,7 @@ import { RoleBadge } from './role-badge';
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
+                <aec-icon name="pen" decorative [size]="4" />
                 <ng-container i18n="@@products.detail.metadata.correction"
                   >Suggest a correction</ng-container
                 >

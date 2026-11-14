@@ -48,7 +48,7 @@ interface Pillar {
           >
             Trust is the product
           </h2>
-          <p class="mt-4 text-lg leading-relaxed text-(--surface-base)/80">{{ lede }}</p>
+          <p class="mt-4 text-lg leading-relaxed text-(--text-on-brand-secondary)">{{ lede }}</p>
         </div>
 
         <ul class="mt-12 grid gap-4 md:grid-cols-3">
@@ -63,7 +63,9 @@ interface Pillar {
           }
         </ul>
 
-        <p class="mt-8 max-w-3xl text-sm leading-relaxed text-(--surface-base)/70">{{ closing }}</p>
+        <p class="mt-8 max-w-3xl text-sm leading-relaxed text-(--text-on-brand-secondary)">
+          {{ closing }}
+        </p>
       </div>
     </section>
   `,

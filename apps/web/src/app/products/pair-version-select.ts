@@ -10,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { AecIcon } from '../shared/icon/icon';
 
 /** One selectable release. `released_at` is display-only — never an ordering input. */
 export interface PairVersionOption {
@@ -52,7 +53,7 @@ export interface PairVersionOption {
 @Component({
   selector: 'aec-pair-version-select',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <div class="inline-flex items-center gap-2">
       <span [id]="labelId()" class="aec-overline text-(--text-secondary)">{{ label() }}</span>
@@ -70,18 +71,7 @@ export interface PairVersionOption {
             focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
-          <svg
-            class="h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
         </button>
 
         <!--

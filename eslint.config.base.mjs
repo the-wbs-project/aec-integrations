@@ -8,6 +8,7 @@ import {
   COLOR_FUNCTION,
   HEX_COLOR,
   NAMED_COLOR_CLASS,
+  COLOR_OPACITY_MODIFIER,
   TAILWIND_PALETTE,
 } from './eslint.color-patterns.mjs';
 
@@ -439,6 +440,10 @@ const NO_COLOR_LITERALS = [
   {
     selector: `Literal[value=/${NAMED_COLOR_CLASS}/], TemplateElement[value.raw=/${NAMED_COLOR_CLASS}/]`,
     message: `${COLOR_LITERAL_MESSAGE} (named color class — --surface-base IS pure white; bg-transparent and border-transparent stay allowed)`,
+  },
+  {
+    selector: `Literal[value=/${COLOR_OPACITY_MODIFIER}/], TemplateElement[value.raw=/${COLOR_OPACITY_MODIFIER}/]`,
+    message: `${COLOR_LITERAL_MESSAGE} (colour opacity modifier — add a named alpha token in styles.css instead; AECI-1747)`,
   },
 ];
 
