@@ -992,6 +992,17 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The Bone band (AECI-1766, `shared/bone-band/bone-band.ts`). Its ground is a
+   utility. Forced colours drops that fill, which would leave the band with no
+   boundary against the white page, so it gets a system-colour edge above and
+   below. Normal rendering has no border: Bone against white is 1.12:1 and the
+   mock-up draws none. */
+@media (forced-colors: active) {
+  .aec-bone-band {
+    border-block: 1px solid CanvasText;
+  }
+}
+
 /* The error glyph is a background-painted mask, and forced colours replaces
    background colours, which would erase it. Opt it out and paint the system
    text colour. */

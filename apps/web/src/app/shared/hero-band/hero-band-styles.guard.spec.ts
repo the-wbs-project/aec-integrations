@@ -51,6 +51,14 @@ describe('hero band styles (AECI-1766)', () => {
     expect(block).toMatch(/\.aec-hero-panel \{\s*border: 1px solid CanvasText/);
   });
 
+  it('gives the Bone band a system-colour edge under forced colours only', () => {
+    const at = css.indexOf('@media (forced-colors: active) {\n  .aec-bone-band');
+    expect(at).toBeGreaterThan(0);
+    const block = css.slice(at, css.indexOf('\n}\n', at));
+    expect(block).toMatch(/border-block: 1px solid CanvasText/);
+    expect(css).not.toMatch(/^\.aec-bone-band \{/m);
+  });
+
   it('defines the glow tokens at the ruled alphas', () => {
     expect(css).toMatch(/--surface-hero-glow:\s*oklch\(43\.47% 0\.0641 160\.3 \/ 75%\)/);
     expect(css).toMatch(/--surface-hero-glow-soft:\s*oklch\(43\.47% 0\.0641 160\.3 \/ 45%\)/);

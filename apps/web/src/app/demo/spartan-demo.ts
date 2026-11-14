@@ -10,6 +10,7 @@ import {
 } from '@spartan-ng/brain/dialog';
 
 import { AecButton } from '../shared/button/button';
+import { BoneBand } from '../shared/bone-band/bone-band';
 import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 
@@ -25,6 +26,7 @@ import { AecIcon } from '../shared/icon/icon';
     BrnDialogDescription,
     BrnDialogTitle,
     BrnDialogTrigger,
+    BoneBand,
     HeroBand,
   ],
   template: `
@@ -266,6 +268,61 @@ import { AecIcon } from '../shared/icon/icon';
           Main action
         </button>
       </aec-hero-band>
+    </section>
+
+    <!-- AECI-1766: the one Bone band. Last on the page so it meets the footer. -->
+    <section aria-labelledby="demo-bone-heading" data-testid="bone-band-specimen">
+      <aec-bone-band data-testid="bone-band">
+        <h2
+          id="demo-bone-heading"
+          class="max-w-2xl font-display text-t-36 font-normal tracking-[-0.02em]"
+          i18n="@@demo.bone.heading"
+        >
+          The one Bone band
+        </h2>
+        <p class="mt-4 max-w-xl text-t-16 text-(--text-secondary)" i18n="@@demo.bone.body">
+          Secondary text on Bone is 6.91:1. A control keeps its own edge and fill.
+        </p>
+        <form class="mt-8 max-w-xl" novalidate (submit)="$event.preventDefault()">
+          <div class="flex flex-wrap gap-3">
+            <label class="sr-only" for="demo-bone-email" i18n="@@demo.bone.emailLabel">
+              Email address
+            </label>
+            <input
+              id="demo-bone-email"
+              type="email"
+              autocomplete="email"
+              data-testid="bone-input"
+              i18n-placeholder="@@demo.bone.emailPlaceholder"
+              placeholder="you@yourfirm.com"
+              class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary)"
+            />
+            <button aecButton type="submit" data-testid="bone-primary" i18n="@@demo.bone.subscribe">
+              Subscribe
+            </button>
+          </div>
+        </form>
+        <div class="mt-6 flex flex-wrap items-center gap-3">
+          <button
+            aecButton
+            variant="secondary"
+            type="button"
+            data-testid="bone-secondary"
+            i18n="@@demo.bone.secondary"
+          >
+            Secondary
+          </button>
+          <button
+            aecButton
+            variant="ghost"
+            type="button"
+            data-testid="bone-ghost"
+            i18n="@@demo.bone.ghost"
+          >
+            Ghost
+          </button>
+        </div>
+      </aec-bone-band>
     </section>
   `,
 })
