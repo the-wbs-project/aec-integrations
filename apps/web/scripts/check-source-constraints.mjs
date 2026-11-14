@@ -179,6 +179,28 @@ const RULES = [
     label: '`white` / `black` color class',
     hint: COLOR_HINT,
   },
+  {
+    id: 'no-smooth-scroll',
+    // AECI-1752 — smooth scrolling is scoped to in-page section links through ONE
+    // mechanism with ONE switch (clash 38 of ADR 0056). Any other way to turn it
+    // on is a second mechanism: a `scroll-behavior: smooth` rule, the Tailwind
+    // `scroll-smooth` utility, an inline `scrollBehavior = 'smooth'`, or a
+    // `behavior: 'smooth'` option on `scrollTo` / `scrollIntoView` / `scrollBy`.
+    // `.ts` is in scope because ESLint has no equivalent selector. The scanner
+    // reads comments too, so describe the banned forms in prose.
+    extensions: ['.ts', '.html', '.css'],
+    pattern:
+      /scroll-behavior\s*:\s*smooth|scrollBehavior\s*[:=]\s*['"`]smooth|behavior\s*:\s*['"`]smooth|(^|[\s:"'`])scroll-smooth\b/,
+    label: 'smooth scrolling outside InPageSmoothScroll',
+    allow: ['apps/web/src/styles.css', 'apps/web/src/app/core/in-page-smooth-scroll.ts'],
+    hint:
+      '  Smooth scrolling has one mechanism and one switch (AECI-1752):\n' +
+      '      opt a plain in-page <a href="{path}#id"> in with `data-smooth-scroll`;\n' +
+      '      `InPageSmoothScroll` (app/core/in-page-smooth-scroll.ts) does the rest.\n' +
+      "  Programmatic scrolls pass `behavior: 'instant'`. The switch back to a\n" +
+      '  global smooth scroll is a class on <html> in src/index.html.\n' +
+      '  See ANGULAR_STYLE_GUIDE.md "Smooth scrolling is scoped to in-page section links".',
+  },
 ];
 
 const ALL_EXTENSIONS = [...new Set(RULES.flatMap((r) => r.extensions))];

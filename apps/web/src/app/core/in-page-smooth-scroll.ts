@@ -18,18 +18,34 @@
  * `scrollend` event, or after {@link SMOOTH_SCROLL_DISARM_MS} when no scroll
  * happens. The service never calls `preventDefault` and never scrolls itself.
  *
- * Opt a link in with the bare `data-smooth-scroll` attribute. Today that is the
- * product page section nav (`shared/section-nav/section-nav.ts`), its "N
- * reviews" link, and the account page nav (`account/account.html`). The skip
- * link stays out on purpose: it moves focus, and an animated jump there only
- * delays the reader.
+ * Opt a link in with the bare `data-smooth-scroll` attribute. It must be a
+ * plain anchor: on a `routerLink` the attribute does nothing, because
+ * `RouterLink` cancels the click and the router does the (instant) scroll.
+ * Opted in today: the product page section nav (`shared/section-nav/section-nav.ts`)
+ * and its "N reviews" link, the docs "On this page" rail (`docs/docs-toc.ts`),
+ * the account page nav (`account/account.html`), and the vendor integration
+ * page nav (`vendor/integration-detail/vendor-integration-detail-page.ts`). The
+ * skip link stays out on purpose: it moves focus, and an animated jump there
+ * only delays the reader.
+ *
+ * **Why every programmatic scroll passes `behavior: 'instant'`.** Safari 17.0
+ * to 26.1 have no `scrollend`, so there the class stays on for the full
+ * {@link SMOOTH_SCROLL_DISARM_MS}. A `scrollIntoView()` or `scrollTo()` with no
+ * `behavior` in that window would animate. Router scrolls are covered by
+ * `ScrollBehaviorManager`. Everything else says `instant` explicitly, and the
+ * `no-smooth-scroll` lint rule (`scripts/check-source-constraints.mjs`) keeps a
+ * `smooth` option out.
  *
  * **The switch back to the old global behaviour.** Add
  * `class="aeci-smooth-scroll"` to the `<html>` element in `apps/web/src/index.html`.
  * The CSS rule then applies on every page from the first paint, including the
  * server-rendered HTML. {@link InPageSmoothScroll.start} sees the class and
- * stands down, so it never strips it. Nothing else changes: `ScrollBehaviorManager`
- * still forces router scrolls instant, and reduced motion still wins.
+ * stands down, so it never strips it. `ScrollBehaviorManager` still forces
+ * router scrolls instant, and reduced motion still wins. Two e2e tests in
+ * `e2e/scroll-restoration.spec.ts` assert the scoped behaviour and must be
+ * updated with the flip: "a section-nav click animates and lands the section
+ * below the nav" (it checks `<html>` is `auto` at rest) and "the skip link
+ * jumps without animation".
  *
  * **What it does not touch.** Router scroll restoration, `ScrollBehaviorManager`,
  * `ScrollMarginViewportScroller`, `InitialFragmentScroller` and
@@ -43,7 +59,7 @@
  * this starts gets the native instant jump.
  */
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
-import { DestroyRef, PLATFORM_ID, Service, inject } from '@angular/core';
+import { DestroyRef, Injectable, PLATFORM_ID, inject } from '@angular/core';
 
 /** The class on `<html>` that turns on `scroll-behavior: smooth` (`styles.css`). */
 export const SMOOTH_SCROLL_CLASS = 'aeci-smooth-scroll';
@@ -61,7 +77,7 @@ export const SMOOTH_SCROLL_DISARM_MS = 1500;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
-@Service()
+@Injectable({ providedIn: 'root' })
 export class InPageSmoothScroll {
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);

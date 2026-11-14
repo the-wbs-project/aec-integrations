@@ -534,7 +534,10 @@ textarea:-webkit-autofill:focus {
    THE SWITCH BACK to the old global smooth scroll: add
    `class="aeci-smooth-scroll"` to <html> in `src/index.html`. The service then
    stands down and leaves the class on. `ScrollBehaviorManager` keeps router
-   scrolls instant either way. */
+   scrolls instant either way. Flipping it fails two e2e tests in
+   `e2e/scroll-restoration.spec.ts` that assert the scoped behaviour, so update
+   them with it: "a section-nav click animates and lands the section below the
+   nav" and "the skip link jumps without animation". */
 @media (prefers-reduced-motion: no-preference) {
   html.aeci-smooth-scroll {
     scroll-behavior: smooth;

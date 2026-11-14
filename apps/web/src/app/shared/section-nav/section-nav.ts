@@ -36,11 +36,11 @@ export interface SectionNavItem {
  * a same-document scroll the browser handles itself: it honors each target's
  * `scroll-margin-top` (so the heading clears the sticky nav). Each link carries
  * `data-smooth-scroll`, so `InPageSmoothScroll` (`core/in-page-smooth-scroll.ts`,
- * AECI-1752) turns on `scroll-behavior: smooth` for the span of the jump and the
+ * AECI-1752) turns smooth scrolling on for the span of the jump and the
  * browser animates it. Under `prefers-reduced-motion`, before the app starts, or
  * where smooth scrolling is unsupported, it jumps instantly. The jump itself
  * works under SSR, for crawlers, no-JS, before hydration, and right-click "copy
- * link" alike, and (unlike `scrollIntoView({behavior:'smooth'})`) can never
+ * link" alike, and (unlike a smooth `scrollIntoView()` call) can never
  * silently no-op.
  *
  * What this does NOT do is bypass Angular. A same-document fragment navigation

@@ -11,10 +11,20 @@
  * visible. The open and closed states are CSS only (`.aec-docs-toc` in
  * `styles.css`); no script decides what is shown.
  *
- * **Links.** `routerLink` to the page's absolute path plus `fragment`, never a
- * bare `#id`, which `<base href>` would resolve against `/`. The router's scroll
- * setup lands each jump on the heading's `scroll-margin-top`. The jump is
- * instant: router scrolls never animate (AECI-1752).
+ * **Links.** Plain anchors to the page's absolute path plus `#id`, never a bare
+ * `#id`, which `<base href>` would resolve against `/`. The browser does the
+ * same-document jump itself and honours each heading's `scroll-margin-top`, the
+ * way the product page section nav does (`shared/section-nav/section-nav.ts`).
+ * Each link carries `data-smooth-scroll`, so `InPageSmoothScroll`
+ * (`core/in-page-smooth-scroll.ts`) animates the jump, except under reduced
+ * motion (AECI-1752). They were `routerLink`s until AECI-1752. A `RouterLink`
+ * cancels the click and the router scrolls instead, and `ScrollBehaviorManager`
+ * keeps router scrolls instant, so the rail could not animate.
+ *
+ * The click listener is on the host, never on an `<a>`: an anchor that owns a
+ * listener can go dead after an early click (AECI-1655, `ANGULAR_STYLE_GUIDE.md`).
+ * The host finds the anchor with `closest('a')`, sets the highlight and never
+ * calls `preventDefault`.
  *
  * **Active heading.** The SSR HTML marks the first heading current, the same for
  * every visitor, because the page is edge-cached. Only after the first browser
@@ -34,7 +44,6 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 import type { DocsHeading } from './docs-markdown';
 
@@ -43,7 +52,10 @@ export const DOCS_TOC_MIN_HEADINGS = 2;
 
 @Component({
   selector: 'app-docs-toc',
-  imports: [RouterLink],
+  host: {
+    // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
+    '(click)': 'onClick($event)',
+  },
   template: `
     @if (visible()) {
       <nav class="aec-docs-toc" i18n-aria-label="@@app.docs.toc.aria" aria-label="On this page">
@@ -51,11 +63,11 @@ export const DOCS_TOC_MIN_HEADINGS = 2;
           @for (heading of headings(); track heading.id) {
             <li>
               <a
-                [routerLink]="path()"
-                [fragment]="heading.id"
+                [href]="path() + '#' + heading.id"
+                [attr.data-heading-id]="heading.id"
+                data-smooth-scroll
                 [attr.aria-current]="heading.id === activeId() ? 'location' : null"
                 class="aec-docs-toc-link rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                (click)="picked.set(heading.id)"
               >
                 <span class="aec-docs-toc-label">{{ heading.text }}</span>
                 <span aria-hidden="true" class="aec-docs-toc-dash"></span>
@@ -82,6 +94,17 @@ export class DocsTocComponent {
   protected readonly picked = signal<string | null>(null);
   /** The heading in view: the first until the browser says otherwise. */
   protected readonly activeId = computed(() => this.picked() ?? this.headings()[0]?.id ?? null);
+
+  /**
+   * Marks the clicked heading current at once, before the observer catches up.
+   * Highlight only: the anchor's native same-document jump does the scroll.
+   */
+  protected onClick(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const id = target.closest('a[data-heading-id]')?.getAttribute('data-heading-id');
+    if (id) this.picked.set(id);
+  }
 
   constructor() {
     afterNextRender(() => {
