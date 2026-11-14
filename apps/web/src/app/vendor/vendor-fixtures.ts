@@ -2078,6 +2078,9 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             context_direction: 'outbound',
             powered_by_product: null,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
         // AECI-1092: the delivered pair can be contested from here. Kroo's vendor

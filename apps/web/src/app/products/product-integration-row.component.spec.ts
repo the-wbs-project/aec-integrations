@@ -29,6 +29,9 @@ const baseIntegration: ProductIntegrationItem = {
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };

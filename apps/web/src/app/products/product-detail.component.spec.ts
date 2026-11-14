@@ -543,6 +543,9 @@ describe('ProductDetailPage powered-integrations hub', () => {
             context_direction: null,
             powered_by_product: null,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
@@ -610,6 +613,9 @@ describe('ProductDetailPage integrations table order', () => {
     context_direction: null,
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
   });
 
   /**
@@ -742,6 +748,9 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     context_direction: null,
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
     ...overrides,
   });
 
@@ -1155,18 +1164,27 @@ describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
           {
             ...selfEdge(acumatica, agave),
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
           {
             ...selfEdge(sage, agave),
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
       }),
