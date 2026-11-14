@@ -171,7 +171,7 @@ Every value below was measured from the final mock-up files on 2026-11-13. The c
 | Hero panel | `--hero-panel` | `#26473A` | Panels sitting on the Forest hero |
 | Footer ground | `--foot-bg` | `#15291F` | Footer only |
 | Bone | `--band-warm`, `--hero-ink`, `--cta-bg` | `#F5F2EA` | One tinted band per page, text on Forest, the main button on Forest |
-| Clay | `--accent`, `--hero-accent` | `#E89668` | Strokes and accents only: the hero ribbon, the active nav bar |
+| Clay | `--accent`, `--hero-accent` | `#E89668` | Strokes and accents only: the hero ribbon, the Browse open bar and the section nav bar |
 | Clay deep | `--accent-text`, `--meter-b` | `#A14D22` | The onboarding series colour in rating displays |
 | Ink | `--ink` | `#0A0A0A` | Body text |
 | Ink secondary | `--ink-2` | `#52525B` | Secondary text |
@@ -281,7 +281,7 @@ Chris's note on clash 38: "Make sure we know how to adopt the old way if needed.
 
 - **Links are Browse, How we rank and For vendors.** Products live under Browse as "All products". Clash 26.
 - **The search control is a pill with a "/" shortcut hint.** Clash 29.
-- **The active item has a Clay bar under it.** Clash 28.
+- **The Clay bar under Browse shows while the panel is open. The active route is weight 600 and `aria-current`.** Clash 28.
 - **The mobile toggle keeps the new look.** It must have a spoken name, and the open menu must trap focus and close on Escape. Clash 30.
 
 ### 4.8 The Browse menu
