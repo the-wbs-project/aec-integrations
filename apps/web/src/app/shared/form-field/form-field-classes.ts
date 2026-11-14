@@ -11,7 +11,8 @@
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
  * `/welcome` and the `/account` "About you" section.
  * Light only. The strings are byte-identical to what the claim dialog had
- * inline, so moving them here changed no rendered class.
+ * inline, so moving them here changed no rendered class. The two button
+ * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
  */
 
 import { buttonClass } from '../button/button';

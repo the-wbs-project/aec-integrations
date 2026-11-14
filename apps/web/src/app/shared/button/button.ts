@@ -119,9 +119,11 @@ export class AecButton {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   constructor() {
+    // Dev only: production registers no render callback per button.
+    if (!isDevMode()) return;
     const host = this.host;
     afterNextRender(() => {
-      if (isDevMode() && this.iconOnly() && !hasAccessibleName(host)) {
+      if (this.iconOnly() && !hasAccessibleName(host)) {
         console.error(
           'aecButton: an iconOnly button needs aria-label, aria-labelledby or visually hidden text.',
           host,
