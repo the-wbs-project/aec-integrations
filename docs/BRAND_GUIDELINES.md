@@ -4,6 +4,7 @@
 **Date:** May 2026
 **Status:** Canonical
 **Source:** `docs/STAGE_1_SPEC.md` §2a.2–§2a.4, version 1.7, May 2026
+**Revised:** 14 November 2026 (AECI-1745) for the November 2026 design language, ADR 0056. `DESIGN.md` §2 to §5 hold the detail. Where this book and `DESIGN.md` differ, `DESIGN.md` wins.
 
 This is the canonical brand guide for AEC Integrations. The Markdown here is the editable source; the DOCX export at `branding/AEC-Integrations-Brand-Guidelines.docx` is generated from this file for stakeholders who need a portable artifact. If the two diverge, this file wins.
 
@@ -13,7 +14,11 @@ For implementation-level tokens (CSS custom properties, Tailwind config, the the
 
 ## 1. Surfaces are neutral
 
-The site uses neutral surfaces in the light theme. Brand colors are accents that layer on top — they are never the page background.
+The reading area is neutral. The `<body>` is white, and brand colors layer on top as accents. Forest is the one brand color that may also be a ground, and only in three chrome bands: the header, the hero of a detail page and the footer. Everything between them is white. This rewrites the old rule that no brand color is ever a ground (ADR 0056, clash 1). The full rule is `DESIGN.md` §2, "Forest grounds" and the Surfaces-Are-Neutral Rule.
+
+This is a light theme with Forest chrome. It is not a dark theme. There is no `dark:` variant and no toggle.
+
+The Forest ground applies to public pages only (ruling R2, 2026-11-14). The vendor portal and admin take the new tokens and nothing more.
 
 | Theme | Page background | Raised (cards/panels) | Sunken (insets) | Muted (row hover) |
 |---|---|---|---|---|
@@ -30,12 +35,14 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 
 | Color | Hex | Role |
 |---|---|---|
-| Forest | `#1E3A2F` | Primary brand. CTAs, links, headings, primary accent. |
+| Forest | `#1E3A2F` | Primary brand. CTAs, links, headings, primary accent. Also a ground for the header, the detail hero and the footer (§1). |
 | Forest hover | `#2E5C45` | Hover state for Forest interactive elements. |
 | Clay | `#E89668` | Decorative/fill only (badge fills carry near-black text, never white). **Cannot carry text or meaning-bearing graphics** — see §5. |
 | Clay deep | `#A14D22` | Text-capable Clay (AECI-230): clay-colored text and icons. 5.83:1 on white. Doubles as the warning hue. |
 | Goldenrod | `#DAA520` | Gold-star fill for rating glyphs (`--accent-rating`). Decorative (`aria-hidden`) — the rating value is carried by the numeral + `aria-label` — so its ~2.2:1 on white is permitted; empty stars use Border strong `#D4D4D8` in displays, Text tertiary `#71717A` in the interactive review-form picker. See §5.1. |
-| Bone | `#F5F2EA` | Warm-tinted accent surface (callout sections, marketing hero bands, About page hero). **Not a page background** — see §4. |
+| Bone | `#F5F2EA` | Warm-tinted accent surface: one band per page. Also the ink on a Forest ground. **Not a page background** — see §4. |
+
+Two companion grounds, Hero panel `#26473A` and Footer ground `#15291F`, are listed in `DESIGN.md` §2 "Forest grounds". The shell batch (AECI-1747) adds them as tokens. It also corrects the four brand tokens that did not render the hex above. Until it lands, the shipped tokens differ slightly from the hex in this table. The hex here are the intended values.
 
 ---
 
@@ -56,26 +63,29 @@ The dark theme uses lighter variants of Forest and Clay because the originals la
 
 ## 4. Bone is an accent surface, not a background
 
-Bone was historically treated as "the page background." It is now reclassified as a **warm-tinted accent surface**. It still appears in:
+Bone was historically treated as "the page background." It is a **warm-tinted accent surface**.
 
-- Marketing pages (selectively, as callout bands)
-- About page hero
-- Home page hero band
-- Callout sections that benefit from warmth and brand presence
+- **One Bone band per page**, for the page's key section (clash 2). The body stays white.
+- A Bone or tinted fill inside a card is not a band.
+- No Forest-soft bands, no deep-green bands and no alternating bands. Forest soft is a selection wash and is never a band.
+- On a Forest ground Bone is the ink. Text is Bone, and the main button is Bone with Forest text (clashes 3 and 4).
 
-It does **not** appear as the default `<body>` background in either theme. The page background is neutral (white in light, near-black in dark). This change keeps the brand identity present via accents while letting the product UI feel modern and editorial rather than tinted.
+Bone does **not** appear as the default `<body>` background. The page background is neutral white. This keeps the brand present through accents while the product UI stays editorial rather than tinted.
+
+Which pages hold their one band is decided per page. The home page is re-decided in its own mock-up issue (AECI-1789).
 
 ---
 
 ## 5. Clay restriction
 
-Clay is the rarest color in the system. Use it sparingly — the connector mark, "verified" or "featured" badge fills, and high-emphasis highlights. If Clay appears in more than ~5% of any given screen, it's losing its meaning. (Clay never fills a CTA — every CTA is Forest, per DESIGN.md's Forest-Anchor Rule.)
+Clay is the rarest color in the system. Use it sparingly — the connector mark, "verified" or "featured" badge fills, and high-emphasis highlights. If Clay appears in more than ~5% of any given screen, it's losing its meaning. (Clay never fills a CTA. Every CTA is Forest, and on a Forest ground the main button is Bone with Forest text, per DESIGN.md's Forest-Anchor Rule.)
 
 **Clay `#E89668` cannot carry text or meaning-bearing graphics — in any size.**
 
 - This is stricter than the previous "large text allowed" wording, which was mathematically false and was struck in **AECI-230**: Clay on white measures ~2.3:1, below WCAG 2.1 AA for body text (4.5:1) *and* below the 3:1 floor for large text and non-text UI components (WCAG 1.4.11).
 - Permitted Clay `#E89668` uses: decorative graphics (the connector mark, accent strokes) and fills that carry near-black `text-primary` on top (8.48:1). White text on Clay (2.33:1) is forbidden.
 - Anything clay-colored that carries meaning — text, icons — uses **Clay deep `#A14D22`** (5.83:1 on white, 5.21:1 on Bone), added in AECI-230. (Star ratings are not clay — see §5.1.)
+- On a Forest ground Clay is a stroke or an accent and still carries no text. Highlighted names there are Bone (clash 4). Clay on Forest measures 5.29:1, which clears the 3:1 graphic floor, so a stroke stays visible.
 - In a **dark theme** (not currently roadmapped — see §3), Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction there is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
 
 See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
@@ -93,11 +103,11 @@ Star-rating glyphs use **Goldenrod `#DAA520`** (`--accent-rating`), the conventi
 
 ## 6. Verified contrast ratios
 
-Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for normal text, 3:1 for large text and non-text UI components.
+Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for normal text, 3:1 for large text and non-text UI components. The Forest-ground rows were measured on 2026-11-14 with a script that applies the WCAG 2 relative-luminance formula to the hex values, and they match `DESIGN.md` §2.
 
 | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|
-| Forest `#1E3A2F` | White `#FFFFFF` | ~12.0 : 1 | AAA |
+| Forest `#1E3A2F` | White `#FFFFFF` | ~12.3 : 1 | AAA (also white text on a Forest button) |
 | Forest hover `#2E5C45` | White `#FFFFFF` | ~7.7 : 1 | AAA |
 | Clay `#E89668` | White `#FFFFFF` | ~2.3 : 1 | Fails AA body **and** the 3:1 large-text/non-text floor — **decorative/fill only** (AECI-230) |
 | Near-black `#0A0A0A` | Clay `#E89668` | ~8.5 : 1 | AAA — the only sanctioned text-on-Clay pairing |
@@ -110,11 +120,19 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 | Forest `#1E3A2F` | Forest soft `#ECF1EE` | ~10.8 : 1 | AAA (selected/active wash, AECI-230) |
 | Error `#B3261E` | White `#FFFFFF` | ~6.5 : 1 | AA normal (status token, AECI-230) |
 | Ink `#0F1419` | Bone `#F5F2EA` | ~17 : 1 | AAA (Bone accent surface) |
+| Bone `#F5F2EA` | Forest `#1E3A2F` | 11.03 : 1 | AAA. Ink on a Forest ground, and the main button on Forest (also Forest text on Bone) |
+| Bone `#F5F2EA` | Footer ground `#15291F` | 13.71 : 1 | AAA. Footer ink |
+| Bone `#F5F2EA` | Forest hover `#2E5C45` | 6.87 : 1 | AA normal. Hover on Forest |
+| Bone `#F5F2EA` | Hero panel `#26473A` | 9.18 : 1 | AAA. Ink on a panel in the detail hero |
+| Clay `#E89668` | Forest `#1E3A2F` | 5.29 : 1 | Passes the 3:1 graphic floor. **Strokes and accents only, no text** (clash 4) |
+| Clay `#E89668` | Footer ground `#15291F` | 6.57 : 1 | Passes the 3:1 graphic floor. Strokes and accents only |
 | Forest dark `#5D916C` | Near-black `#0A0A0A` | ~5.4 : 1 | AA normal, AAA large |
 | Forest dark `#5D916C` | Raised dark `#18181B` | ~4.8 : 1 | AA normal — binding case for links (AECI-166) |
 | Forest dark hover `#6FAA80` | Near-black `#0A0A0A` | ~7.3 : 1 | AAA large, AA normal |
 | Clay dark `#F0A887` | Near-black `#0A0A0A` | ~10.3 : 1 | Passes AAA (brand policy still restricts use) |
 | White `#FAFAFA` | Bone dark `#2A2520` | ~15.8 : 1 | AAA |
+
+Any text colour on a Forest ground other than Bone is not measured here. The shell batch (AECI-1747) measures it before it ships. Text tertiary is never used on Forest, the hero panel, the footer ground, Bone, sunken or muted surfaces.
 
 Contrast verification is automated in CI via a token-pair check matrix (see `docs/STAGE_1_SPEC.md` §2a.4). These numbers are the expected values — drift from them in either direction warrants review.
 
@@ -125,11 +143,12 @@ Contrast verification is automated in CI via a token-pair check matrix (see `doc
 A small set of cross-cutting principles. Component-level implementation lives in the Angular + Spartan UI component library, not here.
 
 - **Sentence case everywhere.** Headings, buttons, labels, navigation items, table headers. Title Case reads as marketing; sentence case reads as editorial. The one named exception is the overline role (eyebrows, kickers, sidebar microheadings — `DESIGN.md` §3, AECI-230), uppercase via CSS only.
-- **Typography: Source Serif 4 (display) + Atkinson Hyperlegible Next (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible Next is the a11y-first body face (Braille Institute) — used for body prose, labels, overlines, and captions (variable 400–700; AECI-230 upgraded from the classic two-weight cut so the system's 500/600 roles render as real cuts). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
-- **Borders separate surfaces; shadows don't.** Default border `0.5px`; `1px` for emphasis (inputs, focused elements); `2px` reserved for featured states. Box-shadows are for modals, dropdowns, and focus rings only — never on cards or buttons.
-- **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. Default durations: 120ms (hover), 180ms (default), 280ms (page transitions).
+- **Typography: Source Serif 4 (display) + Atkinson Hyperlegible Next (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible Next is the a11y-first body face (Braille Institute) — used for body prose, labels, overlines, and captions (variable 400–700; AECI-230 upgraded from the classic two-weight cut so the system's 500/600 roles render as real cuts). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The type ramp is one ten-token ramp at weights 400 and 600 (clashes 9 and 17). Display sizes are allowed on detail pages for the product name (clash 7, ADR 0056). Lede text is sans and card titles are serif. `DESIGN.md` §3 holds the sizes. The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
+- **Borders mark controls and separators. One card shadow lifts the cards.** One shadow serves the product card grid, search hit cards, the integration group card and the facts card (clash 11, ADR 0056). Controls keep borders and take no shadow, and so do buttons. Cards are 24px, controls 12px and chips are pills. Primary actions are never pills (clash 12). Default border `0.5px`; `1px` for emphasis (inputs, focused elements); `2px` reserved for featured states. `DESIGN.md` §4 holds the shadow and radius values.
+- **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. There is no endless pulse, no per-card stagger and no bounce. The detail hero keeps one entrance animation (clash 36). Motion tokens exist and `DESIGN.md` holds the values. Smooth scrolling is only for opted-in in-page section links. It is never global and it is off under reduced motion (clash 38, ADR 0056).
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.
-- **No emoji in UI chrome.** Use Lucide icons exclusively. Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
+- **Icons are a custom set.** It is drawn at a 1.75 stroke in a 24 by 24 box and rendered only through the `aec-icon` component (`apps/web/src/app/shared/icon/`). It holds 88 icons: 74 drawn for the approved mock-ups and 14 Lucide-derived paths, with Lucide's licence shipped at `/third-party-notices.txt`. Icons are stroke only and `currentColor`, at 14, 16, 20 or 24px. A decorative icon is hidden from assistive technology. A meaningful icon carries a localised label. This rewrites "Lucide icons exclusively" (clash 34, ADR 0056).
+- **No emoji in UI chrome.** Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
 - **No stock photography of construction sites, hard hats, or blueprints.** The AEC software visual cliché. The brand is editorial — diagrams, screenshots, and original photography only.
 - **No pay-for-placement visual tells.** Paid vendor access carries no public badge or label. The neutral account-status label was removed on 2026-10-09 (AECI-1264), and nothing replaces it. The claim button copy still reads the mirror, which is copy, not a badge. Never use verification iconography, endorsement color, or promoted treatment for a paying vendor (`DESIGN.md` §Badges).
 
@@ -139,7 +158,7 @@ A small set of cross-cutting principles. Component-level implementation lives in
 
 Versions 1.0 of this brand book pinned a single sans-serif typeface (Inter) at two weights (400 / 500) with an explicit "no serif fonts anywhere" clause. AECI-38 (Phase 1.12a, May 2026) installed the Impeccable design skill (`pbakaus/impeccable`) and seeded `PRODUCT.md` and `DESIGN.md` at the repo root. Impeccable's `font-selection-procedure` explicitly rejects Inter as a reflex / training-data default that creates monoculture across projects (alongside DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Fraunces, Newsreader, Playfair Display, Cormorant, DM Serif, Instrument Serif, Syne).
 
-DESIGN.md is the source of truth for tokens going forward. When DESIGN.md and this book disagree on tokens, DESIGN.md wins and this book updates to match. The chosen pairing reflects the editorial / industry-publication aesthetic (a serif display face borrows posture from `ENR` and `Architectural Record`; an a11y-first body face makes the Transparent-by-default design principle visible). The two-weights-per-face cap is replaced with role-bound weights (display 400, headline 600, title 600, body 400, label 700) defined in DESIGN.md §3.
+DESIGN.md is the source of truth for tokens going forward. When DESIGN.md and this book disagree on tokens, DESIGN.md wins and this book updates to match. The chosen pairing reflects the editorial / industry-publication aesthetic (a serif display face borrows posture from `ENR` and `Architectural Record`; an a11y-first body face makes the Transparent-by-default design principle visible). The two-weights-per-face cap is replaced with role-bound weights defined in DESIGN.md §3. The November 2026 ramp then narrowed them to 400 and 600 (clashes 9 and 17), so the label weight of 700 named here no longer applies.
 
 The previous "no serif fonts anywhere" clause is rescinded for a *single* serif display face used in display / headline / title roles. Body text remains sans (Atkinson Hyperlegible). Monospace appears only in literal code (`<code>`, `<pre>`) using the system monospace stack — it is not a brand face.
 
@@ -153,6 +172,8 @@ The previous "no serif fonts anywhere" clause is rescinded for a *single* serif 
 - **DOCX export of this document:** `branding/AEC-Integrations-Brand-Guidelines.docx` (regenerate via `scripts/build-brand-docx.sh`).
 - **Figma design system file:** "AEC Integrations — Design System" (color styles, text styles, components). Tokens in Figma mirror Tailwind config; changes in either system require updates to both.
 - **Logo and monogram files:** `branding/` directory.
+- **Reversed wordmark:** `branding/wordmark-on-dark.svg`, for a Forest ground. In the app it is `aec-brand-logo` with `tone="on-dark"`. Bone type, the Clay connector, a transparent field, and the same outlines as the shipped wordmark. Clay never flips. Forest and Bone swap. Bone on Forest is 11.03:1 (§6). Construction is in `branding/logo-construction.md`.
+- **Icon set:** the `aec-icon` component, `apps/web/src/app/shared/icon/` (§7). Lucide's licence is shipped at `/third-party-notices.txt`.
 - **Stacked logo (square):** `branding/stacked-logo.svg`, with 120 px and 512 px PNG exports. It shows "AEC", the connector and "Integrations" stacked on a Bone square. It is the Google OAuth consent-screen logo, because Google rejected the monogram as not identifying the brand (2026-10-12). Use it wherever an outside reviewer must match a square logo to the site. The site carries it too: the home `Organization` JSON-LD logo, `apple-touch-icon.png` and the manifest icon. The header and footer wordmark is an `<img>` of `apps/web/public/branding/wordmark.svg` with alt "AEC Integrations", so a crawler sees the logo and the name. Since 2026-10-17 that file carries the letters as outlines of Atkinson Hyperlegible Next (SIL Open Font License), not live system-font text, so the mark and its 7-unit connector gaps render the same on every OS. The system fonts the earlier file relied on (SF Pro, Segoe UI) may not be outlined into a published logo under their licences. Every other logo asset in `branding/` and `apps/web/public/` (the wordmark and primary-logo family, the stacked logo, the monogram and favicon set, the email banner and the OpenGraph cards) was outlined the same day, so no shipped logo depends on a system font. The construction, measured coordinates and rebuild recipe for each are in `branding/logo-construction.md`. Construction: `branding/logo-construction.md` §The stacked logo.
 - **Home OpenGraph share card:** `apps/web/public/branding/home-og.png` — a rendered **1200×630** light-editorial card (white surface, Forest accent, the primary wordmark + the canonical positioning one-liner), served at `/branding/home-og.png` and used as the home's `og:image` (AECI-276). It is **evergreen** (no live numbers). Edit the source at `apps/web/scripts/home-og-template.html` and regenerate the PNG with `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool; commit the new PNG). Pages with no card of their own use the default card below.
 - **Default OpenGraph share card:** `apps/web/public/branding/default-og.png`, the **1200×630** fallback `og:image` for every page with no card or shareable logo of its own (`DEFAULT_OG_IMAGE`, AECI-783). It replaced the SVG monogram, which scrapers do not render. Same layout as the home card. It names no entity, so it reads correctly beside any page. Edit `apps/web/scripts/default-og-template.html` and regenerate with `pnpm --filter @aeci/web og:default`.
