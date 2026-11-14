@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard } from '../shared/card/card';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
@@ -60,13 +61,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  */
 @Component({
   selector: 'aec-integration-group-card',
-  imports: [LogoOrInitial, RouterLink],
+  imports: [AecCard, LogoOrInitial, RouterLink],
   // A custom element is `display: inline` by default, so a parent's `space-y-*`
   // margin would land on an inline box and be dropped. Same fix, same reason as
   // `ProductPoweredHub`.
   host: { class: 'block' },
   template: `
-    <section class="overflow-hidden rounded-(--radius-lg) border border-(--border-default)">
+    <section aecCard class="overflow-hidden">
       <!-- The header wraps on its own width, not on a viewport breakpoint
            (AECI-1117). The card sits in the body column, whose width is not the
            viewport's (see the Browse-table container lesson), so a sm: rule would
@@ -85,6 +86,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             [attr.aria-expanded]="expanded()"
             [attr.aria-controls]="panelId()"
             (click)="toggled.emit()"
+            [class.rounded-t-card]="expanded()"
+            [class.rounded-card]="!expanded()"
             class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-start
               text-(--text-primary) transition-colors hover:text-(--accent-primary)
               focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -106,8 +109,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             @if (logoName(); as name) {
               <aec-logo-or-initial [src]="logoSrc()" [name]="name" size="sm" />
             }
-            <!-- text-lg resolves to the ramp's --t-20 (AECI-1748), the smallest serif
-                 step (DESIGN.md §3). The size lives on the SPAN because
+            <!-- text-t-20 is the card title role (DESIGN.md §3), with leading-tight
+                 so the line is 25px, not the 31px text-lg gave it. The size lives on the SPAN because
                  styles.css declares h3 { font-size: var(--t-20) } OUTSIDE any cascade
                  layer, and unlayered rules beat every Tailwind utility, so a
                  text-* utility on the h3 itself is silently dead. See DESIGN.md
@@ -119,7 +122,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                  link at desktop widths) and drops under it when both do not fit,
                  so the count never squeezes the name. -->
             <span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
-              <span class="min-w-0 text-lg break-words">{{ heading() }}</span>
+              <span class="min-w-0 text-t-20 leading-tight break-words">{{ heading() }}</span>
               @if (countLabel(); as count) {
                 <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{
                   count
