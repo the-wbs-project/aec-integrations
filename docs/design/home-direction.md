@@ -56,7 +56,7 @@ Every module renders its real empty state.
   `--border-default` bottom rule. The credibility row (`home-credibility-strip.ts`) is the band's
   last row, inside the same Bone ground. Bone is an accent band, not a page background (DESIGN.md
   Surfaces-Are-Neutral Rule).
-  *(2026-11-14: ADR 0056 rewrote the Surfaces-Are-Neutral Rule. Forest may now fill the header, the detail hero and the footer, and each page keeps one Bone band. The home page is re-decided in its own mock-up issue, AECI-1789.)*
+  *(2026-11-14: ADR 0056 rewrote the Surfaces-Are-Neutral Rule. Forest may now fill the header, the detail hero and the footer, and a page has at most one Bone band. The home page is re-decided in its own mock-up issue, AECI-1789.)*
 - **Two columns at `lg`, one below** (AECI-1555). The left column holds:
   - the small-caps eyebrow (`--text-secondary`): "The independent reference for AEC software";
   - the **display** tagline, the page's only `<h1>`: Source Serif 4 **400**,
