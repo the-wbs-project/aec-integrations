@@ -44,8 +44,8 @@
  * router scrolls instant, and reduced motion still wins. Two e2e tests in
  * `e2e/scroll-restoration.spec.ts` assert the scoped behaviour and must be
  * updated with the flip: "a section-nav click animates and lands the section
- * below the nav" (it checks `<html>` is `auto` at rest) and "the skip link
- * jumps without animation".
+ * below the nav" (it checks `<html>` is `auto` at rest) and the two "the skip
+ * link jumps without animation" tests.
  *
  * **What it does not touch.** Router scroll restoration, `ScrollBehaviorManager`,
  * `ScrollMarginViewportScroller`, `InitialFragmentScroller` and

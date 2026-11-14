@@ -537,7 +537,7 @@ textarea:-webkit-autofill:focus {
    scrolls instant either way. Flipping it fails two e2e tests in
    `e2e/scroll-restoration.spec.ts` that assert the scoped behaviour, so update
    them with it: "a section-nav click animates and lands the section below the
-   nav" and "the skip link jumps without animation". */
+   nav" and the two "the skip link jumps without animation" tests. */
 @media (prefers-reduced-motion: no-preference) {
   html.aeci-smooth-scroll {
     scroll-behavior: smooth;

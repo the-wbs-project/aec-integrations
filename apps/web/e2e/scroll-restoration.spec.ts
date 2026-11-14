@@ -176,7 +176,7 @@ test.describe('scroll restoration on navigation', () => {
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
 
     await page.goBack();
-    await expect(page).toHaveURL(/\/products$/);
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     // A Back that reloaded the document would open at the top for its own reasons.
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
 
@@ -328,8 +328,12 @@ test.describe('section-nav jumps clear the sticky nav', () => {
 // ADR 0056): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
 // (core/in-page-smooth-scroll.ts) puts `html.aeci-smooth-scroll` on for the span
 // of a jump from an `<a data-smooth-scroll>` link. These tests sample `scrollY`
-// on every animation frame. A smooth scroll passes through many intermediate
-// offsets. An instant one goes straight from the start to the end.
+// on every animation frame. A smooth scroll passes through intermediate
+// offsets. An instant one goes straight from the start to the end, so it shows
+// exactly two. "Animates" therefore means at least one offset in between, plus
+// a computed `smooth` on <html> at the click. Asking for several in-between
+// offsets failed on a loaded machine, where the main thread misses frames while
+// the compositor finishes the scroll (seen 2026-11-14: 0, 2, 601).
 
 const SAMPLES = '__aeciScrollSamples';
 
@@ -341,6 +345,8 @@ interface ScrollSample {
 interface ScrollSampler {
   samples: ScrollSample[];
   stopped: boolean;
+  /** `<html>`'s computed `scroll-behavior` when the next click reached `window`. */
+  behaviorAtClick: string | null;
 }
 
 /**
@@ -350,14 +356,35 @@ interface ScrollSampler {
 async function startScrollSampler(page: Page): Promise<void> {
   await page.evaluate((key) => {
     const sample = () => ({ y: Math.round(window.scrollY), path: location.pathname });
-    const sampler: ScrollSampler = { samples: [sample()], stopped: false };
+    const sampler: ScrollSampler = { samples: [sample()], stopped: false, behaviorAtClick: null };
     (window as unknown as Record<string, ScrollSampler>)[key] = sampler;
+    // A `window` listener runs after `InPageSmoothScroll`'s `document` one and
+    // before the link's default action, so this is what the browser scrolls with.
+    window.addEventListener(
+      'click',
+      () => (sampler.behaviorAtClick = getComputedStyle(document.documentElement).scrollBehavior),
+      { once: true },
+    );
     const tick = () => {
       sampler.samples.push(sample());
       if (!sampler.stopped) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   }, SAMPLES);
+}
+
+/**
+ * The computed `scroll-behavior` on `<html>` at the moment of the click: the
+ * deterministic half of "this jump animates". Sampling offsets per frame is the
+ * observable half, and it can miss frames on a heavily loaded machine.
+ */
+async function behaviorAtClick(page: Page): Promise<string | null> {
+  return page.evaluate(
+    (key) =>
+      (window as unknown as Record<string, ScrollSampler | undefined>)[key]?.behaviorAtClick ??
+      null,
+    SAMPLES,
+  );
 }
 
 /** Stops the sampler and returns every sample it took. */
@@ -446,6 +473,36 @@ function scrollSettled(page: Page): Promise<number> {
   );
 }
 
+/**
+ * From 600px down, activates the skip link from the keyboard and asserts the
+ * jump to `<main>` is instant, stays in the same document, and lands above 600.
+ * The skip link never opts in to the smooth jump.
+ */
+async function expectSkipLinkJumpsInstantly(page: Page): Promise<void> {
+  const scrollable = await page.evaluate(
+    () => document.documentElement.scrollHeight > window.innerHeight + 600,
+  );
+  test.skip(!scrollable, 'the page is not tall enough to scroll');
+
+  await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' }));
+  const skip = page.getByRole('link', { name: 'Skip to main content' });
+  await skip.focus();
+  await expect(skip).toBeFocused();
+  const path = new URL(page.url()).pathname;
+  await markDocument(page);
+  await startScrollSampler(page);
+  // Press on the focused element, the way a keyboard user activates it.
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/' : path}#main$`));
+  expect(await documentMarked(page), 'the skip link must stay on the page').toBe(true);
+  const end = await scrollSettled(page);
+  expect(end).toBeLessThan(600);
+
+  expect(await behaviorAtClick(page), 'the skip link never arms').toBe('auto');
+  const offsets = await distinctOffsets(page);
+  expect(offsets, 'the skip link must not animate').toEqual([600, end]);
+}
+
 const htmlScrollBehavior = (page: Page) =>
   page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior);
 
@@ -477,11 +534,12 @@ test.describe('smooth scrolling is scoped to in-page section links', () => {
       0,
     );
 
+    expect(await behaviorAtClick(page), 'the click armed smooth scrolling').toBe('smooth');
     const offsets = await distinctOffsets(page);
     expect(
       offsets.length,
       `a smooth jump passes through intermediate offsets, saw ${offsets.join(', ')}`,
-    ).toBeGreaterThan(3);
+    ).toBeGreaterThan(2);
 
     // The class comes off once the jump ends, so the next scroll is instant again.
     await expect.poll(() => htmlScrollBehavior(page)).toBe('auto');
@@ -501,36 +559,35 @@ test.describe('smooth scrolling is scoped to in-page section links', () => {
     expect(end).toBeGreaterThan(0);
     await expect(page.locator('#integrations-title')).toBeInViewport();
 
+    expect(await behaviorAtClick(page), 'reduced motion never arms').toBe('auto');
     const offsets = await distinctOffsets(page);
     expect(offsets, 'an instant jump goes straight from the top to the section').toEqual([0, end]);
     expect(await htmlScrollBehavior(page)).toBe('auto');
   });
 
-  test('the skip link jumps without animation', async ({ page }) => {
-    // Runs on `/`, where the skip link is a same-document jump today. Elsewhere
-    // its bare `#main` resolves against `<base href>` and loads `/` (AECI-1839).
-    // Once that is fixed it is a same-page jump everywhere, and it must still
-    // not animate: it does not opt in to the smooth jump.
+  // The acceptance test for "the skip link never animates", for this issue and
+  // AECI-1839. The link is found by its name, not its href: AECI-1839 changes the
+  // href from a bare `#main` to a path-preserving `{path}#main`.
+  test('the skip link jumps without animation on the home page', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#main')).toBeAttached();
     await page.waitForLoadState('networkidle');
-    const scrollable = await page.evaluate(
-      () => document.documentElement.scrollHeight > window.innerHeight + 600,
+    await expectSkipLinkJumpsInstantly(page);
+  });
+
+  test('the skip link jumps without animation on a page other than home', async ({ page }) => {
+    await openProductWithIntegrationsJump(page);
+    await page.waitForLoadState('networkidle');
+    const href = await page
+      .getByRole('link', { name: 'Skip to main content' })
+      .getAttribute('href');
+    // Until AECI-1839 is merged into this branch, the bare `#main` resolves
+    // against `<base href>` and loads `/`, so there is no same-page jump to time.
+    test.skip(
+      href === '#main',
+      'the skip link is still a bare #main that loads the home page (AECI-1839 not merged yet)',
     );
-    test.skip(!scrollable, 'the home page is not tall enough to scroll');
-
-    await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' }));
-    const skip = page.getByRole('link', { name: 'Skip to main content' });
-    await skip.focus();
-    await expect(skip).toBeFocused();
-    await startScrollSampler(page);
-    // Press on the focused element, the way a keyboard user activates it.
-    await page.keyboard.press('Enter');
-    const end = await scrollSettled(page);
-    expect(end).toBeLessThan(600);
-
-    const offsets = await distinctOffsets(page);
-    expect(offsets, 'the skip link must not animate').toEqual([600, end]);
+    await expectSkipLinkJumpsInstantly(page);
   });
 
   test('Back after a route change restores the position without animation', async ({ page }) => {
@@ -539,7 +596,7 @@ test.describe('smooth scrolling is scoped to in-page section links', () => {
 
     await startScrollSampler(page);
     await page.goBack();
-    await expect(page).toHaveURL(/\/products$/);
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);
     const end = await scrollSettled(page);
@@ -591,11 +648,12 @@ test.describe('the docs "On this page" rail', () => {
     expect(top).toBeLessThan(48);
     await expect(link).toHaveAttribute('aria-current', 'location');
 
+    expect(await behaviorAtClick(page), 'the click armed smooth scrolling').toBe('smooth');
     const offsets = await distinctOffsets(page);
     expect(
       offsets.length,
       `a rail jump passes through intermediate offsets, saw ${offsets.join(', ')}`,
-    ).toBeGreaterThan(3);
+    ).toBeGreaterThan(2);
     await expect.poll(() => htmlScrollBehavior(page)).toBe('auto');
 
     // Same history as the product section nav: one entry per jump, and Back
@@ -628,7 +686,7 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await startScrollSampler(page);
     await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'click-products');
-    await expect(page).toHaveURL(/\/products$/);
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await scrollSettled(page)).toBe(0);
 
     const before = await offsetsBeforeRestingOn(page, '/products');
@@ -663,7 +721,7 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
 
     await startScrollSampler(page);
     await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'back-two');
-    await expect(page).toHaveURL(/\/products$/);
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);
     const end = await scrollSettled(page);
@@ -693,8 +751,9 @@ test.describe('the switch: with the class on <html>, smooth scrolling is global 
     await nav.locator('a[href$="#integrations"]').click();
     await expect(page).toHaveURL(/#integrations$/);
     expect(await scrollSettled(page)).toBeGreaterThan(0);
+    expect(await behaviorAtClick(page)).toBe('smooth');
     const offsets = await distinctOffsets(page);
-    expect(offsets.length, `the jump animates, saw ${offsets.join(', ')}`).toBeGreaterThan(3);
+    expect(offsets.length, `the jump animates, saw ${offsets.join(', ')}`).toBeGreaterThan(2);
     // The service stood down and left the class on.
     expect(await htmlScrollBehavior(page)).toBe('smooth');
 
@@ -704,7 +763,7 @@ test.describe('the switch: with the class on <html>, smooth scrolling is global 
     await page.evaluate(() =>
       document.querySelector<HTMLAnchorElement>('header a[href="/products"]')!.click(),
     );
-    await expect(page).toHaveURL(/\/products$/);
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await scrollSettled(page)).toBe(0);
     const before = await offsetsBeforeRestingOn(page, '/products');
     expect(before.length, `the reset must not glide, saw ${before.join(', ')}`).toBeLessThanOrEqual(
@@ -726,6 +785,7 @@ test.describe('the switch: with the class on <html>, smooth scrolling is global 
     await expect(page).toHaveURL(/#integrations$/);
     const end = await scrollSettled(page);
     expect(end).toBeGreaterThan(0);
+    expect(await behaviorAtClick(page)).toBe('auto');
     expect(await distinctOffsets(page)).toEqual([0, end]);
   });
 });
