@@ -17,6 +17,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { NavDisclosure } from './nav-disclosure';
 import { NavFlyoutList } from './nav-flyout-list';
+import { HEADER_LINK, HEADER_LINK_ACTIVE } from './header-link-classes';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 import { isReplayedEvent } from '../core/event-replay';
 
@@ -51,14 +52,16 @@ import { isReplayedEvent } from '../core/event-replay';
   template: `
     <a
       [routerLink]="indexPath()"
-      routerLinkActive="text-(--accent-primary)"
-      [class.text-(--accent-primary)]="isOpen()"
+      [routerLinkActive]="activeClass"
+      [ariaCurrentWhenActive]="true"
+      [class.bg-(--surface-on-brand-wash)]="isOpen()"
       [attr.aria-expanded]="isOpen()"
       [attr.aria-controls]="panelId()"
+      [attr.data-label]="label()"
       aria-haspopup="true"
       (click)="close()"
       (keydown.arrowdown)="onArrowDown($event)"
-      class="cursor-pointer text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="linkClass"
       >{{ label() }}</a
     >
 
@@ -79,6 +82,10 @@ import { isReplayedEvent } from '../core/event-replay';
 export class NavFlyoutTrigger extends NavDisclosure {
   readonly kind = input.required<TaxonomyKind>();
   readonly items = input.required<readonly TaxonomyTermWithCount[]>();
+
+  /** Forest-ground link look and its active weight (header-link-classes.ts). */
+  protected readonly linkClass = `cursor-pointer ${HEADER_LINK}`;
+  protected readonly activeClass = HEADER_LINK_ACTIVE;
 
   protected readonly indexPath = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
   protected readonly panelId = computed(() => `nav-flyout-${this.kind()}`);
