@@ -1918,7 +1918,7 @@ The strategic anti-references in `PRODUCT.md` carry through here as concrete vis
 - **Don't** put box-shadows on cards or buttons. Borders separate surfaces; shadows are for modals, dropdowns, popovers, and focus rings.
 - **Don't** use the AI color palette: cyan-on-dark, purple-to-blue gradients, neon accents on dark backgrounds, gradient backgrounds for impact.
 - **Don't** use stock photography of construction sites, hard hats, or blueprints. The AEC visual cliché — the brand is editorial about AEC, not a costume of AEC.
-- **Don't** use emoji in UI chrome. Lucide icons exclusively. Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
+- **Don't** use emoji in UI chrome. Icons come from the `aec-icon` set only (clash 34, ADR 0056). Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
 - **Don't** use em dashes in UI copy (also not `--`). Use commas, colons, semicolons, periods, or parentheses.
 - **Don't** make every button primary. Use ghost and secondary variants — hierarchy matters.
 - **Don't** use modals as the first thought. Exhaust inline / progressive disclosure / drawer alternatives first.
