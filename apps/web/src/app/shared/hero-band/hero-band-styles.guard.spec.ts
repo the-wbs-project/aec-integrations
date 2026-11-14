@@ -35,7 +35,9 @@ describe('hero band styles (AECI-1766)', () => {
   });
 
   it('draws every focus ring in the band as Bone, 3px at 3px', () => {
-    const ring = rule('.aec-hero-band :focus-visible');
+    const ring = rule(
+      '.aec-hero-band :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible',
+    );
     expect(ring).toContain('outline: 3px solid var(--focus-ring-on-brand)');
     expect(ring).toContain('outline-offset: 3px');
   });

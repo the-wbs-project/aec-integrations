@@ -974,7 +974,7 @@ button.aec-chip:focus-visible {
 
 /* Every keyboard focus ring inside the band is Bone, 3px at a 3px offset. A
    Forest ring on Forest is invisible and on the hero panel it is 1.20:1. */
-.aec-hero-band :focus-visible {
+.aec-hero-band :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--focus-ring-on-brand);
   outline-offset: 3px;
 }
