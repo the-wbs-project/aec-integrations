@@ -86,6 +86,7 @@ import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { isReplayedEvent } from '../core/event-replay';
+import { Chip } from '../shared/chip/chip';
 
 /** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
 const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
@@ -100,6 +101,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
     NgTemplateOutlet,
     Option,
     OverlayModule,
+    Chip,
   ],
   template: `
     @if (ownForm()) {
@@ -198,10 +200,9 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
                     <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                       s.title
                     }}</span>
-                    <span
-                      class="shrink-0 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium tracking-wide text-(--text-secondary) uppercase"
-                      >{{ s.kind === 'product' ? productTag : vendorTag }}</span
-                    >
+                    <aec-chip density="dense" tone="quiet" class="shrink-0">{{
+                      s.kind === 'product' ? productTag : vendorTag
+                    }}</aec-chip>
                   </span>
                   @if (s.subtitle) {
                     <span class="truncate text-xs text-(--text-secondary)">{{ s.subtitle }}</span>
