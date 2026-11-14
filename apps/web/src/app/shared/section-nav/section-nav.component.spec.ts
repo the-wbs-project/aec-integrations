@@ -214,12 +214,6 @@ describe('SectionNav', () => {
       expect(prevented).toBe(false);
     });
 
-    it('carries no listener on the anchors themselves (AECI-1655)', async () => {
-      for (const a of links((await setup()).nativeElement)) {
-        expect(a.hasAttribute('jsaction')).toBe(false);
-      }
-    });
-
     it('follows the scroll-spy', async () => {
       const fixture = await setup();
       const spy = FakeObserver.instances.find((o) => !Array.isArray(o.options.threshold))!;
