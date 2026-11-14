@@ -581,6 +581,16 @@ describe('ClaimDetail', () => {
       expect(links).toContain(`/admin/claims/${SIBLING_ID}`);
     });
 
+    it('points the chip at its own page, not the home page (AECI-1839)', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ is_duplicate: true })));
+      const chip = [...el.querySelectorAll('a')].find((a) =>
+        a.textContent?.includes('Possible duplicate'),
+      );
+      const href = chip?.getAttribute('href');
+      expect(href).toMatch(/#admin-claim-duplicate$/);
+      expect(href).not.toBe('#admin-claim-duplicate');
+    });
+
     it('says so explicitly when nothing is flagged, rather than hiding the section', async () => {
       const { el } = await setup(makeApiMock(makeDetail()));
       expect(el.textContent).toContain('Not flagged');

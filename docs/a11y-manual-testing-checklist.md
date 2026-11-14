@@ -33,7 +33,7 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 **Keyboard-only (every surface):**
 - [ ] A visible focus indicator is present on every interactive element; focus order matches reading order.
 - [ ] No keyboard trap; `Tab`/`Shift+Tab` reach and leave every control; `Esc` closes overlays/menus and returns focus to the trigger.
-- [ ] "Skip to content" works; landmarks (`header`/`nav`/`main`/`footer`) are reachable.
+- [ ] "Skip to content" works **on a non-home page** (`/products/{slug}`, a `/docs` article): Enter keeps the URL path and moves focus into `main`, with no page load (AECI-1839); landmarks (`header`/`nav`/`main`/`footer`) are reachable.
 - [ ] All actions (links, buttons, filters, form submit, menu) are operable without a pointer.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
