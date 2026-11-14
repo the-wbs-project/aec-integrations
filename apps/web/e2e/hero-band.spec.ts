@@ -324,6 +324,15 @@ test.describe('hero band rendered (AECI-1766)', () => {
         document.querySelector('header')!.insertAdjacentElement('afterend', host);
         window.scrollTo(0, 0);
       });
+      // Let the header settle first. The Browse trigger's Clay bar runs a short
+      // scale transition on load and sits on the header's last row while it does.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.getAnimations().filter((a) => a.playState === 'running').length,
+          ),
+        )
+        .toBe(0);
       const headerBottom = await page
         .locator('header')
         .first()
