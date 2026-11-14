@@ -135,6 +135,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                 [src]="p.logo_url"
                 [name]="p.name"
                 [alt]="logoAlt(p.name)"
+                [claimStatus]="p.claim_status"
                 size="lg"
                 [priority]="true"
               />
@@ -181,6 +182,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                     [src]="p.logo_url"
                     [name]="p.name"
                     [alt]="logoAlt(p.name)"
+                    [claimStatus]="p.claim_status"
+                    [ownPage]="true"
                     size="sm"
                     [priority]="true"
                   />

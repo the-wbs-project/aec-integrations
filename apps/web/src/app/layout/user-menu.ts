@@ -121,7 +121,7 @@ import { AecIcon } from '../shared/icon/icon';
       }
       @if (showBadge()) {
         <span
-          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
+          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-t-12 font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
           aria-hidden="true"
           >{{ badgeText() }}</span
         >
@@ -134,7 +134,7 @@ import { AecIcon } from '../shared/icon/icon';
     <brn-popover #menu="brnPopover" class="contents" align="end" [sideOffset]="8">
       <ng-template brnPopoverContent>
         <div
-          class="w-64 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="aec-popover w-64 p-2"
           i18n-aria-label="@@app.header.account.menu.aria"
           aria-label="Account menu"
         >

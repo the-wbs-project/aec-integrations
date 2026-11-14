@@ -47,6 +47,7 @@ const ROLE_TOKENS = [
   'radius-pill',
   'shadow-card',
   'shadow-menu',
+  'shadow-modal',
 ];
 /** Tailwind's and Spartan's own names: defined outside `styles.css`, never a violation. */
 const FRAMEWORK_TOKENS =
@@ -55,6 +56,8 @@ const FRAMEWORK_TOKENS =
 const SHADOW_RECIPES: Record<string, string> = {
   'shadow-card': '0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)',
   'shadow-menu': '0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)',
+  // AECI-1770: the dialog and drawer recipe, unchanged in value, now named (Prettier writes 0.10 as 0.1).
+  'shadow-modal': '0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.1)',
 };
 /** Ruled radius values (DESIGN.md §4 "Radius"). */
 const RADIUS_VALUES: Record<string, string> = {
@@ -228,6 +231,52 @@ describe('design tokens', () => {
       const rule =
         /\.aec-on-brand-edge\s*\{\s*border-color:\s*var\(--border-on-brand-strong\);\s*\}/;
       expect(unlayered(css)).toMatch(rule);
+    });
+  });
+
+  describe('overlay scrims and surfaces (AECI-1770)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+
+    it('has two scrim tokens: 40% for the menu dimmer, 50% for the modal backdrop', () => {
+      expect(css).toMatch(/^\s*--scrim:\s*rgb\(0 0 0 \/ 0\.4\);/m);
+      expect(css).toMatch(/^\s*--scrim-modal:\s*rgb\(0 0 0 \/ 0\.5\);/m);
+      expect(css.match(/^\s*--scrim:/gm)?.length).toBe(1);
+      expect(css.match(/^\s*--scrim-modal:/gm)?.length).toBe(1);
+      const rule = css.match(
+        /\.cdk-overlay-backdrop\.cdk-overlay-backdrop-showing\s*\{([^}]*)\}/,
+      )?.[1];
+      expect(rule).toContain('background-color: var(--scrim-modal);');
+    });
+
+    it('declares the three overlay surfaces in @layer components, so a utility overrides them', () => {
+      const start = css.indexOf('@layer components {');
+      expect(start, '@layer components block').toBeGreaterThan(-1);
+      let depth = 0;
+      let end = start;
+      for (let i = css.indexOf('{', start); i < css.length; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}' && --depth === 0) {
+          end = i;
+          break;
+        }
+      }
+      const block = css.slice(start, end);
+      for (const cls of ['.aec-dialog', '.aec-drawer', '.aec-popover']) {
+        expect(block, cls).toContain(cls);
+      }
+      expect(block).toMatch(/\.aec-popover\s*\{[^}]*border-radius:\s*var\(--radius-control\)/);
+      expect(block).toMatch(
+        /\.aec-dialog,\s*\.aec-drawer\s*\{[^}]*border-radius:\s*var\(--radius-card\)/,
+      );
+      expect(block).not.toMatch(/border-color/);
+    });
+
+    it('writes no second backdrop colour in a template or a component', () => {
+      const offenders = walk(SRC_DIR)
+        .filter((f) => f !== SELF && !f.endsWith('.spec.ts'))
+        .filter((f) => /bg-black\/|bg-\[rgb\(0[_ ]0[_ ]0\//.test(readFileSync(f, 'utf8')))
+        .map((f) => f.slice(SRC_DIR.length + 1));
+      expect(offenders).toEqual([]);
     });
   });
 

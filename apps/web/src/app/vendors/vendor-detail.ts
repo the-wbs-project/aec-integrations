@@ -128,6 +128,7 @@ const HERO_LINK_FIELDS = [
                 [src]="v.logo_url"
                 [name]="v.company_name"
                 [alt]="logoAlt(v.company_name)"
+                [claimStatus]="v.claim_status"
                 size="lg"
                 [priority]="true"
               />
@@ -169,6 +170,8 @@ const HERO_LINK_FIELDS = [
                     [src]="v.logo_url"
                     [name]="v.company_name"
                     [alt]="logoAlt(v.company_name)"
+                    [claimStatus]="v.claim_status"
+                    [ownPage]="true"
                     size="sm"
                     [priority]="true"
                   />

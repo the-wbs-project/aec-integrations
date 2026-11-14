@@ -98,6 +98,15 @@ describe('ProductCard', () => {
     expect(last).toContain('Not yet connected');
   });
 
+  // AECI-1769: `ProductListItem.logo_url` is null for an unclaimed product (AECI-1618),
+  // so the row shows the tile. A claimed product's logo shows in the same box.
+  it('shows a claimed product logo in the same 32px box as the tile', () => {
+    const fixture = setupFixture({ ...baseProduct, logo_url: 'https://cdn.example.com/p.png' });
+    const img = (fixture.nativeElement as HTMLElement).querySelector('aec-logo-or-initial img');
+    expect(img?.getAttribute('width')).toBe('32');
+    expect(img?.classList.contains('h-8')).toBe(true);
+  });
+
   it('renders a monogram fallback in the name cell when logo_url is null', () => {
     const fixture = setupFixture();
     // LogoOrInitial renders the initial letter (code-point safe) when src is null.

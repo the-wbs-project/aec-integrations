@@ -119,9 +119,8 @@ let nextAecSelectId = 0;
               focusMode="activedescendant"
               selectionMode="explicit"
               [attr.aria-label]="label()"
-              class="z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-0.5
-                overflow-y-auto rounded-(--radius-md) border border-(--border-default)
-                bg-(--surface-raised) p-1.5 shadow-lg"
+              class="aec-popover z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-0.5
+                overflow-y-auto p-1.5"
             >
               @for (section of sections(); track $index) {
                 @if (section.heading === null) {
