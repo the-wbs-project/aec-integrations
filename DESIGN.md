@@ -300,15 +300,8 @@ components:
     padding: "{spacing.8} {spacing.6}"
     md_padding: "{spacing.12} {spacing.8}"
     sectionDivider: "1px solid {colors.border-default}"
-  # BATCH MERGE TODO for AECI-1747 (it renames colour keys on the batch branch,
-  # and `main` still has the old ones, so nothing is renamed here). When the batch
-  # branch merges: rename {colors.footer-ground} to {colors.surface-footer},
-  # {colors.hero-panel} to {colors.surface-hero-panel} and {colors.field-edge}
-  # to {colors.border-field}. Convert every var(--surface-on-brand-wash),
-  # var(--surface-on-brand-wash-hover), var(--surface-on-brand-hover),
-  # var(--text-on-brand-secondary) and var(--border-on-brand-strong) value below
-  # to a {colors.*} reference. Then
-  # re-run the parser and check every reference resolves.
+  # Colour references below use the AECI-1747 token keys (surface-footer,
+  # surface-hero-panel, border-field and the on-brand washes and borders).
   # The public shell (clashes 26 to 32 and 42, PLAN.md sections 4.7 to 4.10).
   # Starting values from mock-up 6, default state, in
   # docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html. Section 5
@@ -325,7 +318,7 @@ components:
     lg_padding: "{spacing.0} {spacing.12}"
   # Sign in hover (the Bone main button on Forest). Forest text is 9.46:1 on it.
   button-on-brand-hover:
-    backgroundColor: "var(--surface-on-brand-hover)"
+    backgroundColor: "{colors.surface-on-brand-hover}"
     textColor: "{colors.accent-primary}"
   # A nav link on Forest. The hover wash is Bone at 10%. Text stays Bone.
   header-link:
@@ -334,7 +327,7 @@ components:
     rounded: "{rounded.pill}"
     padding: "{spacing.3} {spacing.4}"
   header-link-hover:
-    backgroundColor: "var(--surface-on-brand-wash)"
+    backgroundColor: "{colors.surface-on-brand-wash}"
   # Active route: weight 600 and aria-current.
   header-link-active:
     fontWeight: 600
@@ -345,18 +338,18 @@ components:
     rounded: "3px 3px 0 0"
   # The search field needs its own edge. The wash alone is 1.33:1 on Forest.
   header-search:
-    backgroundColor: "var(--surface-on-brand-wash)"
-    textColor: "var(--text-on-brand-secondary)"
+    backgroundColor: "{colors.surface-on-brand-wash}"
+    textColor: "{colors.text-on-brand-secondary}"
     typography: "{typography.body}"
     rounded: "{rounded.pill}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
-    border: "1px solid var(--border-on-brand-strong)"
+    border: "1px solid {colors.border-on-brand-strong}"
   header-search-hover:
-    backgroundColor: "var(--surface-on-brand-wash-hover)"
+    backgroundColor: "{colors.surface-on-brand-wash-hover}"
     textColor: "{colors.accent-warm}"
   nav-toggle:
-    backgroundColor: "var(--surface-on-brand-wash)"
+    backgroundColor: "{colors.surface-on-brand-wash}"
     textColor: "{colors.accent-warm}"
     rounded: "{rounded.md}"
     width: "44px"
@@ -385,7 +378,7 @@ components:
     fontWeight: 400
   # The footer ground. Ink is Bone. Labels take var(--text-on-footer-secondary).
   footer:
-    backgroundColor: "{colors.footer-ground}"
+    backgroundColor: "{colors.surface-footer}"
     textColor: "{colors.accent-warm}"
     padding: "{spacing.16} {spacing.0} {spacing.8}"
 ---
