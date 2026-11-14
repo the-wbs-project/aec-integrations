@@ -60,6 +60,11 @@ describe('AecMeter', () => {
     const el = setup().meter();
     expect(el.textContent).toContain('4.3');
     expect(el.querySelector('.aec-meter-track')!.getAttribute('aria-hidden')).toBe('true');
+    // The visible number is hidden from the tree so the meter's value text is read once.
+    const hidden = [...el.querySelectorAll('[aria-hidden="true"]')].map((n) =>
+      n.textContent!.trim(),
+    );
+    expect(hidden).toContain('4.3');
   });
 
   it('sizes the fill to the share of the range', () => {
