@@ -329,7 +329,7 @@ describe('ProductPoweredHub', () => {
         poweredEdge(HUB, link('cmic', 'CMiC')),
         poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
       ]);
-      const names = [...el.querySelectorAll('ul li a span.font-medium')];
+      const names = [...el.querySelectorAll('ul li a span.font-semibold.break-words')];
       expect(names).toHaveLength(4);
       for (const name of names) {
         expect(name.classList).not.toContain('truncate');
@@ -346,8 +346,9 @@ describe('ProductPoweredHub', () => {
       const anchors = [...el.querySelectorAll('ul li a')];
       expect(anchors).toHaveLength(3);
       for (const a of anchors) {
-        const last = a.lastElementChild!;
-        expect(last.tagName.toLowerCase()).toBe('svg');
+        const host = a.lastElementChild!;
+        expect(host.tagName.toLowerCase()).toBe('aec-icon');
+        const last = host.querySelector('svg')!;
         expect(last.getAttribute('aria-hidden')).toBe('true');
         expect(last.querySelector('path')!.getAttribute('d')).toBe('m9 18 6-6-6-6');
       }

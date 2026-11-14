@@ -45,7 +45,7 @@ import { PLANS_PAGE_PATH } from './plans-versions';
             This is the Plans page as recorded at version {{ snapshot.version }} on
             {{ snapshot.recordedOn }}.
             <a
-              class="rounded-sm font-medium text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="rounded-sm text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               [routerLink]="currentPath"
               >Read the current page.</a
             >

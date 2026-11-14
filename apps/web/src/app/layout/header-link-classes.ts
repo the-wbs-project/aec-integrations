@@ -6,13 +6,12 @@
  */
 
 /**
- * Bone ring, 3px at a 3px offset, on every control sitting on Forest. The
- * trailing `!` is load-bearing: `styles.css` has an unlayered
- * `:focus-visible { outline-color }` rule, which beats any utility in a layer,
- * so without `!` the ring renders Forest on Forest and vanishes.
+ * Bone ring, 3px at a 3px offset, on every control sitting on Forest. A plain
+ * utility works because the global `:focus-visible` colour sits in
+ * `@layer base` (AECI-1845). Rings inside white panels stay Forest.
  */
 export const ON_FOREST_FOCUS_RING =
-  'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!';
+  'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)';
 
 /**
  * A text link in the header row. The `after` copy reserves the weight-600

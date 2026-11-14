@@ -65,7 +65,7 @@ describe('BrandLogo', () => {
 
   it('takes the Bone focus ring on a Forest ground and the Forest ring on a light one', async () => {
     const onDark = (await render('on-dark')).querySelector('a')!.className;
-    expect(onDark).toContain('outline-(--focus-ring-on-brand)!');
+    expect(onDark).toContain('outline-(--focus-ring-on-brand)');
     expect(onDark).not.toContain('outline-(--accent-primary)');
     const onLight = (await render('default')).querySelector('a')!.className;
     expect(onLight).toContain('outline-(--accent-primary)');
@@ -81,6 +81,41 @@ describe('BrandLogo', () => {
       expect(links[0].getAttribute('href')).toBe('/');
       expect(el.querySelectorAll('img')).toHaveLength(1);
       expect(el.querySelector('img')!.getAttribute('alt')).toBe('AEC Integrations');
+    }
+  });
+
+  /**
+   * AECI-1845: the ring follows the ground. The on-dark tone draws the Bone ring
+   * at 3px with a 3px offset from plain utilities, with no `!`. The default tone
+   * keeps the Forest ring it always had.
+   */
+  it('gives the on-dark tone the Bone ring at 3px with a 3px offset, with no !important', async () => {
+    const link = (await render('on-dark')).querySelector('a')!;
+    const classes = [...link.classList];
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'focus-visible:outline-3',
+        'focus-visible:outline-offset-3',
+        'focus-visible:outline-(--focus-ring-on-brand)',
+      ]),
+    );
+    expect(classes).not.toContain('focus-visible:outline-(--accent-primary)');
+    expect(classes.some((c) => c.endsWith('!') || c.startsWith('!'))).toBe(false);
+  });
+
+  it('keeps the default ring exactly as before', async () => {
+    for (const tone of [undefined, 'default'] as const) {
+      const link = (await render(tone)).querySelector('a')!;
+      expect([...link.classList].sort()).toEqual(
+        [
+          'inline-flex',
+          'items-center',
+          'rounded-md',
+          'focus-visible:outline-2',
+          'focus-visible:outline-offset-2',
+          'focus-visible:outline-(--accent-primary)',
+        ].sort(),
+      );
     }
   });
 });

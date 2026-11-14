@@ -18,7 +18,7 @@ import { untilHydrated } from './hydration';
 // footer navigation in `updates.spec.ts`. The `/admin` IA it duplicated is now a
 // single role-gated "Admin portal" door in the account menu, which needs a real
 // session to drive (see the authed-console spec); the door's visibility rules are
-// covered by `user-menu.component.spec.ts`. So this spec asserts the row is
+// covered by `site-header.component.spec.ts`. So this spec asserts the row is
 // exactly the six public destinations and that nothing role-gated leaks into it.
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
@@ -459,6 +459,87 @@ test.describe('header search in the lg-xl band (1100px)', () => {
     await searchTrigger(page).click();
     await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
     expect(await analyzeHeaderAndOverlay(page), 'search panel open').toEqual([]);
+  });
+});
+
+// AECI-1771: the header sits on Forest. These checks read COMPUTED styles, because
+// a class that names the right token can still lose in the cascade (a
+// `border-(--x)` utility loses to the global `*` border-color rule, and a layered
+// outline utility used to lose to the global `:focus-visible` colour).
+//
+// The expected colours are resolved from the tokens in the page, so a token
+// change moves both sides. The signed-in account trigger needs a session this
+// spec cannot mint. It takes the same `aec-on-brand-edge` class, pinned in
+// `site-header.component.spec.ts`.
+async function tokenColor(page: Page, token: string, property: 'color' | 'border-top-color') {
+  return page.evaluate(
+    ([t, prop]) => {
+      const probe = document.createElement('div');
+      probe.style.cssText = `position:absolute;visibility:hidden;color:var(${t});border:1px solid var(${t})`;
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).getPropertyValue(prop);
+      probe.remove();
+      return value;
+    },
+    [token, property],
+  );
+}
+
+async function computed(locator: ReturnType<Page['locator']>, property: string) {
+  return locator.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop), property);
+}
+
+test.describe('header on Forest (computed styles)', () => {
+  test('the menu toggle edge computes to the strong Bone edge', async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    await page.goto(ROUTE);
+    await untilHydrated(toggle(page));
+    expect(await computed(toggle(page), 'border-top-color')).toBe(
+      await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
+    );
+    expect(await computed(toggle(page), 'border-top-width')).toBe('1px');
+  });
+
+  test('the compact search icon edge computes to the strong Bone edge', async ({ page }) => {
+    await page.setViewportSize(NARROW_DESKTOP);
+    await page.goto(ROUTE);
+    const trigger = page.locator('aec-search-trigger button');
+    await untilHydrated(trigger);
+    expect(await computed(trigger, 'border-top-color')).toBe(
+      await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
+    );
+    expect(await computed(trigger, 'border-top-width')).toBe('1px');
+  });
+
+  test('a focused header link has a Bone 3px ring, and the flyout link a Forest ring', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP);
+    await page.goto(ROUTE);
+    const nav = page.locator('aec-site-header').getByRole('navigation', { name: 'Primary' });
+    const products = nav.getByRole('link', { name: 'Products', exact: true });
+    await untilHydrated(products);
+    // A keyboard focus, so `:focus-visible` applies.
+    await page.keyboard.press('Tab');
+    await products.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(products).toBeFocused();
+    await expect
+      .poll(async () => computed(products, 'outline-color'))
+      .toBe(await tokenColor(page, '--focus-ring-on-brand', 'color'));
+    expect(await computed(products, 'outline-width')).toBe('3px');
+    expect(await computed(products, 'outline-offset')).toBe('3px');
+
+    // Inside the open white flyout the ring stays Forest.
+    const trigger = nav.getByRole('link', { name: 'Audiences', exact: true });
+    await trigger.focus();
+    await page.keyboard.press('ArrowDown');
+    const first = page.locator('#nav-flyout-audience').getByRole('link').first();
+    await expect(first).toBeFocused();
+    await expect
+      .poll(async () => computed(first, 'outline-color'))
+      .toBe(await tokenColor(page, '--accent-primary', 'color'));
   });
 });
 

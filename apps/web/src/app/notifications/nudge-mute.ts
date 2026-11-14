@@ -224,7 +224,7 @@ const HEADLINE =
                   <p
                     #resultHeading
                     tabindex="-1"
-                    class="mt-4 text-sm font-medium text-(--text-primary) outline-none"
+                    class="mt-4 text-sm font-semibold text-(--text-primary) outline-none"
                     role="alert"
                     i18n="@@app.nudgeMute.error"
                   >

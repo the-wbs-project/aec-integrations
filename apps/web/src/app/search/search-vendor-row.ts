@@ -25,7 +25,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       'group text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
-    <td class="px-4 py-3 font-medium">
+    <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
         <aec-logo-or-initial [src]="record().logo_url" [name]="record().company_name" size="sm" />
         <span class="flex min-w-0 flex-col">

@@ -20,7 +20,7 @@ describe('SkipLink (harness smoke)', () => {
     const classes = (fixture.nativeElement.querySelector('a') as HTMLElement).className;
     expect(classes).toContain('focus:bg-(--accent-warm)');
     expect(classes).toContain('focus:text-(--accent-primary)');
-    expect(classes).toContain('focus:outline-(--focus-ring-on-brand)!');
+    expect(classes).toContain('focus:outline-(--focus-ring-on-brand)');
     expect(classes).not.toContain('focus:bg-(--accent-primary)');
   });
 });

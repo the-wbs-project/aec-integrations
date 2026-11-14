@@ -52,6 +52,7 @@ import { readDocsSearchConfig } from '../search/algolia-config';
 import type { DocsGuide } from './docs-content';
 import { DOCS_SEARCH_FACTORY } from './docs-search.factory';
 import type { DocsSearchFn, DocsSearchHit } from './docs-search-hits';
+import { AecIcon } from '../shared/icon/icon';
 
 /** Search-as-you-type debounce, ms. The header autocomplete's value. */
 export const DOCS_SEARCH_DEBOUNCE_MS = 180;
@@ -61,7 +62,7 @@ type State = 'pending' | 'ready' | 'off';
 
 @Component({
   selector: 'aec-docs-search',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     @switch (state()) {
       @case ('pending') {
@@ -71,19 +72,11 @@ type State = 'pending' | 'ready' | 'off';
         <div class="mb-4" role="search" [attr.aria-label]="label()">
           <label [attr.for]="inputId" class="sr-only">{{ label() }}</label>
           <div class="relative">
-            <svg
-              aria-hidden="true"
-              class="pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+            <span
+              class="pointer-events-none absolute start-2.5 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
+              <aec-icon name="search" decorative [size]="4" />
+            </span>
             <input
               ngCombobox
               #combobox="ngCombobox"
@@ -140,7 +133,7 @@ type State = 'pending' | 'ready' | 'off';
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
                         >
                         <!-- Every run is an element, so no collapsed space lands between runs. -->
-                        <span class="text-sm font-medium text-(--text-primary)">
+                        <span class="text-sm font-semibold text-(--text-primary)">
                           @for (part of hit.heading; track $index) {
                             @if (part.match) {
                               <mark class="bg-transparent text-inherit underline">{{
@@ -155,7 +148,7 @@ type State = 'pending' | 'ready' | 'off';
                           <span class="line-clamp-2 text-xs text-(--text-secondary)">
                             @for (part of hit.snippet; track $index) {
                               @if (part.match) {
-                                <mark class="bg-transparent font-medium text-(--text-primary)">{{
+                                <mark class="bg-transparent font-semibold text-(--text-primary)">{{
                                   part.text
                                 }}</mark>
                               } @else {

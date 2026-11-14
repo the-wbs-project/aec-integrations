@@ -45,9 +45,8 @@
  * (The taxonomy values likewise only appear client-side; the SSR-crawlable
  * facet links live on the desktop bar + the footer.)
  *
- * The toggle is the canonical Lucide `menu` glyph inlined as SVG with
- * `stroke="currentColor"` so it themes via `--text-primary` (DESIGN.md: Lucide
- * icons exclusively — no icon library needed for a single glyph).
+ * The toggle is the `aec-icon` `menu` glyph. It is `currentColor`, so it themes
+ * via `--text-primary` (DESIGN.md: the aec-icon set).
  *
  * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96/158/159.
  */
@@ -72,6 +71,7 @@ import { AccountIdentity } from './account-identity';
 import { NavFlyoutList } from './nav-flyout-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-nav-menu',
@@ -87,6 +87,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // ends up with two search boxes, or none.
   host: { class: 'lg:hidden' },
   imports: [
+    AecIcon,
     RouterLink,
     RouterLinkActive,
     BrnPopover,
@@ -101,26 +102,13 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-control border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
+      class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-control border aec-on-brand-edge bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)"
       i18n-aria-label="@@app.nav.menu.toggle.aria"
       aria-label="Open menu"
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
       (click)="adminStatus.ensureProbed()"
     >
-      <svg
-        aria-hidden="true"
-        class="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <line x1="4" x2="20" y1="6" y2="6" />
-        <line x1="4" x2="20" y1="12" y2="12" />
-        <line x1="4" x2="20" y1="18" y2="18" />
-      </svg>
+      <aec-icon name="menu" decorative [size]="5" />
       <!-- Pending-review badge: parity with the desktop user icon, so an admin
            sees there's moderation work without opening the menu (AECI-259). -->
       @if (showBadge()) {
@@ -227,19 +215,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                 class="flex w-full items-center justify-center gap-2 rounded-md border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-medium text-(--text-primary) hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.account"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
+                <aec-icon name="user" decorative [size]="4" />
                 Account
               </a>
 

@@ -34,6 +34,7 @@ import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -79,6 +80,7 @@ import { RoleBadge } from './role-badge';
 @Component({
   selector: 'aec-product-detail',
   imports: [
+    AecIcon,
     DetailLayout,
     ExternalLinkTracker,
     FieldCaptionLine,
@@ -259,7 +261,7 @@ import { RoleBadge } from './role-badge';
             @if (p.review_count > 0) {
               <a
                 [href]="'/products/' + p.slug + '#reviews'"
-                class="text-sm font-medium text-(--text-secondary) no-underline transition-colors
+                class="text-sm font-semibold text-(--text-secondary) no-underline transition-colors
                   hover:text-(--accent-primary) focus-visible:outline-none
                   focus-visible:rounded-(--radius-sm) focus-visible:ring-2
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
@@ -268,7 +270,7 @@ import { RoleBadge } from './role-badge';
                 {{ reviewCountLabel(p.review_count) }}
               </a>
             } @else {
-              <span class="text-sm font-medium text-(--text-secondary)">{{
+              <span class="text-sm font-semibold text-(--text-secondary)">{{
                 reviewCountLabel(p.review_count)
               }}</span>
             }
@@ -356,7 +358,7 @@ import { RoleBadge } from './role-badge';
                   size="sm"
                 />
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
+                  <span class="min-w-0 break-words font-semibold text-(--text-primary)">{{
                     v.name
                   }}</span>
                   @if (vendorFactsLine(); as line) {
@@ -631,19 +633,7 @@ import { RoleBadge } from './role-badge';
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                  <path d="M4 22v-7" />
-                </svg>
+                <aec-icon name="flag" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3),
                      so the button names the product's vendor. -->
                 @if (p.vendor?.name; as company) {
@@ -671,19 +661,7 @@ import { RoleBadge } from './role-badge';
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
+                <aec-icon name="pen" decorative [size]="4" />
                 <ng-container i18n="@@products.detail.metadata.correction"
                   >Suggest a correction</ng-container
                 >
@@ -701,7 +679,7 @@ import { RoleBadge } from './role-badge';
               target="_blank"
               rel="noopener"
               data-testid="product-vendor-program-link"
-              class="inline-flex items-center gap-1 text-sm font-medium text-(--accent-primary)
+              class="inline-flex items-center gap-1 text-sm font-semibold text-(--accent-primary)
                 underline-offset-4 hover:text-(--accent-primary-hover) hover:underline
                 focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
@@ -919,7 +897,7 @@ export class ProductDetailPage {
   }
 
   protected readonly resourceLinkClass =
-    'inline-flex items-center gap-1.5 text-sm font-medium text-(--accent-primary) ' +
+    'inline-flex items-center gap-1.5 text-sm font-semibold text-(--accent-primary) ' +
     'underline-offset-4 hover:text-(--accent-primary-hover) hover:underline ' +
     'focus-visible:outline-none focus-visible:rounded-(--radius-sm) focus-visible:ring-2 ' +
     'focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 ' +

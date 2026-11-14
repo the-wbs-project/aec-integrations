@@ -135,7 +135,7 @@ import { UserMenu } from './user-menu';
           <aec-search-autocomplete
             class="hidden xl:block"
             inputId="header-search"
-            inputClass="w-52 focus-visible:outline-(--focus-ring-on-brand)!"
+            inputClass="w-52 focus-visible:outline-(--focus-ring-on-brand)"
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />

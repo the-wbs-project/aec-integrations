@@ -180,7 +180,7 @@ describe('SiteHeader auth affordance', () => {
     signedIn.set(true);
     fixture.detectChanges();
     const trigger = (fixture.nativeElement as HTMLElement).querySelector('aec-user-menu button')!;
-    expect(trigger.className).toContain('border-(--border-on-brand-strong)');
+    expect(trigger.classList).toContain('aec-on-brand-edge');
     expect(trigger.className).toContain('bg-(--surface-on-brand-wash)');
     expect(trigger.className).toContain('text-(--text-on-brand)');
     expect(trigger.className).toContain('h-11');

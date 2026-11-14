@@ -19,6 +19,7 @@ import {
   legalNoticeHref,
   legalNoticeId,
 } from './legal-notices';
+import { AecIcon } from '../shared/icon/icon';
 
 /** The entries the band reads. A token so specs can set them. */
 export const LEGAL_NOTICES_DATA = new InjectionToken<readonly LegalNotice[]>('LEGAL_NOTICES_DATA', {
@@ -80,7 +81,7 @@ function writeDismissed(ids: readonly string[]): void {
  */
 @Component({
   selector: 'aec-legal-notice-band',
-  imports: [RouterLink],
+  imports: [AecIcon, RouterLink],
   template: `
     @for (notice of visible(); track id(notice)) {
       <div
@@ -98,7 +99,7 @@ function writeDismissed(ids: readonly string[]): void {
             {{ notice.summary }}
             <a
               [routerLink]="href(notice)"
-              class="font-medium text-(--accent-primary) underline underline-offset-2
+              class="text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
               i18n="@@legal.notice.readNewVersion"
               >Read the new version</a
@@ -115,17 +116,7 @@ function writeDismissed(ids: readonly string[]): void {
               focus-visible:ring-(--accent-primary)"
             data-testid="legal-notice-dismiss"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              class="size-4"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-            >
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <aec-icon name="x" decorative [size]="4" />
           </button>
         </div>
       </div>

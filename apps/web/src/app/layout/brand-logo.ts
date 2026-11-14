@@ -93,12 +93,14 @@ export class BrandLogo {
   readonly tone = input<BrandLogoTone>('default');
 
   /**
-   * The focus ring follows the ground. A Forest ring on a Forest ground is
-   * invisible, so the on-dark tone takes the Bone ring.
+   * The focus ring follows the ground (DESIGN.md §4 "Focus ring"). A Forest ring
+   * on a Forest ground is invisible, so the on-dark tone takes the Bone ring at
+   * 3px with a 3px offset. A plain utility works because the global focus colour
+   * sits in `@layer base` (AECI-1845). The default tone is unchanged.
    */
   protected readonly ringClass = computed(() =>
     this.tone() === 'on-dark'
-      ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!'
+      ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
       : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
   );
 

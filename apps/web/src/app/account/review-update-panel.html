@@ -58,7 +58,7 @@
 <p
   role="status"
   aria-live="polite"
-  class="text-sm font-medium text-(--text-primary)"
+  class="text-sm font-semibold text-(--text-primary)"
   [class.mt-3]="liveMessage()"
 >
   {{ liveMessage() }}
@@ -238,7 +238,7 @@
   @if (submitError()) {
   <p
     role="alert"
-    class="text-sm font-medium text-(--text-primary)"
+    class="text-sm font-semibold text-(--text-primary)"
     data-testid="review-update-error"
   >
     {{ submitErrorMessage() }}

@@ -201,21 +201,21 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
             <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3">
               <a
                 routerLink="/products"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                class="font-semibold text-(--accent-primary) hover:text-(--accent-primary-hover)"
                 i18n="@@app.about.next.browse"
               >
                 Browse the directory
               </a>
               <a
                 routerLink="/methodology"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                class="font-semibold text-(--accent-primary) hover:text-(--accent-primary-hover)"
                 i18n="@@app.about.next.methodology"
               >
                 How we work
               </a>
               <a
                 routerLink="/contact"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                class="font-semibold text-(--accent-primary) hover:text-(--accent-primary-hover)"
                 i18n="@@app.about.next.contact"
               >
                 Contact us

@@ -66,10 +66,12 @@ import { VendorStatus } from '../vendor/vendor-status';
 
 import { AccountIdentity } from './account-identity';
 import { ON_FOREST_FOCUS_RING } from './header-link-classes';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-user-menu',
   imports: [
+    AecIcon,
     NgOptimizedImage,
     RouterLink,
     BrnPopover,
@@ -115,19 +117,7 @@ import { ON_FOREST_FOCUS_RING } from './header-link-classes';
           (error)="photoFailed.set(true)"
         />
       } @else {
-        <svg
-          aria-hidden="true"
-          class="h-5 w-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
+        <aec-icon name="user" decorative [size]="5" />
       }
       @if (showBadge()) {
         <span
@@ -251,12 +241,15 @@ export class UserMenu {
 
   /**
    * The trigger on the Forest header (AECI-1771). It stays a circle, because a
-   * person is a circle. A Bone-wash fill with a 4.01:1 strong Bone edge (the
-   * wash alone is 1.33:1, no boundary), Bone glyph (8.31:1 on the wash), a
-   * deeper wash on hover, and the Bone focus ring. 44px, the main-control size.
+   * person is a circle. A Bone-wash fill with a 1px edge from the unlayered
+   * `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong`
+   * (4.01:1; the wash alone is 1.33:1, no boundary). A `border-(--x)` utility
+   * would lose to the global `*` border-color rule, which is why the class is
+   * used. Bone glyph (8.31:1 on the wash), a deeper wash on hover, and the Bone
+   * focus ring. 44px, the main-control size.
    */
   protected readonly triggerClass =
-    'relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) ' +
+    'relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border aec-on-brand-edge bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) ' +
     ON_FOREST_FOCUS_RING;
 
   /** The badge shows only for an admin with something waiting. */
