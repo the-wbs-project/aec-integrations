@@ -1,13 +1,20 @@
+import { isPlatformBrowser } from '@angular/common';
 import {
+  DestroyRef,
   Directive,
   ElementRef,
+  PLATFORM_ID,
+  Renderer2,
   afterNextRender,
   booleanAttribute,
   computed,
+  effect,
   inject,
   input,
   isDevMode,
 } from '@angular/core';
+
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The five button looks (DESIGN.md §5 "Buttons").
@@ -95,6 +102,19 @@ export function buttonClass(
  * One filled button per surface (clash 21) is a usage rule. The directive does
  * not count them.
  *
+ * TYPE
+ * A `<button aecButton>` with no `type` attribute gets `type="button"`, so it
+ * never submits a form by accident. An explicit `type="submit"` is kept.
+ *
+ * DISABLED
+ * Use the `disabled` input: `<button aecButton [disabled]="busy()">` or
+ * `<a aecButton [disabled]="!ready()">`. On a `<button>` it sets the native
+ * `disabled` attribute. A link has no native disabled state, so on an `<a>` it
+ * sets `aria-disabled="true"` and `tabindex="-1"` and cancels clicks (Enter on a
+ * link fires a click too). Re-enabling restores the link's own `tabindex`. A
+ * caller that writes `aria-disabled` by hand gets the dimmed look only: the link
+ * still takes focus and still navigates.
+ *
  * ACCESSIBILITY
  * An `iconOnly` button has no visible text, so it needs `aria-label`,
  * `aria-labelledby` or visually hidden text. Dev mode logs an error when it has
@@ -105,20 +125,58 @@ export function buttonClass(
   host: {
     '[class]': 'classes()',
     '[attr.data-variant]': 'variant()',
+    // A link has no `disabled` attribute. A button drops it when re-enabled.
+    '[attr.disabled]': 'isButton && disabled() ? "" : null',
   },
 })
 export class AecButton {
   readonly variant = input<AecButtonVariant>('primary');
   readonly compact = input(false, { transform: booleanAttribute });
   readonly iconOnly = input(false, { transform: booleanAttribute });
+  readonly disabled = input(false, { transform: booleanAttribute });
 
   protected readonly classes = computed(() =>
     buttonClass(this.variant(), { compact: this.compact(), iconOnly: this.iconOnly() }),
   );
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  private readonly renderer = inject(Renderer2);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  protected readonly isButton = this.host.tagName === 'BUTTON';
+
+  /** The link's own tabindex, kept while disabled so re-enabling restores it. */
+  private savedTabindex: string | null = null;
+  private linkDisabled = false;
+
+  /**
+   * Cancels a click on a disabled link. Added with `addEventListener`, only
+   * while the link is disabled, and never through a template or host listener.
+   * The style guide's anchor rule ("an `<a href>` that relies on its native
+   * default carries no listener of its own") exists because a host listener
+   * puts the anchor in Angular's event-replay cache, which then cancels later
+   * clicks. A code listener is not in that cache and is gone once the link is
+   * enabled. Capture phase, so it runs before `RouterLink`'s own click listener.
+   */
+  private readonly blockClick = (event: Event): void => {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
 
   constructor() {
+    // Static attributes are already on the element when the directive is made.
+    if (this.isButton && !this.host.hasAttribute('type')) {
+      this.renderer.setAttribute(this.host, 'type', 'button');
+    }
+
+    if (!this.isButton) {
+      effect(() => this.setLinkDisabled(this.disabled()));
+      this.destroyRef.onDestroy(() => {
+        this.host.removeEventListener('click', this.blockClick, true);
+      });
+    }
+
     // Dev only: production registers no render callback per button.
     if (!isDevMode()) return;
     const host = this.host;
@@ -131,13 +189,45 @@ export class AecButton {
       }
     });
   }
+
+  private setLinkDisabled(disabled: boolean): void {
+    if (disabled === this.linkDisabled) return;
+    this.linkDisabled = disabled;
+    const el = this.host;
+    if (disabled) {
+      this.savedTabindex = el.getAttribute('tabindex');
+      this.renderer.setAttribute(el, 'aria-disabled', 'true');
+      this.renderer.setAttribute(el, 'tabindex', '-1');
+      if (this.isBrowser) el.addEventListener('click', this.blockClick, true);
+    } else {
+      this.renderer.removeAttribute(el, 'aria-disabled');
+      if (this.savedTabindex === null) this.renderer.removeAttribute(el, 'tabindex');
+      else this.renderer.setAttribute(el, 'tabindex', this.savedTabindex);
+      if (this.isBrowser) el.removeEventListener('click', this.blockClick, true);
+    }
+  }
 }
 
-/** A name from an ARIA attribute, a title, or any text inside the element. */
+/**
+ * A name from an ARIA attribute, a title, a labelled image, or text inside the
+ * element. Text inside an `aria-hidden="true"` subtree does not count.
+ */
 export function hasAccessibleName(el: HTMLElement): boolean {
   if (el.getAttribute('aria-label')?.trim()) return true;
   if (el.getAttribute('aria-labelledby')?.trim()) return true;
   if (el.getAttribute('title')?.trim()) return true;
-  if (el.querySelector('[role="img"][aria-label]')) return true;
-  return (el.textContent ?? '').trim().length > 0;
+  const images = Array.from(el.querySelectorAll('[role="img"][aria-label]'));
+  if (images.some((img) => !img.closest('[aria-hidden="true"]'))) return true;
+  return visibleText(el).trim().length > 0;
+}
+
+function visibleText(node: Node): string {
+  let text = '';
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === 3) text += child.textContent ?? '';
+    else if (child.nodeType === 1 && (child as Element).getAttribute('aria-hidden') !== 'true') {
+      text += visibleText(child);
+    }
+  }
+  return text;
 }

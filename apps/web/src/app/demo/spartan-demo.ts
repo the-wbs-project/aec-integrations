@@ -177,6 +177,16 @@ import { AecIcon } from '../shared/icon/icon';
           >
             Delete (disabled)
           </button>
+          <a
+            aecButton
+            variant="secondary"
+            href="/docs"
+            disabled
+            data-testid="btn-link-disabled"
+            i18n="@@demo.buttons.linkDisabled"
+          >
+            Read the docs (disabled)
+          </a>
         </div>
         <div class="flex flex-wrap items-center gap-3 rounded-card bg-(--accent-primary) p-6">
           <button

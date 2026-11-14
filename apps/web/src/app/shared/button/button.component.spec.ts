@@ -8,6 +8,7 @@
  */
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { Router, RouterLink, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BUTTON_PRIMARY_CLASS, BUTTON_SECONDARY_CLASS } from '../form-field/form-field-classes';
@@ -214,8 +215,125 @@ describe('aecButton (AECI-1758)', () => {
     expect(hasAccessibleName(c)).toBe(true);
   });
 
+  it('ignores text inside an aria-hidden subtree when it looks for a name', () => {
+    const b = document.createElement('button');
+    const hidden = document.createElement('span');
+    hidden.setAttribute('aria-hidden', 'true');
+    const inner = document.createElement('span');
+    inner.textContent = 'x';
+    hidden.appendChild(inner);
+    b.appendChild(hidden);
+    expect(hasAccessibleName(b)).toBe(false);
+    const img = document.createElement('span');
+    img.setAttribute('role', 'img');
+    img.setAttribute('aria-label', 'Search');
+    hidden.appendChild(img);
+    expect(hasAccessibleName(b)).toBe(false);
+  });
+
   it('is what the two shared form-field constants render', () => {
     expect(BUTTON_PRIMARY_CLASS).toBe(buttonClass('primary'));
     expect(BUTTON_SECONDARY_CLASS).toBe(buttonClass('secondary'));
+  });
+});
+
+@Component({
+  selector: 'aec-button-link-host',
+  imports: [AecButton, RouterLink],
+  template: `
+    <a aecButton variant="secondary" routerLink="/next" [disabled]="off()" data-testid="router-link"
+      >Next</a
+    >
+    <a aecButton href="/plain" tabindex="2" [disabled]="off()" data-testid="href-link">Plain</a>
+    <a aecButton href="/manual" aria-disabled="true" data-testid="manual-link">Manual</a>
+    <form (submit)="onSubmit($event)">
+      <button aecButton data-testid="bare">Bare</button>
+      <button aecButton type="submit" data-testid="submit">Send</button>
+    </form>
+  `,
+})
+class LinkHost {
+  readonly off = signal(true);
+  submitted = 0;
+  onSubmit(event: Event): void {
+    event.preventDefault();
+    this.submitted++;
+  }
+}
+
+describe('aecButton disabled links and the default type (AECI-1758)', () => {
+  let fixture: ComponentFixture<LinkHost>;
+  let host: LinkHost;
+  let navigate: { mock: { calls: unknown[] } };
+  const el = (id: string) =>
+    fixture.nativeElement.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [LinkHost],
+      providers: [provideZonelessChangeDetection(), provideRouter([])],
+    }).compileComponents();
+    navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    fixture = TestBed.createComponent(LinkHost);
+    host = fixture.componentInstance;
+    await fixture.whenStable();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const click = (node: HTMLElement) => {
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    node.dispatchEvent(event);
+    return event;
+  };
+
+  it('marks a disabled link aria-disabled and takes it out of the tab order', () => {
+    for (const id of ['router-link', 'href-link']) {
+      expect(el(id).getAttribute('aria-disabled'), id).toBe('true');
+      expect(el(id).getAttribute('tabindex'), id).toBe('-1');
+      expect(el(id).hasAttribute('disabled'), id).toBe(false);
+    }
+  });
+
+  it('keeps the disabled look on the link, pointer events included', () => {
+    expect(el('router-link').classList.contains('aria-disabled:pointer-events-none')).toBe(true);
+    expect(el('router-link').classList.contains('aria-disabled:opacity-60')).toBe(true);
+  });
+
+  it('cancels a click on a disabled link, so neither the router nor the href navigates', () => {
+    // Enter on a focused link fires this same click event in a browser.
+    expect(click(el('router-link')).defaultPrevented).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(click(el('href-link')).defaultPrevented).toBe(true);
+  });
+
+  it('re-enabling restores navigation and the link’s own tabindex', async () => {
+    host.off.set(false);
+    await fixture.whenStable();
+    expect(el('router-link').hasAttribute('aria-disabled')).toBe(false);
+    expect(el('router-link').hasAttribute('tabindex')).toBe(false);
+    expect(el('href-link').getAttribute('tabindex')).toBe('2');
+    expect(click(el('href-link')).defaultPrevented).toBe(false);
+    click(el('router-link'));
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives a hand-set aria-disabled only the look: the link still navigates', () => {
+    const manual = el('manual-link');
+    expect(manual.getAttribute('aria-disabled')).toBe('true');
+    expect(manual.hasAttribute('tabindex')).toBe(false);
+    expect(click(manual).defaultPrevented).toBe(false);
+  });
+
+  it('gives a bare button type="button" so it never submits its form', () => {
+    expect(el('bare').getAttribute('type')).toBe('button');
+    el('bare').click();
+    expect(host.submitted).toBe(0);
+  });
+
+  it('keeps an explicit type="submit"', () => {
+    expect(el('submit').getAttribute('type')).toBe('submit');
+    el('submit').click();
+    expect(host.submitted).toBe(1);
   });
 });

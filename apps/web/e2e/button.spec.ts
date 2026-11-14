@@ -9,6 +9,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
+
 const FOREST = 'rgb(30, 58, 47)';
 const BONE = 'rgb(245, 242, 234)';
 const WHITE = 'rgb(255, 255, 255)';
@@ -129,6 +131,23 @@ test.describe('aecButton rendered (AECI-1758)', () => {
   test('disabled is 60% opacity', async ({ page }) => {
     const s = await style(page.getByTestId('btn-primary-disabled'));
     expect(s.opacity).toBe('0.6');
+  });
+
+  test('a disabled link takes no pointer, no tab stop, no click and no Enter', async ({ page }) => {
+    const link = page.getByTestId('btn-link-disabled');
+    await expect(link).toHaveAttribute('aria-disabled', 'true');
+    await expect(link).toHaveAttribute('tabindex', '-1');
+    // The mutation "delete aria-disabled:pointer-events-none" fails here.
+    expect(await link.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+    expect((await style(link)).opacity).toBe('0.6');
+    // The click guard is attached in the browser, after hydration.
+    await untilHydrated(link);
+    const before = page.url();
+    await link.dispatchEvent('click');
+    await link.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    expect(page.url()).toBe(before);
   });
 
   test('the specimen passes axe', async ({ page }) => {
