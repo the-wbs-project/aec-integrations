@@ -1398,21 +1398,28 @@ integrations section filters by partner category and shows an agreement state on
 endpoint buckets now carries three more fields, on direct, Via and `powered_by` rows alike. The
 powered hub's `PoweredIntegrationItem` does not: its rows have no single partner.
 
-- **`partner_categories`**: the categories of the endpoint that is not the page product, A to Z by
-  name with the slug breaking ties. `[]` for a partner with none.
-- **`data_objects`**: the objects in `data_object_slugs`, each with its name, A to Z. Same claims,
-  same set. The names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.
-- **`agreement`**: the row's claims rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`).
-  Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
+- **`partner_categories`**: the categories of the endpoint that is not the page product, in the
+  order a product's own categories take (AECI-1242): curated `display_order`, then name, then slug.
+  `[]` for a partner with none.
+- **`data_objects`**: the objects in `data_object_slugs`, each with its name, in the order the pair
+  page's claim lanes use: curated `display_order`, then name, then slug. Same claims, same set. The
+  names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.
+- **`agreement`**: Provisional until Chris rules on AECI-1781: the row's claims rolled up by
+  `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
   confirmed`. So a row reads `confirmed` only when every flow it lists is confirmed by two
   companies. One confirmed flow never lends its standing to flows nobody confirmed. It covers the
   claims `data_objects` lists: refuted and unbacked claims are out, as they are out of the depth
-  axis. `null` when the row lists no claim.
+  axis. `null` when the row lists no claim. Two points are open. A flow every voting company denied
+  is left out of the roll-up. A rolled-up `single_source` names no vendor, so a card cannot render
+  the attributed "Confirmed by {vendor}" form (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3) from this field
+  alone. A claim marked `removed` on a versioned pair still counts on the product row, as
+  `data_object_slugs` has since AECI-711.
 
 All three are row data. None orders anything on the server, and the rows stay unordered on the
-wire. Until ruling R1 (AECI-1732), PLAN.md §7.8 orders every list A to Z by name. A sort or filter
-on `agreement` would read an input only a Managed vendor can move, which PLAN.md §7.7 calls
-placement. The fields ride nested relations of the product read, so the read is the same 16
+wire. Until ruling R1 (AECI-1732), PLAN.md §7.8 orders every list of products and integrations A to
+Z by name. The two term lists are chips, not such lists, and `display_order` is set by AECi seeds
+only. A sort or filter on `agreement` would read an input only a Managed vendor can move, which
+PLAN.md §7.7 calls placement. The fields ride nested relations of the product read, so the read is the same 16
 statements in one `db.batch` for a product with 1 row or 58. The page's existing tags cover every
 change: an attestation write purges both `product:{slug}` tags, and a partner's category edit purges
 `product:{partnerSlug}`, which the page embeds for every partner (`CACHE_STRATEGY.md` §5).

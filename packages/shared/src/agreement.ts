@@ -270,7 +270,10 @@ const VERIFICATION_RANK: Record<AgreementState, number> = {
  * product page's integration rows carry it, so a card can show the same four states
  * the pair page shows per claim.
  *
- * **The weakest claim decides.** The rule, first match wins:
+ * Provisional until Chris rules on AECI-1781: the weakest claim decides. Two
+ * points are open: a flow every voting company denied is left out of the roll-up, and
+ * a rolled-up `single_source` names no vendor, so a card cannot render the attributed
+ * "Confirmed by {vendor}" form from this value alone. The rule, first match wins:
  *
  * | Claims | Result |
  * |---|---|
@@ -286,7 +289,9 @@ const VERIFICATION_RANK: Record<AgreementState, number> = {
  *
  * The caller passes the claims the row lists: public (`isClaimPubliclyBacked`) and
  * not refuted (`isClaimRefuted`). The row's data objects skip refuted claims, so its
- * agreement does too. The state describes the same flows the row shows.
+ * agreement does too. The state describes the same flows the row shows. A claim
+ * marked `removed` on a versioned pair still counts here, as it does in
+ * `data_object_slugs` since AECI-711: the product row has no version selection.
  *
  * A pure function of the states, and never stored (ADR 0018).
  */

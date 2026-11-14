@@ -9,7 +9,11 @@
  * promoted rows and exercise the mechanical query/hydration/sort/filter behavior.
  */
 
-import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
+import {
+  ProductDetailSchema,
+  ProductPairResponseSchema,
+  ProductsListResponseSchema,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -40,6 +44,7 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { createProductPairHandler } from './integrations';
 import { createProductDetailHandler, createProductsListHandler } from './products';
 
 // Valid UUIDs (the response schema validates `id` as a uuid; prod ids are real).
@@ -62,6 +67,12 @@ const detailApp = () =>
     method: 'get',
     path: '/api/products/:slug',
     handler: createProductDetailHandler(t.factory),
+  });
+const pairApp = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/products/:slug/integrations/:otherSlug',
+    handler: createProductPairHandler(t.factory),
   });
 const get = (app: ReturnType<typeof listApp>, url: string) =>
   app.request(url, {}, TEST_ENV, fakeExecutionContext());
@@ -1119,11 +1130,14 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
       { id: u(21), slug: 'erp', name: 'ERP', displayOrder: 1 },
       { id: u(22), slug: 'accounting', name: 'accounting', displayOrder: 2 },
       { id: u(23), slug: 'field', name: 'Field Management', displayOrder: 3 },
+      // No curated order: sorts last.
+      { id: u(24), slug: 'bim', name: 'BIM', displayOrder: null },
     ]);
     await t.db.insert(taxonomyDataObjects).values([
       { id: u(71), slug: 'rfis', name: 'RFIs', displayOrder: 1 },
       { id: u(72), slug: 'drawings', name: 'drawings', displayOrder: 2 },
       { id: u(73), slug: 'invoices', name: 'Invoices', displayOrder: 3 },
+      { id: u(74), slug: 'budgets', name: 'Budgets', displayOrder: null },
     ]);
   });
 
@@ -1143,7 +1157,7 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
     return (id: string) => all.find((i) => i.id === id);
   };
 
-  it('carries all three on a direct row, A to Z, from the partner side in both buckets', async () => {
+  it('carries all three on a direct row, in curated order, from the partner side in both buckets', async () => {
     await seedProduct(u(1), 'procore', 'Procore');
     await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
     await t.db.insert(productCategories).values([
@@ -1151,6 +1165,7 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
       { productId: u(1), categoryId: u(23) },
       { productId: u(2), categoryId: u(21) },
       { productId: u(2), categoryId: u(22) },
+      { productId: u(2), categoryId: u(24) },
     ]);
     await t.db
       .insert(integrations)
@@ -1160,22 +1175,38 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
       { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'a_to_b' },
       // The same object twice: named once.
       { id: u(83), integrationId: u(51), dataObjectId: u(71), direction: 'b_to_a' },
+      { id: u(84), integrationId: u(51), dataObjectId: u(74), direction: 'a_to_b' },
     ]);
     // RFIs a_to_b confirmed by both, the others single-source: the row is single_source.
     await t.db
       .insert(attestations)
-      .values([vote(1, 81, 91), vote(2, 81, 92), vote(3, 82, 91), vote(4, 83, 92)]);
+      .values([
+        vote(1, 81, 91),
+        vote(2, 81, 92),
+        vote(3, 82, 91),
+        vote(4, 83, 92),
+        vote(5, 84, 91),
+      ]);
 
     const fromSource = (await rows('procore'))(u(51));
-    // Case never decides the order: "accounting" sorts before "ERP".
+    // Curated `display_order` first, NULLs last: not the A to Z order.
     expect(fromSource?.partner_categories).toEqual([
-      { slug: 'accounting', name: 'accounting' },
       { slug: 'erp', name: 'ERP' },
+      { slug: 'accounting', name: 'accounting' },
+      { slug: 'bim', name: 'BIM' },
     ]);
     expect(fromSource?.data_objects).toEqual([
-      { slug: 'drawings', name: 'drawings' },
       { slug: 'rfis', name: 'RFIs' },
+      { slug: 'drawings', name: 'drawings' },
+      { slug: 'budgets', name: 'Budgets' },
     ]);
+
+    // The pair page lists the same objects in the same order (`compareClaims`).
+    const pair = ProductPairResponseSchema.parse(
+      await (await get(pairApp(), '/api/products/procore/integrations/sage-intacct')).json(),
+    );
+    const pairOrder = [...new Set(pair.mechanisms[0]!.claims.map((c) => c.data_object_slug))];
+    expect(fromSource?.data_objects.map((o) => o.slug)).toEqual(pairOrder);
     expect(fromSource?.agreement).toBe('single_source');
 
     // From the other endpoint the partner is Procore.
