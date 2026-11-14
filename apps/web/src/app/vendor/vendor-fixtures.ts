@@ -271,6 +271,7 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
       'Structural steel fabrication and erection, plus miscellaneous metals.',
     ),
   ],
+  total_products: 18,
 };
 
 /** The Managed block, as the server serves it for an active `verified` row. */
