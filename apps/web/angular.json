@@ -154,10 +154,19 @@
                 // `/legal/<slug>/v<version>` URL matcher and a lazy `canMatch`. It
                 // moved the legal version lists out of the initial bundle (they now
                 // load with the legal page), which offset the rest of its growth.
+                //
+                // AECI-1755: raised 1.08MB -> 1.09MB. Measured with `ng build`:
+                // base (`batch/redesign-shell`) at 1,072,809 B, this branch at
+                // 1,081,769 B. The growth is the `aec-icon` registry: 8,527 B
+                // minified and 2,970 B gzipped. It was lazy-only; it is now in the
+                // initial bundle because six always-loaded shell components
+                // (header, nav menu, search trigger, user menu, update banner,
+                // legal notice band) use four of its icons. The registry is not
+                // split: one object is cheaper than a chunk per icon (ADR 0056).
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.08MB"
+                  "maximumError": "1.09MB"
                 },
                 {
                   "type": "anyComponentStyle",

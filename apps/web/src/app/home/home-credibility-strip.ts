@@ -1,4 +1,5 @@
 import { Component, computed, input } from '@angular/core';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * AECI-271: the home credibility row. A slim proof row that closes the hero's
@@ -28,7 +29,7 @@ import { Component, computed, input } from '@angular/core';
  * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` rule),
  * Forest (`--accent-primary`) on every figure, `--text-secondary` for labels
  * (never `--text-tertiary`, which fails AA). Sentence case, no em dashes. Light
- * theme only (Stage 1). i18n throughout; the Lucide scale glyph is `aria-hidden`
+ * theme only (Stage 1). i18n throughout; the aec-icon scale glyph is `aria-hidden`
  * (the visible text carries the meaning). Anchor site: Faire (AECI-270).
  *
  * The glyph is a BALANCE SCALE, deliberately not a shield-check. A checkmark on a
@@ -50,6 +51,7 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
 
 @Component({
   selector: 'aec-home-credibility-strip',
+  imports: [AecIcon],
   template: `
     <section
       aria-label="Directory coverage and independence"
@@ -84,22 +86,7 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
           }
 
           <p class="flex items-center gap-2 text-sm font-semibold text-(--text-secondary)">
-            <svg
-              class="h-4 w-4 shrink-0 text-(--accent-primary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-              <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-              <path d="M7 21h10" />
-              <path d="M12 3v18" />
-              <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
-            </svg>
+            <aec-icon class="text-(--accent-primary)" name="scale" decorative [size]="4" />
             <span i18n="@@home.credibility.promise">Independent. Rankings are algorithmic.</span>
           </p>
         </div>

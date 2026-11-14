@@ -33,10 +33,11 @@ import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
 import { planCardsCopy } from './plan-card-copy';
 import { PORTAL_PATH } from './plan-cta';
+import { AecIcon } from '../icon/icon';
 
 @Component({
   selector: 'aec-plan-cards',
-  imports: [RouterLink, ClaimDialogTrigger],
+  imports: [AecIcon, RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2 sm:gap-y-0">
@@ -67,18 +68,9 @@ import { PORTAL_PATH } from './plan-cta';
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
           @for (item of copy.free.highlights; track item) {
             <li class="flex gap-2">
-              <svg
-                class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.25"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
+              <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+                <aec-icon name="check" decorative [size]="4" />
+              </span>
               <span>{{ item }}</span>
             </li>
           }
@@ -118,18 +110,9 @@ import { PORTAL_PATH } from './plan-cta';
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
           @for (item of copy.managed.highlights; track item) {
             <li class="flex gap-2">
-              <svg
-                class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.25"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
+              <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+                <aec-icon name="check" decorative [size]="4" />
+              </span>
               <span>{{ item }}</span>
             </li>
           }

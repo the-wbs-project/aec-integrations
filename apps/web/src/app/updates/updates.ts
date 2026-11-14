@@ -44,6 +44,7 @@ import { MetaService } from '../core/meta.service';
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
+import { AecIcon } from '../shared/icon/icon';
 
 interface SubscribeModel {
   email: string;
@@ -61,7 +62,7 @@ const BTN =
 
 @Component({
   selector: 'app-updates',
-  imports: [RouterLink, FormField, FoundViaField],
+  imports: [AecIcon, RouterLink, FormField, FoundViaField],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment, not a page
@@ -97,18 +98,9 @@ const BTN =
               <ul role="list" class="mt-8 flex flex-col gap-4">
                 @for (item of expectations; track item.id) {
                   <li class="flex items-start gap-3">
-                    <svg
-                      class="mt-0.5 h-5 w-5 shrink-0 text-(--accent-primary)"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
+                    <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+                      <aec-icon name="check" decorative [size]="5" />
+                    </span>
                     <span class="text-base leading-relaxed text-(--text-secondary)">{{
                       item.text
                     }}</span>

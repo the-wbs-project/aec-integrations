@@ -1,6 +1,7 @@
 import { Component, input, output } from '@angular/core';
 
 import type { ListingView } from './listing-toolbar';
+import { AecIcon } from '../icon/icon';
 
 const VIEW_BTN_BASE =
   'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
@@ -18,6 +19,7 @@ const VIEW_BTN_BASE =
  */
 @Component({
   selector: 'aec-listing-view-toggle',
+  imports: [AecIcon],
   template: `
     <div
       role="group"
@@ -32,21 +34,7 @@ const VIEW_BTN_BASE =
         [attr.aria-pressed]="view() === 'cards'"
         (click)="viewChange.emit('cards')"
       >
-        <svg
-          class="h-4 w-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <rect width="7" height="7" x="3" y="3" rx="1" />
-          <rect width="7" height="7" x="14" y="3" rx="1" />
-          <rect width="7" height="7" x="14" y="14" rx="1" />
-          <rect width="7" height="7" x="3" y="14" rx="1" />
-        </svg>
+        <aec-icon name="grid" decorative [size]="4" />
         <span i18n="@@listing.toolbar.view.cards">Cards</span>
       </button>
       <button
@@ -55,23 +43,7 @@ const VIEW_BTN_BASE =
         [attr.aria-pressed]="view() === 'table'"
         (click)="viewChange.emit('table')"
       >
-        <svg
-          class="h-4 w-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="8" x2="21" y1="6" y2="6" />
-          <line x1="8" x2="21" y1="12" y2="12" />
-          <line x1="8" x2="21" y1="18" y2="18" />
-          <line x1="3" x2="3.01" y1="6" y2="6" />
-          <line x1="3" x2="3.01" y1="12" y2="12" />
-          <line x1="3" x2="3.01" y1="18" y2="18" />
-        </svg>
+        <aec-icon name="list" decorative [size]="4" />
         <span i18n="@@listing.toolbar.view.table">Table</span>
       </button>
     </div>

@@ -7,6 +7,7 @@ import { Analytics } from '../../analytics/analytics';
 import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecIcon } from '../icon/icon';
 
 interface SubscribeModel {
   email: string;
@@ -48,7 +49,7 @@ const BTN_BASE =
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [FormField, FoundViaField],
+  imports: [AecIcon, FormField, FoundViaField],
   template: `
     <section class="bg-(--accent-warm)">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
@@ -98,18 +99,7 @@ const BTN_BASE =
                 [class]="buttonClass()"
               >
                 @if (subscribed()) {
-                  <svg
-                    class="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  <aec-icon name="check" decorative [size]="4" />
                   <span i18n="@@mailing-list-signup.subscribed">Subscribed</span>
                 } @else if (form().submitting()) {
                   <span i18n="@@mailing-list-signup.subscribing">Subscribing…</span>
@@ -151,18 +141,9 @@ const BTN_BASE =
                   <p
                     class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-semibold text-(--accent-primary)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
+                    <span class="mt-0.5 flex shrink-0">
+                      <aec-icon name="check" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.subscribed"
                       >You're on the list. We'll email when there's something new.</span
                     >
@@ -172,20 +153,9 @@ const BTN_BASE =
                   <p
                     class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 11v5" />
-                      <path d="M12 8h.01" />
-                    </svg>
+                    <span class="mt-0.5 flex shrink-0">
+                      <aec-icon name="info" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.exists"
                       >You're already on the list.</span
                     >
@@ -195,20 +165,9 @@ const BTN_BASE =
                   <p
                     class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-semibold text-(--status-error)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 7v6" />
-                      <path d="M12 16h.01" />
-                    </svg>
+                    <span class="mt-0.5 flex shrink-0">
+                      <aec-icon name="alert-circle" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.error"
                       >Something went wrong. Please try again.</span
                     >
