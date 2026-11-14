@@ -50,11 +50,15 @@ export interface AecButtonOptions {
  * move is `motion-safe:` only, and the global reduced-motion block zeroes the
  * transition as well.
  *
+ * The transition list leaves out opacity on purpose: a button that goes from
+ * disabled to enabled would otherwise sit at reduced opacity mid-fade, and axe
+ * measures the text contrast in that frame.
+ *
  * Disabled is 60% opacity with no pointer events, and no colour change. A link
  * cannot be `disabled`, so `aria-disabled="true"` gives it the same look.
  */
 const BUTTON_BASE =
-  'aec-btn inline-flex min-h-11 items-center justify-center gap-2 rounded-control border text-center text-t-14 font-semibold no-underline transition duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 motion-safe:active:translate-y-px motion-safe:active:scale-98 disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60';
+  'aec-btn inline-flex min-h-11 items-center justify-center gap-2 rounded-control border text-center text-t-14 font-semibold no-underline transition-[color,background-color,border-color,outline-color,translate,scale,transform] duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 motion-safe:active:translate-y-px motion-safe:active:scale-98 disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60';
 
 // Whole class names, so Tailwind's scanner sees every one.
 const BUTTON_VARIANT: Record<AecButtonVariant, string> = {

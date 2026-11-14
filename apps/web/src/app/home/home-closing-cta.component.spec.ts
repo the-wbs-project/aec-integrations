@@ -41,7 +41,7 @@ describe('HomeClosingCta', () => {
     const link = el.querySelector('a[href="/vendor-program"]');
     expect(link).not.toBeNull();
     expect(link?.textContent).toContain('Claim or list your product');
-    expect(link?.className).toContain('bg-(--accent-primary)');
+    expect(link?.getAttribute('data-variant')).toBe('primary');
   });
 
   it('carries no mailing-list form', () => {

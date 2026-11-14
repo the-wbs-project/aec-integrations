@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 
 import type { ProductDetail } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
 import { Analytics, type ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
@@ -81,6 +82,7 @@ import { Chip } from '../shared/chip/chip';
 @Component({
   selector: 'aec-product-detail',
   imports: [
+    AecButton,
     AecIcon,
     DetailLayout,
     ExternalLinkTracker,
@@ -280,18 +282,12 @@ import { Chip } from '../shared/chip/chip';
           <div class="flex flex-wrap items-center gap-3">
             @if (p.website) {
               <a
+                aecButton
                 [href]="p.website"
                 target="_blank"
                 rel="noopener nofollow"
                 aecTrackExternalLink="product_detail"
                 [aecLinkContext]="websiteLinkContext()!"
-                class="inline-flex items-center gap-2 rounded-(--radius-md)
-                  border border-(--border-strong) bg-(--accent-primary)
-                  px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
-                  transition-colors hover:bg-(--accent-primary-hover)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
                 <aec-new-tab-icon />
@@ -613,6 +609,8 @@ import { Chip } from '../shared/chip/chip';
             </h2>
             <div class="flex flex-wrap gap-2 lg:flex-col">
               <a
+                aecButton
+                variant="secondary"
                 aecRequestTrigger
                 [entity]="'product'"
                 [kind]="'claim'"
@@ -620,14 +618,6 @@ import { Chip } from '../shared/chip/chip';
                 [company]="p.vendor?.name ?? null"
                 [contextProduct]="p.name"
                 [href]="'/products/' + p.slug + '/claim'"
-                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  lg:bg-(--surface-raised)
-                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
-                  hover:border-(--border-strong) hover:text-(--accent-primary)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
               >
                 <aec-icon name="flag" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3),
@@ -643,19 +633,13 @@ import { Chip } from '../shared/chip/chip';
                 }
               </a>
               <a
+                aecButton
+                variant="secondary"
                 aecRequestTrigger
                 [entity]="'product'"
                 [kind]="'correction'"
                 [slug]="p.slug"
                 [href]="'/products/' + p.slug + '/correction'"
-                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  lg:bg-(--surface-raised)
-                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
-                  hover:border-(--border-strong) hover:text-(--accent-primary)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
               >
                 <aec-icon name="pen" decorative [size]="4" />
                 <ng-container i18n="@@products.detail.metadata.correction"
