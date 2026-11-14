@@ -1,43 +1,27 @@
 import { Component, computed, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Chip } from '../chip/chip';
 
 /**
  * Phase 2 §11.2 — `TaxonomyBadge`. A chip-style link to a category /
- * audience / phase browse page. Used by detail-page metadata sidebars
+ * audience / phase / trade browse page. Used by detail-page metadata sidebars
  * (product, vendor, integration) and by `ProductCard`.
  *
- * Visual spec:
- *   - Surface: `surface-raised` fill (light) / `dark-surface-raised` (dark)
- *   - Border: 0.5px `border-default`, raises to 1px `border-strong` on hover
- *   - Text: `text-primary`, shifts to `accent-primary` on hover (Forest in
- *     light, Dark Forest in dark) — matches the link-color contract from
- *     `DESIGN.md` §"Forest-Anchor Rule"
- *   - Typography: Atkinson Hyperlegible Next medium (500) / 13px — a lighter weight
- *     than the `label` role (700); taxonomy chips are navigational tags, not
- *     button affordances. See `DESIGN.md` §5 → "Tags / taxonomy chips".
- *   - Shape: `rounded.sm` (4px), matching the shared compact label vocabulary.
+ * Since AECI-1763 it renders `aec-chip` (default density, `link`): a pill with a
+ * 1px `border-default` edge that hovers to `border-strong` and Forest text, with
+ * the shared 3px focus ring. The recipe lives in `.aec-chip` in `styles.css`.
  *
  * Count (AECI-184): an optional `[count]` renders a trailing product count
- * inside the same chip ("{name} {count}") — the home browse-block count-chip the
- * design doc specifies (`home-direction.md` §"Section rhythm") IS this chip plus
- * a count, so the home reuses it rather than rebuilding. The count is
- * `tabular-nums` in `--text-secondary` (AA-safe; the issue mandates secondary,
- * not the AA-failing `--text-tertiary`). When `count` is omitted the chip is
- * unchanged — the detail-sidebar usages render name-only.
+ * inside the same chip ("{name} {count}"). The count is `tabular-nums` in
+ * `--text-secondary`. When `count` is omitted the chip is name-only.
  *
  * Accessibility:
  *   - Renders as `<a>` so it's keyboard-focusable by default
- *   - Visible focus ring via `:focus-visible` matching the global
- *     focus-ring elevation token
  *   - Visible label text is `[name]`. When a `[count]` is shown, the link gets an
  *     explicit `aria-label` ("{name} {n} products") so its accessible name is the
- *     clean, un-smushed string (Angular strips the inter-element whitespace, so
- *     relying on concatenated child text would announce "{name}{n}"). The visible
- *     label remains a substring of the accessible name (WCAG 2.5.3 Label in Name).
+ *     clean, un-smushed string. The visible label remains a substring of the
+ *     accessible name (WCAG 2.5.3 Label in Name).
  *
- * Anchor-Site Rule (DESIGN.md §"Named Rules"): pulled from the same Mobbin
- * reference site selected for the product detail surface — see the
- * `Mobbin anchor:` line on the AECI-57 commit / Linear issue.
+ * Term chips keep the caller's order (`display_order`); this component sorts nothing.
  */
 /**
  * The four taxonomy facets (STAGE_1_SPEC.md §5.5). `trade` — "what work does
@@ -50,23 +34,14 @@ export type TaxonomyKind = 'category' | 'audience' | 'phase' | 'trade';
 
 @Component({
   selector: 'aec-taxonomy-badge',
-  imports: [RouterLink],
+  imports: [Chip],
   template: `
-    <a
-      [routerLink]="routerLink()"
-      [attr.aria-label]="ariaLabel()"
-      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
-        bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-medium tracking-[0.01em]
-        text-(--text-primary) no-underline transition-colors duration-150
-        hover:border-(--border-strong) hover:text-(--accent-primary)
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-        focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-    >
+    <aec-chip [link]="routerLink()" [ariaLabel]="ariaLabel()">
       <span>{{ name() }}</span>
       @if (count() !== undefined) {
         <span class="tabular-nums text-(--text-secondary)">{{ count() }}</span>
       }
-    </a>
+    </aec-chip>
   `,
   styles: `
     :host {
