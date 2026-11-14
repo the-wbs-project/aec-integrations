@@ -221,7 +221,7 @@ test.describe('aec-meter in forced colours (AECI-1767)', () => {
     const track = m.locator('.aec-meter-track');
     const fill = m.locator('.aec-meter-fill');
     await expect.poll(() => track.evaluate((e) => getComputedStyle(e).outlineStyle)).toBe('solid');
-    expect(await track.evaluate((e) => getComputedStyle(e).outlineWidth)).toBe('1px');
+    await expect.poll(() => track.evaluate((e) => getComputedStyle(e).outlineWidth)).toBe('1px');
     expect((await fill.boundingBox())!.width).toBeGreaterThan(50);
     expect(await fill.evaluate((e) => getComputedStyle(e).backgroundColor)).not.toBe(
       'rgba(0, 0, 0, 0)',
