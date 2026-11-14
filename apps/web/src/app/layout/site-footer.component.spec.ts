@@ -38,11 +38,35 @@ describe('SiteFooter', () => {
     return Array.from(nav!.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? '');
   }
 
-  it('sits on the white page ground, set off by a top hairline only', () => {
+  it('sits on the Forest footer ground with Bone ink (AECI-1776)', () => {
     const footer = render().querySelector('footer')!;
-    expect(footer.className).toContain('bg-(--surface-base)');
-    expect(footer.className).toContain('border-t');
-    expect(footer.className).not.toContain('--surface-raised');
+    expect(footer.className).toContain('bg-(--surface-footer)');
+    expect(footer.className).toContain('text-(--text-on-brand)');
+    expect(footer.className).not.toContain('--surface-base');
+  });
+
+  it('uses the on-dark wordmark', () => {
+    const img = render().querySelector('aec-brand-logo img')!;
+    expect(img.getAttribute('src')).toContain('wordmark-on-dark');
+  });
+
+  it('keeps column labels as overline paragraphs, not headings', () => {
+    const el = render();
+    expect(el.querySelectorAll('h1, h2, h3, h4, h5, h6').length).toBe(0);
+    const labels = Array.from(el.querySelectorAll('nav > p'));
+    expect(labels.length).toBe(4);
+    for (const p of labels) {
+      expect(p.className).toContain('aec-overline');
+      expect(p.className).toContain('text-(--text-on-footer-secondary)');
+    }
+  });
+
+  it('links the third-party notices as a plain href after the legal links', () => {
+    const legal = column(render(), 'Legal');
+    expect(legal[legal.length - 1]).toBe('/third-party-notices.txt');
+    const link = render().querySelector('a[href="/third-party-notices.txt"]')!;
+    expect(link.textContent?.trim()).toBe('Third-party notices');
+    expect(link.getAttribute('target')).toBeNull();
   });
 
   it('carries the Directory column', () => {
@@ -88,6 +112,7 @@ describe('SiteFooter', () => {
       '/legal/vendor-terms',
       '/legal/managed-plan-agreement',
       ...(ACCESSIBILITY_STATEMENT_PUBLISHED ? ['/accessibility'] : []),
+      '/third-party-notices.txt',
     ]);
   });
 

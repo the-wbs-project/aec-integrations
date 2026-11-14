@@ -50,11 +50,20 @@ export type BrandLogoTone = 'default' | 'on-dark';
   // hamburger button in the `items-center` header row. Flex layout drops the
   // strut so the host box hugs the wordmark exactly.
   host: { class: 'inline-flex items-center' },
+  // The global unlayered `:focus-visible` sets the ring to accent, which a
+  // utility cannot override and which is invisible on Forest. The on-dark
+  // tone takes the on-brand ring from a component rule instead (AECI-1776).
+  styles: `
+    a.on-dark:focus-visible {
+      outline-color: var(--focus-ring-on-brand);
+    }
+  `,
   imports: [RouterLink, NgOptimizedImage],
   template: `
     <a
       routerLink="/"
       class="inline-flex items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class.on-dark]="tone() === 'on-dark'"
       [style.height.px]="height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"

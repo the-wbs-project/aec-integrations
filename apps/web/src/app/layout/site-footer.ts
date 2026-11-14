@@ -41,6 +41,12 @@
  * The header gets no link (that spec's §13 question 3). The Help column's link
  * is labelled "Vendor guide" so no two footer links share a name.
  *
+ * AECI-1776: the footer sits on the Forest footer ground (`--surface-footer`, DESIGN.md
+ * §5 "The footer"). Links are Bone and underline on hover, labels are overlines in
+ * `--text-on-footer-secondary`. Columns, links and order are unchanged, plus one
+ * "Third-party notices" link to the static `/third-party-notices.txt` (a plain href,
+ * not a route).
+ *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
  */
@@ -53,49 +59,51 @@ import { BrandLogo } from './brand-logo';
 @Component({
   selector: 'aec-site-footer',
   imports: [RouterLink, BrandLogo],
+  styles: `
+    /* styles.css sets an unlayered border-color on every element, which beats
+       Tailwind's layered border utilities. A component rule outranks it. */
+    .footer-rule {
+      border-color: var(--border-on-brand-subtle);
+    }
+    /* Same trap for the ring: an unlayered global :focus-visible sets the
+       outline colour to accent, which is invisible on Forest. */
+    .footer-link:focus-visible {
+      outline-color: var(--focus-ring-on-brand);
+    }
+  `,
   template: `
-    <footer class="border-t border-(--border-default) bg-(--surface-base)">
+    <footer class="bg-(--surface-footer) text-(--text-on-brand)">
       <div
-        class="mx-auto flex max-w-7xl flex-col gap-10 px-8 py-12 lg:flex-row lg:justify-between lg:gap-16"
+        class="mx-auto flex max-w-7xl flex-col gap-10 px-8 pb-12 pt-16 lg:flex-row lg:justify-between lg:gap-16"
       >
         <div class="lg:max-w-xs">
-          <aec-brand-logo [height]="28" [priority]="false" />
-          <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
+          <aec-brand-logo tone="on-dark" [height]="28" [priority]="false" />
+          <p
+            class="mt-3 max-w-xs text-sm text-(--text-on-footer-secondary)"
+            i18n="@@app.footer.tagline"
+          >
             The independent directory of AEC software integrations.
           </p>
         </div>
-        <div class="grid shrink-0 grid-cols-2 gap-x-10 gap-y-8 md:grid-cols-4">
-          <nav class="text-sm" i18n-aria-label="@@app.footer.directory.aria" aria-label="Directory">
+        <div class="grid shrink-0 grid-cols-2 gap-x-10 gap-y-8 md:grid-cols-[repeat(4,auto)]">
+          <nav i18n-aria-label="@@app.footer.directory.aria" aria-label="Directory">
             <p
-              class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
+              class="aec-overline mb-4 text-(--text-on-footer-secondary)"
               i18n="@@app.footer.directory.eyebrow"
             >
               Directory
             </p>
-            <ul class="space-y-2">
+            <ul class="space-y-3">
               <li>
-                <a
-                  routerLink="/"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.nav.home"
-                >
-                  Home
-                </a>
+                <a routerLink="/" [class]="linkClass" i18n="@@app.nav.home"> Home </a>
               </li>
               <li>
-                <a
-                  routerLink="/products"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.nav.products"
-                >
+                <a routerLink="/products" [class]="linkClass" i18n="@@app.nav.products">
                   Products
                 </a>
               </li>
               <li>
-                <a
-                  routerLink="/categories"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                >
+                <a routerLink="/categories" [class]="linkClass">
                   <!-- Tight i18n wrap so the source matches taxonomy-nav-copy.ts's
                        $localize (shared @@app.nav.* id): avoids a duplicate-id
                        collision in extraction (mirrors the AECI-67 fix). The
@@ -107,112 +115,91 @@ import { BrandLogo } from './brand-logo';
                 </a>
               </li>
               <li>
-                <a
-                  routerLink="/audiences"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                >
+                <a routerLink="/audiences" [class]="linkClass">
                   <ng-container i18n="@@app.nav.audiences">Audiences</ng-container>
                 </a>
               </li>
               <li>
-                <a routerLink="/trades" class="text-(--text-secondary) hover:text-(--text-primary)">
+                <a routerLink="/trades" [class]="linkClass">
                   <ng-container i18n="@@app.nav.trades">Trades</ng-container>
                 </a>
               </li>
               <li>
-                <a routerLink="/phases" class="text-(--text-secondary) hover:text-(--text-primary)">
+                <a routerLink="/phases" [class]="linkClass">
                   <ng-container i18n="@@app.nav.phases">Phases</ng-container>
                 </a>
               </li>
             </ul>
           </nav>
-          <nav class="text-sm" i18n-aria-label="@@app.footer.help.aria" aria-label="Help">
-            <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)">
+          <nav i18n-aria-label="@@app.footer.help.aria" aria-label="Help">
+            <p class="aec-overline mb-4 text-(--text-on-footer-secondary)">
               <ng-container i18n="@@app.footer.help.eyebrow">Help</ng-container>
             </p>
-            <ul class="space-y-2">
+            <ul class="space-y-3">
               <li>
-                <a routerLink="/docs" class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/docs" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.help.helpCenter">Help center</ng-container></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/docs/getting-started"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/docs/getting-started" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.help.gettingStarted"
                     >Getting started</ng-container
                   ></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/docs/trust/how-ranking-works"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/docs/trust/how-ranking-works" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.help.howRankingWorks"
                     >How ranking works</ng-container
                   ></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/docs/vendors/overview"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/docs/vendors/overview" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.help.vendorGuide">Vendor guide</ng-container></a
                 >
               </li>
             </ul>
           </nav>
-          <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
-            <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)">
+          <nav i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
+            <p class="aec-overline mb-4 text-(--text-on-footer-secondary)">
               <ng-container i18n="@@app.footer.legal.eyebrow">Legal</ng-container>
             </p>
-            <ul class="space-y-2">
+            <ul class="space-y-3">
               <li>
-                <a
-                  routerLink="/legal/terms"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/terms" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.terms">Terms</ng-container></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/legal/privacy"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/privacy" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.privacy">Privacy</ng-container></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/legal/review-guidelines"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/review-guidelines" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.reviewGuidelines"
                     >Review guidelines</ng-container
                   ></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/legal/listing-accuracy"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/listing-accuracy" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.listingAccuracy"
                     >Listing accuracy</ng-container
                   ></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/legal/vendor-terms"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/vendor-terms" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.vendorTerms"
                     >Vendor terms</ng-container
                   ></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/legal/managed-plan-agreement"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/legal/managed-plan-agreement" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.legal.managedPlanAgreement"
                     >Managed plan agreement</ng-container
                   ></a
@@ -221,46 +208,49 @@ import { BrandLogo } from './brand-logo';
               <!-- Hidden until AECI-1687 (accessibility-published.ts). -->
               @if (accessibilityPublished) {
                 <li>
-                  <a
-                    routerLink="/accessibility"
-                    class="text-(--text-secondary) hover:text-(--text-primary)"
+                  <a routerLink="/accessibility" [class]="linkClass"
                     ><ng-container i18n="@@app.footer.legal.accessibility"
                       >Accessibility</ng-container
                     ></a
                   >
                 </li>
               }
+              <!-- A static text file, not an app route: a plain href, same tab. -->
+              <li>
+                <a
+                  href="/third-party-notices.txt"
+                  [class]="linkClass"
+                  i18n="@@app.footer.legal.thirdPartyNotices"
+                  >Third-party notices</a
+                >
+              </li>
             </ul>
           </nav>
-          <nav class="text-sm" i18n-aria-label="@@app.footer.company.aria" aria-label="Company">
+          <nav i18n-aria-label="@@app.footer.company.aria" aria-label="Company">
             <p
-              class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
+              class="aec-overline mb-4 text-(--text-on-footer-secondary)"
               i18n="@@app.footer.company.eyebrow"
             >
               Company
             </p>
-            <ul class="space-y-2">
+            <ul class="space-y-3">
               <li>
-                <a routerLink="/about" class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/about" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.about">About</ng-container></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/methodology"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/methodology" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.methodology">Methodology</ng-container></a
                 >
               </li>
               <li>
-                <a
-                  routerLink="/vendor-program"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/vendor-program" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.vendorProgram">For vendors</ng-container></a
                 >
               </li>
               <li>
-                <a routerLink="/contact" class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/contact" [class]="linkClass"
                   ><ng-container i18n="@@app.footer.contact">Contact</ng-container></a
                 >
               </li>
@@ -268,12 +258,12 @@ import { BrandLogo } from './brand-logo';
                    menu was retired. They keep their @@app.nav.* ids: the string
                    is unchanged, so it stays one translation unit. -->
               <li>
-                <a routerLink="/updates" class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/updates" [class]="linkClass"
                   ><ng-container i18n="@@app.nav.updates">Updates</ng-container></a
                 >
               </li>
               <li>
-                <a routerLink="/roadmap" class="text-(--text-secondary) hover:text-(--text-primary)"
+                <a routerLink="/roadmap" [class]="linkClass"
                   ><ng-container i18n="@@app.nav.roadmap">Roadmap</ng-container></a
                 >
               </li>
@@ -281,8 +271,11 @@ import { BrandLogo } from './brand-logo';
           </nav>
         </div>
       </div>
-      <div class="border-t border-(--border-default) px-8 py-4 text-xs text-(--text-secondary)">
-        <p class="mx-auto max-w-7xl" i18n="@@app.footer.copyright">
+      <div class="footer-rule border-t">
+        <p
+          class="mx-auto max-w-7xl px-8 pb-8 pt-6 text-sm text-(--text-on-brand)"
+          i18n="@@app.footer.copyright"
+        >
           © {{ year }} AEC Integrations.
         </p>
       </div>
@@ -290,6 +283,13 @@ import { BrandLogo } from './brand-logo';
   `,
 })
 export class SiteFooter {
+  /**
+   * Bone ink, a Bone underline on hover and focus, never a colour change:
+   * `--text-on-footer-secondary` fails on a hover fill (DESIGN.md §5 The footer).
+   * 24px line box meets the 24px target size (WCAG 2.5.8).
+   */
+  protected readonly linkClass =
+    'footer-link inline-block rounded-(--radius-sm) text-base leading-6 text-(--text-on-brand) underline-offset-[3px] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2';
   protected readonly year = new Date().getFullYear();
   protected readonly accessibilityPublished = ACCESSIBILITY_STATEMENT_PUBLISHED;
 }
