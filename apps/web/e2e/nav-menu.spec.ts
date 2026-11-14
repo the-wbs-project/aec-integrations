@@ -702,14 +702,21 @@ test.describe('header on Forest (computed styles)', () => {
     expect(await computed(cue, 'background-color')).toBe(
       await tokenColor(page, '--accent-secondary', 'color'),
     );
-    await expect.poll(async () => computed(cue, 'transform')).not.toBe('matrix(0, 0, 0, 1, 0, 0)');
-    await page.keyboard.press('Escape');
-    await expect.poll(async () => computed(cue, 'transform')).toBe('matrix(0, 0, 0, 1, 0, 0)');
+    // Tailwind's `scale-x-0` sets the `scale` property, not `transform`.
+    await expect.poll(async () => computed(cue, 'scale')).toBe('none');
+    // On the header's bottom edge: the cue's bottom meets the header's.
+    const headerBottom = await page
+      .locator('aec-site-header header')
+      .evaluate((el) => el.getBoundingClientRect().bottom);
+    const cueBottom = await cue.evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(Math.abs(cueBottom - headerBottom)).toBeLessThanOrEqual(1);
 
     // Panel destinations are weight 400.
-    await page.keyboard.press('ArrowDown');
     const allProducts = page.locator('#browse-menu-panel a[href="/products"] span').first();
     expect(await computed(allProducts, 'font-weight')).toBe('400');
+
+    await page.keyboard.press('Escape');
+    await expect.poll(async () => computed(cue, 'scale')).toBe('0 1');
   });
 });
 
