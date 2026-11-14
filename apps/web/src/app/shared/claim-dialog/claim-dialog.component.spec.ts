@@ -106,7 +106,9 @@ describe('ClaimDialog', () => {
       'w-screen',
       'sm:h-auto',
       'sm:max-h-[85vh]',
-      'sm:rounded-(--radius-lg)',
+      // AECI-1770: the shared dialog surface, and its below-sm full-screen modifier.
+      'aec-dialog',
+      'aec-dialog-sheet',
     ]) {
       expect(classes, c).toContain(c);
     }
