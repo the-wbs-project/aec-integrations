@@ -876,22 +876,22 @@ Chris has not answered these.
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
-| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | Inline strip | A |
-| 8 | What is the look-up count floor? | 10, or another number | 10 | B |
-| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | Delete on send, or at 12 months, whichever is first | B, F |
-| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | Separate issues | A, B |
-| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | Yes, above the same floor as look-ups | B |
+| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | **Ruled 2026-11-14 (AECI-1737, R6):** as mock-up 5's default shows it, the inline strip. (was: Inline strip) | A |
+| 8 | What is the look-up count floor? | 10, or another number | **Ruled 2026-11-14 (AECI-1738, R7):** the count is hidden below 10. (was: 10) | B |
+| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | **Ruled 2026-11-14 (AECI-1738, R7):** deleted when the email is sent, or at 12 months, whichever is first. (was: Delete on send, or at 12 months, whichever is first) | B, F |
+| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | **Ruled 2026-11-14 (AECI-1738, R7):** separate issues. The captures ship apart from the empty pair page. (was: Separate issues) | A, B |
+| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | **Ruled 2026-11-14 (AECI-1738, R7):** yes, above the same floor of 10. (was: Yes, above the same floor as look-ups) | B |
 | 12 | Does the "Reviewed" date return on the maintenance chip? | Yes or no | Yes. The column exists. | E |
 | 13 | Do review excerpts show role and years of use? | Yes. Keep company type. | Yes. Company type breaks the Privacy Policy. | E |
 | 14 | What colour is the active bar in the section nav? | Clay to match the header. Forest for contrast. | Clay | D |
 | 15 | Is the redesign site-wide, and in what order? | This page only. Product and pair pages. Everything. | Tokens and header first, then the pair and product pages, then the rest | D, E |
-| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | Measure how uneven data objects are before shipping | A, E |
+| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement still runs first. (was: Measure how uneven data objects are before shipping) | A, E |
 | 17 | How many products are in the AI category today? | Unknown | Check before making it a headline link | D |
 | 18 | Who makes the reversed wordmark? | Unknown | File it with the design language work | D |
 | 19 | Does the category chart on the empty product page stay? | Yes or no. It is a new aggregate. | Cut it for now | E |
 | 20 | Does the 58-integration list group by category by default? | Grouped. One list. | Grouped, raised under the same-behaviour rule | E |
 | 21 | Does trades, phases and audiences get the same key-item treatment as categories? | Yes or no | No | D |
-| 22 | Does the pair page move its matches up under the hero? | Yes or no | Yes | A |
+| 22 | Does the pair page move its matches up under the hero? | Yes or no | **Ruled 2026-11-14 (AECI-1737, R6):** no. Matches stay where mock-up 5 has them. (was: Yes) | A |
 
 ## 12. Proposed workstreams and issues
 
