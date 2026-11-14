@@ -1329,6 +1329,53 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
     expect(via?.agreement).toBe('unverified');
   });
 
+  // The other canonical slot: the page product sorts AFTER its partner, so it is
+  // `product_b_id` and the partner is A (`evidencedPairsAsB`).
+  it('reads the partner from slot A on a via row where the page product is B', async () => {
+    await seedProduct(u(5), 'bluebeam', 'Bluebeam');
+    await seedProduct(u(9), 'vista', 'Vista');
+    await seedProduct(u(3), 'agave', 'Agave', { productRole: 'connector' });
+    await t.db.insert(productCategories).values([
+      // The page product's own category must not appear on the row.
+      { productId: u(9), categoryId: u(23) },
+      { productId: u(5), categoryId: u(21) },
+      { productId: u(5), categoryId: u(22) },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(3),
+      productAId: u(5),
+      productBId: u(9),
+      direction: 'a_to_b',
+      mechanismName: 'Agave Sync',
+    });
+    await t.db.insert(claims).values([
+      { id: u(81), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+      { id: u(82), connectorEvidencedPairId: u(52), dataObjectId: u(71), direction: 'a_to_b' },
+    ]);
+    await t.db
+      .insert(attestations)
+      .values([vote(1, 81, 91), vote(2, 81, 92), vote(3, 82, 91), vote(4, 82, 92)]);
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/vista')).json(),
+    );
+    // a_to_b from A (Bluebeam) files the row in Vista's target bucket.
+    expect(detail.integrations_as_source).toEqual([]);
+    const via = detail.integrations_as_target.find((i) => i.id === u(52));
+    expect(via?.via?.id).toBe(u(3));
+    expect(via?.source.id).toBe(u(5));
+    expect(via?.partner_categories).toEqual([
+      { slug: 'erp', name: 'ERP' },
+      { slug: 'accounting', name: 'accounting' },
+    ]);
+    expect(via?.data_objects).toEqual([
+      { slug: 'rfis', name: 'RFIs' },
+      { slug: 'drawings', name: 'drawings' },
+    ]);
+    expect(via?.agreement).toBe('confirmed');
+  });
+
   // No N+1: the fields ride nested relations of the one product read, so the batch
   // holds the same statements for 1 row as for 58.
   it('runs the same statements for a product with 1 integration as with 58', async () => {
