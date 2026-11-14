@@ -941,10 +941,13 @@ export const productPairSubjectConfig = {
   },
   with: {
     ...productListConfig.with,
-    productCategories: { columns: {}, with: { category: { columns: taxonomyLinkColumns } } },
+    productCategories: {
+      columns: {},
+      with: { category: { columns: taxonomyLinkWithOrderColumns } },
+    },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
-    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
-    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
+    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkWithOrderColumns } } },
+    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkWithOrderColumns } } },
   },
 } as const;
 
@@ -1536,10 +1539,10 @@ export interface RawProductListRow {
 export interface RawProductPairSubjectRow extends RawProductListRow {
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
-  productCategories: Array<{ category: RawTaxonomyLink }>;
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
-  productPhases: Array<{ phase: RawTaxonomyLink }>;
-  productTrades: Array<{ trade: RawTaxonomyLink }>;
+  productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
+  productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
 }
 export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
@@ -2242,27 +2245,27 @@ export { toProductPairMechanismFromEvidencedPair };
  * one-sided assertion is never folded into the bilateral figure.
  */
 /** A pair page's subject keeps its logo and says whether it is claimed (AECI-1618). */
-/**
- * AECI-1822: each side also carries its four taxonomy facets and two links. Every
- * facet list is A to Z by name with the id as the tie-break (`PLAN.md` §7.8), the
- * rule for every new list on the redesigned pages. Unlike the product page it never
- * reads `display_order`, and nothing here reads a plan-gated input.
- */
-function sortedTaxonomyLinks(terms: readonly RawTaxonomyLink[]): RawTaxonomyLink[] {
-  return terms
-    .map(toTaxonomyLink)
-    .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
-
 function toPairSubject(raw: RawProductPairSubjectRow): ProductPairSubject {
   return {
     ...toProductListItem(raw),
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
-    categories: sortedTaxonomyLinks(raw.productCategories.map((r) => r.category)),
-    audiences: sortedTaxonomyLinks(raw.productAudiences.map((r) => r.audience)),
-    phases: sortedTaxonomyLinks(raw.productPhases.map((r) => r.phase)),
-    trades: sortedTaxonomyLinks(raw.productTrades.map((r) => r.trade)),
+    // AECI-1822: the same four lists, in the same order, as `toProductDetail` (AECI-1242).
+    // A product's own terms follow the curated order, not A to Z: PLAN §7.8 governs lists
+    // of products and integrations. Audiences by name; the rest by `display_order`.
+    categories: raw.productCategories
+      .map((r) => r.category)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    audiences: raw.productAudiences.map((r) => r.audience).sort(compareTermsByName),
+    phases: raw.productPhases
+      .map((r) => r.phase)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    trades: raw.productTrades
+      .map((r) => r.trade)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
     api_docs_url: raw.apiDocsUrl,
     tool_integrations_url: raw.toolIntegrationsUrl,
   };

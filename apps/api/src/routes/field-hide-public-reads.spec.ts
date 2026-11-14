@@ -272,6 +272,64 @@ describe('a hidden value renders on no public read (AECI-1238 §11d.7)', () => {
     expect(pair.under_review).toEqual(['description']);
   });
 
+  it('the pair page masks each subject link a hide names, from either side (AECI-1822)', async () => {
+    for (const [id, slug] of [
+      [P_HELD, 'held'],
+      [P_PARTNER, 'partner'],
+    ] as const) {
+      await t.db
+        .update(products)
+        .set({
+          toolIntegrationsUrl: `https://${slug}.example/marketplace`,
+          apiDocsUrl: `https://${slug}.example/api`,
+        })
+        .where(eq(products.id, id));
+    }
+    const both = async () => {
+      const forward = await pairPage();
+      const mirror = await get(
+        '/api/products/:slug/integrations/:otherSlug',
+        '/api/products/partner-tool/integrations/held-tool',
+        createProductPairHandler(t.factory),
+      );
+      expect(forward.status).toBe(200);
+      expect(mirror.status).toBe(200);
+      return {
+        held: [forward.body.context_product, mirror.body.other_product],
+        partner: [forward.body.other_product, mirror.body.context_product],
+      };
+    };
+    // One hide per side: each masks its own link and leaves the sibling field and the
+    // other side alone.
+    await t.db
+      .insert(fieldHides)
+      .values([
+        hide(60, 'product', P_HELD, 'tool_integrations_url'),
+        hide(61, 'product', P_PARTNER, 'api_docs_url'),
+      ]);
+    const one = await both();
+    for (const subject of one.held) {
+      expect(subject.tool_integrations_url).toBeNull();
+      expect(subject.api_docs_url).toBe('https://held.example/api');
+    }
+    for (const subject of one.partner) {
+      expect(subject.api_docs_url).toBeNull();
+      expect(subject.tool_integrations_url).toBe('https://partner.example/marketplace');
+    }
+    // Both links hidden on both sides.
+    await t.db
+      .insert(fieldHides)
+      .values([
+        hide(62, 'product', P_HELD, 'api_docs_url'),
+        hide(63, 'product', P_PARTNER, 'tool_integrations_url'),
+      ]);
+    const all = await both();
+    for (const subject of [...all.held, ...all.partner]) {
+      expect(subject.tool_integrations_url).toBeNull();
+      expect(subject.api_docs_url).toBeNull();
+    }
+  });
+
   it('the integrations list and the legacy detail mask the row', async () => {
     const list = await get(
       '/api/integrations',

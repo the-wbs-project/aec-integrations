@@ -76,6 +76,7 @@ import {
   groupHides,
   integrationHidesQuery,
   maskHiddenFields,
+  productHidesQuery,
 } from '../lib/field-hides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
@@ -565,6 +566,7 @@ export function createProductPairHandler(
       evidencedCorrections,
       integrationHideRows,
       evidencedHideRows,
+      productHideRows,
     ] = await db.batch([
       db.query.products.findMany({
         ...productPairSubjectConfig,
@@ -675,6 +677,9 @@ export function createProductPairHandler(
           eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
         ),
       ),
+      // AECI-1822: the two subjects now carry `tool_integrations_url` and `api_docs_url`,
+      // both hideable on a product. Keyed on the same slug subselects, so still one trip.
+      productHidesQuery(db, or(eq(products.id, contextId), eq(products.id, otherId))),
     ]);
     const [contextProduct] = contextRows;
     const [otherProduct] = otherRows;
@@ -726,7 +731,7 @@ export function createProductPairHandler(
         versions ?? undefined,
         groupCorrections(integrationCorrections, evidencedCorrections),
       ),
-      groupHides(integrationHideRows, evidencedHideRows),
+      groupHides(integrationHideRows, evidencedHideRows, productHideRows),
     );
 
     // AECI-953 — an empty pair may be an empty pair, or it may be a page whose content

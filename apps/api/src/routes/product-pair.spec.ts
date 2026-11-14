@@ -34,6 +34,7 @@ import { resolveMovedPair } from '../lib/pair-redirect';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductPairHandler } from './integrations';
+import { createProductDetailHandler } from './products';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -257,7 +258,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     expect(body.mechanisms[0]!.powered_by_product?.logo_url).toBeNull();
   });
 
-  it('each side carries its taxonomy A to Z and its two links, never display order (AECI-1822)', async () => {
+  it('each side carries its taxonomy in the product page order, and its two links (AECI-1822)', async () => {
     await seedProducts();
     await t.db.insert(taxonomyCategories).values([
       { id: u(301), slug: 'zeta', name: 'Zeta', displayOrder: 1 },
@@ -266,12 +267,12 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
       { id: u(304), slug: 'beta-two', name: 'Beta', displayOrder: 3 },
     ]);
     await t.db.insert(taxonomyAudiences).values([
-      { id: u(311), slug: 'pm', name: 'Project managers' },
-      { id: u(312), slug: 'arch', name: 'Architects' },
+      { id: u(311), slug: 'pm', name: 'Project managers', displayOrder: 1 },
+      { id: u(312), slug: 'arch', name: 'architects', displayOrder: 2 },
     ]);
     await t.db.insert(taxonomyPhases).values([
-      { id: u(321), slug: 'build', name: 'Construction', displayOrder: 1 },
-      { id: u(322), slug: 'plan', name: 'Design', displayOrder: 2 },
+      { id: u(321), slug: 'build', name: 'Construction', displayOrder: 2 },
+      { id: u(322), slug: 'plan', name: 'Design', displayOrder: 1 },
     ]);
     await t.db
       .insert(taxonomyTrades)
@@ -288,8 +289,8 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
       { productId: u(1), audienceId: u(312) },
     ]);
     await t.db.insert(productPhases).values([
-      { productId: u(1), phaseId: u(322) },
       { productId: u(1), phaseId: u(321) },
+      { productId: u(1), phaseId: u(322) },
     ]);
     await t.db.insert(productTrades).values([{ productId: u(1), tradeId: u(331) }]);
     await t.db
@@ -301,34 +302,53 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
       .where(eq(products.id, u(1)));
 
     const res = await get('/api/products/procore/integrations/revit');
-    const body = ProductPairResponseSchema.parse(await res.json());
-    const ctx = body.context_product;
-    // Case never decides the order; the id breaks the "Beta" tie.
-    expect(ctx.categories.map((c) => c.id)).toEqual([u(302), u(303), u(304), u(301)]);
-    expect(ctx.audiences.map((a) => a.name)).toEqual(['Architects', 'Project managers']);
-    expect(ctx.phases.map((p) => p.name)).toEqual(['Construction', 'Design']);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw: any = await res.json();
+    const ctx = raw.context_product;
+    // Display order, NULLs last, name breaks a tie; audiences by name, case-blind.
+    expect(ctx.categories.map((c: { id: string }) => c.id)).toEqual([
+      u(301),
+      u(302),
+      u(304),
+      u(303),
+    ]);
+    expect(ctx.audiences.map((a: { name: string }) => a.name)).toEqual([
+      'architects',
+      'Project managers',
+    ]);
+    expect(ctx.phases.map((p: { name: string }) => p.name)).toEqual(['Design', 'Construction']);
     expect(ctx.trades).toEqual([{ id: u(331), name: 'Electrical', slug: 'elec' }]);
     expect(ctx.api_docs_url).toBe('https://developers.example/procore');
     expect(ctx.tool_integrations_url).toBe('https://marketplace.example/procore');
-    // The other side is its own row: no bleed, and empty lists are `[]` and `null`.
-    expect(body.other_product.categories.map((c) => c.id)).toEqual([u(301)]);
-    expect(body.other_product).toMatchObject({
+    // The other side, read from the raw JSON: its own row, empty lists, null links.
+    expect(raw.other_product).toMatchObject({
+      categories: [{ id: u(301), name: 'Zeta', slug: 'zeta' }],
       audiences: [],
       phases: [],
       trades: [],
       api_docs_url: null,
       tool_integrations_url: null,
     });
+    expect(ProductPairResponseSchema.parse(raw)).toBeTruthy();
+
+    // The same order as the product page for the same product, field for field.
+    const detailRes = await buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug',
+      handler: createProductDetailHandler(t.factory),
+    }).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const detail: any = await detailRes.json();
+    for (const key of ['categories', 'audiences', 'phases', 'trades'] as const) {
+      expect(ctx[key]).toEqual(detail[key]);
+    }
+    expect(ctx.api_docs_url).toBe(detail.api_docs_url);
+    expect(ctx.tool_integrations_url).toBe(detail.tool_integrations_url);
+
     // The mirror page frames the same facts to the other product.
-    const mirror = ProductPairResponseSchema.parse(
-      await (await get('/api/products/revit/integrations/procore')).json(),
-    );
-    expect(mirror.other_product.categories.map((c) => c.id)).toEqual([
-      u(302),
-      u(303),
-      u(304),
-      u(301),
-    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mirror: any = await (await get('/api/products/revit/integrations/procore')).json();
+    expect(mirror.other_product.categories).toEqual(ctx.categories);
   });
 
   it('translates a one-way direction relative to the context product', async () => {
@@ -2093,7 +2113,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
       status: 200,
       batches: 1,
-      statements: 10,
+      statements: 11,
       outsideBatch: 0,
     });
   });
@@ -2112,7 +2132,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
       .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
 
     const trips = await roundTrips('/api/products/revit/integrations/procore');
-    expect(trips).toEqual({ status: 200, batches: 1, statements: 10, outsideBatch: 0 });
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 11, outsideBatch: 0 });
   });
 
   it('an unknown slug', async () => {
@@ -2120,7 +2140,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
       status: 404,
       batches: 1,
-      statements: 10,
+      statements: 11,
       outsideBatch: 0,
     });
   });

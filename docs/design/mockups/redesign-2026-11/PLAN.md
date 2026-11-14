@@ -506,7 +506,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Element | Data needed | In the pair payload today | Work |
 | --- | --- | --- | --- |
 | Statement, status | `mechanisms.length === 0` | Yes | None |
-| Product cards | Categories of each product | No | Add categories to each side |
+| Product cards | Categories of each product | Yes, since AECI-1822 | Delivered by AECI-1822 |
 | Correction entry | Both product ids on a request | Partly. Requests have `context_product_id`. | See below |
 | Look-up count | Pair page views, 90 days, automated visits removed | Views are recorded in `page_views` with pair columns. No public count exists. | New read, with a floor |
 | "I need this too" | A de-duplicated per-pair count | No | New table, new write, repeat-click guard |
@@ -515,8 +515,8 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Closest matches | The kept product's integrations, with each partner's categories, ratings and data objects | No | New read |
 | Category anchors | The swapped product's categories | No | Comes with the row above |
 | Facts table | Integration count, reviews, ratings, claim state | Yes | None |
-| Who each is for | Audiences, phases, trades of both | No | Add to each side |
-| Look it up yourself | `api_docs_url`, `tool_integrations_url` | No | Add to each side |
+| Who each is for | Audiences, phases, trades of both | Yes, since AECI-1822 | Delivered by AECI-1822 |
+| Look it up yourself | `api_docs_url`, `tool_integrations_url` | Yes, since AECI-1822, `null` while AECi has a link hidden | Delivered by AECI-1822 |
 
 **The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. One context product id is not enough to identify a pair. The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
