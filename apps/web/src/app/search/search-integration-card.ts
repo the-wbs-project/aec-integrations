@@ -7,6 +7,7 @@ import { defaultIntegrationContext } from '@aeci/shared';
 import type { AlgoliaIntegrationRecord } from '@aeci/shared/algolia-records';
 
 import { directionLabel, mechanismKindLabel } from './mechanism-labels';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Grid hit card for an `integrations` search result (AECI-142). `<article>` tile
@@ -23,7 +24,7 @@ import { directionLabel, mechanismKindLabel } from './mechanism-labels';
  */
 @Component({
   selector: 'aec-search-integration-card',
-  imports: [RouterLink, AecCard],
+  imports: [RouterLink, AecCard, Chip],
   host: { class: 'block h-full' },
   template: `
     <article aecCard interactive class="group relative flex h-full flex-col p-6">
@@ -51,11 +52,7 @@ import { directionLabel, mechanismKindLabel } from './mechanism-labels';
 
       <div class="mt-4 flex flex-wrap items-center gap-2">
         @if (mechanismLabel(); as label) {
-          <span
-            class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em] text-(--text-secondary)"
-          >
-            {{ label }}
-          </span>
+          <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
         }
         @if (direction(); as label) {
           <span class="text-xs text-(--text-secondary)">{{ label }}</span>

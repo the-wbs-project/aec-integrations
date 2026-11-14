@@ -46,10 +46,11 @@ import { Component, computed, inject } from '@angular/core';
 import { RoleStatus } from '../auth/role-status';
 import { SessionStatus } from '../auth/session-status';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { Chip, type ChipTone } from '../shared/chip/chip';
 
 @Component({
   selector: 'aec-account-identity',
-  imports: [LogoOrInitial],
+  imports: [LogoOrInitial, Chip],
   host: { class: 'block' },
   template: `
     <div class="flex min-h-10 items-center gap-3 px-3 py-2">
@@ -77,10 +78,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
     @if (roleKey(); as key) {
       <p class="px-3 pb-2">
-        <span
-          class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.6875rem] font-medium"
-          [class]="pillClass()"
-        >
+        <aec-chip density="dense" [tone]="pillTone()">
           @switch (key) {
             @case ('admin') {
               <ng-container i18n="@@app.header.account.role.admin">Site admin</ng-container>
@@ -92,7 +90,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
               <ng-container i18n="@@app.header.account.role.reviewer">Reviewer</ng-container>
             }
           }
-        </span>
+        </aec-chip>
       </p>
     }
   `,
@@ -140,9 +138,7 @@ export class AccountIdentity {
    *  default. The distinction is informative, so it earns the accent; Forest is
    *  the only accent it may use (the Forest-Anchor Rule). Colour is never the
    *  sole signal — the label beside it says which role this is. */
-  protected readonly pillClass = computed(() =>
-    this.roleKey() === 'admin' || this.roleKey() === 'vendor_admin'
-      ? 'bg-(--accent-primary-soft) text-(--accent-primary)'
-      : 'border border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)',
+  protected readonly pillTone = computed<ChipTone>(() =>
+    this.roleKey() === 'admin' || this.roleKey() === 'vendor_admin' ? 'wash' : 'sunken',
   );
 }
