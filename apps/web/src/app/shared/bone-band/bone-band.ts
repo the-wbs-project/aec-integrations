@@ -52,12 +52,13 @@ export class BoneBand {
   /** The first band under the section nav: 48px above, 32px below `md`. */
   readonly first = input(false, { transform: booleanAttribute });
 
+  private readonly doc = inject(DOCUMENT);
+
   constructor() {
-    const doc = inject(DOCUMENT);
     if (isDevMode()) {
       // Browser only: `afterNextRender` never runs on the server.
       afterNextRender(() => {
-        const count = doc.querySelectorAll('aec-bone-band').length;
+        const count = this.doc.querySelectorAll('aec-bone-band').length;
         if (count > 1) {
           console.error(
             `DESIGN.md §2: one Bone band per page, found ${count} <aec-bone-band> elements.`,
