@@ -300,6 +300,94 @@ components:
     padding: "{spacing.8} {spacing.6}"
     md_padding: "{spacing.12} {spacing.8}"
     sectionDivider: "1px solid {colors.border-default}"
+  # BATCH MERGE TODO for AECI-1747 (it renames colour keys on the batch branch,
+  # and `main` still has the old ones, so nothing is renamed here). When the batch
+  # branch merges: rename {colors.footer-ground} to {colors.surface-footer},
+  # {colors.hero-panel} to {colors.surface-hero-panel} and {colors.field-edge}
+  # to {colors.border-field}. Convert every var(--surface-on-brand-wash),
+  # var(--surface-on-brand-wash-hover), var(--surface-on-brand-hover),
+  # var(--text-on-brand-secondary) and var(--border-on-brand-strong) value below
+  # to a {colors.*} reference. Then
+  # re-run the parser and check every reference resolves.
+  # The public shell (clashes 26 to 32 and 42, PLAN.md sections 4.7 to 4.10).
+  # Starting values from mock-up 6, default state, in
+  # docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html. Section 5
+  # "Navigation" gives the file line for each and the open values. Colours named
+  # as var() are the AECI-1747 tokens, which are not in the colors group above
+  # until that issue lands.
+  header:
+    backgroundColor: "{colors.accent-primary}"
+    textColor: "{colors.accent-warm}"
+    height: "64px"
+    md_height: "76px"
+    padding: "{spacing.0} {spacing.6}"
+    md_padding: "{spacing.0} {spacing.8}"
+    lg_padding: "{spacing.0} {spacing.12}"
+  # Sign in hover (the Bone main button on Forest). Forest text is 9.46:1 on it.
+  button-on-brand-hover:
+    backgroundColor: "var(--surface-on-brand-hover)"
+    textColor: "{colors.accent-primary}"
+  # A nav link on Forest. The hover wash is Bone at 10%. Text stays Bone.
+  header-link:
+    textColor: "{colors.accent-warm}"
+    typography: "{typography.body}"
+    rounded: "{rounded.pill}"
+    padding: "{spacing.3} {spacing.4}"
+  header-link-hover:
+    backgroundColor: "var(--surface-on-brand-wash)"
+  # Active route: weight 600 and aria-current.
+  header-link-active:
+    fontWeight: 600
+  # Panel-open cue under Browse only.
+  active-bar:
+    backgroundColor: "{colors.accent-secondary}"
+    height: "3px"
+    rounded: "3px 3px 0 0"
+  # The search field needs its own edge. The wash alone is 1.33:1 on Forest.
+  header-search:
+    backgroundColor: "var(--surface-on-brand-wash)"
+    textColor: "var(--text-on-brand-secondary)"
+    typography: "{typography.body}"
+    rounded: "{rounded.pill}"
+    minHeight: "44px"
+    padding: "{spacing.0} {spacing.4}"
+    border: "1px solid var(--border-on-brand-strong)"
+  header-search-hover:
+    backgroundColor: "var(--surface-on-brand-wash-hover)"
+    textColor: "{colors.accent-warm}"
+  nav-toggle:
+    backgroundColor: "var(--surface-on-brand-wash)"
+    textColor: "{colors.accent-warm}"
+    rounded: "{rounded.md}"
+    width: "44px"
+    height: "44px"
+  # The Browse panel and the mobile panel share this white ground.
+  menu-panel:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+    rounded: "0 0 {rounded.lg} {rounded.lg}"
+    padding: "{spacing.12} {spacing.12} {spacing.8}"
+    shadow: "var(--shadow-menu)"
+  # The stuck bar is solid. No blur (clash 13). Once stuck it takes a hairline edge.
+  section-nav:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-secondary}"
+    typography: "{typography.body}"
+    minHeight: "64px"
+    md_minHeight: "72px"
+    borderBottom: "1px solid {colors.border-default}"
+  section-nav-current:
+    textColor: "{colors.text-primary}"
+    fontWeight: 600
+  section-nav-count:
+    textColor: "{colors.text-secondary}"
+    fontSize: "0.8125rem"
+    fontWeight: 400
+  # The footer ground. Ink is Bone. Labels take var(--text-on-footer-secondary).
+  footer:
+    backgroundColor: "{colors.footer-ground}"
+    textColor: "{colors.accent-warm}"
+    padding: "{spacing.16} {spacing.0} {spacing.8}"
 ---
 
 # Design System: AEC Integrations
@@ -1428,48 +1516,247 @@ Rules that ride with it:
 
 ### Navigation
 
-- **Style:** Atkinson Hyperlegible label scale, sentence case, text-primary color, transparent background.
-- **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
-- **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts). In a horizontal ROUTER nav the concrete form is `-mb-px border-b-2` on the item over the row's `border-b`, so the item's own border replaces the hairline beneath it rather than stacking above it; narrow viewports scroll the row (`overflow-x-auto whitespace-nowrap`) rather than wrapping, which would break the underline across two lines. Shipped three times: the `/search` entity tabs, the vendor portal's section rows, and the admin console's category row (AECI-694). Watch the cascade trap recorded under "Vendor portal (Stage 2)" — `border-color` on `*` is unlayered in `styles.css`, so a border-color *utility* cannot set this colour.
-  - **The admin console's row is the one exception to the scroll rule, and it is a consequence not a preference.** With only three items it fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip its in-flow dropdown panels — forcing every panel into a CDK overlay to escape a clip the row does not need. It wraps rather than scrolls. Any row that both scrolls *and* drops down has to portal its panels; decide which one it is before writing the markup.
-- **A child route level replaces its parent's row; it does not stack a second one.** The vendor portal tried a segmented secondary row under the underlined primary row (AECI-959) and retired it (§6.11): two rows of different styles read as a button group and a nav competing for one page. Show one underlined row for whichever level the page is at, and let a breadcrumb carry the way back up.
-- **The row:** `Home · Products · Categories · Trades · Audiences · Phases`. The four taxonomy facets are the directory's spine and lead. The row is **public-only** — every item is a public directory surface, and it renders identically for every viewer. It used to end in a `More▾` overflow menu; that was retired (see The Overflow Rule below).
-- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same six entries, with the four facets as tap-to-expand disclosures, plus search and the account block. Below `lg` the hamburger is the only menu control, so it also carries the pending-review badge. The panel is capped at the viewport height and scrolls inside: the overlay pane is fixed, so a page scroll cannot reach rows that an open facet list pushed off screen (AECI-1487).
-- **All four dropdowns in this row behave identically** — hover opens, mouseleave closes, Escape closes and returns focus to the trigger, and focus leaving the host closes. A blur to nowhere during a pointer press inside the host does not count as focus leaving: Safari never focuses a clicked link or button, so its mousedown blurs the focused trigger to `<body>`, and closing on that blur hid the panel mid-press and lost the click. That contract is a shared base (`layout/nav-disclosure.ts`); a new dropdown **in the public primary nav** extends it rather than reimplementing it. The **trigger shape is the implementor's**, not the base's: the four public facets follow the clean editorial convention of Yahoo Finance navigation — one text link that navigates to the facet index and carries `aria-expanded`/`aria-controls`/`aria-haspopup`, with no separate arrow button (which cost width and cluttered the row), and ArrowDown on that link opens the panel and moves focus into it (`layout/nav-flyout-trigger.ts`). The admin console's row keeps a `button` trigger that toggles, since its items are not themselves destinations — but it carries **no arrow icon either**: the whole site's horizontal menus dropped them, so a triangle in one row and none in another would read as two different products. (The arrow stays on *form controls* — `aec-select`, the sort/version pickers, the review form's combobox — and on the mobile overlay's tap-to-expand rows, where it is the only cue that the row expands rather than navigates.) A row where one dropdown opens on hover and its neighbour only on click reads as a bug. (It had a fifth implementor, `More▾`, until that menu was retired.)
-  - **The base is no longer public-nav-only.** The admin console's category row (`admin/admin-nav-dropdown.ts`, AECI-694) is the first implementor outside the header, for the same reason: a portal whose dropdowns behaved differently from the site's would read as a different product. It is deliberately **not** `@angular/aria/menu` even though ADR 0010 routes new menu patterns there — a navigation row of router links is not an application menu, and `role="menu"` is the wrong semantic for it. `ANGULAR_STYLE_GUIDE.md` §19 and the ADR both carry that clarification.
-  - **A category with exactly one destination is a plain link, not a one-item dropdown.** A disclosure that reveals a single item is a click that buys nothing. Label it with the **group** name, not the item's: at the top level of a nav the category is what is self-describing. Keep the rule structural (`items.length`), so the group becomes a dropdown by itself the day it gains a second screen.
-  - **The exception, and why it is one.** A dropdown whose panel contains a **text field** does not hover-open: a panel you are typing into must not evaporate because the pointer strayed. It also cannot use `NavDisclosure` mechanically — that base closes on `focusout` by asking `host.contains(relatedTarget)`, and a panel in the browser's top layer is not a DOM descendant of the host, so every focus move *into* the panel would read as "focus left" and slam it shut. The vendor portal's Products menu was the first of these, until §6.11 replaced it with a list page. The behaviour set it established stands for any future search-bearing dropdown: click to open, focus into the search box, Escape or Tab closes and returns focus to the trigger, outside click closes.
-- **Handover breakpoint:** the inline primary nav appears at `lg` and up; below that the hamburger carries it (`aec-nav-menu` is `lg:hidden`). Moved up from `md` when Trades became the fourth taxonomy flyout (AECI-544): seven items plus the wordmark and sign-in CTA no longer fit a 768px header, and clipping nav items out of the viewport is worse than deferring to a labeled overlay that already lists every facet. The header search input appears at `xl`. Adding a further top-level nav item needs a re-measure, not just an insert.
-  - **Re-measured at 768px after `More▾` was retired, and it stays at `lg` (AECI-669, 2026-11-09, `main` 153b8fbcf).** The row was forced into its `md` state (inline nav shown, `aec-search-trigger` shown, hamburger hidden, wordmark held at its natural width) in headless Chromium with Atkinson Hyperlegible Next loaded. The outer row gap at `md` is `md:gap-8` (32px), not the `lg` band's `gap-6`.
+The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They are clashes 26 to 32 and 42, ruling R4 (AECI-1735), the ordering exception (AECI-1814 and AECI-1774) and ruling R2 (AECI-1733). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.7 to §4.10. The record is `docs/design/mockups/redesign-2026-11/records/design-rulings.md` and `design-clashes.md`. ADR 0056 does not list clashes 26 to 32 or 42, so it records none of them. Colours are the tokens AECI-1747 set. They are on its branch and not yet on `main`. §2 "Forest grounds" holds every contrast floor this part cites.
 
-    | Part (768px, en-US) | Signed out | Signed in |
-    |---|---|---|
-    | Wordmark | 209 | 209 |
-    | Six row items (314 of labels + 5 × `gap-6`) | 434 | 434 |
-    | Right cluster (36px search icon + `gap-3` + Sign in / 36px account icon) | 124 | 84 |
-    | Outer gaps (2 × 32) | 64 | 64 |
-    | **Needed** | **831** | **791** |
-    | Content box (768 − `px-8` × 2, overlay scrollbar) | 704 | 704 |
-    | **Over by** | **127** | **87** |
+**Scope (R2, 2026-11-14).** Chris: "Just do public pages for now". This part governs the public shell: the header, the Browse menu, the mobile menu, the section nav, the breadcrumb, the footer and the bands under the header. The vendor portal and the admin console take the new tokens and nothing more. They keep their own tab rows, dropdowns and breadcrumbs, which are described under "Portal and admin rows" below. Which header and footer wrap those routes is the open question below.
 
-    At 768px the search icon and Sign in are pushed off screen. The first viewport where the signed-out row fits is about **896px**, still inside the `md` band. So `md` would need about 15% off the whole header width, and en-US is the floor, since every label is `$localize`-wrapped. Dropping the header's search icon would not rescue it either: the signed-out row is still 79px over without it. Re-measure only if the wordmark, the row or the right cluster gets narrower. If it ever moves, three classes move together: the row's `lg:flex`, `aec-nav-menu`'s `lg:hidden` and `aec-search-trigger`'s `lg:block`. Moving only the first two leaves 768–1023px with no search affordance.
-- **Dropdown panel type hierarchy — three levels, and a panel item pins its own weight.** Inside any nav dropdown: a **column title** is 600, sentence case, 14px, `text-primary`; a **group label** is the overline (600, uppercase, 12px, `text-secondary`); a **destination** is **400**, 14px, `text-primary`. Panel destinations set `font-normal` explicitly rather than inheriting — the primary row carries `font-medium`, so an unpinned item renders at 500 inside the flyout and 400 inside the mobile overlay (the same component, two weights), and at 500 it sits too close to the 600 label above it for a reader to tell a header from a link. Pin the weight at the list component; never let the row's weight reach a panel. Only the facet flyouts (`nav-flyout-list.ts`) use this now — the grouped, multi-level form went with `More▾` — but it is the contract any future panel inherits.
+**Open question put to Chris on 2026-11-14: which shell do `/vendor` and `/admin` wear?** The site header, the legal notice band and the footer render in `app.ts` above and below the router outlet on every route, `/vendor/*` and `/admin/*` included. So the shell batch, as built, puts the Forest header, the Browse menu and the Forest footer on the portal and the console. R2 said "Just do public pages for now", which can be read as "not those routes" or as "only their page bodies stay as they are". This part does not settle it. The options:
 
-- **Grouped nav lists are separated by vertical rhythm, never by indentation.** In a grouped list, a destination sits on the **same left rail as its own group label** (`px-3` on both) — what separates one group from the next is space: roughly **12px between items and 26px at a group boundary**, a >2:1 ratio, so proximity alone tells a reader where a group ends. The live instances are the mobile nav overlay and, since AECI-694, the admin console's dropdown PANELS — the admin sidebar that used to demonstrate it (`space-y-6` between groups vs `space-y-1` within) became a horizontal row of categories, so each group now gets a panel of its own and the boundary is the panel edge. The rule still governs any panel that carries more than one group. **Do not indent items under their label**: an indent reads as *tree depth*, which these non-clickable eyebrow labels do not have, and it invites a click on the label. If a grouped list reads as flat, the fix is the group gap, not a horizontal step. (This rule was written when the header's `More▾` panel rendered the same array as that sidebar and the two had to stay aligned row-for-row. The panel is gone; the rule survives it because it is about how a grouped list reads, not about that pairing.)
+- **A.** Portal and admin wear the shared shell. Only their page bodies, tab rows and breadcrumbs stay as they are.
+- **B.** `app.ts` keeps the old header and footer on `/vendor` and `/admin`, chosen by URL. The choice depends on the URL, which is the cache key, so it stays cache-safe.
+- **C.** The Forest header without the Browse menu on those routes.
 
-**The Overflow Rule.** The primary row is width-budgeted, **public-only**, and closed. It carries the directory's primary surfaces and nothing else.
+AECI-1771 (header) and AECI-1776 (footer) do not start until he rules. Until then, the rules below describe the public shell. Whatever he rules, a signed-in vendor or admin sees the account menu in place of Sign in, and the portal's own navigation sits below the header and is not restyled by this part.
 
-- **A new *secondary* destination goes to the footer**, not into the row and not into a header menu. The footer is server-rendered on every page, so a link there is as reachable and as crawlable as one in the header. See "The footer" below.
-- **A new *primary* destination is a re-measure at 1024px**, not an insert.
-- **A role-gated surface gets one door in the account menu** (`layout/user-menu.ts` at `lg+`, the overlay's account block below). Never a row item.
+**The header never varies by visitor in cached HTML.** The header sits inside URL-keyed cached SSR pages. It renders the signed-out state on the server, which is a "Sign in" link. `SessionStatus` swaps in the account menu after hydration. The role-gated doors read the browser-only role probe, which is `null` during SSR, so no `/admin` or `/vendor` href reaches cached HTML. The active-route marker depends on the URL, which is the cache key, so it is neutral. The Browse menu fetches its terms and counts in the browser (`TaxonomyNavStore` is idle on the server), so no taxonomy state is baked into a page. None of this changes.
 
-> **This supersedes the previous rule, which put secondary destinations in a `More▾` overflow menu and the complete `/admin` section inside it.** Two things were wrong with that. Its public half was ~83% duplicated by the footer — of twelve links, ten were already there, and only Updates and Roadmap were unique. And its admin half restated the eleven-screen `/admin` IA that `admin/admin-shell.ts` already renders from the same `ADMIN_NAV_GROUPS` array, which is why the panel had to grow to a two-column `34rem` grid for an admin. A portal owns its own navigation; the header's job is to offer **one door** to it.
+#### The header on Forest (clashes 1, 26, 29 and 42)
 
-**Why the doors are in the account menu, not the row.** The old rule said *"admin navigation belongs with site navigation; the account menu is for the person, not for operator surfaces."* That reasoning was about eleven screens of navigation, and it does not carry to a single door. The sharper line: **the row is the site; the avatar is you and what you can operate.** The row renders on cached, URL-keyed, indexable pages and must look the same to everyone — a private, `noindex`, role-gated door in it would make the row's width depend on who is looking (seven items for an admin, six for a visitor), against the closed width budget above. The account menu is *already* the viewer-dependent region: it only mounts when signed in, and it already held the Vendor portal door. Putting Admin beside it makes the two portals symmetric and the header legible.
+| Rule | Value | Ruling |
+| -- | -- | -- |
+| Ground | Forest (`--accent-primary`). Ink is Bone (`--text-on-brand`). No rule under the header. The shipped 4px warm rule goes | Clash 1, new. AECI-1771 |
+| Links | **Browse, How we rank, For vendors.** Chris's note on clash 26: "Products is in browse (All Products)". Home and Products leave the row. The four facets fold into Browse | Clash 26, new |
+| Destinations | Browse is `/products`. How we rank is `/docs/trust/how-ranking-works`. For vendors is `/vendor-program` | `PLAN.md` §4.7, AECI-1771 |
+| Wordmark | The shipped wordmark, in its light-on-dark variant on Forest. Never a new mark. The variant is `aec-brand-logo` with a tone input and a transparent reversed SVG, built by AECI-1754 | Clash 42, current |
+| Order | Wordmark, search pill, links, Sign in. Below the handover: the wordmark and the menu toggle | Mock-up 6, header HTML |
+| Not sticky | The header scrolls away. The sticky section bar below is the only fixed bar | CURRENT |
+| Search | A pill with a "/" hint, see "Header search" | Clash 29, new |
+| Sign in | A rounded rectangle at 12px, never a pill. It is the Bone-on-Forest main button (`button-on-brand`, §5 Buttons, clash 3). Hover fills with `--surface-on-brand-hover` and the text stays Forest (9.46:1). `button-on-brand-hover` in the frontmatter records it | Clashes 12 and 29 |
+| Signed in | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state, so the trigger's Forest styling is open | AECI-1771 |
+| Focus ring | Bone (`--focus-ring-on-brand`), 3px at 3px offset, on every control on Forest. A Forest ring is invisible there | §2, AECI-1747 |
 
-**Both doors are one link each** — "Admin portal" → `/admin`, "Vendor portal" → `/vendor` — in sentence case, matching the rule that user-facing copy says *portal*, never *dashboard* (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.3). Neither restates its portal's sections. The pending-review badge sits on the account-menu trigger, following the Admin door.
+- **Link type.** Nav links are `--t-16` at weight 400, the ramp's "Body, nav links" role (§3). The label is Bone with no opacity change. The mock-up dims it to 92% opacity (line 42), and the `no-color-opacity-modifier` source-constraint rule (AECI-1747, on the batch branch) bars a `/NN` alpha on a colour utility. Clash 6 says every colour is a named token.
+- **Link hover.** A `--surface-on-brand-wash` fill (Bone 10%) behind the link, text still Bone. A link hovered on `--surface-on-brand-wash-hover` (16%) over Forest has Bone text only (6.98:1). `--text-on-footer-secondary` is 4.46:1 on that wash and fails. It also fails on Forest hover (4.39:1), so it is never used in the header.
+- **Link shape.** §4 hands the nav hover shape to this section. The mock-up's hover wash is a pill (line 42). It is a hover fill on a text link and not a button, so clash 12's "no pill buttons" does not reach it. Chris to confirm.
+- **Wordmark size.** Starting value 32px high, and 28px below `md` (mock-up lines 497 and 611).
+- **Every control has a spoken name.** The wordmark link's name is "AEC Integrations home". The toggle and the search field are named under their own headings.
+- **Starting values** (mock-up 6, default state): header height `76px`, `64px` below `md` (lines 36 and 553). Gap between header parts `32px` (36). Link padding `12px 16px`, gap between links `8px` (41, 42). Sign in is `44px` high with `16px` side padding at `14px` and weight 600 (44). `button-on-brand` has 24px side padding. The header control is the compact form of the same button, like the ghost button's 16px, so the header row stays inside its width budget. AECI-1771 confirms the 16px against that budget.
 
-**Nothing role-gated may reach server-rendered HTML.** Both doors are gated on the shared, browser-only role probe (`auth/role-status.ts`), which reports `null` during SSR — so no `/admin` or `/vendor` href is ever baked into the URL-keyed cached header. This is the header-side complement to `/admin/*` being non-cacheable.
+#### Active route and the Clay bar (clash 28, new)
+
+Chris ruled NEW on clash 28. The new design wins over the clash recommendation, which had been a 2px underline everywhere.
+
+- **In the header the Clay bar is the panel-open cue.** The mock-up draws it under "Browse" only while the Browse panel is open. It is `scaleX(0)` until the panel opens (lines 629 to 631). It is 3px high with rounded top corners (`3px 3px 0 0`), on the header's bottom edge, 14px in from each side of the label. Clay on Forest is 5.29:1, so it meets the 3:1 floor for a meaning-bearing graphic. On Forest hover it is 3.29:1.
+- **The active route in the header is weight 600 plus `aria-current`.** The mock-up draws no active-route bar. Clash 28's ruled design is the mock-up's `.cm-trigger::after`, which is `scaleX(0)` at rest and shown only while the panel is open. Weight 600 plus `aria-current` is the floor carried over for the active route and needs no ruling. `PLAN.md` §4.7 says the same. AECI-1771's description says "the active route item has a Clay bar under it", and AECI-1771 follows this part. The label reserves its 600 width so the row does not shift when the active item changes.
+- **`aria-current` is `page` on an exact match and `true` for a section.** Browse is a section: it is `true` on `/products`, `/categories`, `/audiences`, `/trades`, `/phases` and their detail pages. These are the routes that lit the old items, minus Home. How we rank and For vendors are `page` on their own routes. Colour alone never shows the active route.
+- **The section nav's active bar is Clay (R3).** See "The section nav". There the weight and the text colour are the other cues, because Clay is 2.33:1 on white and 2.09:1 on Bone and can never carry the state alone.
+- **Portal, admin and the public in-page router rows keep their rule.** See "Portal and admin rows" below.
+
+#### Header search (clash 29, new)
+
+Chris ruled NEW on clash 29 and left no note.
+
+- **A pill with a "/" hint.** The radius is the full pill, the one named exception to the 12px control radius (§4). Height 44px, `--t-16` text, a `kbd` chip on the end edge. It is a field and not a link, although the mock-up draws a link (line 38). The clash audit says a link styled as a field is not a field.
+- **The edge.** A 10% Bone wash (`--surface-on-brand-wash`) alone measures 1.33:1 against Forest, which is not a visible boundary. The field takes a 1px edge in `--border-on-brand-strong`, 4.01:1 on Forest. The edge stays on hover. The mock-up has no edge, so this corrects it, on AECI-1747's measurements.
+- **Ink.** The placeholder uses `--text-on-brand-secondary`, 6.00:1 on the 10% wash over Forest. Hover moves the wash to 16% (`--surface-on-brand-wash-hover`) and the text goes to Bone.
+- **The `kbd` chip has no fill of its own.** The mock-up gives it a second 10% wash on top of the field's (line 40). Secondary ink on that stacked wash is 4.58:1 at rest and 3.92:1 when the field is hovered, which fails. The chip is a 1px `--border-on-brand` edge only, its text is secondary ink at rest and Bone when the field is hovered, and it is set at `--t-13`. §3 allows `--t-12` only for overlines, the two weight-500 chips and field captions.
+- **The shortcut.** Pressing "/" focuses the search. It does nothing when focus is already in an input, textarea, select or contenteditable, or when a modifier key is held. It prevents the "/" from being typed. The hint is `aria-hidden` and the shortcut is announced once through `aria-keyshortcuts="/"`. These rules come from AECI-1772. No ruling set them.
+- **Requirement: WCAG 2.1.4 Character Key Shortcuts.** A single-character shortcut must be one of three things. It can be turned off. It can be remapped to include a modifier key. Or it is active only while the component has focus. Ignoring the key while the reader types in a field is necessary and is not sufficient. The shortcut must also do nothing while any modal is open: the mobile menu, the claim dialog and any `BrnDialog`. AECI-1772 owns this and must meet it before the shortcut ships. It is a requirement and not an open value.
+- **Shape by width.** The shipped header has the icon trigger from `lg` to `xl` and the inline field from `xl`. The mock-up shows the pill from `lg` and no search below it. This part keeps search reachable at every width. Below the handover it sits in the mobile menu. The pill's width bands are open (AECI-1772).
+- **Placeholder copy.** The shipped copy is "Search directory". The mock-up reads "Search products, vendors, data objects". The suggestions are products and vendors, not data objects (§5 Header search autocomplete, AECI-985), so the mock-up's label would promise more than the box does. This overrides the mock-up. Keep "Search directory" until the suggestions include data objects. Chris to confirm. The ruling did not set the copy.
+- **Starting values** (lines 38 to 40): flexible width up to `460px`, `12px` gap between icon and text, `16px` side padding.
+
+#### The Browse menu (clash 27, new, and ruling R4)
+
+Chris ruled NEW on clash 27: one mega-menu replaces the four taxonomy dropdowns. The clash recommendation had been to drop the page dimmer. Chris chose the new design, so the page dims.
+
+**Ruling R4 (AECI-1735, 2026-11-14).** Chris, by Slack: "A".
+
+- No "How we rank" card in the menu.
+- Four key categories in this order: AI, Project management, BIM authoring, Accounting and ERP.
+- Seven items per column.
+- No key items for trades, phases or audiences.
+
+The card is dropped, not only switched off. The mock-up's card (lines 666 to 688) and its mobile twin are not built. A production check on 2026-11-14 (a comment on AECI-1735) found 69 AI, 62 project management, 15 BIM authoring and 92 accounting and ERP products. All four are above the floor of 5, so the ruling stands. If a key category ever has fewer than 5 products, it goes back to Chris. The mock-up's counts (29, 58, 64, 52 and 486) are placeholders and are never copied (`PLAN.md` §10.4). The menu prints each term's name as the site prints it everywhere else. Term names are data and not menu copy, so the Sentence-Case Rule does not reach them. R4's capitalisation is the list of categories and not a rename.
+
+**Key categories are AECi's own pick, and the site must say so.** The pick is editorial. `/docs/trust/how-ranking-works` must say so, and the menu footer line says the same. This is a same-PR rule. AECI-1815 says each sentence on the help page must be true of the shipped code at merge, so the page cannot go first. The PR that ships the Browse menu (AECI-1774, or AECI-1775 if the mobile menu lands first) therefore carries the `how-ranking-works` sentences with it. They cover the key categories being AECi's pick and each column's order, including the accepted count-order exception for audiences and trades. The gate covers the key-categories column and not only the footer line. AECI-1774's legal verdict is `text` (`docs/LEGAL_IMPACT_REVIEW.md`).
+
+**The columns and their order.** Each order has a source. Nothing here is invented.
+
+| Column | Content | Order | Source |
+| -- | -- | -- | -- |
+| Explore | "All products" with the total count, then the four key categories | AECi's pick, not a count order: `ai`, `project-management`, `bim-authoring`, `accounting-erp` | Ruling R4. Held as one config list of slugs, not a table (AECI-1774). The slugs are from the AECI-1735 comment |
+| Categories | Seven categories, with any key category removed first | Most products first (`product_count`, descending), then name with `compareText`, then id | R4 says seven and `PLAN.md` §4.8 says "less any shown as a key category". Today's nav ranks by count with `topByCount` (`core/taxonomy/taxonomy-rank.ts`, top 10) and has no tie-break. The name tie-break is AECI-1774's. A Free seat can tag categories (`product.categories.edit`, `PLAN.md` §7.2), so no paid plan moves this order |
+| Phases | All 5 | Project order: `taxonomy_phases.display_order` ascending, then name with `compareText` | A curated order, `byDisplayOrder` in `taxonomy-rank.ts`. Not a count order |
+| Audiences | Seven | Most products first, then name, then id | The accepted exception, below |
+| Trades | Seven published trades | Most products first, then name, then id | The accepted exception, below. The `TRADE_PUBLISH_MIN_PRODUCTS` floor still applies, as in the nav today |
+
+Phases have five terms, so seven does not apply to them. Each facet column ends with its own "See all" link to the facet index.
+
+**The audience and trade order is an accepted exception to the no-pay-for-placement firewall.** Chris, by Slack, on AECI-1814 and AECI-1774: "A, create a ticket to address later". Audience and trade tags need `product.taxonomy.edit`, which is outside the Free set. A Managed vendor tagging a product can lift a term into the top seven. It moves a term and never a product. The firewall test records it as one named exception, and the permanent rule is AECI-1836. The menu orders audiences and trades by product count, as the nav does today. This is a known gap and not a finding that count order is right. AECI-1836 may change it, and this part follows its answer.
+
+**The menu footer line.** One line under the columns: "Key categories are chosen by AEC Integrations. Other lists show most products first. Phases in project order." It stays true only while every non-phase list is count-ordered and the key list is the config list.
+
+**Not in the menu.** No vendor or product names. No "Popular", "New" or "Featured" badges (`PLAN.md` §4.8).
+
+**The behaviour contract** (`PLAN.md` §4.8, point for point):
+
+1. "Browse" is a real link to the all-products page (`/products`). It also controls the panel, with `aria-expanded`, `aria-controls` and `aria-haspopup`. `PLAN.md` names `aria-haspopup`. This part drops it, below, so the trigger carries `aria-expanded` and `aria-controls` only.
+2. Hover opens the panel. The down arrow opens it and moves focus to the first link.
+3. Escape closes it and returns focus to "Browse". Mouse leave closes it after a short grace period.
+4. A press inside the panel must not close it before the click lands.
+5. The page behind is dimmed while the panel is open.
+6. On mobile the menu shows "All products" and the key categories first, then four tap-to-expand sections.
+
+Added by this part. All of it is CURRENT unless it says otherwise.
+
+- **The pattern is disclosure navigation, not an ARIA `menu`.** The shipped flyout is one link that carries `aria-expanded`, `aria-controls` and `aria-haspopup="true"`, over a `[hidden]` panel of links with no role. `nav-flyout-trigger.ts` uses it, and `nav-flyout-trigger.component.spec.ts` pins the attribute, the down arrow and the Escape focus return. The panel needs no landmark role, and each column's list is named by its overline through `aria-labelledby`.
+- **`aria-haspopup` is dropped.** The Browse panel is disclosure navigation of links (the WAI-ARIA Authoring Practices disclosure pattern). The trigger carries `aria-expanded` and `aria-controls`. `aria-haspopup="true"` announces a menu that is not there. Note for AECI-1774: repoint the Escape selector in `NavDisclosure` (`layout/nav-disclosure.ts`, near line 79, today `a[aria-haspopup], button[aria-haspopup]`) to `[aria-expanded]`, and update `nav-flyout-trigger.component.spec.ts`, `e2e/nav-menu.spec.ts` (near line 309) and `e2e/phase2-a11y.spec.ts` (near line 183), which assert the attribute.
+- **Built on `NavDisclosure`** (`layout/nav-disclosure.ts`), so Escape, focus leaving the host and the Safari press guard behave as they do today. A blur to nowhere during a pointer press inside the host does not count as focus leaving, because Safari never focuses a clicked link and closing on that blur loses the click. AECI-1774 deletes `nav-flyout-trigger.ts` once unused.
+- **The keyboard reaches the panel by the down arrow.** Enter on "Browse" follows the link. The footer's Directory column is the Tab-reachable copy of the same destinations, and it renders in server HTML.
+- **Angular Aria popups render inline in this repo, not in an overlay.** The Browse panel is plain inline markup under the header, which is what `NavDisclosure` expects. A panel in the browser's top layer is not a DOM descendant of the host, so every focus move into it would read as focus leaving.
+- **The dimmer is not modal.** It is `aria-hidden` and decorative. It does not trap focus or make the page inert. Clicking it closes the panel. It sits under the header and over the page. Clash 6 does not allow a raw colour in a component, and `styles.css` already dims the CDK backdrop with `rgb(0 0 0 / 0.5)`. One shared scrim token serves both. Its owner is AECI-1770. The mock-up's `rgb(0 0 0 / 0.4)` (lines 15 and 690) is the starting value for the Browse dimmer.
+- **Timing.** The mock-up opens after 70ms and closes after a 260ms grace (`src/catmenu.js` lines 19 and 15). These are starting values. The clash audit recommended putting the grace in the shared base so every dropdown gets it. Where it lives is open (AECI-1774).
+- **WCAG 1.4.13 Content on Hover or Focus.** The hover-opened panel is additional content shown on pointer hover, so it must be dismissible, hoverable and persistent. Dismissible: Escape closes it without moving the pointer. Hoverable: the 260ms close grace lets the pointer cross from "Browse" into the panel. Persistent: it stays open until the pointer leaves, focus leaves, or Escape is pressed. A grace of zero would fail the second property.
+- **Touch and the fallback at `lg` and above.** A tap on "Browse" follows the link to `/products`, because the trigger is a real link and hover does not exist. Touch visitors at `lg` and above reach the facets from the footer's Directory column and from `/products`. Below `lg` the mobile menu carries every column.
+- **Reduced motion: no animated menu transitions.** Under `prefers-reduced-motion` the panel, its columns, the dimmer, the active bar and any chevron change state instantly (mock-up lines 187 and 720 to 723). Durations and easing belong to the motion rules (AECI-1746).
+- **The hover underline on a menu term is Clay,** as the mock-up has it (lines 653 and 658). A hover underline is not required information, and Clay as a stroke is allowed by clash 4. The term text stays `--text-primary` and the underline never carries the only cue for focus, which is the ring.
+- **Counts are quiet tabular numbers** at `--t-13`, in `--text-tertiary` on the white panel (4.83:1). Never on a Bone or sunken surface. If the count is `undefined` (an older API Worker during a deploy), render "All products" without a count. Never print "undefined" or 0 (AECI-1773, AECI-1774).
+- **Edge cases.** A term with 0 products never appears (production has `robotics` at 0). A configured key slug the API no longer returns is skipped, and the column shows the rest.
+- **The focus ring inside the panel is Forest.** The panel is a white ground, although it sits inside the Forest header. Bone is invisible there.
+
+**Panel type (clash 10, current, on the clash 9 ramp).** This replaces the old three-level panel hierarchy. Column labels are the overline (`.aec-overline`: 600, `--t-12`, uppercase, `--text-secondary`). The mock-up's 11px menu overline is dropped (§3). A destination is weight 400 at `--t-16` in `--text-primary`, pinned at the list component. The row's weight never reaches a panel. A key item is serif at `--t-24`, weight 400 (line 651). The old "column title, 600, 14px" level has no place in the Browse panel. Any other nav panel keeps the pin: destinations at 400, because 500 belongs to two chips only (§3). Whether the account menu's items move is AECI-1771's.
+
+**Starting values** (mock-up 6, default state, line numbers in `6-product-detail.html`. The mock-up's 760px maps to `md` and its 1040px to `lg`. The code issue confirms each):
+
+| Value | Starting value | Line |
+| -- | -- | -- |
+| Panel | Full width under the header edge, `--surface-base` fill, radius `0 0 24px 24px`, `--shadow-menu` | 632 |
+| Panel padding | `48px` top, `32px` bottom, and the `48px` page gutter at the sides. The panel exists from `lg`, where the gutter is `48px`. The frontmatter `menu-panel` agrees. The mobile panel has its own padding below | 634 |
+| Grid | Five columns on shared rows, column gap `32px`, and `24px` below a 1200px step | 644, 697 |
+| Overline | `12px`, `16px` below | 640 |
+| Key item | Serif `24px`, line-height `1.1`, weight 400, tracking `-0.01em`, padding `2px 0 12px` | 650, 651 |
+| Term row | `16px`, weight 400, line-height `1.25`, padding `8px 0` | 655, 656 |
+| Count | `13px`, tabular figures | 657 |
+| Menu footer line | `13px`, `24px` above, `16px` padding over a hairline | 664 |
+
+The mock-up's columns need about 1,130px of its 1,216px row (comment above line 667), and it gives no layout between the inline row's handover and about 1200px. At 1024px the content box is 928px. The floor is set now: between `lg` and about 1200px the panel never clips and never scrolls sideways, and terms may wrap. AECI-1774 picks the layout that meets it.
+
+#### The mobile menu (clash 30, new)
+
+Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2): the toggle has an accessible name, and the open menu traps focus.
+
+- **The toggle keeps the new look.** 44 by 44px, `rounded.md` (12px), a `--surface-on-brand-wash` fill, a Bone icon, at the end edge of the header (mock-up line 46). The icon swaps to a close glyph while open (lines 694 and 695). The shipped toggle is 36px, bordered and at the start edge, so this is a change. The wash is decoration. The Bone glyph (11.03:1) identifies the control.
+- **A spoken name.** The toggle has an accessible name. The shipped name is "Open menu". The name becomes "Menu", as the mock-up has it (line 1196), and `aria-expanded` carries the state. The name stays true while the menu is open and the glyph is a close mark. AECI-1775 updates `nav-menu.component.spec.ts` and `e2e/nav-menu.spec.ts`, which assert the old name.
+- **The open menu traps focus and closes on Escape,** and Escape returns focus to the toggle. The shipped panel is a `BrnPopover` (a dialog primitive, `aria-haspopup="dialog"`) that supplies the trap, the Escape close and the focus return. Keep it. The mock-up has its own trap in script (`src/catmenu.js` line 49). Do not copy the script. The page behind the popover must be inert. `BrnPopover`'s trap leaves out the toggle, so either the close control is reachable inside the trap or Escape is the documented close path. AECI-1775 owns this.
+- **Background scroll is locked while open** (AECI-1775).
+- **Order.** "All products" and the key categories first. Then four tap-to-expand sections in the desktop column order: Categories, Phases, Audiences, Trades. Then How we rank and For vendors, then search and the account block (the identity block below, then Account, the role-gated doors and Sign out), or the Sign in button. The mock-up has no search and no account block (AECI-1775).
+- **The same data and the same config list** as the desktop menu, with the same orders and the same seven-item cap. Each section carries its own "See all". Its button has `aria-expanded` and `aria-controls`, and its region is hidden when collapsed. Phases show all five.
+- **The panel is white, not Forest.** The mock-up panel is `--surface-base` with ink text, radius `0 0 24px 24px` and `--shadow-menu`, under the Forest header strip (line 701 and `screens/browse-menu-mobile.jpg`). AECI-1775's description says "Forest ground, to match the header". Read that as the header strip. The panel follows the mock-up and the desktop panel. The focus ring in it is Forest.
+- **The same footer line** at `13px` under the sections (line 717), with the same same-PR rule: whichever of AECI-1774 and AECI-1775 lands first carries the `how-ranking-works` sentences.
+- **Starting values** (lines 701 to 718): `max-height: calc(100dvh - 64px)` with `overflow-y: auto` and `overscroll-behavior: contain`, side padding the gutter, top-level rows in serif 600 at `20px` and 58px high, "All products" in serif 400 at `24px` and 48px high, items at `16px` and 44px high with a `13px` count, a hairline between rows, and a Forest "Sign in" button at 44px (`button-primary`, §5 Buttons). The chevron rotates on expand. Under reduced motion it does not animate.
+- **Reflow.** The menu works at 320px and at 200% zoom. That is why it takes over below `lg`.
+
+#### The section nav and the sticky bar (`PLAN.md` §4.9, R3 and clash 13)
+
+The section nav is the in-page jump bar on the product page (`shared/section-nav/section-nav.ts`). The vendor page uses it too and waits for its mock-up (AECI-1791).
+
+- **It leads with our wordmark.** When the bar sticks it reads "AEC Integrations › Bluebeam Revu": the AEC Integrations wordmark, then the product name as plain text. Never a vendor logo, a product mark or a vendor colour, on any listing. A vendor logo where our header has scrolled away would read as the vendor's own site. On an unclaimed listing that contradicts "not affiliated with or endorsed by this vendor" (`PLAN.md` §3.9 and §8.5).
+- **Items are plain text links,** not a button group. Chris disliked the nav looking like one (`PLAN.md` §3.9). `--t-16` at 400 in `--text-secondary`. Hover goes to `--text-primary`.
+- **The current item** is weight 600 in `--text-primary` with a 3px bar on the bar's bottom edge. The bar colour is **Clay**. Ruling R3 (AECI-1734, item 14, 2026-11-14): Chris, by Slack, "A", accepting all six recommendations. Item 14 reads "The section nav active bar is Clay."
+- **The bar is never the only cue.** Clay is 2.33:1 on white and 2.09:1 on Bone. The weight and the text colour also mark the current item, and the link carries `aria-current="location"` (clash 28 and R3). The shipped rule stands: the first link is current until a click or the scroll-spy names another, and SSR renders that first link for every visitor.
+- **Counts are quiet tabular numbers,** not badges. `--t-13` at 400 in `--text-secondary` (§3 puts counts at `--t-13`). The mock-up sets them at 14px. The mock-up draws them in tertiary ink (line 181). At rest the bar sits on the Bone band, where tertiary is 4.32:1 and fails. Secondary is 6.91:1 on Bone.
+- **The surface is solid. No blur.** Chris, clash 13: "Drop the frosted-glass blur on the sticky bar." Once stuck, the bar is `--surface-base` with a hairline `--border-default` edge (mock-up line 732). At rest it is the first part of the one Bone band (§4 band shell). This is settled by clash 13 and the mock-up's default (line 732). The bar is fully solid. AECI-1747's `--surface-sticky` (white at 94%) is therefore unused. The mock-up's stuck-bar shadow (line 145) is dropped under the one-shadow rule (§4).
+- **It never hides a focused control (WCAG 2.4.11).** The bar is 72px high, and 64px below `md`. Every focusable element below the bar scrolls clear of it when it takes focus. A `scroll-margin-top` on a `section` protects only the section itself, which an anchor jump uses. It does not protect a link or button inside the section that Tab reaches. Today's `scroll-mt-20` is 80px and clears 72px for the jump only. The likely mechanism is `scroll-padding-top` equal to the stuck bar's height on the scrolling root, applied while the bar is mounted. Caution for AECI-1768: check that it does not add to the offset `ScrollMarginViewportScroller` already applies for anchor jumps, and do not touch the router scroll stack (`CLAUDE.md`, "Router scroll restoration is already solved").
+- **It must not clip between 900 and 1300px** (`PLAN.md` §10.2). Overflow scrolls sideways inside the bar, with a visible affordance. That is a scoped scroller and not a page-level scroll, so the page still reflows at 320px.
+- **The focus ring is Forest,** drawn inside the item (offset 0, radius 8px) because the scroller clips an outline that sits outside it (mock-up line 173).
+- **Starting values** (lines 144 to 186): `position: sticky; top: 0`, `z-index: 20`, items 44px high with `12px` side padding and a `6px` gap between label and count, the bar `3px` with radius `3px 3px 0 0`, the stuck wordmark `24px` high, the product name at `--t-16` in `--text-secondary` capped at 200px with an ellipsis, and a 40px end fade as the overflow cue (line 186). Below `md` the bar is `64px` high, and the stuck bar shows our monogram and no name (lines 576 and 577).
+- **Open: "Write a review" at the end of the bar.** The mock-up has a button there above `lg` (line 1334). No ruling or issue covers it. AECI-1768 decides whether it ships.
+- **The slide of the bar between items** is motion. Under reduced motion the bar jumps (line 187). AECI-1746 owns the timing.
+- **The vendor page is not bound.** `section-nav.ts` serves the product page and the vendor page. AECI-1768 puts the new section nav look behind an input that only the product page sets. The vendor page keeps the shipped section nav until its mock-up (AECI-1791) is approved and AECI-1797 builds it.
+- **Other in-page navs** (the account page's section nav and the docs "On this page" rail) keep their own rules and are not restyled here.
+
+#### The breadcrumb (clash 31, current)
+
+Chris ruled CURRENT on clash 31 with no note. The separator is `›`, marked `aria-hidden`. The mock-up's slash is dropped.
+
+- **One breadcrumb.** A `nav` named "Breadcrumb", ancestors as links, the last item as text with `aria-current="page"`. AECI-1777 moves every public breadcrumb onto one `aec-breadcrumb` component. They are in `products-index.ts`, `taxonomy-index.ts`, `taxonomy-browse.ts`, `search-page.ts`, `product-detail.ts`, `detail-layout.ts`, `products-pair.ts` and the docs shell.
+- **On white** the links are `--text-secondary`, the separator is `--text-tertiary` and hover goes to `--text-primary`.
+- **On the Forest hero** the links and the separator are `--text-on-brand-secondary` (7.96:1 on Forest). The tertiary separator the code uses today is never allowed on Forest. Hover underlines the link and goes to Bone (`--text-on-brand`). `--t-14`, an `8px` gap, wrapping, and the current item is text and not a link (mock-up lines 54 to 57 and 1251).
+- **The docs top bar draws a slash today** (§5 Product docs). Clash 31 and AECI-1777 move it to `›`.
+- **Portal and admin breadcrumbs keep their rule** (R2). They already use `›`.
+
+#### The shell bands and the skip link
+
+The app shell (`app.ts`) renders, in order: the skip link, the header, the legal notice band, the waitlist welcome, `main`, the footer, the consent banner and the update banner. AECI-1777 restyles each to the new tokens and `aecButton`. No band's wording or behaviour changes.
+
+- **The skip link is the first focusable element in the document** (WCAG 2.4.1). It appears above the Forest header on focus. The mock-ups have none and the app keeps it (`PLAN.md` §10.2). Its shipped Forest fill and Forest ring are invisible against the header. On focus it takes a Bone fill with Forest text (11.03:1) and a Bone ring (`--focus-ring-on-brand`) at an offset that leaves a Forest gap. These are starting values for AECI-1777.
+- **The legal notice band is shell chrome.** It is a site-wide, full-width Bone band under the header, with a strong bottom border (§5 Vendor portal, AECI-1592). It does not count as the page's one Bone band. This is the orchestrator's reading of 2026-11-14, and Chris is to confirm. Its wording and its dismiss behaviour do not change. It relates to the legal page versions in `docs/STAGE_1_SPEC.md` §27.
+- **The stack is a Forest header over a Bone band** on every page while the notice is live. The band is not part of the header.
+- **Every control on a Forest ground,** in a banner or elsewhere, takes the Bone ring and Bone ink. A Forest ring is invisible.
+
+#### Portal and admin rows (R2, unchanged)
+
+These rows are outside the public shell and keep the current rule.
+
+- **Active route.** Colour `accent-primary` with a 2px bottom border in `accent-primary`, drawn on the element and not as a side stripe. In a horizontal router row the form is `-mb-px border-b-2` over the row's `border-b`, so the item's border replaces the hairline beneath it. Narrow viewports scroll the row (`overflow-x-auto whitespace-nowrap`). It ships in the vendor portal's section rows and the admin console's category row (AECI-694). The cascade trap under "Vendor portal (Stage 2)" applies, because `border-color` on `*` is unlayered in `styles.css`.
+- **Raised for Chris (the Same-Behavior Rule).** The public `/search` entity tabs and the docs guide toggle use the same 2px Forest underline today. The section nav now uses a Clay bar, and the header marks the active route by weight and `aria-current`. Until Chris rules, those two keep the Forest underline. If he wants one "you are here" mark on every public page, they move.
+- **The admin row is the one exception to the scroll rule, and it is a consequence and not a preference.** With three items it fits a 320px viewport, and `overflow-x-auto` computes `overflow-y` to `auto` too, which would clip its in-flow dropdown panels. It wraps. Any row that both scrolls and drops down has to portal its panels.
+- **A child route level replaces its parent's row.** The vendor portal tried a segmented secondary row under the underlined primary row (AECI-959) and retired it (§6.11). Show one underlined row for the level the page is at, and let a breadcrumb carry the way back up.
+- **Dropdown base.** `NavDisclosure` is a shared base. A new dropdown in the public primary nav extends it. The trigger shape is the implementor's. The admin console's row (`admin/admin-nav-dropdown.ts`, AECI-694) keeps a `button` trigger with no arrow icon. It is deliberately not `@angular/aria/menu`, because a navigation row of router links is not an application menu and `role="menu"` is the wrong semantic. `ANGULAR_STYLE_GUIDE.md` §19 and ADR 0010 carry that clarification. The arrow stays on form controls and on the mobile menu's expand rows.
+- **A category with exactly one destination is a plain link,** not a one-item dropdown. Label it with the group name. Keep the rule structural (`items.length`).
+- **A dropdown whose panel contains a text field does not hover-open.** It opens on click, focus goes into the field, Escape or Tab closes it and returns focus to the trigger, and an outside click closes it. It cannot use `NavDisclosure` mechanically, because a panel in the top layer is not a DOM descendant of the host.
+- **Grouped nav lists are separated by vertical rhythm, never by indentation.** A destination sits on the same left rail as its group label. Roughly 12px between items and 26px at a group boundary tells a reader where a group ends. The live instances are the mobile menu's account block and the admin console's panels. Do not indent items under their label, because an indent reads as tree depth.
+
+#### Handover breakpoint and the width budget
+
+The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec-nav-menu` is `lg:hidden`). Clash 29 asks for `md`: the mock-up shows its inline row from 760px, which maps to `md`, and its search pill from 1040px, which maps to `lg`. The row is held at `lg` until AECI-1771 measures the three-link row.
+
+- **The old measurement is retired.** AECI-669 measured a six-item row at 768px and found it 127px over. The row now has three links, so that table no longer applies. The mock-up's own handover has not been measured in code.
+- **A new primary destination is a re-measure at 1024px,** not an insert. AECI-1771 re-measures the three-link row at `md` and `lg`, signed out (the wider case), against the pill and Sign in. Three classes move together if the handover moves: the row's `lg:flex`, `aec-nav-menu`'s `lg:hidden` and the search trigger's `lg:block`. A mismatch renders two Primary landmarks, or none, or leaves a band with no search.
+- **Reflow.** Nothing clips at 320px or at 200% zoom, and a text label never wraps inside the header row.
+
+**The Overflow Rule (rewritten by clash 26).** The primary row is width-budgeted, public-only and closed. It now carries three things: Browse, How we rank and For vendors.
+
+- **A new secondary destination goes to the footer,** not into the row and not into a header menu. The footer is server-rendered on every page, so a link there is as reachable and as crawlable as one in the header. See "The footer" below. How we rank and For vendors are now also header links, and they stay in the footer.
+- **A new primary destination is a re-measure at 1024px,** not an insert.
+- **A role-gated surface gets one door in the account menu** (`layout/user-menu.ts` at `lg` and up, the mobile menu's account block below). Never a row item.
+
+**Why the doors are in the account menu, not the row.** The row is the site and the avatar is you and what you can operate. The row renders on cached, URL-keyed, indexable pages and must look the same to everyone. A private, `noindex`, role-gated door in it would make the row's width depend on who is looking, against the closed width budget. The account menu is already the viewer-dependent region. It only mounts when signed in, and it already held the Vendor portal door. Putting Admin beside it makes the two portals symmetric.
+
+**Both doors are one link each**: "Admin portal" to `/admin` and "Vendor portal" to `/vendor`, in sentence case. User-facing copy says portal, never dashboard (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.3). Neither restates its portal's sections. The pending-review badge sits on the account-menu trigger, following the Admin door. Its colour pairing on Forest is not measured and is AECI-1771's.
+
+**Nothing role-gated may reach server-rendered HTML.** Both doors are gated on the shared, browser-only role probe (`auth/role-status.ts`), which reports `null` during SSR. This is the header-side complement to `/admin/*` being non-cacheable.
+
+#### Open values (navigation)
+
+| Open value | Why it is open | Owner |
+| -- | -- | -- |
+| The header's handover breakpoint and the three-link width budget | Needs a measurement at `md` and `lg`, signed out | AECI-1771 |
+| The signed-in account trigger and the pending-review badge on Forest | No mock-up draws them, and neither pairing is measured | AECI-1771 |
+| Whether the account menu's items move off weight 500 | The ramp allows 400 and 600 | AECI-1771 |
+| The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
+| The pill's width bands | See "Header search". The "/" shortcut's WCAG 2.1.4 mechanism is a requirement, not an open value | AECI-1772 |
+| Where the grace timing lives, and the panel layout between the handover and about 1200px (the floor is set) | See "The Browse menu" | AECI-1774 |
+| The shared scrim token for the Browse dimmer and the CDK backdrop | See "The Browse menu" | AECI-1770 |
+| The close control inside the focus trap, or Escape as the documented path | See "The mobile menu" | AECI-1775 |
+| The footer's link size and its width re-measure at 375, 768, 1024 and 1280px | See "The footer" | AECI-1776 |
+| The skip link's on-focus look, the band restyles and the single breadcrumb component | See "The shell bands" | AECI-1777 |
+| "Write a review" on the sticky bar, the focus-clearance mechanism and the overflow cue | See "The section nav" | AECI-1768 |
+| Which shell `/vendor` and `/admin` wear: A, B or C | R2, see "Scope" | Chris |
+| Header copy "Search directory" against the mock-up's label | See "Header search" | Chris |
+| Which order AECI-1836 settles on for audiences and trades | The exception stands until it rules | AECI-1836 |
+| The `/search` entity tabs and the docs guide toggle: Forest underline or Clay bar | The Same-Behavior Rule. For Chris to decide | Chris |
 
 ### The account menu's identity block (AECI-850)
 
@@ -1534,54 +1821,48 @@ to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
 
 ### The footer
 
-Never specified until the Overflow Rule made it load-bearing: it is now the home
-for every secondary destination, and the only site-wide entry point for several
-of them. Source: `apps/web/src/app/layout/site-footer.ts`; the columns are pinned
-by `site-footer.component.spec.ts`, because a link quietly dropping out is a
-regression rather than a tidy-up.
+It was never specified until the Overflow Rule made it load-bearing. It is the home for every secondary destination and the only site-wide entry point for several of them. Source: `apps/web/src/app/layout/site-footer.ts`. The columns are pinned by `site-footer.component.spec.ts`, because a link quietly dropping out is a regression and not a tidy-up.
 
-**Anchor:** Stripe — a brand region (wordmark + one-line tagline) beside a nav
-group of four labelled `<nav>` columns, over a bottom strip carrying copyright,
-separated by a `border-default` hairline. The ground is `surface-base` (white) on every page, with a `border-default` top rule. The nav group is its own responsive
-grid (2 columns below `md`, 4 from `md`) so the columns stay balanced: a 2×2
-block on phones and small tablets, one row from `md`. Three columns at `sm`
-would orphan the fourth on a row of its own. From `lg` the brand sits left, the
-nav group right. The nav group does not shrink (`shrink-0`), so at 1024px the
-brand's tagline gives up width instead of a link label wrapping.
+**The ground is Forest (clashes 1 and 32).** Chris ruled BLEND on clash 32 with no note. The blend is the clash recommendation: accept the Forest ground, and keep the four shipped columns and their overline labels. This rewrites the old "white `surface-base` on every page" rule. The mock-up's own columns (Browse, How we work, Company, Legal, with Vendors, Data objects, Attestations and Cookies added and the Help column gone) are not adopted. `PLAN.md` §4.10 says "The footer sits on a dark Forest ground. It keeps the four shipped columns, Directory, Help, Legal and Company, with overline labels."
+
+**Anchor:** Stripe, as before. A brand region (the wordmark and a one-line tagline) beside a nav group of four labelled `<nav>` columns, over a bottom strip carrying the copyright, separated by a hairline. The layout is unchanged. The nav group is its own responsive grid (2 columns below `md`, 4 from `md`) so the columns stay balanced. Three columns at `sm` would orphan the fourth. From `lg` the brand sits left and the nav group right. The nav group does not shrink (`shrink-0`), so at 1024px the brand's tagline gives up width instead of a link label wrapping. The mock-up's grid steps (five columns above 1040px, two below) are not adopted, because clash 32 does not rule on layout.
+
+**Colour on the footer ground** (`--surface-footer`, `#15291F`):
+
+| Part | Colour | Contrast |
+| -- | -- | -- |
+| Ground | `--surface-footer` | |
+| Links and the copyright | Bone, `--text-on-brand` | 13.71:1 |
+| Column labels (overlines) and the tagline | `--text-on-footer-secondary` | 8.76:1 |
+| Hairline above the bottom strip | `--border-on-brand-subtle` (Bone 14%), decorative, 1.51:1 | |
+| Focus ring | Bone, `--focus-ring-on-brand` | 13.71:1 |
+| Wordmark | The light-on-dark variant (AECI-1754) | |
+
+- **Link hover is an underline in Bone,** 3px offset (mock-up line 474). Colour never carries it. `--text-on-footer-secondary` fails on Forest hover (4.39:1), so the footer has no hover fill. The mock-up's links are Bone at rest (line 473), and the shipped footer's `text-secondary` rising to `text-primary` is retired.
+- **Tertiary text is never on the footer ground** (§2).
+- **Column labels are overlines** (`.aec-overline`, §3), in `--text-on-footer-secondary`. The mock-up's labels are `h4` and skip heading levels (`PLAN.md` §10.2). The shipped labels are `p` inside `nav` landmarks that carry an `aria-label`, so the shipped footer skips no level. If a label becomes a heading, it must not skip a level. AECI-1776 settles which.
+- **Wording does not change.** The mock-up's pitch ("Integrations in architecture, engineering and construction, reviewed by the people who use them.") and its base line ("Rankings are algorithmic. No vendor pays for a place.") are invented copy and are not adopted. The shipped tagline and copyright stay. A trust sentence in the footer needs its own check against the legal and trust pages first.
+- **Starting values** (mock-up lines 467 to 476, 497 and 498): padding `64px` top and `32px` bottom, label margin `16px` below, `12px` between links, links at `16px`, the bottom strip `48px` below the grid with `24px` padding over its hairline, copyright at `14px`, wordmark `28px` high. The shipped links are `text-sm` (14px). The mock-up's 16px may change the nav group's width at 1024px, so AECI-1776 re-measures at 375, 768, 1024 and 1280px (AECI-1776 owns the footer values).
+- **Targets** are at least 24 by 24 CSS px (WCAG 2.5.8). Link rows with a 12px gap clear it at 16px text.
 
 **The four columns, and why each holds what it does:**
 
 | Column | Holds | Why |
 |---|---|---|
-| **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
-| **Help** | Help center, Getting started, How ranking works, Vendor guide | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). The header row is closed, so the help center comes here. "Vendor guide" links `/docs/vendors/overview`, the vendor guide's first page (AECI-1253). It is not called "For vendors", because that is the Company column's link to `/vendor-program`. Four items, inside the four-to-six range. |
+| **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile menu never reaches SSR, so this is where a crawler meets the taxonomy. With Home and Products gone from the header (clash 26), it is also the Tab-reachable list of the Browse destinations. |
+| **Help** | Help center, Getting started, How ranking works, Vendor guide | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). "Vendor guide" links `/docs/vendors/overview`, the vendor guide's first page (AECI-1253). It is not called "For vendors", because that is the Company column's link to `/vendor-program`. "How ranking works" is also reached from the header's "How we rank". Four items, inside the four-to-six range. |
 | **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
-| **Company** | About, Methodology, For vendors, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination — how the directory works (AECI-804). "For vendors" is the public vendor landing page `/vendor-program`, after Methodology (AECI-1283, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4). Methodology, For vendors, Updates and Roadmap are all footer-only; the header links none of them, so this is their sole site-wide entry. Six items is the column's ceiling. |
+| **Company** | About, Methodology, For vendors, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination (AECI-804). "For vendors" is the public vendor landing page `/vendor-program`, after Methodology (AECI-1283, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4). The header now links For vendors too (clash 26). Methodology, Updates and Roadmap stay footer-only. Six items is the column's ceiling. |
+
+Nothing in the footer's links changes (AECI-1776: "keep the four columns and every link exactly").
 
 **Rules.**
 
-- **Every column is a `<nav>` with an `aria-label`.** Four unlabelled navs in one
-  landmark are indistinguishable in a screen reader's landmark list.
-- **The footer is visitor-neutral, absolutely.** It sits inside URL-keyed cached
-  HTML and holds no session state — no portal door, no account link, no badge.
-  That is what lets it render identically for everyone. Role-gated affordances
-  live in the account menu (the Overflow Rule).
-- **Column labels are overlines**; links are `text-secondary` rising to
-  `text-primary` on hover — quieter than header nav on purpose, because this is a
-  reference surface, not a wayfinding one.
-- **Vendors / Integrations are deliberately absent** (AECI-160, PO decision;
-  AECI-165 removed the index pages, which now 301 to `/products`). Their detail
-  pages stay reachable via product links, `sitemap.xml`, and search.
-- **i18n ids are shared, not duplicated.** Several links reuse `@@app.nav.*` /
-  `@@app.footer.*` ids that other surfaces also emit. Keep the tight
-  `<ng-container i18n>` wrap so the extracted source string stays byte-identical —
-  an identical source under a shared id is one translation unit; a differing one
-  is a collision.
-- **Adding a column** is a re-measure at every breakpoint. Prefer growing an
-  existing column: four to six items read fine, and the Company column absorbed
-  three without a layout change. The Help column (AECI-1252) was the exception,
-  because the help center is a destination of its own kind. It moved the grid
-  from 2→3 to 2→4, measured at 375, 768, 1024 and 1280px.
+- **Every column is a `<nav>` with an `aria-label`.** Four unlabelled navs in one landmark are indistinguishable in a screen reader's landmark list.
+- **The footer is visitor-neutral, absolutely.** It sits inside URL-keyed cached HTML and holds no session state: no portal door, no account link, no badge. That is what lets it render identically for everyone. Role-gated affordances live in the account menu (the Overflow Rule). The vendor portal and admin console show this same footer under their own pages (R2).
+- **Vendors and Integrations are deliberately absent** (AECI-160, PO decision. AECI-165 removed the index pages, which now 301 to `/products`). Their detail pages stay reachable via product links, `sitemap.xml` and search.
+- **i18n ids are shared, not duplicated.** Several links reuse `@@app.nav.*` and `@@app.footer.*` ids that other surfaces also emit. Keep the tight `<ng-container i18n>` wrap so the extracted source string stays byte-identical. An identical source under a shared id is one translation unit, and a differing one is a collision. If the header and the mobile menu drop their Home and Products links, the footer is the only emitter of those ids.
+- **Adding a column** is a re-measure at every breakpoint. Prefer growing an existing column. Four to six items read fine. The Help column (AECI-1252) was the exception because the help center is a destination of its own kind. It moved the grid from 2 to 3 to 2 to 4, measured at 375, 768, 1024 and 1280px.
 
 ### Layout shells
 
