@@ -118,30 +118,43 @@ typography:
     letterSpacing: "0.08em"
     textTransform: "uppercase"
 rounded:
+  # The new scale (clash 12, PLAN.md section 4.3): 8px marks, 12px controls,
+  # 24px cards, full-pill chips. The shipped code does not match yet. --radius
+  # is 0.5rem, so Spartan derives 4.8, 6.4, 8 and 11.2px for sm, md, lg and xl.
+  # AECI-1750 fixes the code.
   none: "0"
-  sm: "0.25rem"
-  md: "0.5rem"
-  lg: "0.75rem"
+  # 8px small marks (was 0.25rem).
+  sm: "0.5rem"
+  # 12px controls: buttons, inputs (was 0.5rem).
+  md: "0.75rem"
+  # 16px, measured on nested panels in the mock-ups. Not ruled. It sits between
+  # md and lg so the scale ascends. See "Open values" in section 4.
   xl: "1rem"
+  # 24px cards (was 0.75rem).
+  lg: "1.5rem"
+  # Chips. Never a primary action.
   pill: "9999px"
 spacing:
+  # The 4-point scale (clash 17): 4, 8, 12, 16, 24, 32, 48, 64, 96px. The keys
+  # are Tailwind's step numbers, so spacing.6 is p-6 (24px). The scale is steps
+  # 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens.
   "0": "0"
   "1": "0.25rem"
   "2": "0.5rem"
   "3": "0.75rem"
   "4": "1rem"
-  "5": "1.5rem"
-  "6": "2rem"
-  "7": "3rem"
-  "8": "4rem"
-  "9": "6rem"
+  "6": "1.5rem"
+  "8": "2rem"
+  "12": "3rem"
+  "16": "4rem"
+  "24": "6rem"
 components:
   button-primary:
     backgroundColor: "{colors.accent-primary}"
     textColor: "{colors.surface-base}"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
-    padding: "{spacing.3} {spacing.5}"
+    padding: "{spacing.3} {spacing.6}"
   button-primary-hover:
     backgroundColor: "{colors.accent-primary-hover}"
   button-secondary:
@@ -149,7 +162,7 @@ components:
     textColor: "{colors.text-primary}"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
-    padding: "{spacing.3} {spacing.5}"
+    padding: "{spacing.3} {spacing.6}"
   button-secondary-hover:
     backgroundColor: "{colors.surface-sunken}"
     textColor: "{colors.accent-primary}"
@@ -163,7 +176,7 @@ components:
     backgroundColor: "{colors.surface-raised}"
     textColor: "{colors.text-primary}"
     rounded: "{rounded.lg}"
-    padding: "{spacing.5}"
+    padding: "{spacing.6}"
   card-hover:
     backgroundColor: "{colors.surface-raised}"
     textColor: "{colors.text-primary}"
@@ -194,12 +207,17 @@ components:
     typography: "{typography.headline}"
     padding: "{spacing.0}"
   detail-layout:
+    # The band shell (clash 16). Phone values first, then md and up, as
+    # browse-layout does. Band padding and page gutter, from the mock-ups.
+    # md_padding takes the band padding from md up, but its 48px gutter only
+    # from lg up. Between md and lg the gutter is 32px. See "The detail page band shell".
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
-    padding: "{spacing.8} {spacing.6}"
-    md_padding: "{spacing.12} {spacing.8}"
+    padding: "{spacing.16} {spacing.6}"
+    md_padding: "{spacing.24} {spacing.12}"
     sectionDivider: "1px solid {colors.border-default}"
   browse-layout:
+    # Unchanged by the rulings: the standard canvas, py-8 md:py-12 and px-6 md:px-8.
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
     padding: "{spacing.8} {spacing.6}"
@@ -403,7 +421,7 @@ The weights, line heights and tracking stated above are starting values measured
 - **To size a heading, put the `text-*` utility on an inner `<span>`**, not on the heading element. The span inherits the display face from the heading and takes its own size. (`product-powered-hub.ts` does this for its card titles.)
 - **Don't "fix" it by moving the block into `@layer base` without an audit.** Doing so silently resizes every heading that currently carries a losing `text-*` utility — at the time of writing that is ~7 surfaces, including the `/search` integration hit card (`text-base` → would drop 1.25rem → 1rem, which the Serif-Floor Rule then forbids; the product and vendor hit cards no longer use a heading element, so the rule does not reach them), `browse-grid`, `products-pair` mechanism titles, `admin-shell`, and both taxonomy `h1`s. The block being unlayered is a bug, but unwinding it is its own scoped piece of work with per-surface decisions, not a drive-by.
 
-**The Page-Width Rule (AECI-987).** Page width and reading measure are two different constraints. The page takes the standard 7xl canvas (§5 → Layout shells); measure (`max-w-prose`, `max-w-[42rem]`, 65 to 75ch) goes on the prose blocks inside it, and form controls cap at `max-w-2xl`. A routed page never puts a reading-width class on its outermost container: at 1280px that leaves a narrow column with a blank right half. Examples:
+**The Page-Width Rule (AECI-987).** Page width and reading measure are two different constraints. The page takes the standard 7xl canvas (§5 → Layout shells); measure (`max-w-prose`, `max-w-[42rem]`, 65 to 75ch) goes on the prose blocks inside it, and form controls cap at `max-w-2xl`. The one exception is the product page's band shell, which takes a 1328px wrap with 48px gutters (§4 "The detail page band shell", clash 16). A routed page never puts a reading-width class on its outermost container: at 1280px that leaves a narrow column with a blank right half. Examples:
 
 - *Editorial* (`/about`): 7xl canvas, the article prose capped at measure.
 - *Account* (`/account`): 7xl canvas, a sticky section nav from `lg`, panels across the content column, inputs capped at `max-w-2xl`.
@@ -418,21 +436,164 @@ Inside the docs shell the canvas is the shell's content column: the docs home an
 
 ## 4. Elevation
 
-Borders separate surfaces. Shadows do not.
+The redesign rulings of 2026-11-13 changed this section (clashes 11 to 18). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.3. The scope sentence under "Forest grounds" in §2 applies to this section too: these changes are for public pages, and the vendor portal and admin take the new tokens and nothing more. Values the rulings left open are listed under "Open values (set by AECI-1750, AECI-1765 and AECI-1766)". ADR 0056 records which written rules this section rewrites.
 
-The system is flat by default. Depth is conveyed through color (Bone callouts, sunken inset wells), spacing (generous whitespace around elevated content), and border weight — not through drop shadows on cards or buttons. Box-shadows appear only where a literal layer is rising off the page: modals, dropdowns, popover menus, and focus rings.
+Borders separate controls. One shadow lifts the cards that float on the page ground, and one shadow lifts menus. The kept modal shadow and the focus ring are the only other shadows.
+
+The system is still flat by default. Depth is conveyed through color (Bone callouts, sunken inset wells), spacing (generous whitespace around elevated content), border weight on controls, and one card shadow on top-level cards. Cards, menus and dialogs are the only surfaces that rise off the page, and a focus ring marks the element the keyboard is on.
 
 ### Shadow Vocabulary
 
-- **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop.
-- **Dropdown / Popover** (`box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)`): for menu panes, autocomplete dropdowns, tooltips with body content.
-- **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state — never `outline: none` without a replacement.
+The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two new tokens are added to `apps/web/src/styles.css` by AECI-1750.
 
-> **`rgb(0 0 0 / α)` is the one color function lint allows** (AECI-597). The AECI-597 guard bans `rgb()`, `hsl()` and `oklch()` everywhere in `apps/web`, with a carve-out for all-zero RGB channels precisely so these two recipes keep working — including the underscore spelling Tailwind arbitrary values use, `shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18)]`. A tinted shadow will fail `pnpm lint`. If one is ever wanted, change it here first and widen the carve-out in `eslint.color-patterns.mjs` in the same PR.
+| Token | Recipe | Where | Clash |
+| -- | -- | -- | -- |
+| `--shadow-card` (to add) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
+| `--shadow-menu` (to add) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
+
+- **Card shadow (clash 11, blend).** One recipe, pure black, for a card that stands on the page ground. A card nested inside another card takes no shadow of its own (see "Cards may nest" below). Chris's ruling was BLEND with no note, so the recipe is the clash recommendation and the plan's value.
+- **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the four components in the table.
+- **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
+- **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop. No ruling touched it, so it is unchanged and has no token yet.
+- **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state, never `outline: none` without a replacement. Forest on a Forest ground is invisible. The ring on Forest is open in §2 (AECI-1747).
+- **Buttons, chips, inputs and tabs keep borders and take no shadow** (clash 11). Hover lift on cards is clash 37 and belongs to the motion rules, not to this section.
+- **A shadow is never the only cue for a boundary that needs 3:1.** A card is not a control, so its shadow edge may stand alone. A control placed on or inside a card keeps its own 3:1 edge (§2 "Field edge"). The mock-up's other shadow variables (`--sh-mark`, `--sh-ctl`, `--sh-btn`, `--sh-bar`) are not in the plan's table and are not part of the language.
+
+> **`rgb(0 0 0 / α)` is the one color function lint allows** (AECI-597). The AECI-597 guard bans `rgb()`, `hsl()` and `oklch()` everywhere in `apps/web`, with a carve-out for all-zero RGB channels (`COLOR_FUNCTION` in `eslint.color-patterns.mjs`) precisely so the shadow recipes keep working, including the underscore spelling Tailwind arbitrary values use, `shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18)]`. A tinted shadow will fail `pnpm lint`. The mock-ups' green-tinted shadows (clash 11) are dropped for that reason. If one is ever wanted, change it here first and widen the carve-out in `eslint.color-patterns.mjs` in the same PR.
+
+### Radius (clash 12)
+
+Chris's ruling was BLEND with no note. The blend is the clash recommendation: add a 24px card radius and a 12px control radius, let public chips be pills, and keep primary actions off the pill.
+
+| Role | Radius | Frontmatter token | Clashes |
+| -- | -- | -- | -- |
+| Cards | 24px | `rounded.lg` | 12 |
+| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.md` | 12, 20 |
+| Chips | Full pill | `rounded.pill` | 12, 22 |
+| Small marks | 8px | `rounded.sm` | 12 |
+
+- **No pill buttons** (clash 12, a rule that stands). "Sign in" is a rounded rectangle at 12px. A chip may be a pill. A button, a link styled as a button and a primary action may not.
+- **The old scale is gone.** The frontmatter used to say 4, 8, 12 and 16px, and §5 still quotes it in places. The code never matched it either. `--radius` is `0.5rem`, so Spartan's derived scale renders 4.8, 6.4, 8 and 11.2px for `sm`, `md`, `lg` and `xl` (AECI-1750). The table above is the rule. AECI-1750 replaces `--radius` with explicit tokens and maps `radius-sm` to `radius-xl` onto them.
+- **Chip shape and the header's pills.** The chip vocabulary is clash 22 and §5 owns it. The header search and nav hover shapes belong to the header, and §5 Navigation owns them.
+
+### Spacing (clash 17)
+
+Chris's note on clash 17 was about type: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The spacing blend is the clash recommendation: snap to the scale and the look survives.
+
+- **The scale is 4, 8, 12, 16, 24, 32, 48, 64 and 96px** (clash 17). It is Tailwind's default spacing, steps 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens.
+- **Snap, do not invent.** The clash recommendation names the mock-up's strays: 22 goes to 24, 26 and 28 go to 24 or 32, and 104 goes to 96. Padding, margin and gap sit on the scale. A control's height is not spacing, and clash 20 sets it.
+- **Tailwind steps off the scale** include 5, 7, 9, 10 and 11 (20, 28, 36, 40 and 44px).
+
+### Layout: bands, grids and nesting
+
+#### The detail page band shell (clash 16, new)
+
+Chris ruled NEW: the new design wins. The product page drops the two-column layout with a metadata sidebar. This describes the bands. The pixel values are starting values in the table below. AECI-1778 rebuilds `DetailLayout` as a band shell. Only `product-detail.ts` and `vendor-detail.ts` use `DetailLayout` today. The vendor page and the pair page with integrations wait for their mock-ups (AECI-1791), so this section does not bind them yet.
+
+From top to bottom, a product page is:
+
+1. **The Forest header** (§2 "Forest grounds", clash 1).
+2. **The Forest hero band**, with the soft single-colour glow (clash 13, below). It holds the breadcrumb, the name, the ratings, the actions and the hero visual.
+3. **The facts card.** One elevated card (`--shadow-card`) that overlaps the bottom of the hero and carries the key facts in columns. It replaces the metadata sidebar.
+4. **The sticky section nav.** It sits on a solid surface once it sticks. No frosted blur (clash 13).
+5. **Full-width bands**, one per section. The first band is the one Bone band (clash 2). It runs from behind the lower half of the facts card, through the section nav at rest, and through the About band. The rest are white, and a hairline `border-default` separates two white bands.
+6. **The mailing-list band and the Forest footer.** On the band shell the mailing-list band is white, so it never adds a second Bone band.
+
+- **The page wrap** is 1328px with 48px gutters (`PLAN.md` §4.3, no clash). That leaves a 1232px content column. Gutters step down at narrower widths (starting values below). The breakpoints are Tailwind's defaults (see "Breakpoints" below).
+- **No sidebar on the product page.** Resources, vendor facts and the claim and correction entries move into the facts card. The old rules for where the sidebar undocks, its docked and undocked formats and its `space-y-6` rhythm are retired for the product page. The vendor page keeps them until its mock-up lands.
+- **The 608px table check is replaced.** A body table is checked against the content column, which is the viewport minus both gutters. That is 960px at a 1024px viewport and 327px at 375px. The old 608px figure and the 38rem floor came from the sidebar split and no longer apply. The mock-up's comparison table asks for `min-width: 1240px`, which is wider than the 1232px column (`PLAN.md` §10.2 lists the table view as clipped at 1440px). The table view must scroll inside its own wrapper or fit.
+- **The sticky nav keeps its own slot**, bare as a direct child of the page container, because sticky is bounded by the parent's box. It marks one link `aria-current="location"`, and SSR renders the first link for every visitor. Both rules stand from the old text. The rulings did not touch them.
+- **DOM order is the single-column reading order** at every width. The bands work without the layout.
+- **The empty pair page** (mock-up 5) has no facts card. The pair page does not use `DetailLayout` today. The vendor page and the pair page with integrations have no mock-up yet (AECI-1791).
+- **Bone fills are not bands.** Clash 2 is about full-width tinted bands as the page ground. A Bone or tinted fill inside a card is a nested fill, so the Bone stat panel in the facts card and the reviewer-update panel in a review card do not count against "one Bone band per page".
+- **The legal notice band is shell chrome.** It does not count as the page's one Bone band. (Orchestrator reading, 2026-11-14, Chris to confirm.)
+- **Floor: the facts card never overlaps past the hero.** The overlap never exceeds the hero's bottom padding at any width. At 128px of padding and a 96px overlap the clearance is 32px. Below `md` both are 96px and the clearance is zero, so the hero's last control has no spare room there.
+- **Floor: bands clear the sticky bar.** Each band's scroll margin is at least the sticky bar's height, and a control reached by keyboard is never hidden under the bar (WCAG 2.4.11). The mock-up bar is at least 72px and today's sections use `scroll-mt-20` (80px), which clears 72px by 8px.
+- **Floor: hero contrast is measured at the glow's peak.** Hero text is measured against Forest hover, where Bone is 6.87:1 and a Clay stroke is 3.29:1.
+
+#### Hero glow, no blur, no noise (clash 13)
+
+Chris ruled BLEND on the second pass, 2026-11-13: "Keep the soft single-colour glow in the hero. Drop the frosted-glass blur on the sticky bar. Drop the noise texture."
+
+- The hero keeps one soft glow in a single colour, Forest hover (§2). The mock-up draws it as two radial gradients of that one colour. No second hue.
+- The sticky section nav is a solid surface with a hairline `border-default` edge. Chris's words name the sticky bar. The wider ban on blur elsewhere rests on the existing §6 Don't on glassmorphism (blur, glass cards, glow borders).
+- No noise texture. Bars and meters have no gradient fill (clash 19, which §5 owns).
+- The rulings allow the hero glow. They do not allow other gradients, and glassmorphism stays banned (§6).
+
+#### Cards may nest (clash 14, new)
+
+Chris ruled NEW: the new design wins, and the old "Don't nest cards inside cards" is rewritten. §6 still holds the old text until AECI-1746.
+
+- A card may hold another card, panel or tile. The mock-ups nest one level. The rulings say nothing about two.
+- **Only the outer card carries the shadow.** A nested panel is a tint or a hairline on the card's own surface. It takes no shadow of its own, so a stack shows one elevation.
+- A nested panel keeps the readability floors. Text on it meets AA, and `--text-tertiary` is never used on a Bone, sunken or muted surface (§2).
+- **Measured nests in the mock-ups:** rating boxes inside entity cards, score tiles, the reviewer update and the vendor reply inside a review card, the reach box inside the integrations fill, and the Bone stat panel inside the facts card. A Bone or tinted fill inside a card is a nested fill, not a band (see the band shell above).
+- **Vendor replies** (rewrites the placement rule in §5 Auth & Reviews, clash 14). A reply now sits inside its review card as a nested panel, under the review text. It no longer sits below the card as an indented sibling block. It has a small leading mark, the label "Response from {vendor}" and the date. The review stays an `article` named by its title.
+
+#### Coloured side stripes are allowed (clash 15, new)
+
+Chris ruled NEW. The old "Side-stripe borders are banned" is rewritten. §6 still holds the old text until AECI-1746. The clash recommendation had been a label colour or a small dot. Chris chose the stripe.
+
+- A card or tile may carry a coloured stripe on its leading edge. The mock-ups use it to code the two review scores: Forest for product quality and Clay deep for onboarding experience.
+- **A stripe is never the only cue.** Each stripe sits beside a text label ("Score one", "Score two" or the criterion name). The label stands alone, so the coding survives greyscale and colour-vision deficiency.
+- **Stripe colours are existing tokens.** The score stripes use Forest and Clay deep. Clay deep is the meaning-bearing Clay (§2, 5.83:1 on white). Clay itself stays decorative.
+- Gradient text stays banned, and so does a gradient stripe.
+
+#### Card grids cap at three columns (clash 18, blend)
+
+Chris ruled BLEND with no note. The blend is the clash recommendation: keep cards, cap at three columns, and break each grid with a group header or a wider lead card, as the grouped mock-up (7) does.
+
+- **Three columns at most**, on every card grid. The mock-up steps from 3 columns to 2 and then to 1 as the viewport narrows (starting values below). The mock-ups' four-up grids go.
+- **Break the rhythm on purpose.** A group header (a hairline rule, the group name and its count) breaks a grouped grid. A wider lead card breaks an ungrouped one.
+- **Ruling R3 (2026-11-14) dropped the wide lead card** on the product page integrations list. Chris replied "A", accepting all six recommendations. Row 6 reads "Score figures move back up. The wide lead card goes." The integrations list breaks with group headers instead. R3 does not say whether the wide first items in the mock-up's reviews, extensions and similar-products grids go.
+- The wide lead card in §5 "Product card grid" is not rewritten here. It belongs to the card work (AECI-1765).
+
+#### Breakpoints (clash 18 and the Same-Behavior Rule)
+
+Breakpoints are Tailwind's defaults: `sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px and `2xl` 1536px. `styles.css` sets no custom breakpoints, and a card grid reflows at the same widths on every page. The mock-ups' 760, 1040 and 1260px map to `md`, `lg` and `xl`. The mock-up's "and below" becomes "below" the Tailwind width, so 1040px and below is below `lg`. Nothing is set at `2xl` yet.
+
+### Starting values from the mock-ups
+
+These are measured from the default state of `docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in that file unless noted.
+
+| Value | Starting value | Line |
+| -- | -- | -- |
+| Page wrap | `max-width: 1328px`, gutter `48px` from `lg` | 15, 25 |
+| Gutter | `24px` below `md`, `32px` from `md` to `lg`, `48px` from `lg` | 535, 550 |
+| Column steps for cards and similar products | 3 columns from `lg`, 2 from `md`, 1 below `md` | 292, 451, 538, 599 |
+| Review list columns | 3 from `xl`, 2 from `md`, 1 below `md` | 413, 530, 599 |
+| Facts card columns | 4 from `xl`, 2 from `md`, 1 below `md` | 114, 526, 570 |
+| Hero padding | `24px` top and `128px` bottom, `16px` and `96px` below `md` | 49, 554 |
+| Facts card overlap | `margin-top: -96px`, the Bone strip starting 96px down | 113 |
+| Band padding | `96px` top and bottom, first band `48px` top, `64px` and `32px` below `md` | 203, 206, 579, 580 |
+| Gap between grid items | `24px` | 292 |
+| Group spacing and header | `48px` between groups, `1px` `border-default` rule under the header with `16px` padding | 1131, 1133 in mock-up 7 |
+| Card padding and radius | `24px` and `24px` | 293 |
+| Panel padding and radius | `32px` and `24px` | 211 |
+| Hero glow | Two radial gradients in Forest hover at 75% and 45% over the Forest ground | 50 to 51 |
+| Side stripe | `7px` wide on a score card, `3px` inset on a score tile | 386, 416 |
+| Nested panel radius | `16px` on the reply and the reach box, `12px` on a score tile | 354, 416, 428 |
+| Mock-up breakpoints (mapped above) | 1260px, 1040px and 760px | 524, 534, 549 |
+
+The mock-up builds the glow with `color-mix()`, which clash 6 bans in components. The code must get the glow from a token and an opacity, not a mix.
+
+### Open values (set by AECI-1750, AECI-1765, AECI-1766, AECI-1778 and AECI-1790)
+
+- **Nested panel radius (AECI-1750).** The mock-ups use 16px on nested panels and 12px on score tiles. Neither value is in the ruled scale of 8, 12, 24 and pill. `rounded.xl` keeps 16px in the frontmatter, ordered between `md` and `lg` so the scale ascends, until AECI-1750 snaps it to the scale or Chris adds it.
+- **Radius of a logo tile by size (AECI-1750, with the logo work in AECI-1746).** The mock-up's mark is `border-radius: 22%`, with 8px at 22 to 28px and 24px at 104px. Only "small marks 8px" is ruled.
+- **The `radius-xl` mapping (AECI-1750).** The issue maps `radius-sm` to `radius-xl` onto the new scale and names no value for `radius-xl`. It renders 11.2px today.
+- **Sweep of off-scale spacing in the code (AECI-1750).** The ruling says snap to the scale. It does not say whether existing `p-5` or `gap-5` utilities are swept or snap only when their surface is rebuilt.
+- **The card border (AECI-1765).** The mock-up's card has no border. Confirm whether a hairline stays beside the shadow. Check forced-colors mode, where `box-shadow` is dropped, because a card may need a transparent 1px border that the system colours. This is a check, not a ruled rule.
+- **Which surfaces take the card shadow (AECI-1765).** `PLAN.md` names the facts card and entity cards. `PLAN.md` says "entity cards", which in §5 means the index-row table rows that take no shadow, so the table in "Shadow Vocabulary" names the components instead. The mock-up also puts the shadow on panels, review cards, score cards and table wrappers. Confirm the set.
+- **The nested panel fill (AECI-1765).** The mock-up's reply uses `--band-cool`, which equals the Forest-soft hex and which clash 6 drops. Pick an existing token such as `accent-primary-soft` or `surface-sunken`.
+- **Wide first items in the reviews, extensions and similar-products grids (AECI-1765).** R3 dropped the integrations lead card only.
+- **Page wrap for the other shells (AECI-1790, the browse mock-up).** The wrap is 1328px with 48px gutters on the band shell. The Browse and form shells still use the 7xl canvas (§5 "Layout shells"). Whether they move is Chris's call under the same-behaviour rule.
+- **The glow (AECI-1766).** The token and opacity that give the glow without `color-mix()`.
+- **Connector products on the band shell (AECI-1778).** Where "Built within" and "Integrations it powers" sit. Connector products are not designed, and AECI-1778 must keep every field the live page shows.
 
 ### Named Rules
 
-**The Borders-Not-Shadows Rule.** Cards, buttons, badges, inputs, and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on these elements are forbidden — they are an AI-design tell ("rounded rectangle with generic drop shadow") and do not match the editorial posture of the system.
+**The Borders-Not-Shadows Rule** (rewritten by clash 11, see ADR 0056). Buttons, chips, badges, inputs and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on those elements are forbidden. Cards are no longer on that list. A top-level card takes the one card shadow, and a menu takes the one menu shadow. The old form of this rule forbade shadows on cards, and that ban is lifted for `--shadow-card` only. The failure the rule was written against, a rounded rectangle with a generic drop shadow, still applies to any shadow that is not one of the recipes above.
 
 **The Arrow Rule** (AECI-919). **An arrow glyph means data-flow direction and nothing else.** The three directional glyphs — `→` outbound, `←` inbound, `⇄` both — come only from a direction helper, and every one of them is framed to the **context product** (`STAGE_1_5_SPEC.md` §3.2). There are two emitters: `directionGlyph()` (`products/pair-direction-labels.ts`) and `contextDirectionLabel()` (`search/mechanism-labels.ts`). The powered hub's flat rows call `directionGlyph()` and keep a `·` placeholder for an unknown direction at the call site (AECI-1123 folded their hand-rolled copy in). Nothing else on a page may borrow the character.
 
@@ -698,7 +859,7 @@ Phase 5 adds the authenticated surfaces — sign-in, review submission + display
 
 - **Rating summary** (`<aec-rating-summary>`, `reviews/rating-summary.ts`) — the **compact, editorial** rating for product **cards and table rows** (the list-surface counterpart to the five-star `ReviewStars`, which stays on the detail page). Deliberately numeral-forward — a single gold star (`--accent-rating`, `aria-hidden`), the average (Source Serif, `tabular-nums`), and a review-count caption — so a catalog reads like a publication, not a G2/Capterra ratings wall (a PRODUCT.md anti-reference). It **owns the §5.5 visibility gate** (`RATING_VISIBILITY_MIN_REVIEWS`) so it behaves identically bound to a `ProductListItem` or a denormalized `AlgoliaProductRecord`: shown only at ≥5 reviews and a non-null average. Two variants for the two empty-state needs — `inline` (grid + search cards) renders **nothing** when gated and collapses the host to `display:none` so it leaves no flex/gap; `cell` (dense table) renders the `–` en-dash empty state (the same convention as the vendor / category cells). The value is announced once via `role="img"` + `aria-label`, never by glyph color alone. Closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards"); the existing "Highest rated" / "Most reviewed" sorts now have a visible counterpart.
 
-- **Product reviews section** (`<aec-product-reviews>`, `products/product-reviews.ts`) — the reviews block on the product detail page. Enforces the **≥5 summary gate** (§5.5): `reviewCount === 0` → a "Be the first to review" empty state; `0 < count < 5` → the list + an overline threshold note, no averages; `count ≥ 5` → the list + the bordered averages summary. "Load more" paginates client-side. Section labels use the AECI-230 **overline** role (`aec-overline`). Each review is an `article` named by its title. **Vendor replies** (AECI-1178) sit inside that article but below the review card, never inside it: an indented block (`ms-6`, `sm:ms-10`) on `--surface-sunken` with a full `border-default` border, a hand-inlined Lucide corner-down-right glyph, the label "Response from {vendor}" and the date. That is a sibling block, not a card in a card, and it uses no side stripe. Reuse it for any answer that belongs to a parent item but is written by someone else.
+- **Product reviews section** (`<aec-product-reviews>`, `products/product-reviews.ts`) — the reviews block on the product detail page. Enforces the **≥5 summary gate** (§5.5): `reviewCount === 0` → a "Be the first to review" empty state; `0 < count < 5` → the list + an overline threshold note, no averages; `count ≥ 5` → the list + the bordered averages summary. "Load more" paginates client-side. Section labels use the AECI-230 **overline** role (`aec-overline`). Each review is an `article` named by its title. **Vendor replies** (AECI-1178, rewritten by clash 14) sit inside that article and inside the review card, as a nested panel under the review text. The old rule put them below the card as an indented sibling block (`ms-6`, `sm:ms-10`) on `--surface-sunken` with a full `border-default` border, to avoid a card in a card. Clash 14 lifted that ban (§4 "Cards may nest"). The panel has a small leading mark, the label "Response from {vendor}" and the date, and it takes no shadow of its own. Its fill token is open (AECI-1765, §4 "Open values"). Reuse it for any answer that belongs to a parent item but is written by someone else.
 
 - **Review CTA** (`<aec-review-cta>`, `reviews/review-cta.ts`) — the **cache-neutral** call-to-action embedded in the (cacheable) product page. SSR / pre-hydration renders a neutral "Write a review"; **client-side hydration** (`afterNextRender`) reconciles to `anon` ("Sign in to review" → `/auth/login?return=…`) or `authed` ("Submit a review"), so the cached HTML never carries session state.
 
@@ -1237,15 +1398,15 @@ brand's tagline gives up width instead of a link label wrapping.
 
 Three reusable Angular shells (`apps/web/src/app/layouts/`) — every Phase 2 page projects body content into one of them via named slots (shadcn-style composition). No state, no inputs; structure only. Anchor inherited from the AECi site chrome (Stripe — see Named Rules).
 
-All three share the same outer container, the **standard canvas** `mx-auto w-full max-w-7xl px-6 md:px-8` with `py-8 md:py-12` (the Page-Width Rule, §3): `max-w-7xl` centered, `surface-base` background, `text-primary` text, 24px horizontal / 32px vertical padding on phones, 32px / 48px on `md` and up. Section dividers use `border-default` (0.5–1px). No box-shadows.
+Until clash 16, all three shared the same outer container. DetailLayout now has its own band shell (below, and §4). The Browse shell and the form pattern keep the **standard canvas** `mx-auto w-full max-w-7xl px-6 md:px-8` with `py-8 md:py-12` (the Page-Width Rule, §3): `max-w-7xl` centered, `surface-base` background, `text-primary` text, 24px horizontal / 32px vertical padding on phones, 32px / 48px on `md` and up. Section dividers use `border-default` (0.5–1px). No box-shadows.
 
-- **DetailLayout** (`<aec-detail-layout>`) — for product / vendor / integration detail pages.
-  - **Slots:** `breadcrumbs`, `hero` (required), `nav`, `body-lead`, `metadata`, `body` (required).
-  - **Grid:** `lg:` two-column (2fr main / 1fr metadata) with sticky-top metadata spanning both body rows; single column below `lg`. **The split is `lg:`, not `md:`, and the number is arithmetic, not taste** — the body column is `(content − 48px gap) × 2/3`, i.e. **608px at a 1024px viewport** and 778px at 1280px. A body-column table whose `min-width` exceeds that figure does not wrap; it overflows its own `overflow-x-auto` wrapper and scrolls inside a narrow well. **Check any new body-column table against 608px, not against the viewport.** *(This was `xl:` until AECI-853, 2026-09-10: the product-integrations table asked for 44rem / 704px, so only 1280px cleared it. Folding that table's Direction column into the partner cell's meta line took its worst case to 545px, and the vendor-detail products table came down to the same 34rem floor, so 1024px now clears both. Do not raise either back above 38rem.)*
-  - **The sticky in-page nav gets its own slot.** `nav` is projected **bare** (no wrapper element) as a direct child of the page container, above the grid. `position: sticky` is bounded by the parent's box, so a nav inside a body column unpins as soon as that column scrolls past — long before the sections it links to. Its bottom margin therefore lives on the nav element itself. Never wrap that slot. The nav always marks one link `aria-current="location"`: the first section until a click or the scroll-spy names another. SSR renders that same first link for every visitor, as the docs "On this page" rail does (AECI-831).
-  - **Where the sidebar goes when it undocks:** between `body-lead` and `body` — *not* at the foot of the page. `body-lead` holds About; the sidebar's vendor / taxonomy / action facts are what a visitor wants first, and collapsing them under the last body section buried them. Placement is explicit `col-start` / `row-start`, so DOM order is the single-column reading order and the two-column arrangement is pure grid placement. One instance, never two: the projected content labels its groups with `aria-labelledby`, so a render-twice-hide-one approach would duplicate DOM ids.
-  - **Two formats for one sidebar.** Docked (`lg`) it is a bare stacked column on the page background with full-width action buttons. Undocked (below `lg`) it becomes a contained fact panel — `surface-raised` fill, `border-default` hairline, `radius-lg`, groups pairing into two columns from `sm`, the vendor row and action buttons rendered as `surface-base` cards on the panel, and actions inline at their natural width. Same markup, breakpoint-scoped utilities.
-  - **Internal rhythm:** hero bordered below; body sections stack with `space-y-12`; metadata sidebar uses `space-y-6`. Vertical rhythm between the three grid children is margins, not `gap-y`, so an absent `body-lead` collapses to nothing rather than leaving a gapped phantom row.
+- **DetailLayout** (`<aec-detail-layout>`) — for the product and vendor detail pages. **Rewritten by clash 16 as a band shell for the product page** (new). AECI-1778 builds it. The vendor page waits for its mock-up (AECI-1791) and AECI-1797 then moves it onto the shell. §4 "The detail page band shell" holds the rule, the band order and the starting values. This bullet keeps the slot contract.
+  - **Slots:** `breadcrumbs`, `hero` (required), `nav`, `body-lead`, `metadata`, `body` (required). The slot list is the shipped one. AECI-1778 decides which slots survive, because the sidebar they served is gone on the product page.
+  - **Grid, product page:** no sidebar column. The hero band is Forest, the facts card overlaps its lower edge, and the body is full-width bands (§4). It keeps one column at every width, so DOM order is the reading order.
+  - **The sticky in-page nav gets its own slot.** `nav` is projected **bare** (no wrapper element) as a direct child of the page container. `position: sticky` is bounded by the parent's box, so a nav inside a body column unpins as soon as that column scrolls past. Its bottom margin therefore lives on the nav element itself. Never wrap that slot. The nav always marks one link `aria-current="location"`: the first section until a click or the scroll-spy names another. SSR renders that same first link for every visitor, as the docs "On this page" rail does (AECI-831).
+  - **Tables in a band** are checked against the content column, the viewport minus both gutters (§4). The old 608px check and the 38rem floor came from the sidebar split (AECI-853) and no longer apply on the product page.
+  - **Vendor page, until AECI-1797 moves it:** the shipped layout stands. `lg:` two columns (2fr main, 1fr metadata) with a sticky sidebar that undocks between `body-lead` and `body`, a hero bordered below, `space-y-12` between body sections, `space-y-6` in the sidebar, and body tables checked against 608px. The old text is in git history at commit `5acfeda50`.
+  - **Internal rhythm:** bands carry their own padding and separate by a hairline between two white bands (§4). The standard canvas above describes the Browse and form shells, which the rulings did not change.
 
 - **BrowseLayout** (`<aec-browse-layout>`) — for the card-grid browse pages (Phase 3 filters).
   - **Slots:** `header` (required), `filters` (Phase 3 placeholder), `grid` (required).
