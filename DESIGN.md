@@ -1550,7 +1550,7 @@ Measured from the default state of the mock-ups in `docs/design/mockups/redesign
 | Card title | Source Serif 600 at 20px, line-height 1.1 | 299 |
 | Score card stripe | 7px leading stripe, 24px radius | 385 to 387 |
 | Score figure | `--t-fig`, Forest | 392 |
-| Large zero | `--t-fig`, Forest, `aria-hidden` numeral and an sr-only "0 " in the sentence (mock-up 8) | 8: 1087, 1407 |
+| Large zero | `--t-fig`, Forest, `aria-hidden` numeral, the legal heading as the sentence (no sr-only "0 ", AECI-1767; mock-up 8 draws one) | 8: 1087, 1407 |
 | Group header (mock-up 7) | Flex, 16px gap, 16px padding under, 1px `border-default`. 42px icon tile at 12px radius, `--t-24` name, count pill at 13px and 600 | 7: 1133 to 1136 |
 | Sticky jump rail (mock-up 7) | `position: sticky; top: 96px`, 24px radius panel, 44px or taller rows at 12px radius, current row Forest with white text | 7: 1115 to 1125 |
 | "Show more" button (mock-up 7) | `min-height: 44px`, 12px radius, 14px at 600. Drawn as a Bone fill with no edge | 7: 1140 |
