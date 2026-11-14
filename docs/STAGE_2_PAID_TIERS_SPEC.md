@@ -261,6 +261,46 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 7. **A company fact never reaches a ranking input (added 2026-11-05, AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** Size, funding and ownership describe a vendor and must not rank small vendors down. Block 7 asserts that no `INDEX_SETTINGS` attribute, Algolia record field, public `?sort=` key or `listing_tier` input names a company fact or its provenance. `headquarters` and `founded_year` predate the rule and keep their existing search roles.
 
+8. **No on-page order reads an input a paid plan can change (added 2026-11-14, AECI-1814).** The first seven assertions cover search attributes, sort keys and `listing_tier` inputs. This one covers the order of lists on a page. No on-page sort, default order or featured subset may read an input that only a capability outside `TIER_CAPABILITIES.unclaimed` can change. The tests are `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.spec.ts`.
+
+   **The rule is ruling R1** (Chris, 2026-11-14, AECI-1732): "Maintain orders as they are. If its a new feature a to z". As applied:
+   - Every new on-page list is A to Z by name, with the id as the tie-break.
+   - The via-lane groups and the powered-hub groups keep their count order.
+   - The pair page keeps integrations first, then evidenced pairs.
+   - "Confirmed by both companies" is a row label only. It is never a filter or a sort.
+
+   **The Managed-only inputs are derived from the registry.** The test computes the Managed-only capabilities as `CAPABILITIES` less the Free set, and fails if one has no declared inputs.
+
+   | Capability | What a vendor can change that a page could order by |
+   |---|---|
+   | `product.edit` | `tool_integrations_url`, `api_docs_url` (from `PRODUCT_FIELD_CAPABILITIES`) |
+   | `product.taxonomy.edit` | `audience_slugs`, `phase_slugs`, `trade_slugs`, so each term's product count |
+   | `product.usefulness.edit` | `usefulness` |
+   | `attestation.author` | Claim agreement ("confirmed by both companies"), vendor-added data objects and so the data-flow count, product versions, and the maintenance stamps an attestation write moves |
+   | `integration.version_diff` | The depth of the pair page version diff |
+   | `analytics.view`, `profile.rich_fields` | Nothing public today |
+
+   Plan state itself is flipped too: a live license, the `vendors.verified` mirror, and the plan-end mirrors and edit stamps.
+
+   **How each surface is tested.**
+
+   | Surface | Order | How |
+   |---|---|---|
+   | Product page, direct lane | Partner name, edge name, id | Behavioural: every non-order row field is changed and the order must not move |
+   | Product page, "Via" groups | Row count, connector name, unnamed last. Rows A to Z | Same |
+   | Product page, rows above the `@defer` cut | The first 20 of the two orders above | Same |
+   | Connector page, powered hubs | Partner count, hub name. Partners A to Z | Same |
+   | Pair page mechanisms and claims | Integrations A to Z, then evidenced pairs A to Z. Claims by the data object vocabulary | Behavioural over the D1 harness: two databases that differ only in Managed-only inputs |
+   | `related_products` | Newest first, id tie-break, six shown | Same |
+
+   Every row field of `ProductIntegrationItemSchema` and `PoweredIntegrationItemSchema` is classified as an order input or a payload field. A new field fails until it is classified. AECI-1781's `agreement`, `data_objects` and `partner_categories` are classified and flipped already.
+
+   **Why the count orders pass.** Via-group and powered-hub counts change only through promote, the vendor integration create, and the shared retire and restore write. A source scan finds exactly those three writers, and asserts that none of them, nor the routes that call them, calls a capability gate. A vendor create cannot make a via-lane row at all: its body has no `powered_by` field and refuses `iPaaS`.
+
+   **Surfaces not built yet are pending entries,** each owned by the issue that builds it: closest matches (AECI-1829), the Browse menu's term order (AECI-1774), the redesigned integrations list (AECI-1782, AECI-1783), the hero visual (AECI-1787) and similar products (AECI-1785). They show as `todo` in the test run.
+
+   **Open ruling: taxonomy term counts.** The nav flyouts, the home page, the `/search` facets and the taxonomy index's "Most products" sort rank audience and trade terms by product count. The `/trades` publish floor cuts on the same count. Tagging a product with an audience, phase or trade needs `product.taxonomy.edit`, which only a Managed plan holds. So a Managed vendor can move a term up, or publish a trade. This is tolerated as one named exception, `taxonomy-term-product-count`, because it orders terms, not vendors, and R1 keeps existing orders. **It is not settled. It awaits Chris's ruling, asked on Slack 2026-11-14.** The exception is narrow: a source scan finds every count order in `apps/web` and fails on any site the entry does not name. The browser half proves `topByCount` reads the count and nothing else, and that phases never order by count. The taxonomy index's comparator breaks a count tie on the term's integration count, then name. That integration count moves with the same tags and with seat-gated integration writes, so it adds no new Managed-only input. A ruling changes that one entry. The Browse menu (AECI-1774) inherits it.
+
 **Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds a live subscription (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live subscription. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the seven assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
 
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
@@ -849,13 +889,14 @@ Land last, once §2–§8 have settled the details. Each doc gets the sections n
 
 ## 10. Testing contract
 
-The three tests below are **invariant tests** — they encode decisions, not behaviour, and must not be deleted without reopening this spec.
+The four tests below are **invariant tests** — they encode decisions, not behaviour, and must not be deleted without reopening this spec.
 
 | Test | Owner | Asserts |
 |---|---|---|
 | Mirror sole-writer | §2 | `grantSeatStatements` (and every route handler) emits no statement touching `vendors.verified`. Only `lib/license.ts` does, and never without the subscription statement in the same batch. **Live**: Guard 1 plus `apps/api/src/lib/vendor-grant.spec.ts`, which AECI-612 created |
 | Ranking disjointness | §3 | the capability vocabulary and the union of `INDEX_SETTINGS` searchable/facet/customRanking attributes are disjoint sets (§3.2) — **live** in `packages/shared/src/entitlements.spec.ts` |
 | Reads are never gated | §4 | `GET /api/vendor/me` returns 200 for a vendor whose only subscription ended, `revoked` or `expired`, with the downgraded `entitlement` block. **Live** in `apps/api/src/routes/vendor.entitlement.spec.ts` |
+| On-page ordering | §3.2 assertion 8 | No on-page sort, default order or featured subset reads an input only a Managed plan can change, except the one open exception named there. **Live** in `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` (AECI-1814) |
 
 > **Correction:** this table originally implied `vendor-grant.spec.ts` already existed and merely gained an assertion. **It never did** — `git log --all --diff-filter=A` finds no such file on any branch before AECI-612, and `grantSeatStatements` was covered only indirectly through `admin-claims.spec.ts`. AECI-612 created it.
 

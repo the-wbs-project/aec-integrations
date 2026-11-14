@@ -601,12 +601,14 @@ The existing firewall tests would not catch it. They cover search attributes, so
 
 All four are clean. No plan can move them.
 
+AECI-1814 found one existing order that is not clean. The nav, home, `/search` facets and taxonomy index rank audience and trade terms by product count, and only a Managed plan can tag a product with them. It awaits a ruling (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8).
+
 ### 7.5 What Chris has and has not ruled
 
 - **Ruled:** data-flow confirmation stays a Managed feature. This predates this work.
 - **Proposed, not ruled:** rank the ring by number of data flows, with random order among ties. As stated it fails the firewall, for the reason in 7.2.
 - **Then asked:** whether the ring is the right thing at all. Open.
-- **Not ruled:** the order of the integrations list, of closest matches, or of similar products.
+- **Ruled 2026-11-14 (R1, AECI-1732):** "Maintain orders as they are. If its a new feature a to z". The integrations list, closest matches and similar products are new lists, so they are A to Z.
 
 ### 7.6 Options on the table
 
@@ -626,9 +628,9 @@ If any option uses a random tie-break, the shuffle must run in the browser. A se
 
 ### 7.8 The binding rule for any build
 
-Until Chris rules, every new list in this plan is ordered A to Z by name with the id as the tie-break, and the disclosure text says so. No build may ship the mock-ups' ordering or their disclosure wording.
+Ruled 2026-11-14 (R1, AECI-1732). Every new list in this plan is ordered A to Z by name with the id as the tie-break, and the disclosure text says so. The via-lane and powered-hub groups keep their count order. The pair page keeps integrations first, then evidenced pairs. "Confirmed by both companies" is a row label only. No build may ship the mock-ups' ordering or their disclosure wording.
 
-Whatever rule he picks, the build must add a test beside the existing firewall tests. It must assert that no on-page sort, default order or featured subset reads an input gated by a capability outside the Free set.
+The test is AECI-1814 (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8). A build that adds an ordered list moves its pending entry there to covered.
 
 ## 8. Legal work
 
@@ -871,8 +873,8 @@ Chris has not answered these.
 | # | Question | Options | My recommendation | Blocks |
 | --- | --- | --- | --- | --- |
 | 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | Workstream E |
-| 2 | What is the ordering rule for new lists? | The four options in 7.6 | A to Z everywhere | A, C, E |
-| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | AECi-recorded flows only | C |
+| 2 | What is the ordering rule for new lists? | The four options in 7.6 | Ruled 2026-11-14 (R1): new lists A to Z, existing orders kept. See 7.8 | A, C, E |
+| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | Ruled 2026-11-14 (R1): no new list uses a count. Taxonomy term counts are open, see 7.4 | C |
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
