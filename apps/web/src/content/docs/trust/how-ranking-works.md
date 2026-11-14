@@ -3,7 +3,7 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: November 6, 2026
+last_updated: November 14, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -49,6 +49,18 @@ Filters change which products you see, not their order.
 
 - **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row names the five categories with the most products instead. That fallback counts products, not views.
 - **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
+
+## The Browse menu
+
+**Browse**, in the site header, opens a menu of places to start. It names no product and no vendor. It has five columns:
+
+- **Explore** starts with **All products**, then four key categories: AI, Project management, BIM authoring, and Accounting and ERP. We chose these four ourselves. They are an editorial pick, not a ranking, and they are listed in the order we chose.
+- **Categories** lists the seven categories with the most products, leaving out the four key categories.
+- **Phases** lists every project phase, in project order.
+- **Audiences** lists the seven audiences with the most products.
+- **Trades** lists the seven trades with the most products. A trade is listed once at least one product carries it.
+
+When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each column ends with a link to its full list. The counts are the products tagged with each one, and the tags come from the listings themselves.
 
 ## What does not count
 

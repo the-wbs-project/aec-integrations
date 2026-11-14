@@ -16,13 +16,17 @@
  * icon-collapsed (`aec-search-trigger`) through the `lg`-`xl` band, then the
  * inline `w-52` box at `xl+`. See `search-trigger.ts` for the width budget.
  *
- * The row is Home, Products, Categories, Trades, Audiences, Phases. The ruled
- * row is Browse, How we rank, For vendors (DESIGN.md §5, clash 26), but the
- * Browse menu that carries the facets does not exist until AECI-1774. Removing
- * the facet flyouts first would strand `/categories`, `/trades`, `/audiences`
- * and `/phases` for a desktop visitor, so the row stays as it was until that
- * menu lands. Each taxonomy entry links to its facet index AND opens a
- * `aec-nav-flyout-trigger` flyout of the top values by count.
+ * The row is Browse, How we rank, For vendors (DESIGN.md §5, clash 26; AECI-1774).
+ * "Browse" is a link to `/products` that also discloses the Browse menu
+ * (`browse-menu.ts`): All products, the key categories, then Categories, Phases,
+ * Audiences and Trades, each with a "See all" link to its index. Home left the
+ * row (the wordmark goes home). Products is "All products" in the menu.
+ *
+ * While the menu is open the page behind dims. The dimmer is a sibling of
+ * `<header>`, under it (`z-30` against the header's `z-40`), so the Forest bar
+ * stays bright. It is decorative and `aria-hidden`, it traps nothing, and a click
+ * on it closes the menu. It is outside the menu's host, so the pointer moving
+ * onto it counts as leaving the menu.
  *
  * **The row is public-only, and closed.** Secondary destinations (Updates,
  * Roadmap, About, Contact) and Legal are in the footer, and the `/admin` IA is
@@ -30,9 +34,10 @@
  * A new secondary destination goes to the **footer**; a new *primary* one needs
  * a re-measure at 1024px, not just an insert (DESIGN.md §Navigation).
  *
- * The active route is weight 600 plus `aria-current`: `page` on an exact match,
- * `true` for a section. Colour never carries it alone, and the label reserves
- * its 600 width so the row does not shift.
+ * The active route is weight 600 plus `aria-current`: `page` on an exact match
+ * (How we rank, For vendors), `true` for a section (Browse, on the indexes and
+ * their detail pages). Colour never carries it alone, and the label reserves its
+ * 600 width so the row does not shift.
  *
  * The same link set renders in the overlay (`nav-menu.ts`) and footer, so only
  * one `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
@@ -41,19 +46,18 @@
  * Spec: DESIGN.md §5 (Navigation, "The header on Forest"); §2 (Forest grounds);
  * §16 Phase 1 ("Basic layout shell"); §21 (a11y).
  */
-import { Component, inject } from '@angular/core';
+import { Component, inject, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { SessionStatus } from '../auth/session-status';
 import { injectSignInQueryParams } from '../auth/sign-in-link';
-import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 
 import { BrandLogo } from './brand-logo';
+import { BrowseMenu } from './browse-menu';
 import { HEADER_LINK, HEADER_LINK_ACTIVE, ON_FOREST_FOCUS_RING } from './header-link-classes';
-import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
 import { SearchTrigger } from './search-trigger';
 import { UserMenu } from './user-menu';
@@ -65,13 +69,15 @@ import { UserMenu } from './user-menu';
     RouterLinkActive,
     BrandLogo,
     NavMenu,
-    NavFlyoutTrigger,
+    BrowseMenu,
     SearchAutocomplete,
     SearchTrigger,
     UserMenu,
   ],
   template: `
-    <header class="bg-(--accent-primary) text-(--text-on-brand)">
+    <!-- relative: the Browse panel's containing block, so it spans the header.
+         z-40: above the page dimmer (z-30) while the menu is open. -->
+    <header class="relative z-40 bg-(--accent-primary) text-(--text-on-brand)">
       <!--
         The gaps are load-bearing, not taste. AECI-1771 measured the row on Forest
         at 768, 1024 and 1280px, signed out. The signed-in widths are an
@@ -95,27 +101,23 @@ import { UserMenu } from './user-menu';
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
+          <aec-browse-menu />
           <a
-            routerLink="/"
+            routerLink="/docs/trust/how-ranking-works"
             [routerLinkActive]="activeClass"
-            [routerLinkActiveOptions]="{ exact: true }"
             ariaCurrentWhenActive="page"
             [class]="linkClass"
-            [attr.data-label]="labels.home"
-            >{{ labels.home }}</a
+            [attr.data-label]="labels.howWeRank"
+            >{{ labels.howWeRank }}</a
           >
           <a
-            routerLink="/products"
+            routerLink="/vendor-program"
             [routerLinkActive]="activeClass"
-            [ariaCurrentWhenActive]="true"
+            ariaCurrentWhenActive="page"
             [class]="linkClass"
-            [attr.data-label]="labels.products"
-            >{{ labels.products }}</a
+            [attr.data-label]="labels.forVendors"
+            >{{ labels.forVendors }}</a
           >
-          <aec-nav-flyout-trigger kind="category" [items]="taxonomy.categoriesTop10()" />
-          <aec-nav-flyout-trigger kind="trade" [items]="taxonomy.tradesTop10()" />
-          <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
-          <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
           <!--
@@ -144,9 +146,16 @@ import { UserMenu } from './user-menu';
                after hydration when a session is present (Phase 5 §4.4). The
                menu (Account / Admin / Sign out + the pending-review badge) is
                its own component (AECI-259). Sign in is the Bone main button on
-               Forest: Forest text on Bone 11.03:1, on its hover fill 9.46:1. -->
+               Forest: Forest text on Bone 11.03:1, on its hover fill 9.46:1.
+               The account menu is lazy (AECI-1774, bundle budget). It only ever
+               mounts in the browser, after the session probe, so no server HTML
+               changes. The placeholder holds its 44px circle while it loads. -->
           @if (session.signedIn()) {
-            <aec-user-menu />
+            @defer (on immediate) {
+              <aec-user-menu />
+            } @placeholder {
+              <span aria-hidden="true" class="block h-11 w-11 shrink-0"></span>
+            }
           } @else {
             <a
               routerLink="/auth/login"
@@ -160,10 +169,19 @@ import { UserMenu } from './user-menu';
         </div>
       </div>
     </header>
+    @if (browse()?.expanded()) {
+      <div
+        aria-hidden="true"
+        data-browse-dimmer
+        class="fixed inset-0 z-30 bg-(--scrim)"
+        (click)="browse()?.dismiss()"
+      ></div>
+    }
   `,
 })
 export class SiteHeader {
-  protected readonly taxonomy = inject(TaxonomyNavStore);
+  /** The Browse menu, for the dimmer. Absent below `lg` only in layout, never in the DOM. */
+  protected readonly browse = viewChild(BrowseMenu);
   protected readonly session = inject(SessionStatus);
   /** `?return=<this page>` so signing in lands back here, not on `/`. */
   protected readonly signInParams = injectSignInQueryParams();
@@ -174,8 +192,8 @@ export class SiteHeader {
   /** The header search field's one ring set: Bone, 3px at 3px, on Forest. */
   protected readonly focusRing = ON_FOREST_FOCUS_RING;
   protected readonly labels = {
-    home: $localize`:@@app.nav.home:Home`,
-    products: $localize`:@@app.nav.products:Products`,
+    howWeRank: $localize`:@@app.nav.howWeRank:How we rank`,
+    forVendors: $localize`:@@app.nav.forVendors:For vendors`,
   };
   /** The Bone main button at the header's compact width: 44px high, 16px sides. */
   protected readonly signInClass =

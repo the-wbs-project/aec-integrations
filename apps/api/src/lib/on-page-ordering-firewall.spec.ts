@@ -185,10 +185,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'browse-menu-term-order',
-    status: 'pending',
-    owner: 'AECI-1774',
+    status: 'covered',
+    spec: 'web',
     order:
-      'Audience and trade columns inherit the accepted count order (taxonomy-term-product-count); other lists A to Z (R1)',
+      'Key categories: a fixed editorial list (R4). Categories: product count (Free), then name, then id. Phases: display order. Audiences and trades: the accepted count order (taxonomy-term-product-count), then name, then id',
   },
   {
     key: 'product-page-integrations-redesign',
@@ -213,16 +213,24 @@ const SURFACES: readonly Surface[] = [
     status: 'exception',
     capability: 'product.taxonomy.edit',
     surfaces: [
-      'Nav flyouts: audiences and trades top 10 by product count; trades behind the publish floor',
+      'Browse menu (header and mobile menu): audiences and trades top 7 by product count, terms with no products left out; trades behind the publish floor',
       'Home: trades top 10 by product count, behind the publish floor',
       '/search: audience and trade facet values in Algolia count order (pinned by source only)',
       '/audiences, /phases, /trades: the reader-chosen "Most products" sort; /trades behind the floor',
       'Browse pages: the facet sidebar hides terms with no matching products',
     ],
     sites: [
-      { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'audiences' },
-      { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'trades' },
-      { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'publish-floor', facet: 'trades' },
+      { file: 'core/taxonomy/browse-menu-model.ts', kind: 'top-by-count', facet: 'audiences' },
+      { file: 'core/taxonomy/browse-menu-model.ts', kind: 'top-by-count', facet: 'trades' },
+      { file: 'core/taxonomy/browse-menu-model.ts', kind: 'publish-floor', facet: 'trades' },
+      // `withProducts`, shared by every Browse column: a term with no products never
+      // appears. It cuts audiences too, so it sits inside the exception.
+      {
+        file: 'core/taxonomy/browse-menu-model.ts',
+        kind: 'count-cut',
+        facet: '*',
+        detail: 'term.product_count > 0',
+      },
       { file: 'home/home.ts', kind: 'top-by-count', facet: 'trades' },
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
@@ -271,6 +279,8 @@ const SURFACES: readonly Surface[] = [
  * which promote and the product create write (block 3).
  */
 const FREE_COUNT_SITES: readonly CountSite[] = [
+  { file: 'core/taxonomy/browse-menu-model.ts', kind: 'top-by-count', facet: 'categories' },
+  // The home hero's fallback row (`home-hero.ts`).
   { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'categories' },
   { file: 'home/home.ts', kind: 'top-by-count', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'categories' },

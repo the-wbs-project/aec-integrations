@@ -2,24 +2,22 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { untilHydrated } from './hydration';
 
-// AECI-96 / AECI-158 / AECI-159. The primary navigation (DESIGN.md §5) is
-// responsive AND taxonomy-driven. Below `lg` it is a labelled hamburger to the
-// left of the wordmark that opens a CDK-overlay dropdown holding site navigation:
-// Home + Products links, the four facets as tap-to-expand disclosure sections,
-// search, and the account block / Sign-in. At `lg+` the hamburger drops out and
-// the same set renders inline: Home + Products links plus four facet flyout
-// triggers (one text link that navigates to the index and also discloses the top
-// values on hover / ArrowDown — there is no separate arrow button).
-// Vendors / Integrations no longer live in the nav (AECI-159).
+// AECI-96 / AECI-159 / AECI-1774. The primary navigation (DESIGN.md §5) is
+// responsive. Below `lg` it is a labelled hamburger that opens a CDK-overlay
+// dropdown: "All products", the four facets as tap-to-expand sections, How we
+// rank, For vendors, search, and the account block or Sign in. At `lg+` the
+// row is Browse, How we rank and For vendors. "Browse" is a link to /products
+// that also discloses the Browse menu: one white panel of five columns. It is
+// disclosure navigation, not an ARIA menu, so it has no aria-haspopup.
 //
-// The "More" overflow menu is gone. The row is public-directory-only and closed,
-// so its secondary destinations (Updates, Roadmap, About, Contact) and Legal
-// group live in the footer, covered by `site-footer.component.spec.ts` and the
-// footer navigation in `updates.spec.ts`. The `/admin` IA it duplicated is now a
-// single role-gated "Admin portal" door in the account menu, which needs a real
-// session to drive (see the authed-console spec); the door's visibility rules are
-// covered by `site-header.component.spec.ts`. So this spec asserts the row is
-// exactly the six public destinations and that nothing role-gated leaks into it.
+// The "More" overflow menu is gone. The row is public-only and closed, so its
+// secondary destinations (Updates, Roadmap, About, Contact) and Legal group
+// live in the footer, covered by `site-footer.component.spec.ts` and the
+// footer navigation in `updates.spec.ts`. The `/admin` IA is a single
+// role-gated "Admin portal" door in the account menu, which needs a real
+// session to drive (see the authed-console spec); the door's visibility rules
+// are covered by `site-header.component.spec.ts`. So this spec asserts the row
+// is exactly the three public destinations and that nothing role-gated leaks.
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
 // specifically about the header/menu, so axe INCLUDES `aec-site-header` and the
@@ -38,9 +36,22 @@ const DESKTOP = { width: 1280, height: 800 } as const;
 const NARROW_DESKTOP = { width: 1100, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
-// Top-level links (not the taxonomy facets, which are flyouts/disclosures).
-const TOP_LINKS = ['Home', 'Products'] as const;
-const FACETS = ['Categories', 'Trades', 'Audiences', 'Phases'] as const;
+// The mobile menu's plain links (the facets are disclosures), and the desktop row.
+const TOP_LINKS = ['All products', 'How we rank', 'For vendors'] as const;
+const ROW = [
+  ['Browse', '/products'],
+  ['How we rank', '/docs/trust/how-ranking-works'],
+  ['For vendors', '/vendor-program'],
+] as const;
+// The Browse menu's column order, shared by the mobile sections.
+const FACETS = ['Categories', 'Phases', 'Audiences', 'Trades'] as const;
+// Every index the old row and its four flyouts reached.
+const INDEXES = [
+  ['See all categories', '/categories'],
+  ['See all phases', '/phases'],
+  ['See all audiences', '/audiences'],
+  ['See all trades', '/trades'],
+] as const;
 // The secondary destinations that used to hang off the header's "More" menu.
 // They are footer-only now, and must NOT reappear in the primary row at either
 // width — the row is width-budgeted and reserved for directory surfaces.
@@ -76,7 +87,7 @@ async function openMenu(page: Page) {
   await untilHydrated(toggle(page));
   await toggle(page).click();
   await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(overlay(page).getByRole('link', { name: 'Home' })).toBeFocused();
+  await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeFocused();
 }
 
 test.describe('primary navigation menu (375px)', () => {
@@ -114,7 +125,7 @@ test.describe('primary navigation menu (375px)', () => {
     }
     // Vendors / Integrations are gone from the nav.
     for (const name of REMOVED) {
-      await expect(overlay(page).getByRole('link', { name })).toHaveCount(0);
+      await expect(overlay(page).getByRole('link', { name, exact: true })).toHaveCount(0);
     }
 
     // The search box is the `aec-search-autocomplete` combobox (AECI-144); Angular
@@ -126,7 +137,7 @@ test.describe('primary navigation menu (375px)', () => {
     await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
-  test('expanding a facet section reveals its value list and the View-all link', async ({
+  test('expanding a facet section reveals its value list and the See-all link', async ({
     page,
   }) => {
     await page.goto(ROUTE);
@@ -136,9 +147,9 @@ test.describe('primary navigation menu (375px)', () => {
     await categories.click();
     await expect(categories).toHaveAttribute('aria-expanded', 'true');
 
-    // "View all categories" always renders (independent of seeded values) and
+    // "See all categories" always renders (independent of seeded values) and
     // points at the index.
-    const viewAll = overlay(page).getByRole('link', { name: 'View all categories' });
+    const viewAll = overlay(page).getByRole('link', { name: 'See all categories' });
     await expect(viewAll).toBeVisible();
     await expect(viewAll).toHaveAttribute('href', '/categories');
 
@@ -151,11 +162,11 @@ test.describe('primary navigation menu (375px)', () => {
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
     await page.goto(ROUTE);
     await openMenu(page);
-    await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
 
     await page.keyboard.press('Escape');
 
-    await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeHidden();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
     await expect(toggle(page)).toBeFocused();
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });
@@ -163,24 +174,24 @@ test.describe('primary navigation menu (375px)', () => {
   test('clicking outside closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
     await openMenu(page);
-    await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
 
     await page.mouse.click(5, 400);
 
-    await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeHidden();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('selecting a top-level link navigates and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
     await openMenu(page);
-    const link = overlay(page).getByRole('link', { name: 'Products' });
+    const link = overlay(page).getByRole('link', { name: 'All products' });
     await expect(link).toBeVisible();
 
     await link.click();
 
     await page.waitForURL(/\/products$/);
-    await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeHidden();
+    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -197,7 +208,7 @@ test.describe('primary navigation menu (375px)', () => {
     }
     // Signed out, so no portal door is rendered at all.
     await expect(overlay(page).locator('a[href^="/admin"]')).toHaveCount(0);
-    await expect(overlay(page).locator('a[href^="/vendor"]')).toHaveCount(0);
+    await expect(overlay(page).locator('a[href="/vendor"], a[href^="/vendor/"]')).toHaveCount(0);
   });
 
   test('the footer still carries every secondary destination', async ({ page }) => {
@@ -222,11 +233,11 @@ test.describe('primary navigation menu (375px)', () => {
     ).toHaveAttribute('href', '/legal/terms');
   });
 
-  test('a facet "View all" link navigates to the index and closes the menu', async ({ page }) => {
+  test('a facet "See all" link navigates to the index and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
     await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Phases' }).click();
-    const viewAll = overlay(page).getByRole('link', { name: 'View all phases' });
+    const viewAll = overlay(page).getByRole('link', { name: 'See all phases' });
     await expect(viewAll).toBeVisible();
 
     await viewAll.click();
@@ -265,7 +276,7 @@ test.describe('primary navigation menu (375px)', () => {
     await signIn.scrollIntoViewIfNeeded();
     await expect(signIn).toBeInViewport();
 
-    await overlay(page).getByRole('link', { name: 'View all phases' }).click();
+    await overlay(page).getByRole('link', { name: 'See all phases' }).click();
 
     await page.waitForURL(/\/phases$/);
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
@@ -278,7 +289,7 @@ test.describe('primary navigation menu (375px)', () => {
 
     await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Categories' }).click();
-    await expect(overlay(page).getByRole('link', { name: 'View all categories' })).toBeVisible();
+    await expect(overlay(page).getByRole('link', { name: 'See all categories' })).toBeVisible();
     expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
   });
 });
@@ -290,35 +301,54 @@ test.describe('primary navigation menu (1280px)', () => {
     return page.locator('aec-site-header').getByRole('navigation', { name: 'Primary' });
   }
 
-  test('inline nav replaces the hamburger at desktop width', async ({ page }) => {
+  function browse(page: Page) {
+    return primaryNav(page).getByRole('link', { name: 'Browse', exact: true });
+  }
+
+  function panel(page: Page) {
+    return page.locator('#browse-menu-panel');
+  }
+
+  // Open by keyboard on a hydrated trigger, and wait for the focus move, which
+  // lands only after the render that clears `[hidden]`.
+  async function openByKeyboard(page: Page) {
+    await untilHydrated(browse(page));
+    await browse(page).focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(browse(page)).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel(page).getByRole('link', { name: /^All products/ })).toBeFocused();
+  }
+
+  test('the row is Browse, How we rank and For vendors, and nothing else', async ({ page }) => {
     await page.goto(ROUTE);
     await expect(page.locator('app-root')).toBeAttached();
 
     await expect(toggle(page)).toBeHidden();
 
     const nav = primaryNav(page);
-    for (const name of TOP_LINKS) {
-      await expect(nav.getByRole('link', { name })).toBeVisible();
+    for (const [name, href] of ROW) {
+      await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
     }
-    // Each facet is ONE control: an index link that is also the disclosure
-    // trigger (no separate arrow button), so the disclosure attributes have to
-    // sit on the link itself.
-    for (const name of FACETS) {
-      const facet = nav.getByRole('link', { name, exact: true });
-      await expect(facet).toBeVisible();
-      await expect(facet).toHaveAttribute('aria-haspopup', 'true');
-      await expect(facet).toHaveAttribute('aria-expanded', 'false');
+    // Disclosure navigation: aria-expanded and aria-controls, no aria-haspopup.
+    await expect(browse(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(browse(page)).toHaveAttribute('aria-controls', 'browse-menu-panel');
+    await expect(browse(page)).not.toHaveAttribute('aria-haspopup');
+    await expect(panel(page)).toBeHidden();
+
+    // Home and the four facet flyouts left the row. Nothing secondary or role-gated
+    // (the header is cached URL-keyed HTML, so an /admin href here would leak).
+    for (const name of ['Home', 'Products', ...FACETS, 'More menu']) {
+      await expect(
+        nav.getByRole('link', { name, exact: true }),
+        `${name} is not in the row`,
+      ).toHaveCount(0);
     }
-    // Six items, full stop: no overflow trigger, no secondary destination, and
-    // nothing role-gated (the header is cached URL-keyed HTML, so an /admin href
-    // here would leak to the next visitor of this URL).
-    await expect(nav.getByRole('button', { name: 'More menu' })).toHaveCount(0);
     for (const name of SECONDARY) {
       await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
     }
     await expect(nav.locator('a[href^="/admin"]')).toHaveCount(0);
     for (const name of REMOVED) {
-      await expect(nav.getByRole('link', { name })).toHaveCount(0);
+      await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
     }
 
     const header = page.locator('aec-site-header');
@@ -346,55 +376,166 @@ test.describe('primary navigation menu (1280px)', () => {
     }
   });
 
-  test('hovering a facet opens its flyout with the top values + View all', async ({ page }) => {
+  test('hovering Browse opens the panel with five columns, and leaving closes it', async ({
+    page,
+  }) => {
     await page.goto(ROUTE);
-    await primaryNav(page).getByRole('link', { name: 'Categories', exact: true }).hover();
+    await untilHydrated(browse(page));
+    await browse(page).hover();
 
-    const panel = page.locator('#nav-flyout-category');
-    await expect(panel).toBeVisible();
-    await expect(panel.getByRole('link', { name: 'View all categories' })).toHaveAttribute(
-      'href',
-      '/categories',
-    );
+    await expect(panel(page)).toBeVisible();
+    await expect(browse(page)).toHaveAttribute('aria-expanded', 'true');
+    for (const label of ['Explore', 'Key categories', ...FACETS]) {
+      await expect(panel(page).getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(
+      panel(page).getByText('Key categories are chosen by AEC Integrations.', { exact: false }),
+    ).toBeVisible();
+    // Terms and counts arrive after hydration, from /api/taxonomy.
+    await expect(
+      panel(page)
+        .getByRole('link', { name: /\d+ products?$/ })
+        .first(),
+    ).toBeVisible();
+
+    // The pointer crosses into the panel without closing it (the close grace).
+    const box = (await panel(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 40, { steps: 8 });
+    await page.waitForTimeout(400);
+    await expect(panel(page)).toBeVisible();
+
+    // Leaving for the page below closes it after the grace.
+    await page.mouse.move(5, 790);
+    await expect(panel(page)).toBeHidden();
+    await expect(browse(page)).toHaveAttribute('aria-expanded', 'false');
   });
 
-  test('the flyout opens on keyboard and Escape closes it, returning focus', async ({ page }) => {
+  test('the keyboard walk: ArrowDown opens, Tab walks the panel in order, Escape returns to Browse', async ({
+    page,
+  }) => {
     await page.goto(ROUTE);
-    const trigger = primaryNav(page).getByRole('link', { name: 'Audiences', exact: true });
-    // Load-bearing (AECI-1675). The flyout values are client-only, and app
-    // stability waits for their fetch. Before it, ArrowDown focuses "View all",
-    // the only link yet, and the values then render above it.
-    await untilHydrated(trigger);
-    await trigger.focus();
-    await page.keyboard.press('ArrowDown');
+    await openByKeyboard(page);
 
-    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    const panel = page.locator('#nav-flyout-audience');
-    await expect(panel).toBeVisible();
-    // The focus move has to survive a REAL render: the panel is `[hidden]` until
-    // change detection runs, and a focus attempt scheduled before that lands on a
-    // `display: none` element and is silently dropped.
-    await expect(panel.getByRole('link').first()).toBeFocused();
+    // Tab order follows the columns: Explore first, then each facet column, each
+    // ending with its "See all".
+    const order: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      const href = await page.evaluate(() => document.activeElement?.getAttribute('href') ?? '');
+      order.push(href);
+      if (href === '/trades') break;
+      await page.keyboard.press('Tab');
+    }
+    expect(order[0]).toBe('/products');
+    const seeAll = INDEXES.map(([, href]) => order.indexOf(href));
+    expect(
+      seeAll.every((i) => i > 0),
+      order.join(' '),
+    ).toBe(true);
+    expect([...seeAll].sort((a, b) => a - b)).toEqual(seeAll);
 
     await page.keyboard.press('Escape');
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(trigger).toBeFocused();
+    await expect(panel(page)).toBeHidden();
+    await expect(browse(page)).toBeFocused();
+    await expect(browse(page)).toHaveAttribute('aria-expanded', 'false');
+
+    // Closed, Tab skips the panel: Browse, then How we rank, then For vendors.
+    await page.keyboard.press('Tab');
+    await expect(primaryNav(page).getByRole('link', { name: 'How we rank' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(primaryNav(page).getByRole('link', { name: 'For vendors' })).toBeFocused();
   });
 
-  test('desktop header is axe-clean (closed and with a flyout open)', async ({ page }) => {
+  test('Tab past the last panel link closes it', async ({ page }) => {
     await page.goto(ROUTE);
-    await expect(primaryNav(page).getByRole('link', { name: 'Products' })).toBeVisible();
+    await openByKeyboard(page);
+    await panel(page).getByRole('link', { name: 'See all trades' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(panel(page)).toBeHidden();
+    await expect(primaryNav(page).getByRole('link', { name: 'How we rank' })).toBeFocused();
+  });
+
+  test('a click outside, on the dimmed page, closes the panel', async ({ page }) => {
+    await page.goto(ROUTE);
+    await openByKeyboard(page);
+    const dimmer = page.locator('[data-browse-dimmer]');
+    await expect(dimmer).toBeVisible();
+    await expect(dimmer).toHaveAttribute('aria-hidden', 'true');
+
+    await page.mouse.click(5, 790);
+    await expect(panel(page)).toBeHidden();
+    await expect(dimmer).toHaveCount(0);
+  });
+
+  test('a click on a panel link lands, and closes the panel', async ({ page }) => {
+    await page.goto(ROUTE);
+    await untilHydrated(browse(page));
+    await browse(page).hover();
+    await expect(panel(page)).toBeVisible();
+    await panel(page).getByRole('link', { name: 'See all phases' }).click();
+    await page.waitForURL(/\/phases$/);
+    await expect(panel(page)).toBeHidden();
+    // Browse is the current section on a facet index.
+    await expect(browse(page)).toHaveAttribute('aria-current', 'true');
+  });
+
+  // Every destination the old row and flyouts reached stays one hover or one
+  // ArrowDown away, and each index is a real page.
+  for (const [name, href] of INDEXES) {
+    test(`reaches ${href} from the header`, async ({ page }) => {
+      await page.goto(ROUTE);
+      await openByKeyboard(page);
+      const link = panel(page).getByRole('link', { name, exact: true });
+      await expect(link).toHaveAttribute('href', href);
+      await link.click();
+      await page.waitForURL(new RegExp(`${href}$`));
+      await expect(page.locator('h1').first()).toBeVisible();
+    });
+  }
+
+  test('Escape closes a hover-opened panel while focus is elsewhere', async ({ page }) => {
+    await page.goto(ROUTE);
+    await untilHydrated(browse(page));
+    await browse(page).hover();
+    await expect(panel(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(panel(page)).toBeHidden();
+  });
+
+  test('desktop header is axe-clean (closed and with the panel open)', async ({ page }) => {
+    await page.goto(ROUTE);
+    await expect(browse(page)).toBeVisible();
     expect(await analyzeHeader(page), 'closed').toEqual([]);
 
-    await primaryNav(page).getByRole('link', { name: 'Categories', exact: true }).hover();
-    await expect(page.locator('#nav-flyout-category')).toBeVisible();
-    expect(await analyzeHeader(page), 'flyout open').toEqual([]);
+    await openByKeyboard(page);
+    await expect(
+      panel(page)
+        .getByRole('link', { name: /\d+ products?$/ })
+        .first(),
+    ).toBeVisible();
+    expect(await analyzeHeader(page), 'panel open').toEqual([]);
+  });
+});
 
-    // A second facet, since the four flyouts are the only dropdowns left in the
-    // row and they share one behaviour base (`layout/nav-disclosure.ts`).
-    await primaryNav(page).getByRole('link', { name: 'Phases', exact: true }).hover();
-    await expect(page.locator('#nav-flyout-phase')).toBeVisible();
-    expect(await analyzeHeader(page), 'second flyout open').toEqual([]);
+// No JavaScript-only dead end. With scripts off, "Browse" still goes to
+// /products, the server-rendered (hidden) panel carries every index link for
+// crawlers, and the footer's Directory column carries them visibly.
+test.describe('header with JavaScript off (1280px)', () => {
+  test.use({ viewport: DESKTOP, javaScriptEnabled: false });
+
+  test('every index the old row reached is in the server HTML', async ({ page }) => {
+    await page.goto(ROUTE);
+    const nav = page.locator('aec-site-header nav[aria-label="Primary"]');
+    await expect(nav.locator('a[href="/products"]').first()).toHaveText(/Browse/);
+
+    const panelLinks = page.locator('#browse-menu-panel a');
+    await expect(panelLinks.first()).toBeAttached();
+    const hrefs = await panelLinks.evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(['/products', '/categories', '/phases', '/audiences', '/trades']);
+
+    const footer = page.locator('aec-site-footer');
+    for (const href of ['/products', '/categories', '/audiences', '/trades', '/phases']) {
+      await expect(footer.locator(`a[href="${href}"]`), href).toBeVisible();
+    }
   });
 });
 
@@ -511,25 +652,24 @@ test.describe('header on Forest (computed styles)', () => {
     expect(await computed(trigger, 'border-top-width')).toBe('1px');
   });
 
-  test('a focused header link has a Bone 3px ring, and the flyout link a Forest ring', async ({
+  test('a focused header link has a Bone 3px ring, and a panel link a Forest ring', async ({
     page,
   }) => {
     await page.setViewportSize(DESKTOP);
     await page.goto(ROUTE);
     const nav = page.locator('aec-site-header').getByRole('navigation', { name: 'Primary' });
-    const products = nav.getByRole('link', { name: 'Products', exact: true });
-    await untilHydrated(products);
+    const rank = nav.getByRole('link', { name: 'How we rank', exact: true });
+    await untilHydrated(rank);
     // A keyboard focus, so `:focus-visible` applies.
-    await page.keyboard.press('Tab');
-    await products.focus();
+    await rank.focus();
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Tab');
-    await expect(products).toBeFocused();
+    await expect(rank).toBeFocused();
     await expect
-      .poll(async () => computed(products, 'outline-color'))
+      .poll(async () => computed(rank, 'outline-color'))
       .toBe(await tokenColor(page, '--focus-ring-on-brand', 'color'));
-    expect(await computed(products, 'outline-width')).toBe('3px');
-    expect(await computed(products, 'outline-offset')).toBe('3px');
+    expect(await computed(rank, 'outline-width')).toBe('3px');
+    expect(await computed(rank, 'outline-offset')).toBe('3px');
 
     // The header search field carries the same single Bone ring set.
     const search = page.locator('#header-search');
@@ -541,15 +681,35 @@ test.describe('header on Forest (computed styles)', () => {
     expect(await computed(search, 'outline-width')).toBe('3px');
     expect(await computed(search, 'outline-offset')).toBe('3px');
 
-    // Inside the open white flyout the ring stays Forest.
-    const trigger = nav.getByRole('link', { name: 'Audiences', exact: true });
+    // "Browse" on Forest: the Bone ring.
+    const trigger = nav.getByRole('link', { name: 'Browse', exact: true });
     await trigger.focus();
+    await expect
+      .poll(async () => computed(trigger, 'outline-color'))
+      .toBe(await tokenColor(page, '--focus-ring-on-brand', 'color'));
+
+    // Inside the open white panel the ring is Forest, 3px.
     await page.keyboard.press('ArrowDown');
-    const first = page.locator('#nav-flyout-audience').getByRole('link').first();
+    const first = page.locator('#browse-menu-panel').getByRole('link').first();
     await expect(first).toBeFocused();
     await expect
       .poll(async () => computed(first, 'outline-color'))
       .toBe(await tokenColor(page, '--accent-primary', 'color'));
+    expect(await computed(first, 'outline-width')).toBe('3px');
+
+    // The Clay cue under "Browse" shows only while the panel is open.
+    const cue = trigger.locator('[data-browse-cue]');
+    expect(await computed(cue, 'background-color')).toBe(
+      await tokenColor(page, '--accent-secondary', 'color'),
+    );
+    await expect.poll(async () => computed(cue, 'transform')).not.toBe('matrix(0, 0, 0, 1, 0, 0)');
+    await page.keyboard.press('Escape');
+    await expect.poll(async () => computed(cue, 'transform')).toBe('matrix(0, 0, 0, 1, 0, 0)');
+
+    // Panel destinations are weight 400.
+    await page.keyboard.press('ArrowDown');
+    const allProducts = page.locator('#browse-menu-panel a[href="/products"] span').first();
+    expect(await computed(allProducts, 'font-weight')).toBe('400');
   });
 });
 

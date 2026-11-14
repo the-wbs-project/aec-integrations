@@ -3,14 +3,17 @@
  *
  * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
  * opens a CDK-overlay dropdown that is the home for site navigation on small
- * screens: Home + Products links, the four taxonomy facets as tap-to-expand
- * disclosure sections (Categories / Trades / Audiences / Phases), search, and the
+ * screens: "All products" and the key categories, the four taxonomy facets as
+ * tap-to-expand disclosure sections (Categories / Phases / Audiences / Trades,
+ * the Browse menu's column order), How we rank and For vendors, search, and the
  * account block (the AECI-850 identity block, then Account, the role-gated
  * portal doors, Sign out) or the Sign-in CTA. The component is hidden at `lg+`
- * via its `lg:hidden` host class — at those
- * widths the same affordances render as the inline desktop nav in
- * `site-header.ts` (with hover flyouts). Both surfaces share `NavFlyoutList` and
- * `taxonomy-nav-copy.ts`, so the link sets cannot drift. AECI-158/159 re-pointed
+ * via its `lg:hidden` host class — at those widths the same destinations render
+ * as the inline desktop row in `site-header.ts` and its Browse menu
+ * (`browse-menu.ts`). Both surfaces read `TaxonomyNavStore.browse` and
+ * `taxonomy-nav-copy.ts`, so the term lists, their order and their seven-item
+ * cap cannot drift. AECI-1774 moved this menu onto the new row's destinations
+ * only. Its look, the counts and the footer line are AECI-1775's. AECI-158/159 re-pointed
  * the nav at the taxonomy; Vendors / Integrations were removed from the nav AND
  * the footer (AECI-160, PO decision) — reachable via `sitemap.xml`, detail-page
  * breadcrumbs, and search.
@@ -70,7 +73,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 import { AccountIdentity } from './account-identity';
 import { NavFlyoutList } from './nav-flyout-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
-import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
+import { facetNavLabel, facetSeeAllLabel } from './taxonomy-nav-copy';
 import { AecIcon } from '../shared/icon/icon';
 
 @Component({
@@ -136,24 +139,24 @@ import { AecIcon } from '../shared/icon/icon';
           aria-label="Primary"
         >
           <a
-            routerLink="/"
-            routerLinkActive="text-(--accent-primary)"
-            [routerLinkActiveOptions]="{ exact: true }"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.home"
-          >
-            Home
-          </a>
-          <a
             routerLink="/products"
             routerLinkActive="text-(--accent-primary)"
             (click)="menu.close()"
             class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.products"
+            i18n="@@app.nav.browse.allProducts"
           >
-            Products
+            All products
           </a>
+          <!-- The key categories, as on the desktop panel: the Categories
+               section leaves them out, so they must appear here. -->
+          @for (term of keyCategories(); track term.id) {
+            <a
+              [routerLink]="['/categories', term.slug]"
+              (click)="menu.close()"
+              class="block rounded-md px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ term.name }}</a
+            >
+          }
           @for (section of sections(); track section.kind) {
             <div>
               <button
@@ -190,6 +193,21 @@ import { AecIcon } from '../shared/icon/icon';
               }
             </div>
           }
+
+          <a
+            routerLink="/docs/trust/how-ranking-works"
+            routerLinkActive="text-(--accent-primary)"
+            (click)="menu.close()"
+            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            >{{ labels.howWeRank }}</a
+          >
+          <a
+            routerLink="/vendor-program"
+            routerLinkActive="text-(--accent-primary)"
+            (click)="menu.close()"
+            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            >{{ labels.forVendors }}</a
+          >
 
           <aec-search-autocomplete
             class="mt-1 block px-1 pb-1"
@@ -321,33 +339,32 @@ export class NavMenu {
     navigateToSuggestion(this.router, suggestion);
   }
 
-  /** Facet order matches the desktop row exactly (`site-header.ts`). */
-  protected readonly sections = computed(() => [
-    {
-      kind: 'category' as const,
-      label: facetNavLabel('category'),
-      viewAll: facetViewAllLabel('category'),
-      items: this.taxonomy.categoriesTop10(),
-    },
-    {
-      kind: 'trade' as const,
-      label: facetNavLabel('trade'),
-      viewAll: facetViewAllLabel('trade'),
-      items: this.taxonomy.tradesTop10(),
-    },
-    {
-      kind: 'audience' as const,
-      label: facetNavLabel('audience'),
-      viewAll: facetViewAllLabel('audience'),
-      items: this.taxonomy.audiencesTop10(),
-    },
-    {
-      kind: 'phase' as const,
-      label: facetNavLabel('phase'),
-      viewAll: facetViewAllLabel('phase'),
-      items: this.taxonomy.phasesAll(),
-    },
-  ]);
+  /** The same ids and copy as the desktop row (`site-header.ts`). */
+  protected readonly labels = {
+    howWeRank: $localize`:@@app.nav.howWeRank:How we rank`,
+    forVendors: $localize`:@@app.nav.forVendors:For vendors`,
+  };
+
+  /** AECi's editorial pick, in its fixed order (ruling R4). */
+  protected readonly keyCategories = computed(() => this.taxonomy.browse().keyCategories);
+
+  /** Facet order matches the desktop Browse menu's columns (`browse-panel.ts`). */
+  protected readonly sections = computed(() => {
+    const browse = this.taxonomy.browse();
+    return (
+      [
+        ['category', browse.categories],
+        ['phase', browse.phases],
+        ['audience', browse.audiences],
+        ['trade', browse.trades],
+      ] as const
+    ).map(([kind, items]) => ({
+      kind,
+      label: facetNavLabel(kind),
+      viewAll: facetSeeAllLabel(kind),
+      items,
+    }));
+  });
 
   // The four taxonomy facets are the only disclosures left; the overflow one was
   // removed with the "More" menu. Still keyed by string rather than TaxonomyKind
