@@ -59,7 +59,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §9                  | AECI-298                                                  | Search / SEO / Algolia follow-through                                                                                                                     |
 | §11                 | AECI-339                                                  | Addendum A — search-intent pair indexing (this addendum)                                                                                                  |
 | §11.2               | AECI-340                                                  | Dual-orientation indexable pair pages                                                                                                                     |
-| §11.3               | AECI-341                                                  | Context-specific suggestions module                                                                                                                       |
+| §11.3               | AECI-341                                                  | Closest matches                                                                                                                                           |
 | §11.4               | AECI-342                                                  | "Meaningful no" pair pages — scoring / template / tiered indexing                                                                                         |
 | §11.5               | AECI-343                                                  | Per-pair "report a missing integration" CTA                                                                                                               |
 | §11.6               | AECI-344                                                  | GSC measurement loop — gate + quarterly tier review                                                                                                       |
@@ -644,7 +644,7 @@ Scope — must ship as one change:
 
 _Rewritten 2026-11-14 by AECI-1821. It replaces the earlier "Other tools that connect to {context product}" suggestions module._ The page layout is in `docs/design/mockups/redesign-2026-11/PLAN.md` §5.1. The mock-up is `mockups/5-statement-first.html`. PLAN.md §10 lists the mock-up's known defects. The build must not copy them.
 
-Closest matches appear on the empty pair page only. The page for a real pair keeps its mechanism list.
+The empty pair page is the first place this module ships. Whether it also renders on pair pages that have an integration is an open question put to Chris on 2026-11-14. No ruling has narrowed AECI-341, and §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list either way.
 
 **What the module is.**
 
@@ -659,7 +659,7 @@ Closest matches appear on the empty pair page only. The page for a real pair kee
 
 **Ordering (ruling R1, AECI-1732, Chris, 2026-11-14).**
 
-- Closest matches are a new list. A new list is A to Z by name, with the id as the tie-break. Use `compareText` from `@aeci/shared/text-sort`, not a bare `.sort()`.
+- Closest matches are a new list. A new list is A to Z by name, with the id as the tie-break. Use `textAsc` for a D1 sort and `compareText` from `@aeci/shared/text-sort` in memory, never a bare `.sort()`. The list has no cap, or a cap taken from the A to Z order only.
 - Nothing in the order reads a rating, a review count, a plan, a license or a claim state.
 - The mock-up orders by data objects in common, then shared categories, then product quality, then review count. That order must not ship (PLAN.md §7.3).
 - The "How these are ordered" disclosure is required. It must say the list is A to Z by name. The mock-up's wording must not be copied.
@@ -673,18 +673,20 @@ Closest matches appear on the empty pair page only. The page for a real pair kee
 - Closest matches sit where mock-up 5 puts them. That is after the hero, the interest card and "What you would be moving", and before the side-by-side facts. They do not move up under the hero.
 - The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Nothing picked. Matches can move any data."
 - When chips are on, a product must move every picked data object to appear. The lane shows "must move {objects}" with a Clear control.
-- The AECI-1816 measurement runs before the filter ships. If it shows the filter hides Free vendors' rows unevenly, the table goes to Chris before AECI-1830 ships.
+- The AECI-1816 measurement ran on 2026-11-14 against production. Production has 0 Managed integrations. All 2,227 data-object rows are AECi seeds. 509 of 1,572 live integrations (32.4%) have no data object. The filter cannot hide Free vendors' rows unevenly today, and it is cleared to build.
+- The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
+- Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
 
-**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (AECI-1822, PR #1276). The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
+**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (owned by AECI-1822, which is not merged yet). The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 
 The searcher whose true answer is _no_ currently gets nothing from us. A good "no" page is the trust-first positioning made concrete. It gives an honest answer and then somewhere useful to go. The anti-thin-content moat is that it is **data-derived and unique per pair**.
 
-**No bridges (ruling 2026-11-14, Chris, comments on AECI-342 and AECI-1821).**
+**No bridges (ruling by Chris, comments on AECI-342 dated 2026-11-11 and 2026-11-14).**
 
 - There is no two-step route through a third product.
-- There are no connector-platform modules on this page.
+- There are no connector-platform modules on this page. This supersedes the connector comparison columns that §13.7 gave curated reachable pair pages. See the supersession note at the top of §13.7.
 - There is no "data-object bridge" sentence. The earlier template said "X and Y both handle _cost codes_, a CSV/manual bridge is viable". That sentence is removed.
 - Data objects still appear as facts. "What you would be moving" lists what each product already exchanges. It never says a connection is viable or could be built.
 
@@ -717,6 +719,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 | API sentence | An API is not an integration. We list an integration only when we can show that one exists. |
 | No directory page | We have not found an integrations page published by {vendor}. |
 | Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
+| Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
 
 - Never write that a product "does not integrate".
 - The caveat also appears in the page title and the meta description. The legal review asked for this.
@@ -728,12 +731,12 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 **Interest card.**
 
 - **Look-up count (ruling R7, AECI-1738).** It counts pair page views over 90 days with identified automated visits removed. It is hidden below a floor of 10. When it is hidden, the other two controls fill the card. A Privacy Policy line about published aggregate look-up counts is needed first.
-- **"I need this too" (R7).** It shows its count above the same floor of 10. The repeat-click guard is server-side, keyed on a hashed IP and the day. It uses no browser storage, so no cookie line is needed.
+- **"I need this too" (R7).** It shows its count above the same floor of 10. The repeat-click guard is server-side, keyed on a hashed IP and the day. It uses no browser storage, so no cookie line is needed. It is a new server-side store of a keyed IP hash and a day. Under `docs/LEGAL_IMPACT_REVIEW.md` §3 it needs a "What we collect" line and a "Retention" line with a stated period in the Privacy Policy. The live policy names a keyed IP hash for visit statistics only. That text is AECI-1825, and the captures do not ship before it.
 - **"Watch this pair" (R7).** A watch address is deleted when the email is sent, or at 12 months, whichever comes first. The address never joins the mailing list.
 - **Shipping (R7).** The captures ship separately from the empty pair page. They do not ship before the Privacy Policy text is live (AECI-1825). Cached HTML is the same for every visitor. A visitor's own click or watch state is reconciled in the browser after hydration.
 - **Unclaimed products (R7).** They get no brand colours. An unclaimed product shows an initial tile.
 
-**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822). A corrected link must show AECi's "Corrected by" caption, or the row links to the product page instead (see the comment on AECI-1827). Never write that an API means a connection could be built.
+**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822, not merged yet). A corrected link must show AECi's "Corrected by" caption, or the row links to the product page instead (see the comment on AECI-1827). The "Corrected by" caption data is not in the pair payload, so AECI-1827 must add it or link to the product page. Never write that an API means a connection could be built.
 
 **States.**
 
@@ -750,14 +753,14 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 - No JSON-LD. The resolver skips it on the same condition.
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301 (AECI-953).
-- A pair finder pick whose slug does not resolve goes to `/search?q={typed name}` (AECI-1823, PR #1277).
+- A pair finder pick whose slug does not resolve goes to `/search?q={typed name}`. AECI-1823 owns this and is not merged yet. The finder first checks the retired-slug map (AECI-991), then falls back to search.
 
 **Tiering for qualifying pairs.**
 
 - **Scoring function** (pure, `packages/shared`): an empty pair qualifies on same category cluster + `data_object` overlap + demonstrated GSC demand (§11.6). Data object overlap is a score input only. It is never shown as a bridge. Below the bar, the pair stays `noindex`.
 - **Content template** for qualifying pairs: the page template above. Nothing is added to it.
 - **Indexing flip:** qualifying pairs lose `noindex` and enter the sitemap. Dual-orientation only where scoring shows demand in both directions. Until a pair is promoted, the rules above hold.
-- **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs. Indexable pages must not be sitemap-only orphans.
+- **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs. Indexable pages must not be sitemap-only orphans. This list is a new on-page list. The score decides indexing eligibility only. Any `data_object` input to the score counts rows with `origin = 'aeci'` only (PLAN.md §7.6 option 2), because a Managed vendor can change the other rows. The list itself is A to Z by name with the id as the tie-break (R1). It has no cap, or a cap taken from the A to Z order only. It is in scope for the AECI-1814 firewall test.
 - **Batched rollout:** first batch tens of pages. Widen only on GSC evidence (§11.6). Gated behind the §11.2 GSC gate passing.
 
 ### 11.5 Per-pair "report a missing integration" CTA (AECI-343)
@@ -765,9 +768,9 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 The entry point reads "Know of one?" with the button "It does exist". The exact copy is in §11.4. The button opens the **existing** correction request. It is not a new pipeline.
 
 - The report carries **both** products. A request must identify the pair, with distinguishable type or metadata, so per-pair report counts are queryable.
-- A correction request does not carry both products today. A request has one `context_product_id`, and `RequestKindSchema` allows only `claim` and `correction`. The schema change is AECI-343. This section does not design it.
+- A correction request does not carry both products today. `context_product_id` is for claims only. A correction passes `contextProduct: null` (`apps/api/src/routes/requests.ts`). `RequestKindSchema` allows only `claim` and `correction`. The schema change is AECI-343. This section does not design it.
 - The dialog opens with a prefilled body that names both products. It asks for a public source, as the Listing Accuracy Policy requires.
-- A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route.
+- A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route. **Open question put to Chris on 2026-11-14:** this policy covers a wrong value, not a report that an integration exists. The proposal is that the "not on record" statement on that pair page is flagged as under review. That is not settled.
 - The report count doubles as a coverage-gap demand signal that feeds the §11.4 scoring.
 - Writes obey the §26.1 audit-batch invariant. The `audit_log` row goes in the same `db.batch` as the write.
 - Rate limits go on the write only, after the authz guard.
@@ -2210,6 +2213,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
   the `RoleBadge`. A Connectors facet is still unbuilt (AECI-1662).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
+
+> **Superseded in part, 2026-11-14 (AECI-1821).** Chris's no-bridge ruling (comments on AECI-342, 2026-11-11, extended 2026-11-14) removed connector-platform modules from the pair page. The connector comparison columns below do not render on a pair page. Whether AECI-716's curated pair pages survive in another form is an open question put to Chris on 2026-11-14. The text below is kept as the record. See §11.4.
 
 Presentation only; the data lands in AECI-714 and the curation in the review app.
 

@@ -871,8 +871,8 @@ Chris has not answered these.
 | # | Question | Options | My recommendation | Blocks |
 | --- | --- | --- | --- | --- |
 | 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | Workstream E |
-| 2 | What is the ordering rule for new lists? | The four options in 7.6 | A to Z everywhere | A, C, E |
-| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | AECi-recorded flows only | C |
+| 2 | What is the ordering rule for new lists? | The four options in 7.6 | **Ruled 2026-11-14 (AECI-1732, R1):** new lists are A to Z by name with id as tie-break. Existing orders stay. (was: A to Z everywhere) | A, C, E |
+| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | **Moot under A to Z (AECI-1732, R1):** no list orders by a count. (was: AECi-recorded flows only) | C |
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
@@ -885,7 +885,7 @@ Chris has not answered these.
 | 13 | Do review excerpts show role and years of use? | Yes. Keep company type. | Yes. Company type breaks the Privacy Policy. | E |
 | 14 | What colour is the active bar in the section nav? | Clay to match the header. Forest for contrast. | Clay | D |
 | 15 | Is the redesign site-wide, and in what order? | This page only. Product and pair pages. Everything. | Tokens and header first, then the pair and product pages, then the rest | D, E |
-| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement still runs first. (was: Measure how uneven data objects are before shipping) | A, E |
+| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement ran 2026-11-14: 0 Managed integrations in production, so it is cleared to build. The count and empty state must say rows with no recorded data objects are left out. Re-run once a licensed vendor owns integrations. (was: Measure how uneven data objects are before shipping) | A, E |
 | 17 | How many products are in the AI category today? | Unknown | Check before making it a headline link | D |
 | 18 | Who makes the reversed wordmark? | Unknown | File it with the design language work | D |
 | 19 | Does the category chart on the empty product page stay? | Yes or no. It is a new aggregate. | Cut it for now | E |
