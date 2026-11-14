@@ -857,20 +857,24 @@ textarea:-webkit-autofill:focus {
   animation: aeci-drawer-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Smooth same-document anchor jumps — the in-page section nav
-   (`aec-section-nav`) and the skip link rely on native fragment scrolling.
-   CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`
-   JS path), so it degrades to an instant jump where smooth scrolling is off.
-   The reduced-motion block below resets it to `auto`. Programmatic scrolls do
-   exist and must stay instant: router scroll restoration, router-driven anchor
-   scrolls, and `InitialFragmentScroller`. The router's follow-up on these same
-   fragment clicks (a same-document fragment navigation fires `popstate`) is
-   skipped by `ScrollMarginViewportScroller`, because interrupting this animation
-   desyncs Safari. `ScrollBehaviorManager` forces inline
-   `scroll-behavior: auto` for the span of each router navigation so this rule
-   never animates them. */
-html {
-  scroll-behavior: smooth;
+/* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
+   ADR 0056). It is never a global setting and is off under reduced motion.
+   `InPageSmoothScroll` (`app/core/in-page-smooth-scroll.ts`) adds this class to
+   <html> for the span of one jump from an `<a data-smooth-scroll>` link, so the
+   browser's own fragment scroll animates and honours `scroll-margin-top`.
+   Everything else scrolls instantly: the skip link, router scroll restoration,
+   `InitialFragmentScroller` and every `scrollIntoView()` call.
+   THE SWITCH BACK to the old global smooth scroll: add
+   `class="aeci-smooth-scroll"` to <html> in `src/index.html`. The service then
+   stands down and leaves the class on. `ScrollBehaviorManager` keeps router
+   scrolls instant either way. Flipping it fails two e2e tests in
+   `e2e/scroll-restoration.spec.ts` that assert the scoped behaviour, so update
+   them with it: "a section-nav click animates and lands the section below the
+   nav" and the two "the skip link jumps without animation" tests. */
+@media (prefers-reduced-motion: no-preference) {
+  html.aeci-smooth-scroll {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's

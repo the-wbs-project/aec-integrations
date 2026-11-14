@@ -70,6 +70,8 @@ const COLOR_HINT =
  *   label       short noun phrase for the report header
  *   hint        remediation text, printed once per violating rule
  *   allow       OPTIONAL repo-relative paths exempt from THIS rule only
+ *   joinNextLine  OPTIONAL; also test each line joined to the next, for a
+ *               violation split across two lines
  *
  * `allow` is per-rule rather than per-file on purpose: `styles.css` is exempt
  * from the colour rules because it is the token definition site, but it is still
@@ -197,6 +199,42 @@ const RULES = [
       '  Vendor portal and admin files are listed in COLOR_OPACITY_MODIFIER_ALLOW\n' +
       '  in eslint.color-patterns.mjs until AECI-1813 clears them (ruling R2).',
   },
+  {
+    id: 'no-smooth-scroll',
+    // AECI-1752 — smooth scrolling is scoped to in-page section links through ONE
+    // mechanism with ONE switch (clash 38 of ADR 0056). Any other way to turn it
+    // on is a second mechanism. The pattern's alternatives, in order:
+    //   1. a smooth `scroll-behavior` set by CSS, by `scrollBehavior =` or `:`,
+    //      or by `style.setProperty('scroll-behavior', …)`;
+    //   2. a `behavior` key, bare or quoted, whose value is smooth (a scroll
+    //      option on `scrollTo` / `scrollIntoView` / `scrollBy`);
+    //   3. a `[style.scroll-behavior]` or `[style.scrollBehavior]` binding, any value;
+    //   4. the Tailwind `scroll-smooth` utility, including `[class.scroll-smooth]`;
+    //   5. the switch class itself, `aeci-smooth-scroll`, anywhere but the three
+    //      allow-listed files (the CSS rule, the service, and `index.html`, where
+    //      the switch is documented and flipped).
+    // `joinNextLine` also tests each line joined to the next, so a `behavior`
+    // value split across two lines is caught. `.ts` is in scope because ESLint
+    // has no equivalent selector. The scanner reads comments too, so describe
+    // the banned forms in prose.
+    extensions: ['.ts', '.html', '.css'],
+    pattern:
+      /scroll-?[Bb]ehavior['"`]?\s*[:=,]\s*['"`]?smooth|['"`]?\bbehavior['"`]?\s*:\s*['"`]smooth|\[style\.scroll-?[Bb]ehavior\]|(^|[\s:"'`.])scroll-smooth\b|aeci-smooth-scroll/,
+    joinNextLine: true,
+    label: 'smooth scrolling outside InPageSmoothScroll',
+    allow: [
+      'apps/web/src/styles.css',
+      'apps/web/src/app/core/in-page-smooth-scroll.ts',
+      'apps/web/src/index.html',
+    ],
+    hint:
+      '  Smooth scrolling has one mechanism and one switch (AECI-1752):\n' +
+      '      opt a plain in-page <a href="{path}#id"> in with `data-smooth-scroll`;\n' +
+      '      `InPageSmoothScroll` (app/core/in-page-smooth-scroll.ts) does the rest.\n' +
+      "  Programmatic scrolls pass `behavior: 'instant'`. The switch back to a\n" +
+      '  global smooth scroll is a class on <html> in src/index.html.\n' +
+      '  See ANGULAR_STYLE_GUIDE.md "Smooth scrolling is scoped to in-page section links".',
+  },
 ];
 
 const ALL_EXTENSIONS = [...new Set(RULES.flatMap((r) => r.extensions))];
@@ -238,8 +276,17 @@ export function scanFile(repoRelativePath, contents) {
   const found = [];
   lines.forEach((line, i) => {
     if (i > 0 && lines[i - 1].includes(ALLOW_MARKER)) return;
+    const next = lines[i + 1];
     for (const rule of applicable) {
-      if (!rule.pattern.test(line)) continue;
+      if (rule.pattern.test(line)) {
+        found.push({ ruleId: rule.id, file: repoRelativePath, line: i + 1, text: line.trim() });
+        continue;
+      }
+      // A violation split across this line and the next. Reported once, here,
+      // and only when the next line does not already match on its own.
+      if (!rule.joinNextLine || next === undefined || rule.pattern.test(next)) continue;
+      if (lines[i].includes(ALLOW_MARKER)) continue;
+      if (!rule.pattern.test(`${line.trimEnd()} ${next.trim()}`)) continue;
       found.push({ ruleId: rule.id, file: repoRelativePath, line: i + 1, text: line.trim() });
     }
   });

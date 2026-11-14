@@ -46,7 +46,7 @@ const HTML = 'apps/web/src/app/some/component.html';
 const CSS = 'apps/web/src/app/some/component.css';
 
 describe('rule table', () => {
-  it('declares the eight rules by stable id', () => {
+  it('declares the nine rules by stable id', () => {
     expect(RULES.map((r) => r.id)).toEqual([
       'logical-properties',
       'no-dark-variant',
@@ -56,6 +56,7 @@ describe('rule table', () => {
       'no-tailwind-palette',
       'no-named-color-class',
       'no-color-opacity-modifier',
+      'no-smooth-scroll',
     ]);
   });
 
@@ -217,6 +218,71 @@ describe('pre-existing rules (back-filled coverage — these had no test before)
     );
     expect(hits(CSS, '[data-theme="dark"] { color: red }')).toContain('no-dark-theme-css');
     expect(hits(HTML, '<p>Light and dark: a short history of themes.</p>')).toEqual([]);
+  });
+});
+
+describe('no-smooth-scroll (AECI-1752)', () => {
+  const TS = 'apps/web/src/app/some/component.ts';
+  const rule = RULES.find((r) => r.id === 'no-smooth-scroll')!;
+
+  it('catches every other way to turn smooth scrolling on', () => {
+    // The fixtures below name the banned forms, so each needs the escape hatch.
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(CSS, 'html { scroll-behavior: smooth; }')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<div class="md:scroll-smooth"></div>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "root.style.scrollBehavior = 'smooth';")).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "el.scrollIntoView({ behavior: 'smooth' });")).toContain('no-smooth-scroll');
+  });
+
+  it('catches the binding, quoted-key, setProperty, split-line and switch-class forms', () => {
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<main [class.scroll-smooth]="on"></main>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<div [style.scroll-behavior]="mode"></div>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "window.scrollTo({ top: 0, 'behavior': 'smooth' });")).toContain(
+      'no-smooth-scroll',
+    );
+    expect(
+      // constraints-guard-allow-next-line: fixture must contain the banned form
+      hits(TS, "root.style.setProperty('scroll-behavior', 'smooth');"),
+    ).toContain('no-smooth-scroll');
+    // A `behavior` value split across two lines is reported once, on the key line.
+    const split = scanFile(
+      TS,
+      ['el.scrollIntoView({', '  behavior:', "    'smooth',", '});'].join('\n'),
+    );
+    expect(split.map((v) => [v.ruleId, v.line])).toEqual([['no-smooth-scroll', 2]]);
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "root.classList.add('aeci-smooth-scroll');")).toContain('no-smooth-scroll');
+  });
+
+  it('leaves instant scrolls and the inline auto reset alone', () => {
+    expect(hits(TS, "el.scrollIntoView({ block: 'start', behavior: 'instant' });")).toEqual([]);
+    expect(hits(TS, "root.style.scrollBehavior = 'auto';")).toEqual([]);
+    expect(hits(TS, 'turns smooth scrolling on for the span of the jump')).toEqual([]);
+    expect(
+      scanFile(TS, ["el.scrollIntoView({ block: 'start',", "  behavior: 'instant' });"].join('\n')),
+    ).toEqual([]);
+  });
+
+  it('allow-lists the CSS rule, the one service and the switch site, and all still need it', () => {
+    expect(rule.allow).toEqual([
+      'apps/web/src/styles.css',
+      'apps/web/src/app/core/in-page-smooth-scroll.ts',
+      'apps/web/src/index.html',
+    ]);
+    for (const path of rule.allow ?? []) {
+      const full = join(REPO_ROOT, path);
+      expect(existsSync(full), `missing allow-listed file: ${path}`).toBe(true);
+      expect(
+        rule.pattern.test(readFileSync(full, 'utf8')),
+        `${path} no longer needs its no-smooth-scroll exemption — remove it`,
+      ).toBe(true);
+    }
   });
 });
 
