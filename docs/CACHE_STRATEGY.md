@@ -153,7 +153,7 @@ buildCacheTags(opts: {
 
 `entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/methodology`, `/accessibility` (once AECI-1687 publishes it), `/vendor-program`, `/vendor-program/list-your-product`, `/updates`, `/roadmap`, `/legal/*`, `/docs` and `/docs/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
-The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and its per-route content-param allowlist (`cacheKeyParams`, restored in WC-4; see §4a). Callers never construct `Cache-Tag` strings by hand.
+The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and its per-route content-param allowlist (`cacheKeyParamsForPath` in `apps/web/src/app/core/route-cache-key.ts`, restored in WC-4; see §4a). Callers never construct `Cache-Tag` strings by hand.
 
 ---
 
@@ -219,9 +219,9 @@ The normalized key is:
 - **All other query params are dropped.** Detail, home, browse, and static routes are query-independent → the entire query string is stripped.
 - **Index routes keep only their declared content params**, sorted (so `?sort=name&page=2` and `?page=2&sort=name` are one entry).
 
-The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyParams` (co-located with the TTL and the `match` predicate so the three stay in sync):
+The per-route allowlist lives in one function, `cacheKeyParamsForPath` in `apps/web/src/app/core/route-cache-key.ts` (AECI-1839). `cacheKeyFor` and the skip link's server-rendered href both read it, so the two cannot drift:
 
-| Route | `cacheKeyParams` (kept in the key) |
+| Route | Params kept in the key |
 |---|---|
 | `/products` (index) | `page`, `perPage`, `sort`, `view`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Browse (`/categories\|audiences\|phases\|trades/:slug`) | `page`, `perPage`, `sort`, `view`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
