@@ -256,6 +256,53 @@ export function isClaimPubliclyBacked(claim: PublicVisibilityClaim): boolean {
   return false;
 }
 
+/** The order {@link integrationAgreement} takes the minimum in. `conflict` never
+ *  reaches the comparison: it returns first. */
+const VERIFICATION_RANK: Record<AgreementState, number> = {
+  unverified: 0,
+  single_source: 1,
+  confirmed: 2,
+  conflict: 3,
+};
+
+/**
+ * One integration's agreement state, rolled up from its claims (AECI-1781). The
+ * product page's integration rows carry it, so a card can show the same four states
+ * the pair page shows per claim.
+ *
+ * **The weakest claim decides.** The rule, first match wins:
+ *
+ * | Claims | Result |
+ * |---|---|
+ * | none | `null`: there is no flow to agree on |
+ * | any `conflict` | `conflict` |
+ * | otherwise | the lowest state among them, in `unverified < single_source < confirmed` |
+ *
+ * So a row reads `confirmed` only when every flow it lists is confirmed by two
+ * distinct vendors. Any other rule would let one confirmed flow lend its standing to
+ * flows nobody confirmed, which is the one-sided-as-bilateral fold
+ * `STAGE_2_SPEC.md` §8.1(4) forbids. The rule can understate a row. It can never
+ * overstate one.
+ *
+ * The caller passes the claims the row lists: public (`isClaimPubliclyBacked`) and
+ * not refuted (`isClaimRefuted`). The row's data objects skip refuted claims, so its
+ * agreement does too. The state describes the same flows the row shows.
+ *
+ * A pure function of the states, and never stored (ADR 0018).
+ */
+export function integrationAgreement(
+  claims: Iterable<{ readonly agreement: AgreementState }>,
+): AgreementState | null {
+  let lowest: AgreementState | null = null;
+  for (const { agreement } of claims) {
+    if (agreement === 'conflict') return 'conflict';
+    if (lowest === null || VERIFICATION_RANK[agreement] < VERIFICATION_RANK[lowest]) {
+      lowest = agreement;
+    }
+  }
+  return lowest;
+}
+
 /**
  * The minimal claim shape `computeSyncHeadline` needs — its computed agreement,
  * and the `data_object` it moves (the headline counts objects, not rows).

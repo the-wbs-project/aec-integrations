@@ -637,7 +637,11 @@ two distinct vendors.
   the product-detail integrations table's `context_direction` (`effectiveContextDirection`,
   `packages/shared/src/integration-context.ts`) — a **denied** claim must not keep contributing its
   direction to the table, or the table and the pair page contradict each other again (the bug
-  `STAGE_1_5_SPEC.md` §7.1 already had to fix once).
+  `STAGE_1_5_SPEC.md` §7.1 already had to fix once). **Since AECI-1781** the product-detail row
+  also carries `agreement`, its claims rolled up by `integrationAgreement`
+  (`packages/shared/src/agreement.ts`): any `conflict` wins, else the weakest claim's state. It
+  skips refuted claims, as the depth axis does, so a row reads `confirmed` only when every flow it
+  lists is bilateral. The four states and the per-claim engine are unchanged.
 
 - **The provenance disclosure renders no note at all** (AECI-1139, superseding AECI-779's
   vendor-note carve-out). **Ruling 2026-09-28 (Chris): "No notes at all."** No attestation note is

@@ -1392,6 +1392,31 @@ byte-identically to before, pinned by the hub case in `depth-axis-null.component
 AECI-1117 re-recorded that snapshot once for its own changes (chevron, header wrap, and direction and
 mechanism in the row name, §12.3). The depth axis still adds nothing to the null case.
 
+**Partner categories, agreement and data-object names (AECI-1781, 2026-11-14).** The site redesign's
+integrations section filters by partner category and shows an agreement state on each card
+(`docs/design/mockups/redesign-2026-11/PLAN.md` §6.2). Each `ProductIntegrationItem` in the two
+endpoint buckets now carries three more fields, on direct, Via and `powered_by` rows alike. The
+powered hub's `PoweredIntegrationItem` does not: its rows have no single partner.
+
+- **`partner_categories`**: the categories of the endpoint that is not the page product, A to Z by
+  name with the slug breaking ties. `[]` for a partner with none.
+- **`data_objects`**: the objects in `data_object_slugs`, each with its name, A to Z. Same claims,
+  same set. The names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.
+- **`agreement`**: the row's claims rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`).
+  Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
+  confirmed`. So a row reads `confirmed` only when every flow it lists is confirmed by two
+  companies. One confirmed flow never lends its standing to flows nobody confirmed. It covers the
+  claims `data_objects` lists: refuted and unbacked claims are out, as they are out of the depth
+  axis. `null` when the row lists no claim.
+
+All three are row data. None orders anything on the server, and the rows stay unordered on the
+wire. Until ruling R1 (AECI-1732), PLAN.md §7.8 orders every list A to Z by name. A sort or filter
+on `agreement` would read an input only a Managed vendor can move, which PLAN.md §7.7 calls
+placement. The fields ride nested relations of the product read, so the read is the same 16
+statements in one `db.batch` for a product with 1 row or 58. The page's existing tags cover every
+change: an attestation write purges both `product:{slug}` tags, and a partner's category edit purges
+`product:{partnerSlug}`, which the page embeds for every partner (`CACHE_STRATEGY.md` §5).
+
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 
 This subsection records a **reversal**. §13.3 originally required a Direction column and said

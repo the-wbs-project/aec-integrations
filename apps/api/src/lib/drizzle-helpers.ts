@@ -27,6 +27,7 @@ import {
   computeSyncHeadline,
   distinctDataObjectSlugs,
   effectiveContextDirection,
+  integrationAgreement,
   integrationDirectionForContext,
   isClaimPubliclyBacked,
   isClaimRefuted,
@@ -189,6 +190,20 @@ const pairConnectorProductConfig = {
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
+/**
+ * An endpoint of a product-detail integration row, with its categories (AECI-1781).
+ * The mapper reads them off the partner, the endpoint that is not the page product,
+ * as `ProductIntegrationItem.partner_categories`. A nested relation, so the row read
+ * stays one statement however many rows the product has. The product-detail endpoint
+ * configs only: `/api/integrations`, the powered hub and the pair read keep the bare
+ * {@link publicProductLinkConfig}.
+ */
+const partnerProductLinkConfig = {
+  ...publicProductLinkConfig,
+  with: {
+    productCategories: { columns: {}, with: { category: { columns: taxonomyLinkColumns } } },
+  },
+} as const;
 /** What a row's caption needs of its owner (AECI-1614): the name. Never serialised:
  *  `rowCaption` reads it. `hiddenAt` (AECI-1238) lets {@link visibleBuilder} drop a
  *  hidden owner from the caption. The plan-end mirror is no longer read here: since
@@ -271,6 +286,10 @@ export const productDetailIntegrationConfig = {
   columns: { ...integrationListConfig.columns, ...rowCaptionColumns, poweredByProductId: true },
   with: {
     ...integrationListConfig.with,
+    // AECI-1781: the partner's categories. Both endpoints carry them because one
+    // config serves both buckets, and the partner is source in one, target in the other.
+    sourceProduct: partnerProductLinkConfig,
+    targetProduct: partnerProductLinkConfig,
     builtByVendor: captionOwnerConfig,
     // Stage 1.5 §13.4(1) — the endpoint lane router needs the connector to apply
     // §13.2(a)/(b) to a row still living in `integrations`. Detail-only: the bare
@@ -281,8 +300,9 @@ export const productDetailIntegrationConfig = {
       // public reads, so it must not steer the arrow or count toward the depth.
       columns: { direction: true, origin: true },
       with: {
-        // AECI-711: the depth axis counts distinct objects per row.
-        dataObject: { columns: { slug: true } },
+        // AECI-711: the depth axis counts distinct objects per row. AECI-1781: and
+        // names them, as `data_objects`.
+        dataObject: { columns: { slug: true, name: true } },
         attestations: {
           columns: {
             source: true,
@@ -352,14 +372,18 @@ export const connectorEvidencedPairDetailConfig = {
   columns: { ...connectorEvidencedPairListConfig.columns, ...rowCaptionColumns },
   with: {
     ...connectorEvidencedPairListConfig.with,
+    // AECI-1781: the partner's categories. The page product may be A or B.
+    productA: partnerProductLinkConfig,
+    productB: partnerProductLinkConfig,
     builtByVendor: captionOwnerConfig,
     claims: {
       // `origin` (AECI-1314): an unbacked vendor-added claim is withheld from
       // public reads, so it must not steer the arrow or count toward the depth.
       columns: { direction: true, origin: true },
       with: {
-        // AECI-711: the depth axis counts distinct objects per row.
-        dataObject: { columns: { slug: true } },
+        // AECI-711: the depth axis counts distinct objects per row. AECI-1781: and
+        // names them, as `data_objects`.
+        dataObject: { columns: { slug: true, name: true } },
         attestations: {
           columns: {
             source: true,
@@ -528,7 +552,8 @@ export interface RawProductDetailClaimRow {
   /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
   origin: string;
   attestations: RawAgreementVoteRow[];
-  dataObject: { slug: string };
+  /** `name` (AECI-1781) feeds `ProductIntegrationItem.data_objects`. */
+  dataObject: { slug: string; name: string };
 }
 
 export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
@@ -723,6 +748,7 @@ export function toProductIntegrationItemFromEvidencedPair(
     // `powered_by_product_id` to carry (§13.4(1)).
     powered_by_product: null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
+    ...productRowFacts(claims, partnerOf(raw.productA, raw.productB, contextProductId)),
     // An evidenced pair is connector-powered by construction.
     ...rowCaptionFields(raw, claims, corrections),
   };
@@ -1285,6 +1311,9 @@ interface RawProductLink {
   logoUrl: string | null;
   /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). */
   claimed?: number | boolean;
+  /** AECI-1781: present on a product-detail endpoint row only
+   *  ({@link partnerProductLinkConfig}). Never serialised on the link itself. */
+  productCategories?: Array<{ category: RawTaxonomyLink }>;
 }
 /** A connector product as `pairConnectorProductConfig` returns it (AECI-933).
  *  `productVendors` is optional so a hand-built fixture without it reads as "no
@@ -1802,7 +1831,38 @@ export function toProductIntegrationItem(
     // edge the AECI-721 migration has not moved yet.
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
+    ...productRowFacts(claims, contextIsSource ? raw.targetProduct : raw.sourceProduct),
     ...rowCaptionFields(raw, claims, corrections),
+  };
+}
+
+/** The endpoint of a canonical evidenced pair that is not the page product. */
+function partnerOf(a: RawProductLink, b: RawProductLink, contextProductId: string): RawProductLink {
+  return a.id === contextProductId ? b : a;
+}
+
+/**
+ * The three AECI-1781 row fields: the named data objects, the partner's categories,
+ * and the row's agreement state. Both endpoint mappers call it with the PUBLIC claims
+ * (`publicClaims`), and it drops refuted ones itself, so all three describe the flows
+ * `data_object_slugs` counts. Every list is A to Z by name, slug breaking ties
+ * (`compareTermsByName`), and no field reads a plan-gated input to order anything.
+ */
+function productRowFacts(
+  claims: readonly RawProductDetailClaimRow[],
+  partner: RawProductLink,
+): Pick<ProductIntegrationItem, 'data_objects' | 'partner_categories' | 'agreement'> {
+  const listed = claims.filter((claim) => !isClaimRefuted(claim.attestations));
+  const objects = new Map<string, string>();
+  for (const claim of listed) objects.set(claim.dataObject.slug, claim.dataObject.name);
+  return {
+    data_objects: [...objects].map(([slug, name]) => ({ slug, name })).sort(compareTermsByName),
+    partner_categories: (partner.productCategories ?? [])
+      .map(({ category }) => ({ slug: category.slug, name: category.name }))
+      .sort(compareTermsByName),
+    agreement: integrationAgreement(
+      listed.map((claim) => ({ agreement: computeAgreement(claim.attestations) })),
+    ),
   };
 }
 

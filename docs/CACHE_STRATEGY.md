@@ -541,7 +541,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   not redundant: the product-detail integrations table renders a claims-aware
   `context_direction`, and since AECI-605 a claim every voting vendor **denies**
   stops contributing its direction to that arrow — so a denial with no product
-  purge would leave the table pointing the wrong way for a full TTL.
+  purge would leave the table pointing the wrong way for a full TTL. Since
+  AECI-1781 each product-detail row also carries its rolled-up `agreement`, which
+  any vote can move, so the same two tags keep it fresh.
   `index:products` is omitted for the same reason as versions: claims never render
   on the catalog.
 

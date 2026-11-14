@@ -530,8 +530,8 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Maintenance chip date | `products.last_reviewed_at` | The column exists in `apps/api/src/db/schema.ts` | Confirm it is in the payload. Not confirmed. |
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
-| Partner category filter | Each partner's categories on the integration row | No | Add to the row |
-| Agreement state on cards | The agreement state per integration | Not confirmed on this payload | Check, then add |
+| Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
+| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781 (the weakest claim decides) | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
