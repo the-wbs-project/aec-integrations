@@ -1,6 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
+
+/** Which wordmark file the logo draws. `on-dark` is for a Forest ground. */
+export type BrandLogoTone = 'default' | 'on-dark';
 
 /**
  * AEC Integrations primary wordmark: "AEC" in semibold and "Integrations" in
@@ -14,6 +17,12 @@ import { RouterLink } from '@angular/router';
  * crawler both. The SVG bakes Forest `#1E3A2F` and Clay `#E89668` as hex, the
  * same values as `--accent-primary` / `--accent-secondary`. The site is light
  * only (AECI-226), so the tokens never resolve to anything else.
+ *
+ * `tone="on-dark"` swaps in `/branding/wordmark-on-dark.svg`: the same outlines
+ * with Bone type and the Clay connector on a transparent field, for a Forest
+ * header or footer (AECI-1754). Clay does not flip. Forest and Bone swap. Both
+ * files share one 196x30 viewBox, so the layout never shifts. The default tone
+ * renders exactly as before.
  *
  * Cache-neutral: the markup is identical for every visitor (§9.1a).
  *
@@ -52,7 +61,7 @@ import { RouterLink } from '@angular/router';
     >
       <img
         class="block h-full w-auto"
-        ngSrc="/branding/wordmark.svg"
+        [ngSrc]="src()"
         [priority]="priority()"
         width="196"
         height="30"
@@ -71,4 +80,11 @@ export class BrandLogo {
    * the wordmark is above the fold. The footer passes `false`.
    */
   readonly priority = input(true);
+
+  /** Which wordmark file to draw. The default is the Forest-on-light mark. */
+  readonly tone = input<BrandLogoTone>('default');
+
+  protected readonly src = computed(() =>
+    this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',
+  );
 }
