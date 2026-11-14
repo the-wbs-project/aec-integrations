@@ -26,8 +26,9 @@
  *   handling;
  * - otherwise scroll to the top.
  * Both position scrolls are forced `instant`. This runs a frame after the router
- * would have, so `ScrollBehaviorManager` may already have restored the global
- * `scroll-behavior: smooth`.
+ * would have, so `ScrollBehaviorManager` may already have dropped its inline
+ * `scroll-behavior: auto` while an `<html>` smooth-scroll class is on
+ * (`InPageSmoothScroll`, or the switch back to a global smooth scroll).
  *
  * A navigation with `scroll: 'manual'` (the listing filter and sort controls) is
  * left alone, as the router would. Because the fallback only acts when the router

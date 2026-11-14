@@ -5,6 +5,7 @@ import { ConsentBanner } from './analytics/consent-banner';
 import { AppUpdateService } from './core/app-update/app-update.service';
 import { UpdateBanner } from './core/app-update/update-banner';
 import { ArrivalCaptureService } from './core/arrival-capture.service';
+import { InPageSmoothScroll } from './core/in-page-smooth-scroll';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
 import { PreStableScrollReset } from './core/pre-stable-scroll-reset';
@@ -46,6 +47,7 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
 export class App {
   private readonly pageViews = inject(PageViewTracker);
   private readonly scrollBehavior = inject(ScrollBehaviorManager);
+  private readonly inPageSmoothScroll = inject(InPageSmoothScroll);
   private readonly initialFragmentScroller = inject(InitialFragmentScroller);
   private readonly preStableScrollReset = inject(PreStableScrollReset);
   private readonly arrivalCapture = inject(ArrivalCaptureService);
@@ -58,9 +60,14 @@ export class App {
     this.pageViews.start();
 
     // Keep the router's scroll-to-top reset (withInMemoryScrolling, see
-    // app.config.ts) instant despite the global `scroll-behavior: smooth`. No-op
-    // on the server.
+    // app.config.ts) instant even while smooth scrolling is on. No-op on the
+    // server.
     this.scrollBehavior.start();
+
+    // AECI-1752 — smooth-scroll only the jump from an in-page section link
+    // (`<a data-smooth-scroll>`). The switch back to a global smooth scroll is
+    // documented in the service. No-op on the server.
+    this.inPageSmoothScroll.start();
 
     // Scroll to the URL fragment (`#section`) on the initial load — a reload or
     // deep link to `…#integrations`. The router's anchor scrolling doesn't fire on

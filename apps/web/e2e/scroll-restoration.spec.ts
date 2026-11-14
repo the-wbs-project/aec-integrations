@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
+
 // Scroll restoration on navigation. A client-side (SPA) navigation is a
 // same-document navigation, so without router scroll restoration the browser
 // carries the previous page's scroll offset into the new route — landing the
@@ -8,8 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // `provideRouter(..., withInMemoryScrolling({ scrollPositionRestoration:
 // 'enabled', anchorScrolling: 'enabled' }))` (app.config.ts) fixes it: a forward
 // navigation opens at the top; Back/Forward restores the prior position.
-// `ScrollBehaviorManager` (app.ts) keeps that reset instant despite the global
-// `scroll-behavior: smooth`.
+// `ScrollBehaviorManager` (app.ts) keeps that reset instant even while smooth
+// scrolling is on for an in-page jump (AECI-1752, the last describe below).
 //
 // Mirrors client-nav-detail.spec.ts: click through a real /products index row (a
 // SPA navigation off the single initial load). Skipped when no data is seeded.
@@ -60,6 +62,9 @@ async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promi
     // means the main bundle, the lazy route chunk and the listing's requests have
     // all landed, which is when Angular hydrates the row links.
     await page.waitForLoadState('networkidle');
+    // AECI-1752: also wait for the row link's own listener (its jsaction clears on
+    // hydration). A quiet network alone still let a click land on a dead row.
+    await untilHydrated(firstProductLink);
 
     // Scroll the listing to the bottom (forced instant so the smooth CSS doesn't
     // animate the setup) so a naive SPA navigation would carry the offset over.
@@ -247,42 +252,47 @@ test.describe('initial-load fragment scrolling', () => {
 // description, no integrations) at the head of the index, and a page that cannot
 // scroll cannot show this defect. Taking `.first()` like the tests above would
 // silently skip on every local run.
+/**
+ * Walks the first few seeded products until one renders a section-nav with an
+ * Integrations entry on a page tall enough to scroll, and leaves the page open.
+ * Skips the test when none does.
+ */
+async function openProductWithIntegrationsJump(page: Page): Promise<void> {
+  await page.goto('/products');
+  await expect(page.locator('app-root')).toBeAttached();
+  const productLinks = page.locator('#main a[href^="/products/"]');
+  await productLinks
+    .first()
+    .waitFor({ state: 'attached', timeout: 15000 })
+    .catch(() => {});
+  test.skip((await productLinks.count()) === 0, 'no products seeded in this environment');
+
+  const hrefs = (
+    await productLinks.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('href')).filter((h): h is string => !!h && !h.includes('#')),
+    )
+  ).slice(0, 8);
+
+  let usable: string | null = null;
+  for (const href of hrefs) {
+    await page.goto(href);
+    await expect(page.locator('aec-product-detail')).toBeVisible();
+    const hasJump = await page.locator('aec-section-nav a[href$="#integrations"]').count();
+    if (hasJump === 0) continue;
+    const scrollable = await page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight + 120,
+    );
+    if (scrollable) {
+      usable = href;
+      break;
+    }
+  }
+  test.skip(!usable, 'no seeded product is tall enough to jump to #integrations');
+}
+
 test.describe('section-nav jumps clear the sticky nav', () => {
   test('clicking "Integrations" leaves the section heading below the nav', async ({ page }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-    const productLinks = page.locator('#main a[href^="/products/"]');
-    await productLinks
-      .first()
-      .waitFor({ state: 'attached', timeout: 15000 })
-      .catch(() => {});
-    test.skip((await productLinks.count()) === 0, 'no products seeded in this environment');
-
-    const hrefs = (
-      await productLinks.evaluateAll((els) =>
-        els
-          .map((el) => el.getAttribute('href'))
-          .filter((h): h is string => !!h && !h.includes('#')),
-      )
-    ).slice(0, 8);
-
-    // Walk candidates until one renders a section-nav with an Integrations entry
-    // on a page tall enough to scroll.
-    let usable: string | null = null;
-    for (const href of hrefs) {
-      await page.goto(href);
-      await expect(page.locator('aec-product-detail')).toBeVisible();
-      const hasJump = await page.locator('aec-section-nav a[href$="#integrations"]').count();
-      if (hasJump === 0) continue;
-      const scrollable = await page.evaluate(
-        () => document.documentElement.scrollHeight > window.innerHeight + 120,
-      );
-      if (scrollable) {
-        usable = href;
-        break;
-      }
-    }
-    test.skip(!usable, 'no seeded product is tall enough to jump to #integrations');
+    await openProductWithIntegrationsJump(page);
 
     const nav = page.locator('aec-section-nav');
     await nav.locator('a[href$="#integrations"]').click();
@@ -308,5 +318,175 @@ test.describe('section-nav jumps clear the sticky nav', () => {
         { message: 'the Integrations heading must not sit underneath the sticky section-nav' },
       )
       .toBeGreaterThanOrEqual(0);
+  });
+});
+
+// AECI-1752. Smooth scrolling is scoped to in-page section links (clash 38 of
+// ADR 0056): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
+// (core/in-page-smooth-scroll.ts) puts `html.aeci-smooth-scroll` on for the span
+// of a jump from an `<a data-smooth-scroll>` link. These tests sample `scrollY`
+// on every animation frame. A smooth scroll passes through many intermediate
+// offsets. An instant one goes straight from the start to the end.
+
+const SAMPLES = '__aeciScrollSamples';
+
+interface ScrollSampler {
+  samples: number[];
+  stopped: boolean;
+}
+
+/**
+ * Records `scrollY` on every frame from now until {@link distinctOffsets} stops
+ * it. Not time-boxed: under parallel load the click can come seconds later.
+ */
+async function startScrollSampler(page: Page): Promise<void> {
+  await page.evaluate((key) => {
+    const sampler: ScrollSampler = { samples: [Math.round(window.scrollY)], stopped: false };
+    (window as unknown as Record<string, ScrollSampler>)[key] = sampler;
+    const tick = () => {
+      sampler.samples.push(Math.round(window.scrollY));
+      if (!sampler.stopped) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, SAMPLES);
+}
+
+/** Stops the sampler and returns the distinct offsets it saw, in first-seen order. */
+async function distinctOffsets(page: Page): Promise<number[]> {
+  const samples = await page.evaluate((key) => {
+    const sampler = (window as unknown as Record<string, ScrollSampler | undefined>)[key];
+    if (!sampler) return [];
+    sampler.stopped = true;
+    return sampler.samples;
+  }, SAMPLES);
+  return [...new Set(samples)];
+}
+
+/**
+ * Waits in the page until `scrollY` holds still for five frames, and returns it.
+ * Counting frames in the page, not polling from the test, keeps it independent
+ * of how slow the round trip is under parallel load.
+ */
+function scrollSettled(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let last = Math.round(window.scrollY);
+        let still = 0;
+        const tick = () => {
+          const now = Math.round(window.scrollY);
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 5) resolve(now);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+}
+
+const htmlScrollBehavior = (page: Page) =>
+  page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior);
+
+test.describe('smooth scrolling is scoped to in-page section links', () => {
+  test('a section-nav click animates and lands the section below the nav', async ({ page }) => {
+    await openProductWithIntegrationsJump(page);
+    const nav = page.locator('aec-section-nav');
+    // The nav host owns a click listener, so its jsaction clears on hydration.
+    // `InPageSmoothScroll` starts in `App`'s constructor, before that.
+    await untilHydrated(nav);
+
+    // Not a global setting: nothing on <html> asks for smooth scrolling at rest.
+    expect(await htmlScrollBehavior(page)).toBe('auto');
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await startScrollSampler(page);
+    await nav.locator('a[href$="#integrations"]').click();
+    await expect(page).toHaveURL(/#integrations$/);
+
+    const end = await scrollSettled(page);
+    expect(end).toBeGreaterThan(0);
+    await expect(page.locator('#integrations-title')).toBeInViewport();
+    const gap = await page.evaluate(() => {
+      const navBottom = document.querySelector('aec-section-nav')!.getBoundingClientRect().bottom;
+      const headingTop = document.getElementById('integrations-title')!.getBoundingClientRect().top;
+      return Math.round(headingTop - navBottom);
+    });
+    expect(gap, 'scroll-margin keeps the heading clear of the sticky nav').toBeGreaterThanOrEqual(
+      0,
+    );
+
+    const offsets = await distinctOffsets(page);
+    expect(
+      offsets.length,
+      `a smooth jump passes through intermediate offsets, saw ${offsets.join(', ')}`,
+    ).toBeGreaterThan(3);
+
+    // The class comes off once the jump ends, so the next scroll is instant again.
+    await expect.poll(() => htmlScrollBehavior(page)).toBe('auto');
+  });
+
+  test('under reduced motion a section-nav click jumps instantly', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openProductWithIntegrationsJump(page);
+    const nav = page.locator('aec-section-nav');
+    await untilHydrated(nav);
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await startScrollSampler(page);
+    await nav.locator('a[href$="#integrations"]').click();
+    await expect(page).toHaveURL(/#integrations$/);
+    const end = await scrollSettled(page);
+    expect(end).toBeGreaterThan(0);
+    await expect(page.locator('#integrations-title')).toBeInViewport();
+
+    const offsets = await distinctOffsets(page);
+    expect(offsets, 'an instant jump goes straight from the top to the section').toEqual([0, end]);
+    expect(await htmlScrollBehavior(page)).toBe('auto');
+  });
+
+  test('the skip link jumps without animation', async ({ page }) => {
+    // On `/` the skip link's `#main` is a same-document jump. On other pages
+    // `<base href>` resolves it to `/#main`, which loads the home page.
+    await page.goto('/');
+    await expect(page.locator('#main')).toBeAttached();
+    await page.waitForLoadState('networkidle');
+    const scrollable = await page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight + 600,
+    );
+    test.skip(!scrollable, 'the home page is not tall enough to scroll');
+
+    await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' }));
+    const skip = page.locator('a[href="#main"]');
+    await skip.focus();
+    await expect(skip).toBeFocused();
+    await startScrollSampler(page);
+    // Press on the focused element, the way a keyboard user activates it.
+    await page.keyboard.press('Enter');
+    const end = await scrollSettled(page);
+    expect(end).toBeLessThan(600);
+
+    const offsets = await distinctOffsets(page);
+    expect(offsets, 'the skip link must not animate').toEqual([600, end]);
+  });
+
+  test('Back after a route change restores the position without animation', async ({ page }) => {
+    await scrollListingThenClickThrough(page);
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+
+    await startScrollSampler(page);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/products$/);
+    expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);
+    const end = await scrollSettled(page);
+
+    // The restore may land in one or two steps (the page can grow while the
+    // listing renders), but an animated glide passes through many offsets.
+    const offsets = await distinctOffsets(page);
+    expect(
+      offsets.length,
+      `Back must restore instantly, saw ${offsets.join(', ')} ending at ${end}`,
+    ).toBeLessThanOrEqual(3);
   });
 });

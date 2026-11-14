@@ -34,12 +34,14 @@ export interface SectionNavItem {
  * so it passes `basePath` and we render a full, path-preserving
  * `href="{basePath}#{id}"`. A plain anchor to the same path + a new fragment is
  * a same-document scroll the browser handles itself: it honors each target's
- * `scroll-margin-top` (so the heading clears the sticky nav) and — via the
- * global `html { scroll-behavior: smooth }` rule (styles.css, reset to `auto`
- * for `prefers-reduced-motion`) — animates smoothly where supported and jumps
- * instantly otherwise. This works under SSR, for crawlers, no-JS, before
- * hydration, and right-click "copy link" alike, and (unlike
- * `scrollIntoView({behavior:'smooth'})`) can never silently no-op.
+ * `scroll-margin-top` (so the heading clears the sticky nav). Each link carries
+ * `data-smooth-scroll`, so `InPageSmoothScroll` (`core/in-page-smooth-scroll.ts`,
+ * AECI-1752) turns on `scroll-behavior: smooth` for the span of the jump and the
+ * browser animates it. Under `prefers-reduced-motion`, before the app starts, or
+ * where smooth scrolling is unsupported, it jumps instantly. The jump itself
+ * works under SSR, for crawlers, no-JS, before hydration, and right-click "copy
+ * link" alike, and (unlike `scrollIntoView({behavior:'smooth'})`) can never
+ * silently no-op.
  *
  * What this does NOT do is bypass Angular. A same-document fragment navigation
  * fires **`popstate`** as well as `hashchange`, and Angular's `HistoryStateManager`
@@ -108,6 +110,7 @@ export interface SectionNavItem {
             <a
               [href]="basePath() + '#' + s.id"
               [attr.data-section-id]="s.id"
+              data-smooth-scroll
               [attr.aria-current]="activeId() === s.id ? 'location' : null"
               class="text-sm font-medium text-(--text-secondary) no-underline
                 transition-colors hover:text-(--text-primary)

@@ -12,8 +12,9 @@
  * `styles.css`); no script decides what is shown.
  *
  * **Links.** `routerLink` to the page's absolute path plus `fragment`, never a
- * bare `#id`, which `<base href>` would resolve against `/`. The global scroll
- * setup lands each jump on the heading's `scroll-margin-top`.
+ * bare `#id`, which `<base href>` would resolve against `/`. The router's scroll
+ * setup lands each jump on the heading's `scroll-margin-top`. The jump is
+ * instant: router scrolls never animate (AECI-1752).
  *
  * **Active heading.** The SSR HTML marks the first heading current, the same for
  * every visitor, because the page is edge-cached. Only after the first browser

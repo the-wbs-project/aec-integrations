@@ -1,7 +1,12 @@
 /**
- * Forces router-driven scroll restoration to be *instant* while keeping the
- * global `html { scroll-behavior: smooth }` rule (styles.css) for same-page
- * anchor jumps.
+ * Forces router-driven scroll restoration to be *instant* whenever
+ * `html { scroll-behavior: smooth }` is in force.
+ *
+ * Since AECI-1752 smooth scrolling is not global: `html.aeci-smooth-scroll`
+ * (styles.css) is on only for the span of one in-page link jump
+ * (`core/in-page-smooth-scroll.ts`), or always if someone flips the switch back
+ * to the old global behaviour. This manager is what keeps router scrolls instant
+ * in both cases, so keep it even though the global rule is gone.
  *
  * `provideRouter(..., withInMemoryScrolling({ scrollPositionRestoration:
  * 'enabled' }))` (see `app.config.ts`) resets scroll on navigation via
@@ -43,7 +48,8 @@
  * `ScrollMarginViewportScroller` skips the router's follow-up scroll for that
  * fragment. (A follow-up used to run: it first overshot by the target's
  * `scroll-mt-20`, then desynced Safari by interrupting the smooth scroll — see
- * `core/scroll-margin-viewport-scroller.ts`.) The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
+ * `core/scroll-margin-viewport-scroller.ts`.) The skip-link carries no
+ * `data-smooth-scroll`, so its jump is instant. The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
  * over both this inline style and the restore, so reduced-motion visitors stay
  * instant throughout — as intended.
  *
