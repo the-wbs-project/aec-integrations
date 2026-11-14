@@ -270,10 +270,11 @@ const VERIFICATION_RANK: Record<AgreementState, number> = {
  * product page's integration rows carry it, so a card can show the same four states
  * the pair page shows per claim.
  *
- * Provisional until Chris rules on AECI-1781: the weakest claim decides. Two
- * points are open: a flow every voting company denied is left out of the roll-up, and
- * a rolled-up `single_source` names no vendor, so a card cannot render the attributed
- * "Confirmed by {vendor}" form from this value alone. The rule, first match wins:
+ * Ruling 2026-11-14 (Chris, asked on AECI-1781): "A". The weakest claim decides.
+ * A flow every voting company denied is left out of the roll-up. A rolled-up
+ * `single_source` names no vendor, so its card says "Confirmed by one company". The
+ * attributed "Confirmed by {vendor}" form is for a single claim. The rule, first
+ * match wins:
  *
  * | Claims | Result |
  * |---|---|
