@@ -234,14 +234,6 @@ import { AecMeter } from '../shared/meter/meter';
           label="Out of range, clamped"
         />
         <aec-meter
-          data-testid="meter-forest"
-          [value]="4.3"
-          [max]="5"
-          text="4.3"
-          label="Product quality"
-          showLabel
-        />
-        <aec-meter
           data-testid="meter-onboarding"
           [value]="3.8"
           [max]="5"
@@ -255,11 +247,28 @@ import { AecMeter } from '../shared/meter/meter';
           [max]="5"
           text="3.0"
           label="A deliberately long label that has to wrap on a narrow screen without clipping the number"
-          showLabel
         />
-        <div class="flex flex-col items-center gap-3" data-testid="meter-load">
+        <div data-testid="meter-labelled-by">
+          <h3 id="demo-score-name" class="text-t-16 font-semibold">Onboarding experience</h3>
           <aec-meter
-            class="w-[260px] max-w-full"
+            [value]="3.8"
+            [max]="5"
+            text="3.8"
+            tone="onboarding"
+            labelledBy="demo-score-name"
+          />
+        </div>
+        <aec-meter
+          data-testid="meter-decorative"
+          [value]="4.3"
+          [max]="5"
+          text="4.3"
+          label="Product quality"
+          decorative
+        />
+        <div class="flex justify-center" data-testid="meter-load">
+          <aec-meter
+            layout="stacked"
             [value]="24"
             [max]="58"
             text="Showing 24 of 58"
@@ -274,18 +283,30 @@ import { AecMeter } from '../shared/meter/meter';
         data-testid="figure-specimen"
       >
         <h2 id="demo-figure-heading" i18n="@@demo.figure.heading">Figures</h2>
-        <aec-figure data-testid="figure-normal" [value]="12" label="integrations" />
-        <aec-figure data-testid="figure-large" [value]="12345" label="page views" />
+        <aec-figure data-testid="figure-normal" [value]="12" text="12" label="integrations" />
+        <aec-figure data-testid="figure-large" [value]="12345" text="12,345" label="page views" />
+        <aec-figure
+          data-testid="figure-decimal"
+          [value]="4"
+          text="4.0"
+          suffix="/5"
+          label="Overall rating"
+        />
         <aec-figure
           data-testid="figure-zero"
           [value]="0"
-          label="We have no integrations for Bluebeam Revu on record"
-          support="Not on record means we have not found one. It is not proof that none exists."
+          text="0"
+          label="integrations"
+          zero="integrations-not-on-record"
+          product="Bluebeam Revu"
         >
           <a href="#know" class="text-t-14 font-semibold text-(--text-secondary)">Know of one?</a>
         </aec-figure>
-        <div data-testid="figure-zero-bare">
-          <aec-figure [value]="0" label="We have no integrations for Bluebeam Revu on record" />
+        <div data-testid="figure-zero-no-mode">
+          <aec-figure [value]="0" text="0" label="integrations" />
+        </div>
+        <div class="space-y-1 rounded-card bg-(--accent-primary) p-6" data-testid="figure-on-brand">
+          <aec-figure [value]="4" text="4.0" suffix="/5" label="Overall rating" tone="on-brand" />
         </div>
         <!-- The reviews band, flagged for Chris: two figures, one per score, never merged. -->
         <div class="grid gap-6 sm:grid-cols-2" data-testid="reviews-band">
@@ -293,14 +314,16 @@ import { AecMeter } from '../shared/meter/meter';
             <aec-figure
               data-testid="score-quality"
               [value]="4.3"
+              text="4.3"
               label="Product quality, from 12 reviews"
             />
-            <aec-meter [value]="4.3" [max]="5" text="4.3" label="Product quality" />
+            <aec-meter [value]="4.3" [max]="5" text="4.3" label="Product quality" decorative />
           </div>
           <div class="space-y-3 rounded-card bg-(--surface-raised) p-6 shadow-card">
             <aec-figure
               data-testid="score-onboarding"
               [value]="3.8"
+              text="3.8"
               label="Onboarding experience, from 12 reviews"
             />
             <aec-meter
@@ -309,6 +332,7 @@ import { AecMeter } from '../shared/meter/meter';
               text="3.8"
               label="Onboarding experience"
               tone="onboarding"
+              decorative
             />
           </div>
         </div>
