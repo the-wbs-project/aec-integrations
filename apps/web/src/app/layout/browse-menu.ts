@@ -173,7 +173,10 @@ export class BrowseMenu extends NavDisclosure {
     if (isReplayedEvent(event) || event.defaultPrevented) return;
     const link = (event.target as Element | null)?.closest?.(`#${this.panelId} a[href]`);
     const href = link?.getAttribute('href');
-    if (!href?.startsWith('/')) return;
+    // Only a same-origin path is routed in the app. A protocol-relative
+    // `//host` href, a `target` or a `download` link stays the browser's.
+    if (!href?.startsWith('/') || href.startsWith('//')) return;
+    if (link?.hasAttribute('target') || link?.hasAttribute('download')) return;
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
