@@ -48,6 +48,15 @@ describe('shared button styles (AECI-1758)', () => {
     expect(secondary.at).toBeGreaterThan(css.indexOf('* {'));
   });
 
+  it('draws the on-brand secondary edge in the 3:1 Bone alpha, from an unlayered rule', () => {
+    const base = ruleBody('.aec-btn');
+    const edge = ruleBody('.aec-btn-on-brand-secondary');
+    expect(depthAt(edge.at)).toBe(0);
+    expect(edge.body).toMatch(/border-color:\s*var\(--border-on-brand-strong\)/);
+    expect(edge.at).toBeGreaterThan(base.at);
+    expect(recipe).toContain('hover:bg-(--surface-on-brand-wash-hover)');
+  });
+
   it('never sets a border colour through a utility, which could not apply', () => {
     expect(recipe).not.toMatch(/['\s:]border-\(--/);
   });
