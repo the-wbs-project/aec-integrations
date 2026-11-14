@@ -19,6 +19,7 @@ import {
 import { RequestDrawerService } from './request-drawer.service';
 import { RequestFormBody } from './request-form-body';
 import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 /**
  * In-place claim/correction drawer (AECI-128) — a bottom-right floating card (a
@@ -43,6 +44,7 @@ import { AecIcon } from '../shared/icon/icon';
 @Component({
   selector: 'aec-request-drawer',
   imports: [
+    AecButton,
     AecIcon,
     BrnDialog,
     BrnDialogContent,

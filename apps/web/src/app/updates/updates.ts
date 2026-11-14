@@ -45,6 +45,7 @@ import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 interface SubscribeModel {
   email: string;
@@ -57,12 +58,9 @@ interface SubscribeModel {
  *  inline beneath the form so the visitor can retry or try another address. */
 type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
-
 @Component({
   selector: 'app-updates',
-  imports: [AecIcon, RouterLink, FormField, FoundViaField],
+  imports: [AecButton, AecIcon, RouterLink, FormField, FoundViaField],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment, not a page
@@ -130,7 +128,7 @@ const BTN =
                   >
                     We'll send occasional updates as AEC Integrations develops.
                   </p>
-                  <a routerLink="/products" [class]="btn" i18n="@@app.updates.success.browse">
+                  <a aecButton routerLink="/products" i18n="@@app.updates.success.browse">
                     Browse integrations
                   </a>
                 </div>
@@ -155,7 +153,7 @@ const BTN =
                       [attr.aria-describedby]="emailErrorShown() ? 'updates-email-error' : null"
                       class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                     />
-                    <button type="submit" [disabled]="submitDisabled()" [class]="btn">
+                    <button aecButton type="submit" [disabled]="submitDisabled()">
                       @if (form().submitting()) {
                         <span i18n="@@app.updates.submitting">Joining…</span>
                       } @else {
@@ -213,8 +211,6 @@ export class UpdatesPage {
   private readonly meta = inject(MetaService);
   private readonly api = inject(LandingApi);
   private readonly analytics = inject(Analytics);
-
-  protected readonly btn = BTN;
 
   /** The left-column "what to expect" list. Static copy authored with `$localize`
    *  (the same TS-side i18n idiom as `home-credibility-strip`), rendered through a

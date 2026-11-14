@@ -40,6 +40,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { NudgeMuteApi } from './nudge-mute-api';
+import { AecButton } from '../shared/button/button';
 
 /**
  * `no-token`: reached without `?token=`. `idle`: awaiting the confirm click.
@@ -48,15 +49,12 @@ import { NudgeMuteApi } from './nudge-mute-api';
  */
 type NudgeMuteStatus = 'no-token' | 'idle' | 'muting' | 'done' | 'invalid' | 'error';
 
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
-
 const HEADLINE =
   'font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl';
 
 @Component({
   selector: 'app-nudge-mute',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
@@ -109,11 +107,7 @@ const HEADLINE =
                     decisions and plan notices still arrive. To turn it back on, sign in to your
                     vendor portal and open Messages.
                   </p>
-                  <a
-                    routerLink="/vendor"
-                    [class]="btn + ' mt-6'"
-                    i18n="@@app.nudgeMute.done.portal"
-                  >
+                  <a aecButton routerLink="/vendor" class="mt-6" i18n="@@app.nudgeMute.done.portal">
                     Open your vendor portal
                   </a>
                 }
@@ -143,8 +137,9 @@ const HEADLINE =
                     vendor portal and turn it off under Messages.
                   </p>
                   <a
+                    aecButton
                     routerLink="/vendor"
-                    [class]="btn + ' mt-6'"
+                    class="mt-6"
                     i18n="@@app.nudgeMute.invalid.portal"
                   >
                     Open your vendor portal
@@ -202,9 +197,10 @@ const HEADLINE =
                   </p>
                 }
                 <button
+                  aecButton
                   type="button"
+                  class="mt-6"
                   [disabled]="status() === 'muting'"
-                  [class]="btn + ' mt-6'"
                   (click)="onConfirm()"
                 >
                   @if (status() === 'muting') {
@@ -245,7 +241,6 @@ export class NudgeMutePage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
 
   /** The opaque token from `?token=`, read once from the route snapshot. */

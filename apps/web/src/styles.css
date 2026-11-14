@@ -301,6 +301,10 @@
    * unchanged and still written inline where they are used. */
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
   --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
+  /* The page dimmer behind the Browse menu (AECI-1774; mock-up 6 lines 15 and 690).
+     Decorative only: it is never the boundary of anything. The CDK backdrop below
+     still uses its own 50%; AECI-1770 moves it onto this token. */
+  --scrim: rgb(0 0 0 / 0.4);
 
   /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
      taken from the default state of the approved mock-ups (mock-up 6,

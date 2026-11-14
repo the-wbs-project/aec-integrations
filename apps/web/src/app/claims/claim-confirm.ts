@@ -45,6 +45,7 @@ import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { RequestsApi } from '../requests/requests-api';
+import { AecButton } from '../shared/button/button';
 
 /**
  * `no-token`: reached without `?token=`. `idle`: awaiting the click. `confirming`:
@@ -64,9 +65,6 @@ type ClaimConfirmStatus =
   | 'not-found'
   | 'gone'
   | 'error';
-
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
 
 const HEADLINE =
   'font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl';
@@ -95,7 +93,7 @@ function failureStatus(err: unknown): FailureStatus {
 
 @Component({
   selector: 'app-claim-confirm',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
@@ -231,8 +229,9 @@ function failureStatus(err: unknown): FailureStatus {
                   We've emailed you the same details.
                 </p>
                 <a
+                  aecButton
                   routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
+                  class="mt-6"
                   i18n="@@claimConfirm.restart"
                 >
                   Start again
@@ -266,8 +265,9 @@ function failureStatus(err: unknown): FailureStatus {
                   we'll email you a new link.
                 </p>
                 <a
+                  aecButton
                   routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
+                  class="mt-6"
                   i18n="@@claimConfirm.restart"
                 >
                   Start again
@@ -287,8 +287,9 @@ function failureStatus(err: unknown): FailureStatus {
                   start again and we'll email you a new link.
                 </p>
                 <a
+                  aecButton
                   routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
+                  class="mt-6"
                   i18n="@@claimConfirm.restart"
                 >
                   Start again
@@ -308,8 +309,9 @@ function failureStatus(err: unknown): FailureStatus {
                   Start again and choose Ask us to add it to name your product or company.
                 </p>
                 <a
+                  aecButton
                   routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
+                  class="mt-6"
                   i18n="@@claimConfirm.restart"
                 >
                   Start again
@@ -333,9 +335,10 @@ function failureStatus(err: unknown): FailureStatus {
                   do. If you did not ask for this, close this page.
                 </p>
                 <button
+                  aecButton
                   type="button"
+                  class="mt-6"
                   [disabled]="status() === 'confirming'"
-                  [class]="btn + ' mt-6'"
                   (click)="onConfirm()"
                 >
                   @if (status() === 'confirming') {
@@ -371,7 +374,6 @@ export class ClaimConfirmPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
   protected readonly body = BODY;
   protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;

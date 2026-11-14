@@ -7,24 +7,22 @@ import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
- * Presentational list of taxonomy values for a single facet, shared by the
- * desktop nav flyout (AECI-158) and the mobile overlay disclosure (AECI-159) so
- * the two surfaces can never drift. Each value links to its browse page
- * (`/{segment}/{slug}`) — name only, no count — followed by a "View all →" link
- * to the facet index (`/{segment}`).
+ * Presentational list of taxonomy values for one facet section of the mobile
+ * overlay (`nav-menu.ts`, AECI-159). Each value links to its browse page
+ * (`/{segment}/{slug}`), name only, followed by a "See all" link to the facet
+ * index (`/{segment}`). The desktop Browse panel (`browse-menu.ts`, AECI-1774)
+ * draws its own columns, with counts. AECI-1775 rebuilds the mobile menu on the
+ * Browse menu's design and decides whether this component stays.
  *
  * Pure inputs only: the caller supplies the already-ranked `items` (from
- * `TaxonomyNavStore`) and the localized `viewAllLabel`, so this component owns
- * no data fetching and no i18n ids. The value names come from the API
+ * `TaxonomyNavStore.browse`) and the localized `viewAllLabel`, so this component
+ * owns no data fetching and no i18n ids. The value names come from the API
  * (localized-as-data), so they carry no `i18n` markers. `KIND_PATH_SEGMENT` is
  * the single source of truth for facet pluralization (shared with the resolver
  * and route table). AECI-156.
  *
- * Values pin `font-normal` rather than inheriting: the desktop primary `<nav>`
- * sets `font-medium` on the row, so an unpinned value renders at 500 in the
- * flyout and 400 in the mobile overlay — the same component at two weights, and
- * at 500 it sits too close to the label above it to read as a destination.
- * "View all" keeps its `font-medium` — the one deliberate emphasis in the panel.
+ * Every link is a panel destination, so every link is weight 400, pinned rather
+ * than inherited (DESIGN.md §5 "Panel type").
  */
 @Component({
   selector: 'aec-nav-flyout-list',
@@ -46,7 +44,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
     <a
       [routerLink]="basePath()"
       (click)="navigate.emit()"
-      class="mt-1 block border-t border-(--border-default) px-3 pt-2 pb-1 text-sm font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="mt-1 block border-t border-(--border-default) px-3 pt-2 pb-1 text-sm font-normal text-(--text-secondary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >{{ viewAllLabel() }}</a
     >
   `,
@@ -57,9 +55,8 @@ export class NavFlyoutList {
   readonly viewAllLabel = input.required<string>();
 
   /**
-   * Emits when any link (a value or "View all") is activated. Both the mobile overlay
-   * (`nav-menu.ts`) and the desktop flyout (`nav-flyout-trigger.ts`) wire this to
-   * close the disclosure after navigation.
+   * Emits when any link (a value or "See all") is activated. The mobile overlay
+   * (`nav-menu.ts`) wires this to close the menu after navigation.
    */
   readonly navigate = output<void>();
 

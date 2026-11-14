@@ -23,13 +23,12 @@ import {
 } from '../account/profile-details/profile-details-model';
 import { safeReturnPath } from '../auth/return-path';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
+import { AecButton } from '../shared/button/button';
 
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
@@ -72,7 +71,7 @@ export function welcomeNextPath(raw: string | null): string {
  */
 @Component({
   selector: 'aec-welcome-page',
-  imports: [ProfileDetailsForm],
+  imports: [AecButton, ProfileDetailsForm],
   template: `
     <!-- AECI-987: the 7xl canvas with the form + context rail. From lg the header
          and the form sit in columns 1 to 7 and the rail docks in 9 to 12. Below lg
@@ -156,9 +155,10 @@ export function welcomeNextPath(raw: string | null): string {
                 We couldn't load your account. You can fill this in later from your account page.
               </p>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
                 (click)="leave()"
-                [class]="secondaryClass"
                 i18n="@@welcome.continue"
               >
                 Continue
@@ -224,23 +224,18 @@ export function welcomeNextPath(raw: string | null): string {
 
               <div class="px-6 py-4 sm:px-8" [class]="footerClass">
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
                   (click)="onSkip()"
                   [disabled]="saving()"
                   data-testid="welcome-skip"
-                  [class]="
-                    secondaryClass + ' sm:me-auto disabled:cursor-not-allowed disabled:opacity-50'
-                  "
+                  class="sm:me-auto"
                   i18n="@@welcome.skip"
                 >
                   Skip for now
                 </button>
-                <button
-                  type="submit"
-                  [disabled]="saving()"
-                  data-testid="welcome-save"
-                  [class]="primaryClass"
-                >
+                <button aecButton type="submit" [disabled]="saving()" data-testid="welcome-save">
                   @if (saving()) {
                     <span i18n="@@welcome.saving">Saving…</span>
                   } @else {
@@ -276,8 +271,6 @@ export class WelcomePage {
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
   protected readonly footerClass = FORM_FOOTER_CLASS;
 
   protected readonly loading = signal(true);

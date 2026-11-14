@@ -26,10 +26,11 @@ function term(slug: string, productCount: number, displayOrder = 0): TaxonomyTer
 }
 
 // 12 categories with shuffled counts so the top-10 cap and the descending sort
-// are both exercised; phases stay small so `phasesAll` returns every term. The
+// are both exercised; phases stay small so the Browse menu shows every term. The
 // phase fixture intentionally inverts count vs. display_order — `closeout` has
-// the higher count but the later lifecycle slot — so the assertion proves
-// `phasesAll` orders by `display_order`, not popularity.
+// the higher count but the later lifecycle slot — so the assertion proves the
+// phase column orders by `display_order`, not popularity. The full Browse model
+// is covered in `browse-menu-model.spec.ts`; this pins the store's wiring.
 const RESPONSE: TaxonomyResponse = {
   categories: Array.from({ length: 12 }, (_, i) => term(`cat-${i}`, i)),
   audiences: [term('aud-a', 2), term('aud-b', 9), term('aud-c', 5)],
@@ -79,13 +80,16 @@ describe('TaxonomyNavStore', () => {
     expect(store.categoriesTop10()).toHaveLength(10);
     expect(store.categoriesTop10()[0]?.product_count).toBe(11);
     expect(store.categoriesTop10()[9]?.product_count).toBe(2);
-    // Audiences sort descending.
-    expect(store.audiencesTop10().map((t) => t.slug)).toEqual(['aud-b', 'aud-c', 'aud-a']);
+    const browse = store.browse();
+    // The Browse columns cap at seven, most products first.
+    expect(browse.categories.map((t) => t.product_count)).toEqual([11, 10, 9, 8, 7, 6, 5]);
+    expect(browse.audiences.map((t) => t.slug)).toEqual(['aud-b', 'aud-c', 'aud-a']);
     // Phases return all terms in lifecycle (display_order) order — `design` (20)
     // before `closeout` (50), despite `closeout` having the higher count.
-    expect(store.phasesAll().map((t) => t.slug)).toEqual(['design', 'closeout']);
+    expect(browse.phases.map((t) => t.slug)).toEqual(['design', 'closeout']);
     // Trades: published-only, then descending by count.
-    expect(store.tradesTop10().map((t) => t.slug)).toEqual(['hvac', 'electrical']);
+    expect(browse.trades.map((t) => t.slug)).toEqual(['hvac', 'electrical']);
+    expect(browse.totalProducts).toBe(42);
 
     httpMock.verify();
   });
@@ -105,8 +109,10 @@ describe('TaxonomyNavStore', () => {
 
     httpMock.expectNone('/api/taxonomy');
     expect(fixture.componentInstance.store.categoriesTop10()).toEqual([]);
-    expect(fixture.componentInstance.store.phasesAll()).toEqual([]);
-    expect(fixture.componentInstance.store.tradesTop10()).toEqual([]);
+    const browse = fixture.componentInstance.store.browse();
+    expect(browse.phases).toEqual([]);
+    expect(browse.trades).toEqual([]);
+    expect(browse.totalProducts).toBeUndefined();
     httpMock.verify();
   });
 });

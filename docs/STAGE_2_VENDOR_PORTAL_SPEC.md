@@ -294,7 +294,7 @@ we chose not to build yet.
 in their own branch, mirroring `cacheTagsForPromote`: any change to the trade set also purges
 `index:trades`, `taxonomy`, and `sitemap`, because the facet is publication-gated
 (`CACHE_STRATEGY.md` §2). Tagging a trade that had no products flips `/trades/{slug}` from
-`noindex` to indexable and adds it to the index grid, the nav flyout, and `sitemap.xml` — none
+`noindex` to indexable and adds it to the index grid, the header's Browse menu, and `sitemap.xml` — none
 of which carry that product's tag. A removal crosses the same floor downward. The purge is
 keyed on the **symmetric difference** of the before/after sets, not on "the caller sent the
 key", so re-saving an unchanged trade set does not purge the sitemap for nothing. That trigger is

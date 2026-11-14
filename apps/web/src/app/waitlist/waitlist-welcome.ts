@@ -2,6 +2,7 @@ import { Component, afterNextRender, inject, signal } from '@angular/core';
 
 import { WaitlistWelcomeService } from './waitlist-welcome.service';
 import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 /**
  * Waitlist welcome banner (AECI-243 / Phase 7.9, §11.2).
@@ -23,7 +24,7 @@ import { AecIcon } from '../shared/icon/icon';
  */
 @Component({
   selector: 'aec-waitlist-welcome',
-  imports: [AecIcon],
+  imports: [AecButton, AecIcon],
   template: `
     @if (show()) {
       <aside
@@ -37,18 +38,17 @@ import { AecIcon } from '../shared/icon/icon';
             Thanks for waiting. Here's the directory.
           </p>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             id="waitlist-dismiss"
             type="button"
             (click)="dismiss()"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md)
-              border border-(--border-default) bg-(--surface-base) text-(--text-secondary)
-              transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-              focus-visible:ring-offset-2 focus-visible:ring-offset-(--accent-primary-soft)"
+            class="-my-1.5"
             i18n-aria-label="@@waitlist.welcome.dismiss"
             aria-label="Dismiss"
           >
-            <aec-icon name="x" decorative [size]="4" />
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </aside>

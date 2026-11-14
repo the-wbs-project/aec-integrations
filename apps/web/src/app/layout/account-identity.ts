@@ -65,7 +65,7 @@ import { Chip, type ChipTone } from '../shared/chip/chip';
         [name]="initialSource()"
       />
       <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-medium text-(--text-primary)" [title]="primaryLine()">
+        <p class="truncate text-sm font-semibold text-(--text-primary)" [title]="primaryLine()">
           {{ primaryLine() }}
         </p>
         @if (secondaryLine(); as secondary) {
