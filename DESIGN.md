@@ -1736,7 +1736,7 @@ The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They
 | Not sticky | The header scrolls away. The sticky section bar below is the only fixed bar | CURRENT |
 | Search | A pill with a "/" hint, see "Header search" | Clash 29, new |
 | Sign in | A rounded rectangle at 12px, never a pill. It is the Bone-on-Forest main button (`button-on-brand`, §5 Buttons, clash 3). Hover fills with `--surface-on-brand-hover` and the text stays Forest (9.46:1). `button-on-brand-hover` in the frontmatter records it | Clashes 12 and 29 |
-| Signed in | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state, so the trigger's Forest styling is open | AECI-1771 |
+| Signed in | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state. AECI-1771 set it: 44px, a `--surface-on-brand-wash` fill (8.31:1 for the Bone glyph), a 1px edge from the unlayered `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong` (4.01:1; the same edge sits on the menu toggle and the search icon button), `--surface-on-brand-wash-hover` on hover and the Bone ring by plain utility. A rendered check in `e2e/nav-menu.spec.ts` pins the edge and ring colours. The pending-review badge keeps its error fill with white text and takes a 2px Bone ring (`--text-on-brand`, 11.03:1 against Forest) as its edge | AECI-1771 |
 | Focus ring | Bone (`--focus-ring-on-brand`), 3px at 3px offset, on every control on Forest. A Forest ring is invisible there | §2, AECI-1747 |
 
 - **Link type.** Nav links are `--t-16` at weight 400, the ramp's "Body, nav links" role (§3). The label is Bone with no opacity change. The mock-up dims it to 92% opacity (line 42), and the `no-color-opacity-modifier` source-constraint rule (AECI-1747, on the batch branch) bars a `/NN` alpha on a colour utility. Clash 6 says every colour is a named token.
@@ -1744,7 +1744,7 @@ The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They
 - **Link shape.** §4 hands the nav hover shape to this section. The mock-up's hover wash is a pill (line 42). It is a hover fill on a text link and not a button, so clash 12's "no pill buttons" does not reach it. Chris to confirm.
 - **Wordmark size.** Starting value 32px high, and 28px below `md` (mock-up lines 497 and 611).
 - **Every control has a spoken name.** The wordmark link's name is "AEC Integrations home". The toggle and the search field are named under their own headings.
-- **Starting values** (mock-up 6, default state): header height `76px`, `64px` below `md` (lines 36 and 553). Gap between header parts `32px` (36). Link padding `12px 16px`, gap between links `8px` (41, 42). Sign in is `44px` high with `16px` side padding at `14px` and weight 600 (44). `button-on-brand` has 24px side padding. The header control is the compact form of the same button, like the ghost button's 16px, so the header row stays inside its width budget. AECI-1771 confirms the 16px against that budget.
+- **Starting values** (mock-up 6, default state): header height `76px`, `64px` below `md` (lines 36 and 553). Gap between header parts `32px` (36). Link padding `12px 16px`, gap between links `8px` (41, 42). AECI-1771 settled the shipped row at `10px` side padding and `4px` gaps, because the six-item row would not fit at 1024px with the contract's values. Below `md` the header is `64px` and the wordmark `28px`. From `md` the wordmark is `32px`. Sign in is `44px` high with `16px` side padding at `14px` and weight 600 (44). `button-on-brand` has 24px side padding. The header control is the compact form of the same button, like the ghost button's 16px, so the header row stays inside its width budget. AECI-1771 confirmed the 16px against that budget.
 
 #### Active route and the Clay bar (clash 28, new)
 
@@ -1914,10 +1914,21 @@ These rows are outside the public shell and keep the current rule.
 
 #### Handover breakpoint and the width budget
 
-The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec-nav-menu` is `lg:hidden`). Clash 29 asks for `md`: the mock-up shows its inline row from 760px, which maps to `md`, and its search pill from 1040px, which maps to `lg`. The row is held at `lg` until AECI-1771 measures the three-link row.
+The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec-nav-menu` is `lg:hidden`). Clash 29 asks for `md`: the mock-up shows its inline row from 760px, which maps to `md`, and its search pill from 1040px, which maps to `lg`. The row is held at `lg`. AECI-1771 measured the shipped six-item row, and AECI-1774 measures the three-link row when it lands.
 
 - **The old measurement is retired.** AECI-669 measured a six-item row at 768px and found it 127px over. The row now has three links, so that table no longer applies. The mock-up's own handover has not been measured in code.
-- **A new primary destination is a re-measure at 1024px,** not an insert. AECI-1771 re-measures the three-link row at `md` and `lg`, signed out (the wider case), against the pill and Sign in. Three classes move together if the handover moves: the row's `lg:flex`, `aec-nav-menu`'s `lg:hidden` and the search trigger's `lg:block`. A mismatch renders two Primary landmarks, or none, or leaves a band with no search.
+- **A new primary destination is a re-measure at 1024px,** not an insert. AECI-1774 re-measures the three-link row at `md` and `lg`, signed out (the wider case), against the pill and Sign in. Three classes move together if the handover moves: the row's `lg:flex`, `aec-nav-menu`'s `lg:hidden` and the search trigger's `lg:block`. A mismatch renders two Primary landmarks, or none, or leaves a band with no search.
+- **Measured by AECI-1771, 2026-11-14,** signed out, on Forest, with the row as shipped (Home, Products and the four facet flyouts, 16px links, 10px side padding, 4px gaps). The handover stays at `lg`.
+
+  | Width | Content box | Row needs | Result |
+  | -- | -- | -- | -- |
+  | 768px, inline row at `md` (wordmark 209, row 505, Sign in 77, two 32px gaps) | 704px | 855px | 151px over. Does not fit. The hamburger stays through `md` |
+  | 1024px (wordmark 209, row 505, search icon and Sign in 133, two 16px gaps) | 960px | 879px | Fits with 81px spare. About 847px with the account trigger, which is narrower than Sign in |
+  | 1280px (wordmark 209, row 505, search box and Sign in 297, two 32px gaps) | 1216px | 1075px | Fits with 141px spare |
+
+  The three-link row (Browse, How we rank, For vendors) is narrower than this six-item row, so it fits at `lg` with more room. At `md` it was not measured in code, because the Browse menu does not exist yet (AECI-1774).
+- **The link row "Browse, How we rank, For vendors" ships with AECI-1774.** AECI-1771 ships the Forest ground, ink, rings, Sign in and the account trigger now, and keeps Home, Products and the four flyouts. Replacing them first would strand `/categories`, `/trades`, `/audiences` and `/phases` for a desktop visitor until the Browse menu carries them, so they stay reachable until that swap.
+- **The focus ring is a plain utility.** Since AECI-1845 the global `:focus-visible` colour sits in `@layer base`, so `focus-visible:outline-(--focus-ring-on-brand)` works with no `!` and no component CSS. The class sets are in `layout/header-link-classes.ts`. The header search field takes that set through `SearchAutocomplete`'s `focusRingClass` input, so it carries one ring set only.
 - **Reflow.** Nothing clips at 320px or at 200% zoom, and a text label never wraps inside the header row.
 
 **The Overflow Rule (rewritten by clash 26).** The primary row is width-budgeted, public-only and closed. It now carries three things: Browse, How we rank and For vendors.
@@ -1928,7 +1939,7 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 
 **Why the doors are in the account menu, not the row.** The row is the site and the avatar is you and what you can operate. The row renders on cached, URL-keyed, indexable pages and must look the same to everyone. A private, `noindex`, role-gated door in it would make the row's width depend on who is looking, against the closed width budget. The account menu is already the viewer-dependent region. It only mounts when signed in, and it already held the Vendor portal door. Putting Admin beside it makes the two portals symmetric.
 
-**Both doors are one link each**: "Admin portal" to `/admin` and "Vendor portal" to `/vendor`, in sentence case. User-facing copy says portal, never dashboard (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.3). Neither restates its portal's sections. The pending-review badge sits on the account-menu trigger, following the Admin door. Its colour pairing on Forest is not measured and is AECI-1771's.
+**Both doors are one link each**: "Admin portal" to `/admin` and "Vendor portal" to `/vendor`, in sentence case. User-facing copy says portal, never dashboard (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.3). Neither restates its portal's sections. The pending-review badge sits on the account-menu trigger, following the Admin door. AECI-1771 measured its pairing on Forest: white text on the error fill, with a 2px Bone ring (`--text-on-brand`, 11.03:1 against Forest) as its edge.
 
 **Nothing role-gated may reach server-rendered HTML.** Both doors are gated on the shared, browser-only role probe (`auth/role-status.ts`), which reports `null` during SSR. This is the header-side complement to `/admin/*` being non-cacheable.
 
@@ -1936,9 +1947,8 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 
 | Open value | Why it is open | Owner |
 | -- | -- | -- |
-| The header's handover breakpoint and the three-link width budget | Needs a measurement at `md` and `lg`, signed out | AECI-1771 |
-| The signed-in account trigger and the pending-review badge on Forest | No mock-up draws them, and neither pairing is measured | AECI-1771 |
-| Whether the account menu's items move off weight 500 | The ramp allows 400 and 600 | AECI-1771 |
+| The three-link row's width at `lg`, once the Browse menu replaces the six-item row | AECI-1771 held the handover at `lg` and measured the shipped row (see "Handover breakpoint"). The three-link row is re-measured when AECI-1774 lands it | AECI-1774 |
+| Whether the account menu's items move off weight 500 | The ramp allows 400 and 600. The panel rule (clash 10) lands with the Browse menu panels, and the account panel should match them, so AECI-1771 left it | AECI-1774 |
 | The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
 | The pill's width bands | See "Header search". The "/" shortcut's WCAG 2.1.4 mechanism is a requirement, not an open value | AECI-1772 |
 | Where the grace timing lives, and the panel layout between the handover and about 1200px (the floor is set) | See "The Browse menu" | AECI-1774 |
