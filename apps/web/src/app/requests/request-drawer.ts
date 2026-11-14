@@ -18,6 +18,7 @@ import {
 
 import { RequestDrawerService } from './request-drawer.service';
 import { RequestFormBody } from './request-form-body';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * In-place claim/correction drawer (AECI-128) — a bottom-right floating card (a
@@ -41,7 +42,14 @@ import { RequestFormBody } from './request-form-body';
  */
 @Component({
   selector: 'aec-request-drawer',
-  imports: [BrnDialog, BrnDialogContent, BrnDialogTitle, BrnDialogDescription, RequestFormBody],
+  imports: [
+    AecIcon,
+    BrnDialog,
+    BrnDialogContent,
+    BrnDialogTitle,
+    BrnDialogDescription,
+    RequestFormBody,
+  ],
   // backdropClass / scrollStrategy aren't BrnDialog @Inputs — they're set via the
   // default-options token. A transparent backdrop keeps the page visible (the
   // 50%-dim default is overridden by `.aeci-drawer-backdrop` in styles.css);

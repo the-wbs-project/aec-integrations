@@ -18,6 +18,7 @@ import { IntegrationListFilter } from './integration-list-filter';
 import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" section on a
@@ -86,7 +87,14 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
   // different element.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-powered-hub]',
-  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter, RequestTrigger],
+  imports: [
+    AecIcon,
+    RouterLink,
+    LogoOrInitial,
+    IntegrationGroupCard,
+    IntegrationListFilter,
+    RequestTrigger,
+  ],
   template: `
     <!-- Heading row: title left, filter right. The filter lives HERE rather
          than in a band under the heading so an idle one costs no vertical
@@ -237,21 +245,16 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
-                  <svg
-                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
+                  <aec-icon
+                    class="text-(--text-tertiary)"
+                    name="chevron-right"
+                    decorative
+                    [size]="4"
+                    [mirrorRtl]="true"
+                  />
                 </a>
               </li>
             }
@@ -323,21 +326,16 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                       >{{ objects }}</span
                     >
                   }
-                  <!-- Navigation affordance, not direction: the Lucide chevron
+                  <!-- Navigation affordance, not direction: the aec-icon chevron
                        ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
                        AECI-919, applied here by AECI-1117). -->
-                  <svg
-                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
+                  <aec-icon
+                    class="text-(--text-tertiary)"
+                    name="chevron-right"
+                    decorative
+                    [size]="4"
+                    [mirrorRtl]="true"
+                  />
                 </a>
               </li>
             }
