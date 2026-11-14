@@ -256,6 +256,7 @@ import { Chip } from '../shared/chip/chip';
             @if (p.review_count > 0) {
               <a
                 [href]="'/products/' + p.slug + '#reviews'"
+                data-smooth-scroll
                 class="text-sm font-semibold text-(--text-secondary) no-underline transition-colors
                   hover:text-(--accent-primary) focus-visible:outline-none
                   focus-visible:rounded-(--radius-sm) focus-visible:ring-2

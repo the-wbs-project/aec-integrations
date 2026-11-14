@@ -33,7 +33,7 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 **Keyboard-only (every surface):**
 - [ ] A visible focus indicator is present on every interactive element; focus order matches reading order.
 - [ ] No keyboard trap; `Tab`/`Shift+Tab` reach and leave every control; `Esc` closes overlays/menus and returns focus to the trigger.
-- [ ] "Skip to content" works; landmarks (`header`/`nav`/`main`/`footer`) are reachable.
+- [ ] "Skip to content" works **on a non-home page** (`/products/{slug}`, a `/docs` article): Enter keeps the URL path and moves focus into `main`, with no page load (AECI-1839); landmarks (`header`/`nav`/`main`/`footer`) are reachable.
 - [ ] All actions (links, buttons, filters, form submit, menu) are operable without a pointer.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
@@ -133,8 +133,8 @@ questions the machine pass could not answer.
 
 | # | Surface | Keys | Expected announcement | ✅/❌ |
 |---|---|---|---|---|
-| V1 | `/` | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
-| V2 | `/` | `Return` on it, then `VO+Right` | The cursor should move **into the main content**, not stay in the header. *(H1: `<main>` has no `tabindex="-1"`, so this is the open question.)* | ☐ |
+| V1 | `/products/{slug}` (not `/`: the old link only worked there) | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
+| V2 | `/products/{slug}` | `Return` on it, then `VO+Right` | The URL path does not change and the page does not reload. The cursor moves **into the main content**, not the header. *(H1: `<main>` has had `tabindex="-1"` since AECI-1839, so this confirms the virtual cursor follows.)* | ☐ |
 | V3 | `/` | `VO+U`, choose **Landmarks** | Distinct entries: "Site search" (at desktop widths), "Search the directory" and "Do these two connect?". *(A5, fixed by AECI-830.)* | ☐ |
 | V4 | `/` | `VO+U`, choose **Links** | Three "Source" entries, each naming its figure and publisher, for example "Source for the $27K paid visibility figure, Vendr, opens in a new tab". *(A4, fixed by AECI-830.)* | ☐ |
 | V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
