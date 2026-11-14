@@ -1352,6 +1352,19 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
     expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
   });
 
+  // AECI-1769: the subject's logo renders once, in the slot beside the note, and the
+  // claimed-only 64px slot never shows it.
+  it('renders an unclaimed product logo only beside the note', () => {
+    const LOGO = 'https://cdn.example.com/a.png';
+    const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: LOGO }));
+    const el = fixture.nativeElement as HTMLElement;
+    const imgs = [...el.querySelectorAll('img')].filter((i) => i.getAttribute('src') === LOGO);
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]!.closest('aec-logo-or-initial')?.nextElementSibling?.tagName).toBe(
+      'AEC-UNCLAIMED-NOTE',
+    );
+  });
+
   it('shows the wording with no logo', () => {
     const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: null }));
     expect(

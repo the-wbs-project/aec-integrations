@@ -46,6 +46,19 @@ function setup(initial: AlgoliaProductRecord = baseRecord) {
 }
 
 describe('SearchProductCard', () => {
+  // AECI-1769: the Algolia record carries `logo_url: null` for an unclaimed product
+  // (AECI-1618), so the hit shows the initial tile. A claimed product's logo shows.
+  it('shows the initial tile for an unclaimed hit and the logo for a claimed one', () => {
+    const unclaimed = setup({ ...baseRecord, logo_url: null });
+    expect(unclaimed.querySelector('aec-logo-or-initial img')).toBeNull();
+    expect(unclaimed.querySelector('aec-logo-or-initial span[aria-hidden]')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const claimed = setup({ ...baseRecord, logo_url: 'https://cdn.example.com/p.png' });
+    expect(claimed.querySelector('aec-logo-or-initial img')?.getAttribute('src')).toBe(
+      'https://cdn.example.com/p.png',
+    );
+  });
+
   it('links the whole card to /products/:slug', () => {
     const el = setup();
     const link = el.querySelector('a[href="/products/procore"]');

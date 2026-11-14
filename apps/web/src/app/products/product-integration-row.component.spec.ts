@@ -69,6 +69,18 @@ function setup(overrides: Partial<Host> = {}) {
 }
 
 describe('ProductIntegrationRow', () => {
+  // AECI-1769: the partner is a `ProductLink`, whose logo the API withholds while the
+  // partner is unclaimed (AECI-1618). The row renders exactly what it is sent.
+  it('shows the partner initial tile when unclaimed and its logo when claimed', () => {
+    const unclaimed = setup({ other: signal<ProductLink>({ ...OTHER, logo_url: null }) });
+    expect(unclaimed.el.querySelector('aec-logo-or-initial img')).toBeNull();
+    TestBed.resetTestingModule();
+    const claimed = setup({
+      other: signal<ProductLink>({ ...OTHER, logo_url: 'https://cdn.example.com/bim.png' }),
+    });
+    expect(claimed.el.querySelector('aec-logo-or-initial img')).not.toBeNull();
+  });
+
   it('links the partner product name to the partner product page', () => {
     const { el } = setup();
     const link = el.querySelector('a[href="/products/autodesk-bim-360"]');

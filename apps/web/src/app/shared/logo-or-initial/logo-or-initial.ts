@@ -1,3 +1,4 @@
+import type { ClaimStatus } from '@aeci/shared';
 import { isPlatformBrowser, NgOptimizedImage } from '@angular/common';
 import {
   afterNextRender,
@@ -33,6 +34,24 @@ import {
  * `alt` is passed in (not generated) because the caller knows which case it is:
  * a logo that identifies an entity on a detail page passes `logoAlt(name)`, and
  * an inline row icon or avatar stays `''` (AECI-1569, Stage 1 §21.1).
+ *
+ * **The logo rule (AECI-1769, ADR 0056 floor 3, counsel's ruling 9).** An unclaimed
+ * listing shows the initial tile everywhere except the one place on its own page
+ * where the "not affiliated" note sits beside it. This component decides it:
+ *
+ * - A list or link payload (`ProductListItem`, `ProductLink`, `VendorLink`, an
+ *   Algolia record) carries no claim status. The API already returns `logo_url: null`
+ *   for an unclaimed listing there (AECI-1618, ADR 0051 decision 4), so the caller
+ *   passes `src` and nothing else.
+ * - A page-subject payload (`ProductDetail`, `VendorDetail`, `ProductPairSubject`)
+ *   keeps the real logo and says `claim_status`. The caller MUST pass `claimStatus`.
+ *   An unclaimed subject then renders the initial tile, unless the caller also sets
+ *   `ownPage`, which it may do only where `<aec-unclaimed-note>` sits beside the mark.
+ *   `logo-or-initial.callers.spec.ts` fails on a new caller until it is classified.
+ *
+ * The initial tile must not look lesser (`DESIGN.md` §5 "Logos and initial tiles"): a
+ * rounded logo and its tile share the box, the border and the fill, and the tile takes
+ * no muted styling.
  */
 export type LogoSize = 'lg' | 'sm';
 
@@ -54,7 +73,7 @@ export type LogoShape = 'rounded' | 'circle';
   imports: [NgOptimizedImage],
   host: { class: 'inline-flex shrink-0' },
   template: `
-    @if (src() && !failed()) {
+    @if (showLogo()) {
       <img
         [ngSrc]="src()!"
         [alt]="alt()"
@@ -94,6 +113,17 @@ export class LogoOrInitial {
    * pages a crawler can read anyway.
    */
   readonly referrerPolicy = input<string | null>(null);
+  /**
+   * The listing's claim status, when the payload carries one (a page subject). `null`
+   * for a list or link payload, whose `logo_url` the API already withholds.
+   */
+  readonly claimStatus = input<ClaimStatus | null>(null);
+  /**
+   * `true` only at the one slot on the subject's own page where `<aec-unclaimed-note>`
+   * sits beside the mark (counsel's ruling 9). It lets an unclaimed subject keep its
+   * small sourced logo there. It does nothing for a claimed listing.
+   */
+  readonly ownPage = input<boolean>(false);
 
   // Flipped by the `(error)` handler or the pre-hydration net below. Seeded from
   // `src` so a reused instance (the detail pages share one `LogoOrInitial` across
@@ -106,6 +136,11 @@ export class LogoOrInitial {
     computation: () => false,
   });
 
+  /** The logo rule, in one place (AECI-1769). See the class comment. */
+  protected readonly showLogo = computed(
+    () => !!this.src() && !this.failed() && (this.claimStatus() !== 'unclaimed' || this.ownPage()),
+  );
+
   protected readonly initial = computed(() => {
     const name = this.name();
     // `Array.from` splits on code points, so a leading emoji / surrogate pair
@@ -116,26 +151,35 @@ export class LogoOrInitial {
   protected readonly dim = computed(() => (this.size() === 'lg' ? 64 : 32));
 
   /** `circle` overrides the per-size radius; a photo is cropped, not framed, so
-   *  it also takes `object-cover` rather than the logo's `object-contain`. */
+   *  it also takes `object-cover` rather than the logo's `object-contain`.
+   *  The 32px mark is a small mark, `rounded-mark` (8px, `DESIGN.md` §4 "Radius").
+   *  The 64px radius is open (AECI-1750), so it keeps the shipped `--radius-md`. */
   private readonly radiusClass = computed(() => {
     if (this.shape() === 'circle') return 'rounded-full';
-    return this.size() === 'lg' ? 'rounded-(--radius-md)' : 'rounded-(--radius-sm)';
+    return this.size() === 'lg' ? 'rounded-(--radius-md)' : 'rounded-mark';
   });
+
+  /** The frame a rounded logo and its initial tile share, so the tile never looks
+   *  lesser (AECI-1769). The border colour is `--border-default` from the unlayered
+   *  `*` rule in `styles.css`, which beats any border-colour utility. A person's photo
+   *  stays unframed, as shipped (AECI-850). */
+  private readonly frameClass = computed(() =>
+    this.shape() === 'circle' ? '' : 'border bg-(--surface-raised)',
+  );
 
   private readonly fitClass = computed(() =>
     this.shape() === 'circle' ? 'object-cover' : 'object-contain',
   );
 
-  protected readonly imgClass = computed(() =>
-    this.size() === 'lg'
-      ? `h-16 w-16 ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) ${this.fitClass()}`
-      : `h-8 w-8 ${this.radiusClass()} ${this.fitClass()}`,
+  protected readonly imgClass = computed(
+    () =>
+      `${this.size() === 'lg' ? 'h-16 w-16' : 'h-8 w-8'} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}`,
   );
 
   protected readonly spanClass = computed(() =>
     this.size() === 'lg'
-      ? `flex h-16 w-16 items-center justify-center ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)`
-      : `flex h-8 w-8 items-center justify-center ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) font-display text-sm font-semibold text-(--text-primary)`,
+      ? `flex h-16 w-16 items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)`
+      : `flex h-8 w-8 items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display text-sm font-semibold text-(--text-primary)`,
   );
 
   constructor() {
@@ -157,7 +201,7 @@ export class LogoOrInitial {
     // event. Do NOT remove the `img.currentSrc` clause.
     afterNextRender(() => {
       if (!isPlatformBrowser(this.platformId)) return;
-      if (this.failed() || !this.src()) return;
+      if (!this.showLogo()) return;
       const img = this.host.nativeElement.querySelector('img');
       if (!img) return;
       requestAnimationFrame(() => {
