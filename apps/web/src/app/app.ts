@@ -34,7 +34,7 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
       <aec-site-header />
       <aec-legal-notice-band />
       <aec-waitlist-welcome />
-      <main id="main" class="flex-1">
+      <main id="main" tabindex="-1" class="flex-1 outline-none">
         <router-outlet />
       </main>
       <aec-site-footer />
