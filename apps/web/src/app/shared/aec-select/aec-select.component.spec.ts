@@ -118,7 +118,8 @@ describe('AecSelect', () => {
     expect(btn.getAttribute('aria-disabled')).toBe('true');
     expect(btn.hasAttribute('disabled')).toBe(false);
     expect(btn.getAttribute('tabindex')).toBe('0');
-    expect(btn.className).toContain('aria-disabled:opacity-50');
+    expect(btn.className).toContain('aria-disabled:cursor-not-allowed');
+    expect(btn.className).not.toContain('opacity');
   });
 
   it('derives stable ids from `idPrefix` rather than the module counter', () => {

@@ -242,8 +242,7 @@ export class AecSelect {
       'aec-field-control flex items-center justify-between gap-2 rounded-control border' +
       ' bg-(--surface-base) text-t-16 text-(--text-primary)' +
       ' focus-visible:outline-3 focus-visible:outline-offset-3' +
-      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed' +
-      ' aria-disabled:opacity-50';
+      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed';
     return this.layout() === 'stacked'
       ? `${base} w-full py-2 ps-4 pe-3`
       : `${base} min-w-[8rem] py-2 ps-4 pe-3`;

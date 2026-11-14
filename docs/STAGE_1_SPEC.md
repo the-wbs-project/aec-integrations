@@ -83,7 +83,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--surface-muted` | `#F4F4F5` | Interactive row hover / `focus-within` (index tables); shares the sunken value in light by design |
 | `--border-default` | `#E4E4E7` | Standard borders |
 | `--border-strong` | `#D4D4D8` | Emphasized borders |
-| `--border-input` | `#8A8A93` | Non-control 3:1 line: the scroll-box scrollbar and the dashed chart outline. No longer a control edge (AECI-1764) |
+| `--border-input` | `#8A8A93` | Non-control 3:1 line: the scroll-box scrollbar, the dashed chart outline and the suspected-automation chart fill. No longer a control edge (AECI-1764) |
 | `--text-primary` | `#0A0A0A` | Body text |
 | `--text-secondary` | `#52525B` | Supporting text |
 | `--text-tertiary` | `#71717A` | Hints, placeholders, metadata (4.83:1 on white; never on sunken/muted surfaces — re-pointed from `#A1A1AA` in AECI-230, which measured 2.56:1) |

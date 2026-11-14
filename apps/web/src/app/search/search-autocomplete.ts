@@ -149,7 +149,9 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
           inputClass() +
           ' ' +
           inputHeightClass() +
-          ' rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+          ' ' +
+          focusRingClass() +
+          ' rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)'
         "
       />
 
@@ -220,6 +222,14 @@ export class SearchAutocomplete {
   readonly inputId = input('aec-search-ac');
   /** Tailwind width utility for the input — header `w-52`, mobile `w-full`. */
   readonly inputClass = input('w-52');
+  /**
+   * The input's focus ring, as one complete utility set. The default is the 2px
+   * Forest ring for a light ground. The header on Forest passes the Bone ring, so
+   * the field carries exactly one ring set (AECI-1771).
+   */
+  readonly focusRingClass = input(
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
   /** Optional placeholder override; defaults to the localized house copy. */
   readonly placeholder = input<string | undefined>(undefined);
   /** Optional label text (already localized); defaults to the house "Search". */

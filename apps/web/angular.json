@@ -163,10 +163,16 @@
                 // (header, nav menu, search trigger, user menu, update banner,
                 // legal notice band) use four of its icons. The registry is not
                 // split: one object is cheaper than a chunk per icon (ADR 0056).
+                // AECI-1764: raised 1.09MB -> 1.10MB. Measured with `ng build`:
+                // base (`batch/redesign-shell`) at about 1,089,450 B, this branch at
+                // 1,090,474 B. The growth is ~1 kB of eager CSS: the shared field
+                // recipe (`.aec-field-control` edge, focus, error and disabled rules,
+                // the forced-colours rule and the error glyph mask). Trimmed once
+                // already (one glyph custom property, no `-webkit-mask`).
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.09MB"
+                  "maximumError": "1.10MB"
                 },
                 {
                   "type": "anyComponentStyle",

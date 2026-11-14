@@ -64,8 +64,8 @@
   --surface-muted: oklch(96.74% 0.0013 286.38); /* #F4F4F5 */
   --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
   --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
-  /* Non-control 3:1 line: the scroll-box scrollbar and the dashed "not measured"
-     chart outline. 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken. A form
+  /* Non-control 3:1 line: the scroll-box scrollbar, the dashed "not measured"
+     chart outline and the "suspected automation" chart fill. 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken. A form
      control takes --border-field, never this (AECI-1764). --border-default
      (1.25:1) stays for separators. */
   --border-input: oklch(63.63% 0.0133 286.02); /* #8A8A93 */
@@ -107,6 +107,9 @@
   /* Form/validation error text + icons (6.54:1 on white). Success maps to
      Forest, warning to Clay deep — no separate tokens. */
   --status-error: oklch(50.13% 0.1783 28.7); /* #B3261E */
+  /* Hover fill of the danger button only (AECI-1758). White text on it is
+     9.11:1. Never a text colour. */
+  --status-error-hover: oklch(42% 0.1473 28.14); /* #8C1D18 */
 
   /* ─── Forest grounds (AECI-1747; DESIGN.md §2 "Forest grounds", PLAN.md §4.1)
    *
@@ -473,6 +476,7 @@
   --color-accent-rating: var(--accent-rating);
   --color-accent-warm: var(--accent-warm);
   --color-status-error: var(--status-error);
+  --color-status-error-hover: var(--status-error-hover);
   /* AECI-1747: Forest grounds, field edge, on-brand inks, washes. Same names as :root. */
   --color-surface-hero-panel: var(--surface-hero-panel);
   --color-surface-footer: var(--surface-footer);
@@ -718,8 +722,12 @@ h3 {
 .aec-field-control {
   border-color: var(--border-field);
   border-radius: var(--radius-control);
-  box-shadow: none;
   min-height: 2.75rem;
+}
+
+.aec-field-control:is(:disabled, [aria-disabled='true']) {
+  background-color: var(--surface-sunken);
+  color: var(--text-secondary);
 }
 
 .aec-field-control:focus-visible {
@@ -731,6 +739,13 @@ h3 {
 .aec-field-control[aria-invalid='true'] {
   border-color: var(--status-error);
   border-width: 2px;
+  /* The extra 1px of edge is taken out of the padding on the top, bottom and
+     start sides, so the box size and the text position do not move when a field
+     turns invalid. The end side keeps its padding (a select's chevron room). An
+     inset box-shadow would do this without padding, but it beats the autofill
+     guard, so it is not used. These match the recipe's py-2 and ps-4. */
+  padding-block: calc(0.5rem - 1px);
+  padding-inline-start: calc(1rem - 1px);
 }
 
 /* The inline field error (FIELD_ERROR_CLASS): an alert-circle glyph 8px before
@@ -738,23 +753,15 @@ h3 {
    the registry's `alert-circle` (`shared/icon/icon-registry.ts`). It is a CSS
    mask because the error line sits in every form's template, portal and admin
    included, and no caller template changes. Colour is never the only signal. */
-.aec-field-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-}
-
 .aec-field-error::before {
+  --aec-error-glyph: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M12 7.5v5.5M12 16.5h.01'/></svg>");
   content: '';
   flex: none;
   width: 1rem;
   height: 1rem;
   margin-block-start: 0.1875rem;
   background-color: currentcolor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5M12 16.5h.01'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5M12 16.5h.01'/%3E%3C/svg%3E")
-    center / contain no-repeat;
+  mask: var(--aec-error-glyph) center / contain no-repeat;
 }
 
 /* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
@@ -768,6 +775,29 @@ h3 {
 
 .aec-on-brand-edge {
   border-color: var(--border-on-brand-strong);
+}
+
+/* The shared button's edge (AECI-1758, `shared/button/button.ts`). Unlayered for
+   the reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*`
+   rule. Every variant carries a 1px edge so all of them are 44px. Filled and
+   ghost buttons keep it transparent, which forced-colours mode paints as a real
+   edge. The secondary button's edge is `--border-strong`. */
+.aec-btn {
+  border-color: transparent;
+}
+
+.aec-btn-secondary {
+  border-color: var(--border-strong);
+}
+
+/* The error glyph is a background-painted mask, and forced colours replaces
+   background colours, which would erase it. Opt it out and paint the system
+   text colour. */
+@media (forced-colors: active) {
+  .aec-field-error::before {
+    forced-color-adjust: none;
+    background-color: CanvasText;
+  }
 }
 
 /* A scroll box whose last row may be clipped (the "About you" audience list).

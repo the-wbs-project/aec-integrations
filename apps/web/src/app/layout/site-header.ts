@@ -1,42 +1,45 @@
 /**
- * Site header.
+ * Site header, on a Forest ground (AECI-1771).
  *
- * Responsive: below `lg` it is a minimal `[☰ wordmark]` bar — the hamburger
+ * Responsive: below `lg` it is a minimal `[☰ wordmark]` bar. The hamburger
  * `aec-nav-menu` (its own `lg:hidden` host) opens an overlay that holds the
  * links, search, and Sign-in. At `lg+` the hamburger drops out and those
  * affordances render inline: a centered primary `<nav>` with the directory
- * links, plus a right-side cluster (search, Sign-in CTA), over a warm Bone
- * "shelf" that reads as editorial structure rather than chrome.
+ * links, plus a right-side cluster (search, Sign-in CTA).
+ *
+ * Forest ground (`--accent-primary`), Bone ink (`--text-on-brand`), hover wash
+ * `--surface-on-brand-wash`, Bone focus ring (`--focus-ring-on-brand`). There is
+ * no rule under the bar. The wordmark is the reversed file (`tone="on-dark"`).
+ * Class sets live in `header-link-classes.ts`.
  *
  * Search is the one affordance that changes SHAPE rather than just appearing:
- * icon-collapsed (`aec-search-trigger`) through the `lg`–`xl` band, then the
- * inline `w-52` box at `xl+`. That band used to render no search at all — the
- * hamburger ended at `lg` and the box started at `xl` — and the box genuinely
- * doesn't fit at 1024px, so the icon is what closes the gap. See
- * `search-trigger.ts` for the width budget.
+ * icon-collapsed (`aec-search-trigger`) through the `lg`-`xl` band, then the
+ * inline `w-52` box at `xl+`. See `search-trigger.ts` for the width budget.
  *
- * The row is Home · Products · Categories · Trades · Audiences · Phases.
- * AECI-158 re-pointed the directory at the taxonomy; Vendors / Integrations were
- * removed from the primary nav AND the footer (AECI-160, PO decision) — they stay
- * reachable via `sitemap.xml`, detail-page breadcrumbs, and search. Each taxonomy
- * entry links to its facet index AND opens a `aec-nav-flyout-trigger` flyout of
- * the top values by count, styled in the clean Yahoo Finance editorial pattern
- * without cluttered down-arrow buttons.
+ * The row is Home, Products, Categories, Trades, Audiences, Phases. The ruled
+ * row is Browse, How we rank, For vendors (DESIGN.md §5, clash 26), but the
+ * Browse menu that carries the facets does not exist until AECI-1774. Removing
+ * the facet flyouts first would strand `/categories`, `/trades`, `/audiences`
+ * and `/phases` for a desktop visitor, so the row stays as it was until that
+ * menu lands. Each taxonomy entry links to its facet index AND opens a
+ * `aec-nav-flyout-trigger` flyout of the top values by count.
  *
- * **The row is public-only, and closed.** The `More▾` overflow menu that used to
- * sit last is gone: its secondary destinations (Updates, Roadmap, About, Contact)
- * and Legal group are in the footer, and the `/admin` IA it duplicated is reached
- * by a single "Admin portal" door in the account menu (`user-menu.ts`, which
- * carries the reasoning). A new secondary destination goes to the **footer**, not
- * into this row and not into a header menu; a new *primary* one needs a
- * re-measure at 1024px, not just an insert (DESIGN.md §Navigation).
+ * **The row is public-only, and closed.** Secondary destinations (Updates,
+ * Roadmap, About, Contact) and Legal are in the footer, and the `/admin` IA is
+ * reached by a single "Admin portal" door in the account menu (`user-menu.ts`).
+ * A new secondary destination goes to the **footer**; a new *primary* one needs
+ * a re-measure at 1024px, not just an insert (DESIGN.md §Navigation).
+ *
+ * The active route is weight 600 plus `aria-current`: `page` on an exact match,
+ * `true` for a section. Colour never carries it alone, and the label reserves
+ * its 600 width so the row does not shift.
  *
  * The same link set renders in the overlay (`nav-menu.ts`) and footer, so only
  * one `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
  * inline nav is `display:none` below `lg`; the overlay nav never mounts at `lg+`).
  *
- * Spec: DESIGN.md §5 (Navigation); §16 Phase 1 ("Basic layout shell"); §3.1
- * (route inventory drives nav); §2a (theming); §21 (a11y).
+ * Spec: DESIGN.md §5 (Navigation, "The header on Forest"); §2 (Forest grounds);
+ * §16 Phase 1 ("Basic layout shell"); §21 (a11y).
  */
 import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
@@ -49,6 +52,7 @@ import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 
 import { BrandLogo } from './brand-logo';
+import { HEADER_LINK, HEADER_LINK_ACTIVE, ON_FOREST_FOCUS_RING } from './header-link-classes';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
 import { SearchTrigger } from './search-trigger';
@@ -67,63 +71,47 @@ import { UserMenu } from './user-menu';
     UserMenu,
   ],
   template: `
-    <header class="bg-(--surface-base)">
+    <header class="bg-(--accent-primary) text-(--text-on-brand)">
       <!--
-        The lg-band gaps are load-bearing, not taste. The previous pair
-        (lg:gap-6 here, gap-3.5 on the nav) was measured at 1024px, signed out
-        (the worst case, since "Sign in" is wider than the account icon), and it
-        fit with exactly 1px of slack once the 36px search icon was added.
-
-        Dropping the four separate down-arrow buttons (each ms-1 + w-6, so
-        4 x 28px = 112px) bought that budget back, and the nav gaps were widened
-        to spend part of it: gap-3.5 -> gap-6 over the row's five gaps costs 50px,
-        xl:gap-7 -> xl:gap-8 costs 5px more where there is room. Net at lg is
-        about 62px returned, so the row is no longer at the edge.
-
-        Re-measure at 1024 before adding anything to this row.
+        The gaps are load-bearing, not taste. AECI-1771 measured the row on Forest
+        at 768, 1024 and 1280px, signed out. The signed-in widths are an
+        estimate, not a measurement. DESIGN.md §Navigation has the table. Re-measure at 1024 before adding anything to this row.
       -->
-      <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8 lg:gap-6 xl:gap-8">
+      <div
+        class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-2.5 md:gap-8 md:py-4 lg:gap-4 xl:gap-8"
+      >
         <aec-nav-menu />
-        <aec-brand-logo />
+        <aec-brand-logo tone="on-dark" [responsive]="true" />
         <!--
           AECI-544: the inline nav takes over from the hamburger at lg, not md.
-          With four taxonomy flyouts it needs ~650px; at 768px only ~350px is
-          left after the wordmark and the sign-in button, so the last items were
-          clipped out of the viewport (already true of Phases before trades
-          joined). aec-nav-menu is lg:hidden to match, and it already lists
-          every facet, so nothing becomes unreachable between md and lg.
-          AECI-669 re-measured it after "More" was retired, and it still does not
-          fit. At 768px, signed out, the row needs 831px against a 704px content
-          box, 127px over, and the search icon and Sign in are pushed off screen.
-          The first width that fits is about 896px. DESIGN.md §Navigation has the
-          table. If this ever moves, three classes move together: this lg:flex,
+          AECI-1771 re-measured it on Forest and it still does not fit at md.
+          If this ever moves, three classes move together: this lg:flex,
           aec-nav-menu's lg:hidden and aec-search-trigger's lg:block. A mismatch
           renders two Primary nav landmarks (or none), or leaves a band with no
-          search. Any further top-level item needs the same re-measure at 1024px,
-          not just an insert. Secondary destinations belong in the footer.
+          search.
         -->
         <nav
-          class="hidden flex-1 items-center justify-center gap-6 text-sm font-medium lg:flex xl:gap-8"
+          class="hidden flex-1 items-center justify-center gap-1 lg:flex"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
           <a
             routerLink="/"
-            routerLinkActive="text-(--accent-primary)"
+            [routerLinkActive]="activeClass"
             [routerLinkActiveOptions]="{ exact: true }"
-            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.home"
+            ariaCurrentWhenActive="page"
+            [class]="linkClass"
+            [attr.data-label]="labels.home"
+            >{{ labels.home }}</a
           >
-            Home
-          </a>
           <a
             routerLink="/products"
-            routerLinkActive="text-(--accent-primary)"
-            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.products"
+            [routerLinkActive]="activeClass"
+            [ariaCurrentWhenActive]="true"
+            [class]="linkClass"
+            [attr.data-label]="labels.products"
+            >{{ labels.products }}</a
           >
-            Products
-          </a>
           <aec-nav-flyout-trigger kind="category" [items]="taxonomy.categoriesTop10()" />
           <aec-nav-flyout-trigger kind="trade" [items]="taxonomy.tradesTop10()" />
           <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
@@ -131,21 +119,23 @@ import { UserMenu } from './user-menu';
         </nav>
         <div class="hidden items-center gap-3 md:flex">
           <!--
-            Search renders at every width, but in three different sizes, because
-            the row's slack varies by ~250px across the desktop range:
-              below lg → inside the hamburger overlay (aec-nav-menu)
-              lg – xl  → the icon-collapsed aec-search-trigger (~36px; the box
-                         does not fit; at 1024px the row has ~1px spare)
-              xl+      → the inline w-52 box below
+            Search renders at every width, but in three different sizes:
+              below lg: inside the hamburger overlay (aec-nav-menu)
+              lg to xl: the icon-collapsed aec-search-trigger
+              xl+: the inline w-52 box below
             aec-search-trigger owns its own "hidden lg:block xl:hidden" band, so
-            the three mounts hand off without a gap. They did NOT before: the
-            hamburger stopped at lg and this box started at xl, leaving 1024-1279
-            with no search affordance at all.
+            the three mounts hand off without a gap. The search pill is
+            AECI-1772's. Here the box is only kept legible and focusable on
+            Forest: a white field, and a Bone ring (the shipped Forest ring is
+            invisible on this ground).
           -->
           <aec-search-trigger />
+          <!-- The 36px white field is an interim. AECI-1772 replaces it with
+               the 44px pill. -->
           <aec-search-autocomplete
             class="hidden xl:block"
             inputId="header-search"
+            [focusRingClass]="focusRing"
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
@@ -153,14 +143,15 @@ import { UserMenu } from './user-menu';
                default (cache-safe); SessionStatus flips to the account menu
                after hydration when a session is present (Phase 5 §4.4). The
                menu (Account / Admin / Sign out + the pending-review badge) is
-               its own component (AECI-259). -->
+               its own component (AECI-259). Sign in is the Bone main button on
+               Forest: Forest text on Bone 11.03:1, on its hover fill 9.46:1. -->
           @if (session.signedIn()) {
             <aec-user-menu />
           } @else {
             <a
               routerLink="/auth/login"
               [queryParams]="signInParams()"
-              class="inline-flex shrink-0 items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium whitespace-nowrap text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="signInClass"
               i18n="@@app.header.signIn"
             >
               Sign in
@@ -168,7 +159,6 @@ import { UserMenu } from './user-menu';
           }
         </div>
       </div>
-      <div class="h-1 w-full bg-(--accent-warm)" aria-hidden="true"></div>
     </header>
   `,
 })
@@ -178,6 +168,19 @@ export class SiteHeader {
   /** `?return=<this page>` so signing in lands back here, not on `/`. */
   protected readonly signInParams = injectSignInQueryParams();
   private readonly router = inject(Router);
+
+  protected readonly linkClass = HEADER_LINK;
+  protected readonly activeClass = HEADER_LINK_ACTIVE;
+  /** The header search field's one ring set: Bone, 3px at 3px, on Forest. */
+  protected readonly focusRing = ON_FOREST_FOCUS_RING;
+  protected readonly labels = {
+    home: $localize`:@@app.nav.home:Home`,
+    products: $localize`:@@app.nav.products:Products`,
+  };
+  /** The Bone main button at the header's compact width: 44px high, 16px sides. */
+  protected readonly signInClass =
+    'inline-flex min-h-11 shrink-0 items-center rounded-control bg-(--accent-warm) px-4 text-sm font-semibold whitespace-nowrap text-(--accent-primary) transition-colors hover:bg-(--surface-on-brand-hover) ' +
+    ON_FOREST_FOCUS_RING;
 
   protected onSearchQuery(query: string): void {
     navigateToSearchQuery(this.router, query);

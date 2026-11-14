@@ -11,8 +11,11 @@
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
  * `/welcome` and the `/account` "About you" section.
  * Light only. The strings are byte-identical to what the claim dialog had
- * inline, so moving them here changed no rendered class.
+ * inline, so moving them here changed no rendered class. The two button
+ * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
  */
+
+import { buttonClass } from '../button/button';
 
 /** A field label, or a `legend` acting as one: the uppercase overline role. */
 export const FIELD_LABEL_CLASS =
@@ -31,7 +34,7 @@ export const FIELD_OPTIONAL_CLASS = 'font-normal normal-case text-(--text-tertia
  * shadow (DESIGN.md "Inputs / Fields"). Disabled is the sunken tint, never opacity.
  */
 export const FIELD_INPUT_CLASS =
-  'aec-field-control w-full rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  'aec-field-control w-full rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) disabled:cursor-not-allowed focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
 /** Persistent help text, directly under the control. */
 export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
@@ -41,7 +44,8 @@ export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
  * (unlayered, `styles.css`) draws the alert icon before the message, so colour is
  * never the only error signal and no caller template changes.
  */
-export const FIELD_ERROR_CLASS = 'aec-field-error text-t-14 font-semibold text-(--status-error)';
+export const FIELD_ERROR_CLASS =
+  'aec-field-error flex items-start gap-2 text-t-14 font-semibold text-(--status-error)';
 
 /**
  * One bordered choice row wrapping a native radio or checkbox: the plan
@@ -54,13 +58,15 @@ export const CHOICE_CARD_CLASS =
 export const CHOICE_INPUT_CLASS =
   'size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
-/** The primary action: Continue, Send, Save. */
-export const BUTTON_PRIMARY_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+/**
+ * The primary action: Continue, Send, Save. The `aecButton` recipe
+ * (`shared/button/button.ts`, AECI-1758), so every caller binding `[class]` to it
+ * renders the shared button. New code uses `<button aecButton>` instead.
+ */
+export const BUTTON_PRIMARY_CLASS = buttonClass('primary');
 
-/** The secondary action beside it: Back, Skip, Not now. */
-export const BUTTON_SECONDARY_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+/** The secondary action beside it: Back, Skip, Not now. `aecButton variant="secondary"`. */
+export const BUTTON_SECONDARY_CLASS = buttonClass('secondary');
 
 /**
  * The action row under a form: secondary at the start, primary at the end.
