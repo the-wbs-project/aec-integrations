@@ -1052,6 +1052,9 @@ function makeEdge(source: ProductLink, target: ProductLink): ProductIntegrationI
     context_direction: 'outbound',
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
   };

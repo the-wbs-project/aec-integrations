@@ -57,6 +57,9 @@ const nullRow: ProductIntegrationItem = {
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };
@@ -104,6 +107,12 @@ function renderRow(integration: ProductIntegrationItem, merged = false): string 
 
 const listItem = (slug: string, name: string) => ({
   claim_status: 'claimed' as const,
+  categories: [],
+  audiences: [],
+  phases: [],
+  trades: [],
+  api_docs_url: null,
+  tool_integrations_url: null,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,

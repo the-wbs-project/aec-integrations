@@ -1,7 +1,7 @@
 /**
  * Phase 2.8 (AECI-54) taxonomy aggregate endpoint — Drizzle/D1 (ADR 0016 / AECI-253).
  *
- *   GET /api/taxonomy → { categories, audiences, phases, trades }
+ *   GET /api/taxonomy → { categories, audiences, phases, trades, total_products }
  *
  * Each list ships `TaxonomyTermWithCount[]` (counts via the per-term `extras`
  * subquery). `trades` (§5.5a / AECI-541) is ungated — sub-floor terms are
@@ -35,6 +35,7 @@ import {
 } from '../lib/drizzle-helpers';
 import { textAsc } from '../lib/collation';
 import { displayOrderAsc } from '../lib/display-order';
+import { computeTotalProducts } from '../lib/home-stats';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 const CACHE_KEY = 'taxonomy:v1';
@@ -56,7 +57,7 @@ export function createTaxonomyHandler(
     }
 
     const { db } = dbFor(c.env);
-    const [categories, audiences, phases, trades] = await Promise.all([
+    const [categories, audiences, phases, trades, totalProducts] = await Promise.all([
       db.query.taxonomyCategories.findMany({
         ...categoryTermConfig,
         orderBy: [
@@ -78,6 +79,8 @@ export function createTaxonomyHandler(
         ...tradeTermConfig,
         orderBy: [...displayOrderAsc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
       }),
+      // Same visibility rule as `home.total_products` (AECI-1773).
+      computeTotalProducts(db),
     ]);
 
     const body: TaxonomyResponse = {
@@ -85,6 +88,7 @@ export function createTaxonomyHandler(
       audiences: audiences.map(toTaxonomyTermWithCount),
       phases: phases.map(toTaxonomyTermWithCount),
       trades: trades.map(toTaxonomyTermWithCount),
+      total_products: totalProducts,
     };
 
     validateResponseInDev(c.env, () => {
