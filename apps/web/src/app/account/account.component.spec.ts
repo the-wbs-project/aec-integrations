@@ -532,6 +532,13 @@ describe('AccountPage', () => {
     expect(dialogLine?.textContent?.replace(/\s+/g, ' ')).toContain(
       'with your name removed. The text may still identify you.',
     );
+    // The destructive confirmation is the shared danger button, not a primary.
+    const confirm = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete my account',
+    ) as HTMLButtonElement;
+    expect(confirm.getAttribute('data-variant')).toBe('danger');
+    expect(confirm.getAttribute('type')).toBe('button');
+    expect(confirm.className).toContain('bg-(--status-error)');
   });
 
   // ── AECI-1637: the sign-in Terms acceptance record is kept ────────────

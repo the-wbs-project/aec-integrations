@@ -73,8 +73,8 @@ test.describe('/auth/login — login page (AECI-194)', () => {
         anonKey: 'e2e-anon-key',
       };
     });
-    // Any host: CI has no config and uses the stub above, but a local run with a
-    // configured `.dev.vars` injects the real one after the init script.
+    // Any host. The Content-Security-Policy allows only the real Supabase host, so this
+    // test needs it in `.dev.vars` (CI writes it). A worktree without `.dev.vars` fails here.
     await page.route('**/auth/v1/otp**', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     );

@@ -551,7 +551,13 @@
                 >
                   Cancel
                 </button>
-                <button aecButton type="button" (click)="onConfirmDelete()" [disabled]="deleting()">
+                <button
+                  aecButton
+                  variant="danger"
+                  type="button"
+                  (click)="onConfirmDelete()"
+                  [disabled]="deleting()"
+                >
                   @if (deleting()) {
                   <span i18n="@@account.delete.deleting">Deleting…</span>
                   } @else {
