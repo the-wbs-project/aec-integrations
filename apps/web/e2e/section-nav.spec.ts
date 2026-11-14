@@ -174,6 +174,8 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
 
   test('a deep link lands the section below the bar and marks it current', async ({ page }) => {
     const path = await openProduct(page);
+    // A fresh document load, not a same-document hash change from the page openProduct left.
+    await page.goto('about:blank');
     await page.goto(`${path}#reviews`);
     await untilHydrated(page.locator('aec-section-nav'));
     await expect(page.locator('#reviews-title')).toBeInViewport();
