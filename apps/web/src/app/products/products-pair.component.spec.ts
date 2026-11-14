@@ -1609,6 +1609,37 @@ describe('ProductsPairPage unclaimed wording (AECI-1618)', () => {
     );
   });
 
+  // AECI-1769: both subjects carry a logo. The unclaimed side shows it only beside its
+  // note, at 32px. The claimed side keeps its 64px logo.
+  it('shows the unclaimed side logo only beside its note in a mixed pair', () => {
+    const { fixture } = setup(
+      buildPair({
+        context_product: {
+          ...productListItem('procore', 'Procore'),
+          logo_url: 'https://cdn.example.com/procore.png',
+          claim_status: 'claimed',
+        },
+        other_product: {
+          ...productListItem('revit', 'Revit'),
+          logo_url: 'https://cdn.example.com/revit.png',
+          claim_status: 'unclaimed',
+        },
+      }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const imgs = (src: string) =>
+      [...el.querySelectorAll('img')].filter((i) => i.getAttribute('src') === src);
+    const revit = imgs('https://cdn.example.com/revit.png');
+    expect(revit).toHaveLength(1);
+    expect(revit[0]!.getAttribute('width')).toBe('32');
+    expect(revit[0]!.closest('aec-logo-or-initial')?.nextElementSibling?.tagName).toBe(
+      'AEC-UNCLAIMED-NOTE',
+    );
+    const procore = imgs('https://cdn.example.com/procore.png');
+    expect(procore).toHaveLength(1);
+    expect(procore[0]!.getAttribute('width')).toBe('64');
+  });
+
   it('marks only the unclaimed side of a mixed pair', () => {
     const { fixture } = setup(
       buildPair({
