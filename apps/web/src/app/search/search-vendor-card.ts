@@ -1,6 +1,8 @@
 import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard } from '../shared/card/card';
+
 import type { AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
 import { IntegrationStat } from '../products/integration-stat';
@@ -19,28 +21,27 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  */
 @Component({
   selector: 'aec-search-vendor-card',
-  imports: [RouterLink, IntegrationStat, LogoOrInitial],
-  host: { class: 'block h-full' },
+  imports: [RouterLink, AecCard, IntegrationStat, LogoOrInitial],
+  host: { class: 'group/card block h-full' },
   template: `
-    <a
-      [routerLink]="['/vendors', record().slug]"
-      class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-        bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
-        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    >
+    <div aecCard interactive class="flex h-full flex-col gap-4 p-6">
       <div class="flex items-start justify-between gap-3">
         <aec-logo-or-initial [src]="record().logo_url" [name]="record().company_name" size="sm" />
         <aec-integration-stat [count]="record().integration_count" variant="badge" />
       </div>
       <div class="min-w-0 flex-1">
-        <p class="truncate font-display text-lg font-semibold text-(--text-primary)">
-          {{ record().company_name }}
+        <p class="truncate font-display text-t-20 leading-tight font-semibold">
+          <a
+            [routerLink]="['/vendors', record().slug]"
+            class="text-(--text-primary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
+            >{{ record().company_name }}</a
+          >
         </p>
         @if (record().headquarters; as hq) {
           <p class="mt-0.5 truncate text-sm text-(--text-secondary)">{{ hq }}</p>
         }
       </div>
-    </a>
+    </div>
   `,
 })
 export class SearchVendorCard {

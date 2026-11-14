@@ -1,6 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard, CARD_GRID_CLASS } from '../shared/card/card';
+
 import type { ProductListItem } from '@aeci/shared';
 
 import { RatingSummary } from '../reviews/rating-summary';
@@ -28,18 +30,12 @@ import { RoleBadge } from './role-badge';
  */
 @Component({
   selector: 'aec-product-card-grid',
-  imports: [RouterLink, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
+  imports: [RouterLink, AecCard, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
   template: `
-    <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <ul role="list" [class]="gridClass">
       @if (featured(); as product) {
-        <li class="sm:col-span-2 lg:col-span-2">
-          <a
-            [routerLink]="['/products', product.slug]"
-            class="flex h-full flex-col gap-4 rounded-(--radius-lg) border border-(--border-default)
-              bg-(--accent-warm) p-6 no-underline transition-colors hover:border-(--border-strong)
-              focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              md:p-8"
-          >
+        <li class="group/card md:col-span-2">
+          <div aecCard interactive tone="warm" class="flex h-full flex-col gap-4 p-6 md:p-8">
             <div class="flex items-start justify-between gap-4">
               <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="lg" />
               @switch (featuredEyebrow()) {
@@ -60,8 +56,12 @@ import { RoleBadge } from './role-badge';
               }
             </div>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-2xl font-semibold text-(--text-primary) md:text-3xl">
-                {{ product.name }}
+              <p class="font-display text-2xl leading-tight font-semibold md:text-3xl">
+                <a
+                  [routerLink]="['/products', product.slug]"
+                  class="text-(--text-primary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
+                  >{{ product.name }}</a
+                >
               </p>
               <p class="mt-1 text-sm text-(--text-secondary)">
                 @if (product.vendor; as v) {
@@ -87,25 +87,24 @@ import { RoleBadge } from './role-badge';
               [reviewCount]="product.review_count"
             />
             <aec-integration-stat [count]="product.integration_count" variant="headline" />
-          </a>
+          </div>
         </li>
       }
 
       @for (product of rest(); track product.id) {
-        <li>
-          <a
-            [routerLink]="['/products', product.slug]"
-            class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-              bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
-              focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >
+        <li class="group/card">
+          <div aecCard interactive class="flex h-full flex-col gap-4 p-6">
             <div class="flex items-start justify-between gap-3">
               <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="sm" />
               <aec-integration-stat [count]="product.integration_count" variant="badge" />
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate font-display text-lg font-semibold text-(--text-primary)">
-                {{ product.name }}
+              <p class="truncate font-display text-t-20 leading-tight font-semibold">
+                <a
+                  [routerLink]="['/products', product.slug]"
+                  class="text-(--text-primary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
+                  >{{ product.name }}</a
+                >
               </p>
               <p class="mt-0.5 truncate text-sm text-(--text-secondary)">
                 @if (product.vendor; as v) {
@@ -127,13 +126,15 @@ import { RoleBadge } from './role-badge';
               [ratingOverall]="product.rating_overall_avg"
               [reviewCount]="product.review_count"
             />
-          </a>
+          </div>
         </li>
       }
     </ul>
   `,
 })
 export class ProductCardGrid {
+  protected readonly gridClass = CARD_GRID_CLASS;
+
   readonly products = input.required<readonly ProductListItem[]>();
   /**
    * When true, the first product is promoted to the wide "broken-grid" lead
