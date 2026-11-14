@@ -135,7 +135,7 @@ import { UserMenu } from './user-menu';
           <aec-search-autocomplete
             class="hidden xl:block"
             inputId="header-search"
-            inputClass="w-52 focus-visible:outline-(--focus-ring-on-brand)"
+            [focusRingClass]="focusRing"
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
@@ -171,6 +171,8 @@ export class SiteHeader {
 
   protected readonly linkClass = HEADER_LINK;
   protected readonly activeClass = HEADER_LINK_ACTIVE;
+  /** The header search field's one ring set: Bone, 3px at 3px, on Forest. */
+  protected readonly focusRing = ON_FOREST_FOCUS_RING;
   protected readonly labels = {
     home: $localize`:@@app.nav.home:Home`,
     products: $localize`:@@app.nav.products:Products`,

@@ -30,6 +30,8 @@ export interface SourceConstraintRule {
    * rules.
    */
   readonly allow?: readonly string[];
+  /** Also test each line joined to the next, for a violation split across two lines. */
+  readonly joinNextLine?: boolean;
 }
 
 /** A single line that matched a rule. */

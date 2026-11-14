@@ -1,12 +1,22 @@
 /**
- * Forces router-driven scroll restoration to be *instant* while keeping the
- * global `html { scroll-behavior: smooth }` rule (styles.css) for same-page
- * anchor jumps.
+ * Forces router-driven scroll restoration to be *instant* whenever smooth
+ * scrolling is on for `<html>`.
+ *
+ * Since AECI-1752 smooth scrolling is not global: the smooth-scroll class on `<html>`
+ * (styles.css) is on only for the span of one in-page link jump
+ * (`core/in-page-smooth-scroll.ts`), or always if someone flips the switch back
+ * to the old global behaviour. This manager is what keeps router scrolls instant
+ * in both cases, so keep it even though the global rule is gone.
  *
  * `provideRouter(..., withInMemoryScrolling({ scrollPositionRestoration:
  * 'enabled' }))` (see `app.config.ts`) resets scroll on navigation via
- * `ViewportScroller`, which calls `window.scrollTo(x, y)` — and that honors the
- * CSS `scroll-behavior: smooth`. Left alone, every route change would *animate* a
+ * `ViewportScroller`, which calls `window.scrollTo(x, y)` — and that honors a
+ * smooth CSS `scroll-behavior`. (Angular 22's `RouterScroller` passes
+ * `behavior: 'instant'` when it restores a saved position on Back/Forward, but
+ * not for the scroll to the top of a forward navigation or for an anchor
+ * scroll. Those two still need this manager. `e2e/scroll-restoration.spec.ts`
+ * "a route change clicked mid-jump opens the new page at the top" fails
+ * without it.) Left alone, every route change would *animate* a
  * glide to the top (a visible flash of the new page's lower content, then a
  * smooth scroll up) instead of an instant jump.
  *
@@ -34,16 +44,21 @@
  * - Cancelled / errored navigations never scroll, so they restore immediately;
  *   skipped navigations restore deferred (they may still scroll on a same-URL nav).
  *
- * The section-nav "On this page" links and the `#main` skip-link are plain
- * `<a href="…#id">` clicks the browser handles as same-document scrolls. They
- * *do* still reach this manager: a fragment navigation fires `popstate`, which
+ * The in-page section links (the product section nav, the docs "On this page"
+ * rail, the account and vendor integration navs) are plain `<a href="{path}#id">`
+ * clicks the browser handles as same-document scrolls. They *do* still reach
+ * this manager: a fragment navigation fires `popstate`, which
  * Angular's `HistoryStateManager` turns into a router navigation, so an anchor
  * click briefly toggles `scroll-behavior: auto` here too. It is not visible,
  * because the browser has already started its own scroll and
  * `ScrollMarginViewportScroller` skips the router's follow-up scroll for that
  * fragment. (A follow-up used to run: it first overshot by the target's
  * `scroll-mt-20`, then desynced Safari by interrupting the smooth scroll — see
- * `core/scroll-margin-viewport-scroller.ts`.) The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
+ * `core/scroll-margin-viewport-scroller.ts`.) The skip link is not one of
+ * these today: it is a bare `href="#main"`, which `<base href="/">` resolves to
+ * `/#main`, so off the home page it loads `/` (AECI-1839). Once that is fixed
+ * it becomes a same-document jump, and it must stay instant: it does not carry
+ * `data-smooth-scroll`. The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
  * over both this inline style and the restore, so reduced-motion visitors stay
  * instant throughout — as intended.
  *

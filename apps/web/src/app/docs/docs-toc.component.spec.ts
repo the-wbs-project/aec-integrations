@@ -4,18 +4,14 @@
  * `docs-shell.component.spec.ts`.
  */
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import type { DocsHeading } from './docs-markdown';
 import { DOCS_TOC_MIN_HEADINGS, DocsTocComponent } from './docs-toc';
 
-/** A catch-all, so a clicked rail link navigates somewhere instead of erroring. */
-const ROUTES = [{ path: '**', children: [] }];
-
 function render(headings: readonly DocsHeading[]): HTMLElement {
   TestBed.resetTestingModule();
-  TestBed.configureTestingModule({ providers: [provideRouter(ROUTES)] });
+  TestBed.configureTestingModule({});
   const fixture = TestBed.createComponent(DocsTocComponent);
   fixture.componentRef.setInput('headings', headings);
   fixture.componentRef.setInput('path', '/docs/trust/how-ranking-works');
@@ -34,7 +30,8 @@ describe('DocsTocComponent', () => {
     expect(render(ONE).querySelector('nav')).toBeNull();
   });
 
-  // A bare #id would resolve against <base href="/"> and leave the page.
+  // A bare #id would resolve against <base href="/"> and leave the page. Plain
+  // anchors, opted in to the smooth in-page jump (AECI-1752).
   it('links each heading by absolute path plus fragment', () => {
     const host = render(TWO);
     const nav = host.querySelector('nav')!;
@@ -43,6 +40,9 @@ describe('DocsTocComponent', () => {
       '/docs/trust/how-ranking-works#search',
       '/docs/trust/how-ranking-works#browsing-lists',
     ]);
+    for (const a of Array.from(nav.querySelectorAll('a'))) {
+      expect(a.hasAttribute('data-smooth-scroll')).toBe(true);
+    }
   });
 
   // Each link's accessible name is its heading text, present while the rail is closed.
@@ -57,14 +57,20 @@ describe('DocsTocComponent', () => {
   // A click marks its heading current at once, before the observer catches up.
   it('moves aria-current to a clicked heading', () => {
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ providers: [provideRouter(ROUTES)] });
+    TestBed.configureTestingModule({});
     const fixture = TestBed.createComponent(DocsTocComponent);
     fixture.componentRef.setInput('headings', TWO);
     fixture.componentRef.setInput('path', '/docs/trust/how-ranking-works');
     fixture.detectChanges();
     const links = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('a'));
     expect(links.map((a) => a.getAttribute('aria-current'))).toEqual(['location', null]);
-    links[1].click();
+    // Stop jsdom following the href. The host's listener runs first, as in a
+    // browser, and never cancels the click itself.
+    const stop = (e: Event) => e.preventDefault();
+    window.addEventListener('click', stop);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    links[1].querySelector('.aec-docs-toc-label')!.dispatchEvent(click);
+    window.removeEventListener('click', stop);
     fixture.detectChanges();
     expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'location']);
   });

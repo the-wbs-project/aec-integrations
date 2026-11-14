@@ -436,4 +436,39 @@ describe('SearchAutocomplete', () => {
     expect(api.queryModel()).toBe('Revit');
     expect(input.value).toBe('Revit');
   });
+
+  describe('focus ring', () => {
+    const DEFAULT_RING = [
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-(--accent-primary)',
+    ];
+    const BONE_RING = [
+      'focus-visible:outline-3',
+      'focus-visible:outline-offset-3',
+      'focus-visible:outline-(--focus-ring-on-brand)',
+    ];
+
+    function inputOf(fixture: { nativeElement: unknown }): HTMLInputElement {
+      return (fixture.nativeElement as HTMLElement).querySelector('input')!;
+    }
+
+    it('keeps the 2px Forest ring by default, so every other caller renders as before', () => {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.detectChanges();
+      const classes = inputOf(fixture).classList;
+      for (const c of DEFAULT_RING) expect(classes).toContain(c);
+    });
+
+    it('carries exactly one ring set when the caller overrides it', () => {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.componentRef.setInput('focusRingClass', BONE_RING.join(' '));
+      fixture.detectChanges();
+      const classes = inputOf(fixture).classList;
+      for (const c of BONE_RING) expect(classes).toContain(c);
+      for (const c of DEFAULT_RING) expect(classes).not.toContain(c);
+    });
+  });
 });

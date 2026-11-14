@@ -531,6 +531,16 @@ test.describe('header on Forest (computed styles)', () => {
     expect(await computed(products, 'outline-width')).toBe('3px');
     expect(await computed(products, 'outline-offset')).toBe('3px');
 
+    // The header search field carries the same single Bone ring set.
+    const search = page.locator('#header-search');
+    await search.focus();
+    await expect(search).toBeFocused();
+    await expect
+      .poll(async () => computed(search, 'outline-color'))
+      .toBe(await tokenColor(page, '--focus-ring-on-brand', 'color'));
+    expect(await computed(search, 'outline-width')).toBe('3px');
+    expect(await computed(search, 'outline-offset')).toBe('3px');
+
     // Inside the open white flyout the ring stays Forest.
     const trigger = nav.getByRole('link', { name: 'Audiences', exact: true });
     await trigger.focus();

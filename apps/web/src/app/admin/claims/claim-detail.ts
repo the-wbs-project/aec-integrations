@@ -3,6 +3,7 @@ import { Component, afterNextRender, computed, effect, inject, signal } from '@a
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
+import { injectInPageHref } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type { AdminAuditRow, AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
@@ -74,6 +75,8 @@ const AUDIT_PAGE_SIZE = 25;
 export class ClaimDetail {
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
+  /** `{path}#admin-claim-duplicate`. A bare `#id` resolves against `<base href="/">` (AECI-1839). */
+  protected readonly duplicateHref = injectInPageHref('admin-claim-duplicate');
 
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 

@@ -160,6 +160,16 @@ describe('the section nav', () => {
     }
   });
 
+  // AECI-1752: the portal keeps its smooth in-page jump (ruling R2, tokens only).
+  it('opts every section link into the smooth in-page jump', async () => {
+    const { root } = await open(
+      `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}`,
+    );
+    const links = [...root.querySelectorAll('nav[aria-label="Integration sections"] a')];
+    expect(links).toHaveLength(5);
+    for (const a of links) expect(a.hasAttribute('data-smooth-scroll'), a.id).toBe(true);
+  });
+
   it('moves focus to the chosen section’s heading', async () => {
     const { harness, root } = await open(
       `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}`,

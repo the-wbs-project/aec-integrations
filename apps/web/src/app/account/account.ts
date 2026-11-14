@@ -343,7 +343,7 @@ export class AccountPage {
    *  call, not a `#fragment` link, because `<base href>` breaks bare fragments. */
   protected focusAbout(): void {
     const heading = this.doc.getElementById('account-about-heading');
-    heading?.scrollIntoView({ block: 'start' });
+    heading?.scrollIntoView({ block: 'start', behavior: 'instant' });
     heading?.focus();
   }
 

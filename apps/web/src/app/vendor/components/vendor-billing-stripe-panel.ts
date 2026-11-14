@@ -45,6 +45,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorApi } from '../vendor-api';
+import { focusIsLost } from '../focus-is-lost';
 import { formatPlanPrice } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { billedIntervalLabel, stripeBillingErrorMessage } from './vendor-billing-stripe-errors';
@@ -783,7 +784,7 @@ export class VendorBillingStripePanel {
       () => {
         const doc = this.host.nativeElement.ownerDocument;
         const active = doc.activeElement;
-        const lost = !active || active === doc.body || !active.isConnected;
+        const lost = focusIsLost(doc);
         if (fromDialog || lost || this.host.nativeElement.contains(active)) {
           this.panelErrorEl()?.nativeElement.focus();
         }
