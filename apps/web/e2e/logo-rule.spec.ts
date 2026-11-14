@@ -96,4 +96,43 @@ test.describe('logo rule (AECI-1769)', () => {
       logos.first().locator('xpath=ancestor::aec-logo-or-initial[1]/following-sibling::*[1]'),
     ).toHaveJSProperty('tagName', 'AEC-UNCLAIMED-NOTE');
   });
+
+  test('the pair page shows an unclaimed logo only in its subject slot, beside the note', async ({
+    page,
+  }) => {
+    const CLAIMED_LOGO = 'https://logos.e2e.invalid/procore.png';
+    await page.route('https://logos.e2e.invalid/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    // Both sides get a logo on the client-side pair read. Every product link in the
+    // payload that names either side gets it too, so an off-slot render would show.
+    await page.route(`**/api/products/${CLAIMED}/integrations/${UNCLAIMED}**`, async (route) => {
+      const res = await route.fetch();
+      const text = await res.text();
+      const withLogos = JSON.parse(text, (_key, value: unknown) => {
+        if (value && typeof value === 'object' && 'slug' in value && 'logo_url' in value) {
+          const v = value as { slug: string };
+          if (v.slug === UNCLAIMED) return { ...v, logo_url: LOGO };
+          if (v.slug === CLAIMED) return { ...v, logo_url: CLAIMED_LOGO };
+        }
+        return value;
+      }) as Record<string, unknown>;
+      await route.fulfill({ response: res, json: withLogos });
+    });
+
+    await page.goto(`/products/${CLAIMED}`);
+    const link = page.locator(`a[href$="/products/${CLAIMED}/integrations/${UNCLAIMED}"]`).first();
+    await untilHydrated(link);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/products/${CLAIMED}/integrations/${UNCLAIMED}$`));
+
+    const unclaimed = page.locator(`img[src="${LOGO}"]`);
+    await expect(unclaimed).toHaveCount(1);
+    await expect(unclaimed).toHaveAttribute('width', '32');
+    await expect(
+      unclaimed.first().locator('xpath=ancestor::aec-logo-or-initial[1]/following-sibling::*[1]'),
+    ).toHaveJSProperty('tagName', 'AEC-UNCLAIMED-NOTE');
+    // The claimed side keeps its logo, so the injection reached the page.
+    await expect(page.locator(`img[src="${CLAIMED_LOGO}"]`).first()).toBeVisible();
+  });
 });

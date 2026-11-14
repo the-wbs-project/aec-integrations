@@ -262,6 +262,21 @@ describe('LogoOrInitial', () => {
     expect(renderHost({ src: null }).root.querySelector('img')).toBeNull();
   });
 
+  it('never shows an unclaimed logo above 32px, even with ownPage (AECI-1826 open)', () => {
+    const { root } = renderHost({
+      src: LOGO,
+      name: 'Acme',
+      claimStatus: 'unclaimed',
+      ownPage: true,
+      size: 'lg',
+    });
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span[aria-hidden]')?.classList.contains('h-16')).toBe(true);
+    // A claimed listing keeps its 64px logo.
+    const claimed = renderHost({ src: LOGO, claimStatus: 'claimed', ownPage: true, size: 'lg' });
+    expect(claimed.root.querySelector('img')?.getAttribute('width')).toBe('64');
+  });
+
   it('ownPage never conjures a logo the payload does not carry', () => {
     const { root } = renderHost({ src: null, claimStatus: 'unclaimed', ownPage: true });
     expect(root.querySelector('img')).toBeNull();
@@ -286,8 +301,13 @@ describe('LogoOrInitial', () => {
     },
   );
 
-  it('rounds the 32px mark at the 8px mark radius (DESIGN.md §4 "Radius")', () => {
-    const { root } = renderHost({ src: LOGO, size: 'sm' });
-    expect(root.querySelector('img')!.classList.contains('rounded-mark')).toBe(true);
-  });
+  it.each(['lg', 'sm'] as const)(
+    'rounds the %s mark and its tile at the 8px mark radius, so the scale never inverts',
+    (size) => {
+      const logo = renderHost({ src: LOGO, size }).root.querySelector('img')!;
+      const tile = renderHost({ src: null, size }).root.querySelector('span[aria-hidden]')!;
+      expect(logo.classList.contains('rounded-mark')).toBe(true);
+      expect(tile.classList.contains('rounded-mark')).toBe(true);
+    },
+  );
 });

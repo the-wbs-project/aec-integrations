@@ -121,7 +121,9 @@ export class LogoOrInitial {
   /**
    * `true` only at the one slot on the subject's own page where `<aec-unclaimed-note>`
    * sits beside the mark (counsel's ruling 9). It lets an unclaimed subject keep its
-   * small sourced logo there. It does nothing for a claimed listing.
+   * small sourced logo there, and only at the 32px `sm` size: counsel's "keep it small".
+   * A larger unclaimed mark is the initial tile whatever the caller passes, until counsel
+   * answers AECI-1826. It does nothing for a claimed listing.
    */
   readonly ownPage = input<boolean>(false);
 
@@ -138,7 +140,10 @@ export class LogoOrInitial {
 
   /** The logo rule, in one place (AECI-1769). See the class comment. */
   protected readonly showLogo = computed(
-    () => !!this.src() && !this.failed() && (this.claimStatus() !== 'unclaimed' || this.ownPage()),
+    () =>
+      !!this.src() &&
+      !this.failed() &&
+      (this.claimStatus() !== 'unclaimed' || (this.ownPage() && this.size() === 'sm')),
   );
 
   protected readonly initial = computed(() => {
@@ -152,12 +157,11 @@ export class LogoOrInitial {
 
   /** `circle` overrides the per-size radius; a photo is cropped, not framed, so
    *  it also takes `object-cover` rather than the logo's `object-contain`.
-   *  The 32px mark is a small mark, `rounded-mark` (8px, `DESIGN.md` §4 "Radius").
-   *  The 64px radius is open (AECI-1750), so it keeps the shipped `--radius-md`. */
-  private readonly radiusClass = computed(() => {
-    if (this.shape() === 'circle') return 'rounded-full';
-    return this.size() === 'lg' ? 'rounded-(--radius-md)' : 'rounded-mark';
-  });
+   *  Both sizes take `rounded-mark` (8px, `DESIGN.md` §4 "Radius"), so the scale never
+   *  inverts. The large-mark radius is still open for Chris (AECI-1750). */
+  private readonly radiusClass = computed(() =>
+    this.shape() === 'circle' ? 'rounded-full' : 'rounded-mark',
+  );
 
   /** The frame a rounded logo and its initial tile share, so the tile never looks
    *  lesser (AECI-1769). The border colour is `--border-default` from the unlayered
