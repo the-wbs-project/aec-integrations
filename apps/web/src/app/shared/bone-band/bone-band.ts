@@ -1,9 +1,12 @@
 import { DOCUMENT } from '@angular/common';
+
+import { BAND_WRAP_CLASS } from '../band-wrap';
 import {
   ChangeDetectionStrategy,
   Component,
   afterNextRender,
   booleanAttribute,
+  computed,
   inject,
   input,
   isDevMode,
@@ -39,10 +42,7 @@ import {
   host: { class: 'block' },
   template: `
     <div class="aec-bone-band bg-(--accent-warm) text-(--text-primary)">
-      <div
-        class="mx-auto w-full max-w-[1328px] px-6 pb-16 md:px-8 md:pb-24 lg:px-12"
-        [class]="first() ? 'pt-8 md:pt-12' : 'pt-16 md:pt-24'"
-      >
+      <div [class]="wrap()">
         <ng-content />
       </div>
     </div>
@@ -51,6 +51,10 @@ import {
 export class BoneBand {
   /** The first band under the section nav: 48px above, 32px below `md`. */
   readonly first = input(false, { transform: booleanAttribute });
+
+  protected readonly wrap = computed(
+    () => `${BAND_WRAP_CLASS} pb-16 md:pb-24 ${this.first() ? 'pt-8 md:pt-12' : 'pt-16 md:pt-24'}`,
+  );
 
   private readonly doc = inject(DOCUMENT);
 

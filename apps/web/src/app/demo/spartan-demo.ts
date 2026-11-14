@@ -11,6 +11,7 @@ import {
 
 import { AecButton } from '../shared/button/button';
 import { BoneBand } from '../shared/bone-band/bone-band';
+import { Chip } from '../shared/chip/chip';
 import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 
@@ -27,6 +28,7 @@ import { AecIcon } from '../shared/icon/icon';
     BrnDialogTitle,
     BrnDialogTrigger,
     BoneBand,
+    Chip,
     HeroBand,
   ],
   template: `
@@ -211,11 +213,32 @@ import { AecIcon } from '../shared/icon/icon';
           >
             Write a review (disabled)
           </button>
+          <button
+            aecButton
+            variant="on-brand-secondary"
+            type="button"
+            data-testid="btn-on-brand-secondary"
+            i18n="@@demo.buttons.onBrandSecondary"
+          >
+            Visit website
+          </button>
+          <button
+            aecButton
+            variant="on-brand-secondary"
+            type="button"
+            disabled
+            data-testid="btn-on-brand-secondary-disabled"
+            i18n="@@demo.buttons.onBrandSecondaryDisabled"
+          >
+            Visit website (disabled)
+          </button>
         </div>
       </section>
     </section>
 
-    <!-- AECI-1766: the Forest hero band, full width, with and without a panel. -->
+    <!-- AECI-1766: the Forest hero band, full width, with and without a panel.
+         Each band renders its own h1 (the band owns it), so this probe page has
+         three h1s. A real page uses one band and renders no other h1. -->
     <section aria-labelledby="demo-hero-heading" data-testid="hero-band-specimen">
       <h2
         id="demo-hero-heading"
@@ -228,23 +251,52 @@ import { AecIcon } from '../shared/icon/icon';
         <p heroCrumbs class="text-t-14 text-(--text-on-brand-secondary)" i18n="@@demo.hero.crumbs">
           Products / Review
         </p>
-        <p heroKicker class="mt-4 text-t-14 text-(--text-on-brand)" i18n="@@demo.hero.kicker">
+        <aec-chip heroKicker link="/docs" data-testid="hero-chip" i18n="@@demo.hero.kicker">
           Maintained by the vendor
-        </p>
+        </aec-chip>
+        <div heroMark class="rounded-card bg-(--surface-base)" data-testid="hero-mark"></div>
         <span heroTitle i18n="@@demo.hero.title">A product name that is long enough to wrap</span>
         <p
-          class="mt-4 max-w-prose text-t-18 text-(--text-on-brand-secondary)"
-          i18n="@@demo.hero.lede"
+          heroByline
+          class="text-t-16 text-(--text-on-brand-secondary)"
+          data-testid="hero-byline"
+          i18n="@@demo.hero.byline"
         >
+          By <a href="/vendors" data-testid="hero-plain-link">a vendor name</a>
+        </p>
+        <p class="max-w-prose text-t-18 text-(--text-on-brand-secondary)" i18n="@@demo.hero.lede">
           One line about what the product does for the people who use it.
         </p>
-        <button heroActions aecButton variant="on-brand" type="button" i18n="@@demo.hero.action">
+        <div
+          class="mt-6 max-w-sm rounded-card bg-(--surface-base) p-4 text-(--text-primary)"
+          data-testid="hero-white-card"
+        >
+          <button
+            aecButton
+            type="button"
+            class="focus-visible:outline-(--accent-primary)"
+            data-testid="hero-white-card-button"
+            i18n="@@demo.hero.cardAction"
+          >
+            Action on a white card
+          </button>
+        </div>
+        <button
+          heroActions
+          aecButton
+          variant="on-brand"
+          type="button"
+          data-testid="hero-main-action"
+          i18n="@@demo.hero.action"
+        >
           Write a review
         </button>
         <a
           heroActions
+          aecButton
+          variant="on-brand-secondary"
           href="/docs"
-          class="inline-flex min-h-11 items-center text-(--text-on-brand) underline underline-offset-4"
+          data-testid="hero-second-action"
           i18n="@@demo.hero.link"
         >
           Visit website

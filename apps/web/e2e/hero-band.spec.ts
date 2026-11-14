@@ -49,6 +49,7 @@ async function style(loc: Locator) {
       outlineStyle: s.outlineStyle,
       outlineColor: toRgb(s.outlineColor),
       flexDirection: s.flexDirection,
+      opacity: s.opacity,
     };
   });
 }
@@ -68,6 +69,46 @@ function luminance([r, g, b]: number[]): number {
 function contrast(a: string, b: string): number {
   const [x, y] = [luminance(rgb(a)), luminance(rgb(b))];
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/**
+ * A translucent paint (a wash or an alpha edge) composited over a ground, as the
+ * browser does it in sRGB. `style()` drops alpha, so contrast needs this.
+ */
+async function paintOver(
+  loc: Locator,
+  prop: 'backgroundColor' | 'borderTopColor',
+  ground: string,
+): Promise<string> {
+  const [r, g, b, a] = await loc.evaluate((el, p) => {
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.fillStyle = getComputedStyle(el)[p as 'backgroundColor'];
+    ctx.fillRect(0, 0, 1, 1);
+    return Array.from(ctx.getImageData(0, 0, 1, 1).data);
+  }, prop);
+  const base = rgb(ground);
+  const alpha = a / 255;
+  const out = [r, g, b].map((c, i) => Math.round(c * alpha + base[i] * (1 - alpha)));
+  return `rgb(${out.join(', ')})`;
+}
+
+/** One row of screenshot pixels as [r, g, b] triples, decoded in the page. */
+async function pixelRow(page: Page, y: number, width: number): Promise<number[][]> {
+  const png = await page.screenshot({ clip: { x: 0, y, width, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, img.width, 1).data;
+    const out: number[][] = [];
+    for (let x = 0; x < img.width; x++) out.push([data[x * 4], data[x * 4 + 1], data[x * 4 + 2]]);
+    return out;
+  }, png.toString('base64'));
 }
 
 async function open(page: Page) {
@@ -149,21 +190,159 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect(grid).toBe(1);
   });
 
-  test('draws a Bone focus ring, 3px at 3px, on a keyboard-focused link', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const link = withPanel(page).getByRole('link', { name: 'Visit website' });
-    await link.focus();
+  /** Focus an element with the keyboard, so `:focus-visible` matches. */
+  async function keyboardFocus(page: Page, target: Locator) {
+    await target.focus();
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Tab');
-    await expect(link).toBeFocused();
-    await expect.poll(async () => (await style(link)).outlineColor).toBe(BONE);
-    const ring = await style(link);
+    await expect(target).toBeFocused();
+  }
+
+  test('draws a Bone ring, 3px at 3px, on a plain link, an aecButton and a chip in the band', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    const cases = {
+      'plain link': withPanel(page).getByTestId('hero-plain-link'),
+      'main aecButton': withPanel(page).getByTestId('hero-main-action'),
+      'secondary aecButton': withPanel(page).getByTestId('hero-second-action'),
+      chip: withPanel(page).getByTestId('hero-chip').locator('a.aec-chip'),
+    };
+    for (const [name, target] of Object.entries(cases)) {
+      await keyboardFocus(page, target);
+      await expect.poll(async () => (await style(target)).outlineColor, name).toBe(BONE);
+      const ring = await style(target);
+      expect(ring.outlineWidth, name).toBe('3px');
+      expect(ring.outlineOffset, name).toBe('3px');
+      expect(ring.outlineStyle, name).toBe('solid');
+      // The ring on the flat Forest ground. The glow lightest point is 7.75:1.
+      expect(contrast(ring.outlineColor, FOREST), name).toBeGreaterThan(11);
+    }
+  });
+
+  test('a button on a white card inside the band keeps a Forest ring from its own utility', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    const button = withPanel(page).getByTestId('hero-white-card-button');
+    await keyboardFocus(page, button);
+    await expect.poll(async () => (await style(button)).outlineColor).toBe(FOREST);
+    const ring = await style(button);
     expect(ring.outlineWidth).toBe('3px');
     expect(ring.outlineOffset).toBe('3px');
-    expect(ring.outlineStyle).toBe('solid');
-    // The ring on the flat Forest ground. The glow lightest point is 7.75:1.
-    expect(contrast(ring.outlineColor, FOREST)).toBeGreaterThan(11);
+    expect(contrast(ring.outlineColor, 'rgb(255, 255, 255)')).toBeGreaterThan(12);
+  });
+
+  test('a classless link in the band is Bone, and hover underlines it', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    const link = withPanel(page).getByTestId('hero-plain-link');
+    expect((await style(link)).color).toBe(BONE);
+    expect(contrast((await style(link)).color, FOREST)).toBeGreaterThan(11);
+    expect(await link.evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toContain(
+      'underline',
+    );
+    await link.hover();
+    await expect
+      .poll(() => link.evaluate((el) => getComputedStyle(el).textDecorationLine))
+      .toContain('underline');
+    expect((await style(link)).color).toBe(BONE);
+  });
+
+  test('sizes the mark 104px, 68px below md, and follows mock-up 6 spacing', async ({ page }) => {
+    for (const [width, mark, gap, below] of [
+      [1440, 104, 24, 16],
+      [390, 68, 16, 12],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page);
+      const markBox = await style(withPanel(page).getByTestId('hero-mark'));
+      expect(markBox.width).toBe(mark);
+      expect(markBox.height).toBe(mark);
+      const h1 = await style(withPanel(page).locator('h1'));
+      const byline = await style(withPanel(page).getByTestId('hero-byline'));
+      // The byline sits under the name, in the same row as the mark.
+      expect(byline.top).toBeGreaterThanOrEqual(h1.bottom);
+      expect(byline.left).toBeCloseTo(h1.left, 0);
+      expect(markBox.left + markBox.width + gap).toBeCloseTo(h1.left, 0);
+      const row = await withPanel(page)
+        .getByTestId('hero-band-namerow')
+        .evaluate((el) => {
+          const s = getComputedStyle(el);
+          return { mt: parseFloat(s.marginTop), mb: parseFloat(s.marginBottom) };
+        });
+      expect(row.mt).toBe(24);
+      expect(row.mb).toBe(below);
+    }
+    const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
+    expect(
+      await actions.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return `${s.marginTop} ${s.rowGap} ${s.flexWrap} ${s.flexDirection}`;
+      }),
+    ).toBe('24px 12px wrap row');
+  });
+
+  test('draws the on-brand secondary button: wash fill, 3:1 edge, hover wash, Bone label', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    const button = page.getByTestId('btn-on-brand-secondary');
+    const rest = await style(button);
+    expect(rest.height).toBe(44);
+    expect(rest.color).toBe(BONE);
+    expect(rest.borderColor).not.toBe('transparent');
+    // Bone at 10% over Forest. `style()` drops alpha, so composite the wash here.
+    const wash = await paintOver(button, 'backgroundColor', FOREST);
+    expect(contrast(wash, FOREST)).toBeGreaterThan(1.1);
+    expect(contrast(rest.color, wash)).toBeGreaterThan(8);
+    // The edge is Bone at 50% over Forest: 4.01:1 against the ground (the 3:1 edge).
+    const edge = await paintOver(button, 'borderTopColor', FOREST);
+    expect(contrast(edge, FOREST)).toBeGreaterThan(3.9);
+    await button.hover();
+    await expect.poll(async () => paintOver(button, 'backgroundColor', FOREST)).not.toBe(wash);
+    const hoverWash = await paintOver(button, 'backgroundColor', FOREST);
+    // 6.94:1 exactly. The canvas read quantises a 16% alpha, so leave 0.1 of room.
+    expect(contrast(rest.color, hoverWash)).toBeGreaterThan(6.8);
+    const disabled = await style(page.getByTestId('btn-on-brand-secondary-disabled'));
+    expect(disabled.opacity).toBe('0.6');
+  });
+
+  test('is flat against the real header: the band top row equals the header ground', async ({
+    page,
+  }) => {
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page);
+      // Test-only harness: move the band to sit directly under the real header, with
+      // no spacing between them. No live page is changed.
+      await page.evaluate(() => {
+        const host = document.querySelector('[data-testid="hero-band-with-panel"]')!;
+        document.querySelector('header')!.insertAdjacentElement('afterend', host);
+        window.scrollTo(0, 0);
+      });
+      const headerBottom = await page
+        .locator('header')
+        .first()
+        .evaluate((el) => Math.round(el.getBoundingClientRect().bottom));
+      const ground = rgb(FOREST);
+      // The header's last row and the band's first row, across the full width.
+      for (const [label, y] of [
+        ['header last row', headerBottom - 1],
+        ['band top row', headerBottom],
+      ] as const) {
+        const row = await pixelRow(page, y, width);
+        expect(row).toHaveLength(width);
+        const worst = Math.max(
+          ...row.map((px) => Math.max(...px.map((c, i) => Math.abs(c - ground[i])))),
+        );
+        console.log(`seam ${width}px ${label} y=${y}: worst channel delta ${worst}`);
+        expect(worst, `${label} at ${width}px`).toBeLessThanOrEqual(1);
+      }
+    }
   });
 
   test('keeps Bone and secondary ink above 4.5:1 on the band ground', async ({ page }) => {
@@ -179,15 +358,20 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect(contrast(panelText.color, panel.background)).toBeGreaterThan(6);
   });
 
-  test('has no horizontal overflow at 320px and the actions stack', async ({ page }) => {
+  test('has no horizontal overflow at 320px and the actions wrap in a row', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    const actions = withPanel(page).getByRole('link', { name: 'Visit website' }).locator('..');
-    expect((await style(actions)).flexDirection).toBe('column');
+    // Mock-up 6: below md the actions are a wrapping row that shares the width.
+    const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
+    const look = await actions.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return `${s.flexDirection} ${s.flexWrap}`;
+    });
+    expect(look).toBe('row wrap');
   });
 
   test('is axe clean', async ({ page }) => {

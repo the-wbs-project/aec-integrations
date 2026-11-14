@@ -28,18 +28,57 @@ describe('hero band styles (AECI-1766)', () => {
     expect(glow).not.toMatch(/linear-gradient|conic-gradient/);
   });
 
-  it('keeps the glow clear of the top edge so the header seam has no step', () => {
-    // The first centre is held at least 200px down. 70% of the 280px half-height
-    // is 196px, so the glow is fully transparent at y=0.
-    expect(rule('.aec-hero-band')).toMatch(/at 78% max\(42%, 200px\)/);
+  it('keeps the glow clear of the top edge so the header seam is flat', () => {
+    // The second length is the VERTICAL radius, and the stop at 70% puts the edge
+    // of the glow 392px from its centre (0.7 x 560). The centre is held at least
+    // 392px down, so the glow is fully transparent on the band's top row.
+    const glow = rule('.aec-hero-band');
+    expect(glow).toMatch(/900px 560px at 78% max\(42%, 392px\)/);
+    expect(0.7 * 560).toBe(392);
+    expect(glow).toMatch(/transparent 70%/);
   });
 
-  it('draws every focus ring in the band as Bone, 3px at 3px', () => {
-    const ring = rule(
-      '.aec-hero-band :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible',
+  /** The `@layer base` block that holds the band's ring and link rules. */
+  function baseBlock(): string {
+    const at = css.indexOf('@layer base {\n  .aec-hero-band');
+    expect(at).toBeGreaterThan(0);
+    return css.slice(at, css.indexOf('\n}\n', at));
+  }
+
+  it('sets the Bone ring colour, width and offset once, in the base layer', () => {
+    const block = baseBlock();
+    expect(block).toMatch(
+      /\.aec-hero-band :where\(a, button, input, select, textarea, summary, \[tabindex\]\):focus-visible \{[^}]*outline-width: 3px;[^}]*outline-offset: 3px;[^}]*outline-color: var\(--focus-ring-on-brand\)/,
     );
-    expect(ring).toContain('outline: 3px solid var(--focus-ring-on-brand)');
-    expect(ring).toContain('outline-offset: 3px');
+    // No unlayered ring rule: it would beat a caller's plain utility.
+    const unlayered = css.replace(block, '');
+    expect(unlayered).not.toMatch(/\.aec-hero-band[^{]*:focus-visible[^{]*\{[^}]*outline:/);
+  });
+
+  it('makes a plain link Bone and underlines it on hover, in the base layer', () => {
+    const block = baseBlock();
+    expect(block).toMatch(/\.aec-hero-band a \{\s*color: var\(--text-on-brand\)/);
+    // The base-layer `a:hover` rule is as specific, so hover must set Bone again.
+    expect(block).toMatch(
+      /\.aec-hero-band a:hover \{\s*color: var\(--text-on-brand\);\s*text-decoration-line: underline/,
+    );
+  });
+
+  it('gives a chip in the band the Bone ring, after the chip rule that would beat it', () => {
+    const chip = css.indexOf('a.aec-chip:focus-visible,\nbutton.aec-chip:focus-visible {');
+    const inBand = css.indexOf('.aec-hero-band a.aec-chip:focus-visible');
+    expect(chip).toBeGreaterThan(0);
+    expect(inBand).toBeGreaterThan(chip);
+    expect(css.slice(inBand, css.indexOf('}', inBand))).toContain(
+      'outline-color: var(--focus-ring-on-brand)',
+    );
+  });
+
+  it('quotes the glow contrast figures that DESIGN.md quotes', () => {
+    const glow = css.slice(css.indexOf('/* The Forest hero band'), css.indexOf('.aec-hero-band {'));
+    for (const figure of ['7.75:1', '5.59:1', '7.34:1', '5.29:1', '6.87:1', '4.96:1']) {
+      expect(glow, figure).toContain(figure);
+    }
   });
 
   it('keeps a boundary and drops the glow under forced colours', () => {

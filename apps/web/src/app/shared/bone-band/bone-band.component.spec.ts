@@ -7,6 +7,7 @@ import { Component, provideZonelessChangeDetection, signal } from '@angular/core
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { BAND_WRAP_CLASS } from '../band-wrap';
 import { BoneBand } from './bone-band';
 
 @Component({
@@ -56,7 +57,7 @@ describe('aec-bone-band (AECI-1766)', () => {
   it('keeps the 1328px wrap with 24, 32 and 48px gutters', async () => {
     await make();
     const wrap = q('.aec-bone-band > div')!;
-    for (const cls of ['max-w-[1328px]', 'px-6', 'md:px-8', 'lg:px-12']) {
+    for (const cls of BAND_WRAP_CLASS.split(' ')) {
       expect(wrap.classList.contains(cls), cls).toBe(true);
     }
   });
