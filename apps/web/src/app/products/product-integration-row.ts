@@ -24,6 +24,7 @@ import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
 import { AecIcon } from '../shared/icon/icon';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Row representation of one of a product's integrations, slotted into the
@@ -99,7 +100,7 @@ import { AecIcon } from '../shared/icon/icon';
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [AecIcon, FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker],
+  imports: [AecIcon, FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker, Chip],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -207,10 +208,7 @@ import { AecIcon } from '../shared/icon/icon';
         @if (mechanismKindLabels().length > 0 || dataObjectLabel()) {
           <span class="flex flex-wrap items-center gap-1">
             @for (label of mechanismKindLabels(); track label) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-                >{{ label }}</span
-              >
+              <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
             } @empty {
               @if (!isViaLane()) {
                 <span
@@ -223,11 +221,9 @@ import { AecIcon } from '../shared/icon/icon';
               }
             }
             @if (dataObjectLabel(); as objects) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-                data-testid="row-data-objects"
-                >{{ objects }}</span
-              >
+              <aec-chip density="dense" tone="neutral" data-testid="row-data-objects">{{
+                objects
+              }}</aec-chip>
             }
           </span>
         } @else {

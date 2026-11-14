@@ -1,5 +1,5 @@
 import { Component, computed, input } from '@angular/core';
-import { AecIcon } from '../shared/icon/icon';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Renders a product's `integration_count` as a deliberate metric (the
@@ -22,7 +22,7 @@ export type IntegrationStatVariant = 'inline' | 'badge' | 'headline';
 
 @Component({
   selector: 'aec-integration-stat',
-  imports: [AecIcon],
+  imports: [Chip],
   template: `
     @if (count() > 0) {
       @switch (variant()) {
@@ -36,13 +36,9 @@ export type IntegrationStatVariant = 'inline' | 'badge' | 'headline';
           </span>
         }
         @case ('badge') {
-          <span
-            class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
-              bg-(--surface-raised) px-2.5 py-1 text-xs font-medium text-(--text-secondary)"
-          >
-            <aec-icon name="link" decorative [size]="3.5" />
+          <aec-chip tone="quiet" icon="link">
             <span class="tabular-nums">{{ count() }}</span> {{ noun() }}
-          </span>
+          </aec-chip>
         }
         @default {
           <span class="flex flex-col items-end leading-tight">

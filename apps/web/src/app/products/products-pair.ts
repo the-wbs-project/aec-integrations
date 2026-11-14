@@ -46,6 +46,7 @@ import {
   directionHeading,
 } from './pair-direction-labels';
 import { PairVersionSelect } from './pair-version-select';
+import { Chip } from '../shared/chip/chip';
 
 /** The two vendor names a pair page can attribute an attestation to, keyed by
  *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
@@ -577,6 +578,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     NotFound,
     PairVersionSelect,
     RouterLink,
+    Chip,
   ],
   template: `
     @let v = view();
@@ -895,10 +897,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <!-- AECI-1142: the kind lives in "How you get it" when a name
                          heads the card, so it is not stated twice. -->
                     @if (m.kindLabel && !m.glance?.how?.kind) {
-                      <span
-                        class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                        >{{ m.kindLabel }}</span
-                      >
+                      <aec-chip tone="quiet">{{ m.kindLabel }}</aec-chip>
                     }
                     <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>
                   } @else {
@@ -906,14 +905,14 @@ function writePairViewCookie(mode: PairViewMode): void {
                          heading so the Layer-B lane h3s below never skip from the
                          page h1 straight to h3. Falls back to a generic title when
                          the kind enum is also absent/unknown (kindLabel === ''). -->
-                    <h2
-                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                    >
-                      @if (m.kindLabel) {
-                        {{ m.kindLabel }}
-                      } @else {
-                        <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
-                      }
+                    <h2 class="m-0 inline-flex">
+                      <aec-chip tone="quiet">
+                        @if (m.kindLabel) {
+                          {{ m.kindLabel }}
+                        } @else {
+                          <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
+                        }
+                      </aec-chip>
                     </h2>
                   }
                   <!-- AECI-711 depth axis: direction and object coverage at the
@@ -928,10 +927,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                   <!-- Not where the Layer-A line below already states the same
                        direction (Detailed, no claims): one card, one statement. -->
                   @if (m.depthDirection.token && !(viewMode() === 'detailed' && !m.hasClaims)) {
-                    <span
-                      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                      data-testid="pair-depth-direction"
-                    >
+                    <aec-chip tone="quiet" data-testid="pair-depth-direction">
                       <span class="sr-only" i18n="@@pair.depth.direction.srLabel">Direction:</span>
                       <span
                         class="leading-none text-(--accent-primary) rtl:-scale-x-100"
@@ -939,17 +935,15 @@ function writePairViewCookie(mode: PairViewMode): void {
                         >{{ m.depthDirection.glyph }}</span
                       >
                       <span>{{ m.depthDirection.label }}</span>
-                    </span>
+                    </aec-chip>
                   }
                   <!-- Ruled 2026-09-23: with one mechanism the section heading
                        already says "N types of data shared", so the card chip
                        would only repeat it. -->
                   @if (m.dataObjectLabel && !(v.mechanisms.length === 1 && v.syncTotal > 0)) {
-                    <span
-                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                      data-testid="pair-depth-objects"
-                      >{{ m.dataObjectLabel }}</span
-                    >
+                    <aec-chip tone="quiet" data-testid="pair-depth-objects">{{
+                      m.dataObjectLabel
+                    }}</aec-chip>
                   }
                 </header>
                 @if (m.headerCorrections.length > 0) {

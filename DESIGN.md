@@ -24,6 +24,8 @@ colors:
   accent-rating:          "oklch(75.16% 0.1469 83.99)"
   accent-warm:            "oklch(96.13% 0.0111 89.72)"
   status-error:           "oklch(50.13% 0.1783 28.70)"
+  # Added by AECI-1758. #8C1D18, the danger button's hover fill only.
+  status-error-hover:     "oklch(42.00% 0.1473 28.14)"
   # Added by AECI-1747. Hex in order: #26473A, #15291F, #84848D, #C5D3CA,
   # #B9C7BF, #E7E1D2, #3B6E55, #DADADC, #B5B5B5, #C6C6CA.
   surface-hero-panel:     "oklch(36.82% 0.0453 166.67)"
@@ -229,6 +231,17 @@ components:
     rounded: "{rounded.control}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
+  # A destructive action, always with a text label (AECI-1758). White text 6.54:1, 9.11:1 on hover.
+  button-danger:
+    backgroundColor: "{colors.status-error}"
+    textColor: "{colors.surface-base}"
+    fontSize: "0.875rem"
+    fontWeight: 600
+    rounded: "{rounded.control}"
+    minHeight: "44px"
+    padding: "{spacing.0} {spacing.6}"
+  button-danger-hover:
+    backgroundColor: "{colors.status-error-hover}"
   # --shadow-card does not exist in styles.css yet. Section 4 defines it and
   # AECI-1750 adds it. The mock-up card fill is white.
   card:
@@ -933,22 +946,48 @@ Ruling R3 (AECI-1734, 2026-11-14, "A") sets the default for the long list. Decis
 
 ### Buttons
 
-Spartan `BrnButton` directive provides the headless behavior, and Tailwind utility classes bind to tokens. The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0056). AECI-1758 builds one `aecButton` directive for `<button>` and `<a>`.
+The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0056). AECI-1758 built one `aecButton` directive for `<button>` and `<a>`, in `apps/web/src/app/shared/button/button.ts`. A native `<button>` needs no headless behaviour, so `aecButton` does not wrap Spartan's `BrnButton`. The two can sit on one element.
+
+**How to use it.** `<button aecButton type="submit">` is a primary button. `<a aecButton variant="secondary" routerLink="…">` is a link that looks like a secondary button and stays a link. The inputs are `variant` (`primary`, `on-brand`, `secondary`, `ghost` or `danger`), `compact`, `iconOnly` and `disabled`. Layout classes such as `w-full` and `sm:me-auto` still go on the element. Height, radius, fill, edge and text colour never do. Code that binds `[class]` uses `buttonClass(variant, options)` from the same file. `BUTTON_PRIMARY_CLASS` and `BUTTON_SECONDARY_CLASS` are that recipe, so their callers render the new button. The edge colour lives on the unlayered `.aec-btn` and `.aec-btn-secondary` rules in `styles.css`, because a `border-(--x)` utility loses to the unlayered `* { border-color }` rule.
 
 Chris's note on clash 20 was "I kind of like same size buttons". The ruling is BLEND: one height, a 12px radius, a bordered secondary and no shadow.
 
 - **One height: 44px** (clash 20). Every button of every variant has it. The survey found no shared button and five heights in use (32, 36, 40, 44 and 48px). The mock-up's `.btn` sets `min-height: 44px`, and its small button keeps the same 44px with less side padding (mock-up 6, lines 88 and 98). The height is a minimum, so a label that wraps grows the button. An icon-only button is 44 by 44px. That clears the 24 by 24px target floor (WCAG 2.5.8) by 20px, so no button needs its own target-size check. A segmented control is one frame of 44px holding 36px segments (mock-up 6, lines 255 and 256). Each segment is above the floor.
 - **Shape: 12px** (`rounded-control`, clash 12). Never a pill. "Sign in" and every primary action is a rounded rectangle. A chip may be a pill. A button, a link styled as a button and a primary action may not.
 - **Label:** 14px (`--t-14`) at weight 600, sentence case (mock-up 6, line 88). This is not the 13px `label` role. §3 leaves the button size to this subsection.
-- **Padding:** 24px at the side (`spacing.6`) and 16px on the compact variant (`spacing.4`). The icon and the label sit 8px apart (`spacing.2`).
+- **Padding:** 24px at the side (`spacing.6`) and 16px on the compact variant (`spacing.4`). Ghost always takes 16px. The icon and the label sit 8px apart (`spacing.2`). Every variant has a 1px edge, transparent unless it is secondary, so all variants measure the same. Forced-colours mode paints the transparent edge as a real one.
 - **Primary** (`button-primary` and `button-primary-hover`): Forest fill, white text at 12.34:1. Hover brightens to Forest hover. Never a pill, never Clay.
-- **On a Forest ground** (`button-on-brand`, clash 3): Bone fill with Forest text, 11.03:1 (§2). It is the one main action in the Forest hero. Clay never fills a button.
+- **On a Forest ground** (`button-on-brand`, clash 3): Bone fill with Forest text, 11.03:1 (§2). It is the one main action in the Forest hero. Hover fills with `--surface-on-brand-hover` (`button-on-brand-hover`), where Forest text is 9.46:1. Its focus ring is Bone. Clay never fills a button.
 - **Secondary** (`button-secondary` and `button-secondary-hover`): `surface-raised` fill, `text-primary` text and a 1px `border-strong` edge. "Secondary buttons are bordered." Hover sinks the fill to `surface-sunken` and the text to Forest (mock-up 6, lines 96 and 97). `border-strong` measures 1.48:1 on white, 1.42:1 on raised and 1.32:1 on Bone. WCAG 1.4.11 does not require a boundary on a button when its text label identifies it, so the mock-up's edge stays. The 3:1 boundary rule applies to form controls whose boundary is the only thing identifying them: inputs, selects, checkboxes and switches (see Inputs below). A text-labelled button is identified by its label.
-- **Ghost** (`button-ghost`): transparent fill, `text-primary` text, no border, 44px high. Used for tertiary actions in dense surfaces. Hover shifts the text to Forest.
+- **Ghost** (`button-ghost`): transparent fill, `text-primary` text, no visible border, 44px high. Used for tertiary actions in dense surfaces. Hover shifts the text to Forest.
+- **Danger** (`button-danger` and `button-danger-hover`, AECI-1758): `status-error` fill with white text at 6.54:1. Hover darkens the fill to `--status-error-hover` (`#8C1D18`), 9.11:1. It always carries a text label, so colour is never the only sign. It is for a destructive action and counts as the surface's filled button.
+- **Ghost and secondary on a Forest ground are not built.** The mock-up's ghost uses `color-mix()`, which clash 6 bans. The header's own controls use `.aec-on-brand-edge` and the wash tokens. A page that needs a second button on Forest raises it first.
 - **One filled button per surface** (clash 21, the Link Treatment Rule stands). The filled primary, or the on-brand button on Forest, is the surface's one main action. Everything else is secondary, ghost or a link. The clash record found three filled primaries in view on page 6 ("Visit website", the sticky bar's "Write a review" and the review panel's "Write a review"). Only one of them stays filled. Which one is the product page's call.
 - **No shadow** on any button, resting or hovering (clash 11). Press movement is clash 37 and §5 "Motion" owns it. The mock-up presses with `translateY(1px) scale(.98)` (line 89). The old line "no transform, no scale" is rewritten by clash 37, and the movement is off under reduced motion.
-- **States:** `:focus-visible` draws a 3px outline at a 3px offset in Forest. On a Forest ground, the hero panel and the footer ground it is Bone, set by AECI-1747 as `--focus-ring-on-brand`. A Forest ring on the hero panel is 1.20:1 and must not be used (mock-up 6, line 29). It is an outline and not a box-shadow, because forced-colours mode drops shadows. `:disabled` reduces opacity to 0.6 and disables pointer events. It does not change colour.
+- **States:** `:focus-visible` draws a 3px outline at a 3px offset in Forest. On a Forest ground, the hero panel and the footer ground it is Bone, set by AECI-1747 as `--focus-ring-on-brand`. A Forest ring on the hero panel is 1.20:1 and must not be used (mock-up 6, line 29). It is an outline and not a box-shadow, because forced-colours mode drops shadows. Disabled reduces opacity to 0.6 and disables pointer events. It does not change colour. Disabled text is exempt from the contrast minimum (WCAG 1.4.3), and the measured values are in the table below.
+- **Disabled is the `disabled` input.** On a `<button>` it sets the native `disabled` attribute. A link has no native disabled state, so on an `<a>` it sets `aria-disabled="true"` and `tabindex="-1"`, and a click listener cancels the click. Enter on a link fires a click, so Enter is cancelled too. The listener is added in code and only while the link is disabled, so an enabled link keeps no listener of its own (the anchor rule in `ANGULAR_STYLE_GUIDE.md`). Re-enabling restores the link's own `tabindex`. A caller that sets `aria-disabled` by hand gets the dimmed look only. The link still takes focus and still navigates. The input is the supported way.
+- **Type:** a `<button aecButton>` with no `type` attribute gets `type="button"`, so it never submits a form by accident. Write `type="submit"` on a submit button. An explicit type is kept.
+- **Press:** `motion-safe:` `translateY(1px) scale(.98)` over `--duration-fast` with `--ease-standard`. Colour changes run on the same step.
+- **Icon-only:** `iconOnly` draws a 44 by 44px square with no side padding. The caller gives it `aria-label`, `aria-labelledby` or visually hidden text. A decorative `<aec-icon>` is not a name. Dev mode logs an error when the name is missing.
 - **Scope:** one button on every surface. The portal and admin inherit it (Chris, 2026-11-14, see the section introduction). The page restyle is public pages only (R2). AECI-1813 sweeps any portal or admin layout it breaks.
+
+**Buttons still outside the component (hand-off, 2026-11-14).** The folder lists for the public pages are in AECI-1759 and AECI-1760. These places are named so nobody misses them:
+
+- `preview/unified-home/unified-home-preview.ts` lines 624 to 626 (`primaryBtn`, `linkBtn`). A preview route. It stays as it is.
+- `vendor/vendor-invite-page.ts` line 158 (`btn`) and the `BTN_PRIMARY`, `BTN_SECONDARY` and `BTN_DANGER` constants in `vendor/integration-detail/integration-detail-styles.ts` lines 139 to 143. AECI-1761.
+- `vendor/components/vendor-removal-election.ts` line 279 and `vendor/components/vendor-license-actions.ts` line 503. Both append `disabled:cursor-not-allowed disabled:opacity-50` to `BUTTON_SECONDARY_CLASS`. The recipe's `disabled:opacity-60` wins, so the suffix does nothing. AECI-1813 drops it.
+- Trap for AECI-1759: `home/home-hero.ts` line 225 sets `aria-disabled` on its submit button while it checks a pair. On `aecButton` that dims the button to 60%. Decide whether the check state should look disabled before moving it.
+- Trap for AECI-1759: Spartan's `brnButton` marks a disabled link with `data-disabled`, not `aria-disabled`. The `aecButton` disabled look keys on `disabled` and `aria-disabled` only. Use the `disabled` input.
+
+**Measured contrast (AECI-1758).** WCAG 2 ratios from the token hexes. The secondary edge is not a required boundary, see Secondary above.
+
+| Variant | Rest | Hover | Focus ring | Disabled (0.6) |
+| -- | -- | -- | -- | -- |
+| Primary | white on Forest 12.34:1 | white on Forest hover 7.68:1 | Forest on white 12.34:1 | 3.68:1 |
+| On-brand | Forest on Bone 11.03:1 | Forest on `#E7E1D2` 9.46:1 | Bone on Forest 11.03:1, hero panel 9.18:1, footer 13.71:1 | 5.04:1 |
+| Secondary | ink on raised 18.97:1 | Forest on sunken 11.23:1 | Forest on white 12.34:1 | 5.12:1 |
+| Ghost | ink on white 19.80:1 | Forest on white 12.34:1 | Forest on white 12.34:1 | 5.25:1 |
+| Danger | white on error 6.54:1 | white on `#8C1D18` 9.11:1 | Forest on white 12.34:1 | 3.04:1 |
 
 ### Cards
 
@@ -1337,16 +1376,17 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > removed that label (2026-10-09), and it must not come back as a glyph or a badge. This is also why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
-**The public chip (clash 22, BLEND).** Chris ruled BLEND with no note. The blend is the clash recommendation: one public pill chip with an optional leading icon, one dense variant, and no Clay-soft category chip. This rewrites the AECI-841 "one chip spec" (`px-2.5 py-1`, `0.75rem`, `font-medium`, `rounded-mark`, 29px). The AECI-841 lesson stands: **chip metrics travel with the vocabulary, not the component**. A second set of padding is a second vocabulary. AECI-1763 builds `aec-chip` and moves the badge components onto it.
+**The public chip (clash 22, BLEND).** Chris ruled BLEND with no note. The blend is the clash recommendation: one public pill chip with an optional leading icon, one dense variant, and no Clay-soft category chip. This rewrites the AECI-841 "one chip spec" (`px-2.5 py-1`, `0.75rem`, `font-medium`, `rounded-mark`, 29px). The AECI-841 lesson stands: **chip metrics travel with the vocabulary, not the component**. A second set of padding is a second vocabulary. AECI-1763 built `aec-chip` (`shared/chip/chip.ts`, recipe `.aec-chip` in `styles.css`) and moved the badge components onto it. The recipe is unlayered CSS keyed off data attributes, because a border-colour utility never applies.
 
-- **Recipe** (mock-up 6, `.tagchip` line 130 and `.aud` line 223): a pill (`rounded-pill`), `surface-raised` fill, `text-primary`, a 1px `border-default` edge, 13px (`--t-13`) at weight **400**, sentence case. Padding is 4px 12px 4px 8px (`spacing.1`, `spacing.3`, `spacing.2`). The leading icon is 14px with an 8px gap (line 131). The chip is about 31px tall: 13px text at the 1.6 line height it inherits from the body, plus 8px of padding and a 2px edge. That clears the 24px target floor. The mock-up never draws a chip without an icon, so the padding for one is open (AECI-1763).
+- **Recipe** (mock-up 6, `.tagchip` line 130 and `.aud` line 223): a pill (`rounded-pill`), `surface-raised` fill, `text-primary`, a 1px `border-default` edge, 13px (`--t-13`) at weight **400**, sentence case. Padding is 4px 12px 4px 8px (`spacing.1`, `spacing.3`, `spacing.2`). The leading icon is 14px with an 8px gap on the default chip and 4px on dense (lines 131 and 303). The chip is about 31px tall: 13px text at the 1.6 line height it inherits from the body, plus 8px of padding and a 2px edge. That clears the 24px target floor. A chip with no icon takes 4px 12px. A chip with a leading icon takes 8px on that side (AECI-1763).
 - **A link chip** (taxonomy) hovers to a `border-strong` edge and Forest text (line 225).
 - **A selected filter chip** (clash 5) takes `accent-primary-soft` fill, Forest text and a 1px Forest edge, with `aria-pressed` (lines 265 and 273). **Selection is never colour alone.** A selected filter chip and a pressed segment each show a tick, as the mock-up draws on the filter chips (lines 268 and 269, and `.cat .on` at lines 274 and 275). The mock-up's pressed segment has no tick, so it needs one. The tick marks selection, not verification, so the no-verification-icon rule at the top of this subsection does not apply. In forced-colours mode a pressed or selected state maps to `Highlight` fill and `HighlightText` text, because the wash and the Forest fill both vanish there.
-- **A filter chip is a button.** It is a pill at `min-height: 44px`, 14px at weight 600, with a 1px `border-strong` edge, and may carry a count (lines 260 and 270). It is a chip and not a primary action, so the pill is allowed. The mock-up sets the count inside at 12px. §3 allows `--t-12` only for overlines, the two weight-500 chips and field captions, so the count sits at `--t-13`.
-- **The dense variant** is for a chip inside a card or a table row. The mock-up's `.mini` (line 303) is a pill with a `surface-sunken` fill, no visible edge, 13px at weight 600 and a 4px icon gap. It keeps the same padding as the public chip. The old dense badge (`px-2.5 py-0.5`, `text-xs`, `font-bold`) retires, because weight 700 leaves chips (clash 9) and 12px is not a chip size. Whether row density needs less padding is open (AECI-1763). The old reason stands: at row density extra height pushes a row off one line.
-- **Weights:** 400 on the public chip, 600 on the dense chip and the filter chip. **Only the maintenance marker and the agreement badge keep weight 500.** Both are 12px at 500 with tracking +0.01em and 4px 10px padding (mock-up 6, lines 503 and 504). They take the chip shape. The mock-up copies the live site and draws them at a 4px radius, which is not on the ruled scale and is not a pill. AECI-1763 confirms the pill.
+- **A filter chip is a button** (`<aec-chip [selected]>`, a `<button aria-pressed>`; AECI-1763 built the recipe and no public page uses it yet). It is a pill at `min-height: 44px`, 14px at weight 600, with a 1px `border-strong` edge, and may carry a count (lines 260 and 270). It is a chip and not a primary action, so the pill is allowed. The mock-up sets the count inside at 12px. §3 allows `--t-12` only for overlines, the two weight-500 chips and field captions, so the count sits at `--t-13`.
+- **The dense variant** is for a chip inside a card or a table row. The mock-up's `.mini` (line 303) is a pill with a `surface-sunken` fill, no visible edge, 13px at weight 600 and a 4px icon gap. The old dense badge (`px-2.5 py-0.5`, `text-xs`, `font-bold`) retires, because weight 700 leaves chips (clash 9) and 12px is not a chip size. Settled by AECI-1763: dense has the public chip's 12px horizontal padding and 2px vertical padding, with a line height of 1.4, so it is 24px tall and a row stays on one line. **Ruled by the orchestrator, for Chris to confirm:** dense chips in index rows use the `neutral` tone (raised fill with an edge), because the sunken fill equals the row-hover fill and would vanish on hover. The mock-up's "sunken, no edge" dense look (a dense chip with no tone) renders nowhere now. The recipe keeps it for a dense chip on a non-hover ground, so it is untested in the product. The mechanism, depth and object-coverage chips in index rows and cards are dense and neutral. Measured: default 30.8px tall, dense 24.2px, the 12px label face 29.2px.
+- **Weights:** 400 on the public chip, 600 on the dense chip and the filter chip. **Only the maintenance marker and the agreement badge keep weight 500.** Both are 12px at 500 with tracking +0.01em and 4px 10px padding (mock-up 6, lines 503 and 504). They take the chip shape. The mock-up copies the live site and draws them at a 4px radius, which is not on the ruled scale and is not a pill. AECI-1763 confirmed the pill. Both use the `label` face of `aec-chip` (an input no other chip sets).
+- **Scope (AECI-1763).** The chip recipe covers public pages and shared components. The portal classes `.aec-pill-conflict` and `.aec-pill-attention` and the hand-rolled portal and admin chips stay as they are until the portal and admin page work.
 - **Never a Clay-soft chip.** The mock-up's Clay-soft category chip (`.mini.ct`) is dropped (clashes 4 and 22).
-- **Portal badges.** The vendor plan badge and the review status badge sit in the portal. R2 gives the portal the new tokens only, so whether they also take the pill shape is open (AECI-1763).
+- **Portal badges.** The vendor plan badge and the review status badge sit in the portal. They are components, so they render `aec-chip` (dense) and are pills everywhere they appear (AECI-1763). The portal page bodies that spell their own pill classes (`.aec-pill-conflict` and `.aec-pill-attention` users) and the admin console's inline `rounded-full` chips are not restyled yet.
 - **Chips are sentence case**, like everything else. The Sentence-Case Rule's single exception is the overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase at `0.08em` tracking, an overline in a chip's clothing. Fixed in AECI-841.
 
 What actually renders today:
@@ -1389,7 +1429,7 @@ What actually renders today:
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Listed by AEC Integrations` on most claims (AECI-1142; `Unverified · AECi` before it), the
   honest posture, not a warning. The other three states are in the Agreement badge table below.
-- **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, a `border-default` edge (0.5px as shipped. Chip work in AECI-1763 sets the width). Indicates "submitted, not yet reviewed" — never confused with confirmed.
+- **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, a `border-default` edge at 1px (the `sunken` tone of `aec-chip`). Indicates "submitted, not yet reviewed" — never confused with confirmed.
 - **No public label says "Claimed"** (clash 39, CURRENT). The wording is counsel's, and changing it is a legal decision, so none of the redesign's labels may say it. The mock-up's hero pill "Listing claimed by Bluebeam", its facts-card caption "Listing claimed by …" and the pair ledger's "Claimed by {vendor}" against "Not claimed" are dropped. The Unclaimed note stays word for word (§5 "Unclaimed note", ADR 0051).
 - **No account or plan label on public pages** (AECI-1264, removed 2026-10-09, marketing review B1). `aec-vendor-account-badge` ("Active on AEC Integrations", AECI-965, relabeled AECI-1131) is deleted. "Active" implied a vendor without it was inactive, and it marked publicly who pays. Do not build a replacement public marker of plan or payment. The `vendors.verified` mirror still drives the claim CTA's copy on the vendor and product pages, which is copy, not a badge. Inside the portal the plan reads as the **Plan badge** above.
 - **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the maintenance marker. Four states, and the tonal ladder between them is the point:
@@ -1435,12 +1475,12 @@ Vendor agreement is represented by the explicit `AgreementBadge` labels above, i
 
 ### Tags / Taxonomy chips
 
-Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators. The taxonomy chip is the public chip (Badges: "The public chip", clash 22), so this entry only records what is its own. AECI-1763 moves `aec-taxonomy-badge` onto `aec-chip`.
+Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators. The taxonomy chip is the public chip (Badges: "The public chip", clash 22), so this entry only records what is its own. `aec-taxonomy-badge` renders `aec-chip` with `link` (AECI-1763).
 
 > **The non-link card-grid chip** (`RoleBadge`, see "Role chip" above) is the same public chip without the link hover.
 
 - **Shape:** a pill (`rounded-pill`), no longer `rounded-sm`.
-- **Surface:** `surface-raised` fill, a 1px solid `border-default` edge raising to `border-strong` on hover. The mock-up draws 1px (line 130). The shipped 0.5px is confirmed or replaced by AECI-1763.
+- **Surface:** `surface-raised` fill, a 1px solid `border-default` edge raising to `border-strong` on hover. The edge is 1px (mock-up line 130, settled by AECI-1763). A link chip has a 3px focus ring at 3px offset.
 - **Typography:** Atkinson Hyperlegible Next at weight **400**, 13px (`--t-13`). The 500 this entry used to state is gone (clash 9). The mock-up sets 400 (line 130). `text-primary` shifts to `accent-primary` on hover.
 - **Case:** sentence case, per the Sentence-Case Rule.
 
@@ -1467,7 +1507,7 @@ Clash 19 was ruled BLEND with no note. The blend is the clash recommendation: al
 
 ### Starting values from the mock-ups (components)
 
-Measured from the default state of the mock-ups in `docs/design/mockups/redesign-2026-11/mockups/`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in mock-up 6 (`6-product-detail.html`) unless the first column names another.
+Measured from the default state of the mock-ups in `docs/design/mockups/redesign-2026-11/mockups/`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in mock-up 6 (`6-product-detail.html`) unless the first column names another. AECI-1758 confirmed the button rows and the focus ring row as built. The on-brand hover is the `--surface-on-brand-hover` token.
 
 | Value | Starting value | Line |
 | -- | -- | -- |
@@ -1475,7 +1515,7 @@ Measured from the default state of the mock-ups in `docs/design/mockups/redesign
 | Compact button | The same height and radius, padding 0 16px | 98 |
 | Button press | `translateY(1px) scale(.98)`, clash 37 | 89 |
 | Secondary button | White-grey fill, 1px `border-strong`, hover sunken fill and Forest text | 96, 97 |
-| On-brand button | Bone fill, Forest text. Its hover fill `#E7E1D2` is a hex and not a token | 12, 90, 91 |
+| On-brand button | Bone fill, Forest text. Hover fill `#E7E1D2`, built as `--surface-on-brand-hover` | 12, 90, 91 |
 | Focus ring | `outline: 3px solid`, offset 3px, radius 12px. Bone on a Forest ground | 29, 12 |
 | Segmented control | 3px padding, 1px `border-strong`, 12px radius, 36px segments, pressed Forest | 255 to 258 |
 | Field | `height: 44px`, padding 0 16px (48px left with an icon), 12px radius, 1px field edge, 16px text | 251, 254 |
@@ -1501,13 +1541,9 @@ Measured from the default state of the mock-ups in `docs/design/mockups/redesign
 
 Each value is set by the code issue named. A value the mock-ups set is not listed here, it is in the table above.
 
-- **The danger button's colours (AECI-1758).** AECI-1758 names a `danger` variant. The rulings and mock-ups do not draw one. It must use the error token with a text label.
-- **The on-brand hover fill (AECI-1758, with AECI-1747).** `#E7E1D2` is a loose hex. Clash 6 asks for a named token.
-- **Ghost and secondary buttons on a Forest ground (AECI-1758).** The mock-up builds its ghost button with `color-mix()`, which clash 6 bans.
+- **Ghost and secondary buttons on a Forest ground (no code issue).** AECI-1758 did not build them, see §5 Buttons. The mock-up builds its ghost button with `color-mix()`, which clash 6 bans. AECI-1758 settled the danger colours and the on-brand hover (`--surface-on-brand-hover`, from AECI-1747).
 - **The field edge token name (AECI-1747 and AECI-1764).** AECI-1764 calls it `--border-field`. §2 calls it field edge. Whether it replaces `--border-input` is open in §2.
 - **The error icon and message wiring (AECI-1764).** The 2px edge, an icon and a message are ruled. The icon is not.
-- **Chip padding without an icon, the dense chip's padding, and the pill on the two weight-500 chips (AECI-1763).** The mock-up never draws a chip without an icon and draws the 500 chips at a 4px radius.
-- **Whether portal badges take the pill (AECI-1763).** R2 gives the portal tokens only.
 - **The card hairline and which surfaces take the shadow, including the plan cards (AECI-1765).** Listed in §4 "Open values" too.
 - **The lead cards in the reviews, extensions and similar-products grids (AECI-1765).** R3 dropped the integrations lead card only.
 - **The score figure size above 40px (AECI-1767, with AECI-1748).** See Score Display. Chris to confirm the reviews-band exception on AECI-1767.
@@ -1948,7 +1984,7 @@ to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
 | Avatar | 32px **circle** (`LogoOrInitial` `size="sm" shape="circle"`) | A person is a circle; every company mark on the same page is a rectangle. That is the only thing distinguishing them at 32px |
 | Primary | `profiles.display_name` → provider `full_name` → the email → "Signed in" | Never empty: an empty line collapses the reserved box and the menu jumps under the cursor |
 | Secondary | The email, at `text-secondary` | **Dropped entirely** when the email is already the primary line, so the block never prints one string twice |
-| Pill | Site admin / Vendor admin / Reviewer | Rendered for **every** role including the `reviewer` default. On a review platform "Reviewer" is a standing, not an empty state, and a staff-only pill would make the block's height depend on who is looking |
+| Pill | Site admin / Vendor admin / Reviewer | A dense `aec-chip` (AECI-1763): 13px at weight 600. Site admin and Vendor admin take the Forest-soft fill with Forest text and a Forest edge. Reviewer takes the sunken fill with secondary text and a default edge. Rendered for **every** role including the `reviewer` default. On a review platform "Reviewer" is a standing, not an empty state, and a staff-only pill would make the block's height depend on who is looking |
 
 **Rules.**
 
