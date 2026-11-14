@@ -1,6 +1,8 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../shared/button/button';
+
 /**
  * Global 404 surface (AECI-62 / Phase 2.16). Rendered by:
  *
@@ -19,7 +21,7 @@ import { RouterLink } from '@angular/router';
  */
 @Component({
   selector: 'aec-not-found',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     <section
       class="mx-auto w-full max-w-3xl px-6 py-16 text-(--text-primary) md:py-24"
@@ -185,17 +187,7 @@ import { RouterLink } from '@angular/router';
         </ul>
       </nav>
 
-      <a
-        routerLink="/"
-        class="mt-10 inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-          bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base)
-          no-underline transition-colors hover:bg-(--accent-primary-hover)
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-          focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-        i18n="@@notFound.home"
-      >
-        Go home
-      </a>
+      <a aecButton routerLink="/" class="mt-10" i18n="@@notFound.home"> Go home </a>
     </section>
   `,
 })

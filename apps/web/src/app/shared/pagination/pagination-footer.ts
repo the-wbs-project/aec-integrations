@@ -9,6 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecButton } from '../button/button';
 
 /**
  * Infinite-scroll footer for the append-mode listing pages (`/products`, the
@@ -49,7 +50,7 @@ import { isReplayedEvent } from '../../core/event-replay';
 @Component({
   selector: 'aec-pagination-footer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet],
+  imports: [AecButton, NgTemplateOutlet],
   template: `
     <div class="flex flex-col items-center gap-4 pt-2 text-center">
       <p class="text-sm text-(--text-secondary)" aria-live="polite" aria-atomic="true">
@@ -68,8 +69,9 @@ import { isReplayedEvent } from '../../core/event-replay';
              scroll auto-load as the ONLY way to page. -->
         @if (nextHref(); as href) {
           <a
+            aecButton
+            variant="secondary"
             [href]="href"
-            [class]="LOAD_MORE_CLASS"
             [attr.aria-busy]="pending() ? 'true' : null"
             (click)="onClick($event)"
           >
@@ -77,8 +79,9 @@ import { isReplayedEvent } from '../../core/event-replay';
           </a>
         } @else {
           <button
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="LOAD_MORE_CLASS"
             [attr.aria-busy]="pending() ? 'true' : null"
             (click)="onClick($event)"
           >
@@ -118,15 +121,6 @@ import { isReplayedEvent } from '../../core/event-replay';
   `,
 })
 export class PaginationFooter {
-  /** One class list, two elements (anchor / button) — see the template note. */
-  protected readonly LOAD_MORE_CLASS =
-    'inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) ' +
-    'border border-(--border-default) px-5 py-2.5 text-sm font-medium ' +
-    'text-(--text-secondary) no-underline transition-colors ' +
-    'hover:border-(--border-strong) hover:text-(--text-primary) ' +
-    'focus-visible:outline-2 focus-visible:outline-offset-2 ' +
-    'focus-visible:outline-(--accent-primary)';
-
   /** Items currently rendered (the accumulated length). */
   readonly loadedCount = input.required<number>();
   /** Total result count, or `null` before the first load. */

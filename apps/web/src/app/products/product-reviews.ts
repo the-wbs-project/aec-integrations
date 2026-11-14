@@ -9,6 +9,7 @@ import type {
   PublicVendorResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { AecIcon } from '../shared/icon/icon';
@@ -55,7 +56,7 @@ const REVIEWS_PER_PAGE = 24;
 @Component({
   selector: 'aec-product-reviews',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AecIcon, DatePipe, ReviewCta, ReviewStars],
+  imports: [AecButton, AecIcon, DatePipe, ReviewCta, ReviewStars],
   templateUrl: './product-reviews.html',
 })
 export class ProductReviews {

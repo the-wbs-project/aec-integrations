@@ -32,8 +32,8 @@
  *     slug goes to `/search?q=` with the typed text of the side the envelope names
  *     (`details.slug`), or the first typed text. A timeout or any other failure of
  *     the read navigates to the pair page. A direct request to a bad pair URL still
- *     returns a real 404. While the read runs the form carries `aria-busy`, the
- *     button `aria-disabled`, and a second submit is ignored;
+ *     returns a real 404. While the read runs the form carries `aria-busy` and a second
+ *     submit is ignored;
  *   - one product chosen: that product's page at its `#integrations` section;
  *   - nothing chosen but text typed: `/search?q=` with the first typed text.
  * Typing into a picker after choosing drops that picker's choice, so the route
@@ -62,6 +62,7 @@ import {
   type ProductPairResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
 import { pairPath } from '../core/api/product-pairs';
@@ -103,7 +104,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 
 @Component({
   selector: 'aec-home-hero',
-  imports: [RouterLink, SearchAutocomplete],
+  imports: [AecButton, RouterLink, SearchAutocomplete],
   host: { class: 'block' },
   template: `
     <section class="bg-(--accent-warm)">
@@ -219,12 +220,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
               (suggestionChosen)="choose('other', $event)"
               (querySubmitted)="submitPair()"
             />
-            <button
-              type="submit"
-              class="mt-1 h-11 w-full rounded-(--radius-md) bg-(--accent-primary) px-5 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              [attr.aria-disabled]="checking() ? 'true' : null"
-              i18n="@@home.hero.pair.submit"
-            >
+            <button aecButton type="submit" class="mt-1 w-full" i18n="@@home.hero.pair.submit">
               Show integrations
             </button>
           </form>
@@ -366,7 +362,7 @@ export class HomeHero {
     void this.router.navigate(['/products', context, 'integrations', rest]);
   }
 
-  /** True while the pair check runs. Drives `aria-busy` and `aria-disabled`. */
+  /** True while the pair check runs. Drives `aria-busy`. */
   protected readonly checking = signal(false);
 
   /**
