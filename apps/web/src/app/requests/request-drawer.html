@@ -69,13 +69,16 @@
               </h2>
             </div>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               type="button"
               (click)="drawer.close()"
               i18n-aria-label="@@requests.drawer.close"
               aria-label="Close"
-              class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
+              class="-me-2 -mt-2"
             >
-              <aec-icon name="x" decorative [size]="4" />
+              <aec-icon name="x" decorative [size]="5" />
             </button>
           </div>
 

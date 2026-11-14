@@ -20,6 +20,7 @@ import {
   legalNoticeId,
 } from './legal-notices';
 import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 /** The entries the band reads. A token so specs can set them. */
 export const LEGAL_NOTICES_DATA = new InjectionToken<readonly LegalNotice[]>('LEGAL_NOTICES_DATA', {
@@ -81,7 +82,7 @@ function writeDismissed(ids: readonly string[]): void {
  */
 @Component({
   selector: 'aec-legal-notice-band',
-  imports: [AecIcon, RouterLink],
+  imports: [AecButton, AecIcon, RouterLink],
   template: `
     @for (notice of visible(); track id(notice)) {
       <div
@@ -106,17 +107,16 @@ function writeDismissed(ids: readonly string[]): void {
             >
           </p>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             type="button"
             (click)="dismiss(notice)"
             [attr.aria-label]="dismissLabel(notice)"
-            class="-my-1 inline-flex size-8 shrink-0 items-center justify-center
-              rounded-(--radius-md) text-(--text-secondary) transition-colors
-              hover:bg-(--surface-sunken) hover:text-(--text-primary)
-              focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-(--accent-primary)"
+            class="-my-2"
             data-testid="legal-notice-dismiss"
           >
-            <aec-icon name="x" decorative [size]="4" />
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </div>

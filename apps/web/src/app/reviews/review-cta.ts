@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 
 import { AccountApi } from '../account/account-api';
 import { AuthService } from '../auth/auth.service';
+import { AecButton } from '../shared/button/button';
 
 type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
 
@@ -42,7 +43,7 @@ type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
 @Component({
   selector: 'aec-review-cta',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   host: { class: 'inline-flex' },
   template: `
     @if (state() === 'reviewed') {
@@ -60,7 +61,12 @@ type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
         >
       </span>
     } @else {
-      <a [routerLink]="linkCommands()" [queryParams]="queryParams()" [class]="buttonClass()">
+      <a
+        aecButton
+        [variant]="variant()"
+        [routerLink]="linkCommands()"
+        [queryParams]="queryParams()"
+      >
         @switch (state()) {
           @case ('anon') {
             <span i18n="@@products.detail.reviews.cta.signIn">Sign in to review</span>
@@ -85,33 +91,16 @@ export class ReviewCta {
    *  lookup after hydration (never read during SSR). */
   readonly productId = input.required<string>();
   /**
-   * Visual weight of the CTA button. `primary` (default) is the accent-filled
-   * button used in the Reviews section; `secondary` is the bordered, neutral
-   * treatment used in the product hero (AECI), where "Visit website" is already
-   * the single primary accent button and a second filled button would dilute
-   * the hierarchy. Only affects the button branch — the `reviewed` text state is
+   * Visual weight of the CTA button. `secondary` (default) is the raised, bordered
+   * button: the product page already has "Visit website" as its one filled button
+   * (DESIGN.md §5, one filled button per surface), so neither "Write a review"
+   * placement is filled. `primary` stays available to a caller with no other
+   * filled button. Only affects the button branch; the `reviewed` text state is
    * variant-agnostic.
    */
-  readonly variant = input<'primary' | 'secondary'>('primary');
+  readonly variant = input<'primary' | 'secondary'>('secondary');
 
   protected readonly state = signal<CtaState>('neutral');
-
-  /** Button classes for the non-`reviewed` branch, varied by `variant()`.
-   *  Layout + focus ring are shared; only border/fill/text/hover differ. */
-  protected readonly buttonClass = computed(() => {
-    const base =
-      'inline-flex items-center justify-center rounded-(--radius-md) border px-4 py-2 ' +
-      'text-sm font-bold no-underline transition-colors focus-visible:outline-none ' +
-      'focus-visible:ring-2 focus-visible:ring-(--accent-primary) ' +
-      'focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)';
-    const skin =
-      this.variant() === 'secondary'
-        ? 'border-(--border-default) bg-(--surface-raised) text-(--text-primary) ' +
-          'hover:border-(--border-strong) hover:text-(--accent-primary)'
-        : 'border-(--border-strong) bg-(--accent-primary) text-(--surface-base) ' +
-          'hover:bg-(--accent-primary-hover)';
-    return `${base} ${skin}`;
-  });
 
   /** Absolute path to the (auth-gated) review form for this product. */
   protected readonly reviewPath = computed(() => `/products/${this.slug()}/review`);

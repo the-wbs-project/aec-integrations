@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 
 import { AppUpdateService } from './app-update.service';
 import { AecIcon } from '../../shared/icon/icon';
+import { AecButton } from '../../shared/button/button';
 
 /**
  * "A new version is available" notice (AECI-1493).
@@ -21,7 +22,7 @@ import { AecIcon } from '../../shared/icon/icon';
  */
 @Component({
   selector: 'aec-update-banner',
-  imports: [AecIcon],
+  imports: [AecButton, AecIcon],
   template: `
     @if (show()) {
       <div
@@ -42,33 +43,28 @@ import { AecIcon } from '../../shared/icon/icon';
               Refresh the page to keep browsing.
             </p>
             <button
+              aecButton
               id="app-update-refresh"
               type="button"
               (click)="refresh()"
-              class="mt-3 inline-flex items-center justify-center rounded-(--radius-md) border
-                  border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold
-                  text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-raised)"
+              class="mt-3"
               i18n="@@appUpdate.banner.refresh"
             >
               Refresh
             </button>
           </div>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             id="app-update-dismiss"
             type="button"
             (click)="dismiss()"
             aria-label="Dismiss"
             i18n-aria-label="@@appUpdate.banner.dismiss"
-            class="-m-1 inline-flex size-8 shrink-0 items-center justify-center
-                rounded-(--radius-md) text-(--text-secondary) transition-colors
-                hover:bg-(--surface-sunken) hover:text-(--text-primary)
-                focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-(--accent-primary)"
+            class="-m-2"
           >
-            <aec-icon name="x" decorative [size]="4" />
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </div>

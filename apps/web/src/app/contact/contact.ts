@@ -39,10 +39,11 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { ADD_PRODUCT_TOPIC } from './contact-topics';
+import { AecButton } from '../shared/button/button';
 
 @Component({
   selector: 'app-contact',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
@@ -89,16 +90,17 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
             <!-- AECI-1474: the request form first, the email second. -->
             <div class="mt-6 flex flex-wrap gap-3">
               <a
+                aecButton
                 routerLink="/vendor-program/list-your-product"
-                class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 data-testid="contact-add-product-request"
                 i18n="@@app.contact.addProduct.request"
               >
                 Request a listing
               </a>
               <a
+                aecButton
+                variant="secondary"
                 [href]="addProductHref"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-3 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 data-testid="contact-add-product-email"
                 i18n="@@app.contact.addProduct.cta"
               >
@@ -133,8 +135,9 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
               </a>
             </p>
             <a
+              aecButton
               [href]="mailtoHref"
-              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-auto self-start"
               i18n="@@app.contact.email.cta"
             >
               Email us
@@ -159,8 +162,9 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
               us directly and we will make sure it gets reviewed.
             </p>
             <a
+              aecButton
               routerLink="/products"
-              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-auto self-start"
               i18n="@@app.contact.corrections.cta"
             >
               Browse listings

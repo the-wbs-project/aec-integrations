@@ -38,9 +38,10 @@
       again in a minute.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="retryLoad()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@account.profileUnavailable.retry"
     >
       Try again
@@ -52,9 +53,10 @@
       We couldn't load your account. Your session may have expired.
     </p>
     <a
+      aecButton
+      variant="secondary"
       routerLink="/auth/login"
       [queryParams]="{ return: '/account' }"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@account.loadFailed.signIn"
     >
       Sign in again
@@ -136,19 +138,15 @@
           for you.
         </p>
         <div class="mt-5 flex flex-wrap gap-3">
-          <button
-            type="button"
-            (click)="focusAbout()"
-            [class]="primaryClass"
-            i18n="@@account.onboarding.answer"
-          >
+          <button aecButton type="button" (click)="focusAbout()" i18n="@@account.onboarding.answer">
             Answer now
           </button>
           <button
+            aecButton
+            variant="secondary"
             type="button"
             (click)="onDismissOnboarding()"
             data-testid="onboarding-dismiss"
-            [class]="secondaryClass"
             i18n="@@account.onboarding.dismiss"
           >
             Not now
@@ -202,11 +200,7 @@
                 [attr.aria-describedby]="form.display_name().touched() && form.display_name().getError('standardSchema') ? 'account-display-name-error' : null"
                 class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
-              <button
-                type="submit"
-                [disabled]="form().submitting()"
-                class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <button aecButton type="submit" [disabled]="form().submitting()" class="shrink-0">
                 @if (form().submitting()) {
                 <span i18n="@@account.displayName.saving">Saving…</span>
                 } @else {
@@ -278,7 +272,7 @@
             </p>
 
             <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-6">
-              <button type="submit" [disabled]="aboutSaving()" [class]="primaryClass">
+              <button aecButton type="submit" [disabled]="aboutSaving()">
                 @if (aboutSaving()) {
                 <span i18n="@@account.about.saving">Saving…</span>
                 } @else {
@@ -415,10 +409,11 @@
         @if (hasMoreReviews()) {
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button
+            aecButton
+            variant="secondary"
             type="button"
             (click)="loadMoreReviews()"
             [disabled]="loadingMoreReviews()"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
           >
             @if (loadingMoreReviews()) {
             <span i18n="@@account.reviews.loadingMore">Loading…</span>
@@ -482,10 +477,12 @@
           version.
         </p>
         <button
+          aecButton
+          variant="secondary"
           brnDialogTrigger
           [brnDialogTriggerFor]="deleteDialog"
           type="button"
-          class="mt-5 inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="mt-5"
           i18n="@@account.delete.trigger"
         >
           Delete account
@@ -545,19 +542,21 @@
 
               <div class="mt-6 flex flex-wrap justify-end gap-3">
                 <button
+                  aecButton
+                  variant="secondary"
                   brnDialogClose
                   type="button"
                   [disabled]="deleting()"
-                  class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
                   i18n="@@account.delete.cancel"
                 >
                   Cancel
                 </button>
                 <button
+                  aecButton
+                  variant="danger"
                   type="button"
                   (click)="onConfirmDelete()"
                   [disabled]="deleting()"
-                  class="inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   @if (deleting()) {
                   <span i18n="@@account.delete.deleting">Deleting…</span>

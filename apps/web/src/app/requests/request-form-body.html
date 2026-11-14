@@ -118,10 +118,7 @@
 
 <div class="mt-6" [class.pb-6]="variant() === 'drawer'">
   @if (variant() === 'page') {
-  <a
-    [routerLink]="backRouterLink()"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-  >
+  <a aecButton variant="secondary" [routerLink]="backRouterLink()">
     <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
     @switch (entity()) { @case ('product') {
     <ng-container i18n="@@requests.back.product">Back to product</ng-container>
@@ -130,13 +127,7 @@
     } }
   </a>
   } @else {
-  <button
-    #confirmFocus
-    type="button"
-    (click)="done.emit()"
-    class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@requests.sent.done"
-  >
+  <button aecButton #confirmFocus type="button" (click)="done.emit()" i18n="@@requests.sent.done">
     Done
   </button>
   }
@@ -315,9 +306,9 @@
     }
 
     <button
+      aecButton
       type="submit"
       [disabled]="form().invalid() || form().pending() || form().submitting()"
-      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     >
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>
@@ -422,9 +413,9 @@
     }
 
     <button
+      aecButton
       type="submit"
       [disabled]="form().invalid() || form().pending() || form().submitting()"
-      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     >
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>
