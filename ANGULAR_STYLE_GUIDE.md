@@ -437,7 +437,7 @@ A constraint that spans layers 1 and 4 keeps its patterns in a **shared leaf mod
 | `@angular-eslint/no-async-lifecycle-method` | error | §15 |
 | `@angular-eslint/use-injectable-provided-in` | error | §17 |
 | `no-restricted-syntax` (em dash in copy) | error | `PRODUCT.md` / `DESIGN.md` |
-| `no-restricted-syntax` (color literals — hex, `rgb()`/`hsl()`/`oklch()`, Tailwind palette, `white`/`black`) | error | §20 |
+| `no-restricted-syntax` (color literals — hex, `rgb()`/`hsl()`/`oklch()`, Tailwind palette, `white`/`black`, opacity modifier on a colour utility) | error | §20 |
 
 Scope note: the em-dash guard is shipped-source only (`**/*.spec.ts`, `**/*.harness.ts`, and `e2e/**` are exempt) because `describe()` / `it()` titles and assertion messages are developer-facing, not rendered copy. The AECI-597 color guard shares that exemption for the same reason, and it is load-bearing: `login.component.spec.ts` pins the four Google brand fills as a fixture.
 
@@ -489,6 +489,7 @@ ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme and 
 | `no-color-function` | `.html`, `.css` | `rgb()`, `hsl()`, `oklch()`, `oklab()` — except pure black | Tokens, not literals (AECI-597, §20) |
 | `no-tailwind-palette` | `.html`, `.css` | `bg-zinc-100` and every other palette-with-shade class | Tokens, not literals (AECI-597, §20) |
 | `no-named-color-class` | `.html`, `.css` | `text-white`, `bg-black`, … — not `-transparent` | Tokens, not literals (AECI-597, §20) |
+| `no-color-opacity-modifier` | `.html`, `.css` | `text-(--surface-base)/70`, `bg-forest/40`: a `/NN` on a colour utility. Not `text-sm/6` or `w-1/2`. Allow-list `COLOR_OPACITY_MODIFIER_ALLOW` is empty and cleared by AECI-1813 | Every alpha is a measured named token (AECI-1747, redesign clash 6) |
 
 **Two escape hatches, and they are not interchangeable.**
 

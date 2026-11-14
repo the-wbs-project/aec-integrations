@@ -95,6 +95,20 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--accent-rating` | `#DAA520` | Goldenrod — gold-star fill for rating glyphs; decorative (`aria-hidden`), so its 2.24:1 on white is permitted (value carried by numeral + `aria-label`); empty stars use `--border-strong` in displays, `--text-tertiary` in the interactive review-form picker |
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
+| `--surface-hero-panel` | `#26473A` | Panel on the Forest hero (AECI-1747; redesign, `DESIGN.md` §2 "Forest grounds") |
+| `--surface-footer` | `#15291F` | Footer ground (AECI-1747) |
+| `--border-field` | `#84848D` | Border of every form control; 3.71:1 on white. Beside `--border-input` until AECI-1764 (AECI-1747) |
+| `--text-on-brand` | `#F5F2EA` | Bone ink on a Forest ground; alias of `--accent-warm` (AECI-1747) |
+| `--text-on-brand-secondary` | `#C5D3CA` | Secondary ink on Forest (7.96:1) and hero panel (6.62:1) (AECI-1747) |
+| `--text-on-footer-secondary` | `#B9C7BF` | Secondary ink on the footer ground (8.76:1) (AECI-1747) |
+| `--focus-ring-on-brand` | `#F5F2EA` | Focus ring on a Forest ground (11.03:1); alias of `--accent-warm` (AECI-1747) |
+| `--surface-on-brand-hover` | `#E7E1D2` | Hover for the Bone main button on Forest (AECI-1747) |
+| `--surface-hero-ribbon` | `#3B6E55` | Hero ribbon stroke; decorative only, 2.08:1 on Forest (AECI-1747) |
+| `--surface-sunken-hover` | `#DADADC` | Hover fill on a light ground (AECI-1747) |
+| `--border-underline`, `--border-empty` | `#B5B5B5`, `#C6C6CA` | Link underline and empty-count edge on white; never the only cue (AECI-1747) |
+| `--surface-on-brand-wash`, `-wash-hover`, `--border-on-brand-subtle`, `--border-on-brand`, `--border-on-brand-strong` | Bone at 10%, 16%, 14%, 32%, 50% | Fills, hairlines and edges on a Forest ground; only `-strong` is a 3:1 edge (4.01:1 on Forest) (AECI-1747) |
+| `--surface-hero-glow`, `--surface-hero-glow-soft` | Forest hover at 75%, 45% | Hero glow gradients (AECI-1747) |
+| `--surface-sticky` | White at 94% | Sticky section bar (AECI-1747) |
 
 > The Stage 1 dark token set was removed in AECI-226 (preserved in git history). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9), so it is not roadmapped; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3 as reference should a later stage revisit dark.
 

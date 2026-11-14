@@ -3,32 +3,53 @@ name: AEC Integrations
 description: Editorial directory and review platform for AEC software integrations. Light-only (AECI-226; dark reintroduction dropped, not roadmapped), Tailwind v4 + Spartan brain.
 colors:
   # Light theme, the only theme (dark token set removed in AECI-226 and not
-  # roadmapped). These are the 18 :root colour tokens in apps/web/src/styles.css.
+  # roadmapped). These are the :root colour tokens in apps/web/src/styles.css:
+  # 18 base tokens and 20 added by AECI-1747, 38 in all. Each opaque value
+  # renders the hex in styles.css; design-tokens.hex.guard.spec.ts pins that.
   surface-base:           "oklch(100% 0 0)"
   surface-raised:         "oklch(98.43% 0 0)"
-  surface-sunken:         "oklch(96.78% 0.0019 286.38)"
-  surface-muted:          "oklch(96.78% 0.0019 286.38)"
+  surface-sunken:         "oklch(96.74% 0.0013 286.38)"
+  surface-muted:          "oklch(96.74% 0.0013 286.38)"
   border-default:         "oklch(91.97% 0.0036 286.32)"
   border-strong:          "oklch(87.20% 0.0055 286.32)"
   border-input:           "oklch(63.63% 0.0133 286.02)"
   text-primary:           "oklch(14.48% 0 0)"
-  text-secondary:         "oklch(43.86% 0.0145 285.94)"
+  text-secondary:         "oklch(44.19% 0.0146 285.79)"
   text-tertiary:          "oklch(55.17% 0.0138 285.94)"
-  accent-primary:         "oklch(31.92% 0.0436 152.32)"
-  accent-primary-hover:   "oklch(43.83% 0.0658 152.61)"
+  accent-primary:         "oklch(32.24% 0.0397 166.73)"
+  accent-primary-hover:   "oklch(43.47% 0.0641 160.30)"
   accent-primary-soft:    "oklch(95.35% 0.0066 160.07)"
-  accent-secondary:       "oklch(76.10% 0.1144 47.10)"
+  accent-secondary:       "oklch(74.64% 0.1164 49.55)"
   accent-secondary-deep:  "oklch(51.86% 0.1245 45.13)"
   accent-rating:          "oklch(75.16% 0.1469 83.99)"
-  accent-warm:            "oklch(95.62% 0.0149 95.45)"
+  accent-warm:            "oklch(96.13% 0.0111 89.72)"
   status-error:           "oklch(50.13% 0.1783 28.70)"
-  # To add by AECI-1747 (the colour token issue), from the redesign
-  # (docs/design/mockups/redesign-2026-11/PLAN.md §4.1). Not yet in
-  # styles.css. Forest hover is already accent-primary-hover.
-  # Hex, in order: #26473A, #15291F, #84848D.
-  hero-panel:             "oklch(36.82% 0.0453 166.67)"
-  footer-ground:          "oklch(26.02% 0.0324 161.25)"
-  field-edge:             "oklch(61.63% 0.0134 286.00)"
+  # Added by AECI-1747. Hex in order: #26473A, #15291F, #84848D, #C5D3CA,
+  # #B9C7BF, #E7E1D2, #3B6E55, #DADADC, #B5B5B5, #C6C6CA.
+  surface-hero-panel:     "oklch(36.82% 0.0453 166.67)"
+  surface-footer:         "oklch(26.02% 0.0324 161.25)"
+  border-field:           "oklch(61.63% 0.0134 286.00)"
+  text-on-brand-secondary: "oklch(85.36% 0.0195 157.80)"
+  text-on-footer-secondary: "oklch(81.66% 0.0189 161.01)"
+  surface-on-brand-hover: "oklch(91.04% 0.0211 88.73)"
+  surface-hero-ribbon:    "oklch(49.48% 0.0689 161.11)"
+  surface-sunken-hover:   "oklch(88.89% 0.0027 286.34)"
+  border-underline:       "oklch(77.31% 0 0)"
+  border-empty:           "oklch(82.77% 0.0055 286.28)"
+  # Bone again, #F5F2EA. In styles.css text-on-brand and focus-ring-on-brand
+  # are var(--accent-warm), so a copy cannot drift.
+  text-on-brand:          "oklch(96.13% 0.0111 89.72)"
+  focus-ring-on-brand:    "oklch(96.13% 0.0111 89.72)"
+  # Alpha tokens, composited in sRGB over the ground. Bone at 10, 16, 14, 32
+  # and 50 percent, Forest hover at 75 and 45 percent, white at 94 percent.
+  surface-on-brand-wash:       "oklch(96.13% 0.0111 89.72 / 10%)"
+  surface-on-brand-wash-hover: "oklch(96.13% 0.0111 89.72 / 16%)"
+  border-on-brand-subtle:      "oklch(96.13% 0.0111 89.72 / 14%)"
+  border-on-brand:             "oklch(96.13% 0.0111 89.72 / 32%)"
+  border-on-brand-strong:      "oklch(96.13% 0.0111 89.72 / 50%)"
+  surface-hero-glow:           "oklch(43.47% 0.0641 160.30 / 75%)"
+  surface-hero-glow-soft:      "oklch(43.47% 0.0641 160.30 / 45%)"
+  surface-sticky:              "oklch(100% 0 0 / 94%)"
 typography:
   display:
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
@@ -183,18 +204,18 @@ The system rejects the AI-startup visual cohort entirely: no purple-to-blue grad
 
 ## 2. Colors
 
-A neutral surface palette with three brand accents (Forest, Clay, Bone) and two near-monochrome text scales. The reading area is white. Forest may fill three chrome bands: the header, the hero of a detail page and the footer (see "Forest grounds" below). Frontmatter values are OKLCH for perceptual uniformity (and to enforce Impeccable's color doctrine); each color's documented hex equivalent is the intended sRGB value used by `apps/web/src/styles.css` and `docs/BRAND_GUIDELINES.md`. Four shipped tokens do not yet render the documented hex (see "Open values").
+A neutral surface palette with three brand accents (Forest, Clay, Bone) and two near-monochrome text scales. The reading area is white. Forest may fill three chrome bands: the header, the hero of a detail page and the footer (see "Forest grounds" below). Frontmatter values are OKLCH for perceptual uniformity (and to enforce Impeccable's color doctrine); each color's documented hex equivalent is the intended sRGB value used by `apps/web/src/styles.css` and `docs/BRAND_GUIDELINES.md`. Every opaque token renders its documented hex exactly; `design-tokens.hex.guard.spec.ts` pins it.
 
-The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/records/design-rulings.md`) changed this section. A clash number beside a rule means that ruling set it. Where a ruling left a value open, the value is listed under "Open values (set by AECI-1747)". Light theme only still holds: no dark theme, no `dark:` variants.
+The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/records/design-rulings.md`) changed this section. A clash number beside a rule means that ruling set it. Where a ruling left a value open, AECI-1747 settled it under "Settled values". Light theme only still holds: no dark theme, no `dark:` variants.
 
 ### Primary
 
-- **Forest** (`#1E3A2F` / `oklch(31.92% 0.0436 152.32)`): the primary brand color. CTAs, links, headings, the connector mark, primary badges. Hover state is **Forest Hover** (`#2E5C45` / `oklch(43.83% 0.0658 152.61)`) — measurably brighter, never a synthetic opacity reduction. Forest is also a ground: it may fill the header, the hero of a detail page and the footer (clash 1), and it is the fill of a pressed toggle (clash 5).
+- **Forest** (`#1E3A2F` / `oklch(32.24% 0.0397 166.73)`): the primary brand color. CTAs, links, headings, the connector mark, primary badges. Hover state is **Forest Hover** (`#2E5C45` / `oklch(43.47% 0.0641 160.30)`) — measurably brighter, never a synthetic opacity reduction. Forest is also a ground: it may fill the header, the hero of a detail page and the footer (clash 1), and it is the fill of a pressed toggle (clash 5).
 - **Forest soft** (`#ECF1EE` / `oklch(95.35% 0.0066 160.07)`): the Forest *wash* — fills for selected facets, selected filter chips (clash 5), verified-soft and info states. It is never a page band (clash 2). It is how Forest registers at rest without recoloring text. A wash, not a boundary (1.14:1 against white): always paired with a border or another selected-state affordance. Forest text on it measures 10.80:1.
 
 ### Secondary
 
-- **Clay** (`#E89668` / `oklch(76.10% 0.1144 47.10)`): warm secondary accent — **decorative and fill only**. Strokes and accents are its job: the connector mark, the hero ribbon, accent strokes. It never fills a button (clash 3) and never carries text (clash 4). Existing badge fills stay, carrying `text-primary` at 8.48:1 — never white text, which is 2.33:1. It measures ~2.3:1 on white, below even the 3:1 large-text/non-text floor, so it can never carry text or meaning-bearing graphics — see the Clay restriction below.
+- **Clay** (`#E89668` / `oklch(74.64% 0.1164 49.55)`): warm secondary accent — **decorative and fill only**. Strokes and accents are its job: the connector mark, the hero ribbon, accent strokes. It never fills a button (clash 3) and never carries text (clash 4). Existing badge fills stay, carrying `text-primary` at 8.48:1 — never white text, which is 2.33:1. It measures ~2.3:1 on white, below even the 3:1 large-text/non-text floor, so it can never carry text or meaning-bearing graphics — see the Clay restriction below.
 - **Clay deep** (`#A14D22` / `oklch(51.86% 0.1245 45.13)`): the text-capable member of the Clay family — clay-colored text and icons. 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone. Doubles as the warning hue. It stays the onboarding series colour in rating displays (clash 4). The token is `--accent-secondary-deep`, and all four final mock-ups use it. It is not the colour of kicker icons, facet-heading icons or the focus ring on public pages (clash 4).
 
 ### Rating
@@ -203,20 +224,20 @@ The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/record
 
 ### Tertiary
 
-- **Bone** (`#F5F2EA` / `oklch(95.62% 0.0149 95.45)`): warm-tinted *accent surface*. One tinted band per page, for its key section (clash 2). **Not a page background.** On a Forest ground Bone is also the ink: text and the fill of the main button (clashes 3 and 4).
+- **Bone** (`#F5F2EA` / `oklch(96.13% 0.0111 89.72)`): warm-tinted *accent surface*. One tinted band per page, for its key section (clash 2). **Not a page background.** On a Forest ground Bone is also the ink: text and the fill of the main button (clashes 3 and 4).
 
 ### Neutral
 
 - **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background.
 - **Surface raised** (`#FAFAFA` / `oklch(98.43% 0 0)`): cards, panels.
-- **Surface sunken** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): inset wells, code blocks, secondary states.
-- **Surface muted** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
+- **Surface sunken** (`#F4F4F5` / `oklch(96.74% 0.0013 286.38)`): inset wells, code blocks, secondary states.
+- **Surface muted** (`#F4F4F5` / `oklch(96.74% 0.0013 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
 - **Border default** (`#E4E4E7` / `oklch(91.97% 0.0036 286.32)`): standard separators (0.5px default, 1px emphasis).
 - **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
-- **Field edge** (`#84848D`, to add by AECI-1747): the redesign's border for every form control (PLAN.md §4.1). 3.71:1 on white, 3.55:1 on raised, 3.37:1 on sunken, so it meets the same 3:1 floor as Border input. Whether it replaces Border input is open (see "Open values").
+- **Field edge** (`#84848D` / `oklch(61.63% 0.0134 286.00)`, `--border-field`): the redesign's border for every form control (PLAN.md §4.1). 3.71:1 on white, 3.55:1 on raised, 3.37:1 on sunken, 3.31:1 on Bone. It sits beside Border input until AECI-1764 retires the old one. It fails on the hero panel (2.77:1) and on Forest hover (2.07:1).
 - **Border input** (`#8A8A93` / `oklch(63.63% 0.0133 286.02)`): the boundary of a form control, the edge that tells the reader "type here" or "choose here". 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken, so it meets WCAG 1.4.11's 3:1 for user-interface components. `border-default` measures about 1.25:1 and stays the separator token. Applied by the unlayered `.aec-field-control` class in `styles.css` (AECI-1296), which `FIELD_INPUT_CLASS` and the `aec-select` trigger carry. A border-colour utility would not apply.
 - **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
-- **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
+- **Text secondary** (`#52525B` / `oklch(44.19% 0.0146 285.79)`): supporting prose, captions.
 - **Text tertiary** (`#71717A` / `oklch(55.17% 0.0138 285.94)`): hints, placeholders, metadata. Re-pointed from `#A1A1AA` in AECI-230 — the old value measured 2.56:1 on white, failing even the 3:1 large-text floor. Now 4.83:1 on white, 4.63:1 on raised. **Never on sunken/muted surfaces** (4.40:1 there) — step up to text secondary.
 
 ### Status
@@ -234,8 +255,8 @@ Forest and its companions fill three chrome bands. Every pairing on them states 
 | -- | -- | -- | -- |
 | Forest | `#1E3A2F` | Header, hero of a detail page, footer, primary buttons, pressed toggles | Bone 11.03:1, white 12.34:1 |
 | Forest hover | `#2E5C45` | Hover states, the soft single-colour glow in the hero (existing `--accent-primary-hover`) | Bone 6.87:1 |
-| Hero panel | `#26473A` | Panels sitting on the Forest hero (to add) | Bone 9.18:1 |
-| Footer ground | `#15291F` | Footer only (to add) | Bone 13.71:1 |
+| Hero panel (`--surface-hero-panel`) | `#26473A` | Panels sitting on the Forest hero | Bone 9.18:1 |
+| Footer ground (`--surface-footer`) | `#15291F` | Footer only | Bone 13.71:1 |
 | Bone | `#F5F2EA` | One band per page, ink on Forest, the main button on Forest | Forest 11.03:1 |
 
 Floors that hold on every ground in the table:
@@ -244,7 +265,7 @@ Floors that hold on every ground in the table:
 - The hero panel against Forest is 1.20:1, so a panel edge is a surface cue, not a boundary. A panel that holds a control needs its own 3:1 edge. Field edge on the hero panel is 2.77:1, so a control placed on a hero panel needs a filled background to keep a 3:1 boundary.
 - Clay on Forest measures 5.29:1. Clay is a stroke or accent there and still carries no text (clash 4).
 - The `--text-tertiary` restrictions stand. It is never on Forest, hero panel, footer ground, Bone, sunken or muted surfaces.
-- Any text colour on a Forest ground other than Bone is not measured here. AECI-1747 measures it before it ships.
+- Any text colour on a Forest ground other than Bone, `--text-on-brand-secondary` and `--text-on-footer-secondary` is not allowed. The measured pairings are under "Settled values".
 
 The rules the rulings set:
 
@@ -253,19 +274,23 @@ The rules the rulings set:
 - **Buttons on Forest (clash 3, blend).** Clay never fills a button. On Forest the main button is Bone with Forest text. Everywhere else the main button stays Forest with white text.
 - **Clay and text (clash 4, blend).** Clay does not carry text. Product names highlighted on Forest are Bone. Clay deep stays the onboarding series colour. Kicker icons, chip fills and the focus ring do not take Clay.
 - **Selected states (clash 5, blend).** A pressed toggle or segmented control is solid Forest with white text (12.34:1). A selected filter chip keeps the Forest-soft wash, with a border or other selected-state cue. The view toggle is Forest, never near-black.
-- **Tokens only (clash 6, blend).** Every colour is a named OKLCH token in `apps/web/src/styles.css`. The new surfaces (hero panel, footer ground) become tokens. The mock-up's other loose values are dropped, including its extra band, soft-accent and empty-star tokens. No `color-mix()` in components, no tinted shadows, no hex in components. The lint (root `eslint.color-patterns.mjs`, and `apps/web/scripts/check-source-constraints.mjs` for `.html` and `.css`) catches colour literals only. A `color-mix()` over two tokens is review-only.
-- **Field edge (PLAN.md §4.1 and clash 23, not clash 6).** `#84848D` is the border of every form control. It becomes a token in AECI-1747. The inputs work applies it.
+- **Tokens only (clash 6, blend).** Every colour is a named OKLCH token in `apps/web/src/styles.css`. The new surfaces (hero panel, footer ground) are tokens, and so is every alpha the mock-ups mixed with `color-mix()`. The mock-up's other loose values are dropped, including its extra band, soft-accent, empty-star, venn and meter tokens. No `color-mix()` in components, no tinted shadows, no hex in components, and no Tailwind opacity modifier on a colour utility (`text-(--surface-base)/70`): it mints an alpha nobody measured and blends it in OKLab. The lint (root `eslint.color-patterns.mjs`, and `apps/web/scripts/check-source-constraints.mjs` for `.html` and `.css`) catches colour literals and opacity modifiers. A `color-mix()` over two tokens is review-only.
+- **Field edge (PLAN.md §4.1 and clash 23, not clash 6).** `#84848D` is the border of every form control. It is the token `--border-field`. The inputs work (AECI-1764) applies it.
 
 Scope: the rules in this subsection apply to public pages only (ruling R2, 2026-11-14). The vendor portal and admin take the new tokens and nothing more.
 
-### Open values (set by AECI-1747)
+### Settled values (AECI-1747)
 
-- The token names for the three new roles. Their OKLCH values are in the frontmatter.
-- Whether field edge replaces Border input or sits beside it. They differ (`#84848D` and `#8A8A93`).
-- Text and link colours on Forest other than Bone, with their measured ratios.
-- The focus ring on a Forest ground. The shipped ring is Forest, which is invisible there. Confirm the mock-up's Bone focus ring on Forest (`--hero-focus: #F5F2EA`, 11.03:1).
-- Four shipped tokens do not render the hex this file documents: Forest `#1E3A2F` renders `#213928`, Forest hover `#2E5C45` renders `#345D40`, Clay `#E89668` renders `#ED9A71`, Bone `#F5F2EA` renders `#F3F1E6`. AECI-1747 changes each token's OKLCH value so it renders the documented hex, which is the value the approved mock-ups use.
-- Which mock-up tokens are dropped. Clash 6 says "the rest are dropped" and does not list them.
+These were open after the rulings. The tokens are in `apps/web/src/styles.css` with their ratios beside them. Ratios are WCAG 2, to two decimals. Text needs 4.5:1, large text and boundaries 3:1.
+
+- **Token names.** Hero panel `--surface-hero-panel`, footer ground `--surface-footer`, field edge `--border-field`, Bone ink on Forest `--text-on-brand` (an alias of `--accent-warm`).
+- **Field edge and Border input.** They sit side by side. `--border-input` (`#8A8A93`) is unchanged and AECI-1764 retires it.
+- **Other inks on Forest.** `--text-on-brand-secondary` (`#C5D3CA`): 7.96:1 on Forest, 6.62 on the hero panel, 9.89 on the footer ground, 4.96 on Forest hover. `--text-on-footer-secondary` (`#B9C7BF`): 8.76:1 on the footer ground, 7.04 on Forest, 5.86 on the hero panel. It is not allowed on Forest hover (4.39:1). Tertiary text is never allowed on a Forest ground.
+- **Focus ring on Forest.** Bone, `--focus-ring-on-brand` (an alias of `--accent-warm`): 11.03:1 on Forest, 6.87 on Forest hover, 9.18 on the hero panel, 13.71 on the footer ground.
+- **The four drifted tokens.** Forest, Forest hover, Clay and Bone now render the hex this file documents. The OKLCH values changed, the hex did not.
+- **Mock-up values kept as tokens.** `--surface-on-brand-hover` (`#E7E1D2`, the one hover for the Bone main button on Forest, Forest text 9.46:1), `--surface-hero-ribbon` (`#3B6E55`, 2.08:1 on Forest, decorative only), `--surface-sunken-hover` (`#DADADC`), `--border-underline` (`#B5B5B5`, 2.05:1 on white) and `--border-empty` (`#C6C6CA`, 1.70:1 on white). The last two are never the only cue.
+- **Alphas on Forest.** Bone at 10% `--surface-on-brand-wash` (fills), 16% `--surface-on-brand-wash-hover`, 14% `--border-on-brand-subtle` (hairlines), 32% `--border-on-brand`. Bone at 50%, `--border-on-brand-strong`, is the only on-Forest alpha that is a 3:1 edge: 4.01:1 on Forest, 3.61 on the hero panel, 4.53 on the footer ground. Forest hover at 75% and 45% are `--surface-hero-glow` and `--surface-hero-glow-soft`. White at 94% is `--surface-sticky`. White-ground hairlines use `--border-default`, and the selected-count wash uses `--accent-primary-soft`.
+- **Mock-up tokens dropped.** `hero-accent-hover`, `hero-accent-ink`, `star-empty`, `venn-a`, `venn-b`, `accent-soft`, `meter-a`, `meter-b`, `logo-clay`, the Forest 16% focus halo of `.field:focus` (the focus ring replaces it) and Forest at 40%, which only the `html.r-btn-orig` restore toggle uses.
 
 ### Dark theme — dropped from the roadmap (not shipped)
 
