@@ -173,9 +173,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
                 i18n="@@app.legal.superseded"
               >
                 This is version {{ doc.frontmatter.version }}, superseded on {{ doc.supersededOn }}.
-                <a
-                  class="font-semibold text-(--accent-primary) underline"
-                  [routerLink]="currentPath"
+                <a class="text-(--accent-primary) underline" [routerLink]="currentPath"
                   >Read the current version.</a
                 >
               </p>
@@ -189,9 +187,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
                 i18n="@@app.legal.upcoming"
               >
                 This version takes effect on {{ doc.frontmatter.effectiveDate }}. Until then
-                <a
-                  class="font-semibold text-(--accent-primary) underline"
-                  [routerLink]="currentPath"
+                <a class="text-(--accent-primary) underline" [routerLink]="currentPath"
                   >the current version</a
                 >
                 applies.
@@ -208,10 +204,9 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
               >
                 This address always shows version {{ doc.frontmatter.version }}. For the version
                 that currently applies, see
-                <a
-                  class="font-semibold text-(--accent-primary) underline"
-                  [routerLink]="currentPath"
-                  >{{ doc.frontmatter.title }}</a
+                <a class="text-(--accent-primary) underline" [routerLink]="currentPath">{{
+                  doc.frontmatter.title
+                }}</a
                 >.
               </p>
             }
@@ -224,7 +219,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
                 i18n="@@app.legal.upcomingAnnouncement"
               >
                 Version {{ next.version }} takes effect on {{ next.effectiveDate }}.
-                <a class="font-semibold text-(--accent-primary) underline" [routerLink]="next.path"
+                <a class="text-(--accent-primary) underline" [routerLink]="next.path"
                   >Read version {{ next.version }}.</a
                 >
               </p>

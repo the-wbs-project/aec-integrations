@@ -128,6 +128,53 @@ describe('design tokens', () => {
       }
     });
 
+    // WCAG 1.4.4: text must reach 200%. Browser zoom shrinks the CSS viewport and grows
+    // the rem, so a vw term grows less than the zoom. Safari stops at 300%, so every
+    // fluid step must reach twice its 100% size by 300% zoom at every window width.
+    it('doubles every fluid step by 300% zoom at every window width from 320 to 4000px', () => {
+      const ROOT_PX = 16;
+      for (const token of FLUID) {
+        const parts = valueOf(token)?.match(
+          /^clamp\(([\d.]+)rem,\s*([\d.]+)vw \+ ([\d.]+)rem,\s*([\d.]+)rem\)$/,
+        );
+        expect(parts, `--${token}`).toBeTruthy();
+        const [min, vw, rem, max] = parts!.slice(1).map(Number);
+        /** Rendered size in device px for a window `width` device px wide at `zoom`. */
+        const size = (width: number, zoom: number): number => {
+          const cssWidth = width / zoom;
+          const css = Math.min(
+            max * ROOT_PX,
+            Math.max(min * ROOT_PX, (vw * cssWidth) / 100 + rem * ROOT_PX),
+          );
+          return css * zoom;
+        };
+        for (let width = 320; width <= 4000; width += 10) {
+          expect(
+            size(width, 3),
+            `--${token} at ${width}px: ${size(width, 1).toFixed(1)}px at 100% zoom`,
+          ).toBeGreaterThanOrEqual(2 * size(width, 1) - 0.01);
+        }
+      }
+    });
+
+    it('maps each Tailwind step to the token in the DESIGN.md §3 table', () => {
+      const expected: Record<string, string> = {
+        xs: 't-12',
+        sm: 't-14',
+        base: 't-16',
+        lg: 't-20',
+        xl: 't-20',
+        '2xl': 't-24',
+        '3xl': 't-36',
+        '4xl': 't-36',
+        // The portal glance figure is the only live non-heading text-5xl: a Figure.
+        '5xl': 't-fig',
+      };
+      for (const [step, token] of Object.entries(expected)) {
+        expect(valueOf(`text-${step}`), `--text-${step}`).toBe(`var(--${token})`);
+      }
+    });
+
     it('keeps the fixed steps in rem', () => {
       for (const token of RAMP.filter((t) => !FLUID.has(t))) {
         expect(valueOf(token), `--${token}`).toMatch(/^[\d.]+rem$/);

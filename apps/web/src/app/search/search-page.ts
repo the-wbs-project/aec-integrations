@@ -549,7 +549,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
           No results. Try a broader search or
           <a
             routerLink="/categories"
-            class="font-semibold text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >browse by category</a
           >.
         </p>

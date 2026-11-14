@@ -228,7 +228,11 @@
      The four fluid steps use rem bounds and a rem-plus-vw middle term, so they
      follow the reader's font size and zoom (WCAG 1.4.4). Never px bounds or a
      vw-only middle term. Each line names the two CSS-px viewport widths where the
-     size leaves its lower bound and reaches its upper bound. */
+     size leaves its lower bound and reaches its upper bound. Every fluid step
+     doubles by 300% zoom (Safari's limit) at every window width:
+     design-tokens.guard.spec.ts sweeps 320 to 4000px. For the two largest steps
+     that needs a rem term of at least half the upper bound, with
+     vw = (max - rem) / 1440. */
   --t-12: 0.75rem;
   --t-13: 0.8125rem;
   --t-14: 0.875rem;
@@ -239,10 +243,10 @@
   --t-36: clamp(1.75rem, 1vw + 1.35rem, 2.25rem);
   /* 28 to 40px, 640 to 1120px wide. The pre-ramp h1 clamp, unchanged. */
   --t-fig: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
-  /* 34 to 56px, 640 to 1440px wide. */
-  --t-statement: clamp(2.125rem, 2.75vw + 1.025rem, 3.5rem);
-  /* 40 to 72px, 640 to 1440px wide. */
-  --t-display: clamp(2.5rem, 4vw + 0.9rem, 4.5rem);
+  /* 34 to 56px, 222 to 1440px wide (35.8px at 320). */
+  --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
+  /* 40 to 72px, 83 to 1440px wide (45.7px at 320). */
+  --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
   --radius: 0.5rem;
@@ -461,8 +465,9 @@
      so no multi-line text loses leading. xs, sm, base, xl and 2xl render the same
      pixels as before. lg (18px) moves up to 20px and keeps its 1.556 ratio.
      3xl and 4xl (30 and 36px) become the 28 to 36px section step. 5xl (48px)
-     becomes the 34 to 56px statement step. 6xl to 9xl are unused and land on
-     display so that no utility can render off the ramp. */
+     becomes the 28 to 40px figure step: its only live non-heading use is the
+     vendor portal's glance figure, a Figure role. 6xl to 9xl are unused and land
+     on display so that no utility can render off the ramp. */
   --text-xs: var(--t-12);
   --text-sm: var(--t-14);
   --text-base: var(--t-16);
@@ -471,7 +476,7 @@
   --text-2xl: var(--t-24);
   --text-3xl: var(--t-36);
   --text-4xl: var(--t-36);
-  --text-5xl: var(--t-statement);
+  --text-5xl: var(--t-fig);
   --text-6xl: var(--t-display);
   --text-7xl: var(--t-display);
   --text-8xl: var(--t-display);

@@ -125,7 +125,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
               {{ vendorProgram.before
               }}<a
                 [routerLink]="vendorProgramPath"
-                class="rounded-sm font-semibold text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-sm text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >{{ vendorProgram.link }}</a
               >{{ vendorProgram.after }}
             </p>
