@@ -9,9 +9,14 @@ import {
   BrnDialogTrigger,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../shared/button/button';
+import { AecIcon } from '../shared/icon/icon';
+
 @Component({
   selector: 'aec-spartan-demo',
   imports: [
+    AecButton,
+    AecIcon,
     BrnButton,
     BrnDialog,
     BrnDialogClose,
@@ -35,13 +40,7 @@ import {
         </p>
       </header>
 
-      <button
-        brnButton
-        brnDialogTrigger
-        [brnDialogTriggerFor]="demoDialog"
-        type="button"
-        class="cursor-pointer rounded-md border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-medium text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >
+      <button brnButton aecButton brnDialogTrigger [brnDialogTriggerFor]="demoDialog" type="button">
         <ng-container i18n="@@demo.spartan.trigger">Open demo dialog</ng-container>
       </button>
 
@@ -69,8 +68,9 @@ import {
             <div class="mt-6 flex justify-end">
               <button
                 brnDialogClose
+                aecButton
+                variant="secondary"
                 type="button"
-                class="cursor-pointer rounded-md border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@demo.spartan.dialog.close"
               >
                 Close
@@ -79,6 +79,136 @@ import {
           </div>
         </ng-template>
       </brn-dialog>
+
+      <!-- AECI-1758: every aecButton variant and state, for render checks and axe. -->
+      <section
+        aria-labelledby="demo-buttons-heading"
+        class="space-y-4"
+        data-testid="button-specimen"
+      >
+        <h2 id="demo-buttons-heading" i18n="@@demo.buttons.heading">Buttons</h2>
+        <div class="flex flex-wrap items-center gap-3">
+          <button aecButton type="button" data-testid="btn-primary" i18n="@@demo.buttons.primary">
+            Save
+          </button>
+          <button
+            aecButton
+            variant="secondary"
+            type="button"
+            data-testid="btn-secondary"
+            i18n="@@demo.buttons.secondary"
+          >
+            Back
+          </button>
+          <button
+            aecButton
+            variant="ghost"
+            type="button"
+            data-testid="btn-ghost"
+            i18n="@@demo.buttons.ghost"
+          >
+            Not now
+          </button>
+          <button
+            aecButton
+            variant="danger"
+            type="button"
+            data-testid="btn-danger"
+            i18n="@@demo.buttons.danger"
+          >
+            Delete
+          </button>
+          <a
+            aecButton
+            variant="secondary"
+            href="/docs"
+            data-testid="btn-link"
+            i18n="@@demo.buttons.link"
+          >
+            Read the docs
+          </a>
+          <button
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            data-testid="btn-compact"
+            i18n="@@demo.buttons.compact"
+          >
+            Edit
+          </button>
+          <button
+            aecButton
+            variant="ghost"
+            iconOnly
+            type="button"
+            data-testid="btn-icon"
+            i18n-aria-label="@@demo.buttons.iconLabel"
+            aria-label="Search"
+          >
+            <aec-icon name="search" decorative />
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            aecButton
+            type="button"
+            disabled
+            data-testid="btn-primary-disabled"
+            i18n="@@demo.buttons.primaryDisabled"
+          >
+            Save (disabled)
+          </button>
+          <button
+            aecButton
+            variant="secondary"
+            type="button"
+            disabled
+            i18n="@@demo.buttons.secondaryDisabled"
+          >
+            Back (disabled)
+          </button>
+          <button
+            aecButton
+            variant="danger"
+            type="button"
+            disabled
+            i18n="@@demo.buttons.dangerDisabled"
+          >
+            Delete (disabled)
+          </button>
+          <a
+            aecButton
+            variant="secondary"
+            href="/docs"
+            disabled
+            data-testid="btn-link-disabled"
+            i18n="@@demo.buttons.linkDisabled"
+          >
+            Read the docs (disabled)
+          </a>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 rounded-card bg-(--accent-primary) p-6">
+          <button
+            aecButton
+            variant="on-brand"
+            type="button"
+            data-testid="btn-on-brand"
+            i18n="@@demo.buttons.onBrand"
+          >
+            Write a review
+          </button>
+          <button
+            aecButton
+            variant="on-brand"
+            type="button"
+            disabled
+            i18n="@@demo.buttons.onBrandDisabled"
+          >
+            Write a review (disabled)
+          </button>
+        </div>
+      </section>
     </section>
   `,
 })

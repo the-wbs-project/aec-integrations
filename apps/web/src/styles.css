@@ -106,6 +106,9 @@
   /* Form/validation error text + icons (6.54:1 on white). Success maps to
      Forest, warning to Clay deep — no separate tokens. */
   --status-error: oklch(50.13% 0.1783 28.7); /* #B3261E */
+  /* Hover fill of the danger button only (AECI-1758). White text on it is
+     9.11:1. Never a text colour. */
+  --status-error-hover: oklch(42% 0.1473 28.14); /* #8C1D18 */
 
   /* ─── Forest grounds (AECI-1747; DESIGN.md §2 "Forest grounds", PLAN.md §4.1)
    *
@@ -473,6 +476,7 @@
   --color-accent-rating: var(--accent-rating);
   --color-accent-warm: var(--accent-warm);
   --color-status-error: var(--status-error);
+  --color-status-error-hover: var(--status-error-hover);
   /* AECI-1747: Forest grounds, field edge, on-brand inks, washes. Same names as :root. */
   --color-surface-hero-panel: var(--surface-hero-panel);
   --color-surface-footer: var(--surface-footer);
@@ -883,6 +887,19 @@ button.aec-chip:focus-visible {
 
 .aec-on-brand-edge {
   border-color: var(--border-on-brand-strong);
+}
+
+/* The shared button's edge (AECI-1758, `shared/button/button.ts`). Unlayered for
+   the reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*`
+   rule. Every variant carries a 1px edge so all of them are 44px. Filled and
+   ghost buttons keep it transparent, which forced-colours mode paints as a real
+   edge. The secondary button's edge is `--border-strong`. */
+.aec-btn {
+  border-color: transparent;
+}
+
+.aec-btn-secondary {
+  border-color: var(--border-strong);
 }
 
 /* A scroll box whose last row may be clipped (the "About you" audience list).
