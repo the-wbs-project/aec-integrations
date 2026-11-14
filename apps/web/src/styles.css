@@ -221,9 +221,16 @@
   --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius.
-     UNCHANGED by AECI-1750: rounded-sm|md|lg|xl still render 4.8, 6.4, 8 and
-     11.2px, because the vendor portal and admin use them 812 times and ruling R2
-     (2026-11-14) says those surfaces take the new tokens and nothing more. */
+     UNCHANGED by AECI-1750, so rounded-sm|md|lg|xl still render 4.8, 6.4, 8 and
+     11.2px. Why not remap them (this departs from the issue text):
+     1. Order of work. Public pages are built first. Shared components are one
+        component everywhere. Vendor portal and admin page bodies are restyled
+        only after Chris has verified the public pages. The four utilities have
+        about 1,176 uses, roughly 800 of them in portal and admin page bodies,
+        and a remap would reshape those corners before that checkpoint.
+     2. A remap leaves rounded-lg (24px) larger than rounded-xl, and 2xl to 4xl
+        stay derived from --radius, so the scale would stop ascending.
+     3. Role names cannot be confused with Tailwind's meaning of md or lg. */
   --radius: 0.5rem;
 
   /* ─── Radius roles (AECI-1750; DESIGN.md §4 "Radius", PLAN.md §4.3, clash 12)
@@ -248,13 +255,12 @@
 
   /* ─── Shadows (AECI-1750; DESIGN.md §4 "Shadow Vocabulary", clash 11)
    *
-   * Pure black: lint allows rgb() only with all-zero channels
-   * (eslint.color-patterns.mjs COLOR_FUNCTION). A shadow cannot use an ink token
-   * at an alpha, because the repo's browser targets predate relative colour
-   * syntax and color-mix() is banned in components (clash 6). Values are the
-   * mock-ups' default state: --sh-card and --sh-pop on line 15 of
+   * Pure black, as PLAN.md §4.3 rules ("One card shadow, in pure black"). It is
+   * also the form of the modal shadow and the CDK backdrop, so the three agree.
+   * This file defines the tokens and is exempt from the colour rules. Values are
+   * the mock-ups' default state: --sh-card and --sh-pop on line 15 of
    * docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html (the same
-   * on 5, 7 and 8).
+   * on 5, 7 and 8). design-tokens.guard.spec.ts pins both strings exactly.
    *
    * A shadow is NEVER the only cue for a boundary that needs 3:1. A card is not a
    * control, so its shadow edge may stand alone, but a control on or inside a card
@@ -264,6 +270,25 @@
    * unchanged and still written inline where they are used. */
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
   --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
+
+  /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
+     taken from the default state of the approved mock-ups (mock-up 6,
+     `--ease` at line 15):
+       --duration-fast  120ms  press and row hover        (`.btn` line 88, `table.cmp tbody tr` line 334)
+       --duration-base  180ms  hover, focus, disclosure    (`.card` line 293, `.order .chev` line 287)
+       --duration-slow  280ms  menu open, ink bar, scrim   (`.cm` line 632, `.snl-ink` line 182)
+       --ease-standard         cubic-bezier(.2, .7, .2, 1) (`--ease`, line 15)
+     Utilities: `duration-fast|base|slow` and `ease-standard` (see @theme inline).
+     Reduced motion is a floor: under `prefers-reduced-motion: reduce` the global
+     block below forces every transition and animation duration to 0.01ms, so a
+     token-driven change lands instantly. A state change must never be conveyed by
+     motion alone, and no looping animation may run past 5s without a pause control
+     (WCAG 2.2.2). Nothing consumes these yet; later AECI-1720 issues adopt them on
+     public pages. The vendor portal and admin keep Tailwind's 150ms default. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* ─── Data-series palette — operator console ONLY (AECI-578, ADMIN_PANEL_SPEC §8)
@@ -453,6 +478,12 @@
   --shadow-menu: var(--shadow-menu);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
+  /* Motion tokens (AECI-1751). Tailwind's `duration-*` utilities read the
+     `--transition-duration-*` namespace and `ease-*` reads `--ease-*`. */
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --ease-standard: var(--ease-standard);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves
      to the OS ui-serif stack. Bind it to the brand display face so any stray
      `font-serif` renders in Source Serif 4 instead of regressing to OS serif. */
@@ -729,7 +760,10 @@ html {
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
    than relying on every component to opt in. Additive — only active when the
-   user has set the preference. See `harden` (motion sensitivity). */
+   user has set the preference. See `harden` (motion sensitivity).
+   The `--duration-*` motion tokens need nothing extra: they only ever feed
+   `transition-duration` and `animation-duration`, which this block overrides with
+   `!important` on every element (design-tokens.guard.spec.ts pins that). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
