@@ -116,7 +116,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
             The independent reference for AEC software
           </p>
           <h1
-            class="mt-3 font-display text-[clamp(2.25rem,4.5vw+1rem,4rem)] font-normal leading-[1.05] tracking-[-0.01em] text-(--text-primary)"
+            class="mt-3 font-display font-normal leading-[1.05] tracking-[-0.01em] text-(--text-primary)"
             i18n="@@home.hero.tagline"
           >
             Find the integrations between your AEC tools.

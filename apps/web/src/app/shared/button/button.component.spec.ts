@@ -61,6 +61,13 @@ const VARIANT_FILL: Record<AecButtonVariant, string[]> = {
     'hover:bg-(--surface-on-brand-hover)',
     'focus-visible:outline-(--focus-ring-on-brand)',
   ],
+  'on-brand-secondary': [
+    'aec-btn-on-brand-secondary',
+    'bg-(--surface-on-brand-wash)',
+    'text-(--text-on-brand)',
+    'hover:bg-(--surface-on-brand-wash-hover)',
+    'focus-visible:outline-(--focus-ring-on-brand)',
+  ],
   secondary: ['aec-btn-secondary', 'bg-(--surface-raised)', 'hover:bg-(--surface-sunken)'],
   ghost: ['bg-transparent', 'text-(--text-primary)', 'hover:text-(--accent-primary)'],
   danger: ['bg-(--status-error)', 'text-(--surface-base)', 'hover:bg-(--status-error-hover)'],

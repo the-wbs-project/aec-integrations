@@ -83,7 +83,14 @@
         You are reviewing
       </h2>
       <div class="mt-3 flex items-center gap-3">
-        <aec-logo-or-initial [name]="product.name" [src]="product.logo_url" size="sm" />
+        <!-- AECI-1769: this rail is not the product's own page and carries no
+             "not affiliated" note, so an unclaimed product shows its initial tile. -->
+        <aec-logo-or-initial
+          [name]="product.name"
+          [src]="product.logo_url"
+          [claimStatus]="product.claim_status"
+          size="sm"
+        />
         <div class="min-w-0">
           <p class="truncate text-sm font-semibold text-(--text-primary)">{{ product.name }}</p>
           @if (product.vendor; as vendor) {

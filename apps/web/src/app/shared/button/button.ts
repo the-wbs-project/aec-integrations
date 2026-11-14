@@ -17,17 +17,24 @@ import {
 import { isReplayedEvent } from '../../core/event-replay';
 
 /**
- * The five button looks (DESIGN.md §5 "Buttons").
+ * The six button looks (DESIGN.md §5 "Buttons").
  *
  * - `primary`: Forest fill, white text. The surface's one main action.
  * - `on-brand`: Bone fill, Forest text. The main action on a Forest ground.
+ * - `on-brand-secondary`: a Bone wash fill and a Bone edge. The second action on a Forest ground.
  * - `secondary`: raised fill, a 1px `--border-strong` edge.
  * - `ghost`: no fill, no visible edge. Tertiary actions in dense surfaces.
  * - `danger`: error fill, white text. A destructive action, always with a text label.
  *
  * Clay never fills a button (clash 3). No variant is a pill (clash 20).
  */
-export type AecButtonVariant = 'primary' | 'on-brand' | 'secondary' | 'ghost' | 'danger';
+export type AecButtonVariant =
+  | 'primary'
+  | 'on-brand'
+  | 'on-brand-secondary'
+  | 'secondary'
+  | 'ghost'
+  | 'danger';
 
 export interface AecButtonOptions {
   /** 16px side padding instead of 24px. Same 44px height. Ghost is always compact. */
@@ -39,11 +46,11 @@ export interface AecButtonOptions {
 /**
  * Shared by every variant: 44px minimum height (a wrapped label grows it), 12px
  * radius, 14px label at 600, a 1px edge, no shadow. The edge colour comes from the
- * unlayered `.aec-btn` and `.aec-btn-secondary` rules in `styles.css`, because a
+ * unlayered `.aec-btn`, `.aec-btn-secondary` and `.aec-btn-on-brand-secondary` rules in `styles.css`, because a
  * `border-(--x)` utility loses to the unlayered `* { border-color }` rule.
  *
  * Focus is a 3px outline at a 3px offset. Its colour is Forest from the
- * `@layer base` `:focus-visible` rule, and Bone on the `on-brand` variant. It is
+ * `@layer base` `:focus-visible` rule, and Bone on the two `on-brand` variants. It is
  * an outline, not a shadow, so forced-colours mode keeps it.
  *
  * Press moves the button down 1px and to 98% (clash 37) over the fast step. The
@@ -65,6 +72,8 @@ const BUTTON_VARIANT: Record<AecButtonVariant, string> = {
   primary: 'bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover)',
   'on-brand':
     'bg-(--accent-warm) text-(--accent-primary) hover:bg-(--surface-on-brand-hover) focus-visible:outline-(--focus-ring-on-brand)',
+  'on-brand-secondary':
+    'aec-btn-on-brand-secondary bg-(--surface-on-brand-wash) text-(--text-on-brand) hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-(--focus-ring-on-brand)',
   secondary:
     'aec-btn-secondary bg-(--surface-raised) text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary)',
   ghost: 'bg-transparent text-(--text-primary) hover:text-(--accent-primary)',

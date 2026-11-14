@@ -964,6 +964,12 @@ button.aec-chip:focus-visible {
   border-color: var(--border-strong);
 }
 
+/* The second action on a Forest ground (AECI-1766). The edge is Bone at 50%, the
+   one on-Forest alpha that is a 3:1 control edge (4.01:1 on Forest). */
+.aec-btn-on-brand-secondary {
+  border-color: var(--border-on-brand-strong);
+}
+
 /* The shared card surface (AECI-1765, `shared/card/card.ts`). Unlayered for the
    reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*` rule.
    The 1px edge is transparent. A resting card has no hairline beside its shadow
@@ -1009,6 +1015,88 @@ button.aec-chip:focus-visible {
 @media (min-width: 64rem) {
   .aec-card-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
+   the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
+   gradients in a single colour, Forest hover at 75% and 45%, taken from the
+   alpha tokens so no colour function is needed. Unlayered because a component
+   `background-image` utility cannot express it.
+
+   The second length of `radial-gradient(900px 560px ...)` is the VERTICAL
+   RADIUS, and the colour stops at 70% of it, so the glow reaches 392px from its
+   centre. The centre is held at least 392px down (`max(42%, 392px)`) so the
+   glow is fully transparent on the band's top row. The header above is flat
+   Forest, so the seam is flat. This sits lower than mock-up 6, which puts the
+   centre at 42% of a shorter hero (DESIGN.md §4, flagged for Chris).
+
+   Contrast on the glow, the same figures as DESIGN.md: Bone 7.75:1 and
+   `--text-on-brand-secondary` 5.59:1 at the 75% centre, Bone 7.34:1 and
+   secondary 5.29:1 where both glows overlap. The §4 floor measures at the full
+   Forest hover, which is stricter: Bone 6.87:1, secondary 4.96:1. No blur, no
+   noise. */
+.aec-hero-band {
+  background-image:
+    radial-gradient(900px 560px at 78% max(42%, 392px), var(--surface-hero-glow), transparent 70%),
+    radial-gradient(600px 400px at 6% 100%, var(--surface-hero-glow-soft), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+/* A chip's own focus rule above is unlayered and Forest, so it beats the base
+   layer ring below and would draw Forest on Forest (1.00:1). Inside the band a
+   chip takes the Bone ring, with the same 3px width and offset. */
+.aec-hero-band a.aec-chip:focus-visible,
+.aec-hero-band button.aec-chip:focus-visible {
+  outline-color: var(--focus-ring-on-brand);
+}
+
+/* The ring and link colour inside the hero band (AECI-1766). In `@layer base`
+   on purpose: a caller's plain utility still wins, so a white card inside the
+   band sets its Forest ring with `focus-visible:outline-(--accent-primary)`.
+   An unlayered rule here would beat that utility (1.12:1 Bone on white).
+   A plain link is Bone, never the base-layer Forest link colour (1.00:1 on
+   Forest), and hover underlines it, so colour is never the only cue. */
+@layer base {
+  .aec-hero-band :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline-style: solid;
+    outline-width: 3px;
+    outline-offset: 3px;
+    outline-color: var(--focus-ring-on-brand);
+  }
+
+  .aec-hero-band a {
+    color: var(--text-on-brand);
+  }
+
+  .aec-hero-band a:hover {
+    color: var(--text-on-brand);
+    text-decoration-line: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+/* Forced colours drops background colours and images. Keep a boundary and
+   readable text: system colours, with a hairline above and below. */
+@media (forced-colors: active) {
+  .aec-hero-band {
+    background-image: none;
+    border-block: 1px solid CanvasText;
+  }
+
+  .aec-hero-panel {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* The Bone band (AECI-1766, `shared/bone-band/bone-band.ts`). Its ground is a
+   utility. Forced colours drops that fill, which would leave the band with no
+   boundary against the white page, so it gets a system-colour edge above and
+   below. Normal rendering has no border: Bone against white is 1.12:1 and the
+   mock-up draws none. */
+@media (forced-colors: active) {
+  .aec-bone-band {
+    border-block: 1px solid CanvasText;
   }
 }
 
@@ -1328,6 +1416,8 @@ textarea:-webkit-autofill:focus {
 .aec-prose code {
   background-color: var(--surface-muted);
   border-radius: 0.25rem;
+  /* Relative on purpose: inline code scales with the text around it (a
+     heading, a lede, a table cell). A ramp token would pin it at 14px. */
   font-size: 0.875em;
   padding-block: 0.1em;
   padding-inline: 0.35em;
@@ -1467,7 +1557,7 @@ textarea:-webkit-autofill:focus {
 
 .aec-plan-price {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: var(--t-36);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
