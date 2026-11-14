@@ -227,9 +227,9 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   partner_categories: z.array(IntegrationTermSchema).default([]),
   /**
    * The row's agreement state (AECI-1781), one of the pair page's four claim states.
-   * Provisional until Chris rules on AECI-1781: rolled up by `integrationAgreement`
-   * (`../agreement`), where any `conflict` wins, else
-   * the weakest claim's state. It reads `confirmed` only when every flow the row lists
+   * Ruling 2026-11-14 (Chris, asked on AECI-1781): "A", the weakest flow decides.
+   * Rolled up by `integrationAgreement` (`../agreement`), where any `conflict` wins,
+   * else the weakest claim's state. A `single_source` row reads "Confirmed by one company". It reads `confirmed` only when every flow the row lists
    * is confirmed by two companies. It covers the claims `data_objects` lists. `null`
    * when the row lists none.
    *

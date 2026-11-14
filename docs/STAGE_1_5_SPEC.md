@@ -644,7 +644,7 @@ Scope — must ship as one change:
 
 _Rewritten 2026-11-14 by AECI-1821. It replaces the earlier "Other tools that connect to {context product}" suggestions module._ The page layout is in `docs/design/mockups/redesign-2026-11/PLAN.md` §5.1. The mock-up is `mockups/5-statement-first.html`. PLAN.md §10 lists the mock-up's known defects. The build must not copy them.
 
-The empty pair page is the first place this module ships. Whether it also renders on pair pages that have an integration is an open question put to Chris on 2026-11-14. No ruling has narrowed AECI-341, and §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list either way.
+The empty pair page is the first place this module ships. **Ruling 2026-11-14 (Chris, asked on AECI-1821): "C, but create a ticket to address later".** Closest matches also render on pair pages that have an integration, as AECI-341 planned. §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list. The position of the module on such a page is decided in its mock-up (AECI-1791) and AECI-1837.
 
 **What the module is.**
 
@@ -685,8 +685,8 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 
 **No bridges (ruling by Chris, comments on AECI-342 dated 2026-11-11 and 2026-11-14).**
 
-- There is no two-step route through a third product.
-- There are no connector-platform modules on this page. This supersedes the connector comparison columns that §13.7 gave curated reachable pair pages. See the supersession note at the top of §13.7.
+- There is no two-step route through a third product on the empty pair page. That is all this ruling covers.
+- **Ruling 2026-11-14 (Chris, asked on AECI-1821): "C, but create a ticket to address later".** Both older plans stand. §13.7's connector comparison on curated reachable pair pages stands. AECI-1837 settles the combined template. The 2026-11-11 comment on AECI-342 also said the ruling removed connector-platform modules. The later ruling governs, and AECI-1837 reconciles the two.
 - There is no "data-object bridge" sentence. The earlier template said "X and Y both handle _cost codes_, a CSV/manual bridge is viable". That sentence is removed.
 - Data objects still appear as facts. "What you would be moving" lists what each product already exchanges. It never says a connection is viable or could be built.
 
@@ -720,6 +720,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 | No directory page | We have not found an integrations page published by {vendor}. |
 | Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
 | Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
+| Under review flag | Under review (source: Chris's ruling of 2026-11-14, asked on AECI-343, not the legal review) |
 
 - Never write that a product "does not integrate".
 - The caveat also appears in the page title and the meta description. The legal review asked for this.
@@ -770,7 +771,7 @@ The entry point reads "Know of one?" with the button "It does exist". The exact 
 - The report carries **both** products. A request must identify the pair, with distinguishable type or metadata, so per-pair report counts are queryable.
 - A correction request does not carry both products today. `context_product_id` is for claims only. A correction passes `contextProduct: null` (`apps/api/src/routes/requests.ts`). `RequestKindSchema` allows only `claim` and `correction`. The schema change is AECI-343. This section does not design it.
 - The dialog opens with a prefilled body that names both products. It asks for a public source, as the Listing Accuracy Policy requires.
-- A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route. **Open question put to Chris on 2026-11-14:** this policy covers a wrong value, not a report that an integration exists. The proposal is that the "not on record" statement on that pair page is flagged as under review. That is not settled.
+- A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route. **Ruling 2026-11-14 (Chris, asked on AECI-343): "A".** The "No integration on record" statement on that pair page is flagged. It shows "Under review" beside it until AECi adds the integration or declines the report. The policy's two-business-day clock applies. The policy already says "we hide or flag that value within two business days of receiving" a public source, so the flag uses its existing words. The page says "Under review" and never says the statement is false.
 - The report count doubles as a coverage-gap demand signal that feeds the §11.4 scoring.
 - Writes obey the §26.1 audit-batch invariant. The `audit_log` row goes in the same `db.batch` as the write.
 - Rate limits go on the write only, after the authz guard.
@@ -1521,15 +1522,15 @@ powered hub's `PoweredIntegrationItem` does not: its rows have no single partner
 - **`data_objects`**: the objects in `data_object_slugs`, each with its name, in the order the pair
   page's claim lanes use: curated `display_order`, then name, then slug. Same claims, same set. The
   names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.
-- **`agreement`**: Provisional until Chris rules on AECI-1781: the row's claims rolled up by
-  `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
+- **`agreement`**: ruling 2026-11-14 (Chris, asked on AECI-1781): "A". The weakest flow decides.
+  The row's claims are rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim decides, in `unverified < single_source <
   confirmed`. So a row reads `confirmed` only when every flow it lists is confirmed by two
   companies. One confirmed flow never lends its standing to flows nobody confirmed. It covers the
   claims `data_objects` lists: refuted and unbacked claims are out, as they are out of the depth
-  axis. `null` when the row lists no claim. Two points are open. A flow every voting company denied
-  is left out of the roll-up. A rolled-up `single_source` names no vendor, so a card cannot render
-  the attributed "Confirmed by {vendor}" form (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3) from this field
-  alone. A claim marked `removed` on a versioned pair still counts on the product row, as
+  axis. `null` when the row lists no claim. A flow every voting company denied is left out of the
+  roll-up. A rolled-up `single_source` names no vendor, so its card says "Confirmed by one company".
+  The attributed "Confirmed by {vendor}" form (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3) is for a single
+  claim. The state is a label only. A claim marked `removed` on a versioned pair still counts on the product row, as
   `data_object_slugs` has since AECI-711.
 
 All three are row data. None orders anything on the server, and the rows stay unordered on the
@@ -2246,7 +2247,7 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
 
-> **Superseded in part, 2026-11-14 (AECI-1821).** Chris's no-bridge ruling (comments on AECI-342, 2026-11-11, extended 2026-11-14) removed connector-platform modules from the pair page. The connector comparison columns below do not render on a pair page. Whether AECI-716's curated pair pages survive in another form is an open question put to Chris on 2026-11-14. The text below is kept as the record. See §11.4.
+> **Ruling 2026-11-14 (Chris, asked on AECI-1821): "C, but create a ticket to address later".** This section stands. The no-bridge ruling covers only two-step routes through a third product on the empty pair page (§11.4). A curated reachable pair is also an empty pair, so it must carry both the honest "not on record" statement and the connector comparison below. How one template does both is AECI-1837.
 
 Presentation only; the data lands in AECI-714 and the curation in the review app.
 
