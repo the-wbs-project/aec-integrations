@@ -1,3 +1,4 @@
+import type { ClaimStatus } from '@aeci/shared';
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
@@ -20,9 +21,13 @@ import { LogoOrInitial, logoAlt, type LogoShape, type LogoSize } from './logo-or
     [size]="size"
     [shape]="shape"
     [referrerPolicy]="referrerPolicy"
+    [claimStatus]="claimStatus"
+    [ownPage]="ownPage"
   />`,
 })
 class LogoOrInitialHost {
+  claimStatus: ClaimStatus | null = null;
+  ownPage = false;
   src: string | null = 'https://cdn.example.com/acme.png';
   name = 'Acme';
   alt = '';
@@ -222,4 +227,87 @@ describe('LogoOrInitial', () => {
     });
     expect(avatar.root.querySelector('img')!.getAttribute('referrerpolicy')).toBe('no-referrer');
   });
+
+  // ── the logo rule (AECI-1769, ADR 0056 floor 3, counsel's ruling 9) ──────
+  // An unclaimed listing shows the initial tile everywhere except the slot on its
+  // own page where the "not affiliated" note sits beside it.
+
+  const LOGO = 'https://cdn.example.com/acme.png';
+
+  it('shows the logo of a claimed listing, on its own page or off it', () => {
+    for (const ownPage of [false, true]) {
+      const { root } = renderHost({ src: LOGO, claimStatus: 'claimed', ownPage });
+      expect(root.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+    }
+  });
+
+  it('shows the initial tile for an unclaimed listing off its own page, even with a logo', () => {
+    const { root } = renderHost({ src: LOGO, name: 'Acme', claimStatus: 'unclaimed' });
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span[aria-hidden]')?.textContent?.trim()).toBe('A');
+  });
+
+  it('keeps the small sourced logo of an unclaimed listing on its own page', () => {
+    const { root } = renderHost({
+      src: LOGO,
+      claimStatus: 'unclaimed',
+      ownPage: true,
+      size: 'sm',
+    });
+    expect(root.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+  });
+
+  it('trusts a link payload with no claim status, whose logo the API already withheld', () => {
+    expect(renderHost({ src: LOGO }).root.querySelector('img')).not.toBeNull();
+    expect(renderHost({ src: null }).root.querySelector('img')).toBeNull();
+  });
+
+  it('never shows an unclaimed logo above 32px, even with ownPage (AECI-1826 open)', () => {
+    const { root } = renderHost({
+      src: LOGO,
+      name: 'Acme',
+      claimStatus: 'unclaimed',
+      ownPage: true,
+      size: 'lg',
+    });
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span[aria-hidden]')?.classList.contains('h-16')).toBe(true);
+    // A claimed listing keeps its 64px logo.
+    const claimed = renderHost({ src: LOGO, claimStatus: 'claimed', ownPage: true, size: 'lg' });
+    expect(claimed.root.querySelector('img')?.getAttribute('width')).toBe('64');
+  });
+
+  it('ownPage never conjures a logo the payload does not carry', () => {
+    const { root } = renderHost({ src: null, claimStatus: 'unclaimed', ownPage: true });
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span[aria-hidden]')).not.toBeNull();
+  });
+
+  it.each(['lg', 'sm'] as const)(
+    'gives a %s logo and its initial tile the same box, border, fill and radius',
+    (size) => {
+      const logo = renderHost({ src: LOGO, size }).root.querySelector('img')!;
+      const tile = renderHost({ src: LOGO, size, claimStatus: 'unclaimed' }).root.querySelector(
+        'span[aria-hidden]',
+      )!;
+      const frame = (el: Element) =>
+        [...el.classList].filter((c) => /^(h-|w-|border|bg-|rounded)/.test(c)).sort();
+      expect(frame(tile)).toEqual(frame(logo));
+      expect(frame(logo)).toContain('border');
+      expect(frame(logo)).toContain('bg-(--surface-raised)');
+      // No muted styling: the tile's initial is primary text at full opacity.
+      expect(tile.classList.contains('text-(--text-primary)')).toBe(true);
+      expect([...tile.classList].some((c) => c.startsWith('opacity-'))).toBe(false);
+    },
+  );
+
+  it.each(['lg', 'sm'] as const)(
+    'rounds the %s mark and its tile at the 8px mark radius, so the scale never inverts',
+    (size) => {
+      const logo = renderHost({ src: LOGO, size }).root.querySelector('img')!;
+      const tile = renderHost({ src: null, size }).root.querySelector('span[aria-hidden]')!;
+      expect(logo.classList.contains('rounded-mark')).toBe(true);
+      expect(tile.classList.contains('rounded-mark')).toBe(true);
+    },
+  );
 });

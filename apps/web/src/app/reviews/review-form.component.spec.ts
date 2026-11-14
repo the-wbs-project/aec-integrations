@@ -788,6 +788,25 @@ describe('ReviewForm', () => {
       expect(link?.getAttribute('target')).toBe('_blank');
     });
 
+    // AECI-1769: the rail is not the product's own page and carries no "not affiliated"
+    // note, so an unclaimed product shows its initial tile (counsel's ruling 9).
+    it.each([
+      ['unclaimed', 0],
+      ['claimed', 1],
+    ] as const)('shows a %s product logo in the rail %i time(s)', async (claim, imgs) => {
+      const p = {
+        ...withVendor(),
+        logo_url: 'https://cdn.example.com/acme-build.png',
+        claim_status: claim,
+      } as unknown as ProductDetail;
+      const { fixture, el } = setup(p);
+      await showForm(fixture);
+      const mark = el.querySelector('[data-testid="context-rail"] aec-logo-or-initial')!;
+      expect(mark.querySelectorAll('img')).toHaveLength(imgs);
+      if (imgs === 0)
+        expect(mark.querySelector('span[aria-hidden]')?.textContent?.trim()).toBe('A');
+    });
+
     it('sits between the header and the form in source order (the single-column order)', async () => {
       const { fixture, el } = setup(withVendor());
       await showForm(fixture);
