@@ -23,6 +23,7 @@ import { forwardRowClick } from '../shared/row-link/row-link-click';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Row representation of one of a product's integrations, slotted into the
@@ -98,7 +99,7 @@ import { routeIntegrationLane } from './connector-lane-grouping';
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker],
+  imports: [AecIcon, FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -261,18 +262,13 @@ import { routeIntegrationLane } from './connector-lane-grouping';
         [attr.aria-label]="pairAriaLabel()"
         class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
-        <svg
-          class="inline-block size-4 text-(--text-tertiary) rtl:-scale-x-100"
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
+        <aec-icon
+          class="text-(--text-tertiary)"
+          name="chevron-right"
+          decorative
+          [size]="4"
+          [mirrorRtl]="true"
+        />
       </a>
     </td>
   `,

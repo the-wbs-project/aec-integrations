@@ -54,6 +54,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-search-trigger',
@@ -62,7 +63,7 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
   // the visibility rather than the parent: below `lg` the hamburger carries
   // search, at `xl`+ the inline box does.
   host: { class: 'hidden lg:block xl:hidden' },
-  imports: [BrnPopover, BrnPopoverContent, BrnPopoverTrigger, SearchAutocomplete],
+  imports: [AecIcon, BrnPopover, BrnPopoverContent, BrnPopoverTrigger, SearchAutocomplete],
   template: `
     <button
       brnPopoverTrigger
@@ -72,19 +73,7 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
       i18n-aria-label="@@app.header.search.toggle.aria"
       aria-label="Open search"
     >
-      <svg
-        aria-hidden="true"
-        class="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
+      <aec-icon name="search" decorative [size]="5" />
     </button>
 
     <brn-popover #panel="brnPopover" class="contents" align="end" [sideOffset]="8">

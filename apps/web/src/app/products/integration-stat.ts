@@ -1,4 +1,5 @@
 import { Component, computed, input } from '@angular/core';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Renders a product's `integration_count` as a deliberate metric (the
@@ -21,6 +22,7 @@ export type IntegrationStatVariant = 'inline' | 'badge' | 'headline';
 
 @Component({
   selector: 'aec-integration-stat',
+  imports: [AecIcon],
   template: `
     @if (count() > 0) {
       @switch (variant()) {
@@ -38,19 +40,7 @@ export type IntegrationStatVariant = 'inline' | 'badge' | 'headline';
             class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
               bg-(--surface-raised) px-2.5 py-1 text-xs font-medium text-(--text-secondary)"
           >
-            <svg
-              class="h-3.5 w-3.5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
+            <aec-icon name="link" decorative [size]="3.5" />
             <span class="tabular-nums">{{ count() }}</span> {{ noun() }}
           </span>
         }

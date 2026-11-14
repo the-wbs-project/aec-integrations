@@ -18,6 +18,7 @@ import {
 } from '@spartan-ng/brain/dialog';
 
 import { HomeFeedbackForm } from './home-feedback-form';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * The "suggest a tool / share feedback" modal shell (AECI-275). A thin BrnDialog
@@ -39,6 +40,7 @@ import { HomeFeedbackForm } from './home-feedback-form';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   imports: [
+    AecIcon,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -67,18 +69,7 @@ import { HomeFeedbackForm } from './home-feedback-form';
               i18n-aria-label="@@home.feedback.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative [size]="5" />
             </button>
           </div>
 

@@ -72,6 +72,7 @@ import { AccountIdentity } from './account-identity';
 import { NavFlyoutList } from './nav-flyout-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-nav-menu',
@@ -87,6 +88,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // ends up with two search boxes, or none.
   host: { class: 'lg:hidden' },
   imports: [
+    AecIcon,
     RouterLink,
     RouterLinkActive,
     BrnPopover,
@@ -107,20 +109,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
       (click)="adminStatus.ensureProbed()"
     >
-      <svg
-        aria-hidden="true"
-        class="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <line x1="4" x2="20" y1="6" y2="6" />
-        <line x1="4" x2="20" y1="12" y2="12" />
-        <line x1="4" x2="20" y1="18" y2="18" />
-      </svg>
+      <aec-icon name="menu" decorative [size]="5" />
       <!-- Pending-review badge: parity with the desktop user icon, so an admin
            sees there's moderation work without opening the menu (AECI-259). -->
       @if (showBadge()) {
@@ -227,19 +216,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                 class="flex w-full items-center justify-center gap-2 rounded-md border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-medium text-(--text-primary) hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.account"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
+                <aec-icon name="user" decorative [size]="4" />
                 Account
               </a>
 

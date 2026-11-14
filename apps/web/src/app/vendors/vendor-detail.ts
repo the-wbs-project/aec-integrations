@@ -24,6 +24,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { CompanyFacts } from './company-facts';
 import { VendorProductRow } from './vendor-product-row';
+import { AecIcon } from '../shared/icon/icon';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
 type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
@@ -84,6 +85,7 @@ const HERO_LINK_FIELDS = [
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AecIcon,
     CompanyFacts,
     CompanyFactsNote,
     DetailLayout,
@@ -348,19 +350,7 @@ const HERO_LINK_FIELDS = [
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                  <path d="M4 22v-7" />
-                </svg>
+                <aec-icon name="flag" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3). -->
                 <ng-container i18n="@@vendors.detail.metadata.claimCompany"
                   >Claim {{ v.company_name }}</ng-container
@@ -381,19 +371,7 @@ const HERO_LINK_FIELDS = [
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
+                <aec-icon name="pen" decorative [size]="4" />
                 <ng-container i18n="@@vendors.detail.metadata.correction"
                   >Suggest a correction</ng-container
                 >

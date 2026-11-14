@@ -65,10 +65,12 @@ import { signOutAndGoHome } from '../auth/sign-out';
 import { VendorStatus } from '../vendor/vendor-status';
 
 import { AccountIdentity } from './account-identity';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-user-menu',
   imports: [
+    AecIcon,
     NgOptimizedImage,
     RouterLink,
     BrnPopover,
@@ -114,19 +116,7 @@ import { AccountIdentity } from './account-identity';
           (error)="photoFailed.set(true)"
         />
       } @else {
-        <svg
-          aria-hidden="true"
-          class="h-5 w-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
+        <aec-icon name="user" decorative [size]="5" />
       }
       @if (showBadge()) {
         <span

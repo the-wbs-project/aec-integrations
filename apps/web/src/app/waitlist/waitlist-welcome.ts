@@ -1,6 +1,7 @@
 import { Component, afterNextRender, inject, signal } from '@angular/core';
 
 import { WaitlistWelcomeService } from './waitlist-welcome.service';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * Waitlist welcome banner (AECI-243 / Phase 7.9, §11.2).
@@ -22,6 +23,7 @@ import { WaitlistWelcomeService } from './waitlist-welcome.service';
  */
 @Component({
   selector: 'aec-waitlist-welcome',
+  imports: [AecIcon],
   template: `
     @if (show()) {
       <aside
@@ -46,19 +48,7 @@ import { WaitlistWelcomeService } from './waitlist-welcome.service';
             i18n-aria-label="@@waitlist.welcome.dismiss"
             aria-label="Dismiss"
           >
-            <svg
-              aria-hidden="true"
-              class="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <aec-icon name="x" decorative [size]="4" />
           </button>
         </div>
       </aside>

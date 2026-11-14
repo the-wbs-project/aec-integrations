@@ -11,6 +11,7 @@ import {
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
+import { AecIcon } from '../icon/icon';
 
 /** One sort choice the control renders. `value` is handed back through
  *  `(sortChange)`: a `?sort=` key on `/products`, an Algolia index name on
@@ -58,7 +59,7 @@ export class ListingSortIds {
  */
 @Component({
   selector: 'aec-listing-sort-select',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <div class="inline-flex items-center gap-2">
       <span
@@ -83,18 +84,7 @@ export class ListingSortIds {
             focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
-          <svg
-            class="h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
         </button>
 
         <!--
