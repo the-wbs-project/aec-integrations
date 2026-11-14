@@ -85,11 +85,16 @@ describe('design tokens render their documented hex (AECI-1747)', () => {
     }
   });
 
-  it('gives every opaque colour token the strict `oklch(N% C H); /* #HEX */` form', () => {
-    const declared = [...rootBlock.matchAll(/^\s*--([\w-]+):\s*oklch\(([^)]*)\)/gm)]
-      .filter((m) => !m[2].includes('/'))
-      .map((m) => m[1]);
-    const strict = new Set(tokens.map((t) => t.name));
+  it('gives every oklch() token the strict opaque or alpha form', () => {
+    // Every `--x: oklch(` must match the opaque pattern (`N% C H); /* #HEX */`)
+    // or the alpha pattern (`N% C H / N%); /* ... at N% */`). A bare-number
+    // lightness, a decimal alpha (`/ 0.4`) or a missing comment matches neither
+    // and fails here instead of being skipped by the checks below.
+    const declared = [...rootBlock.matchAll(/^\s*--([\w-]+):\s*oklch\(/gm)].map((m) => m[1]);
+    const strict = new Set([
+      ...tokens.map((t) => t.name),
+      ...[...rootBlock.matchAll(ALPHA_RE)].map((m) => m[1]),
+    ]);
     expect(declared.filter((n) => !strict.has(n))).toEqual([]);
   });
 

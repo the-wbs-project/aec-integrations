@@ -243,6 +243,10 @@ describe('no-color-opacity-modifier (AECI-1747)', () => {
       expect(hits(HTML, `<p class="${c}">x</p>`), c).toContain('no-color-opacity-modifier');
     }
     expect(hits(CSS, '@apply bg-(--surface-base)/70;')).toContain('no-color-opacity-modifier');
+    expect(hits(HTML, '<p [class.bg-(--accent-primary)/40]="on">x</p>')).toContain(
+      'no-color-opacity-modifier',
+    );
+    expect(hits(HTML, '<p [class.text-(--text-primary)]="on">x</p>')).toEqual([]);
   });
 });
 

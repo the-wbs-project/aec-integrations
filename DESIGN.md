@@ -36,10 +36,10 @@ colors:
   surface-sunken-hover:   "oklch(88.89% 0.0027 286.34)"
   border-underline:       "oklch(77.31% 0 0)"
   border-empty:           "oklch(82.77% 0.0055 286.28)"
-  # Two aliases of Bone, so a copy cannot drift: text-on-brand and
-  # focus-ring-on-brand are both var(--accent-warm), #F5F2EA.
-  text-on-brand:          "{colors.accent-warm}"
-  focus-ring-on-brand:    "{colors.accent-warm}"
+  # Bone again, #F5F2EA. In styles.css text-on-brand and focus-ring-on-brand
+  # are var(--accent-warm), so a copy cannot drift.
+  text-on-brand:          "oklch(96.13% 0.0111 89.72)"
+  focus-ring-on-brand:    "oklch(96.13% 0.0111 89.72)"
   # Alpha tokens, composited in sRGB over the ground. Bone at 10, 16, 14, 32
   # and 50 percent, Forest hover at 75 and 45 percent, white at 94 percent.
   surface-on-brand-wash:       "oklch(96.13% 0.0111 89.72 / 10%)"
@@ -230,14 +230,14 @@ The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/record
 
 - **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background.
 - **Surface raised** (`#FAFAFA` / `oklch(98.43% 0 0)`): cards, panels.
-- **Surface sunken** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): inset wells, code blocks, secondary states.
-- **Surface muted** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
+- **Surface sunken** (`#F4F4F5` / `oklch(96.74% 0.0013 286.38)`): inset wells, code blocks, secondary states.
+- **Surface muted** (`#F4F4F5` / `oklch(96.74% 0.0013 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
 - **Border default** (`#E4E4E7` / `oklch(91.97% 0.0036 286.32)`): standard separators (0.5px default, 1px emphasis).
 - **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
 - **Field edge** (`#84848D` / `oklch(61.63% 0.0134 286.00)`, `--border-field`): the redesign's border for every form control (PLAN.md §4.1). 3.71:1 on white, 3.55:1 on raised, 3.37:1 on sunken, 3.31:1 on Bone. It sits beside Border input until AECI-1764 retires the old one. It fails on the hero panel (2.77:1) and on Forest hover (2.07:1).
 - **Border input** (`#8A8A93` / `oklch(63.63% 0.0133 286.02)`): the boundary of a form control, the edge that tells the reader "type here" or "choose here". 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken, so it meets WCAG 1.4.11's 3:1 for user-interface components. `border-default` measures about 1.25:1 and stays the separator token. Applied by the unlayered `.aec-field-control` class in `styles.css` (AECI-1296), which `FIELD_INPUT_CLASS` and the `aec-select` trigger carry. A border-colour utility would not apply.
 - **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
-- **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
+- **Text secondary** (`#52525B` / `oklch(44.19% 0.0146 285.79)`): supporting prose, captions.
 - **Text tertiary** (`#71717A` / `oklch(55.17% 0.0138 285.94)`): hints, placeholders, metadata. Re-pointed from `#A1A1AA` in AECI-230 — the old value measured 2.56:1 on white, failing even the 3:1 large-text floor. Now 4.83:1 on white, 4.63:1 on raised. **Never on sunken/muted surfaces** (4.40:1 there) — step up to text secondary.
 
 ### Status
@@ -290,7 +290,7 @@ These were open after the rulings. The tokens are in `apps/web/src/styles.css` w
 - **The four drifted tokens.** Forest, Forest hover, Clay and Bone now render the hex this file documents. The OKLCH values changed, the hex did not.
 - **Mock-up values kept as tokens.** `--surface-on-brand-hover` (`#E7E1D2`, the one hover for the Bone main button on Forest, Forest text 9.46:1), `--surface-hero-ribbon` (`#3B6E55`, 2.08:1 on Forest, decorative only), `--surface-sunken-hover` (`#DADADC`), `--border-underline` (`#B5B5B5`, 2.05:1 on white) and `--border-empty` (`#C6C6CA`, 1.70:1 on white). The last two are never the only cue.
 - **Alphas on Forest.** Bone at 10% `--surface-on-brand-wash` (fills), 16% `--surface-on-brand-wash-hover`, 14% `--border-on-brand-subtle` (hairlines), 32% `--border-on-brand`. Bone at 50%, `--border-on-brand-strong`, is the only on-Forest alpha that is a 3:1 edge: 4.01:1 on Forest, 3.61 on the hero panel, 4.53 on the footer ground. Forest hover at 75% and 45% are `--surface-hero-glow` and `--surface-hero-glow-soft`. White at 94% is `--surface-sticky`. White-ground hairlines use `--border-default`, and the selected-count wash uses `--accent-primary-soft`.
-- **Mock-up tokens dropped.** `hero-accent-hover`, `hero-accent-ink`, `star-empty`, `venn-a`, `venn-b`, `accent-soft`, `meter-a`, `meter-b`, `logo-clay`, and the alphas that `html.r-btn-orig` alone uses (Forest at 16% and 40%).
+- **Mock-up tokens dropped.** `hero-accent-hover`, `hero-accent-ink`, `star-empty`, `venn-a`, `venn-b`, `accent-soft`, `meter-a`, `meter-b`, `logo-clay`, the Forest 16% focus halo of `.field:focus` (the focus ring replaces it) and Forest at 40%, which only the `html.r-btn-orig` restore toggle uses.
 
 ### Dark theme — dropped from the roadmap (not shipped)
 

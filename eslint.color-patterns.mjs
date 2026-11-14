@@ -144,7 +144,7 @@ export const NAMED_COLOR_CLASS = String.raw`(^|[\s:"'\x60])(?:bg|text|border|rin
  * Kept to two, and both are principled rather than grandfathered:
  *
  *  - `styles.css` is the TOKEN DEFINITION SITE. Colors are defined in exactly
- *    one place and that place has to write them down — the 55 `oklch()` tokens (18 base, 37 from AECI-1747),
+ *    one place and that place has to write them down — the 36 `oklch()` tokens and 2 `var()` aliases (38 in all: 18 base, 20 from AECI-1747),
  *    their documented `/* #HEX *\/` cross-references, and the eight
  *    `--chart-series-*` values that `DESIGN.md` keeps outside `@theme inline`
  *    on purpose so they can never become Tailwind utilities.
@@ -176,10 +176,13 @@ export const COLOR_LITERAL_ALLOW = {
  * `color:` / `#` / `var(` / `oklch(` / `rgb(` / `hsl(` value, or a bare name
  * that is not a type size.
  *
+ * The boundary group includes `.` so a class binding (`[class.bg-(--x)/40]`,
+ * in a template or a host binding) is caught too.
+ *
  * The slash is written `\/` because the same source is embedded in an esquery
  * regex selector in `eslint.config.base.mjs`.
  */
-export const COLOR_OPACITY_MODIFIER = String.raw`(^|[\s:"'\x60])(?:bg|text|border|ring|outline|fill|stroke|divide|from|via|to|decoration|shadow|accent|caret|placeholder)-(?:\(--[\w-]+\)|\[(?:color:|#|var\(|oklch|rgb|hsl)[^\]\s]*\]|(?!(?:xs|sm|base|lg|xl|[2-9]xl)\/)[a-z][\w-]*)\/(?:[0-9]{1,3}|\[[0-9.]+\]|\([^)]*\))(?![0-9a-zA-Z-])`;
+export const COLOR_OPACITY_MODIFIER = String.raw`(^|[\s:"'\x60.])(?:bg|text|border|ring|outline|fill|stroke|divide|from|via|to|decoration|shadow|accent|caret|placeholder)-(?:\(--[\w-]+\)|\[(?:color:|#|var\(|oklch|rgb|hsl)[^\]\s]*\]|(?!(?:xs|sm|base|lg|xl|[2-9]xl)\/)[a-z][\w-]*)\/(?:[0-9]{1,3}|\[[0-9.]+\]|\([^)]*\))(?![0-9a-zA-Z-])`;
 
 /**
  * Files allowed to carry a colour opacity modifier, by repo-relative path.

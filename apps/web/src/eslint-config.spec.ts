@@ -341,6 +341,7 @@ describe('constraint rules fire on deliberate violations', () => {
       'bg-forest/40',
       'border-[color:var(--x)]/50',
       'ring-(--accent-primary)/[0.4]',
+      '[class.bg-(--accent-primary)/40]',
     ]) {
       expect(lint('webSource', `const c = "${c}";`).join(), c).toContain(CONSTRAINT.colorOpacity);
     }
@@ -501,6 +502,8 @@ describe('constraint rules do not fire on legitimate code', () => {
       [],
     );
     expect(lint('webSource', 'const c = "text-(--text-on-brand-secondary)";')).toEqual([]);
+    // A class binding without a modifier is fine.
+    expect(lint('webSource', 'const c = "[class.text-(--text-primary)]";')).toEqual([]);
     // Line-height shorthands are not colour opacity modifiers.
     expect(lint('webSource', 'const c = "text-sm/6 text-base/7 text-[13px]/6 w-1/2";')).toEqual([]);
     expect(lint('webSource', 'const c = "border border-transparent bg-transparent";')).toEqual([]);
