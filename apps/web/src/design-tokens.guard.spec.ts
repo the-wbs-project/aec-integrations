@@ -17,7 +17,8 @@ import { describe, expect, it } from 'vitest';
  * the whole class of bug.
  *
  * Scope: only the app's own design-token namespaces (`--surface-*`, `--text-*`,
- * `--border-*`, `--accent-*`, `--font-*`, `--status-*`, `--focus-*`). Spartan/Tailwind preset internals
+ * `--border-*`, `--accent-*`, `--font-*`, `--status-*`, `--focus-*`, `--duration-*`,
+ * `--ease-*`). Spartan/Tailwind preset internals
  * (`--radius`, `--spacing`, `--color-*`, `--tw-*`, …) are deliberately excluded —
  * they are defined outside `styles.css` and are not the bug class this guards.
  */
@@ -30,7 +31,40 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus|duration|ease)-/;
+
+/**
+ * AECI-1750: the role-named radius and shadow tokens. `--radius-sm|md|lg|xl|2xl…`
+ * are Spartan's, defined outside `styles.css`, so the radius namespace is guarded
+ * by name, not by prefix: a `--radius-<x>` or `--shadow-<x>` reference whose name
+ * is neither Spartan's nor in this list is an undefined token.
+ */
+const ROLE_TOKENS = [
+  'radius-mark',
+  'radius-control',
+  'radius-panel',
+  'radius-card',
+  'radius-pill',
+  'shadow-card',
+  'shadow-menu',
+];
+/** Tailwind's and Spartan's own names: defined outside `styles.css`, never a violation. */
+const FRAMEWORK_TOKENS =
+  /^(radius-(xs|sm|md|lg|xl|2xl|3xl|4xl)|shadow-(2xs|xs|sm|md|lg|xl|2xl|inner|none))$/;
+/** The ruled recipes (DESIGN.md §4 "Shadow Vocabulary"), pinned exactly. */
+const SHADOW_RECIPES: Record<string, string> = {
+  'shadow-card': '0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)',
+  'shadow-menu': '0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)',
+};
+/** Ruled radius values (DESIGN.md §4 "Radius"). */
+const RADIUS_VALUES: Record<string, string> = {
+  'radius-mark': '0.5rem',
+  'radius-control': '0.75rem',
+  'radius-panel': '1rem',
+  'radius-card': '1.5rem',
+  'radius-pill': '9999px',
+};
+const ROLE_NAMESPACE = /^(radius|shadow)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
@@ -90,5 +124,112 @@ describe('design tokens', () => {
         .map((v) => `  ${v.token} — ${v.file}`)
         .join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('declares every radius and shadow role token in :root with a real value, and exposes it in @theme inline (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    // The @theme self-reference `--x: var(--x)` is not a definition: only the
+    // :root block counts, and its value must not be a var().
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('/* ─── Data-series'));
+    for (const token of ROLE_TOKENS) {
+      const decl = root.match(new RegExp(`^\\s*--${token}:\\s*([^;]+);`, 'm'))?.[1] ?? '';
+      expect(decl, `--${token} must have a value in the :root block`).not.toBe('');
+      expect(decl, `--${token} in :root must not be a var() reference`).not.toMatch(/^var\(/);
+      expect(theme, `--${token} must be exposed in @theme inline`).toContain(
+        `--${token}: var(--${token});`,
+      );
+    }
+  });
+
+  it('pins the radius values and the two shadow recipes exactly, in pure black (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('/* ─── Data-series'));
+    const valueOf = (name: string) =>
+      root.match(new RegExp(`^\\s*--${name}:\\s*([^;]+);`, 'm'))?.[1];
+    for (const [name, value] of Object.entries(SHADOW_RECIPES)) {
+      expect(valueOf(name), `--${name}`).toBe(value);
+    }
+    for (const [name, value] of Object.entries(RADIUS_VALUES)) {
+      expect(valueOf(name)?.replace(/\s*\/\*.*$/, ''), `--${name}`).toBe(value);
+    }
+  });
+
+  it('has no reference to an undefined radius or shadow role token (AECI-1750)', () => {
+    const violations: { token: string; file: string }[] = [];
+    for (const file of walk(SRC_DIR)) {
+      if (file === SELF) continue;
+      for (const token of collectMatches(readFileSync(file, 'utf8'), REFERENCE_RE)) {
+        if (!ROLE_NAMESPACE.test(token) || FRAMEWORK_TOKENS.test(token)) continue;
+        if (!definedTokens.has(token)) {
+          violations.push({ token: `--${token}`, file: file.slice(SRC_DIR.length + 1) });
+        }
+      }
+    }
+    expect(
+      violations,
+      `Undefined radius/shadow tokens referenced:\n${violations
+        .map((v) => `  ${v.token} — ${v.file}`)
+        .join('\n')}`,
+    ).toEqual([]);
+  });
+
+  describe('motion tokens (AECI-1751)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    /** Values come from the mock-ups' default state (PLAN.md §4.6, clash 36). */
+    const DURATIONS: Record<string, string> = {
+      fast: '120ms',
+      base: '180ms',
+      slow: '280ms',
+    };
+    const EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+
+    it('defines the three durations and the easing with the ruled values', () => {
+      for (const [name, value] of Object.entries(DURATIONS)) {
+        expect(css).toMatch(new RegExp(`^\\s*--duration-${name}:\\s*${value};`, 'm'));
+      }
+      expect(css).toContain(`--ease-standard: ${EASING};`);
+    });
+
+    it('exposes every motion token through @theme inline, so the utilities exist', () => {
+      for (const name of Object.keys(DURATIONS)) {
+        expect(theme, `--transition-duration-${name}`).toContain(
+          `--transition-duration-${name}: var(--duration-${name});`,
+        );
+      }
+      expect(theme).toContain('--ease-standard: var(--ease-standard);');
+    });
+
+    it('defines every --duration-* / --ease-* token that @theme inline points at', () => {
+      const exposed = [...theme.matchAll(/var\(--((?:duration|ease)-[\w-]+)\)/g)].map((m) => m[1]);
+      expect(exposed.length).toBeGreaterThan(0);
+      for (const token of exposed) {
+        expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
+      }
+    });
+
+    it('collapses every transition and animation duration under reduced motion', () => {
+      const start = css.indexOf('@media (prefers-reduced-motion: reduce)');
+      expect(start).toBeGreaterThan(-1);
+      const block = css.slice(start, css.indexOf('\n}\n', start));
+      expect(block).toMatch(/\*,\s*\*::before,\s*\*::after\s*\{/);
+      expect(block).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+      expect(block).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    });
+
+    it('never feeds a duration token into a delay or a timer', () => {
+      const offenders: string[] = [];
+      for (const file of walk(SRC_DIR)) {
+        if (file === SELF || file.endsWith('.spec.ts')) continue;
+        for (const line of readFileSync(file, 'utf8').split('\n')) {
+          if (!/var\(--duration-/.test(line)) continue;
+          if (/(transition-delay|animation-delay|setTimeout)/.test(line)) {
+            offenders.push(`${file.slice(SRC_DIR.length + 1)}: ${line.trim()}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
   });
 });
