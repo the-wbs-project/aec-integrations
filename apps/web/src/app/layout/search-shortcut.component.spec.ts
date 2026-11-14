@@ -39,6 +39,15 @@ describe('isSearchShortcut', () => {
     );
   });
 
+  it('matches the typed character, not the physical key', () => {
+    // German and Nordic layouts: the Slash key types "-", so Ctrl+minus is zoom out.
+    expect(isSearchShortcut(key({ ctrlKey: true, key: '-', code: 'Slash' }), document)).toBe(false);
+    // Ctrl+Shift+/ types "?".
+    expect(
+      isSearchShortcut(key({ ctrlKey: true, shiftKey: true, key: '?', code: 'Slash' }), document),
+    ).toBe(false);
+  });
+
   it('rejects a bare slash: a character key shortcut with no way to turn it off', () => {
     expect(isSearchShortcut(key({}), document)).toBe(false);
     expect(isSearchShortcut(key({ shiftKey: true }), document)).toBe(false);

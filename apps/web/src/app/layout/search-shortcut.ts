@@ -32,7 +32,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
  */
 export function isSearchShortcut(event: KeyboardEvent, doc: Document): boolean {
   if (event.defaultPrevented || event.isComposing) return false;
-  if (event.key !== '/' && event.code !== 'Slash') return false;
+  // The typed character, not the physical key: `code` Slash types "-" on German
+  // and Nordic layouts, so matching it would steal Ctrl+minus (zoom out).
+  if (event.key !== '/') return false;
   if (event.altKey || event.ctrlKey === event.metaKey) return false;
   if (isTypingTarget(event.target)) return false;
   if (doc.querySelector(OPEN_DIALOG)) return false;

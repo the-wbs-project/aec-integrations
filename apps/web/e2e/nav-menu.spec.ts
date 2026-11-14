@@ -734,13 +734,31 @@ test.describe('header search shortcut (Ctrl+/ or Cmd+/)', () => {
     await expect(other).toBeFocused();
   });
 
-  test('does not fire with a dialog open', async ({ page }) => {
-    await page.setViewportSize(MOBILE);
+  test('does not fire with a dialog open, and the key is not cancelled', async ({ page }) => {
     await page.goto(ROUTE);
-    await openMenu(page);
+    await untilHydrated(pill(page));
+    // A dialog at the width where the pill is visible. The account menu needs a
+    // session, so an element with the same role stands in for any open BrnDialog.
+    await page.evaluate(() => {
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      document.body.appendChild(dialog);
+      (window as unknown as { __cancelled: boolean[] }).__cancelled = [];
+      window.addEventListener('keydown', (e) =>
+        (window as unknown as { __cancelled: boolean[] }).__cancelled.push(e.defaultPrevented),
+      );
+    });
     await page.keyboard.press(`${MOD}+/`);
     await expect(pill(page)).not.toBeFocused();
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
+    const cancelled = await page.evaluate(
+      () => (window as unknown as { __cancelled: boolean[] }).__cancelled,
+    );
+    expect(cancelled.length).toBeGreaterThan(0);
+    expect(cancelled.every((c) => !c)).toBe(true);
+    // And the same key works once the dialog is gone.
+    await page.evaluate(() => document.querySelector('body > [role="dialog"]')?.remove());
+    await page.keyboard.press(`${MOD}+/`);
+    await expect(pill(page)).toBeFocused();
   });
 
   test('typing and submitting from the pill reaches /search', async ({ page }) => {
