@@ -63,7 +63,7 @@ describe('AccountIdentity', () => {
   }
 
   function pill(root: HTMLElement): string | null {
-    return root.querySelector('p > span')?.textContent?.trim() ?? null;
+    return root.querySelector('p > aec-chip')?.textContent?.trim() ?? null;
   }
 
   function makeProfile(displayName: string | null): AccountProfileResponse {
@@ -192,9 +192,7 @@ describe('AccountIdentity', () => {
 
   it('accents only the roles that open a portal door', () => {
     role.set('admin');
-    expect(
-      render().root.querySelector('p > span')!.classList.contains('bg-(--accent-primary-soft)'),
-    ).toBe(true);
+    expect(render().root.querySelector('p .aec-chip')!.getAttribute('data-tone')).toBe('wash');
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -219,8 +217,8 @@ describe('AccountIdentity', () => {
     });
     const plain = TestBed.createComponent(AccountIdentity);
     plain.detectChanges();
-    const span = (plain.nativeElement as HTMLElement).querySelector('p > span')!;
-    expect(span.classList.contains('bg-(--accent-primary-soft)')).toBe(false);
+    const span = (plain.nativeElement as HTMLElement).querySelector('p > aec-chip')!;
+    expect(span.querySelector('.aec-chip')!.getAttribute('data-tone')).toBe('sunken');
     // Colour is never the sole signal — the label says which role this is.
     expect(span.textContent!.trim()).toBe('Reviewer');
   });

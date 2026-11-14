@@ -1,6 +1,8 @@
 import { formatDate } from '@angular/common';
 import { Component, LOCALE_ID, computed, inject, input } from '@angular/core';
 
+import { Chip } from '../chip/chip';
+
 /** Who is on the hook for a record's accuracy. */
 export type MaintainedBy = 'aeci' | 'vendor';
 
@@ -65,6 +67,7 @@ export type MaintainedBy = 'aeci' | 'vendor';
  */
 @Component({
   selector: 'aec-maintenance-marker',
+  imports: [Chip],
   template: `
     <!-- Two visible labels everywhere (ruling 2026-09-28): "AEC Integrations
          maintained" and "Vendor maintained". Where the page can prove which
@@ -74,14 +77,11 @@ export type MaintainedBy = 'aeci' | 'vendor';
          control flow inside the chip: a block adds whitespace between parts.
          The inner span keeps the parts one flex item, so the leading space of
          " · Updated" is not trimmed as a flex boundary. -->
-    <span
-      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-        bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
-        text-(--text-secondary)"
+    <aec-chip label tone="quiet"
       ><span
         >{{ lead() }}<span class="sr-only">{{ ownerSuffix() }}</span
         >{{ dateClause() }}</span
-      ></span
+      ></aec-chip
     >
   `,
 })
