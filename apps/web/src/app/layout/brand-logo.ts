@@ -54,7 +54,8 @@ export type BrandLogoTone = 'default' | 'on-dark';
   template: `
     <a
       routerLink="/"
-      class="inline-flex items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="inline-flex items-center rounded-md"
+      [class]="ringClass()"
       [style.height.px]="height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"
@@ -83,6 +84,16 @@ export class BrandLogo {
 
   /** Which wordmark file to draw. The default is the Forest-on-light mark. */
   readonly tone = input<BrandLogoTone>('default');
+
+  /**
+   * The focus ring follows the ground. A Forest ring on a Forest ground is
+   * invisible, so the on-dark tone takes the Bone ring.
+   */
+  protected readonly ringClass = computed(() =>
+    this.tone() === 'on-dark'
+      ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!'
+      : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
 
   protected readonly src = computed(() =>
     this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',

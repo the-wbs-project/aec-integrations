@@ -101,7 +101,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="relative inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-(--border-default) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--border-strong) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)!"
       i18n-aria-label="@@app.nav.menu.toggle.aria"
       aria-label="Open menu"
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
@@ -125,7 +125,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
            sees there's moderation work without opening the menu (AECI-259). -->
       @if (showBadge()) {
         <span
-          class="absolute -end-1 -top-1 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--surface-base) bg-(--color-status-error)"
+          class="absolute -end-1 -top-1 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
           aria-hidden="true"
           >{{ badgeText() }}</span
         >

@@ -49,6 +49,15 @@ describe('BrandLogo', () => {
     }
   });
 
+  it('takes the Bone focus ring on a Forest ground and the Forest ring on a light one', async () => {
+    const onDark = (await render('on-dark')).querySelector('a')!.className;
+    expect(onDark).toContain('outline-(--focus-ring-on-brand)!');
+    expect(onDark).not.toContain('outline-(--accent-primary)');
+    const onLight = (await render('default')).querySelector('a')!.className;
+    expect(onLight).toContain('outline-(--accent-primary)');
+    expect(onLight).not.toContain('--focus-ring-on-brand');
+  });
+
   it('names the home link once in both tones, with the image alt as the brand name', async () => {
     for (const tone of ['default', 'on-dark'] as const) {
       const el = await render(tone);

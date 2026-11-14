@@ -152,6 +152,80 @@ describe('SiteHeader auth affordance', () => {
   });
 
   /**
+   * AECI-1771: the bar is Forest with Bone ink, the wordmark is the reversed
+   * file, and the shipped 4px warm rule under the bar is gone. Tokens only.
+   */
+  it('sits on Forest with the reversed wordmark and no rule under the bar', () => {
+    const el = render().nativeElement as HTMLElement;
+    const header = el.querySelector('header')!;
+    expect(header.className).toContain('bg-(--accent-primary)');
+    expect(header.className).toContain('text-(--text-on-brand)');
+    expect(el.querySelector('img')?.getAttribute('src')).toBe('/branding/wordmark-on-dark.svg');
+    expect(header.querySelector('.bg-\\(--accent-warm\\)[aria-hidden="true"]')).toBeNull();
+  });
+
+  /** Sign in is the solid Bone main button: Forest text, 44px, Bone hover fill and ring. */
+  it('renders Sign in as the Bone main button on Forest', () => {
+    const el = render().nativeElement as HTMLElement;
+    const classes = el.querySelector('a[href^="/auth/login"]')!.className;
+    expect(classes).toContain('bg-(--accent-warm)');
+    expect(classes).toContain('text-(--accent-primary)');
+    expect(classes).toContain('min-h-11');
+    expect(classes).toContain('hover:bg-(--surface-on-brand-hover)');
+    expect(classes).toContain('focus-visible:outline-(--focus-ring-on-brand)');
+  });
+
+  it('gives the signed-in account trigger a Bone edge, wash and ring on Forest', () => {
+    const fixture = render();
+    signedIn.set(true);
+    fixture.detectChanges();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('aec-user-menu button')!;
+    expect(trigger.className).toContain('border-(--border-on-brand-strong)');
+    expect(trigger.className).toContain('bg-(--surface-on-brand-wash)');
+    expect(trigger.className).toContain('text-(--text-on-brand)');
+    expect(trigger.className).toContain('h-11');
+    expect(trigger.className).toContain('focus-visible:outline-(--focus-ring-on-brand)');
+    expect(trigger.getAttribute('aria-label')).toBe('Account menu');
+  });
+
+  /**
+   * The active route is `aria-current`, `page` on an exact match and `true` for
+   * a section, plus weight 600. Never colour alone, and no Clay bar.
+   */
+  it('marks Home aria-current="page" and no other link on the home route', async () => {
+    const fixture = render();
+    await TestBed.inject(Router).navigateByUrl('/');
+    fixture.detectChanges();
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('nav[aria-label="Primary"]')!;
+    const current = Array.from(nav.querySelectorAll('[aria-current]'));
+    expect(current.map((a) => a.textContent?.trim())).toEqual(['Home']);
+    expect(current[0].getAttribute('aria-current')).toBe('page');
+    expect(current[0].classList).toContain('font-semibold');
+  });
+
+  it('marks Products aria-current="true" as a section on a product detail route', async () => {
+    const fixture = render();
+    await TestBed.inject(Router).navigateByUrl('/products/procore');
+    fixture.detectChanges();
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('nav[aria-label="Primary"]')!;
+    const current = Array.from(nav.querySelectorAll('[aria-current]'));
+    expect(current.map((a) => a.textContent?.trim())).toEqual(['Products']);
+    expect(current[0].getAttribute('aria-current')).toBe('true');
+    expect(current[0].classList).toContain('font-semibold');
+  });
+
+  it('marks a facet section aria-current="true" and weights it 600', async () => {
+    const fixture = render();
+    await TestBed.inject(Router).navigateByUrl('/categories/bim');
+    fixture.detectChanges();
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('nav[aria-label="Primary"]')!;
+    const current = Array.from(nav.querySelectorAll('[aria-current]'));
+    expect(current.map((a) => a.textContent?.trim())).toEqual(['Categories']);
+    expect(current[0].getAttribute('aria-current')).toBe('true');
+    expect(current[0].classList).toContain('font-semibold');
+  });
+
+  /**
    * Search mounts three times at three widths (hamburger / icon / inline box).
    * The header owns two of them, and their visibility classes are complementary
    * by construction: the icon is `lg:block xl:hidden`, the box is `xl:block`.

@@ -65,6 +65,7 @@ import { signOutAndGoHome } from '../auth/sign-out';
 import { VendorStatus } from '../vendor/vendor-status';
 
 import { AccountIdentity } from './account-identity';
+import { ON_FOREST_FOCUS_RING } from './header-link-classes';
 
 @Component({
   selector: 'aec-user-menu',
@@ -81,7 +82,7 @@ import { AccountIdentity } from './account-identity';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="relative inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-(--border-strong) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="triggerClass"
       aria-label="Account menu"
       i18n-aria-label="@@app.header.account.menu.aria"
       [attr.aria-describedby]="showBadge() ? 'aec-user-menu-pending' : null"
@@ -130,7 +131,7 @@ import { AccountIdentity } from './account-identity';
       }
       @if (showBadge()) {
         <span
-          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--surface-base) bg-(--color-status-error)"
+          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
           aria-hidden="true"
           >{{ badgeText() }}</span
         >
@@ -247,6 +248,16 @@ export class UserMenu {
    *  console about the identical backlog. 0 until the shared role probe seeds the
    *  store. */
   protected readonly pending = computed(() => this.summaryStore.operationsTotal());
+
+  /**
+   * The trigger on the Forest header (AECI-1771). It stays a circle, because a
+   * person is a circle. A Bone-wash fill with a 4.01:1 strong Bone edge (the
+   * wash alone is 1.33:1, no boundary), Bone glyph (8.31:1 on the wash), a
+   * deeper wash on hover, and the Bone focus ring. 44px, the main-control size.
+   */
+  protected readonly triggerClass =
+    'relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-(--border-on-brand-strong) bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) ' +
+    ON_FOREST_FOCUS_RING;
 
   /** The badge shows only for an admin with something waiting. */
   protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);
