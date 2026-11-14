@@ -1495,3 +1495,36 @@ textarea:-webkit-autofill:focus {
   white-space: normal;
   width: auto;
 }
+
+/* The one bar meter (AECI-1767, DESIGN.md §5 Meter, clash 19). 6px high, pill
+   end, one hue, no gradient and no transition. The printed number carries the
+   meaning, so the bar is a second way to read it. */
+.aec-meter-track {
+  display: block;
+  height: 0.375rem;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--surface-sunken);
+  overflow: hidden;
+}
+.aec-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--accent-primary);
+}
+.aec-meter-fill[data-tone='onboarding'] {
+  background-color: var(--accent-secondary-deep);
+}
+/* Forced colours replaces background colours, which would erase the bar. Opt out
+   and paint system colours: a Canvas track with a text edge, a Highlight fill. */
+@media (forced-colors: active) {
+  .aec-meter-track {
+    forced-color-adjust: none;
+    background-color: Canvas;
+    outline: 1px solid CanvasText;
+  }
+  .aec-meter-fill {
+    forced-color-adjust: none;
+    background-color: Highlight;
+  }
+}
