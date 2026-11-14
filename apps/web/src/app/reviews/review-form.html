@@ -439,7 +439,7 @@
                   selectionMode="explicit"
                   i18n-aria-label="@@reviews.role.listbox.aria"
                   aria-label="Roles"
-                  class="m-0 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1 shadow-lg"
+                  class="aec-popover m-0 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto p-1"
                 >
                   @for (opt of roleOptions; track opt.value) {
                   <li
@@ -624,9 +624,7 @@
        `open()` is called. Gentle and dismissible (Esc / backdrop / "Not now"). -->
   <brn-dialog #signInDialog="brnDialog">
     <ng-template brnDialogContent>
-      <div
-        class="w-[min(90vw,28rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
-      >
+      <div class="aec-dialog w-[min(90vw,28rem)] p-6">
         <h2
           brnDialogTitle
           class="text-lg font-semibold tracking-tight"

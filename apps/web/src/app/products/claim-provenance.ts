@@ -58,10 +58,7 @@ interface ProvenanceEntry {
 
     <brn-popover #provPop="brnPopover" class="contents" align="end" [sideOffset]="6">
       <ng-template brnPopoverContent>
-        <div
-          class="w-[min(90vw,20rem)] space-y-3 rounded-(--radius-md) border border-(--border-default)
-            bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
-        >
+        <div class="aec-popover w-[min(90vw,20rem)] space-y-3 p-4">
           <!-- aec-overline, not text-xs utilities: the unlayered h3 rule in
                styles.css beats layered utilities and rendered this heading at
                the 20px serif size. The class is the sanctioned override. -->

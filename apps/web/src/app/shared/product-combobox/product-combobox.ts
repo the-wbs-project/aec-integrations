@@ -163,7 +163,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
         [cdkConnectedOverlayOpen]="popupOpen()"
       >
         <div
-          class="mt-1 w-full min-w-[16rem] overflow-hidden rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) shadow-lg"
+          class="aec-popover mt-1 w-full min-w-[16rem] overflow-hidden"
           data-product-combobox-popup
         >
           <ng-template ngComboboxPopup [combobox]="cb" popupType="listbox">

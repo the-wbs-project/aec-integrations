@@ -49,7 +49,7 @@ import { AecIcon } from '../icon/icon';
     <brn-dialog (closed)="dialog.close()">
       <ng-template brnDialogContent let-ctx>
         <div
-          class="flex h-dvh w-screen flex-col bg-(--surface-base) text-(--text-primary) sm:h-auto sm:max-h-[85vh] sm:w-[min(92vw,36rem)] sm:rounded-(--radius-lg) sm:border sm:border-(--border-default)"
+          class="aec-dialog aec-dialog-sheet flex h-dvh w-screen flex-col sm:h-auto sm:max-h-[85vh] sm:w-[min(92vw,36rem)]"
           data-testid="claim-dialog"
         >
           <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-3">

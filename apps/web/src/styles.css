@@ -297,14 +297,16 @@
    * control, so its shadow edge may stand alone, but a control on or inside a card
    * keeps its own 3:1 edge. Forced-colours mode drops box-shadow entirely, so a
    * card needs a visible edge there (a transparent 1px border, which the system
-   * colours). That belongs to AECI-1765. The modal shadow and the focus ring are
-   * unchanged and still written inline where they are used. */
+   * colours). That belongs to AECI-1765. `--shadow-modal` (AECI-1770) is the
+   * dialog and drawer recipe, unchanged in value and now named. */
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
   --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
-  /* The page dimmer behind the Browse menu (AECI-1774; mock-up 6 lines 15 and 690).
-     Decorative only: it is never the boundary of anything. The CDK backdrop below
-     still uses its own 50%; AECI-1770 moves it onto this token. */
-  --scrim: rgb(0 0 0 / 0.4);
+  --shadow-modal: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.1);
+  /* The one scrim: the CDK backdrop behind every dialog and the Browse and mobile
+     menu dimmer (AECI-1770). 50%, as DESIGN.md section 4 pairs it with the modal
+     shadow. The mock-up dimmer was 40% (mock-up 6 lines 15 and 690) and DESIGN.md
+     wins. Decorative only: it is never the boundary of anything. */
+  --scrim: rgb(0 0 0 / 0.5);
 
   /* Motion (AECI-1751, PLAN.md §4.6, clash 36). Three durations and one easing,
      taken from the default state of the approved mock-ups (mock-up 6,
@@ -512,6 +514,7 @@
   --radius-pill: var(--radius-pill);
   --shadow-card: var(--shadow-card);
   --shadow-menu: var(--shadow-menu);
+  --shadow-modal: var(--shadow-modal);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
   /* Motion tokens (AECI-1751). Tailwind's `duration-*` utilities read the
@@ -1092,9 +1095,72 @@ textarea:-webkit-autofill:focus {
   caret-color: var(--accent-primary);
 }
 
-/* CDK overlay defaults: dim the backdrop and center dialog panes. */
+/* The shared overlay surfaces (AECI-1770, DESIGN.md section 4 "Shadow Vocabulary"
+   and section 5 "Overlays"). One class per overlay type. Unlayered, so every
+   caller takes it whatever utilities sit beside it, including the admin and
+   portal templates when they adopt it.
+   `.aec-dialog` is a modal panel and `.aec-drawer` a drawer: 24px radius, white
+   fill, `--shadow-modal`. `.aec-popover` is a menu pane, listbox, autocomplete
+   panel, info hint or tooltip body: 16px radius, white fill, `--shadow-menu`.
+   Layout (width, padding, height, position) stays with the caller. Z-index stays
+   with the CDK overlay container.
+   EDGE: a real 1px hairline in the `*` border colour above. A shadow is never the
+   only edge, so forced-colours mode, which drops `box-shadow`, still draws one.
+   RADIUS: DESIGN.md names no overlay radius. Card for the two modal surfaces, panel
+   for the popover. The drawer is a bottom sheet below `sm`, rounded on top only. */
+.aec-dialog,
+.aec-drawer,
+.aec-popover {
+  border-style: solid;
+  border-width: 1px;
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+}
+
+.aec-dialog,
+.aec-drawer {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-modal);
+}
+
+.aec-drawer {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+@media (min-width: 40rem) {
+  .aec-drawer {
+    border-radius: var(--radius-card);
+  }
+}
+
+/* The claim dialog fills the screen below `sm`. It has no edge, corner or shadow
+   there, because nothing shows around it. It is a dialog from `sm` up. */
+@media (max-width: 39.9988rem) {
+  .aec-dialog-sheet {
+    border-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+.aec-popover {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-menu);
+}
+
+/* CDK overlay defaults: dim the backdrop and center dialog panes. The scrim token
+   is the only colour (AECI-1770). The fade takes the slow step and the standard
+   easing, in place of the CDK's 400ms; the reduced-motion block below makes it
+   instant. The selector is two classes deep so it beats the CDK's own rule
+   whichever stylesheet loads last. */
+.cdk-overlay-container .cdk-overlay-backdrop {
+  transition-duration: var(--duration-slow);
+  transition-timing-function: var(--ease-standard);
+}
+
 .cdk-overlay-backdrop.cdk-overlay-backdrop-showing {
-  background-color: rgb(0 0 0 / 0.5);
+  background-color: var(--scrim);
 }
 
 .cdk-global-overlay-wrapper {
@@ -1104,8 +1170,8 @@ textarea:-webkit-autofill:focus {
 
 /* In-place claim/correction drawer (AECI-128). The panel positions itself
    (`position: fixed`, bottom-right card / mobile bottom sheet), so it keeps the
-   detail page visible behind a *transparent* backdrop — overriding the 50%-dim
-   default above. closeOnBackdropClick still dismisses; reposition scroll strategy
+   detail page visible behind a *transparent* backdrop, overriding the scrim
+   above. closeOnBackdropClick still dismisses; reposition scroll strategy
    keeps the page scrollable. */
 .cdk-overlay-backdrop.cdk-overlay-backdrop-showing.aeci-drawer-backdrop {
   background-color: transparent;
@@ -1122,9 +1188,11 @@ textarea:-webkit-autofill:focus {
   }
 }
 
-/* Slide-up reveal; the reduced-motion block below neutralizes the duration. */
+/* Slide-up reveal on the slow step and the standard easing (AECI-1770). Under
+   reduced motion the block below makes it an instant change, so there is no
+   slide. */
 .aeci-drawer-panel {
-  animation: aeci-drawer-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: aeci-drawer-in var(--duration-slow) var(--ease-standard);
 }
 
 /* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
