@@ -1,3 +1,4 @@
+import { Location } from '@angular/common';
 import { PLATFORM_ID, provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -72,10 +73,40 @@ describe('SkipLink', () => {
   describe('on the server', () => {
     beforeEach(() => configure('server'));
 
-    it('renders the path only, so a cached page never carries another URL query', async () => {
+    it('drops a query on a cached route whose key ignores it', async () => {
       expect(href(await render('/products/egnyte?utm_source=x&page=2'))).toBe(
         '/products/egnyte#main',
       );
+    });
+
+    it('keeps the listing params the cache key keeps, and drops utm_*', async () => {
+      expect(href(await render('/products?page=2&sort=name'))).toBe(
+        '/products?page=2&sort=name#main',
+      );
+      expect(href(await render('/products?utm_source=x&sort=name&page=2'))).toBe(
+        '/products?page=2&sort=name#main',
+      );
+    });
+
+    it('keeps view on the product pair page', async () => {
+      expect(href(await render('/products/revit/integrations/procore?view=basic&fbclid=1'))).toBe(
+        '/products/revit/integrations/procore?view=basic#main',
+      );
+    });
+
+    it('keeps the whole query on a route the edge never caches', async () => {
+      expect(href(await render('/search?q=x&utm_source=y'))).toBe('/search?q=x&utm_source=y#main');
+    });
+  });
+
+  describe('when the URL changes without a router navigation', () => {
+    beforeEach(() => configure('browser'));
+
+    it('follows Location.replaceState, as the vendor filter writes it', async () => {
+      const fixture = await render('/vendor/acme?tab=integrations');
+      TestBed.inject(Location).replaceState('/vendor/acme', 'tab=integrations&status=live');
+      fixture.detectChanges();
+      expect(href(fixture)).toBe('/vendor/acme?tab=integrations&status=live#main');
     });
   });
 });

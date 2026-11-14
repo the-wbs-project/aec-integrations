@@ -76,9 +76,7 @@ export class ClaimDetail {
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
   /** `{path}#admin-claim-duplicate`. A bare `#id` resolves against `<base href="/">` (AECI-1839). */
-  protected readonly duplicateHref = injectInPageHref('admin-claim-duplicate', {
-    keepQueryOnServer: true,
-  });
+  protected readonly duplicateHref = injectInPageHref('admin-claim-duplicate');
 
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 

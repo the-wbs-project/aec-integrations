@@ -113,6 +113,16 @@ function documentLabel(document: string): string {
 }
 
 /**
+ * Whether keyboard focus has been lost. A click on empty space puts focus on `<body>`, or on
+ * `<main id="main">` since AECI-1839 made it focusable for the skip link. Both mean the
+ * vendor moved nowhere, so a re-read may take focus back.
+ */
+export function focusIsLost(doc: Document): boolean {
+  const active = doc.activeElement;
+  return !active || active === doc.body || active.matches('main#main') || !active.isConnected;
+}
+
+/**
  * `…/billing`: the owner-only Billing tab (AECI-1390, E5.4;
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The billing email, the company's
  * licenses and the agreements it accepted. A summary card in a right-hand column
@@ -699,7 +709,7 @@ export class VendorBillingSection {
       // while the re-read ran, leave them where they are.
       const doc = this.host.nativeElement.ownerDocument;
       const active = doc.activeElement;
-      const lost = !active || active === doc.body || !active.isConnected;
+      const lost = focusIsLost(doc);
       if (target && (lost || this.host.nativeElement.contains(active))) target.focus();
     });
   }
@@ -782,7 +792,7 @@ export class VendorBillingSection {
       () => {
         const doc = this.host.nativeElement.ownerDocument;
         const active = doc.activeElement;
-        const lost = !active || active === doc.body || !active.isConnected;
+        const lost = focusIsLost(doc);
         if (lost || this.host.nativeElement.contains(active)) {
           target()?.nativeElement.focus();
         }

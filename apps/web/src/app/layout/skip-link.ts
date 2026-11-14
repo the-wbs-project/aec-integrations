@@ -8,9 +8,9 @@ import { injectInPageHref } from '../shared/in-page-href';
  * via `sr-only`; revealed on focus. WCAG 2.1 AA, §21.1.
  *
  * The href is `{path}#main`, never a bare `#main`: `<base href="/">` resolves a bare
- * fragment to `/#main` and loads the home page (AECI-1839). The server render drops the
- * query string because the edge cache key does not carry it; the browser keeps it, so the
- * jump never reloads the page or loses filters.
+ * fragment to `/#main` and loads the home page (AECI-1839). The server render keeps only the
+ * query params the edge cache key keeps (all of them on never-cached routes); the browser
+ * keeps the whole query, so the jump never reloads the page or loses filters.
  */
 @Component({
   selector: 'aec-skip-link',
@@ -25,5 +25,5 @@ import { injectInPageHref } from '../shared/in-page-href';
   `,
 })
 export class SkipLink {
-  protected readonly href = injectInPageHref('main', { keepQueryOnServer: false });
+  protected readonly href = injectInPageHref('main');
 }

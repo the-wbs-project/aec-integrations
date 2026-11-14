@@ -5,7 +5,18 @@ import { untilHydrated } from './hydration';
 // link loaded the home page on every route except `/`. These specs pin the path-preserving
 // href in the server HTML (pre-hydration) and the hydrated Tab + Enter behaviour.
 
-const PAGES = ['/docs', '/legal/terms'];
+const PAGES = ['/docs', '/docs/reviewers/requests-and-corrections', '/legal/terms'];
+
+// Listing, pair and search routes keep query params in the SSR href (AECI-1839).
+const QUERY_CASES: readonly [string, string][] = [
+  ['/products?page=2&sort=name', '/products?page=2&sort=name#main'],
+  [
+    '/products/revit/integrations/procore?view=basic',
+    '/products/revit/integrations/procore?view=basic#main',
+  ],
+  ['/search?q=x', '/search?q=x#main'],
+  ['/products?utm_source=x&page=2', '/products?page=2#main'],
+];
 
 async function firstProductPath(request: APIRequestContext): Promise<string | null> {
   const html = await (await request.get('/products')).text();
@@ -13,6 +24,19 @@ async function firstProductPath(request: APIRequestContext): Promise<string | nu
 }
 
 test.describe('skip link (AECI-1839)', () => {
+  test.describe('with JavaScript off', () => {
+    test.use({ javaScriptEnabled: false });
+    for (const [url, expected] of QUERY_CASES) {
+      test(`${url} renders ${expected}`, async ({ page }) => {
+        await page.goto(url);
+        await expect(page.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute(
+          'href',
+          expected,
+        );
+      });
+    }
+  });
+
   test('server HTML carries a path-preserving href, never a bare fragment', async ({ request }) => {
     const product = await firstProductPath(request);
     test.skip(product === null, 'no products seeded in this environment');
@@ -32,7 +56,9 @@ test.describe('skip link (AECI-1839)', () => {
       test.skip(path === null, 'no products seeded in this environment');
       await page.goto(`${path}?probe=1`);
       const link = page.getByRole('link', { name: 'Skip to main content' });
-      await untilHydrated(link);
+      // The skip link has no listener, so it never carries `jsaction`. The hydrated href is the
+      // gate: it carries the query, which the server render does not.
+      await expect(link).toHaveAttribute('href', `${path}?probe=1#main`, { timeout: 15_000 });
 
       let documentLoads = 0;
       page.on('request', (r) => {
