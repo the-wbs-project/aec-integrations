@@ -976,8 +976,9 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 - `preview/unified-home/unified-home-preview.ts` lines 624 to 626 (`primaryBtn`, `linkBtn`). A preview route. It stays as it is.
 - `vendor/vendor-invite-page.ts` line 158 (`btn`) and the `BTN_PRIMARY`, `BTN_SECONDARY` and `BTN_DANGER` constants in `vendor/integration-detail/integration-detail-styles.ts` lines 139 to 143. AECI-1761.
 - `vendor/components/vendor-removal-election.ts` line 279 and `vendor/components/vendor-license-actions.ts` line 503. Both append `disabled:cursor-not-allowed disabled:opacity-50` to `BUTTON_SECONDARY_CLASS`. The recipe's `disabled:opacity-60` wins, so the suffix does nothing. AECI-1813 drops it.
-- Trap for AECI-1759: `home/home-hero.ts` line 225 sets `aria-disabled` on its submit button while it checks a pair. On `aecButton` that dims the button to 60%. Decide whether the check state should look disabled before moving it.
-- Trap for AECI-1759: Spartan's `brnButton` marks a disabled link with `data-disabled`, not `aria-disabled`. The `aecButton` disabled look keys on `disabled` and `aria-disabled` only. Use the `disabled` input.
+- **Public pages (AECI-1759).** The buttons and button-styled links in `layout`, `shared`, `home`, `products`, `vendors` and `not-found` are `aecButton`: the plan cards and plan calls to action, the claim dialog footer, the mailing-list "Subscribe", the load-more button, the feedback form and its dialog close, the home call-to-action pair, "Visit website", "Claim" and "Suggest a correction", and the 404 "Go home". Segmented controls and view toggles, tabs, chips, sort toggles, combobox triggers and inline text links stay as they are.
+- **Pending state without the dim.** `home/home-hero.ts` keeps `aria-disabled` on its submit button while it checks a pair, and adds `aria-disabled:opacity-100!` so the button is not dimmed to 60%. A check in flight is busy, not unavailable. Any other caller that sets `aria-disabled` by hand for a busy state does the same.
+- **A disabled link uses the `disabled` input.** Spartan's `brnButton` marks a disabled link with `data-disabled`, which the `aecButton` look does not read. No public page uses `brnButton` on a link.
 
 **Measured contrast (AECI-1758).** WCAG 2 ratios from the token hexes. The secondary edge is not a required boundary, see Secondary above.
 
