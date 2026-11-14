@@ -230,7 +230,7 @@ components:
     rounded: "{rounded.md}"
     minHeight: "44px"
     padding: "{spacing.0} {spacing.4}"
-    border: "1px solid {colors.field-edge}"
+    border: "1px solid {colors.border-field}"
   # Focus is an outline, because forced-colours mode drops box-shadow.
   input-focus:
     backgroundColor: "{colors.surface-base}"
