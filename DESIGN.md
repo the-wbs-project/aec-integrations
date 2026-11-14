@@ -984,7 +984,8 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 - Select and combobox triggers (AECI-1764).
 - The header icon controls (AECI-1771) and the footer links.
 - Tiny inline icon triggers: the info hint, relative time, claim provenance and the combobox clear button. A 44px target would break the line they sit in.
-- The two phone-menu account buttons in `layout/nav-menu.ts`. AECI-1775 moves them to `aecButton` ("Account" secondary, full width; "Sign in" primary, full width).
+
+AECI-1775 moved the two mobile menu account buttons to `aecButton`. "Sign in" is primary at full width (`layout/nav-menu.ts`). "Account" is secondary at full width (`layout/nav-menu-account.ts`). They sit on the menu's white panel, so neither takes an on-Forest variant.
 
 `pagination-footer`'s button branch is the admin one. It now renders the shared secondary look, so it is visible on `/search` and on `/admin/vendors`.
 
@@ -1848,7 +1849,7 @@ Added by this part. All of it is CURRENT unless it says otherwise.
 
 - **The pattern is disclosure navigation, not an ARIA `menu`.** "Browse" is one link that carries `aria-expanded` and `aria-controls`, over a `[hidden]` panel of links with no role. `layout/browse-menu.ts` builds it, and `browse-menu.component.spec.ts` pins the attributes, the down arrow and the Escape focus return. The panel needs no landmark role, and each column's list is named by its overline through `aria-labelledby`.
 - **`aria-haspopup` is dropped.** The Browse panel is disclosure navigation of links (the WAI-ARIA Authoring Practices disclosure pattern). The trigger carries `aria-expanded` and `aria-controls`. `aria-haspopup="true"` announces a menu that is not there. AECI-1774 repointed the Escape selector in `NavDisclosure` to the first `[aria-expanded]` in the host, which is the trigger in both implementors, and the specs now assert that `aria-haspopup` is absent.
-- **Built on `NavDisclosure`** (`layout/nav-disclosure.ts`), so Escape, focus leaving the host and the Safari press guard behave as they do today. A blur to nowhere during a pointer press inside the host does not count as focus leaving, because Safari never focuses a clicked link and closing on that blur loses the click. AECI-1774 deleted `nav-flyout-trigger.ts`. `nav-flyout-list.ts` stays for the mobile menu's sections until AECI-1775.
+- **Built on `NavDisclosure`** (`layout/nav-disclosure.ts`), so Escape, focus leaving the host and the Safari press guard behave as they do today. A blur to nowhere during a pointer press inside the host does not count as focus leaving, because Safari never focuses a clicked link and closing on that blur loses the click. AECI-1774 deleted `nav-flyout-trigger.ts`. AECI-1775 deleted `nav-flyout-list.ts`: the mobile menu draws its sections with counts in `nav-menu-panel.ts`.
 - **Open for the accessibility gate (AECI-1818):** whether a separate disclosure button beside the "Browse" link would serve screen reader users better than the down arrow on the link.
 - **The keyboard reaches the panel by the down arrow.** Enter on "Browse" follows the link. The footer's Directory column is the Tab-reachable copy of the same destinations, and it renders in server HTML.
 - **Angular Aria popups render inline in this repo, not in an overlay.** The Browse panel is plain inline markup under the header, which is what `NavDisclosure` expects. A panel in the browser's top layer is not a DOM descendant of the host, so every focus move into it would read as focus leaving.
@@ -1885,18 +1886,28 @@ The mock-up's columns need about 1,130px of its 1,216px row (comment above line 
 
 #### The mobile menu (clash 30, new)
 
-Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2): the toggle has an accessible name, and the open menu traps focus.
+Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2, ADR 0056 floor 2): the toggle has an accessible name, and the open menu traps focus. AECI-1775 built it. The code is `layout/nav-menu.ts` (toggle, open state, trap, panel box), `layout/nav-menu-panel.ts` (the lazy body) and `layout/nav-menu-account.ts` (the lazy account block).
 
-- **The toggle keeps the new look.** 44 by 44px, `rounded-control` (12px), a `--surface-on-brand-wash` fill, a Bone icon, at the end edge of the header (mock-up line 46). The icon swaps to a close glyph while open (lines 694 and 695). The shipped toggle is 36px, bordered and at the start edge, so this is a change. The wash is decoration. The Bone glyph (11.03:1) identifies the control.
-- **A spoken name.** The toggle has an accessible name. The shipped name is "Open menu". The name becomes "Menu", as the mock-up has it (line 1196), and `aria-expanded` carries the state. The name stays true while the menu is open and the glyph is a close mark. AECI-1775 updates `nav-menu.component.spec.ts` and `e2e/nav-menu.spec.ts`, which assert the old name.
-- **The open menu traps focus and closes on Escape,** and Escape returns focus to the toggle. The shipped panel is a `BrnPopover` (a dialog primitive, `aria-haspopup="dialog"`) that supplies the trap, the Escape close and the focus return. Keep it. The mock-up has its own trap in script (`src/catmenu.js` line 49). Do not copy the script. The page behind the popover must be inert. `BrnPopover`'s trap leaves out the toggle, so either the close control is reachable inside the trap or Escape is the documented close path. AECI-1775 owns this.
-- **Background scroll is locked while open** (AECI-1775).
-- **Order.** "All products" and the key categories first. Then four tap-to-expand sections in the desktop column order: Categories, Phases, Audiences, Trades. Then How we rank and For vendors, then search and the account block (the identity block below, then Account, the role-gated doors and Sign out), or the Sign in button. The mock-up has no search and no account block (AECI-1775).
-- **The same data and the same config list** as the desktop menu, with the same orders and the same seven-item cap. Each section carries its own "See all". Its button has `aria-expanded` and `aria-controls`, and its region is hidden when collapsed. Phases show all five.
-- **The panel is white, not Forest.** The mock-up panel is `--surface-base` with ink text, radius `0 0 24px 24px` and `--shadow-menu`, under the Forest header strip (line 701 and `screens/browse-menu-mobile.jpg`). AECI-1775's description says "Forest ground, to match the header". Read that as the header strip. The panel follows the mock-up and the desktop panel. The focus ring in it is Forest.
-- **The same footer line** at `13px` under the sections (line 717), with the same same-PR rule: whichever of AECI-1774 and AECI-1775 lands first carries the `how-ranking-works` sentences.
-- **Starting values** (lines 701 to 718): `max-height: calc(100dvh - 64px)` with `overflow-y: auto` and `overscroll-behavior: contain`, side padding the gutter, top-level rows in serif 600 at `20px` and 58px high, "All products" in serif 400 at `24px` and 48px high, items at `16px` and 44px high with a `13px` count, a hairline between rows, and a Forest "Sign in" button at 44px (`button-primary`, §5 Buttons). The chevron rotates on expand. Under reduced motion it does not animate.
-- **Reflow.** The menu works at 320px and at 200% zoom. That is why it takes over below `lg`.
+- **The toggle.** 44 by 44px, `rounded-control` (12px), a `--surface-on-brand-wash` fill, a Bone glyph (11.03:1), and the 1px `.aec-on-brand-edge` (4.01:1) AECI-1771 gave it. It sits at the end edge of the header (mock-up line 46). The glyph is `menu`, and `x` while open (lines 694 and 695). The wash is decoration. The glyph and the edge identify the control.
+- **A spoken name.** The toggle's name is "Menu", as the mock-up has it (line 1196). `aria-expanded` carries the state, so the name stays true while the glyph is a close mark. The toggle also carries `aria-controls`. It has no `aria-haspopup`.
+- **The open menu is a modal dialog that holds its own toggle.** While open, the `aec-nav-menu` host is `role="dialog"`, `aria-modal="true"` and named "Menu". The host holds the toggle and the panel, so the close control is inside the dialog. A screen reader on a phone has no Escape key, and it can always reach the close mark. Closed, the host has no role.
+- **The focus trap.** Tab from the last control goes to the toggle. Shift+Tab from the toggle goes to the last control. Focus moves to "All products" on open.
+- **The page behind is inert.** Every sibling of the host and of each of its ancestors up to `<body>` takes `inert` on open: the wordmark and the rest of the header row, the skip link, `main` and the footer. Close removes exactly what open set. The page dimmer (`data-nav-scrim`) and the CDK overlay container are left alone.
+- **Escape closes it and returns focus to the toggle.** So does a click on the dimmer. An open search suggestion list takes the first Escape. A route change closes the menu, and so does the viewport growing to `lg`, where the host is hidden.
+- **Background scroll is locked while open.** `overflow: hidden` on the root element, set on open and removed on close. Nothing moves the page, so the scroll position is untouched and the router's scroll restoration never sees a change. Where the page shows a classic scrollbar, `scrollbar-gutter: stable` keeps the header from shifting. The panel scrolls inside itself with `overscroll-behavior: contain`.
+- **Why not `BrnPopover`.** The shipped menu was a Spartan popover in the CDK overlay. Its dialog had no name (axe `aria-dialog-name`), its focus trap left out the toggle, and its content mounted on the first click, so it had to sit in the initial bundle. The inline panel fixes all three. The lg to xl search trigger still uses the popover.
+- **Order.** "All products" and the key categories first. Then four tap-to-expand sections in the desktop column order: Categories, Phases, Audiences, Trades. Then How we rank and For vendors, then the footer line, then search, then the account block (the identity block below, then Account, the role-gated doors and Sign out) or the Sign in button. The mock-up has no search and no account block.
+- **The same data and the same orders as the desktop menu.** Every list comes from `TaxonomyNavStore.browse` (`browse-menu-model.ts`), with the same seven-item cap. The mobile body sorts and filters nothing, so there is one ordering path and the firewall test covers it. Phases show all five. The key categories label and list render only when the list is not empty.
+- **Sections.** Each section is a button with `aria-expanded` and `aria-controls`. Its region is `[hidden]` when collapsed, and its list is named by the button through `aria-labelledby`. Each region ends with its own "See all" link. The chevron turns on expand over the base duration. It sits on a wrapper because `aec-icon`'s host is `display: contents`. Under reduced motion it does not animate.
+- **Counts** are the desktop counts: "1 product" or "N products" at `--t-13`, tabular, in `--text-tertiary` on the white panel (4.83:1), at the end of the row. One function writes them for both menus (`browseCountText` in `taxonomy-nav-copy.ts`). If the total is `undefined`, "All products" shows no count.
+- **The footer line** is the desktop line, word for word, at `--t-13` in `--text-tertiary` under For vendors. The `how-ranking-works` sentences shipped with AECI-1774, so the same-PR rule is met.
+- **The panel is white, not Forest.** The panel is `--surface-base` with ink text, radius `0 0 24px 24px`, `--shadow-menu` and a 1px edge on three sides, under the Forest header strip (mock-up line 701 and `screens/browse-menu-mobile.jpg`). The issue's "Forest ground, to match the header" reads as the header strip. The focus ring inside is Forest, 3px at a 3px offset. The two buttons take the white-ground variants: "Sign in" primary and "Account" secondary, both full width.
+- **Destinations are plain links.** Every body destination is a plain `<a href>` with no listener and no `RouterLink`. The eager host catches the click, closes the menu and routes in the app, as the Browse panel box does. A modified or middle click is left to the browser. Sign in and the account block use `RouterLink`, because they exist only after hydration.
+- **The body is lazy and server-rendered.** `nav-menu-panel.ts` sits in `@defer (on idle; hydrate on idle)`. Cached HTML carries "All products", the section buttons, every "See all" link, How we rank, For vendors and the footer line, hidden until opened. Terms and counts wait for the first browser render. A tap on a link before the body hydrates, or after its chunk failed, still navigates. A tap on a section button before the body hydrates is queued by event replay and opens the section once the body hydrates. `e2e/nav-menu.spec.ts` pins a slowed chunk and a blocked chunk.
+- **Search is mounted only while open,** so the server HTML keeps one search input, the header's.
+- **Cached HTML is visitor-neutral.** The server renders the closed menu, the hidden panel and the "Sign in" link. The account block is lazy (`@defer (on immediate)`) and renders only after the browser-side session probe. The portal doors and the badge read the browser-only role probe.
+- **Settled values** (mock-up 6, lines 701 to 718, default state): `max-height: calc(100dvh - 64px)` below `md` and `calc(100dvh - 76px)` from `md`, matching the header heights, with `overflow-y: auto` and `overscroll-behavior: contain`. Side padding is the header's `32px` gutter, so the menu lines up with the wordmark. The mock-up's 24px phone gutter was not adopted. Top-level rows are serif 600 at `20px` and 58px high. "All products" and the key categories are serif 400 at `24px` and 48px high. Section items are `16px` at 400 and 44px high, with the count on the same line. "See all" is 44px high. A hairline separates the top-level rows. Search and the account block sit 24px apart below the footer line.
+- **Reflow.** The menu works at 320px, at 200% zoom on a 320px screen and on a landscape phone. Nothing in the panel is cut off sideways, and the panel scrolls down inside the viewport. `e2e/nav-menu.spec.ts` pins all three.
 
 #### The section nav and the sticky bar (`PLAN.md` §4.9, R3 and clash 13)
 
@@ -1959,7 +1970,7 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 
   | Width | Content box | Row needs | Result |
   | -- | -- | -- | -- |
-  | 768px, inline row at `md` (wordmark 209, row 300, Sign in 77, two 32px gaps) | 704px | 650px | Fits with 54px spare, but only with no search. The search icon (44px and a 12px gap) makes it 706px, 2px over. The hamburger stays through `md` |
+  | 768px, inline row at `md` (wordmark 209, row 300, Sign in 77, two 32px gaps) | 704px | 650px | Fits with 54px spare, but only with no search. The search icon (44px and a 12px gap) makes it 706px, 2px over. The menu toggle stays through `md` |
   | 1024px (wordmark 209, row 300, search icon and Sign in 133, two 16px gaps) | 960px | 674px | Fits with 286px spare |
   | 1280px (wordmark 209, row 300, search box and Sign in 297, two 32px gaps) | 1216px | 870px | Fits with 346px spare |
   | 1440px (the row caps at `max-w-7xl`, so the same as 1280) | 1216px | 870px | Fits with 346px spare |
@@ -1988,7 +1999,6 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 | The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
 | The pill's width bands | See "Header search". The "/" shortcut's WCAG 2.1.4 mechanism is a requirement, not an open value | AECI-1772 |
 | The shared scrim token for the Browse dimmer and the CDK backdrop | See "The Browse menu" | AECI-1770 |
-| The close control inside the focus trap, or Escape as the documented path | See "The mobile menu" | AECI-1775 |
 | The footer's link size and its width re-measure at 375, 768, 1024 and 1280px | See "The footer" | AECI-1776 |
 | The skip link's on-focus look, the band restyles and the single breadcrumb component | See "The shell bands" | AECI-1777 |
 | "Write a review" on the sticky bar, the focus-clearance mechanism and the overflow cue | See "The section nav" | AECI-1768 |
@@ -2002,7 +2012,7 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 
 The account menu opens with **who you are**, then the things you can do. Source:
 `apps/web/src/app/layout/account-identity.ts`, one component rendered by **both**
-the desktop dropdown (`user-menu.ts`) and the mobile overlay (`nav-menu.ts`) — an
+the desktop dropdown (`user-menu.ts`) and the mobile menu (`nav-menu-account.ts`) — an
 identity block composes three sources and gets the wrong answer *quietly* when
 duplicated, which a link list does not.
 

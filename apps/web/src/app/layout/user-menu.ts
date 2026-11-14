@@ -43,8 +43,7 @@
  * visitor-state-dependent beyond that mount, so the cached SSR HTML renders the
  * neutral "Sign in" CTA instead (§8).
  *
- * The dropdown uses `BrnPopover` (extends `BrnDialog`) — the same primitive as
- * `nav-menu.ts`: CDK overlay, focus trap, Escape / outside-click close, focus
+ * The dropdown uses `BrnPopover` (extends `BrnDialog`): CDK overlay, focus trap, Escape / outside-click close, focus
  * return to the trigger, and automatic `aria-haspopup`/`aria-expanded`/
  * `aria-controls` on the trigger. The content (a link + a sign-out button) lives
  * in an `ng-template` that only mounts on click, so SSR renders just the static

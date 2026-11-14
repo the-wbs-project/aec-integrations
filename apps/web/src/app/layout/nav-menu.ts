@@ -1,119 +1,126 @@
 /**
- * Primary navigation menu — the small-screen hamburger (below `lg`).
+ * The mobile menu (AECI-1775, DESIGN.md §5 "The mobile menu", clash 30). It is
+ * the header's navigation below `lg`: the host is `lg:hidden`, and at `lg` and
+ * up the same destinations are the inline row and its Browse menu
+ * (`browse-menu.ts`).
  *
- * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
- * opens a CDK-overlay dropdown that is the home for site navigation on small
- * screens: "All products" and the key categories, the four taxonomy facets as
- * tap-to-expand disclosure sections (Categories / Phases / Audiences / Trades,
- * the Browse menu's column order), How we rank and For vendors, search, and the
- * account block (the AECI-850 identity block, then Account, the role-gated
- * portal doors, Sign out) or the Sign-in CTA. The component is hidden at `lg+`
- * via its `lg:hidden` host class — at those widths the same destinations render
- * as the inline desktop row in `site-header.ts` and its Browse menu
- * (`browse-menu.ts`). Both surfaces read `TaxonomyNavStore.browse` and
- * `taxonomy-nav-copy.ts`, so the term lists, their order and their seven-item
- * cap cannot drift. AECI-1774 moved this menu onto the new row's destinations
- * only. Its look, the counts and the footer line are AECI-1775's. AECI-158/159 re-pointed
- * the nav at the taxonomy; Vendors / Integrations were removed from the nav AND
- * the footer (AECI-160, PO decision) — reachable via `sitemap.xml`, detail-page
- * breadcrumbs, and search.
+ * The toggle sits at the end edge of the Forest header. Its name is "Menu" and
+ * `aria-expanded` carries the state, so the name stays true while the glyph is
+ * a close mark. It opens one white panel under the header strip: "All products"
+ * and the key categories, four tap-to-expand sections (Categories, Phases,
+ * Audiences, Trades), How we rank and For vendors, the footer line, then search
+ * and the account block or Sign in. Every list comes from
+ * `TaxonomyNavStore.browse`, the model the desktop Browse menu reads, so the two
+ * menus share one ordering path (`browse-menu-model.ts`).
  *
- * **The "More" disclosure is gone.** It used to hold the secondary destinations
- * (Updates · Roadmap · About · Contact), Legal, and — for an admin — the whole
- * eleven-screen `/admin` IA. The secondary and Legal destinations now live in the
- * footer, which is on every page and was already carrying ten of the twelve; and
- * `/admin` is reached by a single "Admin portal" door in the account block below,
- * because the admin console owns its own navigation once you are inside it. The
- * deliberate trade: on a phone those secondary links are a scroll to the footer
- * rather than two taps here.
+ * **A dialog that holds its own toggle.** While open, the host is
+ * `role="dialog"`, `aria-modal="true"` and named "Menu". The host holds both the
+ * toggle and the panel, so the close control is inside the dialog: a screen
+ * reader on a phone, with no Escape key, can always reach it. Everything else on
+ * the page is made `inert` (the walk in `setInert`), so the page behind can be
+ * neither focused nor read. Tab and Shift+Tab cycle inside the host. Escape
+ * closes and returns focus to the toggle. So does a click on the page dimmer.
+ * A route change closes it, and so does the viewport growing to `lg`, where the
+ * host is hidden.
  *
- * The hamburger keeps the operator-backlog badge: below `lg` it is the only menu
- * control, and the Admin portal door lives inside it. Since AECI-922 that badge
- * is the SUM of the three Operations queues, matching the console's own
- * Operations trigger rather than counting pending reviews alone.
+ * **The page behind does not scroll.** `overflow: hidden` on the root element,
+ * set on open and removed on close. Nothing moves the page, so its scroll
+ * position is untouched and the router's scroll restoration never sees a
+ * change (CLAUDE.md, "Router scroll restoration is already solved"). The panel
+ * scrolls inside itself and does not chain to the page.
  *
- * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
- * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger
- * — and reflects `aria-expanded` / `aria-haspopup` / `aria-controls` on the
- * trigger automatically. Same primitive used at `preview/vendor-detail`.
+ * **Why not `BrnPopover`.** The shipped menu was a Spartan popover in the CDK
+ * overlay. Its dialog had no name (axe `aria-dialog-name`), its focus trap left
+ * out the toggle, and its content was an `ng-template` that mounted on the first
+ * click, so it had to be in the initial bundle to open at once. The inline panel
+ * fixes all three.
  *
- * The panel is capped at the viewport height and scrolls inside. With every
- * facet open it is far taller than a phone screen, and the overlay pane is
- * fixed, so a page scroll cannot reach its lower rows (AECI-1487).
+ * **The body is lazy and server-rendered.** `nav-menu-panel.ts` sits in
+ * `@defer (on idle; hydrate on idle)`, as the Browse panel does. Its links are
+ * plain `<a href>` with no listener. This component's host catches the click,
+ * closes the menu and routes in the app, so a tap navigates before the body
+ * hydrates, and if its chunk never loads. The account block is lazy too
+ * (`nav-menu-account.ts`). It only exists in the browser after the session probe.
  *
- * SSR-safe: the dropdown content lives in an `ng-template` that only mounts in
- * the CDK overlay on click (always client-side), so the server renders just the
- * static, visitor-state-neutral toggle button — including the embedded theme
- * toggle, which therefore never bakes per-visitor theme state into cached HTML.
- * (The taxonomy values likewise only appear client-side; the SSR-crawlable
- * facet links live on the desktop bar + the footer.)
+ * **Cached HTML is visitor-neutral.** The server renders the closed menu: the
+ * toggle, the hidden panel with its index links, search and the "Sign in" link.
+ * `SessionStatus` swaps in the account block after hydration, and the role
+ * probe that reveals the portal doors and the badge is `null` during SSR.
  *
- * The toggle is the `aec-icon` `menu` glyph. It is `currentColor`, so it themes
- * via `--text-primary` (DESIGN.md: the aec-icon set).
- *
- * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96/158/159.
+ * The toggle keeps the operator-backlog badge. Below `lg` it is the only menu
+ * control, and the Admin portal door lives inside it. Since AECI-922 the badge is
+ * the sum of the three Operations queues, as on the console's own trigger.
  */
-import { Component, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
+import { DOCUMENT } from '@angular/common';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  DestroyRef,
+  ElementRef,
+  inject,
+  Injector,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationSkipped, NavigationStart, Router, RouterLink } from '@angular/router';
 
 import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
-import { Analytics } from '../analytics/analytics';
-import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
-import { signOutAndGoHome } from '../auth/sign-out';
 import { injectSignInQueryParams } from '../auth/sign-in-link';
-import { VendorStatus } from '../vendor/vendor-status';
+import { isReplayedEvent } from '../core/event-replay';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
-import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
-
-import { AccountIdentity } from './account-identity';
-import { NavFlyoutList } from './nav-flyout-list';
-import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
-import { facetNavLabel, facetSeeAllLabel } from './taxonomy-nav-copy';
+import { AecButton } from '../shared/button/button';
 import { AecIcon } from '../shared/icon/icon';
+
+import { NavMenuAccount } from './nav-menu-account';
+import { NavMenuPanel } from './nav-menu-panel';
+import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
+
+/** The panel's id, the toggle's `aria-controls` target. One mobile menu per page. */
+export const NAV_MENU_PANEL_ID = 'nav-menu-panel';
+
+/** Tailwind's `lg`, where the inline row takes over and this host is hidden. */
+const LG_QUERY = '(min-width: 64rem)';
+
+/** What Tab can land on. Filtered to visible elements in `tabbables()`. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 @Component({
   selector: 'aec-nav-menu',
-  // Hamburger is the small-screen affordance only; at `lg+` the inline desktop
-  // nav in `site-header.ts` takes over, so the trigger (and its overlay) are
-  // removed from the layout above `lg`. The handover moved up from `md` in
-  // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
-  // hamburger now carries navigation through the md range too. AECI-669
-  // re-measured the six-item row at 768px after `More` was retired: it is still
-  // 127px over (DESIGN.md §Navigation), so the handover stays at `lg`.
-  // Changing this breakpoint moves the search handover too — `aec-search-trigger`
-  // starts exactly where this stops. Keep the two in lockstep or a width band
-  // ends up with two search boxes, or none.
-  host: { class: 'lg:hidden' },
-  imports: [
-    AecIcon,
-    RouterLink,
-    RouterLinkActive,
-    BrnPopover,
-    BrnPopoverContent,
-    BrnPopoverTrigger,
-    NavFlyoutList,
-    SearchAutocomplete,
-    AccountIdentity,
-  ],
+  // The handover is `lg` (AECI-544, re-measured by AECI-1774). If it moves,
+  // three classes move together: this `lg:hidden`, the inline row's `lg:flex`
+  // in `site-header.ts` and `aec-search-trigger`'s `lg:block`.
+  host: {
+    class: 'lg:hidden',
+    '[attr.role]': 'isOpen() ? "dialog" : null',
+    '[attr.aria-modal]': 'isOpen() ? "true" : null',
+    '[attr.aria-label]': 'isOpen() ? name : null',
+    '(keydown.tab)': 'onTab($event)',
+    '(keydown.shift.tab)': 'onTab($event)',
+    '(document:keydown.escape)': 'onEscape($event)',
+    // The panel's links are plain hrefs, so the eager host routes them.
+    '(click)': 'onPanelClick($event)',
+  },
+  imports: [AecButton, AecIcon, RouterLink, SearchAutocomplete, NavMenuAccount, NavMenuPanel],
   template: `
     <button
-      brnPopoverTrigger
-      [brnPopoverTriggerFor]="menu"
       type="button"
       class="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-control border aec-on-brand-edge bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)"
-      i18n-aria-label="@@app.nav.menu.toggle.aria"
-      aria-label="Open menu"
+      [attr.aria-label]="name"
+      [attr.aria-expanded]="isOpen()"
+      [attr.aria-controls]="panelId"
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
-      (click)="adminStatus.ensureProbed()"
+      data-nav-menu-toggle
+      (click)="onToggle()"
     >
-      <aec-icon name="menu" decorative [size]="5" />
-      <!-- Pending-review badge: parity with the desktop user icon, so an admin
-           sees there's moderation work without opening the menu (AECI-259). -->
+      <aec-icon [name]="isOpen() ? 'x' : 'menu'" decorative [size]="5" />
+      <!-- Pending-review badge: parity with the desktop account trigger, so an
+           admin sees there is work waiting without opening the menu (AECI-259). -->
       @if (showBadge()) {
         <span
           class="absolute -end-1 -top-1 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
@@ -126,174 +133,56 @@ import { AecIcon } from '../shared/icon/icon';
       }
     </button>
 
-    <brn-popover #menu="brnPopover" class="contents" align="start" [sideOffset]="8">
-      <ng-template brnPopoverContent>
-        <!-- Capped at the viewport and scrolling inside (AECI-1487). The pane is
-             fixed, so without the cap an open facet list pushed the rows below
-             it past the bottom edge, where nothing could scroll them back.
-             5rem = the panel's 64px top (trigger plus the 8px side offset)
-             and a 16px margin under it. -->
-        <nav
-          class="max-h-[calc(100dvh-5rem)] w-[min(92vw,18rem)] overflow-y-auto overscroll-contain rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
-          i18n-aria-label="@@app.nav.primary.aria"
-          aria-label="Primary"
-        >
-          <a
-            routerLink="/products"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.browse.allProducts"
-          >
-            All products
-          </a>
-          <!-- The key categories, as on the desktop panel: the Categories
-               section leaves them out, so they must appear here. -->
-          @for (term of keyCategories(); track term.id) {
-            <a
-              [routerLink]="['/categories', term.slug]"
-              (click)="menu.close()"
-              class="block rounded-md px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >{{ term.name }}</a
-            >
+    <!-- The panel's containing block is the header (relative in site-header.ts),
+         so it spans the header under its bottom edge. Its height stops at the
+         viewport: 64px header below md, 76px from md. -->
+    <div
+      [id]="panelId"
+      [hidden]="!isOpen()"
+      class="absolute inset-x-0 top-full z-10 max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain rounded-b-card border-x border-b bg-(--surface-base) text-start text-(--text-primary) shadow-menu md:max-h-[calc(100dvh-76px)]"
+    >
+      <!-- The header's 32px gutter, so the menu lines up with the wordmark. Below
+           320px (a phone at 200% zoom) it drops to 16px so nothing is cut off. -->
+      <div class="mx-auto max-w-7xl px-4 pt-2 pb-6 min-[20rem]:px-8">
+        <nav i18n-aria-label="@@app.nav.primary.aria" aria-label="Primary">
+          @defer (on idle; hydrate on idle) {
+            <aec-nav-menu-panel [menu]="menu()" />
           }
-          @for (section of sections(); track section.kind) {
-            <div>
-              <button
-                type="button"
-                (click)="toggleSection(section.kind)"
-                [attr.aria-expanded]="isOpen(section.kind)"
-                [attr.aria-controls]="panelId(section.kind)"
-                class="flex w-full cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >
-                <span>{{ section.label }}</span>
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 transition-transform"
-                  [class.rotate-180]="isOpen(section.kind)"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-              @if (isOpen(section.kind)) {
-                <div [id]="panelId(section.kind)" class="ps-2 pb-1">
-                  <aec-nav-flyout-list
-                    [items]="section.items"
-                    [kind]="section.kind"
-                    [viewAllLabel]="section.viewAll"
-                    (navigate)="menu.close()"
-                  />
-                </div>
-              }
-            </div>
-          }
+        </nav>
 
-          <a
-            routerLink="/docs/trust/how-ranking-works"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >{{ labels.howWeRank }}</a
-          >
-          <a
-            routerLink="/vendor-program"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >{{ labels.forVendors }}</a
-          >
-
+        <!-- Mounted only while open, so the server HTML keeps one search input
+             (the header's) and a hidden combobox never hydrates. -->
+        @if (isOpen()) {
           <aec-search-autocomplete
-            class="mt-1 block px-1 pb-1"
+            class="mt-6 block"
             inputId="mobile-search"
             inputClass="w-full"
-            (querySubmitted)="onSearchQuery($event); menu.close()"
-            (suggestionChosen)="onSuggestion($event); menu.close()"
+            (querySubmitted)="onSearchQuery($event)"
+            (suggestionChosen)="onSuggestion($event)"
           />
-          <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
-            <!-- Neutral "Sign in" is the cache-safe SSR default; SessionStatus
-                 swaps to the account block after hydration (Phase 5 §4.4), and the
-                 shared role probe reveals the portal doors + badge (AECI-259). -->
-            @if (session.signedIn()) {
-              <!-- Same identity block as the desktop dropdown, from the same
-                   component, so the two headers cannot disagree about who is
-                   signed in (AECI-850). It sits above the destinations here for
-                   the same reason it does there. -->
-              <aec-account-identity />
+        }
 
-              <a
-                routerLink="/account"
-                (click)="menu.close()"
-                class="flex w-full items-center justify-center gap-2 rounded-md border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-medium text-(--text-primary) hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@app.header.account"
-              >
-                <aec-icon name="user" decorative [size]="4" />
-                Account
-              </a>
-
-              <!-- The portal doors, mirroring the desktop account menu in
-                   user-menu.ts, which carries the rationale. One link each: each
-                   portal owns its own nav once you are inside it, so the header
-                   never restates either IA. Revealed after hydration by the
-                   shared role probe, so neither reaches cached HTML. -->
-              @if (adminStatus.isAdmin()) {
-                <a
-                  routerLink="/admin"
-                  (click)="menu.close()"
-                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.adminPortal"
-                >
-                  Admin portal
-                </a>
-              }
-              @if (vendorStatus.isVendor()) {
-                <a
-                  routerLink="/vendor"
-                  (click)="menu.close()"
-                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.vendorPortal"
-                >
-                  Vendor portal
-                </a>
-              }
-
-              <button
-                type="button"
-                (click)="onSignOut()"
-                class="block w-full cursor-pointer rounded-md px-3 py-2 text-start text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@app.header.signOut"
-              >
-                Sign out
-              </button>
-              @if (signOutFailed()) {
-                <p
-                  class="px-3 text-xs text-(--color-status-error)"
-                  i18n="@@app.header.signOut.failed"
-                >
-                  Couldn’t sign out. Try again.
-                </p>
-              }
-            } @else {
-              <a
-                routerLink="/auth/login"
-                [queryParams]="signInParams()"
-                (click)="menu.close()"
-                class="flex w-full items-center justify-center rounded-md bg-(--accent-primary) px-4 py-2 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@app.header.signIn"
-              >
-                Sign in
-              </a>
+        <div class="mt-6">
+          <!-- "Sign in" is the cache-safe server default. SessionStatus swaps in
+               the account block after hydration (Phase 5 §4.4). -->
+          @if (session.signedIn()) {
+            @defer (on immediate) {
+              <aec-nav-menu-account />
             }
-          </div>
-        </nav>
-      </ng-template>
-    </brn-popover>
+          } @else {
+            <a
+              aecButton
+              routerLink="/auth/login"
+              [queryParams]="signInParams()"
+              class="w-full"
+              i18n="@@app.header.signIn"
+            >
+              Sign in
+            </a>
+          }
+        </div>
+      </div>
+    </div>
   `,
 })
 export class NavMenu {
@@ -301,34 +190,211 @@ export class NavMenu {
   protected readonly session = inject(SessionStatus);
   /** `?return=<this page>` so signing in lands back here, not on `/`. */
   protected readonly signInParams = injectSignInQueryParams();
-  protected readonly adminStatus = inject(AdminStatus);
-  protected readonly vendorStatus = inject(VendorStatus);
+  private readonly adminStatus = inject(AdminStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
-  private readonly auth = inject(AuthService);
-  private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
 
-  /** Live operator backlog — every Operations queue except Re-index, the same
-   *  sum the console's own Operations trigger shows (AECI-922). It counted
-   *  pending reviews alone until then, which made the header quieter than the
-   *  console about the identical backlog. 0 until the admin probe seeds the
-   *  store. */
+  protected readonly panelId = NAV_MENU_PANEL_ID;
+  /** The toggle's name and the open dialog's name (mock-up 6, line 1196). */
+  protected readonly name = $localize`:@@app.nav.menu.name:Menu`;
+  protected readonly menu = this.taxonomy.browse;
+
+  private readonly openSig = signal(false);
+  protected readonly isOpen = this.openSig.asReadonly();
+  /** Open state, for the header's page dimmer. */
+  readonly expanded = this.isOpen;
+
+  /** Live operator backlog: the same sum the console's Operations trigger shows. */
   protected readonly pending = computed(() => this.summaryStore.operationsTotal());
-
-  /** The trigger badge shows only for an admin with something waiting. */
+  /** The toggle badge shows only for an admin with something waiting. */
   protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);
-
-  /** Capped so the badge can't grow unbounded; the in-menu "(N)" stays exact. */
+  /** Capped so the badge cannot grow unbounded; the spoken description stays exact. */
   protected readonly badgeText = computed(() =>
     this.pending() > 9 ? '9+' : String(this.pending()),
   );
 
-  protected readonly signOutFailed = signal(false);
+  /** Elements this menu made inert, so close undoes exactly those. */
+  private inerted: HTMLElement[] = [];
+  /** The root element's inline styles before the scroll lock, restored on close. */
+  private lockedStyles: { overflow: string; scrollbarGutter: string } | null = null;
 
-  protected async onSignOut(): Promise<void> {
-    this.signOutFailed.set(false);
-    const ok = await signOutAndGoHome(this.auth, this.analytics);
-    if (!ok) this.signOutFailed.set(true);
+  constructor() {
+    // A route change closes the menu: a link, a search, or the browser's back
+    // button. NavigationSkipped covers a link to the page already showing.
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
+      if (event instanceof NavigationStart || event instanceof NavigationSkipped) {
+        this.close(false);
+      }
+    });
+
+    // At `lg` the host is hidden, so an open menu there would trap focus in an
+    // invisible dialog and keep the page inert.
+    afterNextRender(() => {
+      const query = this.document.defaultView?.matchMedia?.(LG_QUERY);
+      if (!query) return;
+      const onChange = (event: MediaQueryListEvent) => {
+        if (event.matches) this.close(false);
+      };
+      query.addEventListener('change', onChange);
+      this.destroyRef.onDestroy(() => query.removeEventListener('change', onChange));
+    });
+
+    this.destroyRef.onDestroy(() => this.release());
+  }
+
+  /** Close from outside the host: the page dimmer. Focus returns to the toggle. */
+  dismiss(): void {
+    this.close(true);
+  }
+
+  protected onToggle(): void {
+    this.adminStatus.ensureProbed();
+    if (this.isOpen()) this.close(true);
+    else this.open();
+  }
+
+  private open(): void {
+    if (this.isOpen()) return;
+    this.openSig.set(true);
+    this.lockScroll();
+    this.setInert();
+    // Focus moves into the dialog once the render clears `[hidden]`. Zoneless
+    // change detection runs on a macrotask, so focusing earlier would hit a
+    // `display: none` panel. The first link is "All products".
+    afterNextRender(
+      () => {
+        if (!this.isOpen()) return;
+        this.panel()?.querySelector<HTMLElement>('a[href]')?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private close(returnFocus: boolean): void {
+    if (!this.isOpen()) return;
+    this.openSig.set(false);
+    this.release();
+    if (returnFocus) this.toggleButton()?.focus();
+  }
+
+  /** Undo the scroll lock and the inert walk. */
+  private release(): void {
+    for (const element of this.inerted) element.inert = false;
+    this.inerted = [];
+    if (this.lockedStyles) {
+      const root = this.document.documentElement;
+      root.style.overflow = this.lockedStyles.overflow;
+      root.style.scrollbarGutter = this.lockedStyles.scrollbarGutter;
+      this.lockedStyles = null;
+    }
+  }
+
+  /**
+   * `overflow: hidden` on the root element stops the page scrolling without
+   * moving it. Where the page shows a classic scrollbar, `scrollbar-gutter`
+   * keeps its width, so the header does not shift sideways.
+   */
+  private lockScroll(): void {
+    const root = this.document.documentElement;
+    const view = this.document.defaultView;
+    this.lockedStyles = {
+      overflow: root.style.overflow,
+      scrollbarGutter: root.style.scrollbarGutter,
+    };
+    if (view && view.innerWidth > root.clientWidth) root.style.scrollbarGutter = 'stable';
+    root.style.overflow = 'hidden';
+  }
+
+  /**
+   * Make the page behind inert: every sibling of the host and of each of its
+   * ancestors up to `<body>`. The header's other parts, the skip link, `main`
+   * and the footer all go. Left alone: the page dimmer (`data-nav-scrim`), which
+   * closes the menu on a click, and the CDK overlay container, where a popup
+   * opened from inside the menu would render. Elements already inert are not
+   * touched, so close restores exactly what open changed.
+   */
+  private setInert(): void {
+    let node: HTMLElement | null = this.host;
+    while (node && node !== this.document.body) {
+      const parent: HTMLElement | null = node.parentElement;
+      if (!parent) break;
+      for (const sibling of Array.from(parent.children) as HTMLElement[]) {
+        if (sibling === node || sibling.inert) continue;
+        if (sibling.hasAttribute('data-nav-scrim')) continue;
+        if (sibling.classList.contains('cdk-overlay-container')) continue;
+        sibling.inert = true;
+        this.inerted.push(sibling);
+      }
+      node = parent;
+    }
+  }
+
+  /**
+   * The focus trap. Tab from the last control goes to the first, and Shift+Tab
+   * from the first goes to the last. The rest of the page is inert, so this only
+   * stops focus leaving for the browser's own controls.
+   */
+  protected onTab(event: Event): void {
+    if (!this.isOpen() || isReplayedEvent(event)) return;
+    const items = this.tabbables();
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!first || !last) return;
+    const active = this.document.activeElement;
+    const shift = (event as KeyboardEvent).shiftKey;
+    if (shift && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!shift && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  /**
+   * Escape closes the menu and returns focus to the toggle. It listens on the
+   * document, so it works after a tap on plain panel text left focus on `<body>`.
+   * An open search popup takes its own Escape first.
+   */
+  protected onEscape(event: Event): void {
+    if (!this.isOpen()) return;
+    const target = event.target as Element | null;
+    if (
+      target?.getAttribute?.('role') === 'combobox' &&
+      target.getAttribute('aria-expanded') === 'true'
+    ) {
+      return;
+    }
+    this.close(true);
+  }
+
+  /**
+   * A click on a panel destination closes the menu and routes in the app. It is a
+   * host listener, so it is eager and it bubbles up from any panel link. The
+   * links are plain hrefs (`nav-menu-panel.ts`), so this works whether or not the
+   * lazy body has hydrated. A `RouterLink` (Sign in, the account block) handles
+   * its own click and prevents the default first, so it is skipped here; the
+   * route change closes the menu. A modified or non-primary click is left to the
+   * browser. A replayed click already ran its native default, a full page load.
+   */
+  protected onPanelClick(event: MouseEvent): void {
+    if (isReplayedEvent(event) || event.defaultPrevented) return;
+    const link = (event.target as Element | null)?.closest?.(`#${this.panelId} a[href]`);
+    const href = link?.getAttribute('href');
+    // Only a same-origin path is routed in the app. A protocol-relative
+    // `//host` href, a `target` or a `download` link stays the browser's.
+    if (!href?.startsWith('/') || href.startsWith('//')) return;
+    if (link?.hasAttribute('target') || link?.hasAttribute('download')) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    this.close(false);
+    void this.router.navigateByUrl(href);
   }
 
   protected onSearchQuery(query: string): void {
@@ -339,50 +405,22 @@ export class NavMenu {
     navigateToSuggestion(this.router, suggestion);
   }
 
-  /** The same ids and copy as the desktop row (`site-header.ts`). */
-  protected readonly labels = {
-    howWeRank: $localize`:@@app.nav.howWeRank:How we rank`,
-    forVendors: $localize`:@@app.nav.forVendors:For vendors`,
-  };
-
-  /** AECi's editorial pick, in its fixed order (ruling R4). */
-  protected readonly keyCategories = computed(() => this.taxonomy.browse().keyCategories);
-
-  /** Facet order matches the desktop Browse menu's columns (`browse-panel.ts`). */
-  protected readonly sections = computed(() => {
-    const browse = this.taxonomy.browse();
-    return (
-      [
-        ['category', browse.categories],
-        ['phase', browse.phases],
-        ['audience', browse.audiences],
-        ['trade', browse.trades],
-      ] as const
-    ).map(([kind, items]) => ({
-      kind,
-      label: facetNavLabel(kind),
-      viewAll: facetSeeAllLabel(kind),
-      items,
-    }));
-  });
-
-  // The four taxonomy facets are the only disclosures left; the overflow one was
-  // removed with the "More" menu. Still keyed by string rather than TaxonomyKind
-  // so a future non-facet section can join without changing the signature.
-  private readonly openSections = signal<ReadonlySet<string>>(new Set());
-
-  protected panelId(kind: TaxonomyKind | string): string {
-    return `m-nav-flyout-${kind}`;
+  private panel(): HTMLElement | null {
+    return this.host.querySelector<HTMLElement>(`#${this.panelId}`);
   }
 
-  protected isOpen(kind: TaxonomyKind | string): boolean {
-    return this.openSections().has(kind);
+  private toggleButton(): HTMLElement | null {
+    return this.host.querySelector<HTMLElement>('[data-nav-menu-toggle]');
   }
 
-  protected toggleSection(kind: TaxonomyKind | string): void {
-    const next = new Set(this.openSections());
-    if (next.has(kind)) next.delete(kind);
-    else next.add(kind);
-    this.openSections.set(next);
+  /**
+   * The toggle and every focusable control in the panel, in DOM order. A control
+   * inside a `[hidden]` region (a collapsed section) is skipped. Those are the
+   * only hidden controls in an open menu.
+   */
+  private tabbables(): HTMLElement[] {
+    return Array.from(this.host.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (element) => element.tabIndex >= 0 && !element.closest('[hidden]'),
+    );
   }
 }

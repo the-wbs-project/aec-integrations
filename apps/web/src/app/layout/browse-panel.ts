@@ -12,7 +12,7 @@ import { type BrowseMenuModel, EMPTY_BROWSE_MENU } from '../core/taxonomy/browse
 import { AecIcon } from '../shared/icon/icon';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
-import { facetNavLabel, facetSeeAllLabel } from './taxonomy-nav-copy';
+import { browseCountText, facetNavLabel, facetSeeAllLabel } from './taxonomy-nav-copy';
 
 /** The four facet columns, in the desktop column order (PLAN.md §4.8). */
 const FACET_COLUMNS: readonly TaxonomyKind[] = ['category', 'phase', 'audience', 'trade'];
@@ -153,16 +153,6 @@ export class BrowsePanel {
     }));
   });
 
-  /**
-   * "1 product" or "N products", under each destination. The leading space keeps
-   * the link's accessible name "AI 69 products", not "AI69 products": the two
-   * spans are blocks on screen, but a name is computed from text.
-   */
-  protected countText(count: number): string {
-    const label =
-      count === 1
-        ? $localize`:@@app.nav.browse.countOne:1 product`
-        : $localize`:@@app.nav.browse.countOther:${count}:count: products`;
-    return ` ${label}`;
-  }
+  /** "1 product" or "N products", shared with the mobile menu (`taxonomy-nav-copy.ts`). */
+  protected readonly countText = browseCountText;
 }

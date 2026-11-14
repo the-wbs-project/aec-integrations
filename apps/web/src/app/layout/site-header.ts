@@ -1,11 +1,12 @@
 /**
  * Site header, on a Forest ground (AECI-1771).
  *
- * Responsive: below `lg` it is a minimal `[☰ wordmark]` bar. The hamburger
- * `aec-nav-menu` (its own `lg:hidden` host) opens an overlay that holds the
- * links, search, and Sign-in. At `lg+` the hamburger drops out and those
- * affordances render inline: a centered primary `<nav>` with the directory
- * links, plus a right-side cluster (search, Sign-in CTA).
+ * Responsive: below `lg` it is a minimal `[wordmark  ☰]` bar. The menu toggle
+ * `aec-nav-menu` (its own `lg:hidden` host, at the end edge) opens the mobile
+ * menu: the Browse destinations, How we rank, For vendors, search and Sign in
+ * (AECI-1775). At `lg+` the toggle drops out and those affordances render
+ * inline: a centered primary `<nav>` with the directory links, plus a right-side
+ * cluster (search, Sign-in CTA).
  *
  * Forest ground (`--accent-primary`), Bone ink (`--text-on-brand`), hover wash
  * `--surface-on-brand-wash`, Bone focus ring (`--focus-ring-on-brand`). There is
@@ -22,11 +23,12 @@
  * Audiences and Trades, each with a "See all" link to its index. Home left the
  * row (the wordmark goes home). Products is "All products" in the menu.
  *
- * While the menu is open the page behind dims. The dimmer is a sibling of
+ * While either menu is open the page behind dims. The dimmer is a sibling of
  * `<header>`, under it (`z-30` against the header's `z-40`), so the Forest bar
- * stays bright. It is decorative and `aria-hidden`, it traps nothing, and a click
- * on it closes the menu. It is outside the menu's host, so the pointer moving
- * onto it counts as leaving the menu.
+ * stays bright. It is decorative and `aria-hidden`, and a click on it closes the
+ * menu. It is outside the Browse menu's host, so the pointer moving onto it
+ * counts as leaving that menu. The mobile menu's inert walk skips it
+ * (`data-nav-scrim`), so it still takes the click that closes the menu.
  *
  * **The row is public-only, and closed.** Secondary destinations (Updates,
  * Roadmap, About, Contact) and Legal are in the footer, and the `/admin` IA is
@@ -39,14 +41,15 @@
  * their detail pages). Colour never carries it alone, and the label reserves its
  * 600 width so the row does not shift.
  *
- * The same link set renders in the overlay (`nav-menu.ts`) and footer, so only
+ * The same link set renders in the mobile menu (`nav-menu.ts`) and footer, so only
  * one `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
- * inline nav is `display:none` below `lg`; the overlay nav never mounts at `lg+`).
+ * inline nav is `display:none` below `lg`; the mobile menu's nav is in a
+ * `[hidden]` panel until opened, and its host is `display:none` at `lg+`).
  *
  * Spec: DESIGN.md §5 (Navigation, "The header on Forest"); §2 (Forest grounds);
  * §16 Phase 1 ("Basic layout shell"); §21 (a11y).
  */
-import { Component, inject, viewChild } from '@angular/core';
+import { Component, computed, inject, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { SessionStatus } from '../auth/session-status';
@@ -75,9 +78,16 @@ import { UserMenu } from './user-menu';
     UserMenu,
   ],
   template: `
-    <!-- relative: the Browse panel's containing block, so it spans the header.
-         z-40: above the page dimmer (z-30) while the menu is open. -->
-    <header class="relative z-40 bg-(--accent-primary) text-(--text-on-brand)">
+    <!-- relative: the Browse and mobile panels' containing block, so they span
+         the header. z-40: above the page dimmer (z-30) while the Browse menu is
+         open. The open mobile menu is modal, so it lifts the header, and its
+         dimmer, above every fixed layer (the consent banner is z-50, the update
+         banner z-60). -->
+    <header
+      class="relative bg-(--accent-primary) text-(--text-on-brand)"
+      [class.z-40]="!navMenuOpen()"
+      [class.z-70]="navMenuOpen()"
+    >
       <!--
         The gaps are load-bearing, not taste. AECI-1771 measured the row on Forest
         at 768, 1024 and 1280px, signed out. The signed-in widths are an
@@ -86,7 +96,6 @@ import { UserMenu } from './user-menu';
       <div
         class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-2.5 md:gap-8 md:py-4 lg:gap-4 xl:gap-8"
       >
-        <aec-nav-menu />
         <aec-brand-logo tone="on-dark" [responsive]="true" />
         <!--
           AECI-544: the inline nav takes over from the hamburger at lg, not md.
@@ -119,10 +128,10 @@ import { UserMenu } from './user-menu';
             >{{ labels.forVendors }}</a
           >
         </nav>
-        <div class="hidden items-center gap-3 md:flex">
+        <div class="ms-auto hidden items-center gap-3 md:flex lg:ms-0">
           <!--
             Search renders at every width, but in three different sizes:
-              below lg: inside the hamburger overlay (aec-nav-menu)
+              below lg: inside the mobile menu (aec-nav-menu)
               lg to xl: the icon-collapsed aec-search-trigger
               xl+: the inline w-52 box below
             aec-search-trigger owns its own "hidden lg:block xl:hidden" band, so
@@ -167,14 +176,19 @@ import { UserMenu } from './user-menu';
             </a>
           }
         </div>
+        <!-- The mobile menu toggle sits at the end edge (mock-up 6, line 46). -->
+        <aec-nav-menu class="ms-auto md:ms-0" />
       </div>
     </header>
-    @if (browse()?.expanded()) {
+    @if (browse()?.expanded() || navMenuOpen()) {
       <div
         aria-hidden="true"
         data-browse-dimmer
-        class="fixed inset-0 z-30 bg-(--scrim)"
-        (click)="browse()?.dismiss()"
+        data-nav-scrim
+        class="fixed inset-0 bg-(--scrim)"
+        [class.z-30]="!navMenuOpen()"
+        [class.z-65]="navMenuOpen()"
+        (click)="dismissMenus()"
       ></div>
     }
   `,
@@ -182,6 +196,9 @@ import { UserMenu } from './user-menu';
 export class SiteHeader {
   /** The Browse menu, for the dimmer. Absent below `lg` only in layout, never in the DOM. */
   protected readonly browse = viewChild(BrowseMenu);
+  /** The mobile menu, for the same dimmer. */
+  protected readonly navMenu = viewChild(NavMenu);
+  protected readonly navMenuOpen = computed(() => this.navMenu()?.expanded() ?? false);
   protected readonly session = inject(SessionStatus);
   /** `?return=<this page>` so signing in lands back here, not on `/`. */
   protected readonly signInParams = injectSignInQueryParams();
@@ -199,6 +216,12 @@ export class SiteHeader {
   protected readonly signInClass =
     'inline-flex min-h-11 shrink-0 items-center rounded-control bg-(--accent-warm) px-4 text-sm font-semibold whitespace-nowrap text-(--accent-primary) transition-colors hover:bg-(--surface-on-brand-hover) ' +
     ON_FOREST_FOCUS_RING;
+
+  /** A click on the dimmer closes whichever menu is open. */
+  protected dismissMenus(): void {
+    this.browse()?.dismiss();
+    this.navMenu()?.dismiss();
+  }
 
   protected onSearchQuery(query: string): void {
     navigateToSearchQuery(this.router, query);

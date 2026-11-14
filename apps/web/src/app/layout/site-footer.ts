@@ -5,8 +5,8 @@
  * directory nav, legal nav, and company nav. Copyright lives on a bottom strip
  * separated by a thin border. The Directory column carries the primary section
  * links (Home, Products, and the three taxonomy facets) in server-rendered HTML,
- * since the header's flyout values render client-side and its overlay is a
- * click-mounted overlay that never reaches SSR (see `nav-menu.ts`). Vendors /
+ * since the header's menu terms render client-side and its menus are hidden
+ * until opened (see `browse-menu.ts` and `nav-menu.ts`). Vendors /
  * Integrations were pulled from the nav and footer (AECI-160, PO decision);
  * AECI-165 then removed the `/vendors` and `/integrations` index pages entirely
  * (they now 301-redirect to `/products`). Their DETAIL pages stay reachable via

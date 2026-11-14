@@ -3,7 +3,7 @@
  * mounted for the `lg`–`xl` band only.
  *
  * Why it exists: search used to be unreachable between 1024px and 1279px. The
- * hamburger overlay (`nav-menu.ts`) carries a search box but is `lg:hidden`;
+ * mobile menu (`nav-menu.ts`) carries a search box but is `lg:hidden`;
  * the inline header box in `site-header.ts` is `hidden xl:block`. The two
  * breakpoints never met, so a 256px-wide band rendered no search affordance at
  * all. Widening the inline box down to `lg` doesn't work — at 1024px the row
@@ -12,15 +12,14 @@
  * box does not.
  *
  * So this is the third mount of the SAME component, at the third width:
- *   below `lg`  → inside the hamburger overlay (`nav-menu.ts`, `w-full`)
+ *   below `lg`  → inside the mobile menu (`nav-menu.ts`, `w-full`)
  *   `lg`–`xl`   → here, behind an icon (`w-full` inside a 22rem panel)
  *   `xl`+       → inline in the header row (`site-header.ts`, `w-52`)
  * The host class owns that band (`hidden lg:block xl:hidden`) so the parent
  * can't mis-wire it, and the three `inputId`s stay distinct so no two search
  * inputs ever share an id.
  *
- * The overlay is `BrnPopover` — the same primitive as `nav-menu.ts` and
- * `user-menu.ts`: CDK overlay, focus trap, Escape close, focus return to the
+ * The overlay is `BrnPopover` — the same primitive as `user-menu.ts`: CDK overlay, focus trap, Escape close, focus return to the
  * trigger, and automatic `aria-haspopup`/`aria-expanded`/`aria-controls`. Its
  * `autoFocus: 'first-tabbable'` default lands focus on the search input as the
  * panel opens, which is the whole point of the affordance.

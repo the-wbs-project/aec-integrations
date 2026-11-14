@@ -299,7 +299,7 @@ describe('SiteHeader auth affordance', () => {
   /**
    * The `<label for>` in each `aec-search-autocomplete` is only correct while the
    * ids are unique. The inline box is the header's own; `header-search-compact`
-   * lives in the trigger's overlay and `mobile-search` in the hamburger's, both
+   * lives in the trigger's overlay and `mobile-search` in the mobile menu, both
    * unmounted until opened — so the only id in the SSR'd header must be this one.
    */
   it('renders exactly one search input server-side, with the inline id', () => {

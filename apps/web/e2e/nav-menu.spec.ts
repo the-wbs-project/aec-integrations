@@ -2,10 +2,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { untilHydrated } from './hydration';
 
-// AECI-96 / AECI-159 / AECI-1774. The primary navigation (DESIGN.md §5) is
-// responsive. Below `lg` it is a labelled hamburger that opens a CDK-overlay
-// dropdown: "All products", the four facets as tap-to-expand sections, How we
-// rank, For vendors, search, and the account block or Sign in. At `lg+` the
+// AECI-96 / AECI-159 / AECI-1774 / AECI-1775. The primary navigation (DESIGN.md
+// §5) is responsive. Below `lg` a toggle named "Menu" opens the mobile menu, a
+// dialog under the header: "All products" and the key categories, the four
+// facets as tap-to-expand sections, How we rank, For vendors, search, and the
+// account block or Sign in. At `lg+` the
 // row is Browse, How we rank and For vendors. "Browse" is a link to /products
 // that also discloses the Browse menu: one white panel of five columns. It is
 // disclosure navigation, not an ARIA menu, so it has no aria-haspopup.
@@ -20,14 +21,12 @@ import { untilHydrated } from './hydration';
 // is exactly the three public destinations and that nothing role-gated leaks.
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
-// specifically about the header/menu, so axe INCLUDES `aec-site-header` and the
-// open overlay panel.
+// specifically about the header/menu, so axe INCLUDES `aec-site-header` (the
+// mobile menu's panel is inside it) and the search trigger's overlay.
 
 // Any route renders the global header; browse is a known-200 preview route.
 const ROUTE = '/preview/layouts/browse';
 const MOBILE = { width: 375, height: 667 } as const;
-// iPhone SE (1st gen). Short enough that the open menu outgrows the viewport.
-const SHORT_MOBILE = { width: 375, height: 568 } as const;
 const DESKTOP = { width: 1280, height: 800 } as const;
 // The `lg`-`xl` band. Neither the hamburger nor the inline search box renders
 // here, so it is the width the compact `aec-search-trigger` exists to cover.
@@ -36,8 +35,7 @@ const DESKTOP = { width: 1280, height: 800 } as const;
 const NARROW_DESKTOP = { width: 1100, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
-// The mobile menu's plain links (the facets are disclosures), and the desktop row.
-const TOP_LINKS = ['All products', 'How we rank', 'For vendors'] as const;
+// The desktop row.
 const ROW = [
   ['Browse', '/products'],
   ['How we rank', '/docs/trust/how-ranking-works'],
@@ -59,238 +57,440 @@ const SECONDARY = ['Updates', 'Roadmap', 'About', 'Contact', 'Terms'] as const;
 // Pulled out of the nav by AECI-159 — must NOT appear in either arrangement.
 const REMOVED = ['Vendors', 'Integrations'] as const;
 
-// CSS locator, not getByRole: while the menu is open the popover marks the
-// background (including the trigger) aria-hidden for the focus trap, so a
-// role/name query can't find the toggle mid-open. A CSS locator still resolves
-// it. The accessible NAME is asserted separately in the closed state below.
+// The mobile menu (AECI-1775). The toggle is found by its data hook, not by
+// role: while the menu is open everything outside the menu is inert, and the
+// name is asserted on its own below.
 function toggle(page: Page) {
-  return page.locator('aec-nav-menu button[aria-haspopup="dialog"]');
+  return page.locator('aec-nav-menu [data-nav-menu-toggle]');
 }
 
+function menuPanel(page: Page) {
+  return page.locator('#nav-menu-panel');
+}
+
+/** The search trigger's popover (lg to xl) still renders in the CDK overlay. */
 function overlay(page: Page) {
   return page.locator('.cdk-overlay-container');
 }
 
 // Open the menu on a hydrated toggle (AECI-1655). A click before hydration is
 // queued and replayed at app stability, so without the wait the open lands at a
-// load-dependent moment rather than on the click.
-//
-// Then wait until the popover is listening (AECI-1672). A visible panel is not
-// yet a listening panel. Spartan's popover renders the panel inside the click
-// handler, but it subscribes to the overlay's outside-click and Escape streams
-// in a root effect, which runs on the NEXT app tick. CDK drops an outside click
-// or Escape that arrives before then, because the stream has no subscriber yet.
-// The trigger's `aria-expanded` is a host binding, so it flips to "true" in the
-// same tick that attaches the listeners. Focus on the first link (the popover's
-// focus trap) lands after that render, so it confirms the panel is ready too.
+// load-dependent moment rather than on the click. Focus moves to "All products"
+// after the render that clears `[hidden]`, so that confirms the menu is ready.
 async function openMenu(page: Page) {
   await untilHydrated(toggle(page));
   await toggle(page).click();
   await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeFocused();
+  await expect(menuPanel(page).getByRole('link', { name: /^All products/ })).toBeFocused();
 }
 
-test.describe('primary navigation menu (375px)', () => {
-  test.use({ viewport: MOBILE });
+/** Every Tab stop in the open menu, in order, from the toggle round to the toggle. */
+async function tabCycle(page: Page, shift = false): Promise<string[]> {
+  await toggle(page).focus();
+  const seen: string[] = [];
+  for (let i = 0; i < 80; i++) {
+    await page.keyboard.press(shift ? 'Shift+Tab' : 'Tab');
+    const stop = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return 'none';
+      if (el.hasAttribute('data-nav-menu-toggle')) return 'toggle';
+      if (!el.closest('aec-nav-menu')) return `OUTSIDE:${el.tagName}`;
+      return el.getAttribute('href') ?? el.id ?? el.textContent?.trim() ?? el.tagName;
+    });
+    seen.push(stop);
+    if (stop === 'toggle' || stop.startsWith('OUTSIDE')) break;
+  }
+  return seen;
+}
 
-  test('the labelled menu toggle is reachable and the header does not overflow', async ({
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 320, height: 568 },
+] as const) {
+  test.describe(`mobile menu (${viewport.width}px)`, () => {
+    test.use({ viewport });
+
+    test('the toggle is named "Menu", sits at the end edge, and the header does not overflow', async ({
+      page,
+    }) => {
+      await page.goto(ROUTE);
+      await expect(page.locator('app-root')).toBeAttached();
+
+      const named = page.getByRole('button', { name: 'Menu', exact: true });
+      await expect(named).toBeVisible();
+      await expect(named).toHaveAttribute('aria-expanded', 'false');
+      await expect(named).toHaveAttribute('aria-controls', 'nav-menu-panel');
+      await expect(menuPanel(page)).toBeHidden();
+
+      // End edge: the toggle is the last thing in the header row, after the wordmark.
+      const header = (await page.locator('aec-site-header header').boundingBox())!;
+      const box = (await toggle(page).boundingBox())!;
+      const logo = (await page.locator('aec-site-header aec-brand-logo a').first().boundingBox())!;
+      expect(box.x).toBeGreaterThan(logo.x + logo.width);
+      expect(header.x + header.width - (box.x + box.width)).toBeLessThanOrEqual(33);
+      expect(box.width).toBe(44);
+      expect(box.height).toBe(44);
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, 'document must not overflow horizontally').toBeLessThanOrEqual(1);
+    });
+
+    test('open: a named dialog, a white panel under the header, the page inert and not scrolling', async ({
+      page,
+    }) => {
+      await page.goto(ROUTE);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await openMenu(page);
+
+      const dialog = page.getByRole('dialog', { name: 'Menu' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+      // The name stays "Menu" while open; the glyph is a close mark.
+      await expect(toggle(page)).toHaveAttribute('aria-label', 'Menu');
+
+      // The panel hangs from the header's bottom edge and stops at the viewport.
+      const header = (await page.locator('aec-site-header header').boundingBox())!;
+      const panel = (await menuPanel(page).boundingBox())!;
+      expect(Math.abs(panel.y - (header.y + header.height))).toBeLessThanOrEqual(1);
+      expect(panel.y + panel.height).toBeLessThanOrEqual(viewport.height + 1);
+      expect(panel.width).toBeCloseTo(header.width, 0);
+      expect(await computed(menuPanel(page), 'background-color')).toBe(
+        await tokenColor(page, '--surface-base', 'color'),
+      );
+
+      // The page behind is inert and the root does not scroll.
+      expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+      expect(
+        await page.locator('aec-site-footer').evaluate((el) => el.closest('[inert]') !== null),
+      ).toBe(true);
+      expect(await computed(page.locator('html'), 'overflow-y')).toBe('hidden');
+      await page.mouse.wheel(0, 600);
+      await page.waitForTimeout(200);
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      // The dimmer covers the page under the header.
+      await expect(page.locator('[data-nav-scrim]')).toBeVisible();
+    });
+
+    test('Tab and Shift+Tab cycle inside the open menu and never reach the page', async ({
+      page,
+    }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+
+      const forward = await tabCycle(page);
+      expect(forward.at(-1), forward.join(' ')).toBe('toggle');
+      expect(forward[0]).toBe('/products');
+      expect(forward).toContain('/docs/trust/how-ranking-works');
+      expect(forward).toContain('/vendor-program');
+      expect(forward).toContain('mobile-search');
+      expect(forward.some((stop) => stop.startsWith('/auth/login'))).toBe(true);
+
+      const backward = await tabCycle(page, true);
+      expect(backward.at(-1), backward.join(' ')).toBe('toggle');
+      expect(backward[0]?.startsWith('/auth/login')).toBe(true);
+      // The same stops, in reverse.
+      expect(backward.slice(0, -1)).toEqual(forward.slice(0, -1).reverse());
+    });
+
+    test('Escape closes, returns focus to the toggle, and releases the page', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Escape');
+
+      await expect(menuPanel(page)).toBeHidden();
+      await expect(toggle(page)).toBeFocused();
+      await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+      expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+      expect(await computed(page.locator('html'), 'overflow-y')).not.toBe('hidden');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+
+    test('a tap on the dimmer closes the menu', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      // The panel can fill a phone screen, leaving no dimmer to hit, so the
+      // click goes to the dimmer itself. It is outside the inert walk.
+      await page.locator('[data-nav-scrim]').dispatchEvent('click');
+      await expect(menuPanel(page)).toBeHidden();
+      await expect(toggle(page)).toBeFocused();
+    });
+
+    test('each section expands with aria-expanded and reaches its terms and "See all"', async ({
+      page,
+    }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      for (const [index, name] of FACETS.entries()) {
+        const section = menuPanel(page).getByRole('button', { name, exact: true });
+        await expect(section).toHaveAttribute('aria-expanded', 'false');
+        await section.click();
+        await expect(section).toHaveAttribute('aria-expanded', 'true');
+        const [label, href] = INDEXES[index]!;
+        await expect(menuPanel(page).getByRole('link', { name: label })).toHaveAttribute(
+          'href',
+          href,
+        );
+        await section.click();
+        await expect(section).toHaveAttribute('aria-expanded', 'false');
+        await expect(menuPanel(page).getByRole('link', { name: label })).toBeHidden();
+      }
+      // Terms and counts arrive in the browser, from /api/taxonomy.
+      await menuPanel(page).getByRole('button', { name: 'Categories' }).click();
+      await expect(
+        menuPanel(page)
+          .locator('#nav-menu-sec-category')
+          .getByRole('link', { name: /\d+ products?$/ })
+          .first(),
+      ).toBeVisible();
+    });
+
+    // Every destination is one tap from the open menu, and each lands on a real page.
+    const DESTINATIONS = [
+      [/^All products/, '/products'],
+      [/^How we rank$/, '/docs/trust/how-ranking-works'],
+      [/^For vendors$/, '/vendor-program'],
+      ['See all phases', '/phases'],
+    ] as const;
+    for (const [name, href] of DESTINATIONS) {
+      test(`reaches ${href}, and the route change closes the menu`, async ({ page }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        if (href === '/phases')
+          await menuPanel(page).getByRole('button', { name: 'Phases' }).click();
+        const link = menuPanel(page).getByRole('link', { name });
+        await link.scrollIntoViewIfNeeded();
+        await link.click();
+        await page.waitForURL(new RegExp(`${href}$`));
+        await expect(page.locator('h1').first()).toBeVisible();
+        await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+        await expect(menuPanel(page)).toBeHidden();
+        expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+      });
+    }
+
+    test('a key category and a term navigate', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      const key = menuPanel(page)
+        .locator('ul[aria-labelledby="nav-menu-key"]')
+        .getByRole('link')
+        .first();
+      await expect(key).toBeVisible();
+      const href = (await key.getAttribute('href'))!;
+      expect(href).toMatch(/^\/categories\/[\w-]+$/);
+      await key.click();
+      await page.waitForURL(new RegExp(`${href}$`));
+    });
+
+    test('search and Sign in are in the menu', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      const search = menuPanel(page).getByRole('combobox', { name: 'Search' });
+      await expect(search).toBeAttached();
+      await expect(search).toHaveAttribute('placeholder', 'Search directory');
+      const signIn = menuPanel(page).getByRole('link', { name: 'Sign in' });
+      await signIn.scrollIntoViewIfNeeded();
+      await expect(signIn).toBeVisible();
+      // Primary, full width: Forest fill across the panel's content box.
+      expect(await computed(signIn, 'background-color')).toBe(
+        await tokenColor(page, '--accent-primary', 'color'),
+      );
+      const content = (await menuPanel(page).locator('nav').boundingBox())!;
+      const button = (await signIn.boundingBox())!;
+      expect(Math.abs(button.width - content.width)).toBeLessThanOrEqual(1);
+      expect(button.height).toBeGreaterThanOrEqual(44);
+      // No "More" disclosure and no secondary or retired destinations.
+      await expect(menuPanel(page).getByRole('button', { name: 'More' })).toHaveCount(0);
+      for (const name of [...SECONDARY, ...REMOVED]) {
+        await expect(menuPanel(page).getByRole('link', { name, exact: true })).toHaveCount(0);
+      }
+      // Signed out, so no portal door at all.
+      await expect(menuPanel(page).locator('a[href^="/admin"]')).toHaveCount(0);
+      await expect(menuPanel(page).locator('a[href="/vendor"]')).toHaveCount(0);
+    });
+
+    test('submitting a search from the menu reaches /search and closes it', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      await menuPanel(page).getByRole('combobox', { name: 'Search' }).fill('revit');
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/\/search\?q=revit/);
+      await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('axe: the header and the open menu, with a section expanded', async ({ page }) => {
+      await page.goto(ROUTE);
+      await expect(toggle(page)).toBeVisible();
+      expect(await analyzeHeader(page), 'closed state').toEqual([]);
+
+      await openMenu(page);
+      await menuPanel(page).getByRole('button', { name: 'Categories' }).click();
+      await expect(menuPanel(page).getByRole('link', { name: 'See all categories' })).toBeVisible();
+      expect(await analyzeHeader(page), 'open state').toEqual([]);
+    });
+  });
+}
+
+test.describe('mobile menu on short and zoomed screens', () => {
+  // A landscape phone: below `lg`, so the menu carries navigation, but only
+  // 390px tall. The panel stops at the viewport and scrolls inside.
+  test('landscape phone (844 by 390): the panel scrolls and its last control works', async ({
     page,
   }) => {
-    await page.goto(ROUTE);
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const named = page.getByRole('button', { name: 'Open menu' });
-    await expect(named).toBeVisible();
-    await expect(named).toHaveAttribute('aria-haspopup', 'dialog');
-    await expect(named).toHaveAttribute('aria-expanded', 'false');
-
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow, 'document must not overflow horizontally on mobile').toBeLessThanOrEqual(1);
-  });
-
-  test('opening the menu exposes links, facet sections, search, and sign-in', async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
     await page.goto(ROUTE);
     await openMenu(page);
-
-    for (const name of TOP_LINKS) {
-      await expect(overlay(page).getByRole('link', { name })).toBeVisible();
-    }
-    // The three facets are tap-to-expand disclosure buttons (collapsed initially).
     for (const name of FACETS) {
-      const section = overlay(page).getByRole('button', { name });
-      await expect(section).toBeVisible();
-      await expect(section).toHaveAttribute('aria-expanded', 'false');
+      await menuPanel(page).getByRole('button', { name }).click();
     }
-    // Vendors / Integrations are gone from the nav.
-    for (const name of REMOVED) {
-      await expect(overlay(page).getByRole('link', { name, exact: true })).toHaveCount(0);
-    }
+    const box = (await menuPanel(page).boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(390 + 1);
+    expect(await menuPanel(page).evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
 
-    // The search box is the `aec-search-autocomplete` combobox (AECI-144); Angular
-    // Aria sets role="combobox" on the input (was a plain searchbox placeholder).
-    const search = overlay(page).getByRole('combobox', { name: 'Search' });
-    await expect(search).toBeVisible();
-    // The results are products and vendors, so the box names the directory (AECI-985).
-    await expect(search).toHaveAttribute('placeholder', 'Search directory');
-    await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
-  });
-
-  test('expanding a facet section reveals its value list and the See-all link', async ({
-    page,
-  }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-
-    const categories = overlay(page).getByRole('button', { name: 'Categories' });
-    await categories.click();
-    await expect(categories).toHaveAttribute('aria-expanded', 'true');
-
-    // "See all categories" always renders (independent of seeded values) and
-    // points at the index.
-    const viewAll = overlay(page).getByRole('link', { name: 'See all categories' });
-    await expect(viewAll).toBeVisible();
-    await expect(viewAll).toHaveAttribute('href', '/categories');
-
-    // Collapsing hides it again.
-    await categories.click();
-    await expect(categories).toHaveAttribute('aria-expanded', 'false');
-    await expect(viewAll).toBeHidden();
-  });
-
-  test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
-
-    await page.keyboard.press('Escape');
-
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
-    await expect(toggle(page)).toBeFocused();
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('clicking outside closes the menu', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeVisible();
-
-    await page.mouse.click(5, 400);
-
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('selecting a top-level link navigates and closes the menu', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-    const link = overlay(page).getByRole('link', { name: 'All products' });
-    await expect(link).toBeVisible();
-
-    await link.click();
-
-    await page.waitForURL(/\/products$/);
-    await expect(overlay(page).getByRole('link', { name: 'All products' })).toBeHidden();
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('carries no "More" disclosure and no secondary destinations', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-
-    // The overflow disclosure was retired with the desktop menu. On a phone the
-    // secondary links are a scroll to the footer rather than two taps here —
-    // the one deliberate reach regression of that change.
-    await expect(overlay(page).getByRole('button', { name: 'More' })).toHaveCount(0);
-    for (const name of SECONDARY) {
-      await expect(overlay(page).getByRole('link', { name, exact: true })).toHaveCount(0);
-    }
-    // Signed out, so no portal door is rendered at all.
-    await expect(overlay(page).locator('a[href^="/admin"]')).toHaveCount(0);
-    await expect(overlay(page).locator('a[href="/vendor"], a[href^="/vendor/"]')).toHaveCount(0);
-  });
-
-  test('the footer still carries every secondary destination', async ({ page }) => {
-    await page.goto(ROUTE);
-    await expect(page.locator('app-root')).toBeAttached();
-
-    // The footer is server-rendered on every page, which is what makes it a
-    // sound home for the links the header stopped carrying.
-    const company = page.getByRole('navigation', { name: 'Company' });
-    await expect(company.getByRole('link', { name: 'Updates', exact: true })).toHaveAttribute(
-      'href',
-      '/updates',
-    );
-    await expect(company.getByRole('link', { name: 'Roadmap', exact: true })).toHaveAttribute(
-      'href',
-      '/roadmap',
-    );
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Legal' })
-        .getByRole('link', { name: 'Terms', exact: true }),
-    ).toHaveAttribute('href', '/legal/terms');
-  });
-
-  test('a facet "See all" link navigates to the index and closes the menu', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openMenu(page);
-    await overlay(page).getByRole('button', { name: 'Phases' }).click();
-    const viewAll = overlay(page).getByRole('link', { name: 'See all phases' });
-    await expect(viewAll).toBeVisible();
-
-    await viewAll.click();
-
-    await page.waitForURL(/\/phases$/);
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('with every facet open on a short screen, the panel scrolls and its last rows still work', async ({
-    page,
-  }) => {
-    // AECI-1487. The overlay pane is fixed, so a panel taller than the viewport
-    // left its lower rows unreachable: Playwright reported the Audiences row
-    // "outside of the viewport" once Categories and Trades were open. The panel
-    // is now capped at the viewport and scrolls inside.
-    await page.setViewportSize(SHORT_MOBILE);
-    await page.goto(ROUTE);
-    await openMenu(page);
-    for (const name of FACETS) {
-      await overlay(page).getByRole('button', { name }).click();
-    }
-
-    const panel = overlay(page).getByRole('navigation', { name: 'Primary' });
-    const box = await panel.boundingBox();
-    expect(box, 'the open panel has a box').not.toBeNull();
-    expect(box!.y + box!.height, 'the panel ends inside the viewport').toBeLessThanOrEqual(
-      SHORT_MOBILE.height,
-    );
-    expect(
-      await panel.evaluate((el) => el.scrollHeight > el.clientHeight),
-      'the panel scrolls',
-    ).toBe(true);
-
-    // The bottom row is reachable by scrolling the panel itself.
-    const signIn = overlay(page).getByRole('link', { name: 'Sign in' });
+    const signIn = menuPanel(page).getByRole('link', { name: 'Sign in' });
     await signIn.scrollIntoViewIfNeeded();
     await expect(signIn).toBeInViewport();
-
-    await overlay(page).getByRole('link', { name: 'See all phases' }).click();
-
-    await page.waitForURL(/\/phases$/);
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+    // The page behind did not scroll while the panel did.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await menuPanel(page).getByRole('link', { name: 'See all trades' }).click();
+    await page.waitForURL(/\/trades$/);
   });
 
-  test('header + menu are axe-clean (closed and open)', async ({ page }) => {
+  // 320px at 200% zoom lays out like a 160px viewport. Nothing in the panel
+  // may be cut off sideways; it scrolls down instead.
+  test('320px at 200% zoom: nothing in the panel is cut off', async ({ page }) => {
+    // At this size the consent banner fills the screen before the menu can be
+    // reached. That is the banner's own reflow, not the menu's, so answer it.
+    await page.addInitScript(() => {
+      globalThis.localStorage.setItem('aeci_analytics_consent', 'denied');
+    });
+    await page.setViewportSize({ width: 160, height: 284 });
     await page.goto(ROUTE);
-    await expect(toggle(page)).toBeVisible();
-    expect(await analyzeHeader(page), 'closed state').toEqual([]);
-
     await openMenu(page);
-    await overlay(page).getByRole('button', { name: 'Categories' }).click();
-    await expect(overlay(page).getByRole('link', { name: 'See all categories' })).toBeVisible();
-    expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
+    await menuPanel(page).getByRole('button', { name: 'Audiences' }).click();
+    const sideways = await menuPanel(page).evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(sideways, 'the panel does not scroll sideways').toBeLessThanOrEqual(1);
+    const clipped = await menuPanel(page).evaluate((panel) => {
+      const edge = panel.getBoundingClientRect();
+      return Array.from(panel.querySelectorAll('a, button, input'))
+        .filter((el) => el.getClientRects().length > 0)
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.left < edge.left - 1 || r.right > edge.right + 1;
+        })
+        .map((el) => el.textContent?.trim() || el.tagName);
+    });
+    expect(clipped).toEqual([]);
+    const signIn = menuPanel(page).getByRole('link', { name: 'Sign in' });
+    await signIn.scrollIntoViewIfNeeded();
+    await expect(signIn).toBeInViewport();
+  });
+
+  test('growing the viewport to lg closes the menu and releases the page', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(ROUTE);
+    await openMenu(page);
+    await page.setViewportSize({ width: 1100, height: 844 });
+    await expect(toggle(page)).toBeHidden();
+    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+    expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+    expect(await computed(page.locator('html'), 'overflow-y')).not.toBe('hidden');
+  });
+
+  test('reduced motion: the section chevron turns without a transition', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(ROUTE);
+    await openMenu(page);
+    const chevron = menuPanel(page)
+      .getByRole('button', { name: 'Categories' })
+      .locator('[data-chevron]');
+    // The global reduced-motion rule sets 0.01ms, which reads as 1e-05s.
+    expect(parseFloat(await computed(chevron, 'transition-duration'))).toBeLessThan(0.001);
+  });
+
+  test('forced colours: the panel keeps a visible edge and the focus ring', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(ROUTE);
+    await openMenu(page);
+    // A shadow is not drawn in forced colours, so the panel needs a real border.
+    expect(await computed(menuPanel(page), 'border-bottom-width')).toBe('1px');
+    expect(await computed(menuPanel(page), 'border-bottom-style')).toBe('solid');
+    const first = menuPanel(page).getByRole('link', { name: /^All products/ });
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(first).toBeFocused();
+    expect(await computed(first, 'outline-style')).toBe('solid');
+    expect(await computed(first, 'outline-width')).toBe('3px');
+  });
+});
+
+// The panel body is a lazy `@defer (on idle; hydrate on idle)` block, server
+// rendered. Its links are plain hrefs with no listener, and the eager host routes
+// them. So a tap lands while the chunk is slow, and when it never arrives. The
+// chunk is found by a string only the mobile body carries.
+test.describe('mobile menu with its body chunk held (390px)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  async function holdMobileChunk(page: Page, mode: 'slow' | 'abort') {
+    const seen = { chunk: false };
+    await page.route(/\/chunk-[^/]+\.js$/, async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      if (!body.includes('nav-menu-sec-')) {
+        await route.fulfill({ response, body });
+        return;
+      }
+      seen.chunk = true;
+      if (mode === 'abort') {
+        await route.abort('failed');
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30_000));
+      await route.fulfill({ response, body }).catch(() => {});
+    });
+    return seen;
+  }
+
+  async function openWhileHeld(page: Page, seen: { chunk: boolean }) {
+    await expect.poll(() => seen.chunk, { message: 'the body chunk was requested' }).toBe(true);
+    await expect(async () => {
+      if ((await toggle(page).getAttribute('aria-expanded')) !== 'true') {
+        await toggle(page).click();
+      }
+      await expect(menuPanel(page)).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+  }
+
+  test('with the body chunk slowed, the first tap on a menu link navigates', async ({ page }) => {
+    test.setTimeout(60_000);
+    const seen = await holdMobileChunk(page, 'slow');
+    await page.goto(ROUTE);
+    await openWhileHeld(page, seen);
+    // Still the server's links: no terms have arrived.
+    await expect(menuPanel(page).getByRole('link', { name: /\d+ products?$/ })).toHaveCount(0);
+
+    await menuPanel(page).getByRole('link', { name: 'How we rank' }).click();
+    await page.waitForURL(/\/docs\/trust\/how-ranking-works$/, { timeout: 5_000 });
+  });
+
+  test('with the body chunk blocked, the server-rendered links still navigate', async ({
+    page,
+  }) => {
+    const seen = await holdMobileChunk(page, 'abort');
+    await page.goto(ROUTE);
+    await openWhileHeld(page, seen);
+    await menuPanel(page)
+      .getByRole('link', { name: /^All products/ })
+      .click();
+    await page.waitForURL(/\/products$/);
+    await expect(page.locator('h1').first()).toBeVisible();
+    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });
 });
 

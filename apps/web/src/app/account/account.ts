@@ -45,7 +45,7 @@ const REVIEWS_PER_PAGE = 24;
  * user's own reviews list (all statuses, AECI-225), and the GDPR **delete
  * account** flow (a confirmation dialog). Sign-out is deliberately NOT here
  * (AECI-986): it lives in the persistent account menu (desktop
- * `layout/user-menu.ts`, mobile `layout/nav-menu.ts`), both via the shared
+ * `layout/user-menu.ts`, mobile `layout/nav-menu-account.ts`), both via the shared
  * `signOutAndGoHome` helper.
  *
  * Auth + cacheability: the SSR Worker 303s an unauthenticated visitor to

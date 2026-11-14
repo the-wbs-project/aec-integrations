@@ -3,14 +3,14 @@ title: Signing in
 description: How to sign in with an emailed link or with Google, what to do when sign-in does not work, and how to sign out.
 section: account
 order: 1
-last_updated: October 13, 2026
+last_updated: November 14, 2026
 ---
 
 You need an account to write a review. Vendors need one to use the vendor portal. Browsing the directory needs no account. There is no password. You sign in with a link we email you, or with your Google account.
 
 ## Sign in
 
-Choose **Sign in** at the top right of any page. On a phone, open the menu (**Open menu**, at the top left) and choose Sign in there. The sign-in page offers two ways in:
+Choose **Sign in** at the top right of any page. On a phone, open the menu (**Menu**, at the top right) and choose Sign in at the bottom of it. The sign-in page offers two ways in:
 
 - **Continue with Google.** Google asks you to approve, then sends you back to us.
 - **Email me a sign-in link.** Enter your email address under **Your email** and choose the button. The page changes to "Check your email". Open the link in that email to finish.
