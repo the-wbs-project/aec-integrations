@@ -295,7 +295,7 @@ What R2 defers, not cancels:
 
 Chris also approved the orchestrator opening PRs and squash-merging them once the required checks are green and an independent review passes.
 
-One question is still open: how several per-flow agreement states roll up to one state for a product page row (AECI-1781). The built rule is marked provisional, and AECI-1782 does not render it until Chris rules.
+Chris settled the row agreement roll-up on 2026-11-14 (AECI-1781): "A", the weakest flow decides. A `single_source` row reads "Confirmed by one company".
 
 ## 7. Summary
 
@@ -306,4 +306,4 @@ One question is still open: how several per-flow agreement states roll up to one
 - The shell lands on one `batch/redesign-shell` branch and merges once. Pages then move one by one on `main`.
 - The `DESIGN.md` rewrite runs as a chain of 8 doc issues, so no two edit the file at once.
 - Four unmocked surfaces (home, browse lists, vendor page, pair page with integrations) get three Opus mock-up issues. Chris approves each before its Sonnet build issue starts.
-- One question is open: the row agreement roll-up on AECI-1781.
+- No question is open. The row agreement roll-up was ruled "A" on 2026-11-14 (AECI-1781).

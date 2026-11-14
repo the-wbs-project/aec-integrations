@@ -24,7 +24,7 @@ The site adopts the design language in `PLAN.md` §4. The rules below are supers
 
 | Superseded rule | Where it is written today | Clash | What replaces it |
 | --- | --- | --- | --- |
-| The Surfaces-Are-Neutral Rule: brand colours are never a page background | `DESIGN.md:223` | 1 | Forest may fill the header, the detail page hero and the footer. The reading area stays white. |
+| The Surfaces-Are-Neutral Rule: brand colours are never a page background | `DESIGN.md:223` | 1 | Forest may fill the header, the detail page hero and the footer, and one Forest feature card per page (the "Know of one?" card in mock-up 8). The reading area stays white. |
 | The dark front door position: "A dark front door pattern-matches to 'internal tool'" | `PRODUCT.md:84` | 1 | The same Forest fill. This is a light theme with a Forest header, hero and footer. It is not a dark theme. |
 | "Lucide icons exclusively" | `DESIGN.md:1155`, `PRODUCT.md:104`, `docs/BRAND_GUIDELINES.md:132` | 34 | A custom icon set at 1.75 stroke. The no-emoji rule stays. |
 | Global smooth scroll: `html { scroll-behavior: smooth }` | `apps/web/src/styles.css:539` to `541` | 38 | Smooth scrolling for in-page section links only. It is never a global setting. |

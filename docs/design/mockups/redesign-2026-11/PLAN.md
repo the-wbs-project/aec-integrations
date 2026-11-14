@@ -100,7 +100,7 @@ Twelve ideas were listed. Three wireframes followed: a route finder, a closest m
 | Ruling | Detail |
 | --- | --- |
 | Only data we already hold | Everything shown must come from data we can already look up. |
-| No bridges | No two-step routes through a third product. His words: "Saying you have to implement an ERP is just crazy talk." This also removed connector platform modules. |
+| No bridges | No two-step routes through a third product. His words: "Saying you have to implement an ERP is just crazy talk." On 2026-11-14 Chris limited this to two-step routes on the empty pair page. The connector comparison on curated reachable pairs stands, and AECI-1837 reconciles the template. |
 | Keep "Watch this pair" and "I need this too" | He liked both, with the count shown on "I need this too". |
 | One lane with a toggle | Closest matches is one list with a "Keep A / Keep B" button group, not two side-by-side lanes. |
 | Category anchors | The visitor can switch which categories define "similar". |
@@ -171,7 +171,7 @@ Every value below was measured from the final mock-up files on 2026-11-13. The c
 | Hero panel | `--hero-panel` | `#26473A` | Panels sitting on the Forest hero |
 | Footer ground | `--foot-bg` | `#15291F` | Footer only |
 | Bone | `--band-warm`, `--hero-ink`, `--cta-bg` | `#F5F2EA` | One tinted band per page, text on Forest, the main button on Forest |
-| Clay | `--accent`, `--hero-accent` | `#E89668` | Strokes and accents only: the hero ribbon, the active nav bar |
+| Clay | `--accent`, `--hero-accent` | `#E89668` | Strokes and accents only: the hero ribbon, the Browse open bar and the section nav bar |
 | Clay deep | `--accent-text`, `--meter-b` | `#A14D22` | The onboarding series colour in rating displays |
 | Ink | `--ink` | `#0A0A0A` | Body text |
 | Ink secondary | `--ink-2` | `#52525B` | Secondary text |
@@ -281,7 +281,7 @@ Chris's note on clash 38: "Make sure we know how to adopt the old way if needed.
 
 - **Links are Browse, How we rank and For vendors.** Products live under Browse as "All products". Clash 26.
 - **The search control is a pill with a "/" shortcut hint.** Clash 29.
-- **The active item has a Clay bar under it.** Clash 28.
+- **The Clay bar under Browse shows while the panel is open. The active route is weight 600 and `aria-current`.** Clash 28.
 - **The mobile toggle keeps the new look.** It must have a spoken name, and the open menu must trap focus and close on Escape. Clash 30.
 
 ### 4.8 The Browse menu
@@ -521,7 +521,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 
 **The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 
-**The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route.
+**The Listing Accuracy Policy sets response times for corrections.** A report through "It does exist" is a correction request. The policy promises to hide or flag a value within two business days of receiving a source. The build must not create a second, slower route. Chris ruled "A" on 2026-11-14: the "No integration on record" statement shows "Under review" until AECi adds the integration or declines the report.
 
 ### 6.2 The product details page
 
@@ -532,7 +532,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Connector reach line | `reachable_pair_count` | Yes | None |
 | Integration cards | Partner, data objects, direction, connection kind | Yes | None |
 | Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
-| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. The roll-up rule is provisional until Chris rules. | None |
+| Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. Chris ruled "A" on 2026-11-14: the weakest flow decides, and a `single_source` row reads "Confirmed by one company". | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
 | Similar products | `related_products` | Yes, but the live page does not render it | Render it |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
@@ -600,14 +600,16 @@ The existing firewall tests would not catch it. They cover search attributes, so
 | Related products | Newest first, limit 6 | `apps/api/src/routes/products.ts` |
 | Search | `listing_tier`, then review count | `docs/SEARCH_RANKING.md` |
 
-No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. Any seat can create an integration, so the counts are not plan-gated. Ruling R1 (AECI-1732) asks whether they stay. (Corrected 2026-11-14. This line first said "All four are clean.")
+No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. The counts change only through promote and the seat-gated create, retire and restore, so no plan moves them (AECI-1814). Ruling R1 (AECI-1732) ruled on 2026-11-14 that existing orders stay. (Corrected 2026-11-14. This line first said "All four are clean.")
+
+AECI-1814 found one existing order that is not clean. The nav, home, `/search` facets, taxonomy index and facet sidebar order or cut audience and trade terms by product count, and only a Managed plan can tag a product with them. Chris accepted it on 2026-11-14: "A, create a ticket to address later". The Browse menu keeps that order for those columns. The permanent rule is AECI-1836 (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8).
 
 ### 7.5 What Chris has and has not ruled
 
 - **Ruled:** data-flow confirmation stays a Managed feature. This predates this work.
 - **Proposed, not ruled:** rank the ring by number of data flows, with random order among ties. As stated it fails the firewall, for the reason in 7.2.
 - **Then asked:** whether the ring is the right thing at all. Open.
-- **Not ruled:** the order of the integrations list, of closest matches, or of similar products.
+- **Ruled 2026-11-14 (R1, AECI-1732):** "Maintain orders as they are. If its a new feature a to z". The integrations list, closest matches and similar products are new lists, so they are A to Z.
 
 ### 7.6 Options on the table
 
@@ -627,9 +629,9 @@ If any option uses a random tie-break, the shuffle must run in the browser. A se
 
 ### 7.8 The binding rule for any build
 
-Until Chris rules, every new list in this plan is ordered A to Z by name with the id as the tie-break, and the disclosure text says so. No build may ship the mock-ups' ordering or their disclosure wording.
+Ruled 2026-11-14 (R1, AECI-1732). Every new list in this plan is ordered A to Z by name with the id as the tie-break, and the disclosure text says so. The via-lane and powered-hub groups keep their count order. The pair page keeps integrations first, then evidenced pairs. "Confirmed by both companies" is a row label only. No build may ship the mock-ups' ordering or their disclosure wording.
 
-Whatever rule he picks, the build must add a test beside the existing firewall tests. It must assert that no on-page sort, default order or featured subset reads an input gated by a capability outside the Free set.
+The test is AECI-1814 (`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8). A build that adds an ordered list moves its pending entry there to covered.
 
 ## 8. Legal work
 
@@ -872,8 +874,8 @@ Chris has not answered these.
 | # | Question | Options | My recommendation | Blocks |
 | --- | --- | --- | --- | --- |
 | 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | Workstream E |
-| 2 | What is the ordering rule for new lists? | The four options in 7.6 | **Ruled 2026-11-14 (AECI-1732, R1):** new lists are A to Z by name with id as tie-break. Existing orders stay. (was: A to Z everywhere) | A, C, E |
-| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | **Moot under A to Z (AECI-1732, R1):** no list orders by a count. (was: AECi-recorded flows only) | C |
+| 2 | What is the ordering rule for new lists? | The four options in 7.6 | Ruled 2026-11-14 (R1): new lists A to Z, existing orders kept. See 7.8 | A, C, E |
+| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | Ruled 2026-11-14 (R1): no new list uses a count. Taxonomy term counts accepted as they are, follow-up AECI-1836, see 7.4 | C |
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
 | 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
 | 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
