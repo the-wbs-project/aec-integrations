@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
 
@@ -31,8 +31,6 @@ class BlankPage {}
   template: `<aec-browse-menu /><button type="button" id="outside">Outside</button>`,
 })
 class Host {}
-
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function render(menu: BrowseMenuModel = MENU) {
   TestBed.configureTestingModule({
@@ -67,6 +65,7 @@ async function render(menu: BrowseMenuModel = MENU) {
 
 describe('BrowseMenu', () => {
   beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => vi.useRealTimers());
 
   it('is a link to /products that controls a closed panel, with no aria-haspopup', async () => {
     const { trigger, panel } = await render();
@@ -140,27 +139,29 @@ describe('BrowseMenu', () => {
 
   it('opens on hover after the intent delay, and closes after the grace when the pointer leaves', async () => {
     const { host, trigger, panel, settle } = await render();
+    // Fake time: the 70ms and 260ms delays are stepped, never slept.
+    vi.useFakeTimers();
     host.dispatchEvent(new MouseEvent('mouseenter'));
     await settle();
     // Not yet: a pointer passing over "Browse" does not flash the panel.
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    await pause(100);
+    vi.advanceTimersByTime(70);
     await settle();
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(panel().hidden).toBe(false);
 
     host.dispatchEvent(new MouseEvent('mouseleave'));
-    await pause(100);
+    vi.advanceTimersByTime(259);
     await settle();
     // Still open inside the grace: the pointer can cross the gap to the panel.
     expect(panel().hidden).toBe(false);
     host.dispatchEvent(new MouseEvent('mouseenter'));
-    await pause(300);
+    vi.advanceTimersByTime(1000);
     await settle();
     expect(panel().hidden).toBe(false);
 
     host.dispatchEvent(new MouseEvent('mouseleave'));
-    await pause(320);
+    vi.advanceTimersByTime(260);
     await settle();
     expect(panel().hidden).toBe(true);
   });
@@ -191,8 +192,9 @@ describe('BrowseMenu', () => {
 
   it('Escape elsewhere on the page closes a hover-opened panel', async () => {
     const { host, root, panel, settle } = await render();
+    vi.useFakeTimers();
     host.dispatchEvent(new MouseEvent('mouseenter'));
-    await pause(100);
+    vi.advanceTimersByTime(70);
     await settle();
     expect(panel().hidden).toBe(false);
     root
@@ -257,12 +259,16 @@ describe('BrowseMenu', () => {
     const { trigger, settle } = await render();
     const cue = trigger.querySelector('[data-browse-cue]')!;
     expect(cue.getAttribute('aria-hidden')).toBe('true');
-    expect(cue.classList).toContain('scale-x-0');
+    expect(cue.classList).toContain('[scale:0_1]');
+    // No Tailwind scale variable: it is invalid in the inlined critical CSS (AECI-1852).
+    expect(cue.className).not.toContain('scale-x-0');
+    expect(cue.className).toContain('transition-transform');
     trigger.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
     );
     await settle();
-    expect(cue.classList).not.toContain('scale-x-0');
+    expect(cue.classList).toContain('[scale:none]');
+    expect(cue.classList).not.toContain('[scale:0_1]');
     expect(cue.className).toContain('bg-(--accent-secondary)');
   });
 

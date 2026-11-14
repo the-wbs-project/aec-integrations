@@ -674,19 +674,20 @@ The system is still flat by default. Depth is conveyed through color (Bone callo
 
 ### Shadow Vocabulary
 
-The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The two tokens are in `apps/web/src/styles.css` (AECI-1750). `--shadow-card` is on the shared card recipe (`aecCard`, AECI-1765, §5 "Cards"). `--shadow-menu` is not used yet. The dialog and menu issues replace the old `shadow-sm` and `shadow-lg` usages.
+The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The tokens are in `apps/web/src/styles.css` (AECI-1750 and AECI-1770). `--shadow-card` is on the shared card recipe (`aecCard`, AECI-1765, §5 "Cards"). `--shadow-menu` and `--shadow-modal` are on the shared overlay classes (AECI-1770, §5 "Overlays").
 
 | Token | Recipe | Where | Clash |
 | -- | -- | -- | -- |
 | `--shadow-card` (`shadow-card`) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card and the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") | 11 |
 | `--shadow-menu` (`shadow-menu`) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
+| `--shadow-modal` (`shadow-modal`) | `0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)` | Dialogs and drawers. Pairs with the 50% modal scrim (`--scrim-modal`) | none |
 
 - **Card shadow (clash 11, blend).** One recipe, pure black, for a card that stands on the page ground. A card nested inside another card takes no shadow of its own (see "Cards may nest" below). Chris's ruling was BLEND with no note, so the recipe is the clash recommendation and the plan's value.
 - **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the four components in the table.
 - **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
 - **Both are pure black, measured.** The values are `--sh-card` and `--sh-pop` on line 15 of mock-up 6 (the same on mock-ups 5, 7 and 8). Pure black is what `PLAN.md` §4.3 rules ("One card shadow, in pure black"). It is also the form of the modal shadow and of the CDK backdrop, so the three agree. `styles.css` is the token definition site and is exempt from the colour rules, so lint is not the reason. The guard spec pins both strings exactly.
 - **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. The card recipe gives it a transparent 1px border, which the system colours (AECI-1765). Verified in Chromium with `forcedColors: 'active'`: `box-shadow` computes to `none` and the border computes to a system colour. `e2e/card.spec.ts` pins it.
-- **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop. No ruling touched it, so it is unchanged and has no token yet.
+- **Modal / Dialog** (`--shadow-modal`): for overlay surfaces (dialogs, drawers, command palettes). Pairs with the 50% modal scrim. No ruling touched the value, so it is unchanged. AECI-1770 gave it a name and replaced one of the six inline copies: the request drawer's. Five remain, in the four admin dialogs and `vendor-product-facet-editor.ts:383`, and each moves by adding `aec-dialog`. Prettier writes the second alpha as `0.1`, and the guard spec pins that spelling.
 - **Focus ring** (`outline: 3px solid var(--accent-primary)` at `outline-offset: 3px`, mock-up 6, line 29): the keyboard-focus indicator. It is an outline and not a `box-shadow`, because forced-colours mode drops shadows and keeps outlines. The shipped ring is an outline too (`apps/web/src/styles.css`, the `:focus-visible` rule). Never `outline: none` without a replacement. On a Forest ground, the hero panel and the footer ground the ring is Bone (`--focus-ring-on-brand`, AECI-1747, 11.03:1 on Forest). A Forest ring there is invisible, and on the hero panel it is 1.20:1. §6 "Floors" lists this floor. The global `:focus-visible` colour rule sits in `@layer base` (AECI-1845). So a control on Forest takes the Bone ring from the plain utility `focus-visible:outline-(--focus-ring-on-brand)`, at 3px with a 3px offset. It needs no component CSS and no `!`. The shipped default ring is still 2px at a 2px offset (`focus-visible:outline-2 focus-visible:outline-offset-2`), not the mock-up's 3px. That changes only when each surface is rebuilt.
 - **Buttons, chips, inputs and tabs keep borders and take no shadow** (clash 11). Hover lift on cards is clash 37 and belongs to §5 "Motion", not to this section.
 - **A shadow is never the only cue for a boundary that needs 3:1.** A card is not a control, so its shadow edge may stand alone. A control placed on or inside a card keeps its own 3:1 edge (§2 "Field edge"). The mock-up's other shadow variables (`--sh-mark`, `--sh-ctl`, `--sh-btn`, `--sh-bar`) are not in the plan's table and are not part of the language.
@@ -1621,6 +1622,39 @@ Chris ruled NEW on clash 34 and left no note: the new design wins, and "Lucide i
 - **No icon implies endorsement.** The no-verification-iconography rule in "Badges" stands.
 - **Portal and admin page bodies keep their current icons** until their migrations run (AECI-1756 and AECI-1757, deferred by ruling R2). The shared header, footer and button render there with `aec-icon`.
 
+### Overlays (AECI-1770)
+
+Three shared classes in `apps/web/src/styles.css` style every overlay surface. They sit in `@layer components`, so a caller's utility overrides them (`max-sm:rounded-none`). Layout (width, padding, height, position) stays with the caller. A template adds the class and drops its own radius, fill, border and shadow utilities.
+
+| Class | Used for | Radius | Shadow | Fill |
+| -- | -- | -- | -- | -- |
+| `.aec-dialog` | Modal dialogs: the claim dialog, the home feedback dialog, the account delete and review sign-in dialogs | 24px (`--radius-card`) | `--shadow-modal` | `--surface-base` |
+| `.aec-drawer` | The request drawer. A bottom sheet below `sm`, so the drawer adds `max-sm:rounded-b-none` | 24px, top only below `sm` | `--shadow-modal` | `--surface-base` |
+| `.aec-popover` | Menu panes, listboxes, the docs search popup, the product combobox popup, info hints and tooltip bodies with content, claim provenance, the account menu | 12px (`--radius-control`) | `--shadow-menu` | `--surface-base` |
+
+- **Radius was chosen by the orchestrator, not ruled, and is flagged for Chris.** This file names no overlay radius. The two modal surfaces take the card radius, as the Browse panel does. Every popover takes the control radius, 12px. It is on the ruled scale, matches the 12px triggers and avoids near-pill tooltips.
+- **Fill is white for every overlay.** The old popovers sat on `--surface-raised`.
+- **The edge is a real 1px hairline.** Its colour is the unlayered `*` border rule (`--border-default`), so the layered class sets none. A shadow is never the only edge. Forced-colours mode drops `box-shadow` and keeps the border, so the surface still has an edge. `e2e/overlays.spec.ts` pins it for a dialog and a popover.
+- **Two scrims.** `--scrim` is `rgb(0 0 0 / 0.4)` and dims the page behind the open Browse menu (ruled, see §5 "Navigation"). `--scrim-modal` is `rgb(0 0 0 / 0.5)` and is the CDK backdrop behind a dialog. The modal backdrop fades in on `--duration-slow` and `--ease-standard`. The request drawer keeps a transparent backdrop (AECI-128), so the page stays visible behind it. The orchestrator kept it undimmed, and whether it should dim is flagged for Chris.
+- **Motion.** The drawer slides up 12px on `--duration-slow` and `--ease-standard`. Under `prefers-reduced-motion` the global block makes the slide and the scrim fade instant. Dialogs and popovers have no enter or exit animation today, and none was added.
+- **The consent banner and the update banner are not overlays.** They have no scrim, no focus trap and no Escape. They are fixed notices. They take the `.aec-popover` surface so that no off-vocabulary shadow is left. Their buttons are the shared `aecButton`, unchanged.
+- **Tooltips (WCAG 1.4.13).** `aec-info-hint` and `aec-relative-time` are hoverable (a 120ms grace lets the pointer cross), dismissible with Escape, and persistent while hovered or focused. Their text is also the trigger's accessible name, so the tooltip is never the only source. The home page "Source" tooltip in `home/home-why.ts` is a CSS-only span that is not hoverable and still adds to the scroll width (AECI-1846). It is not on the shared recipe and is left for that issue.
+- **Z-index has no documented scale.** The values in use are listed below and were left alone. The CDK overlay container sits at 1000 and is above all of them.
+
+| Value | Where |
+| -- | -- |
+| `z-10` | Section nav, the Browse panel, a few absolute chips and chart tooltips |
+| `z-30` | The page dimmer behind the open header menu, the vendor integration detail bar |
+| `z-40` | The header, sticky preview bars, the plan call to action bar |
+| `z-50` | The consent banner, the request drawer, the skip link on focus, listbox panels, the admin nav dropdown, four admin dialogs |
+| `z-60` | The update banner |
+
+**Not moved yet.** AECI-1770 names the vendor seat invite dialog and the search autocomplete popup, and its line "every overlay uses one shadow token and one radius token" is not met yet. The remainder:
+
+- **Portal and admin overlays.** They wait for the portal and admin page work, after Chris verifies the public pages (AECI-1813). They keep `shadow-lg`, `rounded-md` and `--surface-raised`. The four admin dialogs and the vendor facet editor keep the inline modal shadow. The vendor seat invite dialog is in this group. Each moves by adding `aec-dialog` or `aec-popover`. The list is on AECI-1770 and AECI-1813.
+- **The mobile menu panel** (`layout/nav-menu.ts`, AECI-1775). It still wears the old recipe. AECI-1775 rebuilds it with the menu shadow and 24px bottom corners, like the Browse panel. It does not take `.aec-popover`.
+- **The search autocomplete popup** (`search/search-autocomplete.ts`, AECI-1772) and the compact search trigger panel (`layout/search-trigger.ts`). Both owners add `aec-popover`, and `search-autocomplete.component.spec.ts` changes from `shadow-lg` to `aec-popover` in the same step. PR #1312 (the search pill) deletes the trigger and moves the popup.
+
 ### Motion (clashes 36, 37 and 38)
 
 Chris ruled BLEND on clash 36 and NEW on clash 37, both with no note. He ruled NEW on clash 38 with the note in the smooth-scroll rule below. The record is `records/design-rulings.md`, and ADR 0056 lists clash 38 only. The tokens ship with the shell batch (AECI-1751).
@@ -1631,7 +1665,7 @@ Chris ruled BLEND on clash 36 and NEW on clash 37, both with no note. He ruled N
 | -- | -- | -- | -- |
 | `--duration-fast` | `duration-fast` | 120ms | Press, and row hover |
 | `--duration-base` | `duration-base` | 180ms | Hover, focus and disclosure |
-| `--duration-slow` | `duration-slow` | 280ms | Menu open, the nav ink bar and the scrim |
+| `--duration-slow` | `duration-slow` | 280ms | Menu open, the nav ink bar, the scrim and the drawer |
 | `--ease-standard` | `ease-standard` | `cubic-bezier(.2,.7,.2,1)` | Every eased move |
 
 - **Three durations and one easing** (clash 36). The mock-up's 200, 250, 300, 420, 450 and 600ms values are dropped. The easing is the mock-up's own `--ease` (mock-up 6, line 15). The press takes the fast step (line 88), the card lift the base step (line 293), and the Browse menu (line 632) and the nav ink bar (line 182) the slow step.
@@ -1866,7 +1900,7 @@ Added by this part. All of it is CURRENT unless it says otherwise.
 - **Open for the accessibility gate (AECI-1818):** whether a separate disclosure button beside the "Browse" link would serve screen reader users better than the down arrow on the link.
 - **The keyboard reaches the panel by the down arrow.** Enter on "Browse" follows the link. The footer's Directory column is the Tab-reachable copy of the same destinations, and it renders in server HTML.
 - **Angular Aria popups render inline in this repo, not in an overlay.** The Browse panel is plain inline markup under the header, which is what `NavDisclosure` expects. A panel in the browser's top layer is not a DOM descendant of the host, so every focus move into it would read as focus leaving.
-- **The dimmer is not modal.** It is `aria-hidden` and decorative. It does not trap focus or make the page inert. Clicking it closes the panel. It sits under the header and over the page. Clash 6 does not allow a raw colour in a component, and `styles.css` already dims the CDK backdrop with `rgb(0 0 0 / 0.5)`. One shared scrim token serves both. AECI-1774 added it as `--scrim` at the mock-up's `rgb(0 0 0 / 0.4)` (lines 15 and 690). The dimmer is a sibling of `<header>` at `z-30` under the header's `z-40`, so the Forest bar stays bright. AECI-1770 moves the CDK backdrop (today 50%) onto the token.
+- **The dimmer is not modal.** It is `aria-hidden` and decorative. It does not trap focus or make the page inert. Clicking it closes the panel. It sits under the header and over the page. Clash 6 does not allow a raw colour in a component, so the dimmer reads `--scrim`, `rgb(0 0 0 / 0.4)`, the mock-up's value (lines 15 and 690). Chris ruled NEW on clashes 27 and 30, so 40% is ruled for the menu dimmer. The CDK modal backdrop is a different token, `--scrim-modal` at 50%, because §4 pairs the modal shadow with a 50% backdrop (AECI-1770, §5 "Overlays"). The mobile menu has no dimmer today. The dimmer is a sibling of `<header>` at `z-30` under the header's `z-40`, so the Forest bar stays bright.
 - **Timing (settled, AECI-1774).** Hover opens after 70ms and the pointer leaving closes after a 260ms grace (`src/catmenu.js` lines 19 and 15). The grace lives in the shared base: `NavDisclosure` has `openDelayMs` and `closeGraceMs`, and the Browse menu sets 70 and 260. They default to 0, so the admin console's row (`admin/admin-nav-dropdown.ts`) keeps its shipped instant open and close. The admin row keeps 0 for now (the orchestrator, 2026-11-14). Whether it takes the grace too is flagged for Chris under the Same-Behavior Rule. Escape anywhere on the page closes a hover-opened panel, so it is dismissible without moving the pointer even when focus is outside the menu.
 - **WCAG 1.4.13 Content on Hover or Focus.** The hover-opened panel is additional content shown on pointer hover, so it must be dismissible, hoverable and persistent. Dismissible: Escape closes it without moving the pointer. Hoverable: the 260ms close grace lets the pointer cross from "Browse" into the panel. Persistent: it stays open until the pointer leaves, focus leaves, or Escape is pressed. A grace of zero would fail the second property.
 - **Touch and the fallback at `lg` and above.** A tap on "Browse" follows the link to `/products`, because the trigger is a real link and hover does not exist. Touch visitors at `lg` and above reach the facets from the footer's Directory column and from `/products`. Below `lg` the mobile menu carries every column.
@@ -2001,7 +2035,7 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 | -- | -- | -- |
 | The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
 | The pill's width bands | See "Header search". The "/" shortcut's WCAG 2.1.4 mechanism is a requirement, not an open value | AECI-1772 |
-| The shared scrim token for the Browse dimmer and the CDK backdrop | See "The Browse menu" | AECI-1770 |
+| ~~The shared scrim token for the Browse dimmer and the CDK backdrop~~ | Settled by AECI-1770: two tokens. `--scrim` (40%, menu dimmer) and `--scrim-modal` (50%, modal backdrop). See "Overlays" | AECI-1770 |
 | The close control inside the focus trap, or Escape as the documented path | See "The mobile menu" | AECI-1775 |
 | The footer's link size and its width re-measure at 375, 768, 1024 and 1280px | See "The footer" | AECI-1776 |
 | The skip link's on-focus look, the band restyles and the single breadcrumb component | See "The shell bands" | AECI-1777 |

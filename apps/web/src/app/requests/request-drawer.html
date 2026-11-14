@@ -2,7 +2,7 @@
   <ng-template brnDialogContent>
     @if (drawer.target(); as t) {
     <div
-      class="aeci-drawer-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-(--radius-lg) border border-(--border-default) bg-(--surface-raised) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:left-auto sm:max-h-[calc(100vh-3rem)] sm:w-[min(26rem,92vw)] sm:rounded-(--radius-lg)"
+      class="aec-drawer aeci-drawer-panel max-sm:rounded-b-none fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] w-full flex-col overflow-hidden sm:inset-x-auto sm:bottom-6 sm:right-6 sm:left-auto sm:max-h-[calc(100vh-3rem)] sm:w-[min(26rem,92vw)]"
     >
       <!--
         AECI-847: header and submit stay pinned, only the form body scrolls.
