@@ -28,6 +28,7 @@
 import { Component, LOCALE_ID, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../button/button';
 import { Analytics, type PlanCtaPage } from '../../analytics/analytics';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
@@ -37,7 +38,7 @@ import { AecIcon } from '../icon/icon';
 
 @Component({
   selector: 'aec-plan-cards',
-  imports: [AecIcon, RouterLink, ClaimDialogTrigger],
+  imports: [AecButton, AecIcon, RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2 sm:gap-y-0">
@@ -50,7 +51,12 @@ import { AecIcon } from '../icon/icon';
           <span class="text-sm text-(--text-secondary)">{{ copy.free.unit }}</span>
         </p>
         @if (portal()) {
-          <a [routerLink]="portalPath" [class]="freeButtonClass" i18n="@@planCta.portal"
+          <a
+            [routerLink]="portalPath"
+            aecButton
+            variant="secondary"
+            class="mt-4"
+            i18n="@@planCta.portal"
             >Go to your portal</a
           >
         } @else {
@@ -59,7 +65,9 @@ import { AecIcon } from '../icon/icon';
             aecClaimDialogTrigger="card"
             [aecClaimDialogPage]="page()"
             (click)="track('free')"
-            [class]="freeButtonClass"
+            aecButton
+            variant="secondary"
+            class="mt-4"
             i18n="@@planCta.claim"
             >Claim your listing</a
           >
@@ -90,7 +98,7 @@ import { AecIcon } from '../icon/icon';
           <span class="text-sm text-(--text-secondary)">{{ copy.managed.unit }}</span>
         </p>
         @if (portal()) {
-          <a [routerLink]="portalPath" [class]="managedButtonClass" i18n="@@planCta.portal"
+          <a [routerLink]="portalPath" aecButton class="mt-4" i18n="@@planCta.portal"
             >Go to your portal</a
           >
         } @else {
@@ -99,7 +107,8 @@ import { AecIcon } from '../icon/icon';
             aecClaimDialogTrigger="card"
             [aecClaimDialogPage]="page()"
             (click)="track('managed')"
-            [class]="managedButtonClass"
+            aecButton
+            class="mt-4"
             i18n="@@planCta.claim"
             >Claim your listing</a
           >
@@ -134,11 +143,6 @@ export class PlanCardsComponent {
    */
   protected readonly cardClass =
     'aec-plan-card flex flex-col sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0';
-  /** Both buttons share one size; only the fill marks the paid plan. */
-  private static readonly buttonSize =
-    'mt-4 rounded-(--radius-md) px-5 py-3.5 text-center text-base font-semibold no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly freeButtonClass = `${PlanCardsComponent.buttonSize} ring-1 ring-(--border-default) ring-inset text-(--text-primary) hover:bg-(--surface-muted)`;
-  protected readonly managedButtonClass = `${PlanCardsComponent.buttonSize} bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover)`;
 
   /** Which page the cards sit on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();

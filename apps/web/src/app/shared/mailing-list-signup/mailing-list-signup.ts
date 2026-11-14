@@ -3,6 +3,7 @@ import { FormField, form, submit, validateStandardSchema } from '@angular/forms/
 
 import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aeci/shared';
 
+import { AecButton } from '../button/button';
 import { Analytics } from '../../analytics/analytics';
 import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
@@ -17,12 +18,6 @@ interface SubscribeModel {
 }
 
 type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
-
-/** Shared button classes. The confirmed ("Subscribed") state flips the solid
- *  Forest fill to a Forest-soft treatment (Forest-Anchor Rule: no new accent
- *  color) so a completed signup reads unmistakably as done. */
-const BTN_BASE =
-  'inline-flex items-center justify-center gap-1.5 rounded-(--radius-sm) px-5 py-2 font-label transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed';
 
 /**
  * The shared mailing-list signup band (AECI-327). Extracted from the former home
@@ -49,7 +44,7 @@ const BTN_BASE =
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecIcon, FormField, FoundViaField],
+  imports: [AecButton, AecIcon, FormField, FoundViaField],
   template: `
     <section class="bg-(--accent-warm)">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
@@ -94,9 +89,10 @@ const BTN_BASE =
                 class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
               <button
+                aecButton
                 type="submit"
+                [variant]="subscribed() ? 'secondary' : 'primary'"
                 [disabled]="submitDisabled() || subscribed()"
-                [class]="buttonClass()"
               >
                 @if (subscribed()) {
                   <aec-icon name="check" decorative [size]="4" />
@@ -223,12 +219,6 @@ export class MailingListSignup {
 
   protected readonly submitDisabled = computed(
     () => this.form().invalid() || this.form().submitting(),
-  );
-
-  protected readonly buttonClass = computed(() =>
-    this.subscribed()
-      ? `${BTN_BASE} border border-(--accent-primary) bg-(--accent-primary-soft) text-(--accent-primary)`
-      : `${BTN_BASE} bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover) disabled:opacity-60`,
   );
 
   protected async onSubmit(event: Event): Promise<void> {

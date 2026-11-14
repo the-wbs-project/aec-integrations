@@ -31,6 +31,7 @@ import {
   type FoundVia,
 } from '@aeci/shared';
 
+import { AecButton } from '../button/button';
 import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
 import { ClaimRoutedNotice } from '../../requests/claim-routed-notice';
@@ -40,12 +41,7 @@ import { RequestsApi } from '../../requests/requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from '../../requests/vendor-terms-box';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
-import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
-  FIELD_INPUT_CLASS,
-  FIELD_LABEL_CLASS,
-} from '../form-field/form-field-classes';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../form-field/form-field-classes';
 import { FoundViaField } from '../found-via/found-via-field';
 
 import {
@@ -136,6 +132,7 @@ interface ClaimDialogModel {
 @Component({
   selector: 'aec-claim-dialog-flow',
   imports: [
+    AecButton,
     ClaimantFields,
     ClaimRoutedNotice,
     CompanyCountryField,
@@ -620,20 +617,17 @@ interface ClaimDialogModel {
         data-testid="claim-dialog-footer"
       >
         @if (step() === 'done') {
-          <button
-            type="button"
-            (click)="done.emit()"
-            [class]="primaryClass"
-            i18n="@@requests.sent.done"
-          >
+          <button aecButton type="button" (click)="done.emit()" i18n="@@requests.sent.done">
             Done
           </button>
         } @else {
           @if (canGoBack()) {
             <button
+              aecButton
+              variant="secondary"
               type="button"
               (click)="back()"
-              [class]="secondaryClass + ' me-auto'"
+              class="me-auto"
               data-testid="claim-dialog-back"
               i18n="@@claimDialog.back"
             >
@@ -641,10 +635,10 @@ interface ClaimDialogModel {
             </button>
           }
           <button
+            aecButton
             type="submit"
             form="claim-dialog-form"
             [disabled]="primaryDisabled()"
-            [class]="primaryClass"
             data-testid="claim-dialog-primary"
           >
             @if (step() !== 'comments') {
@@ -783,8 +777,6 @@ export class ClaimDialogFlow implements OnInit {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly textButtonClass =
     'font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
 
   private prefilledEmail = false;
 

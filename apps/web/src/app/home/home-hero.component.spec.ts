@@ -262,7 +262,8 @@ describe('HomeHero', () => {
       );
       const button = form.querySelector('button[type="submit"]')!;
       expect(button.textContent?.trim()).toBe('Show integrations');
-      expect(button.className).toContain('bg-(--accent-primary)');
+      expect(button.getAttribute('data-variant')).toBe('primary');
+      expect(button.getAttribute('type')).toBe('submit');
     });
 
     it('limits both pickers to product suggestions and leaves the hero search unfiltered', async () => {
@@ -371,7 +372,7 @@ describe('HomeHero', () => {
       const button = form.querySelector('button[type="submit"]')!;
       fixture.detectChanges();
       expect(form.getAttribute('aria-busy')).toBe('true');
-      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.hasAttribute('aria-disabled')).toBe(false);
       expect(button.hasAttribute('disabled')).toBe(false);
 
       const read = http.expectOne('/api/products/revit/integrations/stale-slug');
