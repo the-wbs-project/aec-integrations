@@ -9,6 +9,7 @@
  */
 
 import { compareText } from '@aeci/shared/text-sort';
+import { CASE_TIE_EXPECTED_IDS, CASE_TIE_ROWS } from '@aeci/shared/text-sort-fixture';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { integrations, products, vendors } from '../db/schema';
@@ -169,6 +170,39 @@ describe('GET /api/vendors?sort=name', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ company_name: string }> };
     expect(body.data.map((v) => v.company_name)).toEqual(EXPECTED);
+  });
+});
+
+describe('case-only name tie (AECI-1840)', () => {
+  it('SQL orders the shared fixture by name case-blind, then id', async () => {
+    await t.db.insert(products).values([
+      { id: u(90), slug: 'source', name: 'Source', promotionStatus: 'promoted' },
+      { id: u(91), slug: 'target', name: 'Target', promotionStatus: 'promoted' },
+    ]);
+    for (const row of CASE_TIE_ROWS) {
+      await t.db.insert(integrations).values({
+        id: row.id,
+        name: row.name,
+        sourceProductId: u(90),
+        targetProductId: u(91),
+        mechanismKind: 'api',
+      });
+    }
+    const res = await get(
+      createIntegrationsListHandler(t.factory),
+      '/api/integrations',
+      '/api/integrations?sort=name&perPage=50&mechanism_kind=api',
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    expect(body.data.map((r) => r.id)).toEqual([...CASE_TIE_EXPECTED_IDS]);
+  });
+
+  it('the in-memory comparator, with an id tiebreak, gives the order SQL returned above', () => {
+    const memory = [...CASE_TIE_ROWS]
+      .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((r) => r.id);
+    expect(memory).toEqual([...CASE_TIE_EXPECTED_IDS]);
   });
 });
 

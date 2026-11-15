@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { TEXT_SORT_LOCALE, compareText } from './text-sort';
+import { CASE_TIE_EXPECTED_IDS, CASE_TIE_ROWS } from './text-sort-fixture';
 
 /** The exact page the AECI-825 report came from: `/products?sort=name`, page 1. */
 const CATALOG = [
@@ -49,12 +50,20 @@ describe('compareText — the AECI-825 regression', () => {
     expect(sorted.indexOf('openBIM')).toBeLessThan(sorted.indexOf('Zoho'));
   });
 
-  it('is still a TOTAL order — a case-only pair is ranked, not called equal', () => {
-    // The SQL side (`COLLATE NOCASE`) reports these as equal and relies on a
-    // trailing `id` tiebreaker. ICU does not, which is why an in-memory sort
-    // needs no extra term.
-    expect(compareText('ADP', 'adp')).not.toBe(0);
+  it('calls a case-only pair a tie, exactly as COLLATE NOCASE does (AECI-1840)', () => {
+    // SQL reports these as equal and the `id ASC` tiebreaker settles them. The
+    // comparator must do the same, so a caller's `|| id` term decides both layers.
+    expect(compareText('ADP', 'adp')).toBe(0);
+    expect(compareText('Mid bridge', 'mid bridge')).toBe(0);
     expect(compareText('ADP', 'ADP')).toBe(0);
+    expect(compareText('ADP', 'ADQ')).toBeLessThan(0);
+  });
+
+  it('orders the shared case-tie fixture by name, then id (AECI-1840)', () => {
+    const sorted = [...CASE_TIE_ROWS].sort(
+      (a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+    expect(sorted.map((r) => r.id)).toEqual(CASE_TIE_EXPECTED_IDS);
   });
 
   // The same list is ordered by D1 (`COLLATE NOCASE`) on the paginated path and by
