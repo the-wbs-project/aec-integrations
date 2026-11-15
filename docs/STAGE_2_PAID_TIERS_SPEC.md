@@ -263,6 +263,8 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 8. **No on-page order reads an input a paid plan can change (added 2026-11-14, AECI-1814).** The first seven assertions cover search attributes, sort keys and `listing_tier` inputs. This one covers the order of lists on a page. No on-page sort, default order or featured subset may read an input that only a capability outside `TIER_CAPABILITIES.unclaimed` can change. The tests are `apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.component.spec.ts`.
 
+   **A registry scan guards the registry (AECI-1841).** The registry of ordered surfaces is hand-written, so the API spec also counts `orderBy`, `.sort(`, `.toSorted(` and `resolve*OrderBy` / `resolve*Sort` definitions in the public read paths. It compares each file's count with `ORDER_SITES`, where every order is either registered in `SURFACES` or allowed with a stated reason. A new order fails the test until someone classifies it. **This is a tripwire, not a proof.** It sees tokens, not meaning, and it skips `lib/` files that are not in its list. The behavioural cases stay the proof.
+
    **The rule is ruling R1** (Chris, 2026-11-14, AECI-1732): "Maintain orders as they are. If its a new feature a to z". As applied:
    - Every new on-page list is A to Z by name, with the id as the tie-break.
    - The via-lane groups and the powered-hub groups keep their count order.
