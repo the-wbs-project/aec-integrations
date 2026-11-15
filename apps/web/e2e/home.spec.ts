@@ -311,6 +311,92 @@ test.describe('/ — home assembly', () => {
   });
 });
 
+test.describe('/ — citation reflow (AECI-1846)', () => {
+  // Measure settled geometry: focus navigation otherwise starts the home's smooth scroll.
+  test.use({ reducedMotion: 'reduce' });
+
+  for (const width of [320, 639, 640, 768, 1024]) {
+    test(`keeps the page and every citation inside ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      const figures = page.getByTestId('home-why-figures');
+      const links = figures.locator('a[aria-describedby]');
+      const tooltips = figures.locator('[role="tooltip"]');
+      await expect(links).toHaveCount(3);
+      await page.evaluate(() => document.fonts.ready);
+
+      for (const tooltip of await tooltips.all()) {
+        await expect(tooltip).toHaveCSS('opacity', '0');
+      }
+      // Invisible, absolutely positioned citations must not enlarge the page either.
+      // clientWidth excludes classic scrollbar gutters; innerWidth includes them.
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, 'no horizontal page scroll').toBe(clientWidth);
+      expect(await page.evaluate(() => window.innerWidth)).toBe(width);
+
+      for (let i = 0; i < 3; i++) {
+        const link = links.nth(i);
+        const tooltip = tooltips.nth(i);
+        const citation = (await tooltip.textContent())?.replace(/\s+/g, ' ').trim() ?? '';
+        expect(citation).not.toBe('');
+        await expect(link).toHaveAccessibleDescription(citation);
+        await link.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await link.hover();
+        await expect(tooltip).toHaveCSS('opacity', '1');
+        await expectCitationInsideViewport(tooltip);
+        await page.mouse.move(0, 0);
+        await expect(tooltip).toHaveCSS('opacity', '0');
+      }
+
+      // Start immediately before the first source, then reach all three with real Tab presses.
+      await links.first().focus();
+      await page.keyboard.press('Shift+Tab');
+      for (let i = 0; i < 3; i++) {
+        await page.keyboard.press('Tab');
+        await expect(links.nth(i)).toBeFocused();
+        await links
+          .nth(i)
+          .evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await expect(tooltips.nth(i)).toHaveCSS('opacity', '1');
+        await expectCitationInsideViewport(tooltips.nth(i));
+      }
+    });
+  }
+});
+
+async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
+  const bounds = await tooltip.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportWidth: document.documentElement.clientWidth,
+      viewportHeight: window.innerHeight,
+      pageWidth: document.documentElement.scrollWidth,
+      contentWidth: el.scrollWidth,
+      availableWidth: el.clientWidth,
+      contentHeight: el.scrollHeight,
+      availableHeight: el.clientHeight,
+    };
+  });
+  expect(bounds.left, 'citation left edge').toBeGreaterThanOrEqual(0);
+  expect(bounds.right, 'citation right edge').toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.top, 'citation top edge').toBeGreaterThanOrEqual(0);
+  expect(bounds.bottom, 'citation bottom edge').toBeLessThanOrEqual(bounds.viewportHeight);
+  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBe(bounds.viewportWidth);
+  expect(bounds.contentWidth, 'citation text must not be clipped horizontally').toBe(
+    bounds.availableWidth,
+  );
+  expect(bounds.contentHeight, 'citation text must not be clipped vertically').toBe(
+    bounds.availableHeight,
+  );
+}
+
 // AECI-830: a rotor or `NVDA+F7` list strips the surrounding card, so each name
 // must stand alone. axe's `identical-links-same-purpose` and `landmark-unique` are
 // `best-practice` rules our WCAG-tag axe runs exclude, hence these explicit checks.
