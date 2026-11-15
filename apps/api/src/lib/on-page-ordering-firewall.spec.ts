@@ -1274,3 +1274,304 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
     }
   });
 });
+
+// ─── 7. The registry scan (AECI-1841) ─────────────────────────────────────────
+
+/**
+ * A tripwire, not a proof. Blocks 1 to 6 prove that each REGISTERED order ignores a
+ * Managed-only input. Nothing there fails when an order ships without being
+ * registered, because the registry is hand-written. This block closes that gap by
+ * counting the ordering tokens in the public read paths and checking the count of
+ * every file against `ORDER_SITES`. A new `orderBy`, `.sort(` or `.toSorted(` in a
+ * scanned file, or a new file with one, fails until someone adds the entry, which
+ * means registering the surface (`SURFACES`) or stating why it is allowed.
+ *
+ * It sees tokens, not meaning. A comparator reached without one of them (a hand-
+ * rolled loop, a `reduce`), or a file outside the scan set, passes. The behavioural
+ * cases in blocks 4 and 5 and in the web specs stay the proof.
+ *
+ * Scan set:
+ *  - `apps/api/src/routes/`, minus the write, auth, admin, vendor and ops routes in
+ *    `OUT_OF_SCOPE_ROUTE`.
+ *  - The API `lib/` files in `PUBLIC_READ_LIB`: the read configs, sort resolvers and
+ *    mappers the public routes call. A new `lib/` file is NOT scanned until it is
+ *    added there.
+ *  - `apps/web/src/app/`, minus the signed-in and preview areas in `OUT_OF_SCOPE_WEB`.
+ */
+
+const ORDER_TOKENS =
+  /\borderBy\b|(?<!\bidx)(?<!\bthis)\.sort\(|\.toSorted\(|\bfunction\s+resolve\w*(?:OrderBy|Sort)\b/g;
+
+/** How many ordering tokens one source file holds, comments excluded. */
+function countOrderTokens(source: string): number {
+  return (stripComments(source).match(ORDER_TOKENS) ?? []).length;
+}
+
+/** Not a public read: writes, auth, the admin console, the vendor portal, ops. */
+const OUT_OF_SCOPE_ROUTE =
+  /^(admin-|vendor|account|promote|internal-|webhooks|landing-forms|listing-requests|request|seat-invites|notification-preferences|auth-|page-views|activity-arrival|health|version|logos)/;
+
+/** Signed-in, preview and dev areas of the web app. Not public pages. */
+const OUT_OF_SCOPE_WEB =
+  /^(admin|vendor|account|preview|dev|demo|welcome|auth|unsubscribe|notifications)\//;
+
+const PUBLIC_READ_LIB = [
+  'drizzle-helpers',
+  'sort',
+  'home-stats',
+  'usefulness-order',
+  'taxonomy-order',
+  'field-captions',
+  'owned-integrations',
+  'sitemap-build',
+  'display-order',
+  'pair-redirect',
+  'slug-redirect',
+  'review-updates',
+  'review-responses',
+  'product-extensions',
+  'field-hides',
+  'listing-hide',
+];
+
+interface OrderSite {
+  /** Repo-relative path. */
+  readonly file: string;
+  /** Ordering tokens in the file, comments excluded. A change here is the tripwire. */
+  readonly count: number;
+  /** `SURFACES` keys for the orders the file builds that are registered. */
+  readonly registered?: readonly string[];
+  /** Why the rest are allowed. Required when any order in the file is not registered. */
+  readonly allowed?: string;
+}
+
+const NEVER_PLAN = 'reads no plan input';
+
+/** Every ordering token in the scan set, classified once. */
+const ORDER_SITES: readonly OrderSite[] = [
+  {
+    file: 'apps/api/src/routes/integrations.ts',
+    count: 6,
+    registered: ['pair-page-mechanisms'],
+    allowed: `the public ?sort=name|created key on GET /api/integrations; the sort-key firewall covers it, and ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/routes/product-facets.ts',
+    count: 4,
+    allowed: `facet term lists, A to Z by name or display_order; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/routes/product-reviews.ts',
+    count: 1,
+    allowed: `reviews newest first, id breaking a tie; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/routes/products.ts',
+    count: 5,
+    registered: ['related-products'],
+    allowed: `the public ?sort= key on GET /api/products and reviews newest first; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/routes/taxonomy-list.ts',
+    count: 4,
+    allowed: `taxonomy term lists, display_order or A to Z by name; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/routes/taxonomy.ts',
+    count: 4,
+    allowed: `taxonomy term lists, display_order or A to Z by name; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/drizzle-helpers.ts',
+    count: 14,
+    registered: ['pair-page-claims'],
+    allowed: `term lists by display_order or name, attestation timelines by created_at, vendor products A to Z; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/sort.ts',
+    count: 8,
+    allowed: `the sort resolvers behind the public ?sort= keys; the sort-key firewall covers them. The two admin resolvers are not public`,
+  },
+  {
+    file: 'apps/api/src/lib/home-stats.ts',
+    count: 3,
+    allowed: `home page lists by integration_count, page views and created_at; these inputs are written by promote and page views, never by a plan check (block 3)`,
+  },
+  {
+    file: 'apps/api/src/lib/usefulness-order.ts',
+    count: 2,
+    allowed: `audiences A to Z by name, phases by display_order; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/field-captions.ts',
+    count: 3,
+    allowed: `caption attribution names A to Z and a stable field order; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/owned-integrations.ts',
+    count: 1,
+    allowed: `the owned-integrations list, A to Z by partner names then id; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/sitemap-build.ts',
+    count: 4,
+    allowed: 'sitemap URL order by id or key; a crawl feed, not an on-page list',
+  },
+  {
+    file: 'apps/api/src/lib/pair-redirect.ts',
+    count: 2,
+    allowed: 'redirect target lookup by latest move; a redirect, not an on-page list',
+  },
+  {
+    file: 'apps/api/src/lib/slug-redirect.ts',
+    count: 1,
+    allowed: 'redirect table load keyed by slug; a redirect, not an on-page list',
+  },
+  {
+    file: 'apps/api/src/lib/review-updates.ts',
+    count: 2,
+    allowed: `review updates oldest first by created_at or published_at; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/review-responses.ts',
+    count: 1,
+    allowed: `vendor replies oldest first by published_at; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/product-extensions.ts',
+    count: 3,
+    allowed: `extension and host products A to Z by name then id; ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/field-hides.ts',
+    count: 2,
+    allowed: 'hide records by set time and a stable id order; internal, not an on-page list',
+  },
+  {
+    file: 'apps/api/src/lib/listing-hide.ts',
+    count: 10,
+    allowed: 'sets of ids ordered for a stable write; internal, not an on-page list',
+  },
+  {
+    file: 'apps/web/src/app/core/meta.helpers.ts',
+    count: 2,
+    allowed: 'meta description names A to Z; text in a tag, not a ranked list',
+  },
+  {
+    file: 'apps/web/src/app/core/route-cache-key.ts',
+    count: 2,
+    allowed: 'cache key normalisation of query params; not an on-page list',
+  },
+  {
+    file: 'apps/web/src/app/core/taxonomy/taxonomy-rank.ts',
+    count: 2,
+    registered: ['taxonomy-term-product-count'],
+    allowed: 'terms by display_order then A to Z by name',
+  },
+  {
+    file: 'apps/web/src/app/docs/docs-content.ts',
+    count: 2,
+    allowed: 'help center pages and sections in authored order; static content',
+  },
+  {
+    file: 'apps/web/src/app/products/connector-lane-grouping.ts',
+    count: 3,
+    registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
+  },
+  {
+    file: 'apps/web/src/app/products/powered-hub-grouping.ts',
+    count: 3,
+    registered: ['connector-powered-hub'],
+  },
+  {
+    file: 'apps/web/src/app/requests/company-country-field.ts',
+    count: 1,
+    allowed: 'country names A to Z in a form control; not a ranked list',
+  },
+  {
+    file: 'apps/web/src/app/search/search-facet-order.ts',
+    count: 1,
+    registered: ['taxonomy-term-product-count'],
+    allowed: 'lifecycle order for phases on /search',
+  },
+  {
+    file: 'apps/web/src/app/search/search-url-state.ts',
+    count: 1,
+    allowed: 'filter values sorted so one filter set has one URL; not an on-page list',
+  },
+  {
+    file: 'apps/web/src/app/shared/facets/facet-sidebar.ts',
+    count: 1,
+    registered: ['taxonomy-term-product-count'],
+    allowed: 'selected ids sorted into a change key',
+  },
+  {
+    file: 'apps/web/src/app/shared/paginated-index/paginated-index-controller.ts',
+    count: 2,
+    allowed: 'query keys and loaded pages kept in page order; not a ranking',
+  },
+  {
+    file: 'apps/web/src/app/taxonomy/taxonomy-index.ts',
+    count: 2,
+    registered: ['taxonomy-term-product-count'],
+    allowed: 'the A to Z sort of the same list',
+  },
+];
+
+/** Repo-relative path of every file the scan reads. */
+function scannedFiles(): string[] {
+  const routes = sourceFiles(join(API_SRC, 'routes'))
+    .filter((f) => !OUT_OF_SCOPE_ROUTE.test(f))
+    .map((f) => `apps/api/src/routes/${f}`);
+  const lib = PUBLIC_READ_LIB.map((n) => `apps/api/src/lib/${n}.ts`);
+  const web = sourceFiles(WEB_APP)
+    .filter((f) => !OUT_OF_SCOPE_WEB.test(f))
+    .map((f) => `apps/web/src/app/${f}`);
+  return [...routes, ...lib, ...web];
+}
+
+const readRepo = (file: string) => readFileSync(join(process.cwd(), '..', '..', file), 'utf8');
+
+describe('on-page ordering firewall: the registry scan (a tripwire, not a proof)', () => {
+  it('every ordering token in the public read paths is classified', () => {
+    const actual = Object.fromEntries(
+      scannedFiles()
+        .map((f) => [f, countOrderTokens(readRepo(f))] as const)
+        .filter(([, n]) => n > 0),
+    );
+    const expected = Object.fromEntries(ORDER_SITES.map((s) => [s.file, s.count]));
+    // A failure here means an order was added, removed or moved. Register the
+    // surface in SURFACES with a test, or add an ORDER_SITES entry that says why
+    // it is allowed. Do not just bump the number.
+    expect(actual).toEqual(expected);
+  });
+
+  it('every entry is classified: registered with a real surface key, or allowed with a reason', () => {
+    const keys = new Set(SURFACES.map((s) => s.key));
+    for (const site of ORDER_SITES) {
+      expect(site.registered || site.allowed, site.file).toBeTruthy();
+      for (const key of site.registered ?? [])
+        expect(keys.has(key), `${site.file}: ${key}`).toBe(true);
+      if (site.allowed) expect(site.allowed.length, site.file).toBeGreaterThanOrEqual(12);
+    }
+  });
+
+  it('lists each file once, and every file it lists is in the scan set', () => {
+    const files = ORDER_SITES.map((s) => s.file);
+    expect(new Set(files).size).toBe(files.length);
+    const scanned = new Set(scannedFiles());
+    for (const file of files) expect(scanned.has(file), file).toBe(true);
+  });
+
+  // The control. Without it a scan that matches nothing would pass every case above.
+  it('the counter catches a planted order and ignores comments and signal reads', () => {
+    const clean = 'const a = db.select().from(t);\n';
+    expect(countOrderTokens(clean)).toBe(0);
+    expect(countOrderTokens(`${clean}db.query.t.findMany({ orderBy: [asc(t.id)] });`)).toBe(1);
+    expect(countOrderTokens(`${clean}rows.sort((a, b) => a - b);`)).toBe(1);
+    expect(countOrderTokens(`${clean}rows.toSorted();`)).toBe(1);
+    expect(countOrderTokens(`${clean}export function resolveFooOrderBy() {}`)).toBe(1);
+    expect(countOrderTokens(`${clean}// rows.sort(x) and orderBy\n/* .toSorted( */`)).toBe(0);
+    expect(countOrderTokens(`${clean}if (this.idx.sort() === 'created') {}`)).toBe(0);
+  });
+});
