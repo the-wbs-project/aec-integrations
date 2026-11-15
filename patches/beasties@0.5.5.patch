@@ -1,0 +1,78 @@
+diff --git a/dist/compiler.mjs b/dist/compiler.mjs
+index 378e428ac843cf823facb492c0a77b9653d83430..fd50a76176f54e8a5799959ca7b6289afc7991f9 100644
+--- a/dist/compiler.mjs
++++ b/dist/compiler.mjs
+@@ -150,7 +150,21 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
+ 	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
+ }
+ //#endregion
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 2e3ffbda9497899e65371e7571559e25e72df433..5e32a3cea6ec01aa968a8030cceaf99bbffc849b 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -776,7 +776,21 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
+ 	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
+ }
+ //#endregion
+diff --git a/dist/index.mjs b/dist/index.mjs
+index ae67599891b338600c7daf6d007a064eacaaf82d..25cfdab789986baf5412e12d333107a7e2e18f04 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -749,7 +749,21 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
+ 	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
+ }
+ //#endregion
