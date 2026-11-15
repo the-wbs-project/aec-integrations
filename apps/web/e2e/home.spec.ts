@@ -329,7 +329,12 @@ test.describe('/ — citation reflow (AECI-1846)', () => {
         await expect(tooltip).toHaveCSS('opacity', '0');
       }
       // Invisible, absolutely positioned citations must not enlarge the page either.
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      // clientWidth excludes classic scrollbar gutters; innerWidth includes them.
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, 'no horizontal page scroll').toBe(clientWidth);
       expect(await page.evaluate(() => window.innerWidth)).toBe(width);
 
       for (let i = 0; i < 3; i++) {
@@ -370,7 +375,7 @@ async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
       right: rect.right,
       top: rect.top,
       bottom: rect.bottom,
-      viewportWidth: window.innerWidth,
+      viewportWidth: document.documentElement.clientWidth,
       viewportHeight: window.innerHeight,
       pageWidth: document.documentElement.scrollWidth,
       contentWidth: el.scrollWidth,

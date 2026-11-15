@@ -288,6 +288,15 @@ geometry measurements independent of the page's smooth-scroll animation. The 639
 the stacked side of the `sm` breakpoint. The tests failed on the original layout at 640 and 768px
 and pass with the fix.
 
+Width equality and the tooltip's right boundary use `document.documentElement.clientWidth`,
+the usable viewport excluding a classic scrollbar gutter. `window.innerWidth` is checked
+separately against the requested browser width. Comparing scroll width to `innerWidth` falsely
+failed all five cases in Linux CI, where the vertical scrollbar reserves 15px; the local macOS
+overlay scrollbar reserves none. The same failures were reproduced locally with classic
+scrollbars enabled before correcting the measurements. All five cases then passed with both
+overlay and classic scrollbars, and restoring the old tooltip alignment still exposed horizontal
+overflow at 640 and 768px in both modes.
+
 **Other validation:** the home axe AA case reports zero violations; all 11 HomeWhy component
 tests, the web build, web typecheck and repository lint/format checks pass. The rendered
 impeccable scan at 768px reports no P0 finding; its existing prose-length and eyebrow warnings
