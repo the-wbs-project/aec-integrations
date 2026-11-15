@@ -256,3 +256,43 @@ and the defects it found are filed. What remains on the issue is the speech laye
 2. Follow `docs/a11y-manual-testing-checklist.md` §5 for the tool-assisted pass, including the `window.focus()` step — without it the harness silently measures nothing.
 3. Run the §6 VoiceOver and §7 NVDA scripts, and fill a dated copy of the §4 run log.
 4. For the §6 coverage gaps, run against a **local seeded** environment (`pnpm dev:agent`, then `pnpm --filter @aeci/api db:seed-reviews -- --apply` so the moderation queue and the review lists are non-empty). Dialogs and the submit paths can be exercised safely there.
+
+---
+
+## 9. Home citation reflow follow-up (AECI-1846, 2026-11-15)
+
+**Scope:** `/`, measured in Chromium against this issue's local `pnpm dev:agent` stack. These
+measurements supplement the dated production audit above; they are not a new production or
+screen-reader speech audit.
+
+The final market figure's absolutely positioned, 16rem citation extended past the right viewport
+edge in the three-column row. Its `opacity: 0` state still enlarged the page's scrollable width.
+The fix right-aligns that final citation to its Source link from `sm` (640px), keeping all
+citations left-aligned in the stacked layout, and caps their width at `calc(100vw - 3rem)`.
+The complete citation wraps without page-level clipping. Hover, focus, source destinations,
+unique accessible link names and `aria-describedby` associations are retained.
+
+| Viewport width (CSS px) | Page scroll width before | Page scroll width after, hidden / hover / focus |
+|---|---|---|
+| 320 | 320 | 320 / 320 / 320 |
+| 639 | 639 | 639 / 639 / 639 |
+| 640 | 699 | 640 / 640 / 640 |
+| 768 | 781 | 768 / 768 / 768 |
+| 1024 | 1024 | 1024 / 1024 / 1024 |
+
+**Regression coverage:** five cases in `apps/web/e2e/home.spec.ts` check exact page/viewport
+width equality before revealing a citation, then all three citations on hover and real Tab
+navigation. The open tooltip's bounds must fit the viewport, its text must fit without clipping,
+and its text must remain the link's accessible description. Reduced motion keeps keyboard
+geometry measurements independent of the page's smooth-scroll animation. The 639px case guards
+the stacked side of the `sm` breakpoint. The tests failed on the original layout at 640 and 768px
+and pass with the fix.
+
+**Other validation:** the home axe AA case reports zero violations; all 11 HomeWhy component
+tests, the web build, web typecheck and repository lint/format checks pass. The rendered
+impeccable scan at 768px reports no P0 finding; its existing prose-length and eyebrow warnings
+and one straggler advisory are outside this placement fix. The full home suite passes 28 of
+29 cases; the unchanged AECI-1823 pair-finder case fails while choosing live search suggestions,
+but passes when run alone. It also fails in a full-suite run with one worker. That existing
+search-selection timing issue is outside this CSS change; no pair-finder code or assertions
+were changed.
