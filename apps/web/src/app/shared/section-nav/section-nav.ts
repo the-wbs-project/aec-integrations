@@ -14,8 +14,9 @@ import {
   viewChild,
 } from '@angular/core';
 
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
+import { SMOOTH_SCROLL_CLASS } from '../../core/in-page-smooth-scroll';
 import { BrandLogo } from '../../layout/brand-logo';
 import { injectInPageHrefFor } from '../in-page-href';
 
@@ -78,14 +79,19 @@ const FADE_PX = 40;
  * neighbours. Until a click or the scroll-spy names one, the FIRST link is current, so a screen
  * reader always hears where it is (AECI-831). SSR renders that same default for every visitor.
  *
+ * **The stuck brand cluster moves nothing in layout.** It overlays the start of the row
+ * (absolutely placed), and the list slides clear of it with a `transform`, so sticking and
+ * unsticking cause no layout shift (CLS 0, pinned in `e2e/section-nav.spec.ts`).
+ *
  * **Overflow scrolls sideways inside the row** with a 40px fade at each edge that has more
- * links past it. The current link is scrolled into view in the row (the row only, never the
- * page). The page itself still reflows at 320px.
+ * links past it. The current link, and any link reached by Tab, is scrolled fully into the row
+ * (the row only, never the page). The page itself still reflows at 320px.
  *
  * **The browser-only parts** are the scroll-spy (an `IntersectionObserver` on the sections), the
- * stuck test (an `IntersectionObserver` on the host) and the row's fade state (a passive scroll
- * listener and a `ResizeObserver`). All are wired after render, never on the server, and torn
- * down on destroy. No `NgZone`, no scroll handler on the window.
+ * stuck test (an `IntersectionObserver` on the host) and the row geometry (`ResizeObserver`
+ * entries and the row's own passive scroll events). Only `reveal` reads layout, and never while
+ * a smooth jump or a navigation is in flight. All are wired after render, never on the server,
+ * and torn down on destroy. No `NgZone`.
  *
  * **The click listener is on the host, never on the `<a>` (AECI-1655).** The host's one
  * delegated `(click)` finds the clicked anchor with `closest('a')` and reads its
@@ -110,17 +116,19 @@ const FADE_PX = 40;
     '[attr.data-stuck]': 'stuck() ? "" : null',
     // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
     '(click)': 'onClick($event)',
+    // Delegated too: a link reached by Tab is scrolled fully into the row (see `reveal`).
+    '(focusin)': 'onFocusIn($event)',
   },
   styles: `
     .aec-section-nav-row {
       scrollbar-width: none;
-      /* Tab or the current-item scroll keeps a link clear of the fade. */
-      scroll-padding-inline: ${FADE_PX}px;
     }
     .aec-section-nav-row::-webkit-scrollbar {
       display: none;
     }
-    /* Mask colours only set alpha; any opaque token works. */
+    /* The fades. Mask colours only set alpha; any opaque token works. The start fade begins
+       where the stuck brand cluster ends (--aec-row-inset), since the cluster covers the
+       row's start. */
     .aec-section-nav-row.aec-fade-end {
       mask-image: linear-gradient(
         to right,
@@ -129,13 +137,17 @@ const FADE_PX = 40;
       );
     }
     .aec-section-nav-row.aec-fade-start {
-      mask-image: linear-gradient(to right, transparent, var(--text-primary) ${FADE_PX}px);
+      mask-image: linear-gradient(
+        to right,
+        transparent var(--aec-row-inset, 0px),
+        var(--text-primary) calc(var(--aec-row-inset, 0px) + ${FADE_PX}px)
+      );
     }
     .aec-section-nav-row.aec-fade-start.aec-fade-end {
       mask-image: linear-gradient(
         to right,
-        transparent,
-        var(--text-primary) ${FADE_PX}px,
+        transparent var(--aec-row-inset, 0px),
+        var(--text-primary) calc(var(--aec-row-inset, 0px) + ${FADE_PX}px),
         var(--text-primary) calc(100% - ${FADE_PX}px),
         transparent
       );
@@ -148,10 +160,16 @@ const FADE_PX = 40;
     }
   `,
   template: `
-    <div class="flex min-h-16 items-stretch gap-3 md:min-h-18 md:gap-4">
+    <div class="relative flex min-h-16 items-stretch md:min-h-18">
+      <!--
+        The stuck brand cluster OVERLAYS the start of the row. It is absolutely placed, so its
+        arrival moves nothing in layout, and the list slides clear of it by a transform
+        (shift()), which is not a layout shift either (CLS stays 0).
+      -->
       @if (stuck()) {
         <div
-          class="flex min-w-0 shrink items-center gap-3 md:max-w-[min(24rem,40%)]"
+          #brand
+          class="absolute inset-y-0 start-0 z-10 flex min-w-0 items-center gap-3 bg-(--surface-base) pe-3 md:max-w-[min(26rem,45%)]"
           data-testid="section-nav-brand"
         >
           <!-- From md, the shared wordmark. Below md, our monogram in a link of its own,
@@ -182,51 +200,58 @@ const FADE_PX = 40;
         aria-label="On this page"
         i18n-aria-label="@@products.detail.nav.aria"
       >
-        <ul
+        <!-- The scroller. -ms-3 lines the first label up with the page column at rest. -->
+        <div
           #row
-          class="aec-section-nav-row relative flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden whitespace-nowrap"
-          [class.-ms-3]="!stuck()"
+          class="aec-section-nav-row -ms-3 flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
           [class.aec-fade-start]="fadeStart()"
           [class.aec-fade-end]="fadeEnd()"
+          [style.--aec-row-inset.px]="shift() || null"
         >
-          @for (s of sections(); track s.id) {
-            <li class="flex">
-              <a
-                [href]="hrefFor()(s.id)"
-                [attr.data-section-id]="s.id"
-                data-smooth-scroll
-                [attr.aria-current]="activeId() === s.id ? 'location' : null"
-                class="aec-section-nav-link relative inline-flex min-h-11 items-center gap-1.5 rounded-mark px-3
-                  text-t-16 font-normal text-(--text-secondary) no-underline
-                  transition-colors duration-base ease-standard hover:text-(--text-primary)
-                  aria-[current=location]:font-semibold aria-[current=location]:text-(--text-primary)
-                  after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-[3px]
-                  after:origin-center after:scale-x-0 after:rounded-t-[3px] after:bg-(--accent-secondary)
-                  after:transition-transform after:duration-slow after:ease-standard
-                  aria-[current=location]:after:scale-x-100
-                  focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >
-                <!-- The hidden bold copy reserves the 600 width, so marking a link current never
-                     moves the links beside it. -->
-                <span class="grid">
-                  <span class="col-start-1 row-start-1">{{ s.label }}</span>
-                  <span
-                    aria-hidden="true"
-                    class="invisible col-start-1 row-start-1 h-0 overflow-hidden font-semibold"
-                    >{{ s.label }}</span
-                  >
-                </span>
-                @if (s.count !== undefined) {
-                  <span
-                    class="text-t-13 font-normal text-(--text-secondary) tabular-nums"
-                    data-testid="section-nav-count"
-                    >{{ s.count }}</span
-                  >
-                }
-              </a>
-            </li>
-          }
-        </ul>
+          <ul
+            #track
+            class="relative flex shrink-0 items-stretch whitespace-nowrap"
+            [style.transform]="shift() ? 'translateX(' + shift() + 'px)' : null"
+          >
+            @for (s of sections(); track s.id) {
+              <li class="flex">
+                <a
+                  [href]="hrefFor()(s.id)"
+                  [attr.data-section-id]="s.id"
+                  data-smooth-scroll
+                  [attr.aria-current]="activeId() === s.id ? 'location' : null"
+                  class="aec-section-nav-link relative inline-flex min-h-11 items-center gap-1.5 rounded-mark px-3
+                    text-t-16 font-normal text-(--text-secondary) no-underline
+                    transition-colors duration-base ease-standard hover:text-(--text-primary)
+                    aria-[current=location]:font-semibold aria-[current=location]:text-(--text-primary)
+                    after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-[3px]
+                    after:origin-center after:scale-x-0 after:rounded-t-[3px] after:bg-(--accent-secondary)
+                    after:transition-transform after:duration-slow after:ease-standard
+                    aria-[current=location]:after:scale-x-100
+                    focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >
+                  <!-- The hidden bold copy reserves the 600 width, so marking a link current
+                       never moves the links beside it. -->
+                  <span class="grid">
+                    <span class="col-start-1 row-start-1">{{ s.label }}</span>
+                    <span
+                      aria-hidden="true"
+                      class="invisible col-start-1 row-start-1 h-0 overflow-hidden font-semibold"
+                      >{{ s.label }}</span
+                    >
+                  </span>
+                  @if (s.count !== undefined) {
+                    <span
+                      class="text-t-13 font-normal text-(--text-secondary) tabular-nums"
+                      data-testid="section-nav-count"
+                      >{{ s.count }}</span
+                    >
+                  }
+                </a>
+              </li>
+            }
+          </ul>
+        </div>
       </nav>
     </div>
   `,
@@ -250,12 +275,41 @@ export class SectionNav {
   /** True once the bar has stuck to the viewport top. Browser-only; always false on the server. */
   protected readonly stuck = signal(false);
 
-  /** More links lie past the row's start or end edge. Browser-only. */
-  protected readonly fadeStart = signal(false);
-  protected readonly fadeEnd = signal(false);
+  // Row geometry, all from ResizeObserver entries and the row's scroll events, so nothing here
+  // forces a layout read. `brandWidth` is the stuck cluster's width (0 when absent).
+  private readonly brandWidth = signal(0);
+  private readonly rowWidth = signal(0);
+  private readonly trackWidth = signal(0);
+  private readonly rowScroll = signal(0);
 
-  private readonly row = viewChild.required<ElementRef<HTMLUListElement>>('row');
+  /**
+   * How far the list slides to clear the stuck brand cluster: its width plus the 12px the
+   * scroller starts before it (`-ms-3`). 0 at rest.
+   */
+  protected readonly shift = computed(() =>
+    this.stuck() && this.brandWidth() > 0 ? this.brandWidth() + 12 : 0,
+  );
+  private readonly maxScroll = computed(() =>
+    Math.max(0, this.trackWidth() + this.shift() - this.rowWidth()),
+  );
+  private readonly overflows = computed(() => this.maxScroll() > 1);
+
+  /** More links lie past the row's start or end edge. Browser-only. */
+  protected readonly fadeStart = computed(() => this.overflows() && this.rowScroll() > 1);
+  protected readonly fadeEnd = computed(
+    () => this.overflows() && this.rowScroll() < this.maxScroll() - 1,
+  );
+
+  private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
+  private readonly track = viewChild.required<ElementRef<HTMLElement>>('track');
+  private readonly brand = viewChild<ElementRef<HTMLElement>>('brand');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly router = inject(Router);
+  private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** A link to reveal once the page stops moving (see `reveal`). */
+  private pendingReveal: string | null = null;
 
   /**
    * Marks the clicked link current. Highlight only: the anchor's native same-document scroll
@@ -269,17 +323,54 @@ export class SectionNav {
     if (id) this.observedId.set(id);
   }
 
-  /** Sets the fades. `scrollLeft` is negative in a right-to-left row, so use its size. */
-  private measureRow(): void {
-    const row = this.row().nativeElement;
-    const max = row.scrollWidth - row.clientWidth;
-    const at = Math.abs(row.scrollLeft);
-    this.fadeStart.set(max > 1 && at > 1);
-    this.fadeEnd.set(max > 1 && at < max - 1);
+  /**
+   * A link reached by Tab can sit partly under the row's edge or a fade, and Chrome does not
+   * scroll a partly visible focus target. Scroll the row so the whole link is clear.
+   */
+  protected onFocusIn(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
+    if (id) this.reveal(id);
   }
 
-  private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
-  private readonly destroyRef = inject(DestroyRef);
+  /**
+   * Scrolls the ROW (never the page) so the link for `id` sits fully inside it, clear of the
+   * brand cluster and both fades. Does nothing when the row does not overflow.
+   *
+   * It reads two layout values (the link's offset and width), so it never runs while a smooth
+   * in-page jump or a router navigation is in flight: a layout read there broke the router's
+   * scroll to the top of the next page (AECI-1768 review, `scroll-restoration.spec.ts`). It
+   * waits for the window's next `scrollend` instead.
+   */
+  private reveal(id: string): void {
+    if (!this.overflows()) return;
+    const smoothJump =
+      this.host.nativeElement.ownerDocument.documentElement.classList.contains(SMOOTH_SCROLL_CLASS);
+    if (smoothJump || this.router.currentNavigation() !== null) {
+      this.pendingReveal = id;
+      return;
+    }
+    this.pendingReveal = null;
+    const link = this.track().nativeElement.querySelector<HTMLElement>(
+      `a[data-section-id="${CSS.escape(id)}"]`,
+    );
+    if (!link) return;
+    const inset = this.shift();
+    const start = inset + link.offsetLeft;
+    const end = start + link.offsetWidth;
+    const scroll = this.rowScroll();
+    let target = scroll;
+    if (start - FADE_PX < scroll + inset) {
+      target = start - FADE_PX - inset;
+    } else if (end + FADE_PX > scroll + this.rowWidth()) {
+      target = end + FADE_PX - this.rowWidth();
+    }
+    target = Math.min(Math.max(0, target), this.maxScroll());
+    if (Math.abs(target - scroll) > 0.5) {
+      this.row().nativeElement.scrollTo({ left: target, behavior: 'instant' });
+    }
+  }
 
   constructor() {
     // The scroll-spy. Reading `sections()` makes this re-run whenever the section set changes;
@@ -313,35 +404,35 @@ export class SectionNav {
       onCleanup(() => observer.disconnect());
     });
 
-    // Keep the current link visible in the row. Scrolls the row only, never the page, and only
-    // when the row overflows. One layout read per change of the current link.
+    // Keep the current link visible in the row. Runs only when the row overflows (from the
+    // ResizeObserver figures), and `reveal` defers while the page is moving.
     afterRenderEffect(() => {
       const id = this.activeId();
-      this.stuck(); // the brand cluster changes the row's width
-      const row = this.row().nativeElement;
-      if (!id || row.scrollWidth <= row.clientWidth) return;
-      const link = row.querySelector<HTMLElement>(`a[data-section-id="${CSS.escape(id)}"]`);
-      if (!link) return;
-      const start = link.offsetLeft - FADE_PX;
-      const end = link.offsetLeft + link.offsetWidth + FADE_PX;
-      if (start < row.scrollLeft) {
-        row.scrollTo({ left: Math.max(0, start), behavior: 'instant' });
-      } else if (end > row.scrollLeft + row.clientWidth) {
-        row.scrollTo({ left: end - row.clientWidth, behavior: 'instant' });
-      }
+      const overflows = this.overflows();
+      this.shift(); // the brand cluster changes what is visible
+      if (id && overflows) untracked(() => this.reveal(id));
     });
 
-    // The fades follow the row's content as well as its scroll and size.
-    afterRenderEffect(() => {
-      this.sections();
-      this.stuck();
-      this.measureRow();
+    // The stuck brand cluster's width, from its own ResizeObserver while it exists.
+    afterRenderEffect((onCleanup) => {
+      const brand = this.brand()?.nativeElement;
+      if (!brand || typeof ResizeObserver === 'undefined') {
+        untracked(() => this.brandWidth.set(0));
+        return;
+      }
+      const observer = new ResizeObserver(([entry]) => {
+        if (entry) this.brandWidth.set(borderInlineSize(entry));
+      });
+      observer.observe(brand);
+      onCleanup(() => observer.disconnect());
     });
 
     if (!this.browser) return;
     afterNextRender(() => {
       const host = this.host.nativeElement;
       const row = this.row().nativeElement;
+      const track = this.track().nativeElement;
+      const view = host.ownerDocument.defaultView;
 
       // Stuck: the host's top edge has reached the viewport top. The root is grown far below
       // the viewport, so the ratio drops under 1 only when the top edge is cut, never when the
@@ -362,17 +453,43 @@ export class SectionNav {
         stuckObserver.observe(host);
       }
 
-      const measure = () => this.measureRow();
-      row.addEventListener('scroll', measure, { passive: true });
-      const resizeObserver =
-        typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-      resizeObserver?.observe(row);
+      // Row and list sizes come from ResizeObserver entries, the offset from the row's own
+      // scroll events. `scrollLeft` is negative in a right-to-left row, so use its size.
+      const onRowScroll = () => this.rowScroll.set(Math.abs(row.scrollLeft));
+      row.addEventListener('scroll', onRowScroll, { passive: true });
+      const sizes =
+        typeof ResizeObserver === 'undefined'
+          ? null
+          : new ResizeObserver((entries) => {
+              for (const entry of entries) {
+                if (entry.target === row) this.rowWidth.set(contentInlineSize(entry));
+                else this.trackWidth.set(borderInlineSize(entry));
+              }
+            });
+      sizes?.observe(row);
+      sizes?.observe(track);
+
+      // A reveal deferred during a smooth jump runs once the page has stopped.
+      const onScrollEnd = () => {
+        const id = this.pendingReveal;
+        if (id) this.reveal(id);
+      };
+      view?.addEventListener('scrollend', onScrollEnd, { passive: true });
 
       this.destroyRef.onDestroy(() => {
         stuckObserver?.disconnect();
-        resizeObserver?.disconnect();
-        row.removeEventListener('scroll', measure);
+        sizes?.disconnect();
+        row.removeEventListener('scroll', onRowScroll);
+        view?.removeEventListener('scrollend', onScrollEnd);
       });
     });
   }
+}
+
+function borderInlineSize(entry: ResizeObserverEntry): number {
+  return entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+}
+
+function contentInlineSize(entry: ResizeObserverEntry): number {
+  return entry.contentBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
 }

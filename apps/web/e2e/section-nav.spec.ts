@@ -369,11 +369,6 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     for (const src of srcs) expect(src).toMatch(/^\/branding\/(wordmark|monogram-light)\.svg$/);
     // 72px, plus the 1px hairline under it.
     expect(Math.round(await navBottom(page))).toBe(73);
-    // The metadata aside sticks below the bar, not under it (--aec-sticky-offset).
-    // Its sticky top is the bar's 73px plus the shipped 32px gap.
-    expect(
-      await page.locator('aec-detail-layout aside').evaluate((el) => getComputedStyle(el).top),
-    ).toBe('105px');
 
     // The current item: weight 600, primary ink, a 3px Clay bar. Others stay at 400.
     const current = nav.locator('a[aria-current="location"]');
@@ -486,6 +481,9 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     };
     const base = await navOf(path);
     expect(base).toContain(`href="${path}#integrations"`);
+    // The server never renders the stuck state: no brand cluster, no data-stuck.
+    expect(base).not.toContain('data-testid="section-nav-brand"');
+    expect(base).not.toMatch(/<aec-section-nav[^>]*data-stuck/);
     expect(await navOf(`${path}?utm_source=mail&fbclid=1`)).toBe(base);
     expect(await navOf(`${path}?view=basic`)).toBe(base);
     expect(
@@ -494,5 +492,122 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
         'accept-language': 'de',
       }),
     ).toBe(base);
+  });
+
+  // AECI-1768 review: the brand cluster arrives on stick without moving the links in layout.
+  for (const width of [1280, 390]) {
+    test(`sticking and unsticking cause no layout shift at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const path = await openProduct(page);
+      await hydrated(page, path);
+      // Let every deferred block below render first, so only the bar can move.
+      await page.evaluate(async () => {
+        const step = () => new Promise((r) => setTimeout(r, 150));
+        for (let y = 0; y < document.documentElement.scrollHeight; y += 400) {
+          window.scrollTo({ top: y, behavior: 'instant' });
+          await step();
+        }
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        await step();
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => {
+        const w = window as unknown as { __cls: number };
+        w.__cls = 0;
+        new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) w.__cls += (e as unknown as { value: number }).value;
+        }).observe({ type: 'layout-shift', buffered: false });
+      });
+      const stickAt = await page.evaluate(
+        () => document.querySelector('aec-section-nav')!.getBoundingClientRect().top + scrollY,
+      );
+      for (let pass = 0; pass < 2; pass++) {
+        for (const y of [stickAt - 120, stickAt + 40, stickAt + 300, stickAt + 40, stickAt - 120]) {
+          await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), y);
+          await page.waitForTimeout(250);
+          if (y === stickAt + 300) {
+            await expect(page.locator('aec-section-nav')).toHaveAttribute('data-stuck', '');
+          }
+        }
+      }
+      await expect(page.locator('aec-section-nav')).not.toHaveAttribute('data-stuck', '');
+      const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+      expect(cls, `layout shift while sticking at ${width}px`).toBeLessThanOrEqual(0.001);
+    });
+  }
+
+  // AECI-1768 review: Chrome does not scroll a partly visible focus target, so the row does.
+  for (const width of [320, 390]) {
+    for (const state of ['at rest', 'stuck'] as const) {
+      test(`at ${width}px ${state}, every focused link sits fully inside the row, clear of the fades`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 800 });
+        const path = await openProduct(page);
+        await hydrated(page, path);
+        const nav = page.locator('aec-section-nav');
+        if (state === 'stuck') {
+          await page.evaluate(() =>
+            document.getElementById('reviews')!.scrollIntoView({ behavior: 'instant' }),
+          );
+          await expect(nav).toHaveAttribute('data-stuck', '');
+          await expect(nav.getByTestId('section-nav-brand')).toBeVisible();
+        } else {
+          await page.evaluate(() => {
+            const n = document.querySelector('aec-section-nav')!;
+            window.scrollTo({
+              top: n.getBoundingClientRect().top + scrollY - 200,
+              behavior: 'instant',
+            });
+          });
+          await expect(nav).not.toHaveAttribute('data-stuck', '');
+        }
+        const links = nav.locator('nav a');
+        const count = await links.count();
+        await links.first().focus();
+        for (let i = 0; i < count; i++) {
+          if (i > 0) await page.keyboard.press('Tab');
+          await expect(links.nth(i)).toBeFocused();
+          await page.waitForTimeout(50);
+          const fit = await links.nth(i).evaluate((a) => {
+            const row = a.closest('.aec-section-nav-row')!;
+            const r = a.getBoundingClientRect();
+            const box = row.getBoundingClientRect();
+            const brand = document.querySelector('[data-testid="section-nav-brand"]');
+            const start = Math.max(
+              box.left,
+              brand ? brand.getBoundingClientRect().right : box.left,
+            );
+            const fadeStart = row.classList.contains('aec-fade-start') ? 40 : 0;
+            const fadeEnd = row.classList.contains('aec-fade-end') ? 40 : 0;
+            return {
+              left: Math.round(r.left - (start + fadeStart)),
+              right: Math.round(box.right - fadeEnd - r.right),
+            };
+          });
+          expect(fit.left, `link ${i} clears the start edge`).toBeGreaterThanOrEqual(-1);
+          expect(fit.right, `link ${i} clears the end edge`).toBeGreaterThanOrEqual(-1);
+        }
+      });
+    }
+  }
+
+  // AECI-1768 review: a sticky aside taller than the space under the bar loses its foot.
+  test('the metadata aside sticks under the bar only where it fits', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    const path = await openProduct(page);
+    await hydrated(page, path);
+    const aside = page.locator('aec-detail-layout aside');
+    expect(await aside.evaluate((el) => getComputedStyle(el).position)).toBe('static');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const sticky = await aside.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { position: s.position, top: s.top, h: el.getBoundingClientRect().height };
+    });
+    expect(sticky.position).toBe('sticky');
+    // The bar's 73px plus the shipped 32px gap.
+    expect(sticky.top).toBe('105px');
+    expect(105 + sticky.h, 'the aside fits under the bar at 900px').toBeLessThanOrEqual(900);
   });
 });

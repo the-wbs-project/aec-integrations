@@ -120,9 +120,11 @@ import { Component } from '@angular/core';
           </div>
 
           <!-- Sticky below the section bar when the page has one: --aec-sticky-offset is
-               its height (styles.css, AECI-1768), and unset with no bar, so 2rem. -->
+               its height (styles.css, AECI-1768), and unset with no bar, so 2rem. Under the
+               bar it sticks only on screens tall enough to show it whole (.aec-detail-aside
+               in styles.css). -->
           <aside
-            class="mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-[calc(var(--aec-sticky-offset,0px)+2rem)] lg:col-start-2
+            class="aec-detail-aside mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-[calc(var(--aec-sticky-offset,0px)+2rem)] lg:col-start-2
               lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start"
             i18n-aria-label="@@app.layouts.detail.metadata.aria"
             aria-label="Metadata"
