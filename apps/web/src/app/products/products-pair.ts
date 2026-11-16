@@ -709,8 +709,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                   </div>
                 }
                 @if (side.product.rating_overall_avg !== null) {
-                  <p
-                    class="mt-2 inline-flex items-center gap-1 text-xs text-(--text-secondary)"
+                  <!-- The same span and accessible name as before AECI-1798. -->
+                  <span
+                    class="mt-2 flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
                     [attr.aria-label]="ratingAria(side.product)"
                   >
                     <span aria-hidden="true" class="text-(--accent-rating)">★</span>
@@ -721,7 +722,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                       >· {{ side.product.review_count }}
                       <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
                     >
-                  </p>
+                  </span>
                 }
                 <!-- AECI-303 (§9.1): the side's version selector, under its own product.
                      Only the name is a link, so the combobox is not inside an anchor.
