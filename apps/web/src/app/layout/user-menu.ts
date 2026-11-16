@@ -134,7 +134,7 @@ import { AecIcon } from '../shared/icon/icon';
     <brn-popover #menu="brnPopover" class="contents" align="end" [sideOffset]="8">
       <ng-template brnPopoverContent>
         <div
-          class="w-64 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="aec-popover w-64 p-2"
           i18n-aria-label="@@app.header.account.menu.aria"
           aria-label="Account menu"
         >
