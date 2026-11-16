@@ -61,7 +61,7 @@ function mountIndex(kind: TaxonomyKind, terms: CategoriesListResponse) {
   return fixture;
 }
 
-/** The rendered order after choosing "Most products", as positions in the input list. */
+/** The rendered order after choosing "Products", as positions in the input list. */
 function productsOrder(kind: TaxonomyKind, terms: TaxonomyTermWithCount[]): number[] {
   const fixture = mountIndex(kind, { data: terms });
   const root = fixture.nativeElement as HTMLElement;
@@ -69,8 +69,8 @@ function productsOrder(kind: TaxonomyKind, terms: TaxonomyTermWithCount[]): numb
   const select = fixture.debugElement.query(By.directive(ListingSortSelect));
   if (!select) throw new Error('no sort control');
   const control = select.componentInstance as ListingSortSelect;
-  if (!control.options().some((o) => o.value === 'products' && o.label === 'Most products')) {
-    throw new Error('no "Most products" sort option');
+  if (!control.options().some((o) => o.value === 'products' && o.label === 'Products')) {
+    throw new Error('no "Products" sort option');
   }
   control.sortChange.emit('products');
   fixture.detectChanges();
