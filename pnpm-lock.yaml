@@ -6,6 +6,12 @@ settings:
 
 overrides:
   '@flue/runtime>hono': 4.13.16
+  beasties: 0.5.5
+
+patchedDependencies:
+  beasties@0.5.5:
+    hash: d331ae1a7e7775ffa8f675a20e392be8a0809aebc40e427c5fa7388dc506ee82
+    path: patches/beasties@0.5.5.patch
 
 importers:
 
@@ -4210,8 +4216,8 @@ packages:
     resolution: {integrity: sha512-bopVNp6ugyA150DDuZfPFdt1KZ5a94ZDiwX4hMgZDzF+GttD80lEy8kj98kbyhLXnPvhtIo93mdnLIjpCAeeOw==}
     engines: {node: '>=10.0.0'}
 
-  beasties@0.5.4:
-    resolution: {integrity: sha512-8/lOOjT+PElYCnaUbmhgd3Uad5R1VTQ4Wg0k4rK8bX04m5WEqHNmnlLy3Q/lJ7dk25XA+72gayzc/skTfKKpcA==}
+  beasties@0.5.5:
+    resolution: {integrity: sha512-4mUqdlIqPmHlX5qwkGmunWnhi406XcT5AfmwltoiDCToyGP2pSxS9ClfURL14IRwPYHq/JAIrtjNptbpSvUTPA==}
     engines: {node: '>=20.19.0'}
 
   better-sqlite3@12.11.1:
@@ -5305,6 +5311,7 @@ packages:
   image-size@0.5.5:
     resolution: {integrity: sha512-6TDAlDPZxUFCv+fuOkIoXT/V/f3Qbq8e37p+YOiYrUv3v9cc3/6x78VdfPgFVaB9dZYeLUfKgHRebpkm/oP2VQ==}
     engines: {node: '>=0.10.0'}
+    deprecated: Please migrate to image-size@2.x
     hasBin: true
 
   image-ssim@0.2.0:
@@ -7812,7 +7819,7 @@ snapshots:
       '@inquirer/confirm': 6.3.2(@types/node@24.12.4)
       '@parcel/watcher': 2.6.0
       '@vitejs/plugin-basic-ssl': 2.3.0(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))
-      beasties: 0.5.4
+      beasties: 0.5.5(patch_hash=d331ae1a7e7775ffa8f675a20e392be8a0809aebc40e427c5fa7388dc506ee82)
       browserslist: 4.29.2
       chokidar: 5.0.0
       esbuild: 0.28.2
@@ -7968,7 +7975,7 @@ snapshots:
       '@angular/common': 22.2.0(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(rxjs@7.8.2)
       '@angular/core': 22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2)
       '@angular/router': 22.2.0(@angular/common@22.2.0(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(@angular/platform-browser@22.2.0(@angular/common@22.2.0(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2)))(rxjs@7.8.2)
-      beasties: 0.5.4
+      beasties: 0.5.5(patch_hash=d331ae1a7e7775ffa8f675a20e392be8a0809aebc40e427c5fa7388dc506ee82)
       tslib: 2.8.1
     optionalDependencies:
       '@angular/platform-server': 22.2.0(@angular/common@22.2.0(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/compiler@22.2.0)(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(@angular/platform-browser@22.2.0(@angular/common@22.2.0(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.0(@angular/compiler@22.2.0)(rxjs@7.8.2)))(rxjs@7.8.2)
@@ -11071,7 +11078,7 @@ snapshots:
 
   basic-ftp@5.3.1: {}
 
-  beasties@0.5.4:
+  beasties@0.5.5(patch_hash=d331ae1a7e7775ffa8f675a20e392be8a0809aebc40e427c5fa7388dc506ee82):
     dependencies:
       css-select: 7.0.0
       css-what: 8.0.0
