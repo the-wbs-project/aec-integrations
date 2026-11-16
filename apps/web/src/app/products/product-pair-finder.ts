@@ -28,7 +28,9 @@ const INPUT_ID = 'product-pair-other';
  * `routeFinderPair` (the pair read, the retired-slug lookup, the search fallback).
  *
  *   - another product chosen: the pair page, context first;
- *   - this product chosen again, or nothing chosen but text typed: `/search?q=`;
+ *   - this product chosen again: this product's integrations, as home routes one
+ *     product (`/products/:slug#integrations`);
+ *   - nothing chosen but text typed: `/search?q=`;
  *   - nothing at all: focus the field.
  *
  * Every string is the home finder's, with its message id: "Do these two connect?",
@@ -149,6 +151,11 @@ export class ProductPairFinder {
       } finally {
         this.checking.set(false);
       }
+      return;
+    }
+    if (other === tool) {
+      // Home routes a single chosen product to its integrations. Same rule here.
+      void this.router.navigate(['/products', tool], { fragment: 'integrations' });
       return;
     }
     const text = this.typedText();

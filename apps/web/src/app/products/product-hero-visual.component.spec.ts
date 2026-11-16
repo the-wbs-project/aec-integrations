@@ -311,7 +311,7 @@ describe('ProductHero visual: the pair finder (AECI-1787)', () => {
     http.verify();
   });
 
-  it('this product chosen again, or only text typed: searches the typed text', async () => {
+  it('this product chosen again: opens its integrations, as the home finder routes one product', async () => {
     const { fixture, el } = setup(buildProduct());
     const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -321,11 +321,24 @@ describe('ProductHero visual: the pair finder (AECI-1787)', () => {
     submit(el);
     await fixture.whenStable();
     http.expectNone(() => true);
+    expect(navigate).toHaveBeenCalledWith(['/products', 'revu'], { fragment: 'integrations' });
+    expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('only text typed: searches the typed text', async () => {
+    const { fixture, el } = setup(buildProduct());
+    const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const http = TestBed.inject(HttpTestingController);
+    el.querySelector<HTMLInputElement>('#product-pair-other')!.value = 'Bluebeam';
+    submit(el);
+    await fixture.whenStable();
+    http.expectNone(() => true);
     const calls = [
       ...navigate.mock.calls.map((c) => JSON.stringify(c)),
       ...navigateByUrl.mock.calls.map((c) => JSON.stringify(c)),
     ];
-    expect(calls.join(' ')).toContain('Revu');
+    expect(calls.join(' ')).toContain('Bluebeam');
     expect(calls.join(' ')).toContain('search');
   });
 
