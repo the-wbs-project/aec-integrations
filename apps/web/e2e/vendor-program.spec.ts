@@ -263,4 +263,38 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await expect(page).toHaveURL(/\/vendor-program$/);
     await tab.close();
   });
+
+  // Ruling A7 (2026-11-16): the plan cards take the shared card frame. The Managed
+  // card keeps its 2px Forest border, and the buttons stay one width and one line.
+  test('the plan cards are the shared card, the Managed one with a 2px Forest border', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/vendor-program');
+    await page.waitForFunction(() => document.getAnimations().length === 0);
+    const frame = (plan: string) =>
+      page.locator(`aec-plan-cards [data-plan-card="${plan}"]`).evaluate((e) => {
+        const c = getComputedStyle(e);
+        return {
+          radius: c.borderTopLeftRadius,
+          border: c.borderTopWidth,
+          shadow: c.boxShadow !== 'none',
+        };
+      });
+    expect(await frame('free')).toEqual({ radius: '24px', border: '1px', shadow: true });
+    expect(await frame('managed')).toEqual({ radius: '24px', border: '2px', shadow: true });
+    const managedColor = await page
+      .locator('aec-plan-cards [data-plan-card="managed"]')
+      .evaluate((e) => {
+        const ctx = document.createElement('canvas').getContext('2d')!;
+        ctx.fillStyle = getComputedStyle(e).borderTopColor;
+        ctx.fillRect(0, 0, 1, 1);
+        return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].join(',');
+      });
+    expect(managedColor).toBe('30,58,47');
+    const buttons = page.locator('aec-plan-cards [data-plan-card] a[aecButton]');
+    const [a, b] = [(await buttons.nth(0).boundingBox())!, (await buttons.nth(1).boundingBox())!];
+    expect(a.width).toBe(b.width);
+    expect(a.y).toBe(b.y);
+  });
 });

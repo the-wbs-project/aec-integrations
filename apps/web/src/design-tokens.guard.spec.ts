@@ -350,6 +350,7 @@ describe('design tokens', () => {
       't-24',
       't-36',
       't-fig',
+      't-48',
       't-statement',
       't-display',
     ];
@@ -361,7 +362,7 @@ describe('design tokens', () => {
       return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
     }
 
-    it('defines all ten ramp tokens', () => {
+    it('defines all eleven ramp tokens', () => {
       for (const token of RAMP) {
         expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
       }
@@ -420,6 +421,15 @@ describe('design tokens', () => {
       for (const [step, token] of Object.entries(expected)) {
         expect(valueOf(`text-${step}`), `--text-${step}`).toBe(`var(--${token})`);
       }
+    });
+
+    // Ruling A3 (2026-11-16): the score figure is a fixed 48px, not a clamp. A fixed rem
+    // scales one for one with zoom, so it doubles at 200% and needs no sweep.
+    it('sets the score figure step at a fixed 48px (3rem), with its utility', () => {
+      expect(valueOf('t-48')).toBe('3rem');
+      expect(FLUID.has('t-48')).toBe(false);
+      expect(valueOf('text-t-48')).toBe('var(--t-48)');
+      expect(valueOf('text-t-48--line-height')).toBe('1');
     });
 
     it('keeps the fixed steps in rem', () => {

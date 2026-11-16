@@ -424,4 +424,16 @@ describe('SiteHeader auth affordance', () => {
     const inputs = Array.from(el.querySelectorAll('input[type="search"]'));
     expect(inputs.map((i) => i.id)).toEqual(['header-search']);
   });
+
+  // The pill's host once carried a static `inputid="header-search"` attribute beside
+  // the input's id, so the value appeared twice in the HTML. Only the input carries it.
+  it('names the pill by one id on the input alone, with the label pointing at it', () => {
+    const el = render().nativeElement as HTMLElement;
+    const holders = Array.from(el.querySelectorAll('*')).filter((node) =>
+      Array.from(node.attributes).some((a) => a.value === 'header-search' && a.name !== 'for'),
+    );
+    expect(holders.map((node) => node.tagName)).toEqual(['INPUT']);
+    expect(el.querySelector('aec-search-autocomplete')!.hasAttribute('id')).toBe(false);
+    expect(el.querySelector('label[for="header-search"]')).not.toBeNull();
+  });
 });
