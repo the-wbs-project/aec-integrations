@@ -43,3 +43,9 @@ A help center is usually its own site. Most teams reach for a docs generator on 
 - **One versioned page.** `/docs/vendors/plans` carries a `version`. Each version is a rendered Markdown snapshot under `content/docs/vendors/versions/plans/`, and the acceptance row stores its version and SHA-256. A spec forces a new version on any change to the page.
 - **Archive routes.** Each version is served at `/docs/vendors/plans/v<version>`, noindex and outside the manifest, the sitemap and the docs search, as the legal archives are.
 - **The decision stands.** Revisit it if a second docs page needs versions, or if the Plans versions outgrow one snapshot file per version. The contract is `STAGE_2_PRODUCT_DOCS_SPEC.md` §4.
+
+**Amendment 2026-11-16 (AECI-1621):** The 2026-11-11 trigger "a second docs page needs versions" was met. Counsel's Q23 asks that we can show what `/docs/trust/how-ranking-works` said on a past date, because the Terms of Service and the Vendor Terms link it. We reviewed the decision and it stands. The second page is handled inside `apps/web` the same way.
+
+- **One registry, not a mechanism.** `DOCS_PAGE_VERSIONS` (`apps/web/src/app/docs/docs-page-versions.ts`) lists the two versioned pages by hand. The archive content, the archive page and the archive routes key off it, so the Plans-only files became `docs-archive-content.ts` and `docs-archive-page.ts`. Plans keeps its URLs, its snapshot generator and its hashes.
+- **A copy, not a snapshot.** The ranking page is plain Markdown, so each version's file under `content/docs/trust/versions/how-ranking-works/` is the page without its `## Versions` section. No acceptance stores it, so it has no hash. A spec forces a new version on any change to the page.
+- **The decision stands.** Revisit it if a third page needs versions, if a page needs versions that are not hand-picked, or if a version must be written by anything other than a PR. The contract is `STAGE_2_PRODUCT_DOCS_SPEC.md` §4.

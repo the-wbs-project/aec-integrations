@@ -6030,6 +6030,64 @@ unchanged.
 **Re-archiving a day.** Delete its row by hand (`docs/runbooks/alerts.md` "Retention prune skipped"). The
 next run copies the day again and overwrites both objects.
 
+### 9.16 `plan_change_snapshots`
+
+The ledger of the plan-change ranking evidence (AECI-1621, ADR 0056, migration
+`0123_outstanding_mulholland_black.sql`). Each row schedules one ranking snapshot of one product,
+taken because a live license reached it (`start`) or left it (`end`). The snapshot itself is a JSON
+object in the `UPLOADS` R2 bucket under `evidence/plan-snapshots/` (`ANALYTICS.md` §11d). Why it
+exists: `SEARCH_RANKING.md` §7a.
+
+```sql
+create table plan_change_snapshots (
+  id text primary key not null,      -- crypto.randomUUID()
+  product_id text not null,          -- products.id, NO FK: evidence outlives a retracted product
+  kind text not null,                -- 'start' | 'end'. No CHECK (a new value would need a recreate)
+  license_id text not null,          -- licenses.id, NO FK
+  cause text not null,               -- the license write's audit action, e.g. 'license.lapsed'
+  event_at text not null,            -- ISO-8601, the license write's now
+  phase text not null,               -- 'event' | 'followup'. No CHECK
+  due_at text not null,              -- event: event_at. followup: event_at + 30 days
+  r2_key text,                       -- NULL until the sweep confirms the object
+  written_at text,                   -- when the sweep confirmed it
+  attempts integer default 0 not null,  -- failed sweep attempts
+  last_error text                    -- the last failure, truncated to 500. Cleared on success
+);
+create index plan_change_snapshots_r2_key_due_at_idx on plan_change_snapshots (r2_key, due_at);
+create index plan_change_snapshots_product_event_at_idx on plan_change_snapshots (product_id, event_at);
+```
+
+**Written in the license batch.** `assemble()` in `lib/license.ts` is the one choke point for every
+license write: grant, assign, unassign, end, term lapse with carry-over, and the Stripe sync. It diffs
+the vendor's license set before and after the batch (`planChangeMoves`, `lib/plan-change-ledger.ts`)
+and inserts two rows per product whose live license appeared or disappeared, in the same `db.batch`.
+So no plan start or end can commit without its rows, and a refused batch writes none. A product that
+loses one live license and gains another in the same batch (a carry-over) did not change plan and gets
+no row. The diff reads the caller's pre-read, so a lost race can add rows for a move the guarded SQL
+dropped. That costs one extra snapshot and is not guarded. The ops retraction lane
+(`lib/retract-product.ts`) writes none: it deletes the product, so nothing is left to rank.
+
+**Stamped by the sweep.** The `plan-snapshot` cron (`11-59/15`, on `RECONCILE_QUEUE`) reads up to 25
+rows with `r2_key IS NULL AND due_at <= now`, fewest `attempts` first, then oldest `due_at`. It writes
+each object, confirms it with `head`, then sets `r2_key` and `written_at`, guarded on `r2_key IS NULL`.
+A failure bumps `attempts` and `last_error` and the row stays due. An object already at the key is
+adopted, because the bucket lock refuses an overwrite. The `plan_snapshot_overdue` data-quality check
+reports a row unwritten 24 hours after `due_at`.
+
+**Log-class, not domain state** (ADR 0022). The license write's own `audit_log` row records the event.
+The insert and the sweep's bookkeeping UPDATEs write no `audit_log` row (`CODE_REVIEW_EXEMPTIONS.md`
+EX-002 for the UPDATEs).
+
+**Retention: indefinite.** No delete path. The R2 objects are under a 4-year bucket lock on
+`evidence/`, and this table is how an operator finds them (`runbooks/legal.md` "Pull the ranking
+evidence for a product").
+
+**Firewalled from ranking.** `apps/api/src/lib/ranking-firewall.spec.ts` forbids every ranking, search,
+sort, listing and home-stats module from naming this table.
+
+**Migration `0123`** is a plain `CREATE TABLE` and two `CREATE INDEX`es. It recreates nothing and cannot
+cascade (`apps/api/src/test/migration-0123.spec.ts`).
+
 ---
 
 ## 10. Future-ready tables
