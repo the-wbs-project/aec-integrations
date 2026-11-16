@@ -12,6 +12,10 @@
  * The last test therefore gives the unclaimed product a logo on the client-side read,
  * through `page.route`, and checks that the page shows it only beside the note. The
  * per-site rule is pinned by the component specs and `logo-or-initial.callers.spec.ts`.
+ *
+ * The vendor page (AECI-1797) has the same two slots: a claimed vendor's logo is the band
+ * hero's mark, and an unclaimed vendor (`autodesk`) shows its logo only at 32px beside the
+ * note. Its own two tests inject the logo the same way.
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
@@ -95,6 +99,70 @@ test.describe('logo rule (AECI-1769)', () => {
     await expect(
       logos.first().locator('xpath=ancestor::aec-logo-or-initial[1]/following-sibling::*[1]'),
     ).toHaveJSProperty('tagName', 'AEC-UNCLAIMED-NOTE');
+  });
+
+  // AECI-1797: the vendor page's band hero. A claimed vendor's logo is the hero mark. An
+  // unclaimed vendor has no large mark, so its logo shows once, at 32px, beside the note.
+  test('an unclaimed vendor logo shows only beside its note, on its own page', async ({
+    page,
+    request,
+  }) => {
+    const VENDOR = 'autodesk';
+    const res = await request.get(`/api/vendors/${VENDOR}`);
+    const vendor = res.ok()
+      ? ((await res.json()) as { claim_status?: string; products: { slug: string }[] })
+      : null;
+    test.skip(
+      vendor?.claim_status !== 'unclaimed' || vendor.products.length === 0,
+      `seed missing: ${VENDOR} unclaimed with a product`,
+    );
+    await page.route('https://logos.e2e.invalid/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    await page.route(`**/api/vendors/${VENDOR}`, async (route) => {
+      const r = await route.fetch();
+      const body = (await r.json()) as Record<string, unknown>;
+      await route.fulfill({ response: r, json: { ...body, logo_url: LOGO } });
+    });
+
+    await page.goto(`/products/${vendor!.products[0].slug}`);
+    const link = page.locator(`aec-hero-band a[href="/vendors/${VENDOR}"]`).first();
+    await untilHydrated(link);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/vendors/${VENDOR}$`));
+
+    await expect(page.getByTestId('vendor-hero-mark')).toHaveCount(0);
+    const logos = page.locator(`img[src="${LOGO}"]`);
+    await expect(logos).toHaveCount(1);
+    await expect(logos).toHaveAttribute('width', '32');
+    await expect(
+      logos.first().locator('xpath=ancestor::aec-logo-or-initial[1]/following-sibling::*[1]'),
+    ).toHaveJSProperty('tagName', 'AEC-UNCLAIMED-NOTE');
+  });
+
+  test('a claimed vendor logo is the hero mark, with no note', async ({ page, request }) => {
+    const VENDOR = 'fixture-procore-technologies';
+    const res = await request.get(`/api/vendors/${VENDOR}`);
+    const vendor = res.ok() ? ((await res.json()) as { claim_status?: string }) : null;
+    test.skip(vendor?.claim_status !== 'claimed', `seed missing: ${VENDOR} claimed`);
+    await page.route('https://logos.e2e.invalid/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    await page.route(`**/api/vendors/${VENDOR}`, async (route) => {
+      const r = await route.fetch();
+      const body = (await r.json()) as Record<string, unknown>;
+      await route.fulfill({ response: r, json: { ...body, logo_url: LOGO } });
+    });
+
+    await page.goto(`/products/${CLAIMED}`);
+    const link = page.locator(`aec-hero-band a[href="/vendors/${VENDOR}"]`).first();
+    await untilHydrated(link);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/vendors/${VENDOR}$`));
+
+    await expect(page.locator(NOTE)).toHaveCount(0);
+    const mark = page.getByTestId('vendor-hero-mark').locator(`img[src="${LOGO}"]`);
+    await expect(mark).toHaveAttribute('width', '104');
   });
 
   test('the pair page shows an unclaimed logo only in its subject slot, beside the note', async ({
