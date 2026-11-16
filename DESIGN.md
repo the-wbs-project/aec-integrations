@@ -827,7 +827,7 @@ Mock-up 11 and Chris's rulings of 2026-11-16 (`records/11-vendor-and-pair-notes.
 - **Facts card.** One `aecCard` with three cells: the Bone "At a glance" cell (Products as the figure at `--t-fig`, Integrations as an inline pair), Company facts, then Actions. From `md` the stat and facts cells sit side by side with Actions under both. From `xl` there are three columns, `0.8fr 2fr 0.9fr`, and the facts run in two columns. A vendor with no company facts has two cells, side by side from `md`. Cells are separated by a default hairline. The licence note sits under the card on the Bone ground.
 - **One Bone band.** The facts ground is the page's one Bone band (ruling 12). The body band is white, and the mailing list is `ground="white"`.
 - **No section nav** (ruling 13). The page has two sections.
-- **Products.** The table stays (ruling 4), with the heading in the Section role and the caption "A to Z by name." under it, the order the API returns (`toVendorDetail`). The empty state keeps its sentence and shows no caption. The table header still reads "Rating". Ruling 5 renames it "Overall". The browse header rework (AECI-1793) does that rename, so this page leaves its own header text alone to avoid a conflict.
+- **Products.** The table stays (ruling 4), with the heading in the Section role and the caption "A to Z by name." under it, the order the API returns (`toVendorDetail`). The empty state keeps its sentence and shows no caption. The rating column reads "Overall" (ruling 5), as on the browse lists, with the same message id.
 
 #### Hero glow, no blur, no noise (clash 13)
 

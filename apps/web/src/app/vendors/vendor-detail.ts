@@ -449,9 +449,10 @@ const COMPANY_FACT_FIELDS = [
               </p>
             } @else {
               <!-- A real table mirroring the integrations rows on the product page, so the
-                   vendor's portfolio aligns into scannable columns. Rating collapses at md
-                   (matching ProductCard and the browse tables). Four columns: product,
-                   rating, integrations, and the row link. On the band shell the body is the
+                   vendor's portfolio aligns into scannable columns. Overall, the rating
+                   column, collapses at md (matching ProductCard and the browse tables). It
+                   reads "Overall" as on the browse lists (ruling 5, 2026-11-16). Four
+                   columns: product, overall rating, integrations, and the row link. On the band shell the body is the
                    full page wrap at every width, so the 34rem minimum has room from md. -->
               <div class="overflow-x-auto">
                 <table
@@ -474,9 +475,9 @@ const COMPANY_FACT_FIELDS = [
                       <th
                         scope="col"
                         class="hidden px-4 py-3 text-end font-semibold md:table-cell"
-                        i18n="@@vendors.detail.body.products.col.rating"
+                        i18n="@@products.detail.reviews.item.overall"
                       >
-                        Rating
+                        Overall
                       </th>
                       <th
                         scope="col"
