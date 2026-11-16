@@ -100,7 +100,10 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
       ),
     );
     expect(links.size).toBe(rows);
-    expect(html).toContain('hidden="until-found"');
+    // A group longer than its 6-card peek keeps its rest in the HTML, hidden until found.
+    // A list whose every group fits its peek (13 rows in groups of 6 or fewer) has none.
+    const showMore = html.includes('data-testid="integration-category-group-toggle"');
+    expect(html.includes('hidden="until-found"')).toBe(showMore);
     expect(html).toContain('data-testid="integrations-rail"');
   });
 
