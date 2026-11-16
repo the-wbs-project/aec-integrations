@@ -1010,7 +1010,7 @@ Two pages are not bound here because their mock-ups are not approved: the home p
 **Departures ruled under R5 (clash 45, 2026-11-14).** The new integrations list departs from five shipped patterns. Chris, by Slack: "A" (AECI-1736). Each kept departure becomes the rule for every page with that pattern. Planning that change on the other pages is not done in this file. Each page's code issue does it. Who adopts what, and when:
 
 - **The product page's integrations list adopts all three kept departures now** (AECI-1782 and AECI-1783).
-- **The vendor page and the pair page with integrations are built** (AECI-1797, AECI-1798). On the pair page its mechanism cards are the shared card, its lanes are nested Forest-soft panels that sit side by side from `lg` when there are two or more, its At a glance strip is a nested Bone fill with no border, and its Sources trigger is a 44px info-icon button.
+- **The vendor page and the pair page with integrations are built** (AECI-1797, AECI-1798). On the pair page the mechanism cards are the shared card, the lanes are nested Forest-soft panels that sit side by side from `lg` when there are two or more, the At a glance strip is a nested Bone fill with no border, and the Sources trigger is a 44px info-icon button.
 - **`/products`, `/search` and the taxonomy browse pages keep the facet panel and the pagination footer** until the browse mock-up (AECI-1790) is approved.
 - **The List filter's heading-row placement and the Disclosure group card still govern** every integrations section that has not adopted the departures: the vendor page, the pair page with integrations, and the connector products' two sections (AECI-1778).
 
