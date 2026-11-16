@@ -219,7 +219,9 @@ test.describe('product detail — table names and section-nav location (AECI-831
     page,
   }) => {
     await page.goto(`/products/${SLUG}`);
-    const lists = page.locator('aec-product-integration-cards ul');
+    const lists = page.locator(
+      'aec-product-integration-cards > ul[data-testid="integration-cards"]',
+    );
     await expect(lists.first()).toBeAttached();
     for (const list of await lists.all()) {
       await expect(list).toHaveAccessibleName(/\S/);
