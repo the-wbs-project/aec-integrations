@@ -1,16 +1,27 @@
+import { isPlatformBrowser } from '@angular/common';
 import { httpResource } from '@angular/common/http';
-import { type Signal, computed, inject, linkedSignal } from '@angular/core';
+import {
+  PLATFORM_ID,
+  type Signal,
+  TransferState,
+  computed,
+  inject,
+  linkedSignal,
+  makeStateKey,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, type ParamMap, Router } from '@angular/router';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
 import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
+import { apiStateKey } from '../../core/server-api-interceptor';
 
 import {
   DEFAULT_PER_PAGE,
   type PaginatedIndexRequestConfig,
   buildIndexParams,
+  indexRequestLine,
   parseIndexPage,
 } from './paginated-index-request';
 
@@ -160,6 +171,23 @@ function parsePage(raw: string | null): number {
   return parseIndexPage(raw);
 }
 
+/**
+ * The listing page the SSR resolver parked in TransferState for this request
+ * line, or `null` when there is none (AECI-1863). Reads without removing it:
+ * `serverApiInterceptor` still answers the resource's request from it and
+ * spends it there.
+ */
+function readSeed<TResponse>(
+  transferState: TransferState,
+  line: string | null,
+): { line: string; body: TResponse } | null {
+  if (line === null) return null;
+  const key = makeStateKey<TResponse>(apiStateKey(line));
+  if (!transferState.hasKey(key)) return null;
+  const body = transferState.get<TResponse | null>(key, null);
+  return body === null ? null : { line, body };
+}
+
 export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown>>(
   config: PaginatedIndexConfig,
 ): PaginatedIndex<TResponse> {
@@ -218,16 +246,51 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // resource cancels any in-flight request and reloads. Params are emitted in a
   // stable order (page, perPage, sort, then passthroughs) so the SSR
   // transfer-cache key stays byte-identical across server and client.
-  const resource = httpResource<TResponse>(() => {
+  const requestParams = computed<Record<string, string | number> | undefined>(() => {
     if (config.enabled && !config.enabled()) return undefined;
-    return {
-      url: config.apiPath,
-      params: buildIndexParams(config, queryParamMap(), {
-        // Append mode advances via the internal `targetPage` signal (URL stays
-        // clean); replace mode reads the page straight from `?page=`.
-        page: mode === 'append' ? targetPage() : parsePage(queryParamMap().get('page')),
-      }),
-    };
+    return buildIndexParams(config, queryParamMap(), {
+      // Append mode advances via the internal `targetPage` signal (URL stays
+      // clean); replace mode reads the page straight from `?page=`.
+      page: mode === 'append' ? targetPage() : parsePage(queryParamMap().get('page')),
+    });
+  });
+  const resource = httpResource<TResponse>(() => {
+    const params = requestParams();
+    return params === undefined ? undefined : { url: config.apiPath, params };
+  });
+
+  // The request line the resource is asking for now, or `null` while disabled.
+  // Built the way the resolver builds its TransferState key.
+  const requestLine = computed<string | null>(() => {
+    const params = requestParams();
+    return params === undefined ? null : indexRequestLine(config, params);
+  });
+
+  // AECI-1863: the page the server rendered, read synchronously on the first
+  // client render. `httpResource` hands its first value back on a later
+  // microtask, even when `serverApiInterceptor` answers from TransferState. So
+  // without this the first client render had no items and took the "Loading
+  // products…" branch, and hydration tore the server's grid and footer out of
+  // the DOM and put them back about 10ms later. The seed is the same payload
+  // the interceptor is about to serve, so the first client render matches the
+  // server render. Read only, never removed: the interceptor still spends it.
+  const seed = isPlatformBrowser(inject(PLATFORM_ID))
+    ? readSeed<TResponse>(inject(TransferState), requestLine())
+    : null;
+
+  // True only while the resource is still fetching the seeded request line for
+  // the first time. Any change of request line ends it for good, so a later
+  // reload of the same filters dims and shows its busy state as before.
+  const seedActive = linkedSignal<string | null, boolean>({
+    source: requestLine,
+    computation: (line, previous) => previous == null && seed != null && line === seed.line,
+  });
+  const loading = computed<boolean>(() => resource.isLoading() && !seedActive());
+
+  // The resource's value, or the seed while the resource is still fetching it.
+  const current = computed<TResponse | undefined>(() => {
+    if (resource.hasValue()) return resource.value();
+    return seedActive() && seed != null ? seed.body : undefined;
   });
 
   // Out-of-band error pushed by `setError()`. A `linkedSignal` keyed on the
@@ -246,7 +309,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // the prior retained value so loading never clears the rows. First load still
   // shows the loading branch because `retained` is `null` until the first value.
   const retained = linkedSignal<TResponse | undefined, TResponse | null>({
-    source: () => (resource.hasValue() ? resource.value() : undefined),
+    source: () => current(),
     computation: (current, previous) => current ?? previous?.value ?? null,
   });
 
@@ -257,7 +320,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   const data = computed<TResponse | null>(() =>
     overrideError() != null || resource.error() ? null : retained(),
   );
-  const pending = computed<boolean>(() => resource.isLoading());
+  const pending = computed<boolean>(() => loading());
   const error = computed<unknown>(() => overrideError() ?? resource.error() ?? null);
   const sort = computed<string>(() => parseSort(queryParamMap().get('sort')));
   const params = computed<Record<string, string>>(() => {
@@ -283,7 +346,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   const pages = linkedSignal<{ key: string; value: TResponse | undefined }, TResponse[]>({
     source: () => ({
       key: resetKey(),
-      value: resource.hasValue() ? resource.value() : undefined,
+      value: current(),
     }),
     computation: (source, previous) => {
       const value = source.value;
@@ -310,7 +373,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     { flat: TResponse['data']; loading: boolean },
     TResponse['data']
   >({
-    source: () => ({ flat: pagesFlat(), loading: resource.isLoading() }),
+    source: () => ({ flat: pagesFlat(), loading: loading() }),
     computation: (source, previous) => {
       if (source.flat.length > 0) return source.flat;
       if (source.loading) return previous?.value ?? ([] as unknown as TResponse['data']);
@@ -336,7 +399,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // Append-mode dim signal: true only while a RESET refetch (sort/filter change,
   // which restarts at page 1) is in flight — NOT while appending a later page.
   // Lets the page dim on reset but keep the accumulated rows bright as it grows.
-  const reloading = computed<boolean>(() => resource.isLoading() && targetPage() <= 1);
+  const reloading = computed<boolean>(() => loading() && targetPage() <= 1);
 
   return {
     data,
@@ -352,7 +415,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     hasMore,
     reloading,
     loadMore(): void {
-      if (resource.isLoading() || !hasMore()) return;
+      if (loading() || !hasMore()) return;
       // Advance from the highest BUFFERED page, not the last ATTEMPTED one — no
       // router navigation, so the page number never enters the URL. If a prior
       // fetch failed, `targetPage` is already one past the buffer; a blind
