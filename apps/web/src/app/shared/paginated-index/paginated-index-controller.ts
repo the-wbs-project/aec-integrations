@@ -1,6 +1,7 @@
 import { isPlatformBrowser } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import {
+  DestroyRef,
   PLATFORM_ID,
   type Signal,
   TransferState,
@@ -8,15 +9,23 @@ import {
   inject,
   linkedSignal,
   makeStateKey,
+  untracked,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, type ParamMap, Router } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationStart, type ParamMap, Router } from '@angular/router';
+import { filter } from 'rxjs';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
 import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
 import { apiStateKey } from '../../core/server-api-interceptor';
 
+import {
+  HistoryTraversal,
+  ListingHistoryStore,
+  listingHistoryKey,
+  listingPath,
+} from './listing-history-store';
 import {
   DEFAULT_PER_PAGE,
   type PaginatedIndexRequestConfig,
@@ -171,6 +180,12 @@ function parsePage(raw: string | null): number {
   return parseIndexPage(raw);
 }
 
+/** Pages read back from `ListingHistoryStore` for one request line (AECI-1900). */
+interface Restored<TResponse> {
+  line: string;
+  pages: TResponse[];
+}
+
 /**
  * The listing page the SSR resolver parked in TransferState for this request
  * line, or `null` when there is none (AECI-1863). Reads without removing it:
@@ -194,9 +209,31 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   const route = inject(ActivatedRoute);
   const router = inject(Router);
   const meta = inject(MetaService);
+  const isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   const perPage = config.perPage ?? DEFAULT_PER_PAGE;
   const passthroughParams = config.passthroughParams ?? [];
+  const mode = config.mode ?? 'replace';
+
+  // AECI-1900: the rows a Back or Forward lands on. Browser and append mode only:
+  // the server has no history, and replace mode has no "Load more" pages to lose.
+  const history = isBrowser && mode === 'append' ? inject(ListingHistoryStore) : null;
+  const traversal = history ? inject(HistoryTraversal) : null;
+  if (history) {
+    // Save as the reader leaves each history entry. A filter, sort or view change
+    // on this page pushes a new entry and keeps this component, so leaving an
+    // entry is a `NavigationStart`, not only a teardown. At that moment every
+    // signal below still describes the entry being left.
+    router.events
+      .pipe(
+        filter((e) => e instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => saveForHistory());
+    // And at teardown, registered before `toSignal` and `httpResource` so it runs
+    // before their own, while every signal still reads its live value.
+    inject(DestroyRef).onDestroy(() => saveForHistory());
+  }
 
   const parseSort = (raw: string | null): string =>
     raw && config.validSorts.has(raw) ? raw : config.defaultSort;
@@ -206,8 +243,6 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // Active query params as a signal. Emits synchronously on subscribe (the
   // router seeds the current value), so `requireSync` holds.
   const queryParamMap = toSignal(route.queryParamMap, { requireSync: true });
-
-  const mode = config.mode ?? 'replace';
 
   // Everything that must WIPE the append buffer when it changes: sort + the
   // non-`page` filters (baseParams + passthrough). NOT `page` — advancing the
@@ -254,16 +289,43 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       page: mode === 'append' ? targetPage() : parsePage(queryParamMap().get('page')),
     });
   });
-  const resource = httpResource<TResponse>(() => {
-    const params = requestParams();
-    return params === undefined ? undefined : { url: config.apiPath, params };
-  });
-
   // The request line the resource is asking for now, or `null` while disabled.
   // Built the way the resolver builds its TransferState key.
   const requestLine = computed<string | null>(() => {
     const params = requestParams();
     return params === undefined ? null : indexRequestLine(config, params);
+  });
+
+  // AECI-1900: on Back or Forward, the pages this listing showed when the reader
+  // left that history entry, so the render is as tall as that page was and the
+  // router's own scroll restoration can reach the saved position. Only a history
+  // traversal reads the store; a fresh navigation to the same URL fetches.
+  //
+  // Read twice over. When the listing is built, inside the navigation. And on
+  // each later change of request line, because a Back or Forward between two
+  // filter or sort states on this page reuses this component: the query changes
+  // and nothing is rebuilt. A change with no Back behind it ("Load more", a
+  // filter click) finds nothing and fetches as before.
+  const initialRestore = readRestored(requestLine());
+  const restored = linkedSignal<string | null, Restored<TResponse> | null>({
+    source: requestLine,
+    computation: (line, previous) => {
+      if (previous == null) return initialRestore?.line === line ? initialRestore : null;
+      return untracked(() => readRestored(line));
+    },
+  });
+
+  // True while restored pages stand in for the request. The resource asks for
+  // nothing meanwhile: the rows on screen stay exactly the ones the reader
+  // left, with no refetch that could dim the grid or swap rows under them. Any
+  // other change of request line ends it, and the resource fetches as on any
+  // other visit.
+  const restoreActive = computed<boolean>(() => restored() !== null);
+
+  const resource = httpResource<TResponse>(() => {
+    const params = requestParams();
+    if (params === undefined || restoreActive()) return undefined;
+    return { url: config.apiPath, params };
   });
 
   // AECI-1863: the page the server rendered, read synchronously on the first
@@ -274,9 +336,11 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // the DOM and put them back about 10ms later. The seed is the same payload
   // the interceptor is about to serve, so the first client render matches the
   // server render. Read only, never removed: the interceptor still spends it.
-  const seed = isPlatformBrowser(inject(PLATFORM_ID))
-    ? readSeed<TResponse>(inject(TransferState), requestLine())
-    : null;
+  // A restored listing has its rows already and never takes the seed.
+  const seed =
+    isBrowser && initialRestore == null
+      ? readSeed<TResponse>(inject(TransferState), requestLine())
+      : null;
 
   // True only while the resource is still fetching the seeded request line for
   // the first time. Any change of request line ends it for good, so a later
@@ -343,10 +407,14 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // `linkedSignal` (no `effect`) so it folds correctly during SSR too: read in
   // the template on the server, it computes `[page1]` from the SSR-resolved
   // resource value. Resets to the fresh first page whenever `resetKey` changes.
-  const pages = linkedSignal<{ key: string; value: TResponse | undefined }, TResponse[]>({
+  const pages = linkedSignal<
+    { key: string; value: TResponse | undefined; restored: Restored<TResponse> | null },
+    TResponse[]
+  >({
     source: () => ({
       key: resetKey(),
       value: current(),
+      restored: restored(),
     }),
     computation: (source, previous) => {
       const value = source.value;
@@ -354,7 +422,10 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       // keep the signal well-defined so reads from either mode are safe).
       if (mode !== 'append') return value ? [value] : (previous?.value ?? []);
       const isReset = previous != null && previous.source.key !== source.key;
-      const prior = isReset ? [] : (previous?.value ?? []);
+      // The first evaluation, and every reset, starts from the restored pages
+      // when a Back or Forward brought the reader here (AECI-1900), so the
+      // render already has every page the reader saw on that history entry.
+      const prior = previous == null || isReset ? (source.restored?.pages ?? []) : previous.value;
       if (!value) return prior; // reload in flight — keep what we have
       if (prior.some((p) => p.page === value.page)) return prior; // dedupe (hydration double-resolve)
       return [...prior, value].sort((a, b) => a.page - b.page);
@@ -400,6 +471,47 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // which restarts at page 1) is in flight — NOT while appending a later page.
   // Lets the page dim on reset but keep the accumulated rows bright as it grows.
   const reloading = computed<boolean>(() => loading() && targetPage() <= 1);
+
+  // --- History restore (AECI-1900) -------------------------------------------
+
+  /** The store entry for this request line on a Back/Forward, or `null`. */
+  function readRestored(line: string | null): Restored<TResponse> | null {
+    if (!history || !traversal?.isTraversal()) return null;
+    if (line === null) return null;
+    // The history entry this Back/Forward returns to, so two visits to one URL
+    // never share an entry.
+    const pages = history.read<TResponse>(
+      listingHistoryKey(listingPath(route.snapshot), line),
+      traversal.restoredEntryId(),
+    );
+    return pages === null ? null : { line, pages: [...pages] };
+  }
+
+  /**
+   * Store the pages on screen as the reader leaves this history entry, keyed by
+   * the request line of the first page in the buffer and the entry on screen.
+   * That line is the one a Back to this entry builds first (`?page=` seeds
+   * `targetPage`, a reset starts at 1), and that entry is the one it returns
+   * to, so the two meet.
+   */
+  function saveForHistory(): void {
+    if (!history || (config.enabled && !config.enabled())) return;
+    const loaded = pages();
+    const first = loaded[0];
+    if (first === undefined) return;
+    const line = indexRequestLine(
+      config,
+      buildIndexParams(config, queryParamMap(), { page: first.page }),
+    );
+    // The entry on screen may carry a new id after a Back or Forward. Its old
+    // id's entries are dead, so they stop holding slots of the bound.
+    history.retire(traversal?.retiredEntryId() ?? null);
+    history.write(
+      listingHistoryKey(listingPath(route.snapshot), line),
+      traversal?.currentEntryId() ?? null,
+      loaded,
+    );
+  }
 
   return {
     data,
