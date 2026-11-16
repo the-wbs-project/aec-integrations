@@ -6,6 +6,7 @@ import {
   SearchController,
   type UiState,
 } from './search-controller';
+import { compareFacetValues } from './search-facet-order';
 import { emptyFilters, type SearchFilters } from './search-url-state';
 import type { AlgoliaPublicConfig } from './algolia-config';
 
@@ -257,12 +258,12 @@ describe('SearchController wiring', () => {
     expect(calls.range.map((c) => c.params['attribute'])).toEqual(['founded_year']);
   });
 
-  it('leaves every refinement list on the connector default (no sortBy)', () => {
+  it('orders every refinement list by compareFacetValues (count, then compareText)', () => {
     const { calls } = build();
-    // Only phases is reordered, and that happens post-render via orderFacetItems
-    // — no facet passes a sortBy to the connector.
+    // The connector default with a case-folded name tie-break (AECI-825). Phases
+    // are re-sorted again post-render via orderFacetItems.
     for (const c of calls.refinementList) {
-      expect(c.params['sortBy']).toBeUndefined();
+      expect(c.params['sortBy']).toBe(compareFacetValues);
     }
   });
 
