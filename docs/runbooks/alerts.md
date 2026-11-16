@@ -1795,6 +1795,7 @@ routine. Five means something the API waits on has stalled. The web Worker only 
 | What you see | Meaning | Next step |
 |---|---|---|
 | D1 span is long, `sql_duration_ms` is small, `total_attempts` is above 1 | D1 routing or retries | Send the window and request ids to Cloudflare support |
+| D1 spans are long, `sql_duration_ms` is small, 1 attempt, and they all finish in the same millisecond | The request could not reach the database's Durable Object. Platform side, not our code | Record it in History. Send it to Cloudflare support only if it recurs more often or runs past a minute |
 | D1 spans are long and share one `served_by_region` | One replica is stuck | Consider pinning those reads to the primary |
 | D1 spans are short, another span is long | The cause is not D1 | The span names the call |
 | No span covers the wait | The Worker itself stalled | Check the platform and placement. The API is pinned to `aws:us-east-1` |
@@ -1814,6 +1815,26 @@ D1 call completed during the 37 s. API isolates in IAD and SIN both stalled, so 
 path, not one isolate. No deploy since 2026-11-09 and no matching status incident. Three web visitors
 gave up and cancelled. Closest to row 1 of the table, but with no retries. Sent to Cloudflare support
 (case 02428986, AECI-1686).
+
+Cloudflare's answer (2026-11-13). D1 runs on Durable Objects. A request must reach the database's active
+Durable Object before any SQL runs. The requests stalled at that step. When it cleared, the queued
+requests ran together, each in under 8 ms. The 2026-11-03 and 2026-10-28 windows show the same pattern,
+but Cloudflare could not name what started any of them. They found no sign that `withSession()`, the
+disabled read replication or the placement setting caused it or made it more likely. Their suggestions
+were to enable read replication and to retry idempotent work with backoff. D1 already retries read-only
+queries twice on a retryable error. Retries do not help this shape, because no call failed. Read
+replicas could, because a read sent to a replica does not wait on the primary's Durable Object.
+Replication was turned off when the prod API was placed in `aws:us-east-1` (AECI-839), because the
+Worker then sits next to the primary and replicas added no latency win.
+Cloudflare's follow-up (2026-11-16). The stall was in the connection path to the primary's Durable
+Object, not in SQL. D1 creates a replica in every region, including the primary's region, so a Worker
+in `aws:us-east-1` would read from an ENAM replica. The primary can also serve reads, so not every read
+avoids it. The D1 binding has no timeout or AbortSignal. A `Promise.race` bounds our wait but does not
+cancel the query, and a write that loses the race may still commit. D1 has no metric that shows this
+stall while it happens. Our slow-request alert is the only signal, and Cloudflare asks for a new ticket
+each time it fires. Read replication was turned back on for prod D1 on 2026-11-16, with the placement
+kept. After the next stall, check whether the read spans show `served_by_primary: false`. Writes still
+go to the primary and can still stall.
 
 **2026-11-03 03:31 to 03:34 UTC:** six API requests waited up to 102 s, and the five still open released
 within 300 ms. D1 analytics show zero queries for 03:32 and 03:33, and the slowest query in the window
