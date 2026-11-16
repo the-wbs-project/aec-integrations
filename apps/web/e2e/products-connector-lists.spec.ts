@@ -179,5 +179,15 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
     expect(shown).toBeLessThan(before);
     await expect(rows).toHaveCount(shown);
     expect(await duplicateIds(page)).toEqual([]);
+
+    // "Clear filters" (ruled 2026-11-17): every row back, status empty, focus on the field.
+    const clear = page.getByTestId('powers-filter-clear');
+    await expect(clear).toHaveText('Clear filters');
+    await clear.click();
+    await expect(rows).toHaveCount(before);
+    await expect(search).toHaveValue('');
+    await expect(search).toBeFocused();
+    await expect(clear).toHaveCount(0);
+    await expect(page.locator('#powered-integrations [role=status]').first()).toHaveText('');
   });
 });

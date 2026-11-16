@@ -1,4 +1,4 @@
-import { Component, computed, input, model } from '@angular/core';
+import { Component, ElementRef, computed, input, model, viewChild } from '@angular/core';
 
 /**
  * AECI-841 — the name filter in a product-detail integration section's heading
@@ -59,6 +59,7 @@ import { Component, computed, input, model } from '@angular/core';
     <div class="min-w-0 flex-1 sm:w-96 sm:flex-none">
       <label [for]="inputId()" class="sr-only">{{ label() }}</label>
       <input
+        #field
         [id]="inputId()"
         type="search"
         autocomplete="off"
@@ -101,6 +102,13 @@ export class IntegrationListFilter {
     if (!active) return '';
     return $localize`:@@products.detail.filter.status:Showing ${this.shown()}:SHOWN: of ${this.total()}:TOTAL:`;
   });
+
+  private readonly field = viewChild<ElementRef<HTMLInputElement>>('field');
+
+  /** Moves focus to the search field, for a "Clear filters" button that removes itself. */
+  focusInput(): void {
+    this.field()?.nativeElement.focus();
+  }
 
   protected onInput(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);

@@ -267,6 +267,32 @@ describe('ProductPoweredHub', () => {
       expect(grid().getAttribute('data-columns')).toBe('1');
     });
 
+    it('"Clear filters" shows only while the search is on, restores every row and focuses the field', () => {
+      const { fixture, el } = setup([...NINE, 'Sage 300 CRE']);
+      const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;
+      const clear = () =>
+        el.querySelector<HTMLButtonElement>('[data-testid="powers-filter-clear"]');
+      const status = () => el.querySelector('[role="status"]')!.textContent!.trim();
+      expect(clear()).toBeNull();
+
+      type(fixture, filterInput(el)!, 'sage');
+      expect(rows(el)).toBe(1);
+      expect(status()).toBe('Showing 1 of 10');
+      const button = clear()!;
+      expect(button.textContent!.trim()).toBe('Clear filters');
+      // The Integrations panel's place: the panel's top row, beside "Filters".
+      expect(button.parentElement!.querySelector('#powers-filters-title')).not.toBeNull();
+      expect(panel.contains(button)).toBe(true);
+
+      button.click();
+      fixture.detectChanges();
+      expect(filterInput(el)!.value).toBe('');
+      expect(rows(el)).toBe(10);
+      expect(status()).toBe('');
+      expect(clear()).toBeNull();
+      expect(document.activeElement).toBe(filterInput(el));
+    });
+
     it('puts the filter in a "Filters" panel under the heading', () => {
       const { el } = setup(NINE);
       const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;

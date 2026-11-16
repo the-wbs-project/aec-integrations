@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, input, signal, viewChild } from '@angular/core';
 
 import type {
   ContextDirection,
@@ -984,12 +984,20 @@ export class ProductIntegrationsSection {
     this.dataObjects.update((current) => toggleFacetValue(current, slug));
   }
 
-  /** "Clear filters": every facet and the query, back to the whole section. */
+  /** The panel's search field, so "Clear filters" can hand focus back to it. */
+  private readonly filterField = viewChild(IntegrationListFilter);
+
+  /**
+   * "Clear filters": every facet and the query, back to the whole section. The button
+   * goes with the filter, so focus moves to the search field rather than falling to
+   * the page body (AECI-1788, the same hand-off as "Integrations it powers").
+   */
   protected clearFilters(): void {
     this.query.set('');
     this.directions.set([]);
     this.categories.set([]);
     this.dataObjects.set([]);
+    this.filterField()?.focusInput();
   }
 
   /**

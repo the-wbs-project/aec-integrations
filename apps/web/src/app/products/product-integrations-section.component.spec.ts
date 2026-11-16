@@ -508,6 +508,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(filterInput(el)!.value).toBe('');
     expect(el.querySelectorAll('aec-chip button[aria-pressed="true"]')).toHaveLength(0);
     expect(clear()).toBeNull();
+    // The button removed itself, so focus moved to the search field (AECI-1788).
+    expect(document.activeElement).toBe(filterInput(el));
   });
 
   it('renders no direction or category group when no row has one', () => {

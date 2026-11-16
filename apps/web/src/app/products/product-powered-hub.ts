@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, input, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
@@ -119,25 +119,38 @@ import { Chip } from '../shared/chip/chip';
       {{ heading() }}
     </h2>
 
-    <!-- AECI-1788: the filter sits in a panel under the heading, the same sunken panel
-         and the same field as the Integrations section's (AECI-1782), so the two
-         sections on a hybrid or connector page read alike. It holds the name filter
-         only: this list has no chips and no Cards or Table choice to offer, so the
-         label and the field share the panel's one row, as the label and the toggles
-         do in the Integrations panel. Below sm the field drops under the label. -->
+    <!-- AECI-1788: the filter sits in a panel under the heading, laid out as the
+         Integrations section's panel is (AECI-1782): "Filters" and "Clear filters" on
+         the top row, the field under them. This list has no chips and no Cards or
+         Table choice, so the field is the panel's only control. "Clear filters" shows
+         while the search is on (ruled 2026-11-17, one behaviour per pattern). -->
     @if (showFilter()) {
       <div
         role="group"
         aria-labelledby="powers-filters-title"
-        class="flex flex-wrap items-center justify-between gap-3 rounded-panel bg-(--surface-sunken) p-4 md:p-6"
+        class="space-y-4 rounded-panel bg-(--surface-sunken) p-4 md:p-6"
         data-testid="powers-filter-panel"
       >
-        <span
-          id="powers-filters-title"
-          class="aec-overline text-(--text-primary)"
-          i18n="@@listing.filters.title"
-          >Filters</span
-        >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <span
+            id="powers-filters-title"
+            class="aec-overline text-(--text-primary)"
+            i18n="@@listing.filters.title"
+            >Filters</span
+          >
+          @if (filterActive()) {
+            <button
+              type="button"
+              class="inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              (click)="clearFilters()"
+              data-testid="powers-filter-clear"
+              i18n="@@listing.filters.clear"
+            >
+              Clear filters
+            </button>
+          }
+        </div>
+
         <aec-integration-list-filter
           inputId="powers-filter"
           i18n-label="@@products.detail.body.powers.filter.label"
@@ -416,6 +429,23 @@ export class ProductPoweredHub {
    * keystroke for HTML that does not vary with it.
    */
   protected readonly query = signal('');
+
+  /** The panel's search field, so "Clear filters" can hand focus back to it. */
+  private readonly filter = viewChild(IntegrationListFilter);
+
+  /** The search is on: "Clear filters" shows, as on the Integrations panel. */
+  protected readonly filterActive = computed(() => isFilterActive(this.query()));
+
+  /**
+   * "Clear filters" (ruled 2026-11-17): the query back to empty, so every row and
+   * every card the reader had not closed comes back, and the "Showing n of m" status
+   * empties. The button goes with the filter, so focus moves to the search field
+   * rather than falling to the page body.
+   */
+  protected clearFilters(): void {
+    this.query.set('');
+    this.filter()?.focusInput();
+  }
 
   /** Card keys the reader has closed. Hub slug, or `powers-other`. */
   private readonly collapsed = signal<ReadonlySet<string>>(new Set<string>());
