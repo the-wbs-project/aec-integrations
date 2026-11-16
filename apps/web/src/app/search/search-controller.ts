@@ -222,6 +222,125 @@ export interface SortByRenderState {
   refine(value: string): void;
 }
 
+/**
+ * The hits each loaded page holds, by page number from 0. The shape of
+ * InstantSearch's infinite-hits cache (`connectInfiniteHits` `cache` option).
+ */
+export type HitsPages = Readonly<Record<number, readonly unknown[]>>;
+
+/**
+ * What one tab showed when the reader left a `/search` history entry: every
+ * loaded page, the counts, the sort and every facet's rows (AECI-1900 for
+ * `/search`). In memory only; see `search-history.ts`.
+ */
+export interface IndexSnapshot {
+  readonly pages: HitsPages;
+  readonly nbHits: number;
+  readonly hasMore: boolean;
+  readonly sortBy: string;
+  readonly sortOptions: readonly SortOption[];
+  readonly refinementLists: Readonly<Record<string, readonly RefinementItem[]>>;
+  readonly numericMenus: Readonly<Record<string, readonly NumericMenuItem[]>>;
+  readonly ranges: Readonly<
+    Record<
+      string,
+      {
+        readonly bounds: { min?: number; max?: number };
+        readonly start: readonly [number | undefined, number | undefined];
+      }
+    >
+  >;
+}
+
+/** Both tabs of `/search` as the reader left them, and the query they answer. */
+export interface SearchSnapshot {
+  readonly query: string;
+  readonly products: IndexSnapshot;
+  readonly vendors: IndexSnapshot;
+}
+
+/** Every loaded hit, page 0 first. Pages are contiguous from 0. */
+export function flattenPages(pages: HitsPages): unknown[] {
+  const out: unknown[] = [];
+  for (let page = 0; pages[page] !== undefined; page++) out.push(...pages[page]!);
+  return out;
+}
+
+/**
+ * The infinite-hits cache, in memory (AECI-1900 for `/search`).
+ *
+ * The same rule as InstantSearch's default in-memory cache: it holds the pages
+ * of one search, and a search that differs in anything but the page reads as a
+ * miss. Kept here, not in the default, so the pages can be read for a Back and
+ * handed back on the restore. InstantSearch also offers a sessionStorage cache.
+ * It is not used: the store must never be persisted.
+ *
+ * A seeded cache holds the pages a restore starts with. Until the first answer
+ * renders it hands them to every read, and that answer binds them to the
+ * search it answers (`bind`). The init render cannot bind them: it reads the
+ * index's own state, which lacks the query the root adds to every search, so
+ * every later read would miss. The page seeds the cache only when the restored
+ * instance starts on exactly the URL state the pages were saved under, so the
+ * first answer is the search they belong to. From then on "Load more" asks for
+ * the page after the last one held, so it continues with no hit twice and none
+ * missing.
+ */
+class HitsCache {
+  private state: unknown = null;
+  private hits: Record<number, unknown[]> = {};
+  private seed: Record<number, unknown[]> | null;
+  private lastRead: unknown = null;
+
+  constructor(seed?: HitsPages) {
+    this.seed = seed ? ({ ...seed } as Record<number, unknown[]>) : null;
+  }
+
+  readonly read = ({ state }: { state: unknown }): Record<number, unknown[]> | null => {
+    const without = withoutPage(state);
+    if (this.seed) {
+      this.lastRead = without;
+      return this.seed;
+    }
+    return this.state !== null && sameState(this.state, without) ? this.hits : null;
+  };
+
+  /** Bind seeded pages to the search last read: the one the first answer is for. */
+  bind(): void {
+    if (!this.seed || this.lastRead === null) return;
+    this.state = this.lastRead;
+    this.hits = this.seed;
+    this.seed = null;
+  }
+
+  readonly write = ({ state, hits }: { state: unknown; hits: Record<number, unknown[]> }) => {
+    this.seed = null;
+    this.state = withoutPage(state);
+    this.hits = hits;
+  };
+
+  /** The pages held (the seeded ones until an answer binds them), or `null` before any. */
+  pages(): HitsPages | null {
+    if (this.seed) return { ...this.seed };
+    return this.state === null ? null : { ...this.hits };
+  }
+}
+
+function withoutPage(state: unknown): Record<string, unknown> {
+  const { page: _page, ...rest } = (state ?? {}) as Record<string, unknown>;
+  return rest;
+}
+
+/** Structural equality, as InstantSearch's own cache compares states. */
+function sameState(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => key in right && sameState(left[key], right[key]));
+}
+
 type Renderer<S> = (state: S, isFirstRender: boolean) => void;
 type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (params: P) => IsWidget;
 
@@ -428,7 +547,7 @@ export class SearchController {
    * skeletons on this so it reserves space until results actually settle
    * (AECI-228).
    */
-  readonly ready = signal(false);
+  readonly ready: WritableSignal<boolean>;
 
   readonly products: IndexView<AlgoliaProductRecord>;
   readonly vendors: IndexView<AlgoliaVendorRecord>;
@@ -445,6 +564,13 @@ export class SearchController {
   private readonly onFiltersChange: (filters: SearchFilters) => void;
   /** The filters last seen or applied, to tell a filter change from any other. */
   private lastFilters: SearchFilters;
+  /** True when started from a snapshot of a history entry (Back or Forward). */
+  private readonly restored: boolean;
+  /** Each tab's snapshot builder, for `snapshot()`. */
+  private readonly indexSnapshots: Record<'products' | 'vendors', () => IndexSnapshot | null> = {
+    products: () => null,
+    vendors: () => null,
+  };
 
   constructor(
     private readonly lib: InstantSearchLib,
@@ -471,8 +597,22 @@ export class SearchController {
       initialFilters?: SearchFilters;
       onFiltersChange?: (filters: SearchFilters) => void;
     } = {},
+    /**
+     * What both tabs showed when the reader left this history entry, on a Back
+     * or Forward (AECI-1900 for `/search`). The page passes it only when the URL
+     * still matches the state it was saved under, with `initialQuery`,
+     * `initialSort` and the filters set to that state. The signals start from
+     * it, so the rows on screen stay, and the infinite-hits cache starts with
+     * its pages, so "Load more" continues after them. The first search then
+     * asks Algolia for the same thing a fresh visit asks for, once, with the
+     * query already in it.
+     */
+    restore: SearchSnapshot | null = null,
   ) {
+    this.restored = restore !== null && restore.query === initialQuery;
+    const seed = this.restored ? restore : null;
     this.query = signal(initialQuery);
+    this.ready = signal(seed !== null);
     this.onFiltersChange = urlState.onFiltersChange ?? (() => undefined);
     // Start from the URL's filters (or none), so the first keystroke, which
     // also changes the UI state, is not mistaken for a filter change.
@@ -488,14 +628,19 @@ export class SearchController {
       initialSort.products ?? defaultSortIndex(config.indexes.products, 'products');
     const vendorsStart = initialSort.vendors ?? defaultSortIndex(config.indexes.vendors, 'vendors');
     const initial = urlState.initialFilters;
+    // A restore puts the query in the first search (the root index's UI state,
+    // id ''), so that search answers it. A fresh visit keeps today's order: an
+    // empty search first, then the seeded query (see `start()`).
+    const rootQuery: UiState = seed && initialQuery ? { '': { query: initialQuery } } : {};
     this.search = lib.instantsearch({
       searchClient,
       future: { preserveSharedStateOnUnmount: true },
-      ...(initial
+      ...(initial || seed
         ? {
             initialUiState: {
-              products: { ...initial.products },
-              vendors: { ...initial.vendors },
+              ...rootQuery,
+              products: { ...initial?.products },
+              vendors: { ...initial?.vendors },
             },
           }
         : {}),
@@ -531,6 +676,7 @@ export class SearchController {
       'products',
       config.indexes.products,
       productsStart,
+      seed?.products,
     );
     const vendorsHost = lib.index({ indexName: vendorsStart, indexId: 'vendors' });
     this.vendors = this.wireIndex<AlgoliaVendorRecord>(
@@ -538,6 +684,7 @@ export class SearchController {
       'vendors',
       config.indexes.vendors,
       vendorsStart,
+      seed?.vendors,
     );
 
     // Root gets: the shared searchBox + the two sibling index widgets.
@@ -561,8 +708,28 @@ export class SearchController {
     this.started = true;
     this.search.start();
     // Seed `?q=` after start so the first (empty or seeded) search runs with it.
+    // A restore already started with it, so seeding it again would search twice.
     const initial = this.query();
-    if (initial) this.setQuery(initial);
+    if (initial && !this.restored) this.setQuery(initial);
+  }
+
+  /** The filters the search is on now (the UI state's, not the helper's). */
+  currentFilters(): SearchFilters {
+    return this.lastFilters;
+  }
+
+  /**
+   * Both tabs as they are on screen, for a later Back or Forward to this
+   * history entry, or `null` when they are not settled: before the first
+   * answer, after a failure, while a search is stalled, or when a tab's rows
+   * are not exactly its cached pages.
+   */
+  snapshot(): SearchSnapshot | null {
+    if (!this.ready() || this.error() || this.stalled()) return null;
+    const products = this.indexSnapshots.products();
+    const vendors = this.indexSnapshots.vendors();
+    if (!products || !vendors) return null;
+    return { query: this.query(), products, vendors };
   }
 
   /**
@@ -686,13 +853,22 @@ export class SearchController {
     baseIndexName: string,
     /** The replica this widget starts on. */
     initialSortIndex: string,
+    /** What this tab showed, on a Back or Forward (AECI-1900 for `/search`). */
+    seed?: IndexSnapshot,
   ): IndexView<T> {
     const { lib } = this;
     const facets = FACET_CONFIG[entity];
 
-    const hits = signal<T[]>([]);
-    const nbHits = signal(0);
-    const hasMore = signal(false);
+    // On a restore the signals start from the snapshot, and each connector's
+    // init render is skipped. That render fires synchronously on `start()`,
+    // before any answer, with no hits and no facet values. Taken, it would blank
+    // the rows the reader came back to. The first answer then updates the
+    // signals in place: the rows themselves stay the cached pages.
+    const keep = (isFirstRender: boolean) => this.restored && isFirstRender;
+    const cache = new HitsCache(seed?.pages);
+    const hits = signal<T[]>(seed ? (flattenPages(seed.pages) as T[]) : []);
+    const nbHits = signal(seed?.nbHits ?? 0);
+    const hasMore = signal(seed?.hasMore ?? false);
     const loadingMore = signal(false);
     let showMore: (() => void) | null = null;
     let lastResults: unknown;
@@ -714,9 +890,11 @@ export class SearchController {
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
       lib.connectInfiniteHits((state, isFirstRender) => {
+        showMore = state.showMore;
+        if (keep(isFirstRender)) return;
+        if (state.results) cache.bind();
         hits.set(state.items as T[]);
         hasMore.set(!state.isLastPage);
-        showMore = state.showMore;
         // A new results object means a search landed, which ends an error.
         if (state.results && state.results !== lastResults) this.error.set(false);
         lastResults = state.results;
@@ -736,8 +914,9 @@ export class SearchController {
         // render made the footer's pending phase invisible, and its scroll
         // observer never re-armed after the first append.
         if (state.results !== resultsAtLoad) loadingMore.set(false);
-      })({}),
+      })({ cache }),
       lib.connectStats((state, isFirstRender) => {
+        if (keep(isFirstRender)) return;
         nbHits.set(state.nbHits);
         // Like `connectHits` above, the init render (isFirstRender) fires
         // synchronously on start() before any network, so it is skipped; every
@@ -758,18 +937,19 @@ export class SearchController {
     ];
 
     const refinementLists: RefinementListView[] = facets.refinementLists.map((attribute) => {
-      const items = signal<RefinementItem[]>([]);
-      const canRefine = signal(false);
+      const items = signal<RefinementItem[]>([...(seed?.refinementLists[attribute] ?? [])]);
+      const canRefine = signal(items().length > 0);
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
-        lib.connectRefinementList((state) => {
+        lib.connectRefinementList((state, isFirstRender) => {
+          refineFn = state.refine;
+          if (keep(isFirstRender)) return;
           // AECI-1899: a checked value stays on screen even when the response
           // omits its whole facet, so the reader can uncheck it.
           const checked = this.lastFilters[entity].refinementList[attribute] ?? [];
           const shown = withCheckedValues(state.items, checked);
           items.set(orderFacetItems(attribute, shown));
           canRefine.set(state.canRefine || shown.length > 0);
-          refineFn = state.refine;
         })({
           attribute,
           limit: REFINEMENT_LIST_LIMIT,
@@ -787,12 +967,13 @@ export class SearchController {
     });
 
     const numericMenus: NumericMenuView[] = facets.numericMenus.map(({ attribute, items: cfg }) => {
-      const items = signal<NumericMenuItem[]>([]);
+      const items = signal<NumericMenuItem[]>([...(seed?.numericMenus[attribute] ?? [])]);
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
-        lib.connectNumericMenu((state) => {
-          items.set([...state.items]);
+        lib.connectNumericMenu((state, isFirstRender) => {
           refineFn = state.refine;
+          if (keep(isFirstRender)) return;
+          items.set([...state.items]);
         })({ attribute, items: cfg }),
       );
       return {
@@ -803,16 +984,20 @@ export class SearchController {
     });
 
     const ranges: RangeView[] = facets.ranges.map((attribute) => {
-      const bounds = signal<{ min?: number; max?: number }>({});
-      const start = signal<[number | undefined, number | undefined]>([undefined, undefined]);
+      const restoredRange = seed?.ranges[attribute];
+      const bounds = signal<{ min?: number; max?: number }>({ ...restoredRange?.bounds });
+      const start = signal<[number | undefined, number | undefined]>(
+        restoredRange ? [restoredRange.start[0], restoredRange.start[1]] : [undefined, undefined],
+      );
       const canRefine = signal(false);
       let refineFn: ((values: [number | undefined, number | undefined]) => void) | null = null;
       widgets.push(
-        lib.connectRange((state) => {
+        lib.connectRange((state, isFirstRender) => {
+          refineFn = state.refine;
+          if (keep(isFirstRender)) return;
           bounds.set(state.range);
           start.set([state.start[0], state.start[1]]);
           canRefine.set(state.canRefine);
-          refineFn = state.refine;
         })({ attribute }),
       );
       return {
@@ -825,6 +1010,28 @@ export class SearchController {
     });
 
     host.addWidgets(widgets);
+
+    this.indexSnapshots[entity] = () => {
+      const pages = cache.pages();
+      // Only rows that are exactly the cached pages, so a restore that seeds the
+      // cache with them shows the same rows and "Load more" asks for the next.
+      if (pages === null || flattenPages(pages).length !== hits().length) return null;
+      const byAttribute = <V>(list: readonly { attribute: string }[], read: (i: number) => V) =>
+        Object.fromEntries(list.map((entry, i) => [entry.attribute, read(i)]));
+      return {
+        pages,
+        nbHits: nbHits(),
+        hasMore: hasMore(),
+        sortBy: sortBy(),
+        sortOptions,
+        refinementLists: byAttribute(refinementLists, (i) => refinementLists[i]!.items()),
+        numericMenus: byAttribute(numericMenus, (i) => numericMenus[i]!.items()),
+        ranges: byAttribute(ranges, (i) => ({
+          bounds: ranges[i]!.bounds(),
+          start: ranges[i]!.start(),
+        })),
+      };
+    };
 
     return {
       entity,

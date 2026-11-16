@@ -34,7 +34,7 @@
  * mirrors it. It offers the `/products` sorts with the same default, and no
  * Relevance (2026-10-26).
  */
-import { NgTemplateOutlet } from '@angular/common';
+import { isPlatformBrowser, NgTemplateOutlet } from '@angular/common';
 import {
   afterNextRender,
   Component,
@@ -43,6 +43,7 @@ import {
   inject,
   LOCALE_ID,
   type OnDestroy,
+  PLATFORM_ID,
   signal,
   viewChildren,
 } from '@angular/core';
@@ -51,6 +52,7 @@ import {
   ActivatedRoute,
   NavigationEnd,
   NavigationStart,
+  type ParamMap,
   Router,
   RouterLink,
 } from '@angular/router';
@@ -81,11 +83,23 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { readAlgoliaConfig } from './algolia-config';
 import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
-import { type IndexView, SearchController } from './search-controller';
+import { type IndexView, SearchController, type SearchSnapshot } from './search-controller';
+import {
+  restoredSearchView,
+  type RestoredSearchView,
+  SearchHistoryStore,
+  searchHistoryKey,
+  type SearchView,
+} from './search-history';
 import { COUNT_ORDERED_FACETS } from './search-facet-order';
 import { SearchProductCard } from './search-product-card';
 import { SearchVendorCard } from './search-vendor-card';
-import { filtersFromParams, filtersToParams, type SearchFilters } from './search-url-state';
+import {
+  filtersFromParams,
+  filtersToParams,
+  sameFilters,
+  type SearchFilters,
+} from './search-url-state';
 import { SearchVendorRow } from './search-vendor-row';
 import { SearchNumericMenu } from './widgets/search-numeric-menu';
 import { SearchRangeInput } from './widgets/search-range-input';
@@ -95,6 +109,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
 import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
 import { FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
 import { AecIcon } from '../shared/icon/icon';
+import { HistoryTraversal } from '../shared/paginated-index/listing-history-store';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -331,7 +346,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                  on /products. min-h reserves it before the controller mounts so
                  the grid does not jump when the sort control appears. -->
             <div class="flex min-h-11 flex-wrap items-center justify-between gap-3">
-              @if (controller(); as ctrl) {
+              @if (view(); as ctrl) {
                 <aec-listing-sort-select
                   [options]="sortUiOptions()"
                   [value]="ctrl[activeTab()].sortBy()"
@@ -348,7 +363,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             </div>
 
             <div>
-              @if (controller(); as ctrl) {
+              @if (view(); as ctrl) {
                 <p class="sr-only" role="status" aria-live="polite">
                   {{ resultsStatus() }}
                 </p>
@@ -613,9 +628,6 @@ export class SearchPage implements OnDestroy {
   /** Seeded once from `?q=` for the SSR `[value]` and the controller's first query. */
   private readonly initialQuery = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
 
-  /** Seeded once from `?sort=` (a sort token, applied to the initial active tab). */
-  private readonly initialSortToken = this.route.snapshot.queryParamMap.get('sort')?.trim() ?? '';
-
   /**
    * Buffers keystrokes typed before the controller mounts. The search SDK loads
    * asynchronously (`afterNextRender` → dynamic `import()`), so for a beat after
@@ -626,6 +638,31 @@ export class SearchPage implements OnDestroy {
   private readonly pendingQuery = signal(this.initialQuery);
 
   protected readonly controller = signal<SearchController | null>(null);
+
+  // On a Back or Forward, what this history entry showed when the reader left
+  // it (AECI-1900, applied to /search). Browser only: the server has no
+  // history and never touches the store.
+  private readonly history = isPlatformBrowser(inject(PLATFORM_ID))
+    ? inject(SearchHistoryStore)
+    : null;
+  private readonly traversal = this.history ? inject(HistoryTraversal) : null;
+  /** The key the snapshot was read under, and the snapshot, until the controller takes over. */
+  private readonly restoreKey = searchHistoryKey(this.route.snapshot.queryParamMap);
+  private restoreSnapshot: SearchSnapshot | null = this.readRestored();
+  private restored: RestoredSearchView | null = this.restoreSnapshot
+    ? restoredSearchView(this.restoreSnapshot)
+    : null;
+  private readonly restoredView = signal<SearchView | null>(this.restored?.view ?? null);
+
+  /**
+   * What the template draws: the controller once it is running, and before
+   * that, on a Back or Forward, the rows the reader left. So the first frame of
+   * a Back is as tall as the page they left, and the router's own restoration
+   * reaches their place.
+   */
+  protected readonly view = computed<SearchView | null>(
+    () => this.controller() ?? this.restoredView(),
+  );
   /** True once we know the public Algolia config is absent (browser-only). */
   protected readonly degraded = signal(false);
   protected readonly activeTab = signal<EntityTab>(this.initialTab());
@@ -638,7 +675,7 @@ export class SearchPage implements OnDestroy {
 
   /** The active tab's facet views (same shape across entities). */
   protected readonly currentFacets = computed(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return ctrl ? ctrl[this.activeTab()] : null;
   });
 
@@ -650,7 +687,7 @@ export class SearchPage implements OnDestroy {
    * (AECI-228).
    */
   protected readonly showSkeleton = computed(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return !ctrl || !ctrl.ready();
   });
 
@@ -667,7 +704,7 @@ export class SearchPage implements OnDestroy {
    * both, so a filter left on the hidden tab can still be cleared from here.
    */
   protected readonly anyFilterCount = computed(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return ctrl ? countFilters(ctrl.products) + countFilters(ctrl.vendors) : 0;
   });
 
@@ -720,7 +757,7 @@ export class SearchPage implements OnDestroy {
 
   /** Products hits in the `/products` table row's shape, for the table view. */
   protected readonly productRows = computed<ProductRow[]>(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return ctrl ? ctrl.products.hits().map(toProductRow) : [];
   });
 
@@ -730,7 +767,7 @@ export class SearchPage implements OnDestroy {
    * loaded cards stay bright and only the footer shows a spinner.
    */
   protected readonly resetting = computed(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return !!ctrl && ctrl.stalled() && !ctrl[this.activeTab()].loadingMore();
   });
 
@@ -740,7 +777,7 @@ export class SearchPage implements OnDestroy {
   protected readonly skeletonFacetRows = [0, 1, 2, 3];
 
   protected readonly resultsStatus = computed(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     // Silent until the current query's answer lands, like `countFor`, so a
     // screen reader is not told the empty query's count first.
     if (!ctrl?.ready()) return '';
@@ -751,7 +788,7 @@ export class SearchPage implements OnDestroy {
   /** The active tab's sort options, with the `key` token mapped to a localized
    *  label, for the sort control (AECI-175). Empty until the controller mounts. */
   protected readonly sortUiOptions = computed<readonly ListingSortOption[]>(() => {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     if (!ctrl) return [];
     return ctrl[this.activeTab()].sortOptions.map((option) => ({
       value: option.value,
@@ -769,8 +806,12 @@ export class SearchPage implements OnDestroy {
     // and a debounced `?q=` write must never pull the box back mid-typing.
     let popstate = false;
     this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
-      if (event instanceof NavigationStart) popstate = event.navigationTrigger === 'popstate';
-      else if (event instanceof NavigationEnd && popstate) {
+      if (event instanceof NavigationStart) {
+        // Keep what is on screen for a later Back or Forward to the entry being
+        // left. At `NavigationStart` the route still describes that entry.
+        this.saveForHistory();
+        popstate = event.navigationTrigger === 'popstate';
+      } else if (event instanceof NavigationEnd && popstate) {
         popstate = false;
         this.restoreFromUrl();
       }
@@ -786,19 +827,31 @@ export class SearchPage implements OnDestroy {
       void this.engineFactory(config)
         .then(({ lib, searchClient }) => {
           if (this.destroyed) return;
+          // Take over from the restored rows only when the URL is still the one
+          // they were saved under. Started on that exact state, with the cache
+          // holding their pages, the controller draws the same rows.
+          const params = this.route.snapshot.queryParamMap;
+          const restore =
+            searchHistoryKey(params) === this.restoreKey ? this.restoreSnapshot : null;
           const controller = new SearchController(
             lib,
             searchClient,
             config,
             this.initialQuery,
-            this.initialSort(config),
+            restore
+              ? { products: restore.products.sortBy, vendors: restore.vendors.sortBy }
+              : this.initialSort(config),
             (event) => this.analytics.searchPerformed(event),
             {
-              initialFilters: filtersFromParams(this.route.snapshot.queryParamMap),
+              initialFilters: filtersFromParams(params),
               onFiltersChange: (filters) => this.writeFilters(filters),
             },
+            restore,
           );
           controller.start();
+          // Clicks made on the restored rows while the code loaded.
+          if (restore) this.restored?.replay(controller);
+          this.dropRestore();
           // Replay anything typed while the SDK was loading. `onQueryInput`
           // buffered it in `pendingQuery` because there was no controller yet.
           // Replay BEFORE exposing the controller signal so `inputValue` reads
@@ -816,6 +869,7 @@ export class SearchPage implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.saveForHistory();
     this.destroyed = true;
     if (this.urlSyncTimer) clearTimeout(this.urlSyncTimer);
     this.controller()?.dispose();
@@ -866,7 +920,7 @@ export class SearchPage implements OnDestroy {
    * into one search.
    */
   protected clearFilters(): void {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     if (!ctrl) return;
     for (const view of [ctrl.products, ctrl.vendors]) {
       for (const rl of view.refinementLists) {
@@ -884,7 +938,7 @@ export class SearchPage implements OnDestroy {
 
   /** Apply a sort to the active tab and mirror it to `?sort=` (AECI-175). */
   protected onSortChange(indexName: string): void {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     if (!ctrl) return;
     const view = ctrl[this.activeTab()];
     view.refineSort(indexName);
@@ -902,7 +956,7 @@ export class SearchPage implements OnDestroy {
 
   /** The active sort token for a tab (a `REPLICA_SORTS` token). */
   private currentSortToken(tab: EntityTab): string {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     if (!ctrl) return defaultSortToken(tab);
     const view = ctrl[tab];
     return (
@@ -941,7 +995,9 @@ export class SearchPage implements OnDestroy {
    */
   private initialSort(config: AlgoliaPublicConfig): Partial<Record<EntityTab, string>> {
     const tab = this.activeTab();
-    const token = this.initialSortToken;
+    // The URL as the controller starts, which is the URL the page opened on
+    // unless a restored sort click already moved it (AECI-1900 for /search).
+    const token = this.route.snapshot.queryParamMap.get('sort')?.trim() ?? '';
     if (!token) return {};
     const replica = sortReplicasFor(tab).find((sort) => sort.sort === token);
     if (!replica) return {};
@@ -980,7 +1036,7 @@ export class SearchPage implements OnDestroy {
    * showed "Products 344" before "Products 106" (AECI-1796).
    */
   protected countFor(tab: EntityTab): number | null {
-    const ctrl = this.controller();
+    const ctrl = this.view();
     return ctrl?.ready() ? ctrl[tab].nbHits() : null;
   }
 
@@ -1048,7 +1104,12 @@ export class SearchPage implements OnDestroy {
     const tab: EntityTab = params.get('tab') === 'vendors' ? 'vendors' : 'products';
     this.activeTab.set(tab);
     const ctrl = this.controller();
-    if (!ctrl) return;
+    if (!ctrl) {
+      // The search code is still loading and the URL moved on: the restored
+      // rows answer another entry. The controller starts on this one.
+      this.dropRestore();
+      return;
+    }
     const q = params.get('q')?.trim() ?? '';
     if (q !== ctrl.query()) ctrl.setQuery(q);
     const view = ctrl[tab];
@@ -1057,6 +1118,55 @@ export class SearchPage implements OnDestroy {
     const target = view.sortOptions.find((option) => option.key === token) ?? view.sortOptions[0];
     if (target && target.value !== view.sortBy()) view.refineSort(target.value);
     ctrl.setFilters(filtersFromParams(params));
+  }
+
+  /** The snapshot this history entry left, on a Back or Forward, or `null`. */
+  private readRestored(): SearchSnapshot | null {
+    const traversal = this.traversal;
+    if (!this.history || !traversal?.isTraversal()) return null;
+    const snapshot = this.history.read(this.restoreKey, traversal.restoredEntryId());
+    return snapshot?.query === this.initialQuery ? snapshot : null;
+  }
+
+  private dropRestore(): void {
+    this.restoreSnapshot = null;
+    this.restored = null;
+    this.restoredView.set(null);
+  }
+
+  /**
+   * Store what is on screen under the history entry being left. Only a state
+   * that matches the URL exactly is stored, because a Back builds the page from
+   * the URL and looks it up by that: typing not yet in `?q=`, or a tab, sort or
+   * filter change already applied but not yet in the URL, stores nothing.
+   * Before the controller takes over, the restored snapshot is what is on
+   * screen, so it is stored again under the entry's current id.
+   */
+  private saveForHistory(): void {
+    if (!this.history) return;
+    const params = this.route.snapshot.queryParamMap;
+    const snapshot = this.controller() ? this.settledSnapshot(params) : this.restoreSnapshot;
+    if (!snapshot) return;
+    const traversal = this.traversal;
+    // A Back or Forward gave this entry a new id; entries under the old one are dead.
+    this.history.retire(traversal?.retiredEntryId() ?? null);
+    this.history.write(searchHistoryKey(params), traversal?.currentEntryId() ?? null, snapshot);
+  }
+
+  /** The controller's snapshot when it shows exactly the state in `params`. */
+  private settledSnapshot(params: ParamMap): SearchSnapshot | null {
+    const ctrl = this.controller();
+    const snapshot = ctrl?.snapshot() ?? null;
+    if (!ctrl || !snapshot) return null;
+    const tab: EntityTab = params.get('tab') === 'vendors' ? 'vendors' : 'products';
+    if (tab !== this.activeTab()) return null;
+    if (ctrl.query() !== (params.get('q')?.trim() ?? '')) return null;
+    const view = ctrl[tab];
+    const token = params.get('sort');
+    const sort = view.sortOptions.find((option) => option.key === token) ?? view.sortOptions[0];
+    if (sort && sort.value !== view.sortBy()) return null;
+    if (!sameFilters(ctrl.currentFilters(), filtersFromParams(params))) return null;
+    return snapshot;
   }
 
   private initialTab(): EntityTab {

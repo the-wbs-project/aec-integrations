@@ -10,8 +10,10 @@ import type { Page } from '@playwright/test';
  *
  * The answer follows Algolia where the specs depend on it: `facetFilters` (OR
  * inside a group, AND across groups), the query as a case-folded substring of
- * the name, `page` and `hitsPerPage`, and a facet with no matching value is
- * left out of `facets` entirely. Every sort replica returns the same order.
+ * the name, `numericFilters`, `page` and `hitsPerPage`, and a facet with no
+ * matching value is left out of `facets` entirely. The header autocomplete
+ * gets no suggestions, so Enter in the header box submits the typed query.
+ * Every sort replica returns the same order.
  */
 
 export interface FakeProduct {
@@ -89,6 +91,9 @@ interface QueryParams {
   hitsPerPage: number;
   facets: string[];
   facetFilters: (string | string[])[];
+  numericFilters: (string | string[])[];
+  /** Set only by the header autocomplete, which this fake answers with nothing. */
+  autocomplete: boolean;
 }
 
 /** One Algolia query, from either request shape the clients send. */
@@ -117,6 +122,10 @@ function readQuery(raw: Record<string, unknown>): QueryParams {
     facetFilters: Array.isArray(merged['facetFilters'])
       ? (merged['facetFilters'] as (string | string[])[])
       : [],
+    numericFilters: Array.isArray(merged['numericFilters'])
+      ? (merged['numericFilters'] as (string | string[])[])
+      : [],
+    autocomplete: merged['attributesToRetrieve'] !== undefined,
   };
 }
 
@@ -126,6 +135,27 @@ function matchesFilter(record: SearchRecord, filter: string): boolean {
   const value = filter.slice(at + 1);
   const field = record[attribute];
   return Array.isArray(field) ? field.includes(value) : String(field) === value;
+}
+
+function matchesNumeric(record: SearchRecord, filter: string): boolean {
+  const m = /^\s*([\w.]+)\s*(>=|<=|!=|=|>|<)\s*(-?[\d.]+)\s*$/.exec(filter);
+  if (!m) return true;
+  const field = Number(record[m[1]!]);
+  const n = Number(m[3]);
+  switch (m[2]) {
+    case '>=':
+      return field >= n;
+    case '<=':
+      return field <= n;
+    case '>':
+      return field > n;
+    case '<':
+      return field < n;
+    case '!=':
+      return field !== n;
+    default:
+      return field === n;
+  }
 }
 
 /** Algolia's answer for one query against the fixed catalogue. */
@@ -142,6 +172,9 @@ export function answer(raw: Record<string, unknown>): Record<string, unknown> {
       String(record[nameKey]).toLowerCase().includes(text) &&
       q.facetFilters.every((group) =>
         (Array.isArray(group) ? group : [group]).some((f) => matchesFilter(record, f)),
+      ) &&
+      q.numericFilters.every((group) =>
+        (Array.isArray(group) ? group : [group]).some((f) => matchesNumeric(record, f)),
       ),
   );
 
@@ -161,7 +194,8 @@ export function answer(raw: Record<string, unknown>): Record<string, unknown> {
   }
 
   const start = q.page * q.hitsPerPage;
-  const hits = q.hitsPerPage > 0 ? matched.slice(start, start + q.hitsPerPage) : [];
+  const hits =
+    q.hitsPerPage > 0 && !q.autocomplete ? matched.slice(start, start + q.hitsPerPage) : [];
   return {
     index: q.indexName,
     hits,
