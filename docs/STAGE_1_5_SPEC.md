@@ -679,7 +679,7 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 - The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
 - Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
 
-**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (owned by AECI-1822, which is not merged yet). The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
+**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (AECI-1822, merged), and since AECI-1827 each side's captions and `under_review`. The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 

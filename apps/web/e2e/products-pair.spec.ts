@@ -296,3 +296,92 @@ test.describe('breadcrumb on the pair and product pages (AECI-1777)', () => {
     await expect(items.nth(2).locator('[aria-current="page"]')).toBeVisible();
   });
 });
+
+/**
+ * AECI-1827: the empty pair page (`STAGE_1_5_SPEC.md` §11.4). It finds two catalog
+ * products with no integration, no evidenced pair and no move between them, so it needs
+ * no seed. The legal review (item 1) puts the caveat wherever the statement appears, the
+ * title and description included.
+ */
+async function findEmptyPair(
+  request: import('@playwright/test').APIRequestContext,
+): Promise<{ context: string; other: string } | null> {
+  const res = await request.get('/api/products?perPage=24');
+  if (!res.ok()) return null;
+  const slugs = ((await res.json()) as { data?: { slug: string }[] }).data?.map((p) => p.slug);
+  for (const context of slugs ?? []) {
+    for (const other of slugs ?? []) {
+      if (context >= other) continue;
+      const pairRes = await request.get(`/api/products/${context}/integrations/${other}`);
+      if (!pairRes.ok()) continue;
+      const pair = (await pairRes.json()) as { mechanisms: unknown[]; moved_to: unknown };
+      if (pair.mechanisms.length === 0 && pair.moved_to === null) return { context, other };
+    }
+  }
+  return null;
+}
+
+const CAVEAT = 'Not on record means we have not found one. It is not proof that none exists.';
+const INTRO =
+  'Linked as each vendor publishes them. What they say about building a connection is theirs, not ours.';
+
+/** The HTML entities a meta attribute may carry for these strings. */
+const decode = (value: string) => value.replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
+  test('is a 200 with noindex, no JSON-LD, and the caveat in the title and description', async ({
+    request,
+  }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    const res = await request.get(`/products/${pair!.context}/integrations/${pair!.other}`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    expect(html).not.toContain('application/ld+json');
+    const title = decode(html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '');
+    expect(title).toContain(CAVEAT);
+    for (const name of ['description', 'twitter:description', 'twitter:title']) {
+      const content = html.match(new RegExp(`<meta name="${name}" content="([^"]*)"`))?.[1];
+      expect(decode(content ?? ''), name).toContain(CAVEAT);
+    }
+    for (const property of ['og:title', 'og:description']) {
+      const content = html.match(new RegExp(`<meta property="${property}" content="([^"]*)"`))?.[1];
+      expect(decode(content ?? ''), property).toContain(CAVEAT);
+    }
+  });
+
+  test('server-renders the four legal-reviewed strings with JavaScript off', async ({
+    browser,
+    request,
+  }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    await expect(page.getByTestId('pair-empty-status')).toHaveText('Not on record');
+    await expect(page.locator('h1')).toHaveText(
+      /^\s*We have no integration between .+ and .+ on record\.\s*$/,
+    );
+    await expect(page.getByTestId('pair-empty-caveat')).toHaveText(CAVEAT);
+    await expect(page.getByTestId('pair-empty-look-it-up-intro')).toHaveText(INTRO);
+    await context.close();
+  });
+
+  test('has no axe violations', async ({ page, request }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    const serious = results.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(serious, serious.map((v) => `${v.id}: ${v.help}`).join('\n')).toHaveLength(0);
+  });
+});
