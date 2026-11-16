@@ -245,8 +245,33 @@ export function filterIntegrationLanes(
 }
 
 /** Every row of a lane view, in render order. */
-function allRows(view: IntegrationLaneView): IntegrationLaneRow[] {
+export function allRows(view: IntegrationLaneView): IntegrationLaneRow[] {
   return [...view.direct, ...view.via.flatMap((group) => [...group.rows])];
+}
+
+/** A chip facet whose count leaves its own choices out. */
+export type CountedFacet = 'directions' | 'partnerCategories';
+
+/**
+ * AECI-1783: the rows a chip of one facet counts. Every other filter applies, the
+ * facet's own choices do not, because a row matches ANY chip within a facet. So a
+ * chip's count is how many rows the list shows once that chip is the facet's only
+ * choice, whatever else the reader pressed in the same facet. In render order.
+ */
+export function rowsForFacetCount(
+  view: IntegrationLaneView,
+  filter: IntegrationFilterState,
+  facet: CountedFacet,
+): IntegrationLaneRow[] {
+  return allRows(filterIntegrationLanes(view, { ...filter, [facet]: [] }));
+}
+
+/** How many of `rows` flow in one direction: a direction chip's count. */
+export function countRowsWithDirection(
+  rows: readonly IntegrationLaneRow[],
+  direction: ContextDirection,
+): number {
+  return rows.reduce((total, row) => total + (row.direction === direction ? 1 : 0), 0);
 }
 
 /** Slug order for a tie on name. Slugs are lowercase ASCII, so a code-unit compare is total. */

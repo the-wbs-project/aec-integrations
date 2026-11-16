@@ -16,17 +16,29 @@ import {
   splitIntegrationLanes,
   type ConnectorLaneGroup,
 } from './connector-lane-grouping';
+import { IntegrationArrangementToggle } from './integration-arrangement-toggle';
 import {
+  groupRowsByCategory,
+  isLongIntegrationList,
+  ONE_LIST_PAGE_SIZE,
+  rowsInCategory,
+  type IntegrationArrangement,
+} from './integration-category-groups';
+import {
+  countRowsWithDirection,
   directionOptions,
   filterIntegrationLanes,
   isIntegrationFilterActive,
   partnerCategoryOptions,
+  rowsForFacetCount,
   toggleFacetValue,
   type IntegrationFilterState,
 } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
 import { ProductIntegrationCards } from './product-integration-cards';
+import { ProductIntegrationGroups } from './product-integration-groups';
+import { ProductIntegrationOneList } from './product-integration-one-list';
 import { ProductIntegrationsTable } from './product-integrations-table';
 
 /**
@@ -96,6 +108,16 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * state (R1). The order is the lane order below, unchanged: R1 keeps existing
  * orders, and the direct lane is already A to Z by partner name with the id last.
  *
+ * ── LONG LISTS (AECI-1783) ───────────────────────────────────────────────────────
+ * A single-lane section of 13 rows or more groups by partner category, with a jump
+ * rail and a "Show more" per group (ruling R3 decision 20, ruling R5). The reader can
+ * switch it to one list, 12 at a time. The server always renders the grouped
+ * arrangement, and every row is in its HTML. The grouping rules, the counts and the
+ * cuts live in `integration-category-groups.ts`; this component only wires them. Every
+ * filter chip prints how many rows it would show, and a category chip's number is the
+ * same `rowsInCategory` count the rail and the group heading print. A shorter list, a
+ * page with a Via lane and the table view render as they did before.
+ *
  * ── SINGLE-LANE PAGES ────────────────────────────────────────────────────────────
  * A product with no connector-delivered edges — the overwhelming majority —
  * still renders exactly one unheaded list, named by the section `<h2>`. §13.3
@@ -123,11 +145,14 @@ import { ProductIntegrationsTable } from './product-integrations-table';
   selector: 'section[aec-product-integrations-section]',
   imports: [
     Chip,
+    IntegrationArrangementToggle,
     IntegrationGroupCard,
     IntegrationListFilter,
     ListingViewToggle,
     NgTemplateOutlet,
     ProductIntegrationCards,
+    ProductIntegrationGroups,
+    ProductIntegrationOneList,
     ProductIntegrationsTable,
     RequestTrigger,
   ],
@@ -167,6 +192,12 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 Clear filters
               </button>
             }
+            @if (long() && view() === 'cards') {
+              <aec-integration-arrangement-toggle
+                [arrangement]="arrangement()"
+                (arrangementChange)="arrangement.set($event)"
+              />
+            }
             <aec-listing-view-toggle [view]="view()" (viewChange)="view.set($event)" />
           </div>
         </div>
@@ -201,6 +232,9 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                   choice.glyph
                 }}</span>
                 {{ choice.label }}
+                <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                  choice.count
+                }}</span>
               </aec-chip>
             }
           </div>
@@ -219,9 +253,12 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               >Categories</span
             >
             @for (choice of categoryChoices(); track choice.slug) {
-              <aec-chip [selected]="choice.selected" (activated)="toggleCategory(choice.slug)">{{
-                choice.name
-              }}</aec-chip>
+              <aec-chip [selected]="choice.selected" (activated)="toggleCategory(choice.slug)"
+                >{{ choice.name }}
+                <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                  choice.count
+                }}</span></aec-chip
+              >
             }
           </div>
         }
@@ -260,7 +297,24 @@ import { ProductIntegrationsTable } from './product-integrations-table';
              appears only when there is a second lane to distinguish. -->
       @if (lanes().via.length === 0) {
         @if (filteredLanes().rowCount > 0) {
-          @if (view() === 'cards') {
+          @if (view() === 'cards' && long()) {
+            <!-- AECI-1783: a long list, grouped by default, or one list by choice. -->
+            @if (arrangement() === 'grouped') {
+              <aec-product-integration-groups
+                [groups]="categoryGroups()"
+                [contextSlug]="slug()"
+                [deferLimit]="groupDeferLimit()"
+                [forceOpen]="openAllGroups()"
+              />
+            } @else {
+              <aec-product-integration-one-list
+                [rows]="filteredLanes().direct"
+                [contextSlug]="slug()"
+                i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+                ariaLabel="Integrations"
+              />
+            }
+          } @else if (view() === 'cards') {
             <aec-product-integration-cards
               [above]="laneCut().direct.above"
               [deferred]="laneCut().direct.deferred"
@@ -497,21 +551,72 @@ export class ProductIntegrationsSection {
     return applyDeferCut(view, limit);
   });
 
-  /** Direction chips: only directions some row has, in vocabulary order. */
+  /**
+   * AECI-1783: whether the section is long enough to group. Read from the unfiltered
+   * lanes, so a filter never flips the layout.
+   */
+  protected readonly long = computed(() => isLongIntegrationList(this.lanes()));
+
+  /** "By category" (the default, and what the server renders) or "One list". */
+  protected readonly arrangement = signal<IntegrationArrangement>('grouped');
+
+  /** The rows a direction chip counts: every filter except the direction chips. */
+  private readonly directionCountRows = computed(() =>
+    rowsForFacetCount(this.lanes(), this.filterState(), 'directions'),
+  );
+
+  /**
+   * The rows a category chip counts: every filter except the category chips. The
+   * groups are built from the same rows, so a group heading, its rail link and its
+   * chip print one number.
+   */
+  private readonly categoryCountRows = computed(() =>
+    rowsForFacetCount(this.lanes(), this.filterState(), 'partnerCategories'),
+  );
+
+  /** The long list's groups, A to Z by category name (R1), only the chosen ones when
+   *  the reader pressed category chips. */
+  protected readonly categoryGroups = computed(() =>
+    groupRowsByCategory(this.categoryCountRows(), this.categories()),
+  );
+
+  /** The grouped list's `@defer` budget: the lane cut's, and off under a filter. */
+  protected readonly groupDeferLimit = computed(() =>
+    this.filterActive() ? Number.POSITIVE_INFINITY : INTEGRATIONS_ABOVE_FOLD,
+  );
+
+  /** A filter that leaves one page or less opens every group (mock-up 7). */
+  protected readonly openAllGroups = computed(
+    () => this.filterActive() && this.filteredLanes().rowCount <= ONE_LIST_PAGE_SIZE,
+  );
+
+  /**
+   * Direction chips: only directions some row has, in vocabulary order. Each prints
+   * how many rows it would show with the reader's other filters.
+   */
   protected readonly directionChoices = computed(() => {
     const chosen = this.directions();
+    const rows = this.directionCountRows();
     return directionOptions(this.lanes()).map((token) => {
       const { label, glyph } = contextDirectionLabel(token);
-      return { token, label, glyph, selected: chosen.includes(token) };
+      return {
+        token,
+        label,
+        glyph,
+        selected: chosen.includes(token),
+        count: countRowsWithDirection(rows, token),
+      };
     });
   });
 
   /** Partner-category chips: A to Z by name, slug breaking a tie (ruling R1). */
   protected readonly categoryChoices = computed(() => {
     const chosen = this.categories();
+    const rows = this.categoryCountRows();
     return partnerCategoryOptions(this.lanes()).map((term) => ({
       ...term,
       selected: chosen.includes(term.slug),
+      count: rowsInCategory(rows, term.slug).length,
     }));
   });
 

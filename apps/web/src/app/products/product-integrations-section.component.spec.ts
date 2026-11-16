@@ -250,6 +250,9 @@ describe('ProductIntegrationsSection filter box', () => {
       edge(link('partner-' + String(i).padStart(2, '0'), 'Partner ' + String(i).padStart(2, '0'))),
     );
     const { fixture, el } = setup(many);
+    // AECI-1783: 25 rows group by category in the card view, so the lane cut is
+    // exercised in the table, which keeps it.
+    showTable(fixture, el);
     expect(rowCount(el)).toBe(20);
 
     type(fixture, filterInput(el)!, 'Partner 24');
@@ -455,8 +458,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       [...g.querySelectorAll('button[aria-pressed]')].map((b) =>
         b.textContent!.replace(/\s+/g, ' ').trim(),
       );
-    expect(chips(groups[0]!)).toEqual(['→ Outbound', '← Inbound', '⇄ Both']);
-    expect(chips(groups[1]!)).toEqual(['Accounting', 'Field management']);
+    // AECI-1783: every chip prints how many rows it would show.
+    expect(chips(groups[0]!)).toEqual(['→ Outbound 1', '← Inbound 1', '⇄ Both 1']);
+    expect(chips(groups[1]!)).toEqual(['Accounting 2', 'Field management 2']);
   });
 
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
@@ -514,9 +518,14 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       }),
     );
     const { fixture, el } = setup(many);
+    // AECI-1783: the card view groups 25 rows, so the lane cut is checked in the table.
+    showTable(fixture, el);
     expect(rowCount(el)).toBe(20);
     pressChip(fixture, el, 'Inbound');
-    expect(cardNames(el)).toEqual(['Partner 24']);
+    expect(rowCount(el)).toBe(1);
+    expect(el.querySelector('tr[aec-product-integration-row]')!.textContent).toContain(
+      'Partner 24',
+    );
   });
 });
 
@@ -534,6 +543,169 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
  *  - it must render on the EMPTY branch, which is the page the AECI-889 sweep
  *    creates and the only reason this work exists.
  */
+describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const ACC = { slug: 'accounting', name: 'Accounting' };
+  const SCHED = { slug: 'scheduling', name: 'Scheduling' };
+  const BIM = { slug: 'bim', name: 'BIM' };
+
+  /** `n` partners, A to Z by name; categories cycle, so some rows carry two and some none. */
+  const rows = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const name = `Partner ${String(i).padStart(2, '0')}`;
+      const sets = [[ACC], [SCHED, BIM], [], [BIM], [ACC, SCHED]];
+      return edge(link(`partner-${i}`, name), {
+        context_direction: i % 2 === 0 ? 'outbound' : 'inbound',
+        partner_categories: sets[i % sets.length]!,
+      });
+    });
+
+  const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+  const groups = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLElement>('section[aec-product-integration-category-group]'),
+  ];
+  const railLinks = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLAnchorElement>('[data-testid="integrations-rail-link"]'),
+  ];
+  const categoryChips = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLButtonElement>(
+      '[aria-labelledby="integrations-filter-categories"] button[aria-pressed]',
+    ),
+  ];
+
+  it('a list of 12 renders as before: one list, no rail, no arrangement toggle', () => {
+    const { el } = setup(rows(12));
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('[data-testid="integrations-rail"]')).toBeNull();
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('li[aec-product-integration-card]')).toHaveLength(12);
+  });
+
+  it('a list of 13 groups A to Z by category, with the uncategorised rows last', () => {
+    const { el } = setup(rows(13));
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual([
+      'Accounting',
+      'BIM',
+      'Scheduling',
+      'No category on record',
+    ]);
+    // Rows keep the lane order inside a group, and the cards are h4 under the group h3.
+    const acc = [...groups(el)[0]!.querySelectorAll('li[aec-product-integration-card] h4')];
+    const names = acc.map(text);
+    expect(names).toEqual([...names].sort());
+  });
+
+  it('the rail, the group heading and the chip print the same count for one category', () => {
+    const { fixture, el } = setup(rows(58));
+    const check = () => {
+      for (const group of groups(el)) {
+        const name = text(group.querySelector('h3')!);
+        const heading = text(
+          group.querySelector('[data-testid="integration-category-group-count"] [aria-hidden]')!,
+        );
+        const rail = railLinks(el).find((a) => text(a).startsWith(name))!;
+        const railCount = text(rail.querySelector('[aria-hidden]')!);
+        expect(railCount, name).toBe(heading);
+        const chip = categoryChips(el).find((b) => text(b).startsWith(name));
+        if (chip) {
+          expect(text(chip.querySelector('[data-testid="integrations-chip-count"]')!), name).toBe(
+            heading,
+          );
+        }
+      }
+    };
+    check();
+    pressChip(fixture, el, 'Inbound');
+    check();
+    pressChip(fixture, el, 'Scheduling');
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual(['Scheduling']);
+    check();
+  });
+
+  it('a closed group shows its first three cards; the rest are in the DOM, hidden until found', () => {
+    const { fixture, el } = setup(rows(58));
+    const first = groups(el)[0]!;
+    const cards = [...first.querySelectorAll('li[aec-product-integration-card]')];
+    expect(cards.length).toBeGreaterThan(3);
+    expect(cards.slice(0, 3).every((c) => !c.hasAttribute('hidden'))).toBe(true);
+    expect(cards.slice(3).every((c) => c.getAttribute('hidden') === 'until-found')).toBe(true);
+    // Hidden cards keep their pair-page links in the markup.
+    expect(cards[3]!.querySelector('a[href^="/products/procore/integrations/"]')).not.toBeNull();
+
+    const button = first.querySelector<HTMLButtonElement>(
+      '[data-testid="integration-category-group-toggle"]',
+    )!;
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(text(button.querySelector(':scope > span:not([aria-hidden])')!)).toBe(
+      `Show ${cards.length - 3} more in Accounting`,
+    );
+    // The stack names the first hidden partners, in row order, with no logo above 32px.
+    const stack = [...button.querySelectorAll('aec-logo-or-initial')].map(text);
+    expect(stack).toEqual(
+      cards.slice(3, 8).map((c) => text(c.querySelector('h4')!).charAt(0).toUpperCase()),
+    );
+    button.click();
+    fixture.detectChanges();
+    expect(cards.every((c) => !c.hasAttribute('hidden'))).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(text(button)).toBe('Show fewer');
+  });
+
+  it('find-in-page opening a hidden card opens its group', () => {
+    const { fixture, el } = setup(rows(58));
+    const first = groups(el)[0]!;
+    const hidden = first.querySelector('li[aec-product-integration-card][hidden]')!;
+    hidden.dispatchEvent(new Event('beforematch'));
+    fixture.detectChanges();
+    expect(first.querySelectorAll('li[aec-product-integration-card][hidden]')).toHaveLength(0);
+  });
+
+  it('a rail link targets its group and moves focus to the group heading', async () => {
+    const { fixture, el } = setup(rows(58));
+    document.body.appendChild(el);
+    const link = railLinks(el)[1]!;
+    expect(link.getAttribute('href')).toMatch(/#integrations-cat-bim$/);
+    link.addEventListener('click', (e) => e.preventDefault());
+    link.click();
+    await new Promise((r) => setTimeout(r, 10));
+    fixture.detectChanges();
+    expect(document.activeElement?.id).toBe('integrations-cat-bim-title');
+    el.remove();
+  });
+
+  it('"One list" shows 12 in lane order, and "Load more" adds 12 without fetching', () => {
+    const { fixture, el } = setup(rows(30));
+    [...el.querySelectorAll<HTMLButtonElement>('aec-integration-arrangement-toggle button')]
+      .find((b) => text(b) === 'One list')!
+      .click();
+    fixture.detectChanges();
+    const list = el.querySelector('aec-product-integration-one-list')!;
+    const visible = () =>
+      [...list.querySelectorAll(':scope > ul > li')].filter((li) => !li.hasAttribute('hidden'));
+    expect(visible().map((li) => text(li.querySelector('h3')!))).toEqual(
+      Array.from({ length: 12 }, (_, i) => `Partner ${String(i).padStart(2, '0')}`),
+    );
+    expect(list.querySelectorAll(':scope > ul > li')).toHaveLength(30);
+    expect(text(list.querySelector('[aria-live="polite"]')!)).toBe('Showing 12 of 30');
+    list.querySelector<HTMLButtonElement>('[data-testid="integrations-load-more"]')!.click();
+    fixture.detectChanges();
+    expect(visible()).toHaveLength(24);
+    list.querySelector<HTMLButtonElement>('[data-testid="integrations-load-more"]')!.click();
+    fixture.detectChanges();
+    expect(visible()).toHaveLength(30);
+    expect(list.querySelector('[data-testid="integrations-load-bar"]')).toBeNull();
+  });
+
+  it('the table view stays one flat table on a long list', () => {
+    const { fixture, el } = setup(rows(20));
+    showTable(fixture, el);
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('table')).toHaveLength(1);
+  });
+});
+
 describe('ProductIntegrationsSection reach line (§13.7)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
