@@ -35,7 +35,10 @@ import type { CategoryHubEntry } from './category-hub';
  * mock-up's own pattern for its category jump chips at narrow widths (mock-up 7,
  * `.jump`). That keeps the hero one row taller whatever the count. While the row
  * overflows it takes a tab stop, so a keyboard can scroll it (axe
- * `scrollable-region-focusable`). It drops the stop when everything fits.
+ * `scrollable-region-focusable`). It drops the stop when everything fits. The list is
+ * `relative` so it contains the `sr-only` counts, which are absolutely positioned.
+ * Without that, under reduced motion (no entrance transform) they escaped the row and
+ * the whole page scrolled sideways.
  *
  * The caller renders it only with at least one entry. The zero state is the facts
  * card's ("We have no integrations for {product} on record"), right below the hero.
@@ -54,7 +57,7 @@ import type { CategoryHubEntry } from './category-hub';
     </h2>
     <ul
       #list
-      class="aec-category-hub mt-4 flex gap-2 max-lg:overflow-x-auto max-lg:pb-1 lg:flex-wrap"
+      class="aec-category-hub relative mt-4 flex gap-2 max-lg:overflow-x-auto max-lg:pb-1 lg:flex-wrap"
       role="list"
       aria-labelledby="product-category-hub-title"
       [attr.tabindex]="overflowing() ? 0 : null"

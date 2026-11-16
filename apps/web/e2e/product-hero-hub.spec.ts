@@ -103,6 +103,27 @@ test.describe('product hero category hub (AECI-1787)', () => {
     }
   });
 
+  // Review finding: the worded counts are `sr-only`, so absolutely positioned. Without
+  // the entrance transform (reduced motion) they escaped the scrolling row, and the
+  // whole page scrolled sideways at 390px. The row is now their containing block.
+  test('the page never scrolls sideways at 390px, with or without motion', async ({ browser }) => {
+    for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+      const ctx = await browser.newContext({
+        reducedMotion,
+        viewport: { width: 390, height: 900 },
+      });
+      const page = await ctx.newPage();
+      await page.goto(`/products/${WITH_HUB}`, { waitUntil: 'networkidle' });
+      await expect(page.getByTestId('product-category-hub')).toBeVisible();
+      const [scroll, client] = await page.evaluate(() => [
+        document.documentElement.scrollWidth,
+        document.documentElement.clientWidth,
+      ]);
+      expect(scroll, reducedMotion).toBe(client);
+      await ctx.close();
+    }
+  });
+
   for (const width of [1280, 390]) {
     test(`no layout shift from the hub at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
