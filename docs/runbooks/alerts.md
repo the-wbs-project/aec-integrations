@@ -1826,6 +1826,7 @@ queries twice on a retryable error. Retries do not help this shape, because no c
 replicas could, because a read sent to a replica does not wait on the primary's Durable Object.
 Replication was turned off when the prod API was placed in `aws:us-east-1` (AECI-839), because the
 Worker then sits next to the primary and replicas added no latency win.
+
 Cloudflare's follow-up (2026-11-16). The stall was in the connection path to the primary's Durable
 Object, not in SQL. D1 creates a replica in every region, including the primary's region, so a Worker
 in `aws:us-east-1` would read from an ENAM replica. The primary can also serve reads, so not every read
