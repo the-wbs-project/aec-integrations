@@ -683,20 +683,22 @@ export class SearchPage implements OnDestroy {
    *   or a field, not terms.
    *
    * The Vendors tab has only those buckets, so it shows no caption. Neither
-   * does a Products result with no term groups. Group names are the panel's own
-   * labels, joined for the locale. `search-facet-caption.component.spec.ts`
+   * does a Products result with no term groups. A count group whose only rows
+   * are checked values at 0 is not named either (AECI-1899): the response left
+   * that facet out, so those rows carry no count order to describe. Phases are
+   * still named then, because their rows stay in project order. Group names
+   * are the panel's own labels, joined for the locale. `search-facet-caption.component.spec.ts`
    * runs the real connector and fails if a named group stops being in count
    * order.
    */
   protected readonly orderNote = computed(() => {
     const facets = this.currentFacets();
     if (!facets) return '';
-    const shown = facets.refinementLists
-      .filter((rl) => rl.items().length > 0)
-      .map((rl) => rl.attribute);
+    const shown = facets.refinementLists.filter((rl) => rl.items().length > 0);
     const byCount = shown
-      .filter((attribute) => COUNT_ORDERED_FACETS.includes(attribute))
-      .map((attribute) => this.facetLabel(attribute));
+      .filter((rl) => COUNT_ORDERED_FACETS.includes(rl.attribute))
+      .filter((rl) => rl.items().some((item) => item.count > 0))
+      .map((rl) => this.facetLabel(rl.attribute));
     const sentences: string[] = [];
     if (byCount.length > 0) {
       const groups = new Intl.ListFormat(this.locale, {
@@ -707,7 +709,7 @@ export class SearchPage implements OnDestroy {
         $localize`:@@search.filters.order.byCount:${groups}:GROUPS:: most matching products first.`,
       );
     }
-    if (shown.includes('phases')) {
+    if (shown.some((rl) => rl.attribute === 'phases')) {
       sentences.push($localize`:@@search.filters.order.phases:Phases in project order.`);
     }
     return sentences.join(' ');

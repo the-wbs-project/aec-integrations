@@ -455,6 +455,56 @@ describe('SearchController render-state → signal mapping', () => {
     expect(refine).toHaveBeenCalledWith('PM');
   });
 
+  it('keeps a checked value the response left out, checked at 0 (AECI-1899)', () => {
+    const filters: SearchFilters = {
+      ...emptyFilters(),
+      products: { refinementList: { trades: ['Roofing'] }, numericMenu: {}, range: {} },
+    };
+    const { calls, controller } = build('', {}, filters);
+    const refine = vi.fn();
+    const trades = controller.products.refinementLists.find((rl) => rl.attribute === 'trades')!;
+    const tradesRender = calls.refinementList[controller.products.refinementLists.indexOf(trades)];
+    // The facet is missing from the response: the connector has no items.
+    tradesRender.renderFn({ items: [], canRefine: false, refine }, false);
+    expect(trades.items()).toEqual([
+      { value: 'Roofing', label: 'Roofing', count: 0, isRefined: true },
+    ]);
+    expect(trades.canRefine()).toBe(true);
+    trades.refine('Roofing');
+    expect(refine).toHaveBeenCalledWith('Roofing');
+    // An unchecked group with no values stays empty.
+    const audiences = controller.products.refinementLists.find(
+      (rl) => rl.attribute === 'audiences',
+    )!;
+    calls.refinementList[controller.products.refinementLists.indexOf(audiences)].renderFn(
+      { items: [], canRefine: false, refine },
+      false,
+    );
+    expect(audiences.items()).toEqual([]);
+  });
+
+  it('places an added checked value by compareFacetValues and never duplicates one', () => {
+    const filters: SearchFilters = {
+      ...emptyFilters(),
+      products: {
+        refinementList: { categories: ['AI', 'Zeta'] },
+        numericMenu: {},
+        range: {},
+      },
+    };
+    const { calls, controller } = build('', {}, filters);
+    const items = [
+      { value: 'AI', label: 'AI', count: 4, isRefined: true },
+      { value: 'Scheduling', label: 'Scheduling', count: 9, isRefined: false },
+    ];
+    calls.refinementList[0].renderFn({ items, canRefine: true, refine: vi.fn() }, false);
+    expect(controller.products.refinementLists[0].items().map((i) => i.value)).toEqual([
+      'AI',
+      'Zeta',
+      'Scheduling',
+    ]);
+  });
+
   it('maps range bounds/start and forwards refine (vendors founded_year)', () => {
     const { calls, controller } = build();
     const refine = vi.fn();

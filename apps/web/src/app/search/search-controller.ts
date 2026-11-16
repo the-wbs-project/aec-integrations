@@ -57,7 +57,12 @@ import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/alg
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
-import { compareFacetValues, type FacetSortValue, orderFacetItems } from './search-facet-order';
+import {
+  compareFacetValues,
+  type FacetSortValue,
+  orderFacetItems,
+  withCheckedValues,
+} from './search-facet-order';
 import {
   emptyFilters,
   filtersFromUiState,
@@ -758,8 +763,12 @@ export class SearchController {
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
         lib.connectRefinementList((state) => {
-          items.set(orderFacetItems(attribute, state.items));
-          canRefine.set(state.canRefine);
+          // AECI-1899: a checked value stays on screen even when the response
+          // omits its whole facet, so the reader can uncheck it.
+          const checked = this.lastFilters[entity].refinementList[attribute] ?? [];
+          const shown = withCheckedValues(state.items, checked);
+          items.set(orderFacetItems(attribute, shown));
+          canRefine.set(state.canRefine || shown.length > 0);
           refineFn = state.refine;
         })({
           attribute,

@@ -74,6 +74,39 @@ export const COUNT_ORDERED_FACETS: readonly string[] = [
 ];
 
 /**
+ * The connector's items plus every checked value it left out, each checked at a
+ * count of 0, in `compareFacetValues` order (AECI-1899).
+ *
+ * Why. Algolia leaves a facet out of its response when no record matches it.
+ * The helper adds a checked value back at 0 only when the facet itself is in the
+ * response. So `?trades=Roofing&categories=Accounting%20%26%20ERP`, which
+ * matches nothing, came back with no `trades` facet at all. The Trades group
+ * vanished with Roofing still checked, and the reader could not uncheck it.
+ *
+ * `checked` comes from the UI state (the URL's filters), never from the
+ * helper's own state. The connector's `refine` toggles any value, so a value
+ * added here unchecks like any other. Nothing is added when nothing is missing,
+ * so the connector's list passes through untouched, and a group with no values
+ * and no checked value stays hidden. An added value lands where the helper puts
+ * a checked value at 0: after the checked values with matches.
+ */
+export function withCheckedValues(
+  items: readonly RefinementItem[],
+  checked: readonly string[],
+): readonly RefinementItem[] {
+  const present = new Set(items.map((item) => item.value));
+  const missing = checked.filter((value) => !present.has(value));
+  if (missing.length === 0) return items;
+  const added = missing.map((value) => ({ value, label: value, count: 0, isRefined: true }));
+  const sortValue = (item: RefinementItem): FacetSortValue => ({
+    name: item.value,
+    count: item.count,
+    isRefined: item.isRefined,
+  });
+  return [...items, ...added].sort((a, b) => compareFacetValues(sortValue(a), sortValue(b)));
+}
+
+/**
  * Re-orders rendered facet items for attributes whose intended order isn't a
  * built-in Algolia sort. Today only `phases` (project-lifecycle); all other
  * attributes pass through unchanged. Pure — never mutates the input.
