@@ -53,6 +53,22 @@ async function hydrated(page: Page, path: string, query = ''): Promise<void> {
   );
 }
 
+/**
+ * Waits for every finite animation to finish, so a computed style read is not mid-transition
+ * (first-paint transitions, until AECI-1854). Looping skeleton pulses are ignored.
+ */
+async function animationsSettled(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.getAnimations().filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+            .length,
+      ),
+    )
+    .toBe(0);
+}
+
 /** Records `scrollY` on every frame until `stopSampler`. */
 async function startSampler(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -322,6 +338,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     const nav = page.locator('aec-section-nav');
     const brand = nav.getByTestId('section-nav-brand');
     await expect(brand).toHaveCount(0);
+    await animationsSettled(page);
 
     const surface = await nav.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -371,6 +388,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     expect(Math.round(await navBottom(page))).toBe(73);
 
     // The current item: weight 600, primary ink, a 3px Clay bar. Others stay at 400.
+    await animationsSettled(page);
     const current = nav.locator('a[aria-current="location"]');
     const look = await current.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -395,7 +413,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     const path = await openProduct(page);
     await hydrated(page, path);
     const nav = page.locator('aec-section-nav');
-    const row = nav.locator('ul');
+    const row = nav.locator('.aec-section-nav-row');
 
     await page.evaluate(() =>
       document.getElementById('reviews')!.scrollIntoView({ behavior: 'instant' }),
@@ -423,7 +441,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       .poll(() =>
         current.evaluate((el) => {
           const r = el.getBoundingClientRect();
-          const box = el.closest('ul')!.getBoundingClientRect();
+          const box = el.closest('.aec-section-nav-row')!.getBoundingClientRect();
           return r.left >= box.left - 1 && r.right <= box.right + 1;
         }),
       )
@@ -532,6 +550,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       }
       await expect(page.locator('aec-section-nav')).not.toHaveAttribute('data-stuck', '');
       const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+      test.info().annotations.push({ type: 'cls', description: `${width}px: ${cls}` });
       expect(cls, `layout shift while sticking at ${width}px`).toBeLessThanOrEqual(0.001);
     });
   }
@@ -578,8 +597,10 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
               box.left,
               brand ? brand.getBoundingClientRect().right : box.left,
             );
-            const fadeStart = row.classList.contains('aec-fade-start') ? 40 : 0;
-            const fadeEnd = row.classList.contains('aec-fade-end') ? 40 : 0;
+            // A fade is drawn only when the row's mask is on (it steps aside under focus).
+            const masked = getComputedStyle(row).maskImage !== 'none';
+            const fadeStart = masked && row.classList.contains('aec-fade-start') ? 40 : 0;
+            const fadeEnd = masked && row.classList.contains('aec-fade-end') ? 40 : 0;
             return {
               left: Math.round(r.left - (start + fadeStart)),
               right: Math.round(box.right - fadeEnd - r.right),
@@ -598,6 +619,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     const path = await openProduct(page);
     await hydrated(page, path);
     const aside = page.locator('aec-detail-layout aside');
+    await animationsSettled(page);
     expect(await aside.evaluate((el) => getComputedStyle(el).position)).toBe('static');
 
     await page.setViewportSize({ width: 1280, height: 900 });

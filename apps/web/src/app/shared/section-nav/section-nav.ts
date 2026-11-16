@@ -118,6 +118,7 @@ const FADE_PX = 40;
     '(click)': 'onClick($event)',
     // Delegated too: a link reached by Tab is scrolled fully into the row (see `reveal`).
     '(focusin)': 'onFocusIn($event)',
+    '(focusout)': 'fadesOff.set(false)',
   },
   styles: `
     .aec-section-nav-row {
@@ -151,6 +152,13 @@ const FADE_PX = 40;
         var(--text-primary) calc(100% - ${FADE_PX}px),
         transparent
       );
+    }
+    /* A focused link is never under a fade. On a narrow stuck bar a long label ("Integrations
+       it powers") can be wider than the space between the two fades. While such a link has
+       focus the fades step aside, and the focus ring marks the place. */
+    /* Three classes, so it outranks the two-fade rule above. */
+    .aec-section-nav-row.aec-fade-off:is(.aec-fade-start, .aec-fade-end) {
+      mask-image: none;
     }
     /* Forced colours drop backgrounds; keep the bar as a system colour. */
     @media (forced-colors: active) {
@@ -206,6 +214,7 @@ const FADE_PX = 40;
           class="aec-section-nav-row -ms-3 flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
           [class.aec-fade-start]="fadeStart()"
           [class.aec-fade-end]="fadeEnd()"
+          [class.aec-fade-off]="fadesOff()"
           [style.--aec-row-inset.px]="shift() || null"
         >
           <ul
@@ -300,6 +309,9 @@ export class SectionNav {
     () => this.overflows() && this.rowScroll() < this.maxScroll() - 1,
   );
 
+  /** True while a focused link is too wide to sit clear of both fades. */
+  protected readonly fadesOff = signal(false);
+
   private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
   private readonly track = viewChild.required<ElementRef<HTMLElement>>('track');
   private readonly brand = viewChild<ElementRef<HTMLElement>>('brand');
@@ -331,7 +343,7 @@ export class SectionNav {
     const target = event.target;
     if (!(target instanceof Element)) return;
     const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
-    if (id) this.reveal(id);
+    if (id) this.fadesOff.set(this.reveal(id));
   }
 
   /**
@@ -342,34 +354,45 @@ export class SectionNav {
    * in-page jump or a router navigation is in flight: a layout read there broke the router's
    * scroll to the top of the next page (AECI-1768 review, `scroll-restoration.spec.ts`). It
    * waits for the window's next `scrollend` instead.
+   *
+   * Returns true when the link is wider than the room between the two fades, so it is only
+   * kept inside the row's edges.
    */
-  private reveal(id: string): void {
-    if (!this.overflows()) return;
+  private reveal(id: string): boolean {
+    if (!this.overflows()) return false;
     const smoothJump =
       this.host.nativeElement.ownerDocument.documentElement.classList.contains(SMOOTH_SCROLL_CLASS);
     if (smoothJump || this.router.currentNavigation() !== null) {
       this.pendingReveal = id;
-      return;
+      return false;
     }
     this.pendingReveal = null;
     const link = this.track().nativeElement.querySelector<HTMLElement>(
       `a[data-section-id="${CSS.escape(id)}"]`,
     );
-    if (!link) return;
+    if (!link) return false;
     const inset = this.shift();
     const start = inset + link.offsetLeft;
     const end = start + link.offsetWidth;
-    const scroll = this.rowScroll();
+    // The live offset, not the signal: the scroll event for a previous reveal may not have
+    // fired yet (Tab from link to link). This path reads layout anyway.
+    const row = this.row().nativeElement;
+    const scroll = Math.abs(row.scrollLeft);
+    // Keep the link a fade's width clear of each edge when it fits; a link wider than that
+    // space only needs the row's edges (the fades step aside under focus, see the styles).
+    const room = this.rowWidth() - inset;
+    const margin = end - start + 2 * FADE_PX <= room ? FADE_PX : 0;
     let target = scroll;
-    if (start - FADE_PX < scroll + inset) {
-      target = start - FADE_PX - inset;
-    } else if (end + FADE_PX > scroll + this.rowWidth()) {
-      target = end + FADE_PX - this.rowWidth();
+    if (start - margin < scroll + inset) {
+      target = start - margin - inset;
+    } else if (end + margin > scroll + this.rowWidth()) {
+      target = end + margin - this.rowWidth();
     }
     target = Math.min(Math.max(0, target), this.maxScroll());
     if (Math.abs(target - scroll) > 0.5) {
-      this.row().nativeElement.scrollTo({ left: target, behavior: 'instant' });
+      row.scrollTo({ left: target, behavior: 'instant' });
     }
+    return margin === 0;
   }
 
   constructor() {
