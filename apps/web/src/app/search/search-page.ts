@@ -41,6 +41,7 @@ import {
   computed,
   type ElementRef,
   inject,
+  LOCALE_ID,
   type OnDestroy,
   signal,
   viewChildren,
@@ -81,6 +82,7 @@ import type { AlgoliaPublicConfig } from './algolia-config';
 import { readAlgoliaConfig } from './algolia-config';
 import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
 import { type IndexView, SearchController } from './search-controller';
+import { COUNT_ORDERED_FACETS } from './search-facet-order';
 import { SearchProductCard } from './search-product-card';
 import { SearchVendorCard } from './search-vendor-card';
 import { filtersFromParams, filtersToParams, type SearchFilters } from './search-url-state';
@@ -256,6 +258,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
         <aec-facet-panel
           slot="filters"
           panelId="search-facet-panel"
+          [orderNote]="orderNote()"
           [activeCount]="activeFilterCount()"
         >
           @if (showSkeleton()) {
@@ -598,6 +601,7 @@ export class SearchPage implements OnDestroy {
   private readonly meta = inject(MetaService);
   private readonly engineFactory = inject(SEARCH_ENGINE_FACTORY);
   private readonly analytics = inject(Analytics);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly tabs = TABS;
   protected readonly panelId = 'search-tabpanel';
@@ -665,6 +669,48 @@ export class SearchPage implements OnDestroy {
   protected readonly anyFilterCount = computed(() => {
     const ctrl = this.controller();
     return ctrl ? countFilters(ctrl.products) + countFilters(ctrl.vendors) : 0;
+  });
+
+  /**
+   * The order caption under the filter panel (ruled 2026-11-16, AECI-1796). It
+   * names only the groups on screen that it is true for:
+   *
+   * - Categories, Audiences, Trades and Vendor keep InstantSearch's default
+   *   order: most matching products first, then name. A checked term moves to
+   *   the top of its group.
+   * - Phases are re-sorted into project order (`search-facet-order.ts`).
+   * - The count menus and Founded are not named. Their order is fixed buckets
+   *   or a field, not terms.
+   *
+   * The Vendors tab has only those buckets, so it shows no caption. Neither
+   * does a Products result with no term groups. Group names are the panel's own
+   * labels, joined for the locale. `search-facet-caption.component.spec.ts`
+   * runs the real connector and fails if a named group stops being in count
+   * order.
+   */
+  protected readonly orderNote = computed(() => {
+    const facets = this.currentFacets();
+    if (!facets) return '';
+    const shown = facets.refinementLists
+      .filter((rl) => rl.items().length > 0)
+      .map((rl) => rl.attribute);
+    const byCount = shown
+      .filter((attribute) => COUNT_ORDERED_FACETS.includes(attribute))
+      .map((attribute) => this.facetLabel(attribute));
+    const sentences: string[] = [];
+    if (byCount.length > 0) {
+      const groups = new Intl.ListFormat(this.locale, {
+        style: 'long',
+        type: 'conjunction',
+      }).format(byCount);
+      sentences.push(
+        $localize`:@@search.filters.order.byCount:${groups}:GROUPS:: most matching products first.`,
+      );
+    }
+    if (shown.includes('phases')) {
+      sentences.push($localize`:@@search.filters.order.phases:Phases in project order.`);
+    }
+    return sentences.join(' ');
   });
 
   /** `?view=` cards/table, shared with `/products` and the browse pages. */

@@ -34,6 +34,19 @@ export const PHASE_LIFECYCLE_ORDER: readonly string[] = [
 ];
 
 /**
+ * The `/search` refinement lists left on the connector default: checked terms
+ * first, then most matching products, then name. The `/search` order caption
+ * names exactly these (AECI-1796), so a change here changes what it promises.
+ * `phases` is not here, because `orderFacetItems` re-sorts it.
+ */
+export const COUNT_ORDERED_FACETS: readonly string[] = [
+  'categories',
+  'audiences',
+  'trades',
+  'vendor_name',
+];
+
+/**
  * Re-orders rendered facet items for attributes whose intended order isn't a
  * built-in Algolia sort. Today only `phases` (project-lifecycle); all other
  * attributes pass through unchanged. Pure — never mutates the input.
