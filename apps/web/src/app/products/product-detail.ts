@@ -318,8 +318,7 @@ export class ProductDetailPage {
    * Ruling 36 (2026-11-16): the About band splits into two columns only when the left
    * column has the description or its under-review line. With neither, "Who it is for"
    * takes the band's full width under the heading, 24px below it as the description
-   * would sit. Product data only, so the server and
-   * the browser render the same layout.
+   * would sit. Product data only, so the server and the browser render the same layout.
    */
   protected readonly aboutColumns = computed(() => {
     const p = this.product();

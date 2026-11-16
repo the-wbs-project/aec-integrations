@@ -94,9 +94,10 @@ export class ProductBuiltWithin {
  * body section after Integrations. A grid of linked tiles, never table rows, so
  * it cannot read as a third integrations lane. Each tile is one `aecCard` that is
  * itself the link, so it keeps the link name it had: the name, then the vendor.
- * The tiles keep the API's order (A to Z by name, then id,
- * `apps/api/src/lib/product-extensions.ts`); this component adds no sort. The heading carries no `(N)`, so
- * the page never shows two counts that look like the same kind.
+ * The tiles keep the API's order, A to Z by name then id
+ * (`apps/api/src/lib/product-extensions.ts`). This component adds no sort. The
+ * heading carries no `(N)`, so the page never shows two counts that look like the
+ * same kind.
  *
  * Attribute selector on the page's `<section id="extensions">`, like the
  * Integrations section, so the anchor and the labelled region stay on the
