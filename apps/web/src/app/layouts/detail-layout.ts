@@ -45,7 +45,7 @@ import { Component } from '@angular/core';
  * Usage:
  * ```html
  * <aec-detail-layout>
- *   <nav slot="breadcrumbs">…</nav>
+ *   <aec-breadcrumb slot="breadcrumbs" [items]="crumbs" />
  *   <header slot="hero">…</header>
  *   <aec-section-nav slot="nav" />
  *   <div slot="body-lead">…</div>
@@ -59,13 +59,9 @@ import { Component } from '@angular/core';
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 pt-3 pb-8 md:px-8 md:pt-4 md:pb-12">
-        <nav
-          class="mb-4"
-          i18n-aria-label="@@app.layouts.detail.breadcrumbs.aria"
-          aria-label="Breadcrumb"
-        >
+        <div class="mb-4">
           <ng-content select="[slot=breadcrumbs]" />
-        </nav>
+        </div>
 
         <header class="mb-8 border-b border-(--border-default) pb-8 md:mb-12 md:pb-12">
           <ng-content select="[slot=hero]" />
