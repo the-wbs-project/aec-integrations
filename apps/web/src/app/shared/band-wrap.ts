@@ -4,7 +4,8 @@
  * on it can drift apart.
  *
  * It holds the Forest hero band, the Bone band, and since ruling A2 (2026-11-16)
- * the site header, its Browse and mobile menu panels, and the footer. Page bodies
+ * the site header, its Browse and mobile menu panels, and the footer. Since
+ * ruling 3 of 2026-11-16 it also holds `BrowseLayout` (AECI-1793). Other page bodies
  * not yet rebuilt keep the 7xl canvas until their own issue moves them, so they
  * sit 8 to 16px off this edge for now (DESIGN.md §4 "Open values"). Whole class
  * names, so Tailwind's scanner sees each one.

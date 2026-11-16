@@ -61,10 +61,13 @@ import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
-import { ProductCard, type ProductRow } from '../products/product-card';
+import type { ProductRow } from '../products/product-card';
+import { ProductTable } from '../products/product-table';
 import { AecCard } from '../shared/card/card';
 import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
+import { EmptyState } from '../shared/empty-state/empty-state';
 import { FacetPanel } from '../shared/facets/facet-panel';
+import { FILTER_LINK_CLASS } from '../shared/facets/filter-row';
 import {
   ListingSortSelect,
   type ListingSortOption,
@@ -159,7 +162,8 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     PaginationFooter,
     ListingSortSelect,
     ListingViewToggle,
-    ProductCard,
+    EmptyState,
+    ProductTable,
     SearchVendorRow,
   ],
   template: `
@@ -204,7 +208,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                border-colour utilities lose to the unlayered * rule there. -->
           <div
             role="tablist"
-            class="-mb-6 flex gap-1 overflow-x-auto pt-3 md:-mb-8"
+            class="-mb-8 flex gap-1 overflow-x-auto pt-3 md:-mb-10"
             aria-label="Search results by type"
             i18n-aria-label="@@search.tablist.aria"
           >
@@ -270,7 +274,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             @if (anyFilterCount() > 0) {
               <button
                 type="button"
-                class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="clearClass"
                 (click)="clearFilters()"
                 i18n="@@listing.filters.clear"
               >
@@ -305,10 +309,10 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             tabindex="0"
             class="space-y-6 focus-visible:outline-none"
           >
-            <!-- Toolbar row, same placement and 42px height as aec-listing-toolbar
+            <!-- Toolbar row, same placement and 44px height as aec-listing-toolbar
                  on /products. min-h reserves it before the controller mounts so
                  the grid does not jump when the sort control appears. -->
-            <div class="flex min-h-[2.625rem] flex-wrap items-center justify-between gap-3">
+            <div class="flex min-h-11 flex-wrap items-center justify-between gap-3">
               @if (controller(); as ctrl) {
                 <aec-listing-sort-select
                   [options]="sortUiOptions()"
@@ -343,51 +347,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                           >
                             @switch (listingView.view()) {
                               @case ('table') {
-                                <div class="overflow-x-auto">
-                                  <table
-                                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                                    i18n-aria-label="@@products.index.table.aria"
-                                    aria-label="Products"
-                                  >
-                                    <thead class="border-b border-(--border-default)">
-                                      <tr>
-                                        <th
-                                          scope="col"
-                                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
-                                          i18n="@@products.index.col.name"
-                                        >
-                                          Name
-                                        </th>
-                                        <th
-                                          scope="col"
-                                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
-                                          i18n="@@products.index.col.vendor"
-                                        >
-                                          Vendor
-                                        </th>
-                                        <th
-                                          scope="col"
-                                          class="hidden px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
-                                          i18n="@@products.index.col.rating"
-                                        >
-                                          Rating
-                                        </th>
-                                        <th
-                                          scope="col"
-                                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
-                                          i18n="@@products.index.col.integrations"
-                                        >
-                                          Integrations
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-(--border-default)">
-                                      @for (row of productRows(); track row.slug) {
-                                        <tr aec-product-card [product]="row"></tr>
-                                      }
-                                    </tbody>
-                                  </table>
-                                </div>
+                                <aec-product-table [rows]="productRows()" />
                               }
                               @default {
                                 <ul role="list" class="aec-card-grid">
@@ -527,10 +487,8 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     </ng-template>
 
     <ng-template #emptyState>
-      <div
-        class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-center"
-      >
-        <p class="text-sm text-(--text-secondary)" i18n="@@search.empty">
+      <aec-empty-state>
+        <p i18n="@@search.empty">
           No results. Try a broader search or
           <a
             routerLink="/categories"
@@ -538,7 +496,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             >browse by category</a
           >.
         </p>
-      </div>
+      </aec-empty-state>
     </ng-template>
 
     <!--
@@ -591,6 +549,9 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   `,
 })
 export class SearchPage implements OnDestroy {
+  /** "Clear filters", the shared filter-panel link (AECI-1793). */
+  protected readonly clearClass = FILTER_LINK_CLASS;
+
   protected readonly crumbs: BreadcrumbItem[] = [
     homeCrumb(),
     { label: $localize`:@@search.breadcrumbs.current:Search` },
