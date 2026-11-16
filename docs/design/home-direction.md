@@ -74,11 +74,13 @@ Every module renders its real empty state.
     nothing is dual-vendor-verified at Stage 1 (spec §1, §4.2). The independence line lives in the lede;
   - a one-line `--text-secondary` lede;
   - the search field, with its own placeholder ("Try Procore, Sage 300, Bluebeam");
-  - a **"Popular:" row**: up to five product links to `/products/:slug`, the most-viewed products
-    over 30 days among views the traffic classifier judged a person or could not decide about
-    (`home.popular_products`, recomputed nightly, AECI-1572, AECI-1586). It
-    ships in the SSR HTML (the stats payload is per URL, not per visitor). When the list is empty the
-    row names the five largest categories instead, browser-only, so the fallback stays out of the cache.
+  - a **"Most viewed" row** (AECI-1792; it was the "Popular:" row): up to five product links to
+    `/products/:slug`, the most-viewed products over 30 days among views the traffic classifier
+    judged a person or could not decide about (`home.popular_products`, recomputed nightly,
+    AECI-1572, AECI-1586), labelled "Most viewed, last 30 days:". It ships in the SSR HTML (the
+    stats payload is per URL, not per visitor). When the list is empty the row names the five
+    largest categories instead, labelled "Largest categories:". Since AECI-1792 that fallback is
+    the head of the browse block's category list, resolver data, so it ships in the SSR HTML too.
 - **The right column is the pair finder.** A bordered white panel with an `<h2>` "Do these two
   connect?", a one-line hint, two product pickers ("Your tool", "Connects to"), and a Forest
   "Show integrations" button. Two products route to the product-pair page (context = the
@@ -112,7 +114,7 @@ Avoid identical card matrices stacked (DESIGN.md "no identical card grids"):
   Data comes from the **live** `GET /api/taxonomy`, **not** `stats_cache` (AECI-184), so the block
   purges on the `taxonomy` `Cache-Tag`.
 - **No card grids** (AECI-1573). The recently added and trending bands are deleted: card grids made
-  the page hard to read, and nobody arrives asking what was added yesterday. The hero's "Popular:"
+  the page hard to read, and nobody arrives asking what was added yesterday. The hero's "Most viewed"
   row is the one live signal.
 
 ## Theme
@@ -125,10 +127,11 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 
 - **Credibility row** at 0: each zero count is dropped; all zero renders "Indexing in progress".
   The "+{n} in the last 30 days" note hides at 0.
-- **Popular row** empty (pre-launch, or when no product clears the `TRENDING_MIN_VIEWS` floor over
-  30 days): the row names the five largest categories by `product_count`, linking to
-  `/categories/:slug`. The list comes from the browser-only `TaxonomyNavStore`, so it never reaches
-  the cached HTML. The row is absent only until that fetch returns, or if it fails.
+- **"Most viewed" row** empty (pre-launch, or when no product clears the `TRENDING_MIN_VIEWS` floor
+  over 30 days): the row names the five largest categories by `product_count`, labelled "Largest
+  categories:" and linking to `/categories/:slug`. Since AECI-1792 the list is the head of the
+  browse block's category list from the `browse` resolver, so it ships in the cached HTML. The row
+  is empty only when the taxonomy read fails as well.
 - **Trade row**: only published trades are listed, so a thin corpus shows fewer chips, or the
   row's empty note.
 - **Browse rows** pre-launch: taxonomy is seeded, so chips render without a count rather than

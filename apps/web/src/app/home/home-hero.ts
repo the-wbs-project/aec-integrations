@@ -19,8 +19,11 @@
  * labelled "Most viewed, last 30 days:". When that list is empty it shows the five
  * largest categories, labelled "Largest categories:". Each label states its
  * order. Both lists arrive as inputs from resolver data, so the row ships in the
- * cached SSR HTML and never fills in after load. Its height is reserved as well
+ * cached SSR HTML and never fills in after load. Its height also has a floor
  * (two lines from `sm`, three below), so an empty row does not move the page.
+ * The floor is not a cap: long names wrap past it (four lines at 390px with the
+ * local seed's categories, six with the longest five). That costs no shift,
+ * because the row's final height is in the server HTML.
  *
  * The tagline states only what is true: it does not claim dual-vendor
  * verification and avoids an "every" completeness claim.
@@ -173,9 +176,10 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
           </span>
         </div>
 
-        <!-- AECI-1862: the row's height is reserved, two lines from sm and three
-             below (the five-name worst case), so nothing below it moves. Both lists
-             come from resolver data, so the row ships in the cached SSR HTML. -->
+        <!-- AECI-1862: the row has a height floor, two lines from sm and three
+             below, so an empty row moves nothing. Long names wrap past it. Both
+             lists come from resolver data, so the row ships in the cached SSR HTML
+             at its final height. -->
         <div data-testid="home-popular" class="mt-4 min-h-[72px] sm:min-h-12">
           @if (popular().length > 0) {
             <p class="flex flex-wrap content-start items-baseline gap-x-4 text-t-14 leading-6">

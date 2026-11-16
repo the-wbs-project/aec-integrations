@@ -1382,7 +1382,7 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+"Most viewed" row, AECI-1572). `trending_products`, `recently_added_products`,
 `most_integrated_product` and `most_active_category` are still computed and
 returned, but nothing on the home renders them (AECI-1573).
 
@@ -1414,7 +1414,7 @@ export type HomeStatsResponse = {
   } | null;                              // null when the cache key is absent
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
-  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Most viewed" row
 };
 ```
 
