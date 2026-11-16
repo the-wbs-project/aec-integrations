@@ -51,13 +51,33 @@ test.describe('logo rule (AECI-1769)', () => {
     await page.goto(`/products/${CLAIMED}/integrations/${UNCLAIMED}`);
     const notes = page.locator(NOTE);
     await expect(notes).toHaveCount(1);
-    await expect(notes.first().locator('xpath=ancestor::a[1]')).toHaveAttribute(
+    // AECI-1798: each product is a card in the hero diagram, and only its name links.
+    // The note sits in the unclaimed product's card.
+    const side = page.locator('aec-hero-band [data-testid="pair-side-other"]');
+    await expect(side.locator(NOTE)).toHaveCount(1);
+    await expect(side.locator('a').first()).toHaveAttribute(
       'href',
       new RegExp(`/products/${UNCLAIMED}$`),
     );
     await expect(notes.first().locator('xpath=preceding-sibling::aec-logo-or-initial')).toHaveCount(
       1,
     );
+  });
+
+  test('the pair hero diagram shows no unclaimed image above 32px', async ({ page }) => {
+    await page.goto(`/products/${CLAIMED}/integrations/${UNCLAIMED}`);
+    const side = page.locator('aec-hero-band [data-testid="pair-side-other"]');
+    await expect(side).toBeVisible();
+    // The 64px mark of the unclaimed side is the initial tile, never an image.
+    const large = side.locator('aec-logo-or-initial').first();
+    await expect(large.locator('img')).toHaveCount(0);
+    await expect(large.locator('span[aria-hidden="true"]')).toHaveText(/^[A-Z0-9·]$/);
+    const widths = await side
+      .locator('img')
+      .evaluateAll((imgs) =>
+        imgs.map((i) => (i as HTMLImageElement).getBoundingClientRect().width),
+      );
+    for (const w of widths) expect(w).toBeLessThanOrEqual(32);
   });
 
   test('the unclaimed product page carries the note, the claimed one does not', async ({

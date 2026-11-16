@@ -205,7 +205,7 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     // The Basic/Detailed toggle must NOT refetch: the route predicate is
     // selector-only precisely so `?view=` stays a client-side disclosure.
     const beforeView = apiCalls.length;
-    await page.locator('[role="group"] button').first().click();
+    await page.locator('[role="group"][aria-label="Choose a view"] button').first().click();
     await page.waitForTimeout(400);
     expect(apiCalls.length, '?view= must not re-run the resolver').toBe(beforeView);
 
