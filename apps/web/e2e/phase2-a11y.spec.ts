@@ -158,6 +158,21 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
       test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/products/${FIXTURE.productSlug}`);
+      // AECI-1782: cards are the default view and the table is one toggle away. Both run.
+      await expect(
+        page.locator('#integrations li[aec-product-integration-card]').first(),
+      ).toBeVisible();
+      const cards = await new AxeBuilder({ page })
+        .include('#integrations')
+        .withRules(['target-size'])
+        .analyze();
+      expect(cards.violations, formatViolations(cards.violations)).toEqual([]);
+
+      const table = page.locator('#integrations aec-listing-view-toggle button', {
+        hasText: 'Table',
+      });
+      await untilHydrated(table);
+      await table.click();
       await expect(page.locator('#integrations tbody tr').first()).toBeVisible();
 
       const results = await new AxeBuilder({ page })

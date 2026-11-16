@@ -1495,6 +1495,12 @@ const ORDER_SITES: readonly OrderSite[] = [
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
   },
   {
+    // AECI-1782: the filter panel's term chips, A to Z by name with the slug last.
+    file: 'apps/web/src/app/products/integration-filter.ts',
+    count: 1,
+    registered: ['product-page-integrations-redesign'],
+  },
+  {
     file: 'apps/web/src/app/products/powered-hub-grouping.ts',
     count: 3,
     registered: ['connector-powered-hub'],

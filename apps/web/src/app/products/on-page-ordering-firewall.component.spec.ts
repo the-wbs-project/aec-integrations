@@ -249,8 +249,11 @@ function renderedRows(
   rows: ProductIntegrationItem[],
   choices: ReaderChoices | string = {},
 ): string[] {
-  const { query, view = 'cards', chips = [] } =
-    typeof choices === 'string' ? { query: choices } : choices;
+  const {
+    query,
+    view = 'cards',
+    chips = [],
+  } = typeof choices === 'string' ? { query: choices } : choices;
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), provideRouter([])],
@@ -260,9 +263,9 @@ function renderedRows(
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
   if (view === 'table') {
-    const button = [...el.querySelectorAll<HTMLButtonElement>('aec-listing-view-toggle button')].find(
-      (b) => b.textContent?.includes('Table'),
-    )!;
+    const button = [
+      ...el.querySelectorAll<HTMLButtonElement>('aec-listing-view-toggle button'),
+    ].find((b) => b.textContent?.includes('Table'))!;
     button.click();
     fixture.detectChanges();
   }
@@ -342,15 +345,16 @@ function redesignFixture(): ProductIntegrationItem[] {
   seq = 0;
   const twinA = link('twin-a', 'Twin Co');
   const twinB = link('twin-b', 'Twin Co');
-  const spec: [ProductLink, ProductIntegrationItem['context_direction'], (typeof ACCOUNTING)[]][] = [
-    [link('zeta', 'Zeta ERP'), 'outbound', [ACCOUNTING]],
-    [twinB, 'outbound', [ACCOUNTING]],
-    [link('alpha', 'alpha docs'), 'inbound', [FIELD]],
-    [twinA, 'outbound', [ACCOUNTING, FIELD]],
-    [link('mid', 'Mid Field'), 'both', []],
-    [link('mid-2', 'Mid Field'), 'outbound', [FIELD]],
-    [link('quick', 'QuickBooks'), null, [ACCOUNTING]],
-  ];
+  const spec: [ProductLink, ProductIntegrationItem['context_direction'], (typeof ACCOUNTING)[]][] =
+    [
+      [link('zeta', 'Zeta ERP'), 'outbound', [ACCOUNTING]],
+      [twinB, 'outbound', [ACCOUNTING]],
+      [link('alpha', 'alpha docs'), 'inbound', [FIELD]],
+      [twinA, 'outbound', [ACCOUNTING, FIELD]],
+      [link('mid', 'Mid Field'), 'both', []],
+      [link('mid-2', 'Mid Field'), 'outbound', [FIELD]],
+      [link('quick', 'QuickBooks'), null, [ACCOUNTING]],
+    ];
   const rows = spec.map(([partner, context_direction, partner_categories]) =>
     edge(partner, { context_direction, partner_categories, name: 'Shared edge name' }),
   );
@@ -371,7 +375,10 @@ describe('on-page ordering firewall: the redesigned product page Integrations se
     ['table, no filter', { view: 'table' }],
     ['cards, Outbound', { chips: ['Outbound'] }],
     ['table, Accounting', { view: 'table', chips: ['Accounting'] }],
-    ['cards, Outbound and Accounting and a query', { query: 'co', chips: ['Outbound', 'Accounting'] }],
+    [
+      'cards, Outbound and Accounting and a query',
+      { query: 'co', chips: ['Outbound', 'Accounting'] },
+    ],
   ];
 
   for (const [label, choices] of cases) {

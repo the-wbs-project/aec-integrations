@@ -269,7 +269,9 @@ describe('ProductIntegrationsSection collapsible lanes', () => {
     const { fixture, el } = setup([edge(link('acumatica', 'Acumatica'))]);
     expect(el.querySelector('aec-integration-group-card')).toBeNull();
     expect(
-      el.querySelector('#integrations [data-testid="integration-cards"]')!.getAttribute('aria-label'),
+      el
+        .querySelector('#integrations [data-testid="integration-cards"]')!
+        .getAttribute('aria-label'),
     ).toBe('Integrations');
     showTable(fixture, el);
     expect(el.querySelector('#integrations table')!.getAttribute('aria-label')).toBe(

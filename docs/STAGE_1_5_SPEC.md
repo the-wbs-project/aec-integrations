@@ -1542,6 +1542,26 @@ statements in one `db.batch` for a product with 1 row or 58. The page's existing
 change: an attestation write purges both `product:{slug}` tags, and a partner's category edit purges
 `product:{partnerSlug}`, which the page embeds for every partner (`CACHE_STRATEGY.md` §5).
 
+⚠️ **Amended by AECI-1782 (2026-11-16): cards by default, the table as the alternative, and a
+filter panel.** The lane split, the lane orders, the row identity rules, the heading count, the
+reach line and the scope note are unchanged.
+
+- **Cards are the default view, and the server always renders them.** Each row is one card in the
+  server HTML, so a crawler sees every row. A Cards/Table toggle switches to the table above. The
+  view is component state, not `?view=`, for the filter's own reason: the page is cached by URL.
+- **One named list per lane** is the card view's version of one table per lane. A one-lane page
+  renders one list named "Integrations". A Via page wraps each lane's list in its group card, and
+  the list is named by that card's `<h3>`.
+- **A card shows what a row shows,** plus the partner's categories, the data-object names and the
+  agreement badge, unattributed. The badge is a label only.
+- **The filters sit in one panel of their own** under the `<h2>` (ruling R5, AECI-1736): the name
+  filter, direction chips and partner-category chips. They AND together, and the chips in one group
+  OR together. They remove rows and never reorder. The status line reports any active filter. No
+  control reads `agreement` (ruling R1), and there is no sort control (R5).
+- **Data-object chips are not built yet.** The filter model already leaves out rows with no data
+  object on record. The chips wait for an approved label and the sentence that says those rows are
+  left out (AECI-1816).
+
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 
 This subsection records a **reversal**. §13.3 originally required a Direction column and said

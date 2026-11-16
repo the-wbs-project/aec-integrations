@@ -370,7 +370,10 @@ describe('the reader filter state (AECI-1782)', () => {
   });
 
   it('directions match ANY chosen direction, and a row with no direction never matches', () => {
-    const out = filterIntegrationLanes(view, { ...NO_INTEGRATION_FILTER, directions: ['outbound'] });
+    const out = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      directions: ['outbound'],
+    });
     expect(slugs(out)).toEqual(['sage', 'quickbooks']);
     const two = filterIntegrationLanes(view, {
       ...NO_INTEGRATION_FILTER,

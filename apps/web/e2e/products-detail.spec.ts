@@ -27,6 +27,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
+import { untilHydrated } from './hydration';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -212,13 +213,60 @@ test.describe('product detail — table names and section-nav location (AECI-831
 
   // A7: every integrations lane is its own table, named by its heading, so a
   // user moving by table can tell "Direct integrations" from "Via {connector}".
-  test('every integrations table has a non-empty accessible name (A7)', async ({ page }) => {
+  // AECI-1782: cards are the default, so the lane lists are checked first, then the
+  // tables after the reader picks "Table". The naming rule is the same for both.
+  test('every integrations lane list and table has a non-empty accessible name (A7)', async ({
+    page,
+  }) => {
     await page.goto(`/products/${SLUG}`);
+    const lists = page.locator('aec-product-integration-cards ul');
+    await expect(lists.first()).toBeAttached();
+    for (const list of await lists.all()) {
+      await expect(list).toHaveAccessibleName(/\S/);
+    }
+
+    const toggle = page.locator('#integrations aec-listing-view-toggle button', {
+      hasText: 'Table',
+    });
+    await untilHydrated(toggle);
+    await toggle.click();
     const tables = page.locator('aec-product-integrations-table table');
     await expect(tables.first()).toBeAttached();
     for (const table of await tables.all()) {
       await expect(table).toHaveAccessibleName(/\S/);
     }
+  });
+
+  // AECI-1782: every row is in the server HTML as a card, and the filter panel works
+  // in the browser without changing what the server sent.
+  test('every integration is a card in the raw SSR HTML, and the panel filters in the browser', async ({
+    page,
+    request,
+  }) => {
+    const api = await (await request.get(`/api/products/${SLUG}`)).json();
+    const rows = [...api.integrations_as_source, ...api.integrations_as_target] as {
+      source: { slug: string };
+      target: { slug: string };
+      context_direction: string | null;
+    }[];
+    const html = await (await request.get(`/products/${SLUG}`)).text();
+    for (const row of rows) {
+      const other = row.source.slug === SLUG ? row.target.slug : row.source.slug;
+      expect(html).toContain(`/products/${SLUG}/integrations/${other}`);
+    }
+    expect(html).toContain('data-testid="integrations-filter-panel"');
+
+    await page.goto(`/products/${SLUG}`);
+    const status = page.locator('#integrations [role="status"]');
+    await expect(status).toHaveText('');
+    const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();
+    test.skip((await chip.count()) === 0, 'no filter chips on this fixture');
+    await untilHydrated(chip);
+    await chip.click();
+    await expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await expect(status).toHaveText(/Showing \d+ of \d+/);
+    await page.locator('[data-testid="integrations-filter-clear"]').click();
+    await expect(status).toHaveText('');
   });
 
   // A8: the "On this page" nav always names exactly one current section.

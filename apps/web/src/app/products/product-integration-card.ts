@@ -105,7 +105,9 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
       @if (row().integration.partner_categories.length > 0) {
         <ul class="flex flex-wrap gap-1.5" data-testid="integration-card-categories">
           @for (category of row().integration.partner_categories; track category.slug) {
-            <li><aec-chip density="dense">{{ category.name }}</aec-chip></li>
+            <li>
+              <aec-chip density="dense">{{ category.name }}</aec-chip>
+            </li>
           }
         </ul>
       }
