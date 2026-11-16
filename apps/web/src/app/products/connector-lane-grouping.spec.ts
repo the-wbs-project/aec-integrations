@@ -445,4 +445,19 @@ describe('splitIntegrationLanes — card facts (AECI-1782)', () => {
     expect(viaRow([null, null]).agreement).toBeNull();
     expect(viaRow(['confirmed', 'confirmed']).dataObjects).toEqual([invoice, rfi]);
   });
+
+  it('a collapsed Via row never overstates: two one-company edges stay one company, mixed reads the weaker', () => {
+    const viaRow = (agreements: ProductIntegrationItem['agreement'][]) =>
+      splitIntegrationLanes(
+        agreements.map((agreement, i) =>
+          edge({ source: procore, target: sage, via: agave, name: `edge ${i}`, agreement }),
+        ),
+        [],
+      ).via[0]!.rows[0]!;
+    expect(viaRow(['single_source', 'single_source']).agreement).toBe('single_source');
+    expect(viaRow(['confirmed', 'unverified']).agreement).toBe('unverified');
+    expect(viaRow(['unverified', 'confirmed']).agreement).toBe('unverified');
+    expect(viaRow(['single_source', 'confirmed', 'confirmed']).agreement).toBe('single_source');
+    expect(viaRow(['confirmed', 'confirmed']).agreement).toBe('confirmed');
+  });
 });
