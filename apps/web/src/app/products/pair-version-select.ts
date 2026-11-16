@@ -55,7 +55,9 @@ export interface PairVersionOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
-    <div class="inline-flex items-center gap-2">
+    <!-- AECI-1798: the label sits above the field, and the trigger is the shared form
+         control (.aec-field-control): the 3:1 field edge, the control radius, 44px tall. -->
+    <div class="flex flex-col items-start gap-1.5">
       <span [id]="labelId()" class="aec-overline text-(--text-secondary)">{{ label() }}</span>
       <div #origin class="relative">
         <button
@@ -65,9 +67,9 @@ export interface PairVersionOption {
           type="button"
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId() + ' ' + triggerId()"
-          class="flex min-w-[6rem] items-center justify-between gap-2 rounded-(--radius-md)
-            border border-(--border-default) bg-(--surface-base) py-1.5 ps-3 pe-2 text-sm
-            text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+          class="aec-field-control flex min-w-[10rem] cursor-pointer items-center justify-between
+            gap-2 border bg-(--surface-base) py-2 ps-4 pe-3 text-t-14 text-(--text-primary)
+            focus-visible:outline-3 focus-visible:outline-offset-3
             focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
