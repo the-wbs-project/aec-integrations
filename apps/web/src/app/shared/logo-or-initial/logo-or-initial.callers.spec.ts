@@ -64,6 +64,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'products/product-integration-row.ts': { link: 1 },
   // AECI-1782: the card view of the same row, the same server-filtered ProductLink.
   'products/product-integration-card.ts': { link: 1 },
+  // AECI-1783: the "Show more" stack names hidden partners, the same ProductLinks.
+  'products/product-integration-category-group.ts': { link: 1 },
   'products/product-powered-hub.ts': { link: 3 },
   'products/products-pair.ts': { subject: 4 },
   'reviews/review-form.html': { subject: 1 },

@@ -69,7 +69,7 @@ import { ProductIntegrationCategoryGroup } from './product-integration-category-
                 data-smooth-scroll
                 [attr.aria-current]="currentKey() === group.key ? 'location' : null"
                 (click)="jump(group.key)"
-                class="relative flex min-h-11 items-center gap-3 rounded-pill border bg-(--surface-raised) px-4 text-t-14 font-semibold text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) aria-[current=location]:bg-(--accent-primary) aria-[current=location]:text-(--text-on-brand) lg:rounded-control lg:border-transparent lg:bg-transparent lg:px-3 lg:hover:bg-(--surface-raised) lg:aria-[current=location]:bg-(--accent-primary)"
+                class="relative flex min-h-11 items-center gap-3 rounded-pill border bg-(--surface-raised) px-4 text-t-14 font-semibold text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) aria-[current=location]:bg-(--accent-primary) aria-[current=location]:text-(--text-on-brand) lg:rounded-control lg:border-0 lg:bg-transparent lg:px-3 lg:hover:bg-(--surface-raised) lg:aria-[current=location]:bg-(--accent-primary)"
                 data-testid="integrations-rail-link"
               >
                 <span class="whitespace-nowrap lg:flex-1 lg:whitespace-normal">{{
