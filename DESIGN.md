@@ -6,52 +6,52 @@ colors:
   # roadmapped). These are the :root colour tokens in apps/web/src/styles.css:
   # 18 base tokens and 20 added by AECI-1747, 38 in all. Each opaque value
   # renders the hex in styles.css; design-tokens.hex.guard.spec.ts pins that.
-  surface-base:           "oklch(100% 0 0)"
-  surface-raised:         "oklch(98.43% 0 0)"
-  surface-sunken:         "oklch(96.74% 0.0013 286.38)"
-  surface-muted:          "oklch(96.74% 0.0013 286.38)"
-  border-default:         "oklch(91.97% 0.0036 286.32)"
-  border-strong:          "oklch(87.20% 0.0055 286.32)"
-  border-input:           "oklch(63.63% 0.0133 286.02)"
-  text-primary:           "oklch(14.48% 0 0)"
-  text-secondary:         "oklch(44.19% 0.0146 285.79)"
-  text-tertiary:          "oklch(55.17% 0.0138 285.94)"
-  accent-primary:         "oklch(32.24% 0.0397 166.73)"
-  accent-primary-hover:   "oklch(43.47% 0.0641 160.30)"
-  accent-primary-soft:    "oklch(95.35% 0.0066 160.07)"
-  accent-secondary:       "oklch(74.64% 0.1164 49.55)"
-  accent-secondary-deep:  "oklch(51.86% 0.1245 45.13)"
-  accent-rating:          "oklch(75.16% 0.1469 83.99)"
-  accent-warm:            "oklch(96.13% 0.0111 89.72)"
-  status-error:           "oklch(50.13% 0.1783 28.70)"
+  surface-base: 'oklch(100% 0 0)'
+  surface-raised: 'oklch(98.43% 0 0)'
+  surface-sunken: 'oklch(96.74% 0.0013 286.38)'
+  surface-muted: 'oklch(96.74% 0.0013 286.38)'
+  border-default: 'oklch(91.97% 0.0036 286.32)'
+  border-strong: 'oklch(87.20% 0.0055 286.32)'
+  border-input: 'oklch(63.63% 0.0133 286.02)'
+  text-primary: 'oklch(14.48% 0 0)'
+  text-secondary: 'oklch(44.19% 0.0146 285.79)'
+  text-tertiary: 'oklch(55.17% 0.0138 285.94)'
+  accent-primary: 'oklch(32.24% 0.0397 166.73)'
+  accent-primary-hover: 'oklch(43.47% 0.0641 160.30)'
+  accent-primary-soft: 'oklch(95.35% 0.0066 160.07)'
+  accent-secondary: 'oklch(74.64% 0.1164 49.55)'
+  accent-secondary-deep: 'oklch(51.86% 0.1245 45.13)'
+  accent-rating: 'oklch(75.16% 0.1469 83.99)'
+  accent-warm: 'oklch(96.13% 0.0111 89.72)'
+  status-error: 'oklch(50.13% 0.1783 28.70)'
   # Added by AECI-1758. #8C1D18, the danger button's hover fill only.
-  status-error-hover:     "oklch(42.00% 0.1473 28.14)"
+  status-error-hover: 'oklch(42.00% 0.1473 28.14)'
   # Added by AECI-1747. Hex in order: #26473A, #15291F, #84848D, #C5D3CA,
   # #B9C7BF, #E7E1D2, #3B6E55, #DADADC, #B5B5B5, #C6C6CA.
-  surface-hero-panel:     "oklch(36.82% 0.0453 166.67)"
-  surface-footer:         "oklch(26.02% 0.0324 161.25)"
-  border-field:           "oklch(61.63% 0.0134 286.00)"
-  text-on-brand-secondary: "oklch(85.36% 0.0195 157.80)"
-  text-on-footer-secondary: "oklch(81.66% 0.0189 161.01)"
-  surface-on-brand-hover: "oklch(91.04% 0.0211 88.73)"
-  surface-hero-ribbon:    "oklch(49.48% 0.0689 161.11)"
-  surface-sunken-hover:   "oklch(88.89% 0.0027 286.34)"
-  border-underline:       "oklch(77.31% 0 0)"
-  border-empty:           "oklch(82.77% 0.0055 286.28)"
+  surface-hero-panel: 'oklch(36.82% 0.0453 166.67)'
+  surface-footer: 'oklch(26.02% 0.0324 161.25)'
+  border-field: 'oklch(61.63% 0.0134 286.00)'
+  text-on-brand-secondary: 'oklch(85.36% 0.0195 157.80)'
+  text-on-footer-secondary: 'oklch(81.66% 0.0189 161.01)'
+  surface-on-brand-hover: 'oklch(91.04% 0.0211 88.73)'
+  surface-hero-ribbon: 'oklch(49.48% 0.0689 161.11)'
+  surface-sunken-hover: 'oklch(88.89% 0.0027 286.34)'
+  border-underline: 'oklch(77.31% 0 0)'
+  border-empty: 'oklch(82.77% 0.0055 286.28)'
   # Bone again, #F5F2EA. In styles.css text-on-brand and focus-ring-on-brand
   # are var(--accent-warm), so a copy cannot drift.
-  text-on-brand:          "oklch(96.13% 0.0111 89.72)"
-  focus-ring-on-brand:    "oklch(96.13% 0.0111 89.72)"
+  text-on-brand: 'oklch(96.13% 0.0111 89.72)'
+  focus-ring-on-brand: 'oklch(96.13% 0.0111 89.72)'
   # Alpha tokens, composited in sRGB over the ground. Bone at 10, 16, 14, 32
   # and 50 percent, Forest hover at 75 and 45 percent, white at 94 percent.
-  surface-on-brand-wash:       "oklch(96.13% 0.0111 89.72 / 10%)"
-  surface-on-brand-wash-hover: "oklch(96.13% 0.0111 89.72 / 16%)"
-  border-on-brand-subtle:      "oklch(96.13% 0.0111 89.72 / 14%)"
-  border-on-brand:             "oklch(96.13% 0.0111 89.72 / 32%)"
-  border-on-brand-strong:      "oklch(96.13% 0.0111 89.72 / 50%)"
-  surface-hero-glow:           "oklch(43.47% 0.0641 160.30 / 75%)"
-  surface-hero-glow-soft:      "oklch(43.47% 0.0641 160.30 / 45%)"
-  surface-sticky:              "oklch(100% 0 0 / 94%)"
+  surface-on-brand-wash: 'oklch(96.13% 0.0111 89.72 / 10%)'
+  surface-on-brand-wash-hover: 'oklch(96.13% 0.0111 89.72 / 16%)'
+  border-on-brand-subtle: 'oklch(96.13% 0.0111 89.72 / 14%)'
+  border-on-brand: 'oklch(96.13% 0.0111 89.72 / 32%)'
+  border-on-brand-strong: 'oklch(96.13% 0.0111 89.72 / 50%)'
+  surface-hero-glow: 'oklch(43.47% 0.0641 160.30 / 75%)'
+  surface-hero-glow-soft: 'oklch(43.47% 0.0641 160.30 / 45%)'
+  surface-sticky: 'oklch(100% 0 0 / 94%)'
 typography:
   # The limited ramp (clashes 9 and 17, PLAN.md §4.2): eleven sizes since ruling
   # A3 added the 48px score figure, weights 400
@@ -66,133 +66,133 @@ typography:
     # h1 rule wins, so they show the h1 size (--t-fig, 28 to 40px, weight 600).
     # AECI-1847 moves the size onto an inner span.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
+    fontSize: 'clamp(2.25rem, 4.5vw + 1rem, 4rem)'
     fontWeight: 400
     lineHeight: 1.05
-    letterSpacing: "-0.01em"
+    letterSpacing: '-0.01em'
   display-detail:
     # --t-display, 40 to 72px: the product name on a detail page (clash 7). The
     # page adopts it when it is rebuilt (AECI-1778).
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)"
+    fontSize: 'clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)'
     fontWeight: 400
     lineHeight: 1
-    letterSpacing: "-0.02em"
+    letterSpacing: '-0.02em'
   statement:
     # --t-statement, 34 to 56px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)"
+    fontSize: 'clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)'
     fontWeight: 400
     lineHeight: 1.1
-    letterSpacing: "-0.02em"
+    letterSpacing: '-0.02em'
   figure:
     # --t-fig, 28 to 40px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
+    fontSize: 'clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)'
     fontWeight: 600
     lineHeight: 1
-    letterSpacing: "-0.01em"
+    letterSpacing: '-0.01em'
   figure-score:
     # --t-48, a fixed 48px (ruling A3, 2026-11-16). The score figure.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "3rem"
+    fontSize: '3rem'
     fontWeight: 600
     lineHeight: 1
-    letterSpacing: "-0.01em"
+    letterSpacing: '-0.01em'
   section:
     # --t-36, 28 to 36px.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(1.75rem, 1vw + 1.35rem, 2.25rem)"
+    fontSize: 'clamp(1.75rem, 1vw + 1.35rem, 2.25rem)'
     fontWeight: 600
     lineHeight: 1.1
-    letterSpacing: "-0.02em"
+    letterSpacing: '-0.02em'
   headline:
     # --t-fig, the global h1 rule. Same pixels as before the ramp.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
+    fontSize: 'clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)'
     fontWeight: 600
     lineHeight: 1.15
-    letterSpacing: "-0.005em"
+    letterSpacing: '-0.005em'
   title:
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "1.5rem"
+    fontSize: '1.5rem'
     fontWeight: 600
     lineHeight: 1.25
-    letterSpacing: "normal"
+    letterSpacing: 'normal'
   card-title:
     # --t-20. The mock-up's line-height is 1.1.
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
-    fontSize: "1.25rem"
+    fontSize: '1.25rem'
     fontWeight: 600
     lineHeight: 1.1
   lede:
     # --t-20, in the body sans.
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "1.25rem"
+    fontSize: '1.25rem'
     fontWeight: 400
     lineHeight: 1.5
   body:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "1rem"
+    fontSize: '1rem'
     fontWeight: 400
     lineHeight: 1.6
-    letterSpacing: "normal"
+    letterSpacing: 'normal'
   caption:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "0.875rem"
+    fontSize: '0.875rem'
     fontWeight: 400
     lineHeight: 1.5
-    letterSpacing: "normal"
+    letterSpacing: 'normal'
   field-caption:
     # --t-12 with a 20px line height (start).
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "0.75rem"
+    fontSize: '0.75rem'
     fontWeight: 400
-    lineHeight: "1.25rem"
+    lineHeight: '1.25rem'
   label:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "0.8125rem"
+    fontSize: '0.8125rem'
     fontWeight: 600
     lineHeight: 1.4
-    letterSpacing: "0.01em"
+    letterSpacing: '0.01em'
   overline:
     fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
-    fontSize: "0.75rem"
+    fontSize: '0.75rem'
     fontWeight: 600
     lineHeight: 1.4
-    letterSpacing: "0.08em"
-    textTransform: "uppercase"
+    letterSpacing: '0.08em'
+    textTransform: 'uppercase'
 rounded:
   # The new scale (clash 12, PLAN.md section 4.3). The keys are the role names
   # and equal the utility suffix and the CSS token: mark is rounded-mark and
   # --radius-mark. Do not write rounded-sm, md, lg or xl on a redesigned
   # component. Those are Spartan's scale and render 4.8, 6.4, 8 and 11.2px.
-  none: "0"
+  none: '0'
   # 8px small marks (was 0.25rem).
-  mark: "0.5rem"
+  mark: '0.5rem'
   # 12px controls: buttons, inputs (was 0.5rem).
-  control: "0.75rem"
+  control: '0.75rem'
   # 16px, measured on nested panels in the mock-ups. Not ruled. It sits between
   # control and card so the scale ascends. See "Open values" in section 4.
-  panel: "1rem"
+  panel: '1rem'
   # 24px cards (was 0.75rem).
-  card: "1.5rem"
+  card: '1.5rem'
   # Chips. Never a primary action.
-  pill: "9999px"
+  pill: '9999px'
 spacing:
   # The 4-point scale (clash 17): 4, 8, 12, 16, 24, 32, 48, 64, 96px. The keys
   # are Tailwind's step numbers, so spacing.6 is p-6 (24px). The scale is steps
   # 1, 2, 3, 4, 6, 8, 12, 16 and 24. AECI-1750 adds no spacing tokens.
-  "0": "0"
-  "1": "0.25rem"
-  "2": "0.5rem"
-  "3": "0.75rem"
-  "4": "1rem"
-  "6": "1.5rem"
-  "8": "2rem"
-  "12": "3rem"
-  "16": "4rem"
-  "24": "6rem"
+  '0': '0'
+  '1': '0.25rem'
+  '2': '0.5rem'
+  '3': '0.75rem'
+  '4': '1rem'
+  '6': '1.5rem'
+  '8': '2rem'
+  '12': '3rem'
+  '16': '4rem'
+  '24': '6rem'
 components:
   # The redesign components (clashes 19 to 25, 39 to 41 and 43). Sizes and
   # edges are starting values measured from mock-up 6, default state, in
@@ -200,134 +200,134 @@ components:
   # issues confirm them. Section 5 "Starting values from the mock-ups
   # (components)" gives the file and line for each value.
   button-primary:
-    backgroundColor: "{colors.accent-primary}"
-    textColor: "{colors.surface-base}"
-    fontSize: "0.875rem"
+    backgroundColor: '{colors.accent-primary}'
+    textColor: '{colors.surface-base}'
+    fontSize: '0.875rem'
     fontWeight: 600
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.6}"
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.6}'
   button-primary-hover:
-    backgroundColor: "{colors.accent-primary-hover}"
+    backgroundColor: '{colors.accent-primary-hover}'
   # The main button on a Forest ground (clash 3). Bone fill, Forest text.
   button-on-brand:
-    backgroundColor: "{colors.accent-warm}"
-    textColor: "{colors.accent-primary}"
-    fontSize: "0.875rem"
+    backgroundColor: '{colors.accent-warm}'
+    textColor: '{colors.accent-primary}'
+    fontSize: '0.875rem'
     fontWeight: 600
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.6}"
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.6}'
   button-secondary:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.text-primary}"
-    fontSize: "0.875rem"
+    backgroundColor: '{colors.surface-raised}'
+    textColor: '{colors.text-primary}'
+    fontSize: '0.875rem'
     fontWeight: 600
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.6}"
-    border: "1px solid {colors.border-strong}"
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.6}'
+    border: '1px solid {colors.border-strong}'
   button-secondary-hover:
-    backgroundColor: "{colors.surface-sunken}"
-    textColor: "{colors.accent-primary}"
+    backgroundColor: '{colors.surface-sunken}'
+    textColor: '{colors.accent-primary}'
   # Ghost takes the compact side padding of the mock-up's small button. The height is still 44px.
   button-ghost:
-    backgroundColor: "transparent"
-    textColor: "{colors.text-primary}"
-    fontSize: "0.875rem"
+    backgroundColor: 'transparent'
+    textColor: '{colors.text-primary}'
+    fontSize: '0.875rem'
     fontWeight: 600
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.4}"
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.4}'
   # A destructive action, always with a text label (AECI-1758). White text 6.54:1, 9.11:1 on hover.
   button-danger:
-    backgroundColor: "{colors.status-error}"
-    textColor: "{colors.surface-base}"
-    fontSize: "0.875rem"
+    backgroundColor: '{colors.status-error}'
+    textColor: '{colors.surface-base}'
+    fontSize: '0.875rem'
     fontWeight: 600
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.6}"
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.6}'
   button-danger-hover:
-    backgroundColor: "{colors.status-error-hover}"
+    backgroundColor: '{colors.status-error-hover}'
   # --shadow-card does not exist in styles.css yet. Section 4 defines it and
   # AECI-1750 adds it. The mock-up card fill is white.
   card:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    rounded: "{rounded.card}"
-    padding: "{spacing.6}"
-    shadow: "var(--shadow-card)"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    rounded: '{rounded.card}'
+    padding: '{spacing.6}'
+    shadow: 'var(--shadow-card)'
   input:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    typography: "{typography.body}"
-    rounded: "{rounded.control}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.4}"
-    border: "1px solid {colors.border-field}"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    typography: '{typography.body}'
+    rounded: '{rounded.control}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.4}'
+    border: '1px solid {colors.border-field}'
   # Focus is an outline, because forced-colours mode drops box-shadow.
   input-focus:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    border: "1px solid {colors.accent-primary}"
-    outline: "3px solid {colors.accent-primary}"
-    outlineOffset: "3px"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    border: '1px solid {colors.accent-primary}'
+    outline: '3px solid {colors.accent-primary}'
+    outlineOffset: '3px'
   # The error edge is 2px in the error colour. An icon and a message always come with it.
   input-error:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    border: "2px solid {colors.status-error}"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    border: '2px solid {colors.status-error}'
   # The one public pill chip (clash 22). Padding runs top, right, bottom, left.
   chip:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.text-primary}"
-    fontSize: "0.8125rem"
+    backgroundColor: '{colors.surface-raised}'
+    textColor: '{colors.text-primary}'
+    fontSize: '0.8125rem'
     fontWeight: 400
-    rounded: "{rounded.pill}"
-    padding: "{spacing.1} {spacing.3} {spacing.1} {spacing.2}"
-    border: "1px solid {colors.border-default}"
+    rounded: '{rounded.pill}'
+    padding: '{spacing.1} {spacing.3} {spacing.1} {spacing.2}'
+    border: '1px solid {colors.border-default}'
   chip-selected:
-    backgroundColor: "{colors.accent-primary-soft}"
-    textColor: "{colors.accent-primary}"
-    border: "1px solid {colors.accent-primary}"
+    backgroundColor: '{colors.accent-primary-soft}'
+    textColor: '{colors.accent-primary}'
+    border: '1px solid {colors.accent-primary}'
   chip-dense:
-    backgroundColor: "{colors.surface-sunken}"
-    textColor: "{colors.text-primary}"
-    fontSize: "0.8125rem"
+    backgroundColor: '{colors.surface-sunken}'
+    textColor: '{colors.text-primary}'
+    fontSize: '0.8125rem'
     fontWeight: 600
-    rounded: "{rounded.pill}"
-    padding: "{spacing.1} {spacing.3} {spacing.1} {spacing.2}"
-    border: "1px solid transparent"
+    rounded: '{rounded.pill}'
+    padding: '{spacing.1} {spacing.3} {spacing.1} {spacing.2}'
+    border: '1px solid transparent'
   badge-pending:
-    backgroundColor: "{colors.surface-sunken}"
-    textColor: "{colors.text-secondary}"
-    typography: "{typography.label}"
-    rounded: "{rounded.pill}"
-    padding: "{spacing.1} {spacing.3}"
+    backgroundColor: '{colors.surface-sunken}'
+    textColor: '{colors.text-secondary}'
+    typography: '{typography.label}'
+    rounded: '{rounded.pill}'
+    padding: '{spacing.1} {spacing.3}'
   # The public bar meter (clash 19). One hue, no gradient, the number printed beside it.
   meter-track:
-    backgroundColor: "{colors.surface-sunken}"
-    rounded: "{rounded.pill}"
-    height: "6px"
+    backgroundColor: '{colors.surface-sunken}'
+    rounded: '{rounded.pill}'
+    height: '6px'
   meter-fill:
-    backgroundColor: "{colors.accent-primary}"
-    rounded: "{rounded.pill}"
+    backgroundColor: '{colors.accent-primary}'
+    rounded: '{rounded.pill}'
   score-display:
-    backgroundColor: "transparent"
-    textColor: "{colors.accent-primary}"
-    typography: "{typography.figure-score}"
-    padding: "{spacing.0}"
+    backgroundColor: 'transparent'
+    textColor: '{colors.accent-primary}'
+    typography: '{typography.figure-score}'
+    padding: '{spacing.0}'
   detail-layout:
     # The band shell (clash 16). Phone values first, then md and up, as
     # browse-layout does. Band padding and page gutter, from the mock-ups.
     # md_padding takes the band padding from md up, but its 48px gutter only
     # from lg up. Between md and lg the gutter is 32px. See "The detail page band shell".
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    padding: "{spacing.16} {spacing.6}"
-    md_padding: "{spacing.24} {spacing.12}"
-    sectionDivider: "1px solid {colors.border-default}"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    padding: '{spacing.16} {spacing.6}'
+    md_padding: '{spacing.24} {spacing.12}'
+    sectionDivider: '1px solid {colors.border-default}'
   browse-layout:
     # Mock-up 10 and ruling 3 (2026-11-16, AECI-1793): the 1328px page wrap
     # (BAND_WRAP_CLASS), gutters 24, 32 and 48px. The header is 24px over 32px,
@@ -347,78 +347,78 @@ components:
   # as var() are the AECI-1747 tokens, which are not in the colors group above
   # until that issue lands.
   header:
-    backgroundColor: "{colors.accent-primary}"
-    textColor: "{colors.accent-warm}"
-    height: "64px"
-    md_height: "76px"
-    padding: "{spacing.0} {spacing.6}"
-    md_padding: "{spacing.0} {spacing.8}"
-    lg_padding: "{spacing.0} {spacing.12}"
+    backgroundColor: '{colors.accent-primary}'
+    textColor: '{colors.accent-warm}'
+    height: '64px'
+    md_height: '76px'
+    padding: '{spacing.0} {spacing.6}'
+    md_padding: '{spacing.0} {spacing.8}'
+    lg_padding: '{spacing.0} {spacing.12}'
   # Sign in hover (the Bone main button on Forest). Forest text is 9.46:1 on it.
   button-on-brand-hover:
-    backgroundColor: "{colors.surface-on-brand-hover}"
-    textColor: "{colors.accent-primary}"
+    backgroundColor: '{colors.surface-on-brand-hover}'
+    textColor: '{colors.accent-primary}'
   # A nav link on Forest. The hover wash is Bone at 10%. Text stays Bone.
   header-link:
-    textColor: "{colors.accent-warm}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    padding: "{spacing.3} {spacing.4}"
+    textColor: '{colors.accent-warm}'
+    typography: '{typography.body}'
+    rounded: '{rounded.pill}'
+    padding: '{spacing.3} {spacing.4}'
   header-link-hover:
-    backgroundColor: "{colors.surface-on-brand-wash}"
+    backgroundColor: '{colors.surface-on-brand-wash}'
   # Active route: weight 600 and aria-current.
   header-link-active:
     fontWeight: 600
   # Panel-open cue under Browse only.
   active-bar:
-    backgroundColor: "{colors.accent-secondary}"
-    height: "3px"
-    rounded: "3px 3px 0 0"
+    backgroundColor: '{colors.accent-secondary}'
+    height: '3px'
+    rounded: '3px 3px 0 0'
   # The search field needs its own edge. The wash alone is 1.33:1 on Forest.
   header-search:
-    backgroundColor: "{colors.surface-on-brand-wash}"
-    textColor: "{colors.text-on-brand-secondary}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    minHeight: "44px"
-    padding: "{spacing.0} {spacing.4}"
-    border: "1px solid {colors.border-on-brand-strong}"
+    backgroundColor: '{colors.surface-on-brand-wash}'
+    textColor: '{colors.text-on-brand-secondary}'
+    typography: '{typography.body}'
+    rounded: '{rounded.pill}'
+    minHeight: '44px'
+    padding: '{spacing.0} {spacing.4}'
+    border: '1px solid {colors.border-on-brand-strong}'
   header-search-hover:
-    backgroundColor: "{colors.surface-on-brand-wash-hover}"
-    textColor: "{colors.accent-warm}"
+    backgroundColor: '{colors.surface-on-brand-wash-hover}'
+    textColor: '{colors.accent-warm}'
   nav-toggle:
-    backgroundColor: "{colors.surface-on-brand-wash}"
-    textColor: "{colors.accent-warm}"
-    rounded: "{rounded.control}"
-    width: "44px"
-    height: "44px"
+    backgroundColor: '{colors.surface-on-brand-wash}'
+    textColor: '{colors.accent-warm}'
+    rounded: '{rounded.control}'
+    width: '44px'
+    height: '44px'
   # The Browse panel and the mobile panel share this white ground.
   menu-panel:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    rounded: "0 0 {rounded.card} {rounded.card}"
-    padding: "{spacing.12} {spacing.12} {spacing.8}"
-    shadow: "var(--shadow-menu)"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-primary}'
+    rounded: '0 0 {rounded.card} {rounded.card}'
+    padding: '{spacing.12} {spacing.12} {spacing.8}'
+    shadow: 'var(--shadow-menu)'
   # The stuck bar is solid. No blur (clash 13). Once stuck it takes a hairline edge.
   section-nav:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-secondary}"
-    typography: "{typography.body}"
-    minHeight: "64px"
-    md_minHeight: "72px"
-    borderBottom: "1px solid {colors.border-default}"
+    backgroundColor: '{colors.surface-base}'
+    textColor: '{colors.text-secondary}'
+    typography: '{typography.body}'
+    minHeight: '64px'
+    md_minHeight: '72px'
+    borderBottom: '1px solid {colors.border-default}'
   section-nav-current:
-    textColor: "{colors.text-primary}"
+    textColor: '{colors.text-primary}'
     fontWeight: 600
   section-nav-count:
-    textColor: "{colors.text-secondary}"
-    fontSize: "0.8125rem"
+    textColor: '{colors.text-secondary}'
+    fontSize: '0.8125rem'
     fontWeight: 400
   # The footer ground. Ink is Bone. Labels take var(--text-on-footer-secondary).
   footer:
-    backgroundColor: "{colors.surface-footer}"
-    textColor: "{colors.accent-warm}"
-    padding: "{spacing.16} {spacing.0} {spacing.8}"
+    backgroundColor: '{colors.surface-footer}'
+    textColor: '{colors.accent-warm}'
+    padding: '{spacing.16} {spacing.0} {spacing.8}'
 ---
 
 # Design System: AEC Integrations
@@ -451,7 +451,7 @@ The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/record
 ### Primary
 
 - **Forest** (`#1E3A2F` / `oklch(32.24% 0.0397 166.73)`): the primary brand color. CTAs, links, headings, the connector mark, primary badges. Hover state is **Forest Hover** (`#2E5C45` / `oklch(43.47% 0.0641 160.30)`) — measurably brighter, never a synthetic opacity reduction. Forest is also a ground: it may fill the header, the hero of a detail page and the footer (clash 1), and it is the fill of a pressed toggle (clash 5).
-- **Forest soft** (`#ECF1EE` / `oklch(95.35% 0.0066 160.07)`): the Forest *wash* — fills for selected facets, selected filter chips (clash 5), verified-soft and info states. It is never a page band (clash 2). It is how Forest registers at rest without recoloring text. A wash, not a boundary (1.14:1 against white): always paired with a border or another selected-state affordance. Forest text on it measures 10.80:1.
+- **Forest soft** (`#ECF1EE` / `oklch(95.35% 0.0066 160.07)`): the Forest _wash_ — fills for selected facets, selected filter chips (clash 5), verified-soft and info states. It is never a page band (clash 2). It is how Forest registers at rest without recoloring text. A wash, not a boundary (1.14:1 against white): always paired with a border or another selected-state affordance. Forest text on it measures 10.80:1.
 
 ### Secondary
 
@@ -460,11 +460,11 @@ The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/record
 
 ### Rating
 
-- **Goldenrod** (`#DAA520` / `oklch(75.16% 0.1469 83.99)`): the gold-star fill for rating glyphs (`<aec-review-stars>` and the review-form rating listboxes) — token `--accent-rating`. The conventional gold star, tuned warm to sit with the Clay/Bone family rather than a neon yellow. It measures 2.24:1 on white, *below* the 3:1 meaning-bearing-graphic floor — permitted because the star glyphs are **decorative** (`aria-hidden`): the rating is carried by the `aria-label` (and, in displays, the adjacent numeral), never by glyph color alone. In read-only displays (`<aec-review-stars>`, vendor-detail) empty stars use **Border strong** `#D4D4D8` as a faint track so the gold reads against it. The **interactive review-form picker** instead uses **Text tertiary** `#71717A` for unselected stars: it has no adjacent numeral and renders fully unselected on first load, so a faint `#D4D4D8` track would leave the whole control near-invisible until hovered. (The dedicated Goldenrod gives ratings their own recognizable color and frees Clay deep to mean "text-capable clay / warning.")
+- **Goldenrod** (`#DAA520` / `oklch(75.16% 0.1469 83.99)`): the gold-star fill for rating glyphs (`<aec-review-stars>` and the review-form rating listboxes) — token `--accent-rating`. The conventional gold star, tuned warm to sit with the Clay/Bone family rather than a neon yellow. It measures 2.24:1 on white, _below_ the 3:1 meaning-bearing-graphic floor — permitted because the star glyphs are **decorative** (`aria-hidden`): the rating is carried by the `aria-label` (and, in displays, the adjacent numeral), never by glyph color alone. In read-only displays (`<aec-review-stars>`, vendor-detail) empty stars use **Border strong** `#D4D4D8` as a faint track so the gold reads against it. The **interactive review-form picker** instead uses **Text tertiary** `#71717A` for unselected stars: it has no adjacent numeral and renders fully unselected on first load, so a faint `#D4D4D8` track would leave the whole control near-invisible until hovered. (The dedicated Goldenrod gives ratings their own recognizable color and frees Clay deep to mean "text-capable clay / warning.")
 
 ### Tertiary
 
-- **Bone** (`#F5F2EA` / `oklch(96.13% 0.0111 89.72)`): warm-tinted *accent surface*. One tinted band per page, for its key section (clash 2). **Not a page background.** On a Forest ground Bone is also the ink: text and the fill of the main button (clashes 3 and 4).
+- **Bone** (`#F5F2EA` / `oklch(96.13% 0.0111 89.72)`): warm-tinted _accent surface_. One tinted band per page, for its key section (clash 2). **Not a page background.** On a Forest ground Bone is also the ink: text and the fill of the main button (clashes 3 and 4).
 
 ### Neutral
 
@@ -491,13 +491,13 @@ The redesign rulings of 2026-11-13 (`docs/design/mockups/redesign-2026-11/record
 
 Forest and its companions fill three chrome bands. Every pairing on them states its contrast floor. Ratios below are WCAG 2 relative-luminance ratios computed from the hex values, to two decimals.
 
-| Role | Hex | Where it may be used | Ink on it |
-| -- | -- | -- | -- |
-| Forest | `#1E3A2F` | Header, hero of a detail page, footer, one feature card, primary buttons, pressed toggles | Bone 11.03:1, white 12.34:1 |
-| Forest hover | `#2E5C45` | Hover states, the soft single-colour glow in the hero (existing `--accent-primary-hover`) | Bone 6.87:1 |
-| Hero panel (`--surface-hero-panel`) | `#26473A` | Panels sitting on the Forest hero | Bone 9.18:1 |
-| Footer ground (`--surface-footer`) | `#15291F` | Footer only | Bone 13.71:1 |
-| Bone | `#F5F2EA` | One band per page, ink on Forest, the main button on Forest | Forest 11.03:1 |
+| Role                                | Hex       | Where it may be used                                                                      | Ink on it                   |
+| ----------------------------------- | --------- | ----------------------------------------------------------------------------------------- | --------------------------- |
+| Forest                              | `#1E3A2F` | Header, hero of a detail page, footer, one feature card, primary buttons, pressed toggles | Bone 11.03:1, white 12.34:1 |
+| Forest hover                        | `#2E5C45` | Hover states, the soft single-colour glow in the hero (existing `--accent-primary-hover`) | Bone 6.87:1                 |
+| Hero panel (`--surface-hero-panel`) | `#26473A` | Panels sitting on the Forest hero                                                         | Bone 9.18:1                 |
+| Footer ground (`--surface-footer`)  | `#15291F` | Footer only                                                                               | Bone 13.71:1                |
+| Bone                                | `#F5F2EA` | One band per page, ink on Forest, the main button on Forest                               | Forest 11.03:1              |
 
 Floors that hold on every ground in the table:
 
@@ -510,7 +510,7 @@ Floors that hold on every ground in the table:
 The rules the rulings set:
 
 - **Forest ground (clash 1, new).** Forest may fill the header, the hero of a detail page and the footer. The reading area stays white. This rewrites the Surfaces-Are-Neutral Rule (see Named Rules).
-- **A Forest feature card (clash 1, new).** The clash 1 record is titled "Forest as a full-bleed ground for the header, hero, footer and feature cards". Its new design reads "`.know` (page 8) and `.cm-card` are Forest cards" (`records/design-clashes.md`, lines 9 and 11). Chris ruled NEW, so the new design wins. Ruling R4 dropped `.cm-card`, the Browse menu's card. What remains is the "Know of one?" card in mock-up 8 (`.know`, `8-product-none.html`, line 1100). It is a card, not a band: 24px radius, 32px padding, the card shadow, a Forest fill, Bone ink and the Bone main button (`btn-hero`, `--cta-bg: #F5F2EA`, mock-up 6, lines 12 and 90). The mock-ups draw at most one per page. So the limits are: a card and never a full-bleed band, Bone ink, the Bone main button, and one per page. Its secondary text in the mock-up is `#C5D3CA`, which §2 has not measured ("Any text colour on a Forest ground other than Bone is not measured here"). The shipped plan panel (`aec-plan-cta-panel`) is such a card (§5 "Plans calls to action"). **The plan call to action is the page's one Forest feature card** (AECI-1766), so a page that carries it carries no other. It stays as it is until AECI-1802 rebuilds it. **The home page's trust pillars band (`home/home-trust-pillars.ts`) is a full-bleed mid-page Forest ground that clash 1 does not list.** It is flagged for Chris. The home mock-up (AECI-1789) settles whether it stays, becomes a card or goes. AECI-1766 leaves it untouched. ADR 0056 says "Forest may fill the header, the detail page hero and the footer" and omits the feature card.
+- **A Forest feature card (clash 1, new).** The clash 1 record is titled "Forest as a full-bleed ground for the header, hero, footer and feature cards". Its new design reads "`.know` (page 8) and `.cm-card` are Forest cards" (`records/design-clashes.md`, lines 9 and 11). Chris ruled NEW, so the new design wins. Ruling R4 dropped `.cm-card`, the Browse menu's card. What remains is the "Know of one?" card in mock-up 8 (`.know`, `8-product-none.html`, line 1100). It is a card, not a band: 24px radius, 32px padding, the card shadow, a Forest fill, Bone ink and the Bone main button (`btn-hero`, `--cta-bg: #F5F2EA`, mock-up 6, lines 12 and 90). The mock-ups draw at most one per page. So the limits are: a card and never a full-bleed band, Bone ink, the Bone main button, and one per page. Its secondary text in the mock-up is `#C5D3CA`, which §2 has not measured ("Any text colour on a Forest ground other than Bone is not measured here"). The shipped plan panel (`aec-plan-cta-panel`) is such a card (§5 "Plans calls to action"). **The plan call to action is the page's one Forest feature card** (AECI-1766), so a page that carries it carries no other. It stays as it is until AECI-1802 rebuilds it. **The home page has no trust pillars band.** `home/home-trust-pillars.ts` has been on `/about` only since AECI-273, so the full-bleed mid-page Forest ground it draws is an `/about` question (AECI-1800). On the home, the one Forest feature card is "What we do instead" in `home/home-why.ts` (mock-up 9, question 1, approved by Chris; built by AECI-1792). It follows the limits above: a card, Bone ink, `--text-on-brand-secondary` for its secondary text, the Bone main button, one per page. ADR 0057 says "Forest may fill the header, the detail page hero and the footer" and omits the feature card.
 - **One Bone band (clash 2, blend).** The body is white. One Bone band per page. No Forest-soft bands, no deep-green bands, no alternating bands.
 - **Buttons on Forest (clash 3, blend).** Clay never fills a button. On Forest the main button is Bone with Forest text. Everywhere else the main button stays Forest with white text.
 - **Clay and text (clash 4, blend).** Clay does not carry text. Product names highlighted on Forest are Bone. Clay deep stays the onboarding series colour. Kicker icons, chip fills and the focus ring do not take Clay.
@@ -535,19 +535,19 @@ These were open after the rulings. The tokens are in `apps/web/src/styles.css` w
 
 ### Dark theme — dropped from the roadmap (not shipped)
 
-The dark palette was removed from the active design system in **AECI-226**: AECi ships light only (see the "Light only" rule below). The Stage 2 dark-theme reintroduction was subsequently **dropped** (epic AECI-517 canceled; `STAGE_2_SPEC.md` §9) — dark is **not roadmapped**. The brand-approved dark Forest / Clay / Bone variants stay documented in `docs/BRAND_GUIDELINES.md` §3, and the prior OKLCH dark token set is preserved in git history, so *should* a later stage ever revisit dark it would be a token-block + toggle change — every component consumes the semantic tokens (`--surface-*`, `--text-*`, `--accent-*`), not a per-component rework — but nothing is planned.
+The dark palette was removed from the active design system in **AECI-226**: AECi ships light only (see the "Light only" rule below). The Stage 2 dark-theme reintroduction was subsequently **dropped** (epic AECI-517 canceled; `STAGE_2_SPEC.md` §9) — dark is **not roadmapped**. The brand-approved dark Forest / Clay / Bone variants stay documented in `docs/BRAND_GUIDELINES.md` §3, and the prior OKLCH dark token set is preserved in git history, so _should_ a later stage ever revisit dark it would be a token-block + toggle change — every component consumes the semantic tokens (`--surface-*`, `--text-*`, `--accent-*`), not a per-component rework — but nothing is planned.
 
 ### Named Rules
 
-**The Surfaces-Are-Neutral Rule** (rewritten by clashes 1 and 2, see ADR 0056). The reading area is neutral. The `<body>` is `#FFFFFF`. Forest may fill the header, the hero of a detail page, the footer and a Forest feature card, and nothing else. Bone is *not* a page background. It is one warm-tinted band per page. Forest soft is never a band. The old form of this rule banned every brand colour as a ground. That ban is lifted for those three Forest bands and the feature card only.
+**The Surfaces-Are-Neutral Rule** (rewritten by clashes 1 and 2, see ADR 0057). The reading area is neutral. The `<body>` is `#FFFFFF`. Forest may fill the header, the hero of a detail page, the footer and a Forest feature card, and nothing else. Bone is *not* a page background. It is one warm-tinted band per page. Forest soft is never a band. The old form of this rule banned every brand colour as a ground. That ban is lifted for those three Forest bands and the feature card only.
 
 **The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected. One change (clash 3): on a Forest ground a Forest button vanishes, so the main button there is the inverse, Bone with Forest text. It is still the one primary action, and it is not Clay.
 
-**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons — uses **Clay deep** `#A14D22` (5.83:1). (Star-rating glyphs are *not* clay: they use the dedicated **Goldenrod** `--accent-rating` — see the Rating palette above.) Clay never fills a CTA: the Forest-Anchor Rule owns every CTA, including the Bone-on-Forest inverse (clash 3). Clay does not carry text on any ground, so highlighted names on Forest are Bone (clash 4). Kept unchanged by the rulings: the 5% cap and the Clay deep rule for anything meaning-bearing. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy would carry forward to Dark Clay if dark is ever revisited; dark theme is not currently roadmapped — the Stage 2 reintroduction was dropped.)
+**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that _carries meaning_ — text, icons — uses **Clay deep** `#A14D22` (5.83:1). (Star-rating glyphs are _not_ clay: they use the dedicated **Goldenrod** `--accent-rating` — see the Rating palette above.) Clay never fills a CTA: the Forest-Anchor Rule owns every CTA, including the Bone-on-Forest inverse (clash 3). Clay does not carry text on any ground, so highlighted names on Forest are Bone (clash 4). Kept unchanged by the rulings: the 5% cap and the Clay deep rule for anything meaning-bearing. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy would carry forward to Dark Clay if dark is ever revisited; dark theme is not currently roadmapped — the Stage 2 reintroduction was dropped.)
 
 **The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle would govern the dark variants documented in `BRAND_GUIDELINES.md` §3 if dark is ever revisited; it is not currently roadmapped.)
 
-**The Anchor-Site Rule.** When a surface uses a Mobbin reference site as its theme, components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — and the originating theme site remains the visual anchor for composition, hierarchy, density, and atmosphere. This protects editorial coherence: AECi reads as one publication, not a mashup of unrelated apps. Record the anchor site with the surface (Linear issue or commit message) so future iterations stay aligned. Access Mobbin via the `mcp__mobbin__*` MCP server — see `CLAUDE.md` §"MCP usage rules" for auth flow and the matching design-checklist step.
+**The Anchor-Site Rule.** When a surface uses a Mobbin reference site as its theme, components for that surface come from the _same_ Mobbin site. Pulling components from a second site is a deliberate exception, not a default — and the originating theme site remains the visual anchor for composition, hierarchy, density, and atmosphere. This protects editorial coherence: AECi reads as one publication, not a mashup of unrelated apps. Record the anchor site with the surface (Linear issue or commit message) so future iterations stay aligned. Access Mobbin via the `mcp__mobbin__*` MCP server — see `CLAUDE.md` §"MCP usage rules" for auth flow and the matching design-checklist step.
 
 **The redesign's anchor (clash 44, current).** Chris ruled CURRENT on clash 44 and left no note: the rule stands, and every surface records an anchor. The redesign's mock-ups are the anchor for the new language: `docs/design/mockups/redesign-2026-11/mockups/` (the empty pair page, the product page, the product with many integrations and the product with none), with `PLAN.md` §4 as the written form. Use Mobbin only for components the mock-ups do not cover (`PLAN.md` §9.1). The mock-ups draw the header and the footer, so they are the anchor for site chrome too. The earlier anchors stay recorded only for surfaces the mock-ups do not cover: the home page and the browse lists, until their mock-ups are approved (AECI-1789 and AECI-1790). A precedent for an in-repo mock-up as the anchor is the Free plan surfaces (§5 "Vendor portal (Stage 2)").
 
@@ -567,19 +567,19 @@ The redesign rulings of 2026-11-13 changed this section (clashes 7 to 10 and 17)
 
 Chris's note on clash 17: "I do believe we have too many font sizes and variants, see what it looks like to limit them." The plan's answer is one limited ramp. The audit of the mock-ups went from 36 distinct sizes to 10, and from 9 weights to 5 (`PLAN.md` §4.2). Clash 9 was ruled as a blend. Once AECI-1748 and AECI-1749 land, every size on a public page is one of these tokens. There were ten. Ruling A3 (2026-11-16) added an eleventh, `--t-48`, for the score figure.
 
-| Token | Size | rem | Family | Use |
-| -- | -- | -- | -- | -- |
-| `--t-12` | 12px | 0.75 | Sans | Overlines, captions |
-| `--t-13` | 13px | 0.8125 | Sans | Chips, counts, small labels |
-| `--t-14` | 14px | 0.875 | Sans | Buttons, secondary text |
-| `--t-16` | 16px | 1 | Sans | Body, nav links |
-| `--t-20` | 20px | 1.25 | Both | Lede text, card titles |
-| `--t-24` | 24px | 1.5 | Serif | Sub-headings |
-| `--t-36` | 28 to 36px, fluid | 1.75 to 2.25 | Serif | Section headings |
-| `--t-fig` | 28 to 40px, fluid | 1.75 to 2.5 | Serif | Count figures |
-| `--t-48` | 48px, fixed | 3 | Serif | Score figures (ruling A3) |
-| `--t-statement` | 34 to 56px, fluid | 2.125 to 3.5 | Serif | The pair page statement |
-| `--t-display` | 40 to 72px, fluid | 2.5 to 4.5 | Serif | The product name |
+| Token           | Size              | rem          | Family | Use                         |
+| --------------- | ----------------- | ------------ | ------ | --------------------------- |
+| `--t-12`        | 12px              | 0.75         | Sans   | Overlines, captions         |
+| `--t-13`        | 13px              | 0.8125       | Sans   | Chips, counts, small labels |
+| `--t-14`        | 14px              | 0.875        | Sans   | Buttons, secondary text     |
+| `--t-16`        | 16px              | 1            | Sans   | Body, nav links             |
+| `--t-20`        | 20px              | 1.25         | Both   | Lede text, card titles      |
+| `--t-24`        | 24px              | 1.5          | Serif  | Sub-headings                |
+| `--t-36`        | 28 to 36px, fluid | 1.75 to 2.25 | Serif  | Section headings            |
+| `--t-fig`       | 28 to 40px, fluid | 1.75 to 2.5  | Serif  | Count figures               |
+| `--t-48`        | 48px, fixed       | 3            | Serif  | Score figures (ruling A3)   |
+| `--t-statement` | 34 to 56px, fluid | 2.125 to 3.5 | Serif  | The pair page statement     |
+| `--t-display`   | 40 to 72px, fluid | 2.5 to 4.5   | Serif  | The product name            |
 
 rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is allowed on a public page. The mock-ups hold 19px and 22px serif and 12.5px sans only under their `html.r-type-orig` restore toggle, not in the default state. AECI-1749 snaps any that reach the build to the ramp.
 
@@ -587,25 +587,25 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 - **What may sit at `--t-12`.** Overlines, the two 500 chips above, and field captions (12px, 20px line height). Counts sit at `--t-13` (`PLAN.md`).
 - **Tailwind mapping (AECI-1748).** Every `text-*` size utility resolves to a ramp token. `styles.css` overrides Tailwind's `--text-*` theme variables, so the call sites did not change. Each step keeps Tailwind's own line height, so no multi-line text lost leading. The mapping changes as little as it can: five steps keep their pixels. This applies on every surface, the vendor portal and admin included.
 
-  | Utility | Before | Token | After, 320 / 768 / 1280 / 1920px wide | Line height |
-  | -- | -- | -- | -- | -- |
-  | `text-xs` | 12px | `--t-12` | 12px, unchanged | 16px (1.333) |
-  | `text-sm` | 14px | `--t-14` | 14px, unchanged | 20px (1.429) |
-  | `text-base` | 16px | `--t-16` | 16px, unchanged | 24px (1.5) |
-  | `text-lg` | 18px | `--t-20` | 20px | 1.556, so 31px |
-  | `text-xl` | 20px | `--t-20` | 20px, unchanged | 28px (1.4) |
-  | `text-2xl` | 24px | `--t-24` | 24px, unchanged | 32px (1.333) |
-  | `text-3xl` | 30px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.2 |
-  | `text-4xl` | 36px | `--t-36` | 28 / 29.3 / 34.4 / 36px | 1.111 |
-  | `text-5xl` | 48px | `--t-fig` | 28 / 31.2 / 40 / 40px | 1 |
-  | `text-6xl` to `text-9xl` | 60 to 128px | `--t-display` | 45.7 / 56.4 / 68.7 / 72px | 1 |
-
+  | Utility                  | Before      | Token         | After, 320 / 768 / 1280 / 1920px wide | Line height    |
+  | ------------------------ | ----------- | ------------- | ------------------------------------- | -------------- |
+  | `text-xs`                | 12px        | `--t-12`      | 12px, unchanged                       | 16px (1.333)   |
+  | `text-sm`                | 14px        | `--t-14`      | 14px, unchanged                       | 20px (1.429)   |
+  | `text-base`              | 16px        | `--t-16`      | 16px, unchanged                       | 24px (1.5)     |
+  | `text-lg`                | 18px        | `--t-20`      | 20px                                  | 1.556, so 31px |
+  | `text-xl`                | 20px        | `--t-20`      | 20px, unchanged                       | 28px (1.4)     |
+  | `text-2xl`               | 24px        | `--t-24`      | 24px, unchanged                       | 32px (1.333)   |
+  | `text-3xl`               | 30px        | `--t-36`      | 28 / 29.3 / 34.4 / 36px               | 1.2            |
+  | `text-4xl`               | 36px        | `--t-36`      | 28 / 29.3 / 34.4 / 36px               | 1.111          |
+  | `text-5xl`               | 48px        | `--t-fig`     | 28 / 31.2 / 40 / 40px                 | 1              |
+  | `text-6xl` to `text-9xl` | 60 to 128px | `--t-display` | 45.7 / 56.4 / 68.7 / 72px             | 1              |
   - **`text-lg` lands on `--t-20`, not `--t-16`.** Most `text-lg` call sites are serif names and titles. Dropping them to 16px would break the Serif-Floor Rule, and `--t-20` is the card-title step. The sans ledes at `text-lg` carry `leading-relaxed`, so they keep 1.625.
   - **`text-3xl` and `text-4xl` both land on `--t-36`.** It is the nearest step at every width, and both are used as section headings and figures. The common `text-3xl md:text-4xl` pair now renders one fluid size.
   - **`text-5xl` lands on `--t-fig`.** Its only live use off a heading is the vendor portal's glance figure, which is a Figure. At `--t-statement` it rendered 56px at 1440px, larger than the portal's h1.
   - **`text-6xl` to `text-9xl` are unused.** They land on `--t-display` so no utility can render off the ramp.
   - **The ramp itself is exposed as `text-t-12` to `text-t-display`**, each with its role's line height: 20px for `--t-12` (the field caption), 1.4 for `--t-13`, 1.5 for `--t-14`, 1.6 for `--t-16`, 1.5 for `--t-20`, 1.25 for `--t-24`, 1.1 for `--t-36` and `--t-statement`, and 1 for `--t-fig`, `--t-48` and `--t-display`. `text-t-48` is the score figure. New code uses these names. A role that needs another leading at the same size adds a `leading-*` utility.
   - **A `text-*` utility on an `h1`, `h2` or `h3` element is still dead.** See the Unlayered-Heading Rule. Most `text-3xl` to `text-5xl` call sites sit on headings, so the remap does not move them.
+
 - **Serif never sits on a sans-only step.** `--t-12` to `--t-16` are sans. Serif starts at `--t-20`.
 
 ### Hierarchy
@@ -621,7 +621,7 @@ rem is px divided by 16. Once AECI-1748 and AECI-1749 land, no other size is all
 - **Body** (Atkinson Hyperlegible Next, 400, `--t-16`, 1rem / 16px, line-height 1.6): default body and reading text, and nav links. Measure (65 to 75ch) caps prose blocks, never the page shell; see the Page-Width Rule below. **Use 700 (Bold) only for inline emphasis** — never for headings (those are Source Serif 4).
 - **Caption** (Atkinson Hyperlegible Next, 400, `--t-14`, 0.875rem / 14px, line-height 1.5): metadata, hints, timestamps, helper text. Defined as a role so components stop improvising this size. `PLAN.md` also lists "captions" at `--t-12`. Field captions take `--t-12` (below). Which other captions do is open.
 - **Label** (Atkinson Hyperlegible Next, 600, `--t-13`, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): dense chips, counts, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). Moved 700 → 600 in AECI-230: with a real 600 cut available, the calmer weight is the premium read at 13px. The taxonomy chip is weight 400 in the mock-up, so the 500 this section used to state for it no longer holds. §5 → Tags / taxonomy chips now records 400. Button text is `--t-14` in the ramp. The button size and weight belong to the button ruling (clash 20), which §5 owns.
-- **Overline** (Atkinson Hyperlegible Next, 600, `--t-12`, 0.75rem / 12px, line-height 1.4, tracking +0.08em, **uppercase**; clash 10, current): eyebrows, kickers, and sidebar microheadings ("Vendor", "Categories", "Filters", "At a glance") — the print-kicker role and the *only* sanctioned uppercase in the system (see the Sentence-Case Rule). Clash 10 kept this rule and changed the mock-up. Every kicker and microheading, including the Browse menu's, uses `.aec-overline`. The mock-up's sentence-case 14px kickers, its 12.5 to 13px bold microheadings and its 11px menu overline are dropped. So are the Clay-deep kicker icons (clash 4). Shipped as the `.aec-overline` class in `styles.css`; apply it on whatever element carries the right semantics (often `h2`/`h3` — the class beats the global heading serif rule, which is the point). Default color text secondary on a light ground. Forest for emphasis. The overline colour on a Forest ground is open (set by AECI-1747).
+- **Overline** (Atkinson Hyperlegible Next, 600, `--t-12`, 0.75rem / 12px, line-height 1.4, tracking +0.08em, **uppercase**; clash 10, current): eyebrows, kickers, and sidebar microheadings ("Vendor", "Categories", "Filters", "At a glance") — the print-kicker role and the _only_ sanctioned uppercase in the system (see the Sentence-Case Rule). Clash 10 kept this rule and changed the mock-up. Every kicker and microheading, including the Browse menu's, uses `.aec-overline`. The mock-up's sentence-case 14px kickers, its 12.5 to 13px bold microheadings and its 11px menu overline are dropped. So are the Clay-deep kicker icons (clash 4). Shipped as the `.aec-overline` class in `styles.css`; apply it on whatever element carries the right semantics (often `h2`/`h3` — the class beats the global heading serif rule, which is the point). Default color text secondary on a light ground. Forest for emphasis. The overline colour on a Forest ground is open (set by AECI-1747).
 
 Floors that hold whatever the ramp: the smallest text is 12px, body is 16px, prose measure is 65 to 75ch, and all text meets AA contrast (§2). No token goes below `--t-12`.
 
@@ -633,14 +633,15 @@ AECI-1748 confirmed the weights, line heights and tracking stated above. They ar
 
 - **The fluid clamps.** All four use rem bounds and a rem-plus-vw middle term, and all reach their upper bound by 1440px, the mock-up canvas. `--t-36` leaves its lower bound at 640px. `--t-fig` keeps the pre-ramp h1 clamp, which runs from 640px to 1120px and equals the mock-up's `2.5vw + 12px`. `--t-statement` and `--t-display` need a larger rem share to double by 300% zoom: the rem term is at least half the upper bound, and the vw term is the upper bound minus the rem term, divided by 1440.
 
-  | Token | `clamp()` | 320px | 768px | 1280px | 1920px | Doubles at zoom: 1280 / 1920px window, worst width |
-  | -- | -- | -- | -- | -- | -- | -- |
-  | `--t-36` | `clamp(1.75rem, 1vw + 1.35rem, 2.25rem)` | 28 | 29.3 | 34.4 | 36 | 246% / 244%, 257% |
-  | `--t-fig` | `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)` | 28 | 31.2 | 40 | 40 | 286% / 267%, 286% |
-  | `--t-statement` | `clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)` | 35.8 | 43.8 | 53 | 56 | 277% / 258%, 287% |
-  | `--t-display` | `clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)` | 45.7 | 56.4 | 68.7 | 72 | 281% / 258%, 290% |
+  | Token           | `clamp()`                                   | 320px | 768px | 1280px | 1920px | Doubles at zoom: 1280 / 1920px window, worst width |
+  | --------------- | ------------------------------------------- | ----- | ----- | ------ | ------ | -------------------------------------------------- |
+  | `--t-36`        | `clamp(1.75rem, 1vw + 1.35rem, 2.25rem)`    | 28    | 29.3  | 34.4   | 36     | 246% / 244%, 257%                                  |
+  | `--t-fig`       | `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`   | 28    | 31.2  | 40     | 40     | 286% / 267%, 286%                                  |
+  | `--t-statement` | `clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem)` | 35.8  | 43.8  | 53     | 56     | 277% / 258%, 287%                                  |
+  | `--t-display`   | `clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem)`   | 45.7  | 56.4  | 68.7   | 72     | 281% / 258%, 290%                                  |
 
   Sizes are CSS px at 100% zoom. Browser zoom shrinks the CSS viewport and grows the rem, so a fluid size grows less than the zoom factor until it reaches its lower bound. Each token doubles by 300% zoom at every width, which is Safari's zoom limit. `design-tokens.guard.spec.ts` checks every window from 320px to 4000px. The last column gives the zoom where each token doubles, and the worst case over all widths. WCAG 1.4.4 asks that text can reach 200%. It does not require that at exactly 200% zoom.
+
 - **The score figure step (ruling A3, Chris, 2026-11-16).** `--t-48` is a fixed `3rem`, not a clamp. A fixed rem follows zoom one for one, so it doubles by 200% zoom at every width and passes the 300% guard with no sweep. A clamp with a 48px top would shrink the score on a phone, and the score is the number the reader came for. 48px is a single short number ("4.3") and fits a 320px column. No Tailwind `text-*` utility maps to it. `aec-figure` takes it through `size="score"`.
 - **The Tailwind mapping.** The table is under "The type ramp" above.
 - **The Headline token** is `--t-fig`.
@@ -655,7 +656,7 @@ AECI-1748 confirmed the weights, line heights and tracking stated above. They ar
 
 ### Named Rules
 
-**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
+**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; _nothing else_ is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
 
 **The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.) Still holds under the ramp (clashes 9 and 17), and the real floor is now 20px: the smallest serif step is `--t-20`, and `--t-12` to `--t-16` are sans. AECI-1748 moved the `/docs` article h3 from 18px to `--t-20`.
 
@@ -666,10 +667,10 @@ AECI-1748 confirmed the weights, line heights and tracking stated above. They ar
 
 **The Page-Width Rule (AECI-987).** Page width and reading measure are two different constraints. The page takes the standard 7xl canvas (§5 → Layout shells); measure (`max-w-prose`, `max-w-[42rem]`, 65 to 75ch) goes on the prose blocks inside it, and form controls cap at `max-w-2xl`. The exceptions are the product page's band shell, which takes a 1328px wrap with 48px gutters (§4 "The detail page band shell", clash 16), and the site header and footer, which take the same wrap (ruling A2, 2026-11-16), and the browse shell, `BrowseLayout` (ruling 3, 2026-11-16, AECI-1793). A routed page never puts a reading-width class on its outermost container: at 1280px that leaves a narrow column with a blank right half. Examples:
 
-- *Editorial* (`/about`): 7xl canvas, the article prose capped at measure.
-- *Account* (`/account`): 7xl canvas, a sticky section nav from `lg`, panels across the content column, inputs capped at `max-w-2xl`.
-- *Form* (`/products/:slug/review`, the claim and correction pages, `/welcome`): 7xl canvas with the form + context rail (§5 → Layout shells).
-- *Focused flow* (`/auth/login`): the one exception. A single short task with nothing to put beside it stays a narrow centered column. The focused flows are `/auth/login`, `/claims/confirm`, `/notifications/mute`, `/unsubscribe`, `/vendor/invite/:token` and the 404 shell.
+- _Editorial_ (`/about`): 7xl canvas, the article prose capped at measure.
+- _Account_ (`/account`): 7xl canvas, a sticky section nav from `lg`, panels across the content column, inputs capped at `max-w-2xl`.
+- _Form_ (`/products/:slug/review`, the claim and correction pages, `/welcome`): 7xl canvas with the form + context rail (§5 → Layout shells).
+- _Focused flow_ (`/auth/login`): the one exception. A single short task with nothing to put beside it stays a narrow centered column. The focused flows are `/auth/login`, `/claims/confirm`, `/notifications/mute`, `/unsubscribe`, `/vendor/invite/:token` and the 404 shell.
 
 Inside the docs shell the canvas is the shell's content column: the docs home and section index widen into it, and articles keep 42rem.
 
@@ -679,7 +680,7 @@ Inside the docs shell the canvas is the shell's content column: the docs home an
 
 ## 4. Elevation
 
-The redesign rulings of 2026-11-13 changed this section (clashes 11 to 18). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.3. The scope sentence under "Forest grounds" in §2 applies to this section too: ruling R2 builds the public pages first. Shared components (the header, the footer, the button and the input) are one component on every surface. Portal and admin page bodies wait until Chris has verified the public pages (§5 Components, "Scope"). Values the rulings left open are listed under "Open values (set by AECI-1750, AECI-1765 and AECI-1766)". ADR 0056 records which written rules this section rewrites.
+The redesign rulings of 2026-11-13 changed this section (clashes 11 to 18). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.3. The scope sentence under "Forest grounds" in §2 applies to this section too: ruling R2 builds the public pages first. Shared components (the header, the footer, the button and the input) are one component on every surface. Portal and admin page bodies wait until Chris has verified the public pages (§5 Components, "Scope"). Values the rulings left open are listed under "Open values (set by AECI-1750, AECI-1765 and AECI-1766)". ADR 0057 records which written rules this section rewrites.
 
 Borders separate controls. One shadow lifts the cards that float on the page ground, and one shadow lifts menus. The kept modal shadow is the only other shadow. The focus ring is an outline.
 
@@ -689,26 +690,28 @@ The system is still flat by default. Depth is conveyed through color (Bone callo
 
 The recipes are written here once. Every other section and every component points to a token name, never to a copy of the values. The tokens are in `apps/web/src/styles.css` (AECI-1750 and AECI-1770). `--shadow-card` is on the shared card recipe (`aecCard`, AECI-1765, §5 "Cards"). `--shadow-menu` and `--shadow-modal` are on the shared overlay classes (AECI-1770, §5 "Overlays").
 
-| Token | Recipe | Where | Clash |
-| -- | -- | -- | -- |
-| `--shadow-card` (`shadow-card`) | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)` | Top-level floating cards: the product card grid, the search hit cards, the integration group card, the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") and the Free and Managed plan cards (ruling A7) | 11 |
-| `--shadow-menu` (`shadow-menu`) | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)` | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel | 11 |
-| `--shadow-modal` (`shadow-modal`) | `0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)` | Dialogs and drawers. Pairs with the 50% modal scrim (`--scrim-modal`) | none |
+| Token                             | Recipe                                                                  | Where                                                                                                                                                                                                                           | Clash |
+| --------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `--shadow-card` (`shadow-card`)   | `0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)`      | Top-level floating cards: the product card grid, the search hit cards, the integration group card, the facts card (`PLAN.md` §4.3 calls them "the facts card and entity cards") and the Free and Managed plan cards (ruling A7) | 11    |
+| `--shadow-menu` (`shadow-menu`)   | `0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)`   | Menu panes, autocomplete dropdowns, tooltips with body content, the Browse menu panel                                                                                                                                           | 11    |
+| `--shadow-modal` (`shadow-modal`) | `0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)` | Dialogs and drawers. Pairs with the 50% modal scrim (`--scrim-modal`)                                                                                                                                                           | none  |
 
 - **Card shadow (clash 11, blend).** One recipe, pure black, for a card that stands on the page ground. A card nested inside another card takes no shadow of its own (see "Cards may nest" below). Chris's ruling was BLEND with no note, so the recipe is the clash recommendation and the plan's value.
 - **"Entity cards (index rows)" take no shadow.** `PLAN.md` says "entity cards", but §5 already uses that name for index rows, which are table rows. They keep the hairline and take no shadow. The cards that take `--shadow-card` are the components in the table.
 - **Which surfaces take the card shadow (rulings A7 and A8, Chris, 2026-11-16).** Each takes it through `aecCard`, never a copy of the recipe.
 
-  | Surface | Card shadow |
-  | -- | -- |
-  | Product card grid, search hit cards, integration group card | Yes, built (AECI-1765) |
-  | Facts card | Yes, built (AECI-1779, `products/product-facts-card.ts`) |
+  | Surface                                                       | Card shadow                                                                                                  |
+  | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+  | Product card grid, search hit cards, integration group card   | Yes, built (AECI-1765)                                                                                       |
+  | Facts card                                                    | Yes, built (AECI-1779, `products/product-facts-card.ts`)                                                     |
+  | Product page extensions tiles                                 | Yes, built (ruling 35, `products/product-extensions.ts`)                                                     |
   | Free and Managed plan cards (`shared/plan-cta/plan-cards.ts`) | Yes, built (A7). The Managed card keeps its 2px Forest border, and its "Managed" name and price also mark it |
-  | Review cards and score cards | Yes, when their own issues build them |
-  | Table wrappers | Never |
-  | The plans rail card (`plan-cta.ts`, `.aec-plan-card`) | Not ruled. It keeps its 8px hairline frame |
+  | Review cards and score cards                                  | Yes, when their own issues build them                                                                        |
+  | Table wrappers                                                | Never                                                                                                        |
+  | The plans rail card (`plan-cta.ts`, `.aec-plan-card`)         | Not ruled. It keeps its 8px hairline frame                                                                   |
 
   **No wide lead card (A8).** The reviews, extensions and similar-products grids have no wide first item. Every item is one cell. `/products` keeps its lead card until its own issue rebuilds the page.
+
 - **Menu shadow.** This is the existing Dropdown / Popover recipe, unchanged. Only its name is new.
 - **Both are pure black, measured.** The values are `--sh-card` and `--sh-pop` on line 15 of mock-up 6 (the same on mock-ups 5, 7 and 8). Pure black is what `PLAN.md` §4.3 rules ("One card shadow, in pure black"). It is also the form of the modal shadow and of the CDK backdrop, so the three agree. `styles.css` is the token definition site and is exempt from the colour rules, so lint is not the reason. The guard spec pins both strings exactly.
 - **Forced-colors mode drops `box-shadow`.** A card that relies on `--shadow-card` has no edge there. The card recipe gives it a transparent 1px border, which the system colours (AECI-1765). Verified in Chromium with `forcedColors: 'active'`: `box-shadow` computes to `none` and the border computes to a system colour. `e2e/card.spec.ts` pins it.
@@ -723,13 +726,13 @@ The recipes are written here once. Every other section and every component point
 
 Chris's ruling was BLEND with no note. The blend is the clash recommendation: add a 24px card radius and a 12px control radius, let public chips be pills, and keep primary actions off the pill.
 
-| Role | Radius | Frontmatter key | CSS token and utility | Clashes |
-| -- | -- | -- | -- | -- |
-| Cards | 24px | `rounded.card` | `--radius-card`, `rounded-card` | 12 |
-| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.control` | `--radius-control`, `rounded-control` | 12, 20 |
-| Chips | Full pill | `rounded.pill` | `--radius-pill`, `rounded-pill` | 12, 22 |
-| Small marks | 8px | `rounded.mark` | `--radius-mark`, `rounded-mark` | 12 |
-| Nested panels (open) | 16px | `rounded.panel` | `--radius-panel`, `rounded-panel` | 12 |
+| Role                      | Radius                                                                  | Frontmatter key   | CSS token and utility                 | Clashes |
+| ------------------------- | ----------------------------------------------------------------------- | ----------------- | ------------------------------------- | ------- |
+| Cards                     | 24px                                                                    | `rounded.card`    | `--radius-card`, `rounded-card`       | 12      |
+| Controls: buttons, inputs | 12px, with the header search pill (clash 29) as the one named exception | `rounded.control` | `--radius-control`, `rounded-control` | 12, 20  |
+| Chips                     | Full pill                                                               | `rounded.pill`    | `--radius-pill`, `rounded-pill`       | 12, 22  |
+| Small marks               | 8px                                                                     | `rounded.mark`    | `--radius-mark`, `rounded-mark`       | 12      |
+| Nested panels (open)      | 16px                                                                    | `rounded.panel`   | `--radius-panel`, `rounded-panel`     | 12      |
 
 On a redesigned public component use the role utilities `rounded-mark|control|panel|card|pill`. `rounded-sm|md|lg|xl` still render Spartan's 4.8, 6.4, 8 and 11.2px and are for surfaces not yet rebuilt. The frontmatter key equals the utility suffix, so `{rounded.control}` is `rounded-control`.
 
@@ -751,13 +754,13 @@ Chris's note on clash 17 was about type: "I do believe we have too many font siz
 - **Half steps snap.** Clash 17 says snap and names no optical-alignment exception, so a half step is not allowed because it looks right inside a control. A real exception needs a ruling from Chris.
 - **Who snaps what.** Each redesigned public component uses the role radius utilities and on-scale spacing when its own issue rebuilds it. The remaining public and shared-shell uses are swept by AECI-1844. The vendor portal and admin page bodies wait for Chris's checkpoint above. Counts at AECI-1750 (utilities with a spacing prefix, specs excluded): integer steps off the scale 503, half steps 869.
 
-| Surface | Integer off-scale (5, 7, 9, 10, 11, 14, 20, `[...]`) | Half steps |
-| -- | -- | -- |
-| Public | 151 | 157 |
-| Shared components and shell | 30 | 53 |
-| Vendor portal | 109 | 161 |
-| Admin | 169 | 485 |
-| Previews | 44 | 13 |
+| Surface                     | Integer off-scale (5, 7, 9, 10, 11, 14, 20, `[...]`) | Half steps |
+| --------------------------- | ---------------------------------------------------- | ---------- |
+| Public                      | 151                                                  | 157        |
+| Shared components and shell | 30                                                   | 53         |
+| Vendor portal               | 109                                                  | 161        |
+| Admin                       | 169                                                  | 485        |
+| Previews                    | 44                                                   | 13         |
 
 ### Layout: bands, grids and nesting
 
@@ -801,7 +804,7 @@ From top to bottom, a product page is:
 
 - **Top row, in reading order:** the Bone stat panel, Vendor (with "Built within" under it), Categories, then Resources and Actions. Columns from `xl` take the mock-up's ratios, `0.95fr 1fr 1fr 1.15fr`. With no Categories group the row is `0.95fr 1fr 1.15fr`, so no column stands empty. Two columns from `md`, where an odd last column spans both. One column below `md`.
 - **Column rules.** From `xl` each column after the stat panel has a 1px `--border-default` line on its start edge, inset 24px top and bottom. It is a pseudo-element fill, because a border-colour utility loses to the unlayered `*` rule. Below `xl` there is no rule, as in the mock-up. Each column has 24px padding.
-- **The stat panel** is `aec-figure` on `integration_count`, the same number the product cards print, with the cards' "integration" or "integrations" noun. A zero uses the figure's legal-reviewed zero mode. A stored zero never sits over listed rows: the column is recomputed after each write and can lag, so when it reads 0 and the page lists rows, the card prints the row count of the Integrations and "Integrations it powers" headings instead. A non-zero count is printed as stored, so it can exceed the Integrations heading: a connector's count includes the pairs it powers, and the Via lanes collapse several edges into one row. The numeral is not `aria-hidden` when it is not zero, so a screen reader hears "14", then "integrations", once.
+- **The stat panel** is `aec-figure` on `integration_count`, the same number the product cards print, with the cards' "integration" or "integrations" noun. A zero uses the figure's legal-reviewed zero mode. A stored zero never sits over listed rows: the column is recomputed after each write and can lag, so when it reads 0 and the page lists rows, the card prints the number of rows the Integrations and "Integrations it powers" sections list instead. A non-zero count is printed as stored, so it can exceed the rows the Integrations section lists: a connector's count includes the pairs it powers, and the Via lanes collapse several edges into one row. **The Integrations section heading carries no count** (Chris, 2026-11-16). It reads "Integrations", because this card already shows the count and on a connector product the two numbers differ. The section's "Showing n of m" line, the group counts and the chip counts are unchanged. "Integrations it powers (N)" keeps its count for now. The numeral is not `aria-hidden` when it is not zero, so a screen reader hears "14", then "integrations", once.
 - **The reach line stays out of the card.** `STAGE_1_5_SPEC.md` §13.7 places "N more pairs reachable via connectors" under the Integrations section, and the payload contract says `reachable_pair_count` feeds that one sentence. Mock-up 6 puts it in the stat panel. Moving it needs a spec change first.
 - **Vendor** is a borderless row link with a hover fill (`--surface-sunken`), the 32px mark, the name in Source Serif at `--t-20` and the size and ownership line at `--t-13`.
 - **Resources** are row links: a 32px Forest-soft tile with the glyph, the label at `--t-16` weight 600, and the new-tab cue at the end.
@@ -810,7 +813,7 @@ From top to bottom, a product page is:
 
 **Settled by AECI-1780 (built).** The About band and "How teams use it" follow mock-up 6. Wording is unchanged.
 
-- **About** is the Bone lead band. From `lg` it is two columns, `1.25fr 1fr` with a 48px gap: the description on the left and "Who it is for" on the right. Below `lg` they stack with a 32px gap. The band renders when the description, its under-review marker or "Who it is for" shows, and the section nav lists About on the same test. The heading reads "About", in the Section role (`--t-36`, Source Serif 600) on an inner `span`. The description is `--text-primary`, `--t-16`, and `--t-20` from `md`. Its caption stays under it.
+- **About** is the Bone lead band. From `lg` it is two columns, `1.25fr 1fr` with a 48px gap: the description on the left and "Who it is for" on the right. Below `lg` they stack with a 32px gap. With no description and no under-review marker for it, the band is one column: "Who it is for" takes the full width, 24px under the heading (ruling 36, 2026-11-16). The layout reads product data only, so the server and the browser agree. The band renders when the description, its under-review marker or "Who it is for" shows, and the section nav lists About on the same test. The heading reads "About", in the Section role (`--t-36`, Source Serif 600) on an inner `span`. The description is `--text-primary`, `--t-16`, and `--t-20` from `md`. Its caption stays under it.
 - **"Who it is for"** is `aec-product-who-it-is-for` (`products/product-who-it-is-for.ts`): a white `aecCard` on the Bone band, 24px padding and 32px from `md`, with an `h3` at `--t-24`. Audiences, Trades and Project phases follow in that order, each an `h4` overline with its 16px glyph over its `aec-taxonomy-badge` chips. Terms keep the API order, so phases read in lifecycle order. A group renders when it has a term or AECi's removal in its slot, and its correction sits under its chips. The Managed caption closes the card while one of the three groups has a term.
 - **The Managed caption sits with each part of its group.** The Managed group is the three facets and the two Resources links. With the facets in About and the links in the facts card, each place carries its own copy of the line, under its own condition. A product with both shows the line twice, once in each place. Neither shows over nothing. This keeps the Terms' promise that the page marks each field the vendor maintains.
 - **Mock-up wording not adopted.** The mock-up's "About Bluebeam Revu" and "How teams use Bluebeam Revu" headings, the kickers above them, the "The teams, project phases and trades it is listed for." line and the "What it is used for…" intro are new copy. They were not built. The mock-up also draws the usefulness caption beside the heading. It stays at the foot of the section (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8).
@@ -821,7 +824,7 @@ From top to bottom, a product page is:
 Mock-up 11 and Chris's rulings of 2026-11-16 (`records/11-vendor-and-pair-notes.md`). Wording is unchanged except one approved caption.
 
 - **Hero.** `aec-hero-band` with the breadcrumb, the "Vendor" overline and the maintenance chip, then the name at Display. No picture on the right (ruling 2). A claimed vendor's logo is the 104px hero mark. An unclaimed vendor has no large mark. Its small mark sits beside the Unclaimed note under the name, and the logo component decides what it shows, never above 32px (ruling 6). The logo correction line sits under the name.
-- **The description is the hero lede** (ruling 3). `--t-20` in `--text-on-brand-secondary`, at most 40rem wide. There is no "About" heading. A hidden description shows its under-review line there.
+- **The description is the hero lede** (ruling 3). `--t-20` in `--text-on-brand-secondary`, at most 40rem wide. Below 640px it steps down one ramp role to `--t-16` at its 1.6 line height (ruling 77, 2026-11-16), so a long description does not make the hero a wall. It is never truncated or clamped. There is no "About" heading. A hidden description shows its under-review line there.
 - **Correction and under-review lines** sit under the lede, above the actions. Each names its field. Below `sm` each holds two lines' height, as on the product hero, so the web font swap moves nothing.
 - **Actions.** "Visit website" is the `on-brand` button. The social links are `on-brand-secondary` icon buttons: a Bone wash and a Bone edge (ruling 13). They share one wrapping row at natural widths, so the band's equal-column action grid does not stretch them.
 - **Facts card.** One `aecCard` with three cells: the Bone "At a glance" cell (Products as the figure at `--t-fig`, Integrations as an inline pair), Company facts, then Actions. From `md` the stat and facts cells sit side by side with Actions under both. From `xl` there are three columns, `0.8fr 2fr 0.9fr`, and the facts run in two columns. A vendor with no company facts has two cells, side by side from `md`. Cells are separated by a default hairline. The licence note sits under the card on the Bone ground.
@@ -874,24 +877,24 @@ Breakpoints are Tailwind's defaults: `sm` 640px, `md` 768px, `lg` 1024px, `xl` 1
 
 These are measured from the default state of `docs/design/mockups/redesign-2026-11/mockups/6-product-detail.html`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in that file unless noted.
 
-| Value | Starting value | Line |
-| -- | -- | -- |
-| Page wrap | `max-width: 1328px`, gutter `48px` from `lg` | 15, 25 |
-| Gutter | `24px` below `md`, `32px` from `md` to `lg`, `48px` from `lg` | 535, 550 |
-| Column steps for cards and similar products | 3 columns from `lg`, 2 from `md`, 1 below `md`. Similar products settled by AECI-1785: one card sits beside the heading from `md`, and two or four cards stay at 2 columns at `lg` (`ProductCardGrid` `columns`) | 292, 451, 538, 599 |
-| Review list columns | 3 from `xl`, 2 from `md`, 1 below `md` | 413, 530, 599 |
-| Facts card columns | 4 from `xl` at `0.95fr 1fr 1fr 1.15fr`, 2 from `md`, 1 below `md` (settled by AECI-1779) | 114, 526, 570 |
-| Hero padding | `24px` top and `128px` bottom, `16px` and `96px` below `md` | 49, 554 |
-| Facts card overlap | `margin-top: -96px`, the Bone strip starting 96px down | 113 |
-| Band padding | `96px` top and bottom, first band `48px` top, `64px` and `32px` below `md` | 203, 206, 579, 580 |
-| Gap between grid items | `24px` | 292 |
-| Group spacing and header | `48px` between groups, `1px` `border-default` rule under the header with `16px` padding | 1131, 1133 in mock-up 7 |
-| Card padding and radius | `24px` and `24px` | 293 |
-| Panel padding and radius | `32px` and `24px` | 211 |
-| Hero glow | Two radial gradients in Forest hover at 75% and 45% over the Forest ground | 50 to 51 |
-| Side stripe | `7px` wide on a score card, `3px` inset on a score tile | 386, 416 |
-| Nested panel radius | `16px` on the reply and the reach box, `12px` on a score tile | 354, 416, 428 |
-| Mock-up breakpoints (mapped above) | 1260px, 1040px and 760px | 524, 534, 549 |
+| Value                                       | Starting value                                                                                                                                                                                                   | Line                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Page wrap                                   | `max-width: 1328px`, gutter `48px` from `lg`                                                                                                                                                                     | 15, 25                  |
+| Gutter                                      | `24px` below `md`, `32px` from `md` to `lg`, `48px` from `lg`                                                                                                                                                    | 535, 550                |
+| Column steps for cards and similar products | 3 columns from `lg`, 2 from `md`, 1 below `md`. Similar products settled by AECI-1785: one card sits beside the heading from `md`, and two or four cards stay at 2 columns at `lg` (`ProductCardGrid` `columns`) | 292, 451, 538, 599      |
+| Review list columns                         | 3 from `xl`, 2 from `md`, 1 below `md`                                                                                                                                                                           | 413, 530, 599           |
+| Facts card columns                          | 4 from `xl` at `0.95fr 1fr 1fr 1.15fr`, 2 from `md`, 1 below `md` (settled by AECI-1779)                                                                                                                         | 114, 526, 570           |
+| Hero padding                                | `24px` top and `128px` bottom, `16px` and `96px` below `md`                                                                                                                                                      | 49, 554                 |
+| Facts card overlap                          | `margin-top: -96px`, the Bone strip starting 96px down                                                                                                                                                           | 113                     |
+| Band padding                                | `96px` top and bottom, first band `48px` top, `64px` and `32px` below `md`                                                                                                                                       | 203, 206, 579, 580      |
+| Gap between grid items                      | `24px`                                                                                                                                                                                                           | 292                     |
+| Group spacing and header                    | `48px` between groups, `1px` `border-default` rule under the header with `16px` padding                                                                                                                          | 1131, 1133 in mock-up 7 |
+| Card padding and radius                     | `24px` and `24px`                                                                                                                                                                                                | 293                     |
+| Panel padding and radius                    | `32px` and `24px`                                                                                                                                                                                                | 211                     |
+| Hero glow                                   | Two radial gradients in Forest hover at 75% and 45% over the Forest ground                                                                                                                                       | 50 to 51                |
+| Side stripe                                 | `7px` wide on a score card, `3px` inset on a score tile                                                                                                                                                          | 386, 416                |
+| Nested panel radius                         | `16px` on the reply and the reach box, `12px` on a score tile                                                                                                                                                    | 354, 416, 428           |
+| Mock-up breakpoints (mapped above)          | 1260px, 1040px and 760px                                                                                                                                                                                         | 524, 534, 549           |
 
 The mock-up builds the glow with `color-mix()`, which clash 6 bans in components. The code must get the glow from a token and an opacity, not a mix.
 
@@ -910,28 +913,29 @@ The mock-up builds the glow with `color-mix()`, which clash 6 bans in components
 - ~~**Page wrap of the header and footer against the bands (AECI-1766).**~~ Settled by ruling A2 (Chris, 2026-11-16). The header, its Browse and mobile menu panels, and the footer now sit on `BAND_WRAP_CLASS` (`shared/band-wrap.ts`), the same 1328px wrap with 24, 32 and 48px gutters as the bands. Page bodies do not move now. Each moves when its own issue rebuilds it. Until then an un-rebuilt page body on the 7xl canvas sits 8 to 16px off the shell's edge. Measured left content edges in CSS px, with Chromium's 15px classic scrollbar gutter, on 2026-11-16:
 
   | Window | Header row and wordmark | Footer columns and copyright | Hero and Bone bands (`/_demo/spartan`) | `/about` body (7xl, unchanged) |
-  | -- | -- | -- | -- | -- |
-  | 1440px | 97 | 97 | 97 | 105 (8px right) |
-  | 1280px | 48 | 48 | 48 | 32 (16px left) |
-  | 1024px | 48 | 48 | 48 | 32 (16px left) |
-  | 768px | 32 | 32 | 32 | 32 |
-  | 390px | 24 | 24 | 24 | 24 |
+  | ------ | ----------------------- | ---------------------------- | -------------------------------------- | ------------------------------ |
+  | 1440px | 97                      | 97                           | 97                                     | 105 (8px right)                |
+  | 1280px | 48                      | 48                           | 48                                     | 32 (16px left)                 |
+  | 1024px | 48                      | 48                           | 48                                     | 32 (16px left)                 |
+  | 768px  | 32                      | 32                           | 32                                     | 32                             |
+  | 390px  | 24                      | 24                           | 24                                     | 24                             |
 
   Without a scrollbar the 1440px row is 104 against 112. The header stays 64px below `md` and 76px from `md`. The Browse panel's first column and the mobile menu's content sit 1px further in, inside the panel's 1px side edge, as before. Below 320px the mobile menu keeps its 16px gutter.
+
 - ~~**Connector products on the band shell (AECI-1778).**~~ Settled for now: nothing moves. "Built within" stays in the facts card, under Vendor. "Integrations it powers" stays in the body, before or after Integrations by the §13.6 role rule. The reach line ("Connects N products in the AEC Integrations catalog") sits in the hero under the name. AECI-1788 designs them.
 
 ### Named Rules
 
-**The Borders-Not-Shadows Rule** (rewritten by clash 11, see ADR 0056). Buttons, chips, badges, inputs and tabs use borders to separate from their surface (1px default on the redesigned components, `border-strong` for emphasis, 2px for featured and error states, clash 23). Some shipped surfaces still draw 0.5px and change as each is rebuilt. Box-shadows on those elements are forbidden. Cards are no longer on that list. A top-level card takes the one card shadow, and a menu takes the one menu shadow. The old form of this rule forbade shadows on cards, and that ban is lifted for `--shadow-card` only. The failure the rule was written against, a rounded rectangle with a generic drop shadow, still applies to any shadow that is not one of the recipes above.
+**The Borders-Not-Shadows Rule** (rewritten by clash 11, see ADR 0057). Buttons, chips, badges, inputs and tabs use borders to separate from their surface (1px default on the redesigned components, `border-strong` for emphasis, 2px for featured and error states, clash 23). Some shipped surfaces still draw 0.5px and change as each is rebuilt. Box-shadows on those elements are forbidden. Cards are no longer on that list. A top-level card takes the one card shadow, and a menu takes the one menu shadow. The old form of this rule forbade shadows on cards, and that ban is lifted for `--shadow-card` only. The failure the rule was written against, a rounded rectangle with a generic drop shadow, still applies to any shadow that is not one of the recipes above.
 
 **The Arrow Rule** (AECI-919, rewritten by clash 33). Chris ruled NEW on clash 33 and left no note: the new design wins. **An arrow may mean "go here" as well as data-flow direction.** The mock-ups use an arrow for "It does exist", "See all categories", the read-more circle on a card and the jump after "reviews". The old rule banned all of that. The failure it was written against is real, so two limits stay.
 
 - **The direction vocabulary is unchanged.** The three directional glyphs, `→` outbound, `←` inbound and `⇄` both, mean data-flow direction. They come only from a direction helper, and every one of them is framed to the **context product** (`STAGE_1_5_SPEC.md` §3.2). There are two emitters: `directionGlyph()` (`products/pair-direction-labels.ts`) and `contextDirectionLabel()` (`search/mechanism-labels.ts`). The powered hub's flat rows call `directionGlyph()` and keep a `·` placeholder for an unknown direction at the call site (AECI-1123 folded their hand-rolled copy in).
 - **A "go here" arrow is a drawn icon, never one of those text characters.** It is an arrow or a chevron from the icon set (§5 "Icons"). It is `aria-hidden` and mirrors in right-to-left text. A drawn icon cannot be confused with the direction set, and a text `→` can.
 
-| Job | Use | Never |
-| -- | -- | -- |
-| Separating a pair of things (the pair-page rail, any "A and B" header) | a hairline rule (`h-12 w-px bg-(--border-default)`), or nothing | `⇄`, `↔`, `+` |
+| Job                                                                                               | Use                                                                                  | Never                           |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------- |
+| Separating a pair of things (the pair-page rail, any "A and B" header)                            | a hairline rule (`h-12 w-px bg-(--border-default)`), or nothing                      | `⇄`, `↔`, `+`                   |
 | "Activating this goes somewhere" (a row's click affordance, a card's read-more, a "see all" link) | an arrow or chevron icon from the set, `aria-hidden`, mirrored in right-to-left text | the text characters `→` and `←` |
 
 `+` is not an escape hatch for the first row: it is already spent on the version-diff `added` marker (see the Diff markers component). The rule exists because the pair page violated it twice at once. The rail rendered a hardcoded `⇄` at `text-3xl`, louder than the `⇄` a bidirectional mechanism earned below it. The product-detail integrations row rendered a nav `→` in the same row as a direction `→`. Both are collisions of **meaning**, not of style, so a reader who learns the vocabulary in one place is actively misled in the other. The clash record names the same collision on the mock-up's integration cards, which carry a read-more arrow beside a real direction arrow ("Revu sends"). Whether a card may carry both is open (AECI-1782 and AECI-1765).
@@ -942,13 +946,13 @@ A **display name is not exempt.** A mechanism heading, a card title or a badge l
 
 There are five roles. Pick by what the link does, never by where it sits.
 
-| Role | Recipe | Where |
-| -- | -- | -- |
-| **Primary action** | the primary button (§5 Buttons): `accent-primary` fill, white text, 44px high, 12px radius, `--t-14` at weight 600, `no-underline`. On a Forest ground the on-brand button, Bone fill with Forest text | **One per surface.** Today that is "Visit website" on product and vendor detail. |
-| **Standalone link** | `--t-14` at weight 600, `text-(--text-secondary)`, `underline decoration-(--border-strong) underline-offset-4`, `px-3 py-2`, `rounded-(--radius-md)`, `hover:text-(--text-primary)` | Every "go look at a page" link. `aec-view-public-link` is the reference spelling. |
-| **Citation** | the standalone recipe minus the padding, on `rounded-(--radius-sm)` | A source hanging off a figure or a stat. The home band's "Source" is the only one. |
-| **Admin metadata chip** | `rounded-full border`, `px-3 py-1`, `text-xs font-medium`, `no-underline` | **Admin console only**, and only inside a `flex flex-wrap` chip row that also holds non-link chips. The pill is load-bearing there: flattening it would break the row's grammar. |
-| **In-text link** | `text-(--accent-primary)`, `underline underline-offset-2` (permanent, not hover-only), `hover:text-(--accent-primary-hover)`, `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)`. No padding, no size or weight of its own: it inherits the sentence's type. | A link that is a word or phrase inside running text: a notice, a help line, an empty state. `vendor-contest-protest.ts` (`linkClass`) is the reference spelling. The portal's product-not-found notice uses it (AECI-1102, AECI-1129). |
+| Role                    | Recipe                                                                                                                                                                                                                                                                                                      | Where                                                                                                                                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary action**      | the primary button (§5 Buttons): `accent-primary` fill, white text, 44px high, 12px radius, `--t-14` at weight 600, `no-underline`. On a Forest ground the on-brand button, Bone fill with Forest text                                                                                                      | **One per surface.** Today that is "Visit website" on product and vendor detail.                                                                                                                                                       |
+| **Standalone link**     | `--t-14` at weight 600, `text-(--text-secondary)`, `underline decoration-(--border-strong) underline-offset-4`, `px-3 py-2`, `rounded-(--radius-md)`, `hover:text-(--text-primary)`                                                                                                                         | Every "go look at a page" link. `aec-view-public-link` is the reference spelling.                                                                                                                                                      |
+| **Citation**            | the standalone recipe minus the padding, on `rounded-(--radius-sm)`                                                                                                                                                                                                                                         | A source hanging off a figure or a stat. The home band's "Source" is the only one.                                                                                                                                                     |
+| **Admin metadata chip** | `rounded-full border`, `px-3 py-1`, `text-xs font-medium`, `no-underline`                                                                                                                                                                                                                                   | **Admin console only**, and only inside a `flex flex-wrap` chip row that also holds non-link chips. The pill is load-bearing there: flattening it would break the row's grammar.                                                       |
+| **In-text link**        | `text-(--accent-primary)`, `underline underline-offset-2` (permanent, not hover-only), `hover:text-(--accent-primary-hover)`, `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)`. No padding, no size or weight of its own: it inherits the sentence's type. | A link that is a word or phrase inside running text: a notice, a help line, an empty state. `vendor-contest-protest.ts` (`linkClass`) is the reference spelling. The portal's product-not-found notice uses it (AECI-1102, AECI-1129). |
 
 Clash 21 (CURRENT, no note from Chris) keeps this rule. The mock-up's bold Forest links without an underline (`.f-learn a`, `.scope a`, `.inline-link`, "See all categories", `.card .go`, `.see-all a`) are dropped. "See all" and similar links use the standalone recipe. A link inside a sentence uses the in-text recipe. One filled button stays per surface. §5 Buttons has the button recipe. The standalone link's old `text-xs font-medium` is retired, because 12px is not a link size on the ramp (§3) and weight 500 belongs to two chips only. The new size and weight are the mock-up's own standalone link (`.know-link`, mock-up 8, line 1088: 14px at 600, text secondary, underlined with a `border-strong` line at a 4px offset). They are starting values for AECI-1758 to confirm.
 
@@ -981,10 +985,10 @@ The text `↗` is retired. It is not a direction glyph, but it sits one characte
 
 **`rel` has exactly two recipes.** Nothing else.
 
-| Destination | `rel` |
-| -- | -- |
-| Our own pages (portal or admin linking out to the public catalog) | `noopener` |
-| Anything external | `noopener nofollow` |
+| Destination                                                       | `rel`               |
+| ----------------------------------------------------------------- | ------------------- |
+| Our own pages (portal or admin linking out to the public catalog) | `noopener`          |
+| Anything external                                                 | `noopener nofollow` |
 
 `noopener` is never optional: without it the new browsing context gets a handle on this one. `nofollow` on the external recipe is a deliberate SEO position, and it was previously half-applied — "Visit website" passed link equity to vendor sites while the pair page's "View listing" did not, which meant the same decision was made twice, differently, by accident. Vendors pay for plans, so a followed link from a paid listing would read to Google as a paid link.
 
@@ -996,13 +1000,13 @@ Components are bound to tokens via the front-matter `{...}` references. Concrete
 
 > **Behavior providers (ADR 0010, Accepted).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically, via Tailwind **`aria-*:` variant utilities** (`aria-selected:`, `aria-expanded:`, `aria-checked:`) plus the **`data-[active=true]:`** variant Aria sets on the active option — token-bound, no TS state mirror. (Three adopter-facing deviations: Aria@22 ships no `radio`/`select`, so listbox/combobox stand in; discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`; and **the accordion is not used for SSR-indexable content** — its panel renders through `afterRenderEffect`, which is client-only, so the panel ships empty to crawlers. See the Disclosure group card below, and the ADR.) The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
-The redesign rulings of 2026-11-13 and 2026-11-14 changed the components in this section. They are clashes 19 to 25, 39 to 41 and 43, and Chris's rulings R1, R2, R3 and R5. A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.4. The record is `docs/design/mockups/redesign-2026-11/records/design-rulings.md`. ADR 0056 records only the rewrites its table lists, which here are the shadow rule, the radius rule, nested cards, side stripes, the icon rule (clash 34) and smooth scrolling (clash 38). Values the rulings left open are listed under "Open values (components)", each with its code issue.
+The redesign rulings of 2026-11-13 and 2026-11-14 changed the components in this section. They are clashes 19 to 25, 39 to 41 and 43, and Chris's rulings R1, R2, R3 and R5. A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.4. The record is `docs/design/mockups/redesign-2026-11/records/design-rulings.md`. ADR 0057 records only the rewrites its table lists, which here are the shadow rule, the radius rule, nested cards, side stripes, the icon rule (clash 34) and smooth scrolling (clash 38). Values the rulings left open are listed under "Open values (components)", each with its code issue.
 
 **Scope (R2, 2026-11-14).** Chris: "Just do public pages for now". Ruling R2 builds the public pages first. Shared components (the header, the footer, the button and the input) are one component on every surface. Portal and admin page bodies wait until Chris has verified the public pages, and take the new tokens and nothing more until then. R2 is a staging point and not a permanent limit. Page bodies are restyled later, and nothing ships to production half built. The deferred portal and admin migrations are AECI-1756, AECI-1757, AECI-1761 and AECI-1762.
 
 **Ruling on the shared button and input (Chris, by Slack, 2026-11-14).** `BUTTON_PRIMARY_CLASS`, `BUTTON_SECONDARY_CLASS`, `FIELD_INPUT_CLASS` and `.aec-field-control` are shared with the portal and admin. The question was whether they inherit the new button and input or the classes are forked. Chris: "A. We will do admin pages i just want a good natural stopping point where i can verify the work". Option A was: the portal and admin inherit the new shared button and input. One component everywhere. AECI-1813 sweeps any layout that breaks. AECI-1758 and AECI-1764 are unblocked. The portal and admin keep their current icons and Tailwind's 150ms default until their own migrations run (§5 "Icons" and "Motion").
 
-Four pages are not bound here because their mock-ups are not approved: the home page, the browse lists, the vendor page and the pair page with integrations (AECI-1789 to AECI-1791). This section describes components, not those pages' layouts.
+Three pages are not bound here because their mock-ups are not approved: the browse lists, the vendor page and the pair page with integrations (AECI-1790 and AECI-1791). The home page's mock-up (AECI-1789) is approved and built (AECI-1792, §5 "Home"). This section describes components, not those pages' layouts.
 
 **The Same-Behavior Rule.** A pattern behaves the same way on every page that has it. Listing paging is infinite scroll through `<aec-pagination-footer>`, except that the list of integrations pages by group (R5 below). (The operator console's feeds and lookup screens keep Previous/Next by an explicit ruling, `docs/ADMIN_PANEL_SPEC.md` §5.7.) Filters live in `<aec-facet-panel>`, except for the list of integrations (R5 below). Sort sits in the toolbar row and offers the same orders, except that the list of integrations has no sort control (R5 below). Filters, sort and view live in the URL, and changing one keeps the reader's scroll position. Empty, loading and error states read alike. A visitor who learns a pattern on `/products` must not relearn it on `/search` or a browse page. Anyone building or reviewing a page that departs from an existing pattern stops and tells Chris before shipping, with what differs and which page sets the pattern. He decides whether to align it or keep the difference. A kept difference is recorded in that component's entry here, with the reason. This rule exists because `/search` shipped a Previous/Next paginator while every other listing infinite-scrolled, and nobody raised it.
 
@@ -1013,13 +1017,13 @@ Four pages are not bound here because their mock-ups are not approved: the home 
 - **`/products`, `/search` and the taxonomy browse pages keep the facet panel and the pagination footer** until the browse mock-up (AECI-1790) is approved.
 - **The List filter's heading-row placement and the Disclosure group card still govern** every integrations section that has not adopted the departures: the vendor page, the pair page with integrations, and the connector products' two sections (AECI-1778).
 
-| Departure | Ruling | The rule |
-| -- | -- | -- |
-| Integration filters in their own panel | Kept | A list of integrations puts its filters in one panel of its own, not in `<aec-facet-panel>`. The panel holds the name filter, direction, data objects and partner category. |
-| A long list groups by category with a sticky jump rail | Kept | Rows group by partner category under a group header. A sticky rail jumps between groups. The rail and the filter chips show the same count for the same category. |
-| "Show more" per group plus a load bar | Kept | Each group opens a short peek and a "Show more" button reveals the rest. "Show more" and "Show fewer" are both the bordered secondary button. The "Load more" bar shows how far the reader is (the meter below). Every row stays in the server HTML. "Show more" reveals rows and does not fetch them. |
-| Illustrated empty states | Rejected | Empty states stay text. They read alike on every page. |
-| A sort control on the integrations list | Rejected | No sort control. The order is fixed, see R1 below. |
+| Departure                                              | Ruling   | The rule                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Integration filters in their own panel                 | Kept     | A list of integrations puts its filters in one panel of its own, not in `<aec-facet-panel>`. The panel holds the name filter, direction, data objects and partner category.                                                                                                                            |
+| A long list groups by category with a sticky jump rail | Kept     | Rows group by partner category under a group header. A sticky rail jumps between groups. The rail and the filter chips show the same count for the same category.                                                                                                                                      |
+| "Show more" per group plus a load bar                  | Kept     | Each group opens a short peek and a "Show more" button reveals the rest. "Show more" and "Show fewer" are both the bordered secondary button. The "Load more" bar shows how far the reader is (the meter below). Every row stays in the server HTML. "Show more" reveals rows and does not fetch them. |
+| Illustrated empty states                               | Rejected | Empty states stay text. They read alike on every page.                                                                                                                                                                                                                                                 |
+| A sort control on the integrations list                | Rejected | No sort control. The order is fixed, see R1 below.                                                                                                                                                                                                                                                     |
 
 Ruling R3 (AECI-1734, 2026-11-14, "A") sets the default for the long list. Decision 20 reads "The 58-integration list is grouped by category by default". The size at which a list counts as long, and the one-list mode in pages of 12, belong to AECI-1783.
 
@@ -1027,7 +1031,7 @@ Ruling R3 (AECI-1734, 2026-11-14, "A") sets the default for the long list. Decis
 
 ### Buttons
 
-The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0056). AECI-1758 built one `aecButton` directive for `<button>` and `<a>`, in `apps/web/src/app/shared/button/button.ts`. A native `<button>` needs no headless behaviour, so `aecButton` does not wrap Spartan's `BrnButton`. The two can sit on one element.
+The redesign rewrites this subsection (clashes 20, 21 and 37, recorded in `design-rulings.md`, and clash 12's radius, see ADR 0057). AECI-1758 built one `aecButton` directive for `<button>` and `<a>`, in `apps/web/src/app/shared/button/button.ts`. A native `<button>` needs no headless behaviour, so `aecButton` does not wrap Spartan's `BrnButton`. The two can sit on one element.
 
 **How to use it.** `<button aecButton type="submit">` is a primary button. `<a aecButton variant="secondary" routerLink="…">` is a link that looks like a secondary button and stays a link. The inputs are `variant` (`primary`, `on-brand`, `secondary`, `ghost` or `danger`), `compact`, `iconOnly` and `disabled`. Layout classes such as `w-full` and `sm:me-auto` still go on the element. Height, radius, fill, edge and text colour never do. Code that binds `[class]` uses `buttonClass(variant, options)` from the same file. `BUTTON_PRIMARY_CLASS` and `BUTTON_SECONDARY_CLASS` are that recipe, so their callers render the new button. The edge colour lives on the unlayered `.aec-btn` and `.aec-btn-secondary` rules in `styles.css`, because a `border-(--x)` utility loses to the unlayered `* { border-color }` rule.
 
@@ -1044,12 +1048,12 @@ Chris's note on clash 20 was "I kind of like same size buttons". The ruling is B
 - **Danger** (`button-danger` and `button-danger-hover`, AECI-1758): `status-error` fill with white text at 6.54:1. Hover darkens the fill to `--status-error-hover` (`#8C1D18`), 9.11:1. It always carries a text label, so colour is never the only sign. It is for a destructive action and counts as the surface's filled button.
 - **The second action on a Forest ground** (`button-on-brand-secondary`, AECI-1766): `aecButton variant="on-brand-secondary"`. Fill `--surface-on-brand-wash` (Bone at 10%), hover `--surface-on-brand-wash-hover` (Bone at 16%), label `--text-on-brand`, a 1px edge `--border-on-brand-strong` (Bone at 50%, the one on-Forest alpha that is a 3:1 control edge), a Bone focus ring at 3px and 3px, 44px high, 12px radius, disabled at 60% as the other variants. It replaces the mock-up's `color-mix()` ghost (clash 6). Clay never fills a button. Ghost on Forest is still not built: its resting label is 1.60:1 on Forest. Measured, with the wash composited over each ground:
 
-| Ground | Label on wash | Label on hover wash | Edge against the ground |
-| -- | -- | -- | -- |
-| Forest | 8.28:1 | 6.94:1 | 4.01:1 |
-| Hero panel | 6.99:1 | 5.93:1 | 3.59:1 |
-| Footer ground | 10.30:1 | 8.52:1 | 4.51:1 |
-| Forest hover, the strictest glow point | 5.41:1 | 4.71:1 | 3.00:1 |
+| Ground                                 | Label on wash | Label on hover wash | Edge against the ground |
+| -------------------------------------- | ------------- | ------------------- | ----------------------- |
+| Forest                                 | 8.28:1        | 6.94:1              | 4.01:1                  |
+| Hero panel                             | 6.99:1        | 5.93:1              | 3.59:1                  |
+| Footer ground                          | 10.30:1       | 8.52:1              | 4.51:1                  |
+| Forest hover, the strictest glow point | 5.41:1        | 4.71:1              | 3.00:1                  |
 
 - **One filled button per surface** (clash 21, the Link Treatment Rule stands). The filled primary, or the on-brand button on Forest, is the surface's one main action. Everything else is secondary, ghost or a link. The clash record found three filled primaries in view on page 6 ("Visit website", the sticky bar's "Write a review" and the review panel's "Write a review"). Only one of them stays filled. The product page is built with "Visit website" as that one, and both "Write a review" placements secondary (AECI-1760). This is pending Chris's ruling.
 - **No shadow** on any button, resting or hovering (clash 11). Press movement is clash 37 and §5 "Motion" owns it. The mock-up presses with `translateY(1px) scale(.98)` (line 89). The old line "no transform, no scale" is rewritten by clash 37, and the movement is off under reduced motion.
@@ -1089,17 +1093,17 @@ AECI-1775 moved the two mobile menu account buttons to `aecButton`. "Sign in" is
 
 **Measured contrast (AECI-1758).** WCAG 2 ratios from the token hexes. The secondary edge is not a required boundary, see Secondary above.
 
-| Variant | Rest | Hover | Focus ring | Disabled (0.6) |
-| -- | -- | -- | -- | -- |
-| Primary | white on Forest 12.34:1 | white on Forest hover 7.68:1 | Forest on white 12.34:1 | 3.68:1 |
-| On-brand | Forest on Bone 11.03:1 | Forest on `#E7E1D2` 9.46:1 | Bone on Forest 11.03:1, hero panel 9.18:1, footer 13.71:1 | 5.04:1 |
-| Secondary | ink on raised 18.97:1 | Forest on sunken 11.23:1 | Forest on white 12.34:1 | 5.12:1 |
-| Ghost | ink on white 19.80:1 | Forest on white 12.34:1 | Forest on white 12.34:1 | 5.25:1 |
-| Danger | white on error 6.54:1 | white on `#8C1D18` 9.11:1 | Forest on white 12.34:1 | 3.04:1 |
+| Variant   | Rest                    | Hover                        | Focus ring                                                | Disabled (0.6) |
+| --------- | ----------------------- | ---------------------------- | --------------------------------------------------------- | -------------- |
+| Primary   | white on Forest 12.34:1 | white on Forest hover 7.68:1 | Forest on white 12.34:1                                   | 3.68:1         |
+| On-brand  | Forest on Bone 11.03:1  | Forest on `#E7E1D2` 9.46:1   | Bone on Forest 11.03:1, hero panel 9.18:1, footer 13.71:1 | 5.04:1         |
+| Secondary | ink on raised 18.97:1   | Forest on sunken 11.23:1     | Forest on white 12.34:1                                   | 5.12:1         |
+| Ghost     | ink on white 19.80:1    | Forest on white 12.34:1      | Forest on white 12.34:1                                   | 5.25:1         |
+| Danger    | white on error 6.54:1   | white on `#8C1D18` 9.11:1    | Forest on white 12.34:1                                   | 3.04:1         |
 
 ### Cards
 
-Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive. The redesign rewrites this subsection (clashes 11 and 12, see ADR 0056, and clash 18, recorded in `design-rulings.md`). AECI-1765 built the card surface: `aecCard` in `apps/web/src/app/shared/card/card.ts`, with the unlayered `.aec-card`, `.aec-card-stripe` and `.aec-card-grid` rules in `styles.css`.
+Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive. The redesign rewrites this subsection (clashes 11 and 12, see ADR 0057, and clash 18, recorded in `design-rulings.md`). AECI-1765 built the card surface: `aecCard` in `apps/web/src/app/shared/card/card.ts`, with the unlayered `.aec-card`, `.aec-card-stripe` and `.aec-card-grid` rules in `styles.css`.
 
 - **Corner style:** `rounded-card` (24px, clash 12).
 - **Background:** `surface-base`, which is white (mock-up 6, line 293). The old text said `surface-raised`.
@@ -1154,17 +1158,17 @@ this surface nests three deep any more.
 `apps/web/src/app/products/integration-list-filter.ts` (AECI-841; moved into the heading row and
 freed of its row threshold by AECI-848). The name filter over a section of groups.
 
-- **Placement (shipped):** *(2026-11-16: on the product page's `#integrations`, AECI-1782 moved the name filter into the R5 filter panel under the `<h2>`. The status line also reports the panel's chip filters there, through the `active` input. This passage still describes the heading-row placement the other sections use.)* In the section's heading row, right-aligned opposite the `<h2>`. The caller
+- **Placement (shipped):** _(2026-11-16: on the product page's `#integrations`, AECI-1782 moved the name filter into the R5 filter panel under the `<h2>`. The status line also reports the panel's chip filters there, through the `active` input. This passage still describes the heading-row placement the other sections use.)_ In the section's heading row, right-aligned opposite the `<h2>`. The caller
   supplies that row (`flex flex-wrap items-center justify-between`); the filter's own host is the
   right-hand flex item. Below `sm` it goes full width and drops onto a second line under the
   heading. The host also carries `sm:ms-auto`, which holds the right edge when a long `<h2>` pushes
   it onto a second line at `sm` and above: `justify-between` puts a lone item on a wrapped line at
   flex-start, so without the auto inline-start margin a wrapped filter would render at the start
   edge.
-- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. *(2026-11-14: the shipped code still uses `rounded-sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it. 2026-11-16: AECI-1782 put the input on `.aec-field-control`, so the field edge, the 12px radius and the 44px height now apply on both product-page sections. The text stays at `text-sm`.)* That width is set by the placeholder
+- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. _(2026-11-14: the shipped code still uses `rounded-sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it. 2026-11-16: AECI-1782 put the input on `.aec-field-control`, so the field edge, the 12px radius and the 44px height now apply on both product-page sections. The text stays at `text-sm`.)_ That width is set by the placeholder
   ("Filter by product or connection") reading in full rather than by the row's spare space, so the
-  control looks like somewhere to type. *(AECI-966 widened that string from "Filter by product
-  name" when the filter learned to match the mechanism label; `w-96` still holds it in full.)*
+  control looks like somewhere to type. _(AECI-966 widened that string from "Filter by product
+  name" when the filter learned to match the mechanism label; `w-96` still holds it in full.)_
 - **Label:** visually hidden. The section `<h2>` carries the visible name; a second visible label
   would be chrome.
 - **Result count:** a `role="status"` paragraph immediately left of the input, present from first
@@ -1218,15 +1222,16 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 - **Header search autocomplete** (`<aec-search-autocomplete>`, `search/search-autocomplete.ts`, AECI-144) — the search-as-you-type field in the site header (the home hero and its pair finder reuse it). This is the project's **first Angular Aria combobox** adoption (ADR 0010): `ngCombobox` + `ngListbox`/`ngOption` supply the `role=combobox/listbox/option` semantics, `aria-expanded`/`aria-controls`/`aria-activedescendant`, the Arrow/Home/End/Escape model, and the CDK-Overlay-positioned popup; we supply only token CSS (`data-[active=true]:` highlight on `surface-sunken`, popup on `surface-raised` with `border-default`). A real `<label for>` names the input (never placeholder-as-label). The default placeholder is **"Search directory"** (`@@app.search.autocomplete.placeholder`), one i18n source for the header pill and the mobile menu. The home hero passes its own (`@@home.hero.search.placeholder`). It says "directory" because the suggestions are products and vendors, not integrations (AECI-985). The `/search` box keeps its own placeholder, "Search products and vendors", which names its two tabs. It **SSR-renders only the static `<form>`/`<label>`/`<input>`** (visitor-state-neutral, so it is safe inside the cached header) and is hydration-enhanced; when the Algolia config is absent it stays a plain submit-to-`/search` field with no error UI (correct for a header control). The listbox is rendered **only when there is ≥1 hit**, so a zero-hit query shows no empty floating panel (keeps it `role=option`-only), and the combobox collapses whenever it has no row, so `aria-expanded` never claims a listbox that does not exist (AECI-1308); Enter with no selection routes to `/search?q=`, which owns the "no results" empty state. A third mount, the claim dialog's Find it step (`shared/claim-dialog/`, AECI-1293), uses optional hooks the header does not: a visible `label` (`labelVisible`) and a taller `inputHeightClass`. The header pill (AECI-1772) passes its own set: `inputHeightClass` `h-11`, `fieldClass`, `focusRingClass`, `pill`, `shortcutHint` and `keyShortcuts`. The `searchSettled` output reports each settled result set and each clear. It was written for Find your product on `/vendor-program` (AECI-1287), removed 2026-10-12, and nothing listens to it today. The home pair finder (AECI-1555) uses three more optional inputs, all defaulting to the header's behavior: `kinds` filters suggestions (`['product']`), `ownForm = false` drops the wrapping `<form>` so a parent form holds two fields without nesting, and `fillOnSelect` writes the chosen title into the field. The owned `<form role="search">` is named by `searchName`, default **"Site search"** (`@@app.search.autocomplete.landmark`), which the two header mounts (the pill and the mobile menu) keep. Any mount that can share a page with the header passes its own, so a landmarks list never shows two identical "search" entries: the hero passes "Search the directory" and the claim dialog "Find your listing" (AECI-830).
 
 - **Per-tab sort dropdown** (`<aec-listing-sort-select>`, `shared/listing-toolbar/listing-sort-select.ts`, AECI-175 / ADR 0014; shared with the listing toolbar since AECI-1486) — the sort control above the `/search` results, the same one `/products` and the taxonomy pages render (see "Listing toolbar" below). Products offer the five `/products` sorts with the same default, Newest; Vendors offer Name A–Z. There is no Relevance option (ruled 2026-10-26). A **non-editable Angular Aria combobox + listbox-in-overlay**, the same discrete-choice pattern as the review-form role picker (ADR 0010): `ngCombobox` + `[(expanded)]` trigger, with a `cdkConnectedOverlay` (`usePopover:'inline'`) supplying the floating layer since `ComboboxPopup` renders in-flow. A real label names the trigger (`aria-labelledby`), the active sort shows in the trigger with a ✓ on the chosen option, and labels are `$localize`d. On `/search` it is backed by Algolia **replica indexes** (`SEARCH_RANKING.md` §5a); the active sort mirrors to `?sort=`. There it mounts browser-side once results load (it reads the controller's sort options), so the degraded/SSR shell shows no sort control.
+
 ### Extensions: "Built within" (AECI-710)
 
 Two components in `apps/web/src/app/products/product-extensions.ts` render the `product_extensions` relation on product detail (`STAGE_1_5_SPEC.md` §13.3b). Anchor site: **Faire**, the catalog's anchor. Its "Shop more from {brand}" parent strip is the pattern for the sidebar card, and its brand tile row for the body grid.
 
-- **Resources** (AECI-1309, `product-detail.ts`): a "Resources" overline in the metadata sidebar, after the taxonomy groups and before Actions, with up to two inline Forest text links, "Integrations page" and "API documentation". Each opens a new tab with `aec-new-tab-icon` and `rel="noopener nofollow"`, like "Visit website". The group renders only when the product has at least one of the two URLs, on any plan. *(2026-11-14: this describes the shipped page. The redesigned product page has no metadata sidebar (§4, clash 16), and AECI-1778 decides where Resources moves. Nothing here is changed.)*
-- **`ProductBuiltWithin`** (`section[aec-product-built-within]`): a "Built within" overline and one link card per host, in the metadata sidebar directly under Vendor. Same card shape and surfaces as the vendor card, because it is the same kind of fact. *(2026-11-14: this describes the shipped page. The redesigned product page has no metadata sidebar (§4, clash 16), and AECI-1778 decides where Built within moves. Nothing here is changed.)*
-- **`ProductExtensionsSection`** (`section[aec-product-extensions-section]`, `#extensions`): an `h2` "Extensions built within {product}", one sentence in the reader's terms, then a one-column (two from `sm`) grid of link tiles: logo, name, vendor. Tiles take a `--surface-sunken` wash on hover.
+- **Resources** (AECI-1309, `product-detail.ts`): a "Resources" overline in the metadata sidebar, after the taxonomy groups and before Actions, with up to two inline Forest text links, "Integrations page" and "API documentation". Each opens a new tab with `aec-new-tab-icon` and `rel="noopener nofollow"`, like "Visit website". The group renders only when the product has at least one of the two URLs, on any plan. _(2026-11-14: this describes the shipped page. The redesigned product page has no metadata sidebar (§4, clash 16), and AECI-1778 decides where Resources moves. Nothing here is changed.)_
+- **`ProductBuiltWithin`** (`section[aec-product-built-within]`): a "Built within" overline and one link card per host, in the metadata sidebar directly under Vendor. Same card shape and surfaces as the vendor card, because it is the same kind of fact. _(2026-11-14: this describes the shipped page. The redesigned product page has no metadata sidebar (§4, clash 16), and AECI-1778 decides where Built within moves. Nothing here is changed.)_
+- **`ProductExtensionsSection`** (`section[aec-product-extensions-section]`, `#extensions`): an `h2` "Extensions built within {product}", one sentence in the reader's terms, then a grid of link tiles: the 32px logo, the name at `--t-20` serif, then the vendor. Each tile is one white `aecCard` that is itself the link, with the card shadow, 24px padding and the card lift on hover (ruling 35, 2026-11-16, AECI-1784). The grid is the shared card grid (`.aec-card-grid`) with a set `data-columns`: one tile takes the full row, two share it equally from `md`, three or more take the three-column grid. Every row is as tall as the tallest tile, so no tile is larger than its siblings. The tiles keep the API's order, A to Z by name then id.
 - **The extension's empty Integrations state** (`ProductIntegrationsSection`, `hosts` input) opens with one plain sentence, "{product} runs inside {host}; see Built within.", above the usual empty copy. Unlinked, and only when the section has no rows.
-- **Never integration vocabulary.** No table, no lane, no `IntegrationGroupCard`, no direction, **no chevron** and **no count** in the heading. The missing chevron is what keeps a tile from reading as an integration row, so do not add one. One verb, *built within*, names the relation in both directions.
+- **Never integration vocabulary.** No table, no lane, no `IntegrationGroupCard`, no direction, **no chevron** and **no count** in the heading. The missing chevron is what keeps a tile from reading as an integration row, so do not add one. One verb, _built within_, names the relation in both directions.
 
 ### Product card grid (AECI-190)
 
@@ -1234,7 +1239,7 @@ Two components in `apps/web/src/app/products/product-extensions.ts` render the `
 
 **Listing toolbar** (`<aec-listing-toolbar>`, `apps/web/src/app/shared/listing-toolbar/`) — the control strip above every product listing: the sort control (`<aec-listing-sort-select>`) on the start edge, a cards/table segmented toggle on the end edge. Extracted from the `/products` template by AECI-657, which is when the taxonomy browse pages got one; before that they had no sort control at all, against `STAGE_1_SPEC.md` §4.5. Presentation-only — the host owns `?sort=` / `?view=` in the URL (both fork the edge cache key), and the shared `productSortOptions()` supplies the option set to both surfaces so they cannot drift. The toggle buttons carry `aria-pressed`; the "Sort" label names the combobox trigger through `aria-labelledby`. Both halves are their own components, `<aec-listing-sort-select>` (`listing-sort-select.ts`) and `<aec-listing-view-toggle>` (`listing-view-toggle.ts`), so `/search` renders the identical two controls in its own toolbar row. The sort control SSRs here, so its ids come from a root-scoped counter (`ListingSortIds`) that restarts for every render, never a module-level counter, which would keep climbing across requests in a Worker isolate and break the label association after hydration. Two details that look cosmetic but are load-bearing: the component sets `host: { class: 'block' }`, because a custom element is `display: inline` by default and the hosts' `space-y-6` on the grid slot silently collapses against an inline box (the first card sat flush against the toolbar until it was fixed); and both controls measure 44px on the 3:1 field edge (AECI-1793). The sort trigger is the field recipe, at least 176px wide. The view toggle group is `.aec-field-control` with a 3px inset around 36px buttons (1 + 3 + 36 + 3 + 1). Change one side and change the other. **The pressed view** is solid Forest, and its glyph becomes a tick, so the state is not colour alone (clash 5). In forced-colours mode it takes `Highlight` (`.aec-view-toggle-btn` in `styles.css`). The product page's integrations section uses the same toggle.
 
-  Until 2026-10-26 this was a **native `<select>`**, kept so sorting worked with no JS, while `/search` used the Aria combobox. Chris ruled for one control on every listing (AECI-1486), so the toolbar now renders the `/search` combobox. The cost is accepted: with no JS the trigger does not open, though a `?sort=` in the URL still renders that order.
+Until 2026-10-26 this was a **native `<select>`**, kept so sorting worked with no JS, while `/search` used the Aria combobox. Chris ruled for one control on every listing (AECI-1486), so the toolbar now renders the `/search` combobox. The cost is accepted: with no JS the trigger does not open, though a `?sort=` in the URL still renders that order.
 
 - **Layout:** responsive `grid` — 1 / 2 / 3 columns by `aec-card-grid` (one column, two from `md`, three from `lg`, 24px gap), which caps at three (clash 18). The lead spans two columns from `md` (`md:col-span-2`). It must not span at `sm`, because the grid is one column below `md` and a span there makes an uneven extra column. The grid is deliberately *broken* (per the anti-reference against identical SaaS grids): the lead product gets a wide featured card spanning two columns on a warm **Bone** (`accent-warm`) band. The host enables the lead only on page 1 at the newest sort, so its "Recently added" eyebrow stays truthful; otherwise the grid is uniform. **The lead card stays** (ruling 2 of 2026-11-16, mock-up 10). AECI-1793 set it to 32px padding, the name at 24px, the eyebrow at 13px and the count on one line. Below five reviews no card carries a rating line (ruling 4).
 - **Column cap (AECI-1785).** `columns` sets the column count and makes every row the same height: `1` keeps one column at every width, `2` keeps two at `lg`, `3` keeps the shared steps. It sets `data-columns` on the list, and the rules sit beside `.aec-card-grid` in `styles.css`, because a column utility loses to that unlayered rule. Only the product page's similar products sets it. `/products` and the term pages leave it unset and are unchanged.
@@ -1253,19 +1258,20 @@ Two components in `apps/web/src/app/products/product-extensions.ts` render the `
 
 ### Role chip
 
-One non-link chip for the card grid. It is a public chip (see Badges: "The public chip"), so it is a pill and shares the Tags / Taxonomy-chip surface (bordered, `surface-raised`, `text-secondary`). *(Clash 22 rewrites the AECI-841 metrics: `px-2.5 py-1` and 29px are replaced by the public chip recipe.)*
+One non-link chip for the card grid. It is a public chip (see Badges: "The public chip"), so it is a pill and shares the Tags / Taxonomy-chip surface (bordered, `surface-raised`, `text-secondary`). _(Clash 22 rewrites the AECI-841 metrics: `px-2.5 py-1` and 29px are replaced by the public chip recipe.)_
 
 - **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively. The grid gates the whole chip row on the role, so an application's tile carries no empty row. The `/search` product card (`<aec-search-product-card>`) uses the same chip and the same gated row, from the Algolia record's `product_role` (AECI-1086).
 
 ### Home (Phase 4)
 
-The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four bands in `home.ts`, whose doc comment holds the order (epic AECI-1554). Anchor site: **Faire** (`docs/design/home-direction.md`, AECI-181); the page plan is `docs/design/unified-home-direction.md`. Two grounds only: Bone (`accent-warm`) on the hero band and the closing CTA, white (`surface-base`) between them with a hairline `border-t` per band. *(2026-11-14: this describes the shipped page. The redesign allows one Bone band per page (§2, clash 2), so two Bone bands will not both survive. AECI-1789 decides the home bands. Nothing here is changed.)* One card recipe: white fill, 1px `border-default`, `radius-lg`. Every string is i18n-wrapped. Stats data is SSR-resolved from `GET /api/stats/home` (`home-stats.resolver.ts`); browse counts come from the **live** `GET /api/taxonomy` (`home-browse.resolver.ts`), never the stats_cache.
+The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four bands in `home.ts`, whose doc comment holds the order (epic AECI-1554). Since AECI-1792 it is built on mock-up 9 (`docs/design/mockups/redesign-2026-11/mockups/9-home.html`), and Chris approved the six recommendations in `records/9-home-notes.md`. The mock-ups are the anchor (clash 44). The Faire anchor (`docs/design/home-direction.md`) retired for the home. Grounds: the hero is the page's one Bone band (`aec-bone-band`, clash 2). The other three bands are white, split by a hairline `border-t`, with 96px of padding above and below, 64px below `md`. Every band sits on the 1328px wrap (`BAND_WRAP_CLASS`). Cards are `aecCard`, except the one Forest feature card. Every string is i18n-wrapped. Stats data is SSR-resolved from `GET /api/stats/home` (`home-stats.resolver.ts`); browse counts come from the **live** `GET /api/taxonomy` (`home-browse.resolver.ts`), never the stats_cache.
 
-- **Home hero** (`<aec-home-hero>`, `home/home-hero.ts`, AECI-1555) — two columns at `lg`, one below, on the Bone band. Left: the eyebrow, the page's only **Display**-face `<h1>`, the lede, the reused `<aec-search-autocomplete>` with its own placeholder, and the "Popular:" row: up to five product links from `popular_products` in the stats payload, the most-viewed products over 30 days among views the traffic classifier judged a person or could not decide about, recomputed nightly (AECI-1572, AECI-1586). It ships in the SSR HTML. When the list is empty, the row names the five largest categories instead, browser-only from `TaxonomyNavStore`, so the fallback never reaches the cached HTML. Right: the **pair finder**, a bordered white panel ("Do these two connect?") with two product-only autocomplete pickers and a Forest submit. It routes to the product-pair page, a product page, or `/search`. Without JS it is a real `GET /search` form.
-- **Credibility row** (`<aec-home-credibility-strip>`, `home/home-credibility-strip.ts`) — the hero band's last row: coverage counts in Forest, each suppressed at 0, a tabular-nums "+{n} in the last 30 days" note after the integrations count (`integrations_added_30d`, shown only above 0), and "Independent. Rankings are algorithmic." with a balance-scale glyph (never a check or shield). The home's only figure row.
-- **Browse block** (`<aec-home-browse-block>`, `home/home-browse-block.ts`) — one `<h2>` over four **browse grid** rows (`<app-browse-grid>`, `home/browse-grid.ts`): category, trade (published trades only, linking to `/trades/:slug`), project phase, audience (a curated role list). Each row opens with a one-sentence lede. One chip style: the `TaxonomyBadge` count-chip, count shown only above 0.
-- **Argument band** (`<aec-home-why>`, `home/home-why.ts`, AECI-1558) — eyebrow, `<h2>`, two paragraphs, three cited figures as a hairline spec-sheet row with a CSS-only citation reveal and a uniquely named "Source" link each, then three "what we do instead" cards. No reviews claim (AECI-1557).
-- **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564) — a Bone band with one bordered white two-column panel: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
+- **Home hero** (`<aec-home-hero>`, `home/home-hero.ts`, AECI-1555, AECI-1792) — two columns at `lg` (the text, then a 416px column), one below, inside the Bone band. Left: the overline, the page's only `<h1>` at **Display** (`--t-display`, 40 to 72px, weight 400, tracking -0.02em, on an inner `span`, mock-up 9 question 2), the lede at `--t-20`, and the reused `<aec-search-autocomplete>` on `.aec-field-control` with a leading search glyph. Then the **"Most viewed" row** (mock-up 9 question 3): up to five product links from `popular_products`, the most-viewed products over 30 days among views the traffic classifier judged a person or could not decide about, recomputed nightly (AECI-1572, AECI-1586), labelled "Most viewed, last 30 days:". When that list is empty the row shows the five largest categories, labelled "Largest categories:". The fallback is the head of the browse block's category list, so both lists come from resolver data and ship in the SSR HTML. The row's height is reserved, 48px from `sm` and 72px below, so the page does not move after load (AECI-1862: CLS 0.27 to 0.01 at 1440px). Right: the **pair finder**, a white `aecCard` ("Do these two connect?") with two product-only pickers on `.aec-field-control` and a Forest submit. It routes to the product-pair page, a product page, or `/search`. Without JS it is a real `GET /search` form.
+- **Two search fields from `lg`** (mock-up 9 question 7). The header search pill and the hero field both show on the home. The header behaves the same on every page (the Same-Behavior Rule), and the hero field is the page's own tool.
+- **Credibility row** (`<aec-home-credibility-strip>`, `home/home-credibility-strip.ts`) — the Bone band's last row, under a `--border-strong` hairline (`.aec-rule-strong`). Coverage counts in the body face at 600 and 16px in Forest (the Serif-Floor Rule), each suppressed at 0, a tabular-nums "+{n} in the last 30 days" note after the integrations count (`integrations_added_30d`, shown only above 0), and "Independent. Rankings are algorithmic." with a balance-scale glyph (never a check or shield).
+- **Browse block** (`<aec-home-browse-block>`, `home/home-browse-block.ts`) — one `<h2>` (`--t-36`, on an inner span) over four **browse grid** rows (`<app-browse-grid>`, `home/browse-grid.ts`): category, trade (published trades only, linking to `/trades/:slug`), project phase, audience (a curated role list). Each row has a 240px label column: the `<h3>`, "View all", and a caption that states the row's order (mock-up 9 question 5): "Most products first", "In project order" or "Roles chosen by AEC Integrations". The wording follows the Browse menu's footer line. Each row opens with a one-sentence lede. One chip style: the `TaxonomyBadge` count-chip, a pill, count shown only above 0.
+- **Argument band** (`<aec-home-why>`, `home/home-why.ts`, AECI-1558, AECI-1792) — heading left and prose right from `lg` (5:7), then three cited figures in a hairline row at `--t-24`, Source Serif 600, Forest (mock-up 9 question 4). They read as sub-headings, so the band keeps clash 8's one large figure at most. Each citation is printed under its figure, ending in a uniquely named "Source" link (AECI-830). Then "What we do instead", **the page's one Forest feature card** (mock-up 9 question 1): `.aec-card` edge, `rounded-card`, `shadow-card`, Forest fill, Bone ink, 32px padding and 48px from `lg`. Its three points sit in columns split by `.aec-on-brand-rule` hairlines, each with a 44px tile on `--surface-on-brand-wash`, and the Bone `aecButton variant="on-brand"` "How we rank" sits top right from `md` and last below it. No reviews claim (AECI-1557).
+- **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564, AECI-1792) — one white `aecCard` on a white band, two panes at 2:1 from `md`: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
 - **Trust pillars** (`home/home-trust-pillars.ts`) — not on the home. Mounted on `/about` only.
 
 ### Unclaimed note
@@ -1302,7 +1308,7 @@ Phase 5 adds the authenticated surfaces — sign-in, review submission + display
 
 - **Account** (`<aec-account-page>`, `account/account.ts`) — the `/account` page (non-cacheable): a read-only email, an editable display name (Signal Forms `PATCH`), and a **delete-account** flow gated behind a Spartan dialog confirmation that calls the GDPR `DELETE /api/account` (anonymizes the user's reviews). Sign-out is menu-only (AECI-986): the page manages profile, review history, and deletion; session exit lives in the account menus (§Navigation → The Overflow Rule). **Layout (AECI-987):** the 7xl canvas. From `lg` a sticky section nav (Profile, About you, Your reviews, Delete account) takes columns 1 to 3 and the sections take 4 to 12, in the `ACCOUNT_ONBOARDING_SPEC.md` §7.2 order. The nav links are plain anchors with absolute hrefs (`/account#profile`), never a bare `#id` (the `<base href>` trap); each target carries `scroll-mt-8`. Inputs cap at `max-w-2xl` inside the Profile panel. "Your reviews" is a divided list across the full column, with the date and status badge at each row's end. No side-by-side forms: Profile and About you differ in height and would leave a blank half.
 
-- **Admin shell** (`<aec-admin-shell>`, `admin/admin-shell.ts`) — the `/admin` layout + role gate. A non-admin resolver result renders the global 404 surface (the admin area is never *revealed* to non-admins); an admin sees the header, nav, and **live queue badges** seeded from `GET /api/admin/summary` and decremented in-place by each queue via `AdminSummaryStore` (no round-trip). Since AECI-922 that is one badge per Operations queue — pending reviews, open correction requests, open vendor claims — with their **sum** on the closed Operations category trigger and on the header account menu; a zero renders no badge at all (`ADMIN_PANEL_SPEC.md` §5.0c). The Re-index queue badges its own entry only and is in neither sum.
+- **Admin shell** (`<aec-admin-shell>`, `admin/admin-shell.ts`) — the `/admin` layout + role gate. A non-admin resolver result renders the global 404 surface (the admin area is never _revealed_ to non-admins); an admin sees the header, nav, and **live queue badges** seeded from `GET /api/admin/summary` and decremented in-place by each queue via `AdminSummaryStore` (no round-trip). Since AECI-922 that is one badge per Operations queue — pending reviews, open correction requests, open vendor claims — with their **sum** on the closed Operations category trigger and on the header account menu; a zero renders no badge at all (`ADMIN_PANEL_SPEC.md` §5.0c). The Re-index queue badges its own entry only and is in neither sum.
 
 - **Moderation queue** (`<aec-review-queue>`, `admin/reviews/review-queue.ts`) — the `/admin/reviews` child route. Lists pending reviews with product, reviewer email, queue age, body, and toxicity score; **client-side sortable** (default: toxicity high→low, nulls last — worst content first). One-click **approve**; **reject** opens a Signal-Forms reason field (required, Aria textbox). On success the row leaves, a live region announces it, and the shell badge ticks down. A toxicity score ≥ 70 gets a warning highlight — flag, never auto-block.
 
@@ -1312,9 +1318,9 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 
 - **Public request form** (`<aec-request-form-body>`, `requests/request-form-body.html`) — the shared body behind both the routed `/{products,vendors}/:slug/{claim,correction}` page and the in-place `RequestDrawer`. One Signal Forms model; the active `kind` picks the shared Zod schema (`ClaimFormSchema` / `CorrectionFormSchema`). Both free-text bodies carry a **20-character floor**, so both state it in persistent help text under the textarea along with what to actually write — the claim's "Anything we should know?" reads as an optional afterthought otherwise, and its `body` column is NOT NULL (see the §5 → Inputs named rule). In the **drawer** variant the panel is a clipped flex column with **one** scroll port: the eyebrow/title/close/subtitle block is pinned above it and the submit control is pinned below it in a bordered `--surface-raised` bar, so only the fields scroll and "Send claim"/"Send correction" is never scrolled out of reach. The bar full-bleeds past the port's horizontal padding and owns the panel's bottom padding (the port has none), which is what keeps content from showing beneath it. The routed **page** variant keeps normal flow — it has no scroll port of its own and the browser window is the scroller. **The context rail lives on the routed page only** (`requests/request-form.html`, AECI-987): the form + context rail pattern, naming the company and the product page a claim came from (the claim resolver's data), the claim or correction next steps, and a docs link. It leaves once the request is sent, because the confirmation carries its own next steps. The body owns the page header, so below `lg` the rail follows the form. The drawer has no rail.
 
-- **Request queue** (`<aec-request-queue>`, `admin/requests/request-queue.ts`) — the `/admin/requests` child route. **Corrections only since AECI-922** (`ADMIN_PANEL_SPEC.md` §5.0c): the request pins `kind: 'correction'`, the heading reads "Correction requests", and vendor **claims** live on `/admin/claims`. Lists corrections as cards with a status badge, the linked target product/vendor, submitter, and submitted-age. **One** client-side filter (status: open / resolved / rejected), an `aria-pressed` toggle-button group. Each row surfaces the **possible-duplicate** flag computed at submit (an open sibling request for the same target) — informational, never auto-deciding; the admin resolves every request by hand. The **domain-match** chip left with the kind filter: it compared a *claimant's* email domain to the vendor's, and a correction identifies nobody. The linked **Linear issue** opens out. **Resolve** is one-click; **reject** opens an optional reason field. On success the row leaves, the Operations nav badge ticks down, and a `role=status` live region announces it; a capped-note shows when the server holds more rows than the page loaded.
+- **Request queue** (`<aec-request-queue>`, `admin/requests/request-queue.ts`) — the `/admin/requests` child route. **Corrections only since AECI-922** (`ADMIN_PANEL_SPEC.md` §5.0c): the request pins `kind: 'correction'`, the heading reads "Correction requests", and vendor **claims** live on `/admin/claims`. Lists corrections as cards with a status badge, the linked target product/vendor, submitter, and submitted-age. **One** client-side filter (status: open / resolved / rejected), an `aria-pressed` toggle-button group. Each row surfaces the **possible-duplicate** flag computed at submit (an open sibling request for the same target) — informational, never auto-deciding; the admin resolves every request by hand. The **domain-match** chip left with the kind filter: it compared a _claimant's_ email domain to the vendor's, and a correction identifies nobody. The linked **Linear issue** opens out. **Resolve** is one-click; **reject** opens an optional reason field. On success the row leaves, the Operations nav badge ticks down, and a `role=status` live region announces it; a capped-note shows when the server holds more rows than the page loaded.
 
-- **Reviewer bans** (`<aec-reviewer-bans>`, `admin/reviewers/reviewer-bans.ts`) — the `/admin/reviewers` child route: the list of **currently-banned** reviewers (newest ban first) and the home for **unbanning** (`PATCH /api/admin/reviewers/:id` `{action:'unban'}`; the in-flight row's button disables, a live region announces the result, an already-unbanned row degrades gracefully). The ban *action* itself is raised from the moderation queue's repeat-offender flow (below), not here.
+- **Reviewer bans** (`<aec-reviewer-bans>`, `admin/reviewers/reviewer-bans.ts`) — the `/admin/reviewers` child route: the list of **currently-banned** reviewers (newest ban first) and the home for **unbanning** (`PATCH /api/admin/reviewers/:id` `{action:'unban'}`; the in-flight row's button disables, a live region announces the result, an already-unbanned row degrades gracefully). The ban _action_ itself is raised from the moderation queue's repeat-offender flow (below), not here.
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
 
@@ -1331,7 +1337,7 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 - **Overview** (`<aec-admin-overview>`, `admin/overview/`) — the `/admin/overview` child route and the 05:00 analytics digest as a live page. A traffic-classes card leads (AECI-1346), then four `<aec-stat-tile>`s plus a catalog-totals card, a 30-day chart of requests by traffic class, ranked top-sources / top-products lists, and a five-item status strip. A **Recompute** button re-reads the bundle with `?recompute=1` to fill the two network-dependent status items, announcing via a polite live region.
 
-- **Resolution honesty is a visual rule here, not just a data one.** Every tile's caption states the window it covers, and the unique-visitors definition renders *next to the number* rather than in a tooltip. The response's caveats render through `<aec-admin-notes>` — a Note/Caveat chip plus localized prose keyed off the API's machine-readable `code`, placed where the reader meets the figures it qualifies: above them on Overview and Catalog, and as a closing "About these numbers" section on the screens that read top-down. **One component renders it everywhere** (AECI-835), so a caveat's wording cannot differ by screen. Unmeasured values read "Not measured", never `0`.
+- **Resolution honesty is a visual rule here, not just a data one.** Every tile's caption states the window it covers, and the unique-visitors definition renders _next to the number_ rather than in a tooltip. The response's caveats render through `<aec-admin-notes>` — a Note/Caveat chip plus localized prose keyed off the API's machine-readable `code`, placed where the reader meets the figures it qualifies: above them on Overview and Catalog, and as a closing "About these numbers" section on the screens that read top-down. **One component renders it everywhere** (AECI-835), so a caveat's wording cannot differ by screen. Unmeasured values read "Not measured", never `0`.
 
 - **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness) by default. A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
 
@@ -1339,13 +1345,13 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 - **Operator lists are tables, not cards** (AECI-694). The rule is the shape of the data, not the surface: when every field is short and every row has the same fields, the operator is comparing a column down the page and a card makes them read a paragraph per row. `/admin/vendors` and `/admin/users` were cards and are now tables; the moderation queues stay cards because a review's body is long free text. The console's table markup is one pattern, first written in `admin/system/system-status.html`: `overflow-x-auto` wrapper, `min-w-[…]` on the table, a visually-hidden `<caption>` naming it, `th[scope=col]` in the head, `th[scope=row]` on each row's identity cell, `text-end tabular-nums` on counts, and the Entity-cards en-dash-with-`aria-label` for a genuinely absent value. **Table headers are sentence case**, per the Sentence-Case Rule, which explicitly strikes the overline treatment for them.
 
-- **A sortable header selects a sort on the first click and REVERSES it on the second.** `<th aec-sort-header>` (`shared/sort-header/sort-header.ts`) renders a button plus a ↑ or ↓ and sets `aria-sort` to the direction currently in effect for that key. Clicking an inactive header adopts that column's **natural** direction — one copy, in `ADMIN_VENDOR_SORT_DEFAULT_ORDER` / `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which the API's `apps/api/src/lib/sort.ts` also resolves its ORDER BY from, so the arrow cannot disagree with the list. Clicking the active header sends `?order=asc|desc`. *(It originally did not flip, because no list endpoint took an `order` parameter; that held over a two-key API and became a defect at seven — an arrow on a clickable header reads as a toggle, and a second click that silently no-ops is the worse lie. `ADMIN_PANEL_SPEC.md` §5.7 carries the full reasoning.)* The corollary is unchanged and matters more: **a column the API cannot order by gets no control at all**, and stays plain `<th>` text with no hover state. A header that looks clickable and reorders the 25 rows on the current page presents a page as a ranking, which is worse than no control. (`/admin/users` Last sign-in was the standing example until the API began ranking the whole filtered set before it chooses the page, `ADMIN_PANEL_SPEC.md` §5.8.)
+- **A sortable header selects a sort on the first click and REVERSES it on the second.** `<th aec-sort-header>` (`shared/sort-header/sort-header.ts`) renders a button plus a ↑ or ↓ and sets `aria-sort` to the direction currently in effect for that key. Clicking an inactive header adopts that column's **natural** direction — one copy, in `ADMIN_VENDOR_SORT_DEFAULT_ORDER` / `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which the API's `apps/api/src/lib/sort.ts` also resolves its ORDER BY from, so the arrow cannot disagree with the list. Clicking the active header sends `?order=asc|desc`. _(It originally did not flip, because no list endpoint took an `order` parameter; that held over a two-key API and became a defect at seven — an arrow on a clickable header reads as a toggle, and a second click that silently no-ops is the worse lie. `ADMIN_PANEL_SPEC.md` §5.7 carries the full reasoning.)_ The corollary is unchanged and matters more: **a column the API cannot order by gets no control at all**, and stays plain `<th>` text with no hover state. A header that looks clickable and reorders the 25 rows on the current page presents a page as a ranking, which is worse than no control. (`/admin/users` Last sign-in was the standing example until the API began ranking the whole filtered set before it chooses the page, `ADMIN_PANEL_SPEC.md` §5.8.)
 
 - **Relative time is for ledgers, and it always carries the exact instant** (AECI-694). `<aec-relative-time>` (`shared/relative-time/`) renders a compact span ("4h", "2d") beside an info control **whose accessible name IS the full `medium`/UTC datetime** — not an `aria-describedby` pointing at the panel, so a screen-reader or keyboard user never depends on a transient overlay to learn when something happened. Sighted users get the panel on hover, focus or click. It is used **only** in the audit trail, where "how long ago" is the question being asked; every other timestamp in the console is absolute `medium`/UTC, because "Profile created" is a date, not a staleness signal. Two implementation notes worth keeping: the panel is a `cdkConnectedOverlay` rather than the cheap CSS tooltip (`home/home-why.ts`) because every table it appears in sits inside `overflow-x-auto`, which clips an in-flow panel; and `now` is read once at construction, matching the console's no-live-updates rule, so the stamp is as fresh as the fetch that produced the row.
 
-- **Explanatory copy that does not deserve a paragraph is an `<aec-info-hint>`** (`shared/info-hint/`, AECI-915) — a 16px "i" button next to the thing it explains, with the text in a `cdkConnectedOverlay` on hover, focus and click. It generalises the control `<aec-relative-time>` introduced above and keeps that component's binding rule: **the accessible name of the button IS the text**, and the panel is `aria-hidden`. Not a `title` attribute (not reliably keyboard-reachable, inconsistent in screen readers, unstylable) and not an `aria-describedby` pointing at the panel (which makes assistive tech depend on a transient overlay and double-announces). Reach for it when the copy is a sentence or two of *optional* orientation; if a reader needs it to complete the task, it is body text, not a hint. First consumers: the vendor portal's taxonomy cards, at two levels — the facet hint beside the heading and each term's description beside its row. **Never nest one inside a heading**: an accessible name is computed from descendants, so a hint inside an `<h3>` makes the whole paragraph part of that heading's name and wrecks the screen-reader heading list. Put it in a wrapper row *beside* the heading. Nothing lints this and axe cannot see it.
+- **Explanatory copy that does not deserve a paragraph is an `<aec-info-hint>`** (`shared/info-hint/`, AECI-915) — a 16px "i" button next to the thing it explains, with the text in a `cdkConnectedOverlay` on hover, focus and click. It generalises the control `<aec-relative-time>` introduced above and keeps that component's binding rule: **the accessible name of the button IS the text**, and the panel is `aria-hidden`. Not a `title` attribute (not reliably keyboard-reachable, inconsistent in screen readers, unstylable) and not an `aria-describedby` pointing at the panel (which makes assistive tech depend on a transient overlay and double-announces). Reach for it when the copy is a sentence or two of _optional_ orientation; if a reader needs it to complete the task, it is body text, not a hint. First consumers: the vendor portal's taxonomy cards, at two levels — the facet hint beside the heading and each term's description beside its row. **Never nest one inside a heading**: an accessible name is computed from descendants, so a hint inside an `<h3>` makes the whole paragraph part of that heading's name and wrecks the screen-reader heading list. Put it in a wrapper row _beside_ the heading. Nothing lints this and axe cannot see it.
 
-- **Console detail screens carry a breadcrumb, not a back link** (AECI-777, spec §5.0b). `<aec-admin-breadcrumb>` renders once in the shell, under the category row, as `Admin › Operations › Vendors › Acme Corp`. It replaces the four hand-rolled "Back to …" links the parameterised routes each carried, which had drifted into four class strings and two wrapper shapes for one job. Three rules. **It follows the public site's breadcrumb treatment** rather than inventing a console one, per `docs/ADMIN_PANEL_SPEC.md` §9 item 10 — the same `<nav aria-label="Breadcrumb">` + `<ol>`, the same `›` separator marked `aria-hidden`, the same `aria-current="page"` on the last crumb, sentence case (the Sentence-Case Rule names breadcrumbs explicitly as *not* overlines, so the uppercase variant on `/taxonomy` is the outlier, not the model). **Only ancestors are crumbs** — never siblings — so it is a location readout and not a second navigation surface; the category crumb is plain text because there is no route behind it, and neither is the page you are on. **It contains no heading**, because the shell owns the only `h1` and each screen the only `h2`; a heading in the trail would sit between them and break heading order, which is the same conclusion the nav's group labels reached twice already. Its consequence for the screens: with the trail carrying the way back, a detail `h2` names **which** vendor / account / claim / catalogue rather than the entity type, showing the same fallback word the trail does until the fetch resolves.
+- **Console detail screens carry a breadcrumb, not a back link** (AECI-777, spec §5.0b). `<aec-admin-breadcrumb>` renders once in the shell, under the category row, as `Admin › Operations › Vendors › Acme Corp`. It replaces the four hand-rolled "Back to …" links the parameterised routes each carried, which had drifted into four class strings and two wrapper shapes for one job. Three rules. **It follows the public site's breadcrumb treatment** rather than inventing a console one, per `docs/ADMIN_PANEL_SPEC.md` §9 item 10 — the same `<nav aria-label="Breadcrumb">` + `<ol>`, the same `›` separator marked `aria-hidden`, the same `aria-current="page"` on the last crumb, sentence case (the Sentence-Case Rule names breadcrumbs explicitly as _not_ overlines, so the uppercase variant on `/taxonomy` is the outlier, not the model). **Only ancestors are crumbs** — never siblings — so it is a location readout and not a second navigation surface; the category crumb is plain text because there is no route behind it, and neither is the page you are on. **It contains no heading**, because the shell owns the only `h1` and each screen the only `h2`; a heading in the trail would sit between them and break heading order, which is the same conclusion the nav's group labels reached twice already. Its consequence for the screens: with the trail carrying the way back, a detail `h2` names **which** vendor / account / claim / catalogue rather than the entity type, showing the same fallback word the trail does until the fetch resolves.
 
 - **An audit action is rendered in English, with the raw token beneath it.** `describeAuditAction()` maps the vocabulary `apps/api` actually writes; an action this build has never heard of humanises its token rather than rendering blank, which is mandatory because `audit_log.action` is deliberately an open string and the table is excluded from the retention prune. Keeping the token visible is not redundancy: the description is what makes the ledger readable to someone who has not memorised the vocabulary, and the token is what makes a row greppable against a log line.
 
@@ -1389,10 +1395,10 @@ the product row, so the two can never drift apart visually.
 - **A product page shows one product** (`sections/vendor-products-page.ts`). The form opens with its read-only name block, and a URL naming a product the vendor does not own says so, with a link back to the list, rather than quietly rendering a different one.
 
 - **Each taxonomy facet is its own tab, edited inline** (AECI-994, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12). Categories, Trades, Audiences and Phases each render the full vocabulary as a checklist, a `<label>` around a real checkbox with the term description beside it, and one page Save. Under a ticked Audience or Phase sits a bullet list (`vendor/components/vendor-bullet-list-editor.ts`): an input per point, a plus button that adds at the bottom, and bordered 32px icon buttons to move up, move down and remove. Reordering is buttons rather than drag so it needs no second interaction model. Unticking a term with points confirms in a `BrnDialog` that lists what will be lost. The history below is superseded.
-- **(Superseded) Taxonomy reads as a summary and writes in a modal** (AECI-915). The four facets shipped as fieldsets of `aria-pressed` toggle chips — 107 chips on one screen — which made "what is this tagged as" a visual diff and left the per-term descriptions nowhere to go. Now each facet is a card in a **two-column grid**: name, a right-justified pencil, and one row per *assigned* term. This is the exception the "Don't use modals as the first thought" rule contemplates — the alternatives were tried and shipped, and the read case and the write case genuinely want different densities. The picker (`vendor/components/vendor-taxonomy-facet-dialog.ts`) is a `BrnDialog` opened imperatively from the click handler (never an `effect()`, NG0602), and every row is a `<label>` wrapping a real `<input type="checkbox">` so the whole row is the click target and the keyboard and ARIA behaviour is native rather than re-implemented over `role="checkbox"`. **Its Save persists**, because there is no `CanDeactivate` guard on this app and a Save that only staged would lose work silently; a failure keeps the modal open with the draft and puts the error inside it.
+- **(Superseded) Taxonomy reads as a summary and writes in a modal** (AECI-915). The four facets shipped as fieldsets of `aria-pressed` toggle chips — 107 chips on one screen — which made "what is this tagged as" a visual diff and left the per-term descriptions nowhere to go. Now each facet is a card in a **two-column grid**: name, a right-justified pencil, and one row per _assigned_ term. This is the exception the "Don't use modals as the first thought" rule contemplates — the alternatives were tried and shipped, and the read case and the write case genuinely want different densities. The picker (`vendor/components/vendor-taxonomy-facet-dialog.ts`) is a `BrnDialog` opened imperatively from the click handler (never an `effect()`, NG0602), and every row is a `<label>` wrapping a real `<input type="checkbox">` so the whole row is the click target and the keyboard and ARIA behaviour is native rather than re-implemented over `role="checkbox"`. **Its Save persists**, because there is no `CanDeactivate` guard on this app and a Save that only staged would lose work silently; a failure keeps the modal open with the draft and puts the error inside it.
 
 - **The Overview is a landing page, not an inventory** (AECI-983, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). Three blocks: the access strip, a glance band, and a "What needs you" list of whole-row links (`rounded-(--radius-md)` bordered rows, a Lucide severity icon, a status pill, an `aria-hidden` chevron with `rtl:-scale-x-100`). Row hover moves the **surface** (`hover:bg-(--surface-sunken)`), never the border, for the cascade reason recorded above. Pill border tones are the unlayered `.aec-pill-conflict` / `.aec-pill-attention` classes in `styles.css`, the same escape hatch as `.aec-nav-tab`.
-- **The glance band reuses the former home stats-card vocabulary, with two departures** (`vendor/components/vendor-glance-band.ts`). The home cards were deleted in AECI-1554; the vocabulary stands here: three `rounded-(--radius-lg)` `--surface-raised` cards, a `font-display text-5xl` figure, a quiet `--text-secondary` line, and every label row `min-h-9 md:min-h-12` so the figures align even when a label wraps at `md`. **A zero is never a bare 0**: it renders a sentence ("No conflicts", "None open"). *(2026-11-14, R2: the portal takes the new tokens and nothing more. Clash 8's one large figure per band and clash 25's large zero are public-page rules, so the three figures and the sentence at zero stay here. AECI-1748 maps `text-5xl` to `--t-fig`, so the figures render 28 to 40px.)* **Departure one: a non-zero conflict figure is `--status-error`**, not Forest. `conflict` is the one sanctioned red, and a conflict count that reads like good news defeats the tile. At zero there is no figure, so red never appears for good news. **Departure two: tile hover moves the surface**, not the border, because a border-colour utility does not apply here. **Only a tile with something to do is a link.** At zero, In conflict and Suggestions are plain cards with a 32px Forest check badge. With work waiting, the tile is a link with a badge beside the figure: a red X for conflicts, a Forest "!" for open suggestions. The badges are `aria-hidden`; the figure and the link's `aria-label` carry the state.
+- **The glance band reuses the former home stats-card vocabulary, with two departures** (`vendor/components/vendor-glance-band.ts`). The home cards were deleted in AECI-1554; the vocabulary stands here: three `rounded-(--radius-lg)` `--surface-raised` cards, a `font-display text-5xl` figure, a quiet `--text-secondary` line, and every label row `min-h-9 md:min-h-12` so the figures align even when a label wraps at `md`. **A zero is never a bare 0**: it renders a sentence ("No conflicts", "None open"). _(2026-11-14, R2: the portal takes the new tokens and nothing more. Clash 8's one large figure per band and clash 25's large zero are public-page rules, so the three figures and the sentence at zero stay here. AECI-1748 maps `text-5xl` to `--t-fig`, so the figures render 28 to 40px.)_ **Departure one: a non-zero conflict figure is `--status-error`**, not Forest. `conflict` is the one sanctioned red, and a conflict count that reads like good news defeats the tile. At zero there is no figure, so red never appears for good news. **Departure two: tile hover moves the surface**, not the border, because a border-colour utility does not apply here. **Only a tile with something to do is a link.** At zero, In conflict and Suggestions are plain cards with a 32px Forest check badge. With work waiting, the tile is a link with a badge beside the figure: a red X for conflicts, a Forest "!" for open suggestions. The badges are `aria-hidden`; the figure and the link's `aria-label` carry the state.
 - **The Views period toggle is an `aria-pressed` button set, not Angular Aria.** The tile was removed on 2026-10-13 (Chris). The glance band shows two tiles until AECI-941 rebuilds Views with a real figure and this toggle. Aria@22 ships no radio group (ADR 0010), and the admin date-range control (`admin/traffic/traffic.html`) already made this call, so the vendor surface follows the shipped precedent: a `fieldset` with an sr-only legend, a sunken segmented track, and the pressed segment filled Forest by the unlayered `.aec-period[aria-pressed='true']` rule, which also sets the pressed segment's focus ring to Forest so it does not vanish. Visible "1d", accessible name "1d, last day" (WCAG 2.5.3).
 - **The connector seat's Catalogue tab (labeled "Catalog" since AECI-1262) is a row card, not a table** (AECI-1083, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). It shows only on a `connector`-role product, last in the product row. The listings sit in the product list's bordered `--surface-raised` card, one row each: the name in the body face at 16px (on a span, because the `h3` element rule is unlayered serif), a "View listing" link, then each match as a phrase with a quiet `--surface-sunken` "Counts toward reach" pill. The admin triage table needs 64rem, so the portal does not borrow it. Edit opens the form inline under its row, capped at `max-w-2xl`; one form at a time, focus moves in on open and back to Edit on close. Disabled buttons swap to the sunken surface rather than dimming. Text blocks are capped at 52ch, because `npx impeccable detect` measured ~96 characters a line at 65ch in Atkinson.
 - **(Superseded by AECI-1218) The plan panel had a compact strip for the quiet state.** Plans moved to the product level (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 2), so the full panel lives on each product's overview. The vendor overview first carried a one-line plan summary; that is gone too, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The compact strip and the "Account access" heading are gone.
@@ -1421,11 +1427,11 @@ the product row, so the two can never drift apart visually.
 
 - **Direction is always the caller's own frame.** Rows render "To {other}" / "From {other}" / "Both ways" — the same idea the public pair page uses, reframed per caller. The stored `a_to_b`/`b_to_a` never reaches the browser as-is.
 
-- **The row status pill is its own component, not `<aec-agreement-badge>`.** `Data that's shared` renders a caller-seat pill (`.id-pill[data-tone]`: `ok` Forest, `conflict` red, everything else neutral) rather than reusing the public badge component, because the two name different things — the portal's pill is the *caller's* position, the public badge is the *agreed* state. Their wording still cannot disagree: the pill's tooltip quotes the same `STAGE_2_ATTESTATIONS_SPEC.md` §6.2 outcome sentence verbatim, and `conflict` stays the one red state on both surfaces.
+- **The row status pill is its own component, not `<aec-agreement-badge>`.** `Data that's shared` renders a caller-seat pill (`.id-pill[data-tone]`: `ok` Forest, `conflict` red, everything else neutral) rather than reusing the public badge component, because the two name different things — the portal's pill is the _caller's_ position, the public badge is the _agreed_ state. Their wording still cannot disagree: the pill's tooltip quotes the same `STAGE_2_ATTESTATIONS_SPEC.md` §6.2 outcome sentence verbatim, and `conflict` stays the one red state on both surfaces.
 
 - **A disagreement shows both positions in the row, not as an error.** The Change requests section's disagreement item is a title naming the data and each side's stance, the caller's answer and reason beside the other company's, with "They have not given a reason" when there is none. Two companies describing a flow differently is a disagreement to resolve, not a defect in either product — red belongs to the status pill alone.
 
-- **Yes / No are plain, `aria-pressed` toggle buttons in a segmented control** (`.id-seg`), because they are commands that write on activation, not values you pick and submit (ADR 0010 governs the latter). Pressing the pressed button again clears the answer. **The toggles show only on a row the caller has not answered** (AECI-1246): an answered row reads as plain text ("Yes" or "No" with its icon) and a **Change** link, which reveals that row's toggles until a save or Escape, because a stray click on a filled toggle changed answers vendors meant to keep. "The direction is wrong" folds its corrected row into a "You submitted a change" box under the denied row (`.id-change-box`: sunken fill, accent inline-start border, no divider above it, so it reads as part of the row and not as another data row), with Change and Cancel. The reason form opens *inline, under the row*, never behind a second disclosure. Native `<select>` elements pick the data type and direction (ADR 0010 deviation (d), unchanged in shape by this page, just relocated) — not an Aria combobox or `<aec-select>`, because each is one value from a closed, plain-text list in an ordinary form.
+- **Yes / No are plain, `aria-pressed` toggle buttons in a segmented control** (`.id-seg`), because they are commands that write on activation, not values you pick and submit (ADR 0010 governs the latter). Pressing the pressed button again clears the answer. **The toggles show only on a row the caller has not answered** (AECI-1246): an answered row reads as plain text ("Yes" or "No" with its icon) and a **Change** link, which reveals that row's toggles until a save or Escape, because a stray click on a filled toggle changed answers vendors meant to keep. "The direction is wrong" folds its corrected row into a "You submitted a change" box under the denied row (`.id-change-box`: sunken fill, accent inline-start border, no divider above it, so it reads as part of the row and not as another data row), with Change and Cancel. The reason form opens _inline, under the row_, never behind a second disclosure. Native `<select>` elements pick the data type and direction (ADR 0010 deviation (d), unchanged in shape by this page, just relocated) — not an Aria combobox or `<aec-select>`, because each is one value from a closed, plain-text list in an ordinary form.
 
 - **One polite live region on the surface, many assertive ones.** Successful writes announce through the one channel; failures are alert text beside the control that failed. The region lives in the dashboard shell, not on this page, fed by `VendorPortalAnnouncer` (`vendor/vendor-announcer.ts`), unchanged by this page's rebuild. **Never add a second persistent one.** A **local** `role="status"` is still allowed only for immediate feedback on an action the user just took, beside the control they took it with — this page has none: even the "row already exists" case on Add a data flow announces through the shared channel rather than a local region. Rule and audit: `STAGE_2_REALTIME_SPEC.md` §6.3 / §6.5.
 
@@ -1439,19 +1445,19 @@ the product row, so the two can never drift apart visually.
 
 Three surfaces, home → section → article (`apps/web/src/app/docs/`), all inside one **help-center shell** between the site header and footer. **Anchor site: Devin (DeepWiki)**, Mobbin screen `c3936cdb-13b2-4b54-b2a2-c7ccf723dd1b`, which replaced the Zendesk anchor on 2026-10-09 (AECI-1259). DeepWiki supplies the structure, density and restraint. AECi keeps its own type, tokens and Forest links. It is a public, edge-cached reading surface, so it reuses the `/legal/*` and `/methodology` prose vocabulary rather than the portal's cards. Everything is built from the docs manifest, so a section with no pages shows nowhere (AECI-1248).
 
-*(2026-11-14: the docs chrome below describes the shipped sizes and weights. Weight 500 (`font-medium`) is outside §3, which keeps 500 for two chips only. No issue owns snapping it yet. It is raised for Chris.)*
+_(2026-11-14: the docs chrome below describes the shipped sizes and weights. Weight 500 (`font-medium`) is outside §3, which keeps 500 for two chips only. No issue owns snapping it yet. It is raised for Chris.)_
 
 - **Shell** (`docs-shell.ts`, the `/docs` layout route). From `lg`: a 16rem sidebar on `--surface-raised` behind a hairline end border, spanning the shell's full height, and a content column. The shell carries a hairline top border under the site header. A per-guide search box sits under the guide toggle (AECI-1270). There is no "Ask" box.
 - **Guide toggle** (AECI-1271): the first thing in the sidebar on every docs page, a `nav` named "Guides" holding two links, "General" (`/docs`) and "For vendors" (`/docs/vendors`). It replaced the vendor guide's "Back to the help center" link. The current guide's link carries `aria-current="true"`, never `"page"`, because a deeper page is not the guide's landing. It is the `.aec-nav-tab` underline on a hairline: `text-sm` medium `--text-secondary` links, the current one `--text-primary` over a 2px `--accent-primary` bottom border. It is navigation, not a segmented control, so it never takes the `aria-pressed` button-group look. Derived from the URL alone, no cookie or storage. Mobbin anchor: Devin (DeepWiki) screen `470ef8ee-da99-4893-9a15-bde5f3744177`, whose sidebar puts its top-level destinations above a hairline and the scoped page tree below. The per-guide docs search box (AECI-1270) sits directly under it.
-- **Docs search box** (AECI-1270, `docs-search.ts`): directly under the guide toggle, full sidebar width, searching the current guide only. Its label names the guide: "Search General" or "Search For vendors" (visually hidden `label`, placeholder "Search"). An input on `--surface-base` that takes the Inputs recipe: 44px high, the field edge, 12px radius, 16px text, and a leading `--text-secondary` magnifier. *(2026-11-14: the shipped box is 36px with a 1px `--border-default` edge, which is about 1.25:1 and fails the 3:1 floor. AECI-1764 applies the recipe.)* Client only: the SSR HTML holds a fixed 44px slot so the tree does not jump, and the slot goes when there is no docs index in the config. Results open in a top-layer popup (an Angular Aria combobox in `cdkConnectedOverlay`): a `--surface-raised` panel with a hairline border and the menu shadow (`--shadow-menu`, §4, AECI-1770), up to 24rem wide. Each row is a `text-xs` `--text-secondary` trail ("Section / Page"), the heading in `text-sm` medium `--text-primary`, and a two-line `text-xs` snippet. Matched words are `mark`: underlined in the heading, `--text-primary` medium in the snippet, never a highlighter fill. The active row is the `--surface-sunken` pill the tree uses. No hit shows "No matching sections" as plain text, and a polite live region announces the count. With no row, settled or still in flight, the combobox stays collapsed (AECI-1308). Mobbin anchors: DeepWiki's search field (screen `470ef8ee-da99-4893-9a15-bde5f3744177`) and Devin's results list (screen `e37a4e69-9a61-4f36-803d-edbd89c1229d`), whose rows lead with a breadcrumb trail.
+- **Docs search box** (AECI-1270, `docs-search.ts`): directly under the guide toggle, full sidebar width, searching the current guide only. Its label names the guide: "Search General" or "Search For vendors" (visually hidden `label`, placeholder "Search"). An input on `--surface-base` that takes the Inputs recipe: 44px high, the field edge, 12px radius, 16px text, and a leading `--text-secondary` magnifier. _(2026-11-14: the shipped box is 36px with a 1px `--border-default` edge, which is about 1.25:1 and fails the 3:1 floor. AECI-1764 applies the recipe.)_ Client only: the SSR HTML holds a fixed 44px slot so the tree does not jump, and the slot goes when there is no docs index in the config. Results open in a top-layer popup (an Angular Aria combobox in `cdkConnectedOverlay`): a `--surface-raised` panel with a hairline border and the menu shadow (`--shadow-menu`, §4, AECI-1770), up to 24rem wide. Each row is a `text-xs` `--text-secondary` trail ("Section / Page"), the heading in `text-sm` medium `--text-primary`, and a two-line `text-xs` snippet. Matched words are `mark`: underlined in the heading, `--text-primary` medium in the snippet, never a highlighter fill. The active row is the `--surface-sunken` pill the tree uses. No hit shows "No matching sections" as plain text, and a polite live region announces the count. With no row, settled or still in flight, the combobox stays collapsed (AECI-1308). Mobbin anchors: DeepWiki's search field (screen `470ef8ee-da99-4893-9a15-bde5f3744177`) and Devin's results list (screen `e37a4e69-9a61-4f36-803d-edbd89c1229d`), whose rows lead with a breadcrumb trail.
 - **Sidebar tree** (`nav` named "Help center" on the General guide): "Help center" first, then each General section in manifest order, its pages indented under a `--border-default` start-edge guide line. A single-page section is one item. **On a vendor guide page the tree is the vendor guide's own** (AECI-1265): a `nav` named "Vendor guide", then "Vendor guide" and its pages, overview and claiming first (AECI-1271). The URL alone picks the tree, so the SSR HTML is the same for every visitor. All groups are expanded. Items are `text-sm` `--text-secondary`, no icons. The current page is a `--surface-sunken` rounded pill with `--text-primary` medium text and `aria-current="page"` (`routerLinkActive`, exact match, so a section item is current only on its own index). From `lg` the tree is sticky at the viewport top, at most one viewport tall, and scrolls on its own when it is longer. The site header is not sticky, so nothing sits above it.
-- **Top bar** over the content only, with a hairline under it. Left: a breadcrumb derived from the URL *(2026-11-14: clash 31 rules the separator `›`, and AECI-1777 moved this trail onto the shared breadcrumb, §5 Navigation "The breadcrumb")*. "Help center", then the section, on the General guide. On the vendor guide the trail starts at "Vendor guide", which is its one section (AECI-1271). Ancestors are links. The current place is text with `aria-current="page"`. On an article the trail stops at the section, as DeepWiki's does, because the `h1` names the page. Right, articles only, from `sm`: the pre-formatted "Last updated" line in `--text-secondary`.
+- **Top bar** over the content only, with a hairline under it. Left: a breadcrumb derived from the URL _(2026-11-14: clash 31 rules the separator `›`, and AECI-1777 moved this trail onto the shared breadcrumb, §5 Navigation "The breadcrumb")_. "Help center", then the section, on the General guide. On the vendor guide the trail starts at "Vendor guide", which is its one section (AECI-1271). Ancestors are links. The current place is text with `aria-current="page"`. On an article the trail stops at the section, as DeepWiki's does, because the `h1` names the page. Right, articles only, from `sm`: the pre-formatted "Last updated" line in `--text-secondary`.
 - **Below `lg`** the tree becomes a panel under the top bar, closed by default. A bordered icon button at the start of the top bar ("Docs menu", `aria-expanded`, `aria-controls`) toggles it. Escape and any navigation close it. DOM order is top bar, panel, page at every width, so the SSR HTML is identical for every visitor.
-- **Article column** (`docs-page.ts`): a centred 42rem column. A Source Serif `h1` at `--t-36`, 28 to 36px (`.aec-docs-title`, the Headline role brought down from a hero), one muted lede line from the frontmatter description, then `.aec-prose aec-docs-prose`. No overline. Docs `h2`s are `--t-24` and `h3`s `--t-20`, both serif at or above the 20px floor. *(AECI-1748 moved them from 1.875rem, 1.375rem and 1.125rem, which were off the type ramp (§3).)* Below `sm` the "Last updated" line moves under the lede.
+- **Article column** (`docs-page.ts`): a centred 42rem column. A Source Serif `h1` at `--t-36`, 28 to 36px (`.aec-docs-title`, the Headline role brought down from a hero), one muted lede line from the frontmatter description, then `.aec-prose aec-docs-prose`. No overline. Docs `h2`s are `--t-24` and `h3`s `--t-20`, both serif at or above the 20px floor. _(AECI-1748 moved them from 1.875rem, 1.375rem and 1.125rem, which were off the type ramp (§3).)_ Below `sm` the "Last updated" line moves under the lede.
 - **Heading ids.** Every body `h2` and `h3` has a stable GitHub-style slug id, unique per page, built at manifest time (`docs-markdown.ts`). The template renders the headings itself, because the `[innerHTML]` sanitizer strips `id`. Headings carry `scroll-margin-top: 1.5rem`.
 - **"On this page" rail** (`docs-toc.ts`), from `xl` only, sticky at the far right of the content. One short dash per `h2`, the closing "Related" excluded, none at all below two headings. The current dash is longer and `--text-primary`. Others are `--text-tertiary`, which holds the 3:1 non-text floor because a closed dash is the link's only visible mark. Each link is at least a 24px target (WCAG 2.2 target size), which sets the dash pitch. Hover or keyboard focus opens it into a bordered `--surface-base` panel listing the headings. The labels are visually hidden, never removed, so the links stay named. Links are plain anchors to the article path plus `#id`, opted in to the smooth in-page jump. This lands with AECI-1752, in review. Until then they are router links with a fragment. The first dash is current in the SSR HTML; an `IntersectionObserver` moves it only after the first browser render.
 - **Plans comparison** (`docs-plans-comparison.ts`, `/docs/vendors/plans` only; its two cards are `shared/plan-cta/plan-cards.ts`, shared with `/vendor-program`): the one place the docs use cards. Placed by a `<!-- docs:plans-comparison -->` widget line and rendered outside `.aec-prose`. Two plan cards side by side from `sm` (stacked below), each the shared card (`aecCard`, ruling A7, 2026-11-16): `--surface-base` fill, 24px radius, `--shadow-card` and a transparent 1px edge. Managed carries the 2px `--accent-primary` featured border. The border is not its only mark: the card is named "Managed" and carries the price. Each card: a 20px serif plan name, a one-line summary, a serif price at `--t-36` (28 to 36px) with a `text-sm` unit, one action (Free: a hairline-ringed "Claim your listing" button at the Managed button's size; Managed: the Forest-filled "Claim your listing", the surface's one accent action; both actions open the claim dialog, AECI-1293. E8.1 removed the inquiry line and reply promise, and E8.2 retired "Start with Managed", both 2026-10-19), then a benefit list ("Includes" / "Everything in Free, plus"). Under the cards, the sort rule on a Bone (`--accent-warm`) band. Then a three-column comparison table: hairline row rules, uppercase `text-xs` group rows (`th scope="colgroup"`), a Forest check or a `--text-tertiary` dash per cell with a visually hidden "Included" / "Not included", or a printed value (price, billing). Labels say what the vendor gets, not the portal control's name. Unshipped work never appears in it. Classes are unlayered `.aec-plan-*` in `styles.css`. Mobbin anchor: Mintlify's billing page, screen `c74405c6-a307-4e35-b8eb-21a1129ce5f3`.
-- **Plans calls to action** (`shared/plan-cta/plan-cta.ts`, on `/docs/vendors/plans` and `/vendor-program`, AECI-1285, reworded by AECI-1293). One claim workflow (`VENDOR_PROGRAM_PAGE_SPEC.md` §15): every main control opens the claim dialog and reads "Claim your listing", the Managed card, the rail and the phone bar included (E8.2 retired "Start with Managed", 2026-10-19). Never "Get Managed", "Buy" or "Start now": public pages still lead with the claim, and paying appears only on the portal's Billing tab ("Pay by card", AECI-1396). Each control stays a link to `/search` for no-JS and new-tab clicks (`/vendor-program#find-your-product` until that section was removed on 2026-10-12). Claim is the only plan action. Questions go through a text line, "Questions?" plus an underlined "Contact us" link (`aec-plan-contact-link`), a plain link to `/contact` with no topic and no form (E8.1, 2026-10-19; it replaced the plan inquiry dialog). It sits in the closing panel and, on `/vendor-program`, under the FAQ. It is not on the hero. Placements: (1) a row under the intro, the Forest "Claim your listing" at the one button height (44px) on its own; (2) the Managed card's button, full card width at 44px, and the Free card's button at the same height as a secondary button with its hairline edge instead of the Forest fill. Clash 20 retires the `py-3 text-base` and `py-3.5 text-base font-semibold` sizes. From `sm` each card is a row subgrid of the pair, so the two buttons sit on one line although the Managed price row is taller; (3) on the docs Plans page only, from 90rem, a `w-44` `.aec-plan-card` under the rail's dashes (plan, price, a "Claim your listing" button at 44px), sticky with them; (4) below `lg`, a slim bar fixed to the bottom on `--surface-base` behind a hairline, shown only after the intro row scrolls away and hidden while a full call to action is on screen, with `scroll-padding-bottom` and body padding reserved so it never covers a focused link or the page end; (5) the "Getting Managed" panel, the page's closing block: a full-width Forest band, a 24px serif headline in `--surface-base`, one terms-and-safety line (the monthly and the annual price), an on-brand "Claim your listing" button (Bone fill, Forest text, clash 3) beside the contact line in `--surface-base`, and two numbered next steps that describe the claim dialog (find your listing and send your claim, then a person reviews it and emails the result), shown only while the button opens the dialog. *(2026-11-14: the "Getting Managed" panel is `aec-plan-cta-panel` (`shared/plan-cta/plan-cta.ts`), one shared component. It is a rounded Forest card inside the content column that closes the page, not a full-width band. It is the Forest feature card clash 1 allows (§2), where the shipped card differs in two ways: its ink is white and not Bone, and its button is white with Forest text and not the Bone main button (clash 3). AECI-1802 restyles it. Nothing here is changed.)* On `/vendor-program` the panel is its own section (an `h2`). A signed-in vendor seat sees "Go to your portal" wherever a control would open the claim dialog. The docs Plans page has a muted intro line above the hero button, linking to `/vendor-program` with an always-underlined Forest link. Every click fires `plan_cta_clicked` with its placement and page (`docs/ANALYTICS.md` §4).
+- **Plans calls to action** (`shared/plan-cta/plan-cta.ts`, on `/docs/vendors/plans` and `/vendor-program`, AECI-1285, reworded by AECI-1293). One claim workflow (`VENDOR_PROGRAM_PAGE_SPEC.md` §15): every main control opens the claim dialog and reads "Claim your listing", the Managed card, the rail and the phone bar included (E8.2 retired "Start with Managed", 2026-10-19). Never "Get Managed", "Buy" or "Start now": public pages still lead with the claim, and paying appears only on the portal's Billing tab ("Pay by card", AECI-1396). Each control stays a link to `/search` for no-JS and new-tab clicks (`/vendor-program#find-your-product` until that section was removed on 2026-10-12). Claim is the only plan action. Questions go through a text line, "Questions?" plus an underlined "Contact us" link (`aec-plan-contact-link`), a plain link to `/contact` with no topic and no form (E8.1, 2026-10-19; it replaced the plan inquiry dialog). It sits in the closing panel and, on `/vendor-program`, under the FAQ. It is not on the hero. Placements: (1) a row under the intro, the Forest "Claim your listing" at the one button height (44px) on its own; (2) the Managed card's button, full card width at 44px, and the Free card's button at the same height as a secondary button with its hairline edge instead of the Forest fill. Clash 20 retires the `py-3 text-base` and `py-3.5 text-base font-semibold` sizes. From `sm` each card is a row subgrid of the pair, so the two buttons sit on one line although the Managed price row is taller; (3) on the docs Plans page only, from 90rem, a `w-44` `.aec-plan-card` under the rail's dashes (plan, price, a "Claim your listing" button at 44px), sticky with them; (4) below `lg`, a slim bar fixed to the bottom on `--surface-base` behind a hairline, shown only after the intro row scrolls away and hidden while a full call to action is on screen, with `scroll-padding-bottom` and body padding reserved so it never covers a focused link or the page end; (5) the "Getting Managed" panel, the page's closing block: a full-width Forest band, a 24px serif headline in `--surface-base`, one terms-and-safety line (the monthly and the annual price), an on-brand "Claim your listing" button (Bone fill, Forest text, clash 3) beside the contact line in `--surface-base`, and two numbered next steps that describe the claim dialog (find your listing and send your claim, then a person reviews it and emails the result), shown only while the button opens the dialog. _(2026-11-14: the "Getting Managed" panel is `aec-plan-cta-panel` (`shared/plan-cta/plan-cta.ts`), one shared component. It is a rounded Forest card inside the content column that closes the page, not a full-width band. It is the Forest feature card clash 1 allows (§2), where the shipped card differs in two ways: its ink is white and not Bone, and its button is white with Forest text and not the Bone main button (clash 3). AECI-1802 restyles it. Nothing here is changed.)_ On `/vendor-program` the panel is its own section (an `h2`). A signed-in vendor seat sees "Go to your portal" wherever a control would open the claim dialog. The docs Plans page has a muted intro line above the hero button, linking to `/vendor-program` with an always-underlined Forest link. Every click fires `plan_cta_clicked` with its placement and page (`docs/ANALYTICS.md` §4).
 - **Vendor program page** (`vendor-program/vendor-program.ts`, `/vendor-program`, AECI-1284 to 1286, `VENDOR_PROGRAM_PAGE_SPEC.md` §3). A plain editorial landing page, not a SaaS hero. Mobbin anchor: **Mintlify** (marketing home, screen `4cc8ee93-cf4e-4b9f-a905-8e11b2b9da9e`, for the hero: a left-aligned serif headline, one lede, a filled and an outlined button side by side; the plan cards already follow its billing page). **The rule:** No narrow column with a blank right half: fill desktop width by layout. (Chris, 2026-10-12.) From `lg` every section uses the whole `max-w-7xl` container, by split, grid or side by side, never by stretching prose; there is no rail column (the rail card stays on the docs Plans page only). Layout: a Bone hero band, a 12-column grid from `lg`: the `h1`, the lede (`max-w-[52ch]`) and the button pair in seven columns, no eyebrow (`impeccable detect` bans a kicker above the `h1`), and "How claiming works" in five, a `surface-base` card of three Forest-disc numbered steps (a `p` label, not a heading; hidden below `lg`). Then `h2` sections, most split five and seven: the heading left, the content right. Section patterns: "What changes when you claim" (second, after the hero) splits five and seven, with two bordered `rounded-lg` cards side by side from `sm`, each an overline ("Before you claim", "Once you claim and update it"), the real `aec-maintenance-marker` chip and one line; "What a free claim gets you" and "What Managed adds" are one pattern (Chris, 2026-10-12): each splits four and eight, the heading and lede on the left (Free's seat line, Managed's terms line), and on the right a hairline-ruled two-column list from `md` of the shared item `li[aec-vendor-program-benefit]` (`vendor-program/vendor-program-benefit.ts`). An item is a plain semibold title, never a link, then the body in `--text-secondary`, then, when the line has a docs page, a standalone semibold Forest "Learn more" link with the new-tab cue, whose sr-only suffix names the title. No subgroup headings in either section; "How listings are sorted" is a rounded Bone panel, split in halves; the "Coming soon" section and its "Not available yet" pill were removed on 2026-10-13 (the page shows only what ships); the FAQ is native `<details>` rows between hairlines, a chevron icon that turns on open (`motion-reduce` off), so every answer is in the SSR HTML. Find your product, the search section that sat third, was removed on 2026-10-12: the claim dialog starts with the same search. The closing Forest panel splits six and six from `lg` with its actions stacked, then seven and five with the actions in a row from `xl` (its `split` input). Prose measures stay at `52ch` (`text-lg`) and `56ch` (`text-base`) on phones; inside a split's seven columns a paragraph fills its column, which is about 80 characters at 1280px. Atkinson's `ch` is a wide digit, so `65ch` measured about 87 characters a line. The plan cards carry `data-plans-cta="card"` here, so the phone bar also hides over them. Every docs link, including each "Learn more", opens a new tab with `aec-new-tab-icon` (the page-scoped exception in the Link Treatment Rule); inside a sentence the in-text link class keeps the icon inline (`[&_svg]:inline`).
 - **Claim dialog** (`shared/claim-dialog/`, AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15): one per page (`aec-claim-dialog-host`), `@defer`-loaded on the first claim click, so the cached HTML carries none of it. The one exception is the listing request page (AECI-1474, §2.5): it embeds the flow inline (`ClaimDialogFlow` with `embedded`), not the dialog, so its SSR HTML carries the empty typed-in You step. Mobbin anchor: Mercor's "Complete your profile" modal (screen `a39d82f4-c61a-44cb-be88-f81eec9320a8`): the title and "Step N of 4 · name" with a thin Forest progress bar in the header, a hairline under it, the step body scrolling, a hairline footer with a bordered "Back" left and the Forest primary right. The shell is a BrnDialog over the CDK overlay on `--surface-base`, no shadow, after the home feedback dialog. Type: a 24px serif "Claim your company", which becomes "Claim <Company>" once a found listing names it (AECI-1364), a `text-sm` line ("Claiming is free. We set up your account when we approve your claim."), a 44px close button. From `sm` a centred `w-[min(92vw,36rem)]` panel, `rounded-lg`, hairline border, scrolling inside at `85vh`; below `sm` a full-screen sheet (`100dvh`, no radius) so the footer stays above a phone keyboard. Each step opens on a 20px serif `h3` that takes focus. Step 1 is the site's search box with a visible label and an in-text "Type it in" button; step 2 shows the chosen listing on a `--surface-raised` strip with "Change", or the name and website fields, then the claim form's identity fields (`requests/claimant-fields.ts`); step 3 is three full-width radio rows (`min-h-11`, the checked row on `--accent-primary-soft`); step 4 the "Additional comments" textarea. The receipt reuses the claim confirmation (a Forest check disc, "What happens next" on `--surface-raised`) and its one action is "Done". Errors are `role="alert"` lines under their field, and Continue focuses the first bad field.
 - **"How did you find us?" field** (`<aec-found-via-field>`, `shared/found-via/found-via-field.ts`, AECI-1063, `docs/ANALYTICS.md` §11b). One optional question on the claim dialog's comments step, the claim page and drawer, the mailing band, `/updates` and the feedback form. Mobbin anchor: Grain's "How did you hear about Grain?" select, whose list names ChatGPT beside search and colleagues (screen `ec616781-d530-45c0-ac6b-1ec13cb7bd31`), with the conditional box from User Interviews' "Other" row (screen `47fb20dd-38db-4ec9-9783-17a47e3186e6`). The choice is the stacked `aec-select` with the "Clear answer" row once answered, like the "About you" questions. A follow-up text box (200 characters) appears under it for AI tool, search, vendor, event and other, and its label follows the choice. The field owns one polite `sr-only` live region that says when the box appears. Moving to a choice without a follow-up empties the box. Never required, never blocks a submit. Hosts bind it through `value`/`valueChange` and `detail`/`detailChange` (ADR 0010), not `[formField]`.
@@ -1476,12 +1482,12 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 - **Form footer** (`FORM_FOOTER_CLASS`): a hairline, then the secondary action at the start and the primary at the end. Below `sm` the two stack full width with the primary on top (`flex-col-reverse`). The DOM keeps secondary then primary, so the keyboard order matches the row from `sm` up. The secondary takes `sm:me-auto`. A bare `me-auto` would stop it stretching in the stacked column. First used by `/welcome` (AECI-1296).
 - **Submit stays enabled.** A form's primary action is disabled only while the request is in flight. Pressing it with a bad answer shows every error and moves focus to the first bad field. A disabled submit gives no reason, and it also swallows Enter in the form's text fields. `/welcome` and the `/account` "About you" save follow this (AECI-1296), as the claim dialog's Continue already did. Sign-in, the review form and the `/account` display-name save follow it too (AECI-831). Sign-in's button is also disabled until hydration: event replay never cancels a native submit, so a click on the SSR HTML would still run the native form submit and drop `?next=`. On the review form the four required controls carry `aria-required="true"`.
 - **Not on the recipe yet.** These controls measured 1.27:1 (`border-default`) before AECI-1764 too, and this work did not make them worse.
-  - The home hero search, the two hero pair pickers and the `/search` input: AECI-1850.
+  - The `/search` input: AECI-1850. The home hero search and the two pair pickers moved onto `.aec-field-control` with AECI-1792. The hero search draws its leading glyph from the home hero, not from the field, so the shared leading icon is still not built.
   - Hand-rolled portal and admin inputs, such as the vendor profile form and the admin date and text filters: the portal and admin page work, after Chris verifies the public pages. Until then a 44px recipe control can sit beside a 34px hand-rolled input.
 - **Disabled:** background fades to `surface-sunken`, text-secondary text (`FIELD_INPUT_CLASS` and the `aec-select` trigger, which keys it off `aria-disabled`). Pointer events disabled. **Never via opacity** (AECI-982): `disabled:opacity-50` on the Logo URL field took `#0A0A0A` over white to ~3.7:1 — below the AA 4.5:1 floor — and no token review can pin an opacity's ratio because it composites against whatever sits behind the element. The token pair is measurable: text-secondary on surface-sunken is 7.0:1. Axe cannot catch this class of defect — it exempts disabled controls from color-contrast — so field text treatments are regression-tested as class assertions.
 - **Help text:** the Caption role (`--t-14`, §3), `text-secondary`, directly under the control, always rendered. Optional-field marking (`(optional)` on the label) is unchanged — unmarked still means required.
 
-**Named rule — URL and read-only field text stays readable in every state (AECI-982).** A field that displays a URL, a stored reference, or any value the reader may need to copy back out keeps WCAG AA contrast in every state it can render: default, hover, focus, read-only, disabled, invalid, browser-autofilled, and long-overflow. Read-only uses the sunken-surface tell with `--text-primary` text (the §8 promise that a downgraded vendor's data is still there and still readable); disabled uses the recipe above; invalid keeps the field's own text tokens and carries the failure in the `--status-error` border, inline label and icon, never by dimming the value. Browser autofill is pinned by the global `:-webkit-autofill` guard in `styles.css`, which repaints the UA's autofill background with `--surface-base` so the declared text token keeps its measured ratio. The shipped case was the shared Logo URL field (`apps/web/src/app/shared/logo-input/logo-input.ts`), whose disabled dim was the AECI-982 production defect. Any field carrying a rule the user can trip — a minimum length, a range, a format, an expected kind of answer — states it in persistent help text under the control, with the constraint sentence itself set in `<strong class="text-(--text-primary)">` so it survives a skim of the surrounding guidance. A requirement that only appears in the error message after the user has already failed is a defect, not a validation strategy: the user writes an answer, gets rejected, and has to reverse-engineer what was wanted. The rule has an a11y half that is not optional: the hint's `id` is in the field's `aria-describedby` **from first render**, and the error `id` is *appended* to it when the error fires (`'x-hint x-error'`) rather than replacing it — so the requirement is announced on focus and survives the failure. Because the hint now carries the requirement, the error states the *failure* tersely ("Add at least 20 characters.") instead of restating the instruction — the two render stacked, and a paraphrase of the hint reads as noise. Shipped on every field in the app with a length floor: the claim body and correction body (20 chars, `requests/request-form-body.html`) and the review headline (5–100) and review body (50, `reviews/review-form.html`).
+**Named rule — URL and read-only field text stays readable in every state (AECI-982).** A field that displays a URL, a stored reference, or any value the reader may need to copy back out keeps WCAG AA contrast in every state it can render: default, hover, focus, read-only, disabled, invalid, browser-autofilled, and long-overflow. Read-only uses the sunken-surface tell with `--text-primary` text (the §8 promise that a downgraded vendor's data is still there and still readable); disabled uses the recipe above; invalid keeps the field's own text tokens and carries the failure in the `--status-error` border, inline label and icon, never by dimming the value. Browser autofill is pinned by the global `:-webkit-autofill` guard in `styles.css`, which repaints the UA's autofill background with `--surface-base` so the declared text token keeps its measured ratio. The shipped case was the shared Logo URL field (`apps/web/src/app/shared/logo-input/logo-input.ts`), whose disabled dim was the AECI-982 production defect. Any field carrying a rule the user can trip — a minimum length, a range, a format, an expected kind of answer — states it in persistent help text under the control, with the constraint sentence itself set in `<strong class="text-(--text-primary)">` so it survives a skim of the surrounding guidance. A requirement that only appears in the error message after the user has already failed is a defect, not a validation strategy: the user writes an answer, gets rejected, and has to reverse-engineer what was wanted. The rule has an a11y half that is not optional: the hint's `id` is in the field's `aria-describedby` **from first render**, and the error `id` is _appended_ to it when the error fires (`'x-hint x-error'`) rather than replacing it — so the requirement is announced on focus and survives the failure. Because the hint now carries the requirement, the error states the _failure_ tersely ("Add at least 20 characters.") instead of restating the instruction — the two render stacked, and a paraphrase of the hint reads as noise. Shipped on every field in the app with a length floor: the claim body and correction body (20 chars, `requests/request-form-body.html`) and the review headline (5–100) and review body (50, `reviews/review-form.html`).
 
 ### Badges
 
@@ -1518,7 +1524,7 @@ What actually renders today:
   period**, and the date clause is joined with a middot. Four readings, all **live** since
   AECI-616, reworded by AECI-1142. Ruling 2026-09-28 (Chris): the maintenance chip uses exactly two labels everywhere, "AEC Integrations maintained" and "Vendor maintained". The four readings are
   `AEC Integrations maintained` · `AEC Integrations maintained · Reviewed <date>` · `Vendor
-  maintained` · `Vendor maintained · Updated <date>`. The company is never in the visible label.
+maintained` · `Vendor maintained · Updated <date>`. The company is never in the visible label.
   Clash 40 (CURRENT) confirms this. The mock-up's "Maintained by AEC Integrations" pill with a Clay pencil pip is dropped, and so is any icon. Ruling R3 decision 12 (AECI-1734, 2026-11-14, Chris "A"): the "Reviewed" date returns on the chip.
   Where the page can prove who wrote (the vendor page, and the product page's vendor), an sr-only
   suffix names it for screen readers: "Vendor maintained: Procore Technologies keeps this up to
@@ -1551,32 +1557,32 @@ What actually renders today:
 - **No account or plan label on public pages** (AECI-1264, removed 2026-10-09, marketing review B1). `aec-vendor-account-badge` ("Active on AEC Integrations", AECI-965, relabeled AECI-1131) is deleted. "Active" implied a vendor without it was inactive, and it marked publicly who pays. Do not build a replacement public marker of plan or payment. The `vendors.verified` mirror still drives the claim CTA's copy on the vendor and product pages, which is copy, not a badge. Inside the portal the plan reads as the **Plan badge** above.
 - **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the maintenance marker. Four states, and the tonal ladder between them is the point:
 
-  | State | Treatment | Label |
-  |---|---|---|
-  | `unverified` | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Listed by AEC Integrations" |
-  | `single_source` | the **same neutral chip**, `text-secondary` dot | "Confirmed by {vendor}" |
-  | `confirmed` | Forest-soft wash + Forest text + Forest border (10.80:1) | "Confirmed by both companies" |
-  | `conflict` | `--status-error` text + border on `surface-base`, `✕` glyph | "Companies disagree" |
+  | State           | Treatment                                                            | Label                         |
+  | --------------- | -------------------------------------------------------------------- | ----------------------------- |
+  | `unverified`    | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Listed by AEC Integrations"  |
+  | `single_source` | the **same neutral chip**, `text-secondary` dot                      | "Confirmed by {vendor}"       |
+  | `confirmed`     | Forest-soft wash + Forest text + Forest border (10.80:1)             | "Confirmed by both companies" |
+  | `conflict`      | `--status-error` text + border on `surface-base`, `✕` glyph          | "Companies disagree"          |
 
   Labels reworded by AECI-1142 to plain buyer words ("company", not "vendor"; no "Unverified",
   no "AECi" abbreviation). The `unverified` accessible name adds "Neither company has confirmed it
   yet", so "Listed" is never heard as an endorsement.
 
-  Three rules hold this together. **`single_source` shares the neutral chip with `unverified` on purpose** — one vendor affirming while the counterparty stays silent must never borrow the affirmative Forest treatment, so the only difference is a slightly stronger dot; the badge names the vendor and its `aria-label` states the other's silence outright. **`confirmed` is the only badge that earns the wash**, and only for two *distinct* vendors. **`conflict` is the only red**, and it reports a difference between vendors, not a defect in either product. Colour is never the sole signal (WCAG 1.4.1): every state carries a distinct visible label and accessible name, and the dot/glyph is `aria-hidden`.
+  Three rules hold this together. **`single_source` shares the neutral chip with `unverified` on purpose** — one vendor affirming while the counterparty stays silent must never borrow the affirmative Forest treatment, so the only difference is a slightly stronger dot; the badge names the vendor and its `aria-label` states the other's silence outright. **`confirmed` is the only badge that earns the wash**, and only for two _distinct_ vendors. **`conflict` is the only red**, and it reports a difference between vendors, not a defect in either product. Colour is never the sole signal (WCAG 1.4.1): every state carries a distinct visible label and accessible name, and the dot/glyph is `aria-hidden`.
 
   **The row roll-up (AECI-1781, ruled 2026-11-14, Chris "A", `STAGE_2_ATTESTATIONS_SPEC.md` §4.3).** A row with several flows shows one state. The weakest flow decides. Any conflict makes the row `conflict`. A row is `confirmed` only when every flow is confirmed by both companies. A flow that every voting company denied is left out. A row at `single_source` names no vendor and reads "Confirmed by one company". The attributed "Confirmed by {vendor}" form is for a single claim. The state is a label only. Nothing sorts or filters by it.
 
   Clash 41 (CURRENT, no note from Chris) confirms the four-state ladder. **Only "Confirmed by both companies" is green.** A one-company confirmation looks neutral. The mock-up drew all three confirmed wordings ("Confirmed by both companies", "Confirmed by Sage" and "Confirmed by Bluebeam") as the same bold Forest text with a link icon, and drew "Listed by AEC Integrations" with an info icon and no chip. That is dropped, and the cards render `<aec-agreement-badge>`. "Confirmed by both companies" is a label only, with no filter and no sort (R1). **No summary count of agreement states ships** (`PLAN.md` §7.7 names "a filter or a summary count" as the placement risk, and confirmation is a Managed-only capability). That rules out an agreement-state count in a group header (`.gs`, mock-up 7, line 1137) and the rail's "Evidence for these N" panel.
 
-- **Version diff markers** (AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9): on the product-pair page's claim rows, what the selected product-version pair *changed*. Deliberately **not badges** — a rule and a label, not a chip:
+- **Version diff markers** (AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9): on the product-pair page's claim rows, what the selected product-version pair _changed_. Deliberately **not badges** — a rule and a label, not a chip:
 
-  | State | Treatment | Label |
-  |---|---|---|
-  | `unchanged` | **nothing** | — |
-  | `added` | `border-s-2` Forest **start rule**, `+` glyph, `.aec-overline` in `text-secondary` | "New in {version}" |
-  | `removed` | `border-s-2` `border-strong` start rule, `−` glyph, name steps to `text-secondary` + `line-through` | "Removed in {version}" |
+  | State       | Treatment                                                                                           | Label                  |
+  | ----------- | --------------------------------------------------------------------------------------------------- | ---------------------- |
+  | `unchanged` | **nothing**                                                                                         | —                      |
+  | `added`     | `border-s-2` Forest **start rule**, `+` glyph, `.aec-overline` in `text-secondary`                  | "New in {version}"     |
+  | `removed`   | `border-s-2` `border-strong` start rule, `−` glyph, name steps to `text-secondary` + `line-through` | "Removed in {version}" |
 
-  Four rules, each of which rules something else out. **Position carries the separation:** the marker sits at the row's *start*, the agreement badge at its *end* — left is what changed in this version, right is who agrees about it. Two questions, two zones, no competition. **`added` gets the rule, not a wash:** `--accent-primary-soft` is the `confirmed` chip's, and a wash inches from a neutral chip reads as "confirmed" by proximity; a single vertical mark is unmistakably structural, and doubles as a scannable gutter down the lane (borders-not-shadows, and the same spirit as the Score Display's range marker). **`removed` is never `--status-error`:** `conflict` is the only red, and a second red on the same row would collapse "vendors disagree" into "no longer supported". Clay is excluded on both counts — `added` is not a warning, and the Clay-Restriction Rule caps that hue at ≤5% of a screen, which a per-row marker blows instantly. And **`unchanged` renders nothing**, which is both the overwhelming majority state and what keeps the default latest × latest view byte-identical to a pair page with no version data at all.
+  Four rules, each of which rules something else out. **Position carries the separation:** the marker sits at the row's _start_, the agreement badge at its _end_ — left is what changed in this version, right is who agrees about it. Two questions, two zones, no competition. **`added` gets the rule, not a wash:** `--accent-primary-soft` is the `confirmed` chip's, and a wash inches from a neutral chip reads as "confirmed" by proximity; a single vertical mark is unmistakably structural, and doubles as a scannable gutter down the lane (borders-not-shadows, and the same spirit as the Score Display's range marker). **`removed` is never `--status-error`:** `conflict` is the only red, and a second red on the same row would collapse "vendors disagree" into "no longer supported". Clay is excluded on both counts — `added` is not a warning, and the Clay-Restriction Rule caps that hue at ≤5% of a screen, which a per-row marker blows instantly. And **`unchanged` renders nothing**, which is both the overwhelming majority state and what keeps the default latest × latest view byte-identical to a pair page with no version data at all.
 
   `text-secondary` only, never `text-tertiary`: these rows sit on `surface-base` inside a `surface-raised` lane, and the tertiary token is forbidden on sunken/muted surfaces. Logical `border-s-*` keeps the mark on the correct edge under RTL. Every state carries a glyph **and** a visible text label (WCAG 1.4.1), and `removed` adds a decoration change on top.
 
@@ -1603,7 +1609,7 @@ Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge
 
 ### Score Display
 
-The signature data component for review scores. Source Serif 4 numerals in Forest, no chart-junk decoration, no sparkline behind the number — the score *is* the visual. Clashes 8 and 19 and ruling R3 rewrite it.
+The signature data component for review scores. Source Serif 4 numerals in Forest, no chart-junk decoration, no sparkline behind the number — the score _is_ the visual. Clashes 8 and 19 and ruling R3 rewrite it.
 
 - **Numeric value:** the score figure, `--t-48` (§3). Source Serif 4 at weight 600, a fixed 48px, line-height 1, tracking -0.01em, Forest (`accent-primary`). `aec-figure` sets it with `size="score"`. Mock-up 6 draws the figure at `var(--t-fig)` (line 392). Ruling A3 replaces that.
 - **Ruling R3 decision 6 (AECI-1734, 2026-11-14, Chris "A"):** "Score figures move back up." Clash 8 had dropped them to 40px, and the score cards looked half empty (`PLAN.md` §10.3). **Settled by ruling A3 (Chris, 2026-11-16): 48px**, the `--t-48` token. Count figures stay at `--t-fig`. No live page uses the score size yet. AECI-1784 (the reviews band) applies it.
@@ -1636,33 +1642,33 @@ Clash 19 was ruled BLEND with no note. The blend is the clash recommendation: al
 
 Measured from the default state of the mock-ups in `docs/design/mockups/redesign-2026-11/mockups/`. The restore toggles (`html.r-*-orig`) are ignored. The code issue confirms each value. Line numbers are in mock-up 6 (`6-product-detail.html`) unless the first column names another. AECI-1758 confirmed the button rows and the focus ring row as built. The on-brand hover is the `--surface-on-brand-hover` token.
 
-| Value | Starting value | Line |
-| -- | -- | -- |
-| Button | `min-height: 44px`, `border-radius: 12px`, 14px at 600, padding 0 24px, gap 8px, 1px transparent border | 88 |
-| Compact button | The same height and radius, padding 0 16px | 98 |
-| Button press | `translateY(1px) scale(.98)`, clash 37 | 89 |
-| Secondary button | White-grey fill, 1px `border-strong`, hover sunken fill and Forest text | 96, 97 |
-| On-brand button | Bone fill, Forest text. Hover fill `#E7E1D2`, built as `--surface-on-brand-hover` | 12, 90, 91 |
-| Focus ring | `outline: 3px solid`, offset 3px, radius 12px. Bone on a Forest ground | 29, 12 |
-| Segmented control | 3px padding, 1px `border-strong`, 12px radius, 36px segments, pressed Forest | 255 to 258 |
-| Field | `height: 44px`, padding 0 16px (48px left with an icon), 12px radius, 1px field edge, 16px text | 251, 254 |
-| Field error | A 1px edge plus a 1px ring, 2px in all. Message 14px at 600 with an icon | 465, 463 |
-| Public chip | Pill, 1px `border-default`, `surface-raised`, 13px at 400, padding 4px 12px 4px 8px, 14px icon | 130, 131 |
-| Link chip hover | `border-strong` edge, Forest text | 225 |
-| Filter chip | Pill, `min-height: 44px`, 14px at 600, 1px `border-strong`. Selected: Forest-soft fill, Forest edge | 260, 265, 270, 273 |
-| Dense chip | Pill, `surface-sunken`, 13px at 600, 1px transparent edge | 303 to 306 |
-| Maintenance and agreement chips | 12px at 500, tracking +0.01em, padding 4px 10px, 4px radius | 503 to 508 |
-| Card | White fill, 24px radius, `--shadow-card`, padding 24px, lift `-4px` on hover | 293 to 295 |
-| Card title | Source Serif 600 at 20px, line-height 1.1 | 299 |
-| Score card stripe | 7px leading stripe, 24px radius | 385 to 387 |
-| Score figure | `--t-48` (48px, ruling A3), Forest. The mock-up draws `--t-fig` | 392 |
-| Large zero | `--t-fig`, Forest, `aria-hidden` numeral, the legal heading as the sentence (no sr-only "0 ", AECI-1767; mock-up 8 draws one) | 8: 1087, 1407 |
-| Group header (mock-up 7) | Flex, 16px gap, 16px padding under, 1px `border-default`. 42px icon tile at 12px radius, `--t-24` name, count pill at 13px and 600 | 7: 1133 to 1136 |
-| Sticky jump rail (mock-up 7) | `position: sticky; top: 96px`, 24px radius panel, 44px or taller rows at 12px radius, current row Forest with white text | 7: 1115 to 1125 |
-| "Show more" button (mock-up 7) | `min-height: 44px`, 12px radius, 14px at 600. Drawn as a Bone fill with no edge | 7: 1140 |
-| Load bar (mock-up 7) | Meter 260px by 6px, "Showing n of N" at 14px, a "Load more" secondary button | 7: 1148 to 1152 |
-| Standalone link | 14px at 600, text secondary, underline in `border-strong` at a 4px offset | 8: 1088 |
-| Bar meter | 6px high, 8px radius, `surface-sunken` track, Forest fill | 7: 1129, 1130, 1149, 1150 |
+| Value                           | Starting value                                                                                                                     | Line                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Button                          | `min-height: 44px`, `border-radius: 12px`, 14px at 600, padding 0 24px, gap 8px, 1px transparent border                            | 88                        |
+| Compact button                  | The same height and radius, padding 0 16px                                                                                         | 98                        |
+| Button press                    | `translateY(1px) scale(.98)`, clash 37                                                                                             | 89                        |
+| Secondary button                | White-grey fill, 1px `border-strong`, hover sunken fill and Forest text                                                            | 96, 97                    |
+| On-brand button                 | Bone fill, Forest text. Hover fill `#E7E1D2`, built as `--surface-on-brand-hover`                                                  | 12, 90, 91                |
+| Focus ring                      | `outline: 3px solid`, offset 3px, radius 12px. Bone on a Forest ground                                                             | 29, 12                    |
+| Segmented control               | 3px padding, 1px `border-strong`, 12px radius, 36px segments, pressed Forest                                                       | 255 to 258                |
+| Field                           | `height: 44px`, padding 0 16px (48px left with an icon), 12px radius, 1px field edge, 16px text                                    | 251, 254                  |
+| Field error                     | A 1px edge plus a 1px ring, 2px in all. Message 14px at 600 with an icon                                                           | 465, 463                  |
+| Public chip                     | Pill, 1px `border-default`, `surface-raised`, 13px at 400, padding 4px 12px 4px 8px, 14px icon                                     | 130, 131                  |
+| Link chip hover                 | `border-strong` edge, Forest text                                                                                                  | 225                       |
+| Filter chip                     | Pill, `min-height: 44px`, 14px at 600, 1px `border-strong`. Selected: Forest-soft fill, Forest edge                                | 260, 265, 270, 273        |
+| Dense chip                      | Pill, `surface-sunken`, 13px at 600, 1px transparent edge                                                                          | 303 to 306                |
+| Maintenance and agreement chips | 12px at 500, tracking +0.01em, padding 4px 10px, 4px radius                                                                        | 503 to 508                |
+| Card                            | White fill, 24px radius, `--shadow-card`, padding 24px, lift `-4px` on hover                                                       | 293 to 295                |
+| Card title                      | Source Serif 600 at 20px, line-height 1.1                                                                                          | 299                       |
+| Score card stripe               | 7px leading stripe, 24px radius                                                                                                    | 385 to 387                |
+| Score figure                    | `--t-48` (48px, ruling A3), Forest. The mock-up draws `--t-fig`                                                                    | 392                       |
+| Large zero                      | `--t-fig`, Forest, `aria-hidden` numeral, the legal heading as the sentence (no sr-only "0 ", AECI-1767; mock-up 8 draws one)      | 8: 1087, 1407             |
+| Group header (mock-up 7)        | Flex, 16px gap, 16px padding under, 1px `border-default`. 42px icon tile at 12px radius, `--t-24` name, count pill at 13px and 600 | 7: 1133 to 1136           |
+| Sticky jump rail (mock-up 7)    | `position: sticky; top: 96px`, 24px radius panel, 44px or taller rows at 12px radius, current row Forest with white text           | 7: 1115 to 1125           |
+| "Show more" button (mock-up 7)  | `min-height: 44px`, 12px radius, 14px at 600. Drawn as a Bone fill with no edge                                                    | 7: 1140                   |
+| Load bar (mock-up 7)            | Meter 260px by 6px, "Showing n of N" at 14px, a "Load more" secondary button                                                       | 7: 1148 to 1152           |
+| Standalone link                 | 14px at 600, text secondary, underline in `border-strong` at a 4px offset                                                          | 8: 1088                   |
+| Bar meter                       | 6px high, 8px radius, `surface-sunken` track, Forest fill                                                                          | 7: 1129, 1130, 1149, 1150 |
 
 ### Open values (components)
 
@@ -1677,14 +1683,29 @@ Each value is set by the code issue named. A value the mock-ups set is not liste
 - ~~**How far above 40px the score figure goes (AECI-1767, with AECI-1748).**~~ Settled by ruling A3: 48px, `--t-48`.
 - **Whether the inline and badge weights of the integration stat follow the large zero (AECI-1767).** Kept as shipped: they read "Not yet connected". Asked of Chris on AECI-1767.
 - **Which filled button stays on the product page (AECI-1778).** AECI-1768 left "Write a review" off the sticky bar, so the bar adds no filled button (clash 21).
-- **The logo stack on the "Show more" button (AECI-1783).** It names hidden products. An unclaimed product shows its initial tile there, as everywhere else. Its items are `ProductLink`s, so the API's withheld logo already gives the tile (AECI-1769).
-- **The integrations section (AECI-1782).** Settled in part. The per-partner card is a new card (`product-integration-card.ts`), not the Disclosure group card. The group card stays as the lane wrapper on pages with a Via lane, and its cards then take the nested surface (clash 14). The filter panel sits under the `<h2>`, a sunken 16px panel headed "Filters", holding the name filter, the Cards/Table toggle, "Clear filters", and direction and partner-category chips. Still open: the data-object chips. The filter model leaves out rows with no data object, but the chips wait for an approved public label and the sentence that says those rows are left out (AECI-1816). The order disclosure and per-filter empty messages also wait for approved copy.
-- **The grouped-list threshold and the one-list page size of 12 (AECI-1783).** Rail and chip counts must agree.
+- ~~**The logo stack on the "Show more" button (AECI-1783).**~~ Settled by AECI-1783. It names the first five hidden partners of the group, in the group's row order, as 32px `sm` marks overlapping by 8px. It is `aria-hidden`, because the button's text names the count and the category. An unclaimed product shows its initial tile there, as everywhere else. Its items are `ProductLink`s, so the API's withheld logo already gives the tile (AECI-1769). The button is the bordered secondary button, not the mock-up's Bone fill.
+- **The integrations section (AECI-1782).** Settled in part. The per-partner card is a new card (`product-integration-card.ts`), not the Disclosure group card. The group card stays as the lane wrapper on pages with a Via lane, and its cards then take the nested surface (clash 14). The filter panel sits under the `<h2>`, a sunken 16px panel headed "Filters", holding the name filter, the Cards/Table toggle, "Clear filters", and direction and partner-category chips. The copy left open here was approved by Chris on 2026-11-16 and built in AECI-1783:
+  - **Order line.** "A to Z by partner name." under the heading, only on a page with no Via lane. A Via page orders its connector groups by row count (R1), so the line would not be true of the whole section, and it stays off there.
+  - **Data chips.** "Types of data", A to Z by name, between Direction and Categories, each with its count. Data chips AND together. While one is pressed, "Integrations with no types of data on record are not shown while this filter is on." shows in a polite live region and describes the chip group (AECI-1816).
+  - **Empty messages.** "No integrations match these filters." when any chip is pressed, with or without a search. "No integrations match that search." for a search alone.
+  - **Card chip rows.** A small `--text-secondary` label, "Categories" or "Types of data", over each chip row. The list takes the same words as its accessible name, and the visible label is `aria-hidden`, so it is read once.
+  - **One or two cards** share the full row equally (`data-columns` on the grid), in a short list, a group or the one-list view. Three or more keep the grid's steps. No card is wider than its siblings.
+- **The zero-integration state (AECI-1786).** Settled. It shows when the facts card shows its zero: the stored count is 0 and the page lists no row under Integrations or "Integrations it powers" (`integrations-on-record.ts`). The section also needs no reach line: a product with pairs reachable via connectors keeps the plain empty state and the reach line. The `<h2>` is the legal heading "We have no integrations for {product} on record", and the caveat sits under it. Both come from the `aec-figure` message ids, so the card and the section print one message. Under the caveat is one group: the `h3` "Know of one?", the line "Tell us where you saw it and we will look at it." and "It does exist", the main button on the existing correction request. The line is also the button's accessible description (`aria-describedby`). Chris added the heading and the line on 2026-11-16 (ruling 51, option A). They are the words `STAGE_1_5_SPEC.md` §11.4 approved for the empty pair page, and the copy the legal review relied on. Beside it is one card: the vendor's Integrations page and API documentation links when they exist, with the facts card's labels, then "An API is not an integration. We list an integration only when we can show that one exists.", then "We have not found an integrations page published by {vendor}." The last line shows only with a vendor and no integrations page link, and not while AECi has that link under review or removed. The state is text only: no illustration (R5), no category chart (R3, decision 19) and no Forest feature card. It has no filter panel, no Cards/Table toggle, no order line and no scope note. The API note shows on every zero state (ruling 52, 2026-11-16). The "It does exist" label is not in the `PLAN.md` §5.2 table, but `STAGE_1_5_SPEC.md` §11.4 fixes the same words for the empty pair page. AECI-1893 asks legal to confirm the group for the product page. Similar products "that have integrations" are not built (ruling 53, 2026-11-16, AECI-1895). A product with only reachable pairs keeps the facts card's zero sentence (ruling 58, 2026-11-16).
+- **The long integration list (AECI-1783).** Settled by Chris on 2026-11-16 (rulings 62 to 68 and 70 to 72). `integration-category-groups.ts` holds every value.
+  - **Threshold.** A single-lane section groups by partner category when it has 13 rows or more AND fewer groups than half its rows (the uncategorised group counts). So 13 rows in 13 one-card groups stays one flat list. The rule reads the row count and the partners' categories only, so the server and the browser agree. A list of 12 or fewer renders as before. A page with a Via lane keeps its lane cards and does not group.
+  - **Placement and counts.** A row sits in every one of its partner categories and counts in each. The rail, the group heading and the category chip print one number, from one function (`rowsInCategory`). A chip counts the rows it would show with the reader's other filters on. Rows with no category form a last group, "No category on record" (confirmed 2026-11-16), shown only while no category chip is pressed. A pressed category chip shows only the chosen groups. So the group counts can add up to more than the "Showing n of m" line, which counts each row once, and no note says so (confirmed 2026-11-16).
+  - **Order.** Groups run A to Z by category name, slug breaking a tie (R1). Rows keep the lane order inside a group.
+  - **Show more.** A closed group shows its first 6 cards (ruled 2026-11-16, was 3). A group of 6 or fewer shows every card and has no button. The rest stay in the server HTML with `hidden="until-found"`, so find-in-page reaches them and opens the group. "Show more" reveals the rest of the group, moves focus to the first card it revealed, and becomes "Show fewer". "Show fewer" keeps focus on the button and scrolls it into view. A filter that leaves 12 rows or fewer opens every group. The grouped list has no `@defer` cut: every group renders and hydrates with the page, because a group still dehydrated when the reader filtered stayed in the DOM as a stale copy.
+  - **Jump rail.** One `<nav>`. From `lg` it is a sticky panel in a 252px left column, held below the section bar by `--aec-sticky-offset`. Below `lg` the same links are a sideways-scrolling row of pills. A rail link jumps to its group and moves focus to the group heading. The current group takes the Forest fill and `aria-current="location"`. The group grid is 1 column, 2 from `md` and 3 from `xl`, because the rail takes the left column from `lg`.
+  - **One list.** A "By category" and "One list" toggle sits beside Cards and Table on a long list in the card view, as mock-up 7 draws it (confirmed 2026-11-16). It takes the Cards/Table toggle's button recipe. One list shows 12 cards in lane order and a load bar: the stacked meter, a polite "Showing n of N" and a "Load more" secondary button. Every card is in the DOM. The server always renders the grouped arrangement.
+  - **Table view** stays one flat table, as before. The three views stay (confirmed 2026-11-16). **Category icons** are not built, and none are wanted (confirmed 2026-11-16).
+  - **Chip counts.** Every direction, data and category chip prints its count, on every list length, so the panel behaves the same on a short list and a long one (confirmed 2026-11-16). A chip whose count is 0 is disabled, unless it is pressed, so it can always be released (ruled 2026-11-16). The disabled chip keeps `--text-secondary` and takes a dashed edge, so the state is not colour alone. It is a native `disabled`, so it leaves the tab order. A released chip that turns disabled while it holds focus hands focus to its chip group, so a keyboard reader is not dropped to the page body.
+  - **"Integrations it powers (N)"** keeps its number (confirmed 2026-11-16). Only the Integrations heading dropped its count.
 - **The rule for public demand counts (no code issue).** Clash 43. Written before any count ships. See "Integration stat".
 
 ### Icons (clashes 33 and 34)
 
-Chris ruled NEW on clash 34 and left no note: the new design wins, and "Lucide icons exclusively" is rewritten (ADR 0056 lists clash 34). The no-emoji rule stays. Clash 33 (NEW, no note) lets an arrow mean "go here", and the Arrow Rule in §4 holds that rule. The clash record's worry about density, that an icon on every element stops icons meaning anything, was set aside by the ruling. The ruling sets no icon quota, so the decorative-or-labelled rule below is the check. The code ships with the shell batch (`batch/redesign-shell`), not on `main` yet.
+Chris ruled NEW on clash 34 and left no note: the new design wins, and "Lucide icons exclusively" is rewritten (ADR 0057 lists clash 34). The no-emoji rule stays. Clash 33 (NEW, no note) lets an arrow mean "go here", and the Arrow Rule in §4 holds that rule. The clash record's worry about density, that an icon on every element stops icons meaning anything, was set aside by the ruling. The ruling sets no icon quota, so the decorative-or-labelled rule below is the check. The code ships with the shell batch (`batch/redesign-shell`), not on `main` yet.
 
 - **One custom set.** Icons are drawn for the site at 1.75 stroke in a 24 by 24 box, in `apps/web/src/app/shared/icon/icon-registry.ts` (AECI-1753, clash 34). A few paths are Lucide-derived, and Lucide's licence ships at `/third-party-notices.txt`.
 - **One component.** Every UI icon on a public page renders through `aec-icon`. A glyph is never an inline `<svg>`.
@@ -1692,12 +1713,12 @@ Chris ruled NEW on clash 34 and left no note: the new design wins, and "Lucide i
 - **Colour is `currentColor` only.** Set the colour with a text colour on the parent. An icon never carries a colour of its own.
 - **Four sizes.** The default is 20px.
 
-| Size | Tailwind step |
-| -- | -- |
-| 14px | 3.5 |
-| 16px | 4 |
-| 20px (default) | 5 |
-| 24px | 6 |
+| Size           | Tailwind step |
+| -------------- | ------------- |
+| 14px           | 3.5           |
+| 16px           | 4             |
+| 20px (default) | 5             |
+| 24px           | 6             |
 
 - **Every icon is decorative or labelled.** The selector is `aec-icon[label], aec-icon[decorative]`, so an icon with neither fails to compile. An icon beside text that says the same thing is decorative and hidden from assistive technology. An icon that is the only carrier of meaning takes a localised label. An icon-only button still needs its own accessible name.
 - **Direction.** Arrows and chevrons that point along the line mirror in right-to-left text.
@@ -1709,11 +1730,11 @@ Chris ruled NEW on clash 34 and left no note: the new design wins, and "Lucide i
 
 Three shared classes in `apps/web/src/styles.css` style every overlay surface. They sit in `@layer components`, so a caller's utility overrides them (`max-sm:rounded-none`). Layout (width, padding, height, position) stays with the caller. A template adds the class and drops its own radius, fill, border and shadow utilities.
 
-| Class | Used for | Radius | Shadow | Fill |
-| -- | -- | -- | -- | -- |
-| `.aec-dialog` | Modal dialogs: the claim dialog, the home feedback dialog, the account delete and review sign-in dialogs | 24px (`--radius-card`) | `--shadow-modal` | `--surface-base` |
-| `.aec-drawer` | The request drawer. A bottom sheet below `sm`, so the drawer adds `max-sm:rounded-b-none` | 24px, top only below `sm` | `--shadow-modal` | `--surface-base` |
-| `.aec-popover` | Menu panes, listboxes, the docs search popup, the product combobox popup, info hints and tooltip bodies with content, claim provenance, the account menu | 12px (`--radius-control`) | `--shadow-menu` | `--surface-base` |
+| Class          | Used for                                                                                                                                                 | Radius                    | Shadow           | Fill             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------------- | ---------------- |
+| `.aec-dialog`  | Modal dialogs: the claim dialog, the home feedback dialog, the account delete and review sign-in dialogs                                                 | 24px (`--radius-card`)    | `--shadow-modal` | `--surface-base` |
+| `.aec-drawer`  | The request drawer. A bottom sheet below `sm`, so the drawer adds `max-sm:rounded-b-none`                                                                | 24px, top only below `sm` | `--shadow-modal` | `--surface-base` |
+| `.aec-popover` | Menu panes, listboxes, the docs search popup, the product combobox popup, info hints and tooltip bodies with content, claim provenance, the account menu | 12px (`--radius-control`) | `--shadow-menu`  | `--surface-base` |
 
 - **Radius was chosen by the orchestrator, not ruled, and is flagged for Chris.** This file names no overlay radius. The two modal surfaces take the card radius, as the Browse panel does. Every popover takes the control radius, 12px. It is on the ruled scale, matches the 12px triggers and avoids near-pill tooltips.
 - **Fill is white for every overlay.** The old popovers sat on `--surface-raised`.
@@ -1724,13 +1745,13 @@ Three shared classes in `apps/web/src/styles.css` style every overlay surface. T
 - **Tooltips (WCAG 1.4.13).** `aec-info-hint` and `aec-relative-time` are hoverable (a 120ms grace lets the pointer cross), dismissible with Escape, and persistent while hovered or focused. Their text is also the trigger's accessible name, so the tooltip is never the only source. The home page "Source" tooltip in `home/home-why.ts` is a CSS-only span that is not hoverable and still adds to the scroll width (AECI-1846). It is not on the shared recipe and is left for that issue.
 - **Z-index has no documented scale.** The values in use are listed below and were left alone. The CDK overlay container sits at 1000 and is above all of them.
 
-| Value | Where |
-| -- | -- |
-| `z-10` | Section nav, the Browse panel, a few absolute chips and chart tooltips |
-| `z-30` | The page dimmer behind the open header menu, the vendor integration detail bar |
-| `z-40` | The header, sticky preview bars, the plan call to action bar |
+| Value  | Where                                                                                                                      |
+| ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `z-10` | Section nav, the Browse panel, a few absolute chips and chart tooltips                                                     |
+| `z-30` | The page dimmer behind the open header menu, the vendor integration detail bar                                             |
+| `z-40` | The header, sticky preview bars, the plan call to action bar                                                               |
 | `z-50` | The consent banner, the request drawer, the skip link on focus, listbox panels, the admin nav dropdown, four admin dialogs |
-| `z-60` | The update banner |
+| `z-60` | The update banner                                                                                                          |
 
 **Not moved yet.** AECI-1770 names the vendor seat invite dialog and the search autocomplete popup, and its line "every overlay uses one shadow token and one radius token" is not met yet. The remainder:
 
@@ -1740,16 +1761,16 @@ Three shared classes in `apps/web/src/styles.css` style every overlay surface. T
 
 ### Motion (clashes 36, 37 and 38)
 
-Chris ruled BLEND on clash 36 and NEW on clash 37, both with no note. He ruled NEW on clash 38 with the note in the smooth-scroll rule below. The record is `records/design-rulings.md`, and ADR 0056 lists clash 38 only. The tokens ship with the shell batch (AECI-1751).
+Chris ruled BLEND on clash 36 and NEW on clash 37, both with no note. He ruled NEW on clash 38 with the note in the smooth-scroll rule below. The record is `records/design-rulings.md`, and ADR 0057 lists clash 38 only. The tokens ship with the shell batch (AECI-1751).
 
 **Motion gives feedback. It never decorates.**
 
-| Token | Tailwind | Value | Use |
-| -- | -- | -- | -- |
-| `--duration-fast` | `duration-fast` | 120ms | Press, and row hover |
-| `--duration-base` | `duration-base` | 180ms | Hover, focus and disclosure |
-| `--duration-slow` | `duration-slow` | 280ms | Menu open, the nav ink bar, the scrim and the drawer |
-| `--ease-standard` | `ease-standard` | `cubic-bezier(.2,.7,.2,1)` | Every eased move |
+| Token             | Tailwind        | Value                      | Use                                                  |
+| ----------------- | --------------- | -------------------------- | ---------------------------------------------------- |
+| `--duration-fast` | `duration-fast` | 120ms                      | Press, and row hover                                 |
+| `--duration-base` | `duration-base` | 180ms                      | Hover, focus and disclosure                          |
+| `--duration-slow` | `duration-slow` | 280ms                      | Menu open, the nav ink bar, the scrim and the drawer |
+| `--ease-standard` | `ease-standard` | `cubic-bezier(.2,.7,.2,1)` | Every eased move                                     |
 
 - **Three durations and one easing** (clash 36). The mock-up's 200, 250, 300, 420, 450 and 600ms values are dropped. The easing is the mock-up's own `--ease` (mock-up 6, line 15). The press takes the fast step (line 88), the card lift the base step (line 293), and the Browse menu (line 632) and the nav ink bar (line 182) the slow step.
 - **No bounce, no elastic easing.**
@@ -1772,7 +1793,7 @@ Chris ruled NEW: the new design wins. The old "no transform, no scale, no shadow
 
 #### Smooth scrolling (clash 38, new)
 
-Chris: "Make sure we know how to adopt the old way if needed." ADR 0056 lists clash 38. The code lands with AECI-1752, which is in review.
+Chris: "Make sure we know how to adopt the old way if needed." ADR 0057 lists clash 38. The code lands with AECI-1752, which is in review.
 
 - **In-page section links only.** Smooth scrolling applies to a link marked `data-smooth-scroll`: on public pages, the product section nav, the product page's reviews link, the docs "On this page" rail and the `/account` section nav. In the vendor portal, the integration page's section nav. The skip link never opts in.
 - **Never a global setting,** and off under reduced motion. A `routerLink` cannot opt in. The skip link never animates.
@@ -1812,7 +1833,7 @@ Chris ruled NEW on clash 35 and left no note. No rule existed. The product page'
 
 ### Data visualization — operator console only (AECI-578)
 
-*(Clash 19, 2026-11-13: public pages get one chart-like thing, the bar meter above. Everything below stays operator console only.)*
+_(Clash 19, 2026-11-13: public pages get one chart-like thing, the bar meter above. Everything below stays operator console only.)_
 
 The admin panel (`/admin/*`, `docs/ADMIN_PANEL_SPEC.md` §8) is the one surface in
 AECi that plots multi-series data. Its primitives live in
@@ -1824,7 +1845,7 @@ validate the palette with a script rather than by eye.
 **The series palette is scoped, and it is not a brand colour.** Eight categorical
 hues are declared under `.aec-charts` in `apps/web/src/styles.css`, deliberately
 **outside `@theme inline`** so they never become Tailwind colour utilities and
-cannot drift onto a public surface. They encode *data-series identity* on an
+cannot drift onto a public surface. They encode _data-series identity_ on an
 operator screen. They are also the reason `styles.css` is one of the two files
 allow-listed from the AECI-597 colour-literal lint rule — it is the token
 definition site, so it is the one place allowed to spell a hex value. Declare a
@@ -1832,16 +1853,16 @@ new series hue **there**; writing one into a component will fail `pnpm lint`. **
 Forest-Anchor Rule above; nothing here is a second primary, and none of these
 hues may appear outside `/admin`.
 
-| Slot | Hue | Light | Reserved for |
-|---|---|---|---|
-| 1 | blue | `#2a78d6` | human page views |
-| 2 | orange | `#eb6834` | bot page views |
-| 3 | aqua | `#1baf7a` | — |
-| 4 | yellow | `#eda100` | — |
-| 5 | magenta | `#e87ba4` | — |
-| 6 | green | `#008300` | — |
-| 7 | violet | `#4a3aa7` | — |
-| 8 | red | `#e34948` | — |
+| Slot | Hue     | Light     | Reserved for     |
+| ---- | ------- | --------- | ---------------- |
+| 1    | blue    | `#2a78d6` | human page views |
+| 2    | orange  | `#eb6834` | bot page views   |
+| 3    | aqua    | `#1baf7a` | —                |
+| 4    | yellow  | `#eda100` | —                |
+| 5    | magenta | `#e87ba4` | —                |
+| 6    | green   | `#008300` | —                |
+| 7    | violet  | `#4a3aa7` | —                |
+| 8    | red     | `#e34948` | —                |
 
 Adopted verbatim from the `dataviz` skill's validated reference palette rather
 than derived from the AECi hues, because the brand system has exactly one
@@ -1858,7 +1879,7 @@ Rules that ride with it:
   count must not repaint the survivors. Human is always slot 1, bot always slot 2.
 - **The relief rule.** Slots 3, 4 and 5 measure below 3:1 against the light
   surface (2.74 / 2.11 / 2.62). Any chart reaching slot 3 must ship **visible**
-  value labels. The visually-hidden data table does *not* discharge this — the
+  value labels. The visually-hidden data table does _not_ discharge this — the
   reader who needs the relief can see the chart.
 - **Eight is the ceiling.** A ninth generated hue is indistinguishable under CVD.
   Past eight, fold the tail into `--chart-other` or facet.
@@ -1880,7 +1901,7 @@ Rules that ride with it:
 
 ### Navigation
 
-The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They are clashes 26 to 32 and 42, ruling R4 (AECI-1735), the ordering exception (AECI-1814 and AECI-1774) and ruling R2 (AECI-1733). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.7 to §4.10. The record is `docs/design/mockups/redesign-2026-11/records/design-rulings.md` and `design-clashes.md`. ADR 0056 does not list clashes 26 to 32 or 42, so it records none of them. Colours are the tokens AECI-1747 set. They are on its branch and not yet on `main`. §2 "Forest grounds" holds every contrast floor this part cites.
+The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They are clashes 26 to 32 and 42, ruling R4 (AECI-1735), the ordering exception (AECI-1814 and AECI-1774) and ruling R2 (AECI-1733). A clash number beside a rule means that ruling set it. Where the record has Chris's own words, they are quoted. Where it says only NEW, BLEND or CURRENT, the rule follows the clash recommendation and `PLAN.md` §4.7 to §4.10. The record is `docs/design/mockups/redesign-2026-11/records/design-rulings.md` and `design-clashes.md`. ADR 0057 does not list clashes 26 to 32 or 42, so it records none of them. Colours are the tokens AECI-1747 set. They are on its branch and not yet on `main`. §2 "Forest grounds" holds every contrast floor this part cites.
 
 **Scope (R2, 2026-11-14).** Chris: "Just do public pages for now". This part governs the public shell: the header, the Browse menu, the mobile menu, the section nav, the breadcrumb, the footer and the bands under the header. The vendor portal and the admin console page bodies take the new tokens and nothing more. They keep their own tab rows, dropdowns and breadcrumbs, which are described under "Portal and admin rows" below. They wear the shared header and footer (the ruling below).
 
@@ -1890,18 +1911,18 @@ The redesign rulings of 2026-11-13 and 2026-11-14 rewrite this part of §5. They
 
 #### The header on Forest (clashes 1, 26, 29 and 42)
 
-| Rule | Value | Ruling |
-| -- | -- | -- |
-| Ground | Forest (`--accent-primary`). Ink is Bone (`--text-on-brand`). No rule under the header. The shipped 4px warm rule goes | Clash 1, new. AECI-1771 |
-| Links | **Browse, How we rank, For vendors.** Chris's note on clash 26: "Products is in browse (All Products)". Home and Products leave the row. The four facets fold into Browse | Clash 26, new |
-| Destinations | Browse is `/products`. How we rank is `/docs/trust/how-ranking-works`. For vendors is `/vendor-program` | `PLAN.md` §4.7, AECI-1771 |
-| Wordmark | The shipped wordmark, in its light-on-dark variant on Forest. Never a new mark. The variant is `aec-brand-logo` with a tone input and a transparent reversed SVG, built by AECI-1754 | Clash 42, current |
-| Order | Wordmark, search pill, links, Sign in. Below the handover: the wordmark and the menu toggle | Mock-up 6, header HTML |
-| Not sticky | The header scrolls away. The sticky section bar below is the only fixed bar | CURRENT |
-| Search | A pill with a shortcut hint (Ctrl /), see "Header search" | Clash 29, new |
-| Sign in | A rounded rectangle at 12px, never a pill. It is the Bone-on-Forest main button (`button-on-brand`, §5 Buttons, clash 3). Hover fills with `--surface-on-brand-hover` and the text stays Forest (9.46:1). `button-on-brand-hover` in the frontmatter records it | Clashes 12 and 29 |
-| Signed in | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state. AECI-1771 set it: 44px, a `--surface-on-brand-wash` fill (8.31:1 for the Bone glyph), a 1px edge from the unlayered `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong` (4.01:1; the same edge sits on the menu toggle and the search icon button), `--surface-on-brand-wash-hover` on hover and the Bone ring by plain utility. A rendered check in `e2e/nav-menu.spec.ts` pins the edge and ring colours. The account menu loads as a lazy chunk once the session probe says signed in (AECI-1774, bundle budget). A 44px placeholder holds its place, and no server HTML changes, because the menu never renders on the server. The orchestrator kept the lazy load on 2026-11-14 The pending-review badge keeps its error fill with white text and takes a 2px Bone ring (`--text-on-brand`, 11.03:1 against Forest) as its edge | AECI-1771 |
-| Focus ring | Bone (`--focus-ring-on-brand`), 3px at 3px offset, on every control on Forest. A Forest ring is invisible there | §2, AECI-1747 |
+| Rule         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Ruling                    |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Ground       | Forest (`--accent-primary`). Ink is Bone (`--text-on-brand`). No rule under the header. The shipped 4px warm rule goes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Clash 1, new. AECI-1771   |
+| Links        | **Browse, How we rank, For vendors.** Chris's note on clash 26: "Products is in browse (All Products)". Home and Products leave the row. The four facets fold into Browse                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Clash 26, new             |
+| Destinations | Browse is `/products`. How we rank is `/docs/trust/how-ranking-works`. For vendors is `/vendor-program`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `PLAN.md` §4.7, AECI-1771 |
+| Wordmark     | The shipped wordmark, in its light-on-dark variant on Forest. Never a new mark. The variant is `aec-brand-logo` with a tone input and a transparent reversed SVG, built by AECI-1754                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Clash 42, current         |
+| Order        | Wordmark, search pill, links, Sign in. Below the handover: the wordmark and the menu toggle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Mock-up 6, header HTML    |
+| Not sticky   | The header scrolls away. The sticky section bar below is the only fixed bar                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | CURRENT                   |
+| Search       | A pill with a shortcut hint (Ctrl /), see "Header search"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Clash 29, new             |
+| Sign in      | A rounded rectangle at 12px, never a pill. It is the Bone-on-Forest main button (`button-on-brand`, §5 Buttons, clash 3). Hover fills with `--surface-on-brand-hover` and the text stays Forest (9.46:1). `button-on-brand-hover` in the frontmatter records it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Clashes 12 and 29         |
+| Signed in    | The account menu replaces Sign in. Its trigger stays a circle, because a person is a circle (see the identity block below). The mock-ups draw no signed-in state. AECI-1771 set it: 44px, a `--surface-on-brand-wash` fill (8.31:1 for the Bone glyph), a 1px edge from the unlayered `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong` (4.01:1; the same edge sits on the menu toggle and the search icon button), `--surface-on-brand-wash-hover` on hover and the Bone ring by plain utility. A rendered check in `e2e/nav-menu.spec.ts` pins the edge and ring colours. The account menu loads as a lazy chunk once the session probe says signed in (AECI-1774, bundle budget). A 44px placeholder holds its place, and no server HTML changes, because the menu never renders on the server. The orchestrator kept the lazy load on 2026-11-14 The pending-review badge keeps its error fill with white text and takes a 2px Bone ring (`--text-on-brand`, 11.03:1 against Forest) as its edge | AECI-1771                 |
+| Focus ring   | Bone (`--focus-ring-on-brand`), 3px at 3px offset, on every control on Forest. A Forest ring is invisible there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | §2, AECI-1747             |
 
 - **Link type.** Nav links are `--t-16` at weight 400, the ramp's "Body, nav links" role (§3). The label is Bone with no opacity change. The mock-up dims it to 92% opacity (line 42), and the `no-color-opacity-modifier` source-constraint rule (AECI-1747, on the batch branch) bars a `/NN` alpha on a colour utility. Clash 6 says every colour is a named token.
 - **Link hover.** A `--surface-on-brand-wash` fill (Bone 10%) behind the link, text still Bone. A link hovered on `--surface-on-brand-wash-hover` (16%) over Forest has Bone text only (6.98:1). `--text-on-footer-secondary` is 4.46:1 on that wash and fails. It also fails on Forest hover (4.39:1), so it is never used in the header.
@@ -1951,13 +1972,13 @@ The card is dropped, not only switched off. The mock-up's card (lines 666 to 688
 
 **The columns and their order.** Each order has a source. Nothing here is invented.
 
-| Column | Content | Order | Source |
-| -- | -- | -- | -- |
-| Explore | "All products" with the total count, then the four key categories | AECi's pick, not a count order: `ai`, `project-management`, `bim-authoring`, `accounting-erp` | Ruling R4. Held as one config list of slugs, not a table (AECI-1774). The slugs are from the AECI-1735 comment |
-| Categories | Seven categories, with any key category removed first | Most products first (`product_count`, descending), then name with `compareText`, then id | R4 says seven and `PLAN.md` §4.8 says "less any shown as a key category". Today's nav ranks by count with `topByCount` (`core/taxonomy/taxonomy-rank.ts`, top 10) and has no tie-break. The name tie-break is AECI-1774's. A Free seat can tag categories (`product.categories.edit`, `PLAN.md` §7.2), so no paid plan moves this order |
-| Phases | All 5 | Project order: `taxonomy_phases.display_order` ascending, then name with `compareText` | A curated order, `byDisplayOrder` in `taxonomy-rank.ts`. Not a count order |
-| Audiences | Seven | Most products first, then name, then id | The accepted exception, below |
-| Trades | Seven published trades | Most products first, then name, then id | The accepted exception, below. The `TRADE_PUBLISH_MIN_PRODUCTS` floor still applies, as in the nav today |
+| Column     | Content                                                           | Order                                                                                         | Source                                                                                                                                                                                                                                                                                                                                  |
+| ---------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explore    | "All products" with the total count, then the four key categories | AECi's pick, not a count order: `ai`, `project-management`, `bim-authoring`, `accounting-erp` | Ruling R4. Held as one config list of slugs, not a table (AECI-1774). The slugs are from the AECI-1735 comment                                                                                                                                                                                                                          |
+| Categories | Seven categories, with any key category removed first             | Most products first (`product_count`, descending), then name with `compareText`, then id      | R4 says seven and `PLAN.md` §4.8 says "less any shown as a key category". Today's nav ranks by count with `topByCount` (`core/taxonomy/taxonomy-rank.ts`, top 10) and has no tie-break. The name tie-break is AECI-1774's. A Free seat can tag categories (`product.categories.edit`, `PLAN.md` §7.2), so no paid plan moves this order |
+| Phases     | All 5                                                             | Project order: `taxonomy_phases.display_order` ascending, then name with `compareText`        | A curated order, `byDisplayOrder` in `taxonomy-rank.ts`. Not a count order                                                                                                                                                                                                                                                              |
+| Audiences  | Seven                                                             | Most products first, then name, then id                                                       | The accepted exception, below                                                                                                                                                                                                                                                                                                           |
+| Trades     | Seven published trades                                            | Most products first, then name, then id                                                       | The accepted exception, below. The `TRADE_PUBLISH_MIN_PRODUCTS` floor still applies, as in the nav today                                                                                                                                                                                                                                |
 
 Phases have five terms, so seven does not apply to them. Each facet column ends with its own "See all" link to the facet index.
 
@@ -2002,22 +2023,22 @@ Added by this part. All of it is CURRENT unless it says otherwise.
 
 **Settled values** (AECI-1774, from mock-up 6, default state, line numbers in `6-product-detail.html`. The mock-up's 760px maps to `md` and its 1040px to `lg`):
 
-| Value | Starting value | Line |
-| -- | -- | -- |
-| Panel | Full width under the header edge, `--surface-base` fill, radius `0 0 24px 24px`, `--shadow-menu` | 632 |
-| Panel padding | `48px` top, `32px` bottom. The sides use the header's page wrap (`BAND_WRAP_CLASS`: 1328px, 48px gutters from `lg`, ruling A2), so the Explore column lines up with the wordmark. The mobile panel uses the same wrap (24px below `md`, 32px at `md`) and drops to 16px below 320px | 634 |
-| Grid | Five equal columns (`grid-cols-5`), column gap `24px` from `lg` and `32px` from `xl` (1280px). The mock-up's 1200px step maps to `xl`. Columns do not share rows, so a wrapped term pushes only its own column down | 644, 697 |
-| Overline | `12px`, `16px` below | 640 |
-| Key item | Serif `24px`, line-height `1.1`, weight 400, tracking `-0.01em`, padding `2px 0 12px` | 650, 651 |
-| Term row | `16px`, weight 400, line-height `1.25`, padding `8px 0` | 655, 656 |
-| Count | `13px`, tabular figures | 657 |
-| Menu footer line | `13px`, `24px` above, `16px` padding over a hairline | 664 |
+| Value            | Starting value                                                                                                                                                                                                                                                                      | Line     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Panel            | Full width under the header edge, `--surface-base` fill, radius `0 0 24px 24px`, `--shadow-menu`                                                                                                                                                                                    | 632      |
+| Panel padding    | `48px` top, `32px` bottom. The sides use the header's page wrap (`BAND_WRAP_CLASS`: 1328px, 48px gutters from `lg`, ruling A2), so the Explore column lines up with the wordmark. The mobile panel uses the same wrap (24px below `md`, 32px at `md`) and drops to 16px below 320px | 634      |
+| Grid             | Five equal columns (`grid-cols-5`), column gap `24px` from `lg` and `32px` from `xl` (1280px). The mock-up's 1200px step maps to `xl`. Columns do not share rows, so a wrapped term pushes only its own column down                                                                 | 644, 697 |
+| Overline         | `12px`, `16px` below                                                                                                                                                                                                                                                                | 640      |
+| Key item         | Serif `24px`, line-height `1.1`, weight 400, tracking `-0.01em`, padding `2px 0 12px`                                                                                                                                                                                               | 650, 651 |
+| Term row         | `16px`, weight 400, line-height `1.25`, padding `8px 0`                                                                                                                                                                                                                             | 655, 656 |
+| Count            | `13px`, tabular figures                                                                                                                                                                                                                                                             | 657      |
+| Menu footer line | `13px`, `24px` above, `16px` padding over a hairline                                                                                                                                                                                                                                | 664      |
 
 The mock-up's columns need about 1,130px of its 1,216px row (comment above line 667). AECI-1774 met the floor with five equal columns that let terms wrap. Measured on 2026-11-14 at 1024px: the panel is 1024px wide, its scroll width equals its client width (no sideways scroll) and the document does not overflow. Long names such as "Construction Management" wrap to two lines. The same holds at 1280 and 1440px.
 
 #### The mobile menu (clash 30, new)
 
-Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2, ADR 0056 floor 2): the toggle has an accessible name, and the open menu traps focus. AECI-1775 built it. The code is `layout/nav-menu.ts` (toggle, open state, trap, panel box), `layout/nav-menu-panel.ts` (the lazy body) and `layout/nav-menu-account.ts` (the lazy account block).
+Chris ruled NEW on clash 30. Two floors stay whatever the ruling (`design-rulings.md`, `PLAN.md` §9.2, ADR 0057 floor 2): the toggle has an accessible name, and the open menu traps focus. AECI-1775 built it. The code is `layout/nav-menu.ts` (toggle, open state, trap, panel box), `layout/nav-menu-panel.ts` (the lazy body) and `layout/nav-menu-account.ts` (the lazy account block).
 
 - **The toggle.** 44 by 44px, `rounded-control` (12px), a `--surface-on-brand-wash` fill, a Bone glyph (11.03:1), and the 1px `.aec-on-brand-edge` (4.01:1) AECI-1771 gave it. It sits at the end edge of the header (mock-up line 46). The glyph is `menu`, and `x` while open (lines 694 and 695). The wash is decoration. The glyph and the edge identify the control.
 - **A spoken name.** The toggle's name is "Menu", as the mock-up has it (line 1196). `aria-expanded` carries the state, so the name stays true while the glyph is a close mark. The toggle also carries `aria-controls`. It has no `aria-haspopup`.
@@ -2055,7 +2076,7 @@ The section nav is the in-page jump bar on the product page (`shared/section-nav
 - **The current item** is weight 600 in `--text-primary` with a 3px bar on the bar's bottom edge. The bar colour is **Clay**. Ruling R3 (AECI-1734, item 14, 2026-11-14): Chris, by Slack, "A", accepting all six recommendations. Item 14 reads "The section nav active bar is Clay."
 - **The bar is never the only cue.** Clay is 2.33:1 on white and 2.09:1 on Bone. The weight and the text colour also mark the current item, and the link carries `aria-current="location"` (clash 28 and R3). Each label reserves its 600 width, so the current item never shifts its neighbours. The first link is current until a click or the scroll-spy names another, and SSR renders that first link for every visitor. When the bar returns to rest, the first link is current again. Under forced colours the bar draws in `CanvasText`.
 - **The bar grows in place; it does not slide.** The current item's bar scales in over the slow duration (§5 "Motion") and is instant under reduced motion. The mock-up's one bar that slides between items (line 182) needs a layout read in script on every change. AECI-1768 built the in-place form, with no script. Chosen by the orchestrator (2026-11-14) and flagged for Chris. A slide is a follow-up if he wants it.
-- **Counts are quiet tabular numbers,** not badges. `--t-13` at 400 in `--text-secondary`, with a 6px gap after the label (§3 puts counts at `--t-13`). The mock-up sets them at 14px and in tertiary ink (line 181), which fails on Bone. The product page passes counts for Extensions and Reviews. Integrations carries none until AECI-1782 settles that section's own count, so the page never shows two figures that disagree. A count is a fact about the section, never an order or a paid-plan input.
+- **Counts are quiet tabular numbers,** not badges. `--t-13` at 400 in `--text-secondary`, with a 6px gap after the label (§3 puts counts at `--t-13`). The mock-up sets them at 14px and in tertiary ink (line 181), which fails on Bone. The product page passes counts for Extensions and Reviews. Integrations carries none, and since 2026-11-16 the section heading carries none either, so the page never shows two figures that disagree. A count is a fact about the section, never an order or a paid-plan input.
 - **The surface is solid. No blur, no shadow.** Chris, clash 13: "Drop the frosted-glass blur on the sticky bar." The bar is `--surface-base` with a 1px `--border-default` hairline under it, at rest and stuck (mock-up lines 167 and 732). The hairline is a separator and not a control edge. AECI-1747's `--surface-sticky` (white at 94%) is therefore unused. The mock-up's stuck-bar shadow (line 145) is dropped under the one-shadow rule (§4). On the product band shell the bar is clear at rest and solid only once stuck (`rest="clear"`, AECI-1778, see §4). The default, `rest="solid"`, keeps the shipped look.
 - **Size and place.** `position: sticky; top: 0`, `z-index: 20`. 72px high, and 64px below `md`, plus the 1px hairline. The header is not sticky, so the bar is the only bar at the top. The stuck wordmark is 24px high. The product name is `--t-16` in `--text-secondary`, capped at 200px with an ellipsis, and it gives way before the links do. Below `md` the stuck bar shows our monogram at 32px and no name (mock-up lines 576 and 577). The monogram is its own home link inside the section nav, so the header's `aec-brand-logo` (initial bundle) is unchanged. CSS displays one of the two links at any width. At rest the first label lines up with the page column.
 - **It never hides a focused control (WCAG 2.4.11).** Two rules in `apps/web/src/styles.css`, both pure CSS, so the server HTML carries them. Every focusable element after the bar in its container takes `scroll-margin-top` of the bar's height plus 8px, so a link or button reached by Tab scrolls clear. A section's own `scroll-mt-20` (80px) still covers the anchor jump. `--aec-sticky-offset` holds the bar's height for anything else that sticks below it: the product page's metadata aside sticks 32px under the bar, and only on viewports at least 800px tall. The tallest seeded aside is 669px, and below that height a sticky aside lost its foot. Below 800px it scrolls with the page. The unlayered focus rule beats any `scroll-mt-*` utility on a focusable element after the bar. It is not root `scroll-padding-top`. Root padding adds to the section margin on a native jump and in `InitialFragmentScroller`, but not in `ScrollMarginViewportScroller`, so the three would land on different pixels. The router scroll stack is unchanged. An e2e test fails if the margin is removed.
@@ -2109,14 +2130,15 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 - **A new primary destination is a re-measure at 1024px,** not an insert. Three classes move together if the handover moves: the row's `lg:flex`, `aec-nav-menu`'s `lg:hidden` and the search pill's `lg:block`. A mismatch renders two Primary landmarks, or none, or leaves a band with no search.
 - **Re-measured for ruling A2, 2026-11-16,** signed out (the wider case), on Forest, after the header moved to the page wrap (24, 32 and 48px gutters, 1328px wide). AECI-1772 measured it first on the 7xl canvas with 32px gutters. The row is the wordmark (209px), the pill, the three links (300px: Browse 73, How we rank 113, For vendors 106, 4px gaps) and Sign in (77px). The pill takes what is left, between 240px and 460px. The handover stays at `lg`. The content box is the window minus both gutters. Chromium in the test run draws a 15px classic scrollbar, so its measured box is 15px narrower. The table gives both.
 
-  | Width | Content box | Fixed parts | Pill | Result |
-  | -- | -- | -- | -- | -- |
-  | 768px | 704px (689px measured) | wordmark 209, Sign in 77, menu toggle 44, two 32px gaps: 394px | none | Unchanged: the gutter is 32px at `md` before and after. Fits with 310px spare in the menu-toggle layout, which carries search. AECI-1774 measured the inline row at `md` at 650px with no search. An icon button makes it 706px, 2px over, so the menu toggle holds through `md` |
-  | 1024px | 928px (913px measured) | wordmark 209, links 300, Sign in 77, three 16px gaps: 634px | 294px (279px measured) | Fits on one row. The pill is `flex-1`, so it takes what is left. It is 39px above its 240px floor with the scrollbar, 54px without. Every part shares one top edge |
-  | 1280px | 1184px (1169px measured) | wordmark 209, links 300, Sign in 77, three 32px gaps: 682px | 460px (the cap) | Fits with 42px spare (27px measured), which sits between the pill and the links |
-  | 1440px (the row caps at 1328px) | 1232px | as 1280px | 460px | Fits with 90px spare |
+  | Width                           | Content box              | Fixed parts                                                    | Pill                   | Result                                                                                                                                                                                                                                                                           |
+  | ------------------------------- | ------------------------ | -------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 768px                           | 704px (689px measured)   | wordmark 209, Sign in 77, menu toggle 44, two 32px gaps: 394px | none                   | Unchanged: the gutter is 32px at `md` before and after. Fits with 310px spare in the menu-toggle layout, which carries search. AECI-1774 measured the inline row at `md` at 650px with no search. An icon button makes it 706px, 2px over, so the menu toggle holds through `md` |
+  | 1024px                          | 928px (913px measured)   | wordmark 209, links 300, Sign in 77, three 16px gaps: 634px    | 294px (279px measured) | Fits on one row. The pill is `flex-1`, so it takes what is left. It is 39px above its 240px floor with the scrollbar, 54px without. Every part shares one top edge                                                                                                               |
+  | 1280px                          | 1184px (1169px measured) | wordmark 209, links 300, Sign in 77, three 32px gaps: 682px    | 460px (the cap)        | Fits with 42px spare (27px measured), which sits between the pill and the links                                                                                                                                                                                                  |
+  | 1440px (the row caps at 1328px) | 1232px                   | as 1280px                                                      | 460px                  | Fits with 90px spare                                                                                                                                                                                                                                                             |
 
   Signed in, the account trigger (44px) replaces Sign in (77px), so the pill is 33px wider at 1024 (327px) and the spare at 1280 is 75px. That is an estimate from the signed-out measurement, because a session cannot be minted in the dev stack. The pill is the flexible part, so the row cannot overflow at either state. The header was measured at 768, 1024, 1280 and 1440 on 2026-11-16: one row, with no horizontal overflow of the row or the document. At 390 the header is 64px with no pill, and 76px from `md`. AECI-1771's six-item row needed 505px for the links alone.
+
 - **The link row "Browse, How we rank, For vendors" shipped with AECI-1774.** Home and Products left the row: the wordmark goes home and "All products" is in the Browse menu. The four facet flyouts (`nav-flyout-trigger.ts`) were deleted. Their indexes are the Browse menu's "See all" links and the footer's Directory column.
 - **The focus ring is a plain utility.** Since AECI-1845 the global `:focus-visible` colour sits in `@layer base`, so `focus-visible:outline-(--focus-ring-on-brand)` works with no `!` and no component CSS. The class sets are in `layout/header-link-classes.ts`. The header search field takes that set through `SearchAutocomplete`'s `focusRingClass` input, so it carries one ring set only.
 - **Reflow.** Nothing clips at 320px or at 200% zoom, and a text label never wraps inside the header row.
@@ -2135,23 +2157,23 @@ The inline row appears from `lg`. Below `lg` the toggle carries navigation (`aec
 
 #### Open values (navigation)
 
-| Open value | Why it is open | Owner |
-| -- | -- | -- |
-| The reversed wordmark file and the `tone` input | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5) | AECI-1754 |
-| ~~The shared scrim token for the Browse dimmer and the CDK backdrop~~ | Settled by AECI-1770: two tokens. `--scrim` (40%, menu dimmer) and `--scrim-modal` (50%, modal backdrop). See "Overlays" | AECI-1770 |
-| The footer's link size and its width re-measure at 375, 768, 1024 and 1280px | See "The footer" | AECI-1776 |
-| Header copy "Search directory" against the mock-up's label | See "Header search" | Chris |
-| Which order AECI-1836 settles on for audiences and trades | The exception stands until it rules | AECI-1836 |
-| Whether the admin console's row takes the 260ms close grace | The Same-Behavior Rule. `NavDisclosure` defaults it to 0, so the admin row is unchanged | Chris |
-| A separate disclosure button beside the "Browse" link for screen reader users | See "The Browse menu" | AECI-1818 |
-| The `/search` entity tabs and the docs guide toggle: Forest underline or Clay bar | The Same-Behavior Rule. For Chris to decide | Chris |
+| Open value                                                                        | Why it is open                                                                                                           | Owner     |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
+| The reversed wordmark file and the `tone` input                                   | The shipped dark file bakes in a Forest box (`PLAN.md` §10.5)                                                            | AECI-1754 |
+| ~~The shared scrim token for the Browse dimmer and the CDK backdrop~~             | Settled by AECI-1770: two tokens. `--scrim` (40%, menu dimmer) and `--scrim-modal` (50%, modal backdrop). See "Overlays" | AECI-1770 |
+| The footer's link size and its width re-measure at 375, 768, 1024 and 1280px      | See "The footer"                                                                                                         | AECI-1776 |
+| Header copy "Search directory" against the mock-up's label                        | See "Header search"                                                                                                      | Chris     |
+| Which order AECI-1836 settles on for audiences and trades                         | The exception stands until it rules                                                                                      | AECI-1836 |
+| Whether the admin console's row takes the 260ms close grace                       | The Same-Behavior Rule. `NavDisclosure` defaults it to 0, so the admin row is unchanged                                  | Chris     |
+| A separate disclosure button beside the "Browse" link for screen reader users     | See "The Browse menu"                                                                                                    | AECI-1818 |
+| The `/search` entity tabs and the docs guide toggle: Forest underline or Clay bar | The Same-Behavior Rule. For Chris to decide                                                                              | Chris     |
 
 ### The account menu's identity block (AECI-850)
 
 The account menu opens with **who you are**, then the things you can do. Source:
 `apps/web/src/app/layout/account-identity.ts`, one component rendered by **both**
 the desktop dropdown (`user-menu.ts`) and the mobile menu (`nav-menu-account.ts`) — an
-identity block composes three sources and gets the wrong answer *quietly* when
+identity block composes three sources and gets the wrong answer _quietly_ when
 duplicated, which a link list does not.
 
 **Anchor: Laravel Cloud**, with the role pill from **Hootsuite**. Both are
@@ -2163,12 +2185,12 @@ answer to "which account is this?". Laravel Cloud's top block — avatar, name,
 email, hairline, destinations — states it first. Nothing else on the surface moves
 to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
 
-| Row | Content | Rule |
-|---|---|---|
-| Avatar | 32px **circle** (`LogoOrInitial` `size="sm" shape="circle"`) | A person is a circle; every company mark on the same page is a rectangle. That is the only thing distinguishing them at 32px |
-| Primary | `profiles.display_name` → provider `full_name` → the email → "Signed in" | Never empty: an empty line collapses the reserved box and the menu jumps under the cursor |
-| Secondary | The email, at `text-secondary` | **Dropped entirely** when the email is already the primary line, so the block never prints one string twice |
-| Pill | Site admin / Vendor admin / Reviewer | A dense `aec-chip` (AECI-1763): 13px at weight 600. Site admin and Vendor admin take the Forest-soft fill with Forest text and a Forest edge. Reviewer takes the sunken fill with secondary text and a default edge. Rendered for **every** role including the `reviewer` default. On a review platform "Reviewer" is a standing, not an empty state, and a staff-only pill would make the block's height depend on who is looking |
+| Row       | Content                                                                  | Rule                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Avatar    | 32px **circle** (`LogoOrInitial` `size="sm" shape="circle"`)             | A person is a circle; every company mark on the same page is a rectangle. That is the only thing distinguishing them at 32px                                                                                                                                                                                                                                                                                                       |
+| Primary   | `profiles.display_name` → provider `full_name` → the email → "Signed in" | Never empty: an empty line collapses the reserved box and the menu jumps under the cursor                                                                                                                                                                                                                                                                                                                                          |
+| Secondary | The email, at `text-secondary`                                           | **Dropped entirely** when the email is already the primary line, so the block never prints one string twice                                                                                                                                                                                                                                                                                                                        |
+| Pill      | Site admin / Vendor admin / Reviewer                                     | A dense `aec-chip` (AECI-1763): 13px at weight 600. Site admin and Vendor admin take the Forest-soft fill with Forest text and a Forest edge. Reviewer takes the sunken fill with secondary text and a default edge. Rendered for **every** role including the `reviewer` default. On a review platform "Reviewer" is a standing, not an empty state, and a staff-only pill would make the block's height depend on who is looking |
 
 **Rules.**
 
@@ -2187,7 +2209,7 @@ to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
   visitor is on, on every page load. Trust-first positioning does not permit that
   for a decorative 32px image. `img-src 'self' data: https:` already allows the
   load, so no CSP change was needed.
-- **The trigger keeps its neutral glyph until a photo exists.** It does *not* swap
+- **The trigger keeps its neutral glyph until a photo exists.** It does _not_ swap
   in an initial letter: the role is cached in `sessionStorage` but the email is
   not, so a letter would flicker in on every single page load. The photo lands
   once, with the async session snapshot, and only for Google accounts.
@@ -2219,14 +2241,14 @@ It was never specified until the Overflow Rule made it load-bearing. It is the h
 
 **Colour on the footer ground** (`--surface-footer`, `#15291F`):
 
-| Part | Colour | Contrast |
-| -- | -- | -- |
-| Ground | `--surface-footer` | |
-| Links and the copyright | Bone, `--text-on-brand` | 13.71:1 |
-| Column labels (overlines) and the tagline | `--text-on-footer-secondary` | 8.76:1 |
-| Hairline above the bottom strip | `--border-on-brand-subtle` (Bone 14%), decorative, 1.51:1 | |
-| Focus ring | Bone, `--focus-ring-on-brand` | 13.71:1 |
-| Wordmark | The light-on-dark variant (AECI-1754) | |
+| Part                                      | Colour                                                    | Contrast |
+| ----------------------------------------- | --------------------------------------------------------- | -------- |
+| Ground                                    | `--surface-footer`                                        |          |
+| Links and the copyright                   | Bone, `--text-on-brand`                                   | 13.71:1  |
+| Column labels (overlines) and the tagline | `--text-on-footer-secondary`                              | 8.76:1   |
+| Hairline above the bottom strip           | `--border-on-brand-subtle` (Bone 14%), decorative, 1.51:1 |          |
+| Focus ring                                | Bone, `--focus-ring-on-brand`                             | 13.71:1  |
+| Wordmark                                  | The light-on-dark variant (AECI-1754)                     |          |
 
 - **Link hover is an underline in Bone,** 3px offset (mock-up line 474). Colour never carries it. `--text-on-footer-secondary` fails on Forest hover (4.39:1), so the footer has no hover fill. The mock-up's links are Bone at rest (line 473), and the shipped footer's `text-secondary` rising to `text-primary` is retired.
 - **Tertiary text is never on the footer ground** (§2).
@@ -2237,12 +2259,12 @@ It was never specified until the Overflow Rule made it load-bearing. It is the h
 
 **The four columns, and why each holds what it does:**
 
-| Column | Holds | Why |
-|---|---|---|
-| **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile menu never reaches SSR, so this is where a crawler meets the taxonomy. With Home and Products gone from the header (clash 26), it is also the Tab-reachable list of the Browse destinations. |
-| **Help** | Help center, Getting started, How ranking works, Vendor guide | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). "Vendor guide" links `/docs/vendors/overview`, the vendor guide's first page (AECI-1253). It is not called "For vendors", because that is the Company column's link to `/vendor-program`. "How ranking works" is also reached from the header's "How we rank". Four items, inside the four-to-six range. |
-| **Legal** | Terms, Privacy, Review guidelines, Listing accuracy, Vendor terms, Managed plan agreement, Third-party notices | Trust-first positioning means the legal set is one click from every page, not buried. |
-| **Company** | About, Methodology, For vendors, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination (AECI-804). "For vendors" is the public vendor landing page `/vendor-program`, after Methodology (AECI-1283, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4). The header now links For vendors too (clash 26). Methodology, Updates and Roadmap stay footer-only. Six items is the column's ceiling. |
+| Column        | Holds                                                                                                          | Why                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Directory** | Home, Products, Categories, Audiences, Trades, Phases                                                          | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile menu never reaches SSR, so this is where a crawler meets the taxonomy. With Home and Products gone from the header (clash 26), it is also the Tab-reachable list of the Browse destinations.                                                                                                 |
+| **Help**      | Help center, Getting started, How ranking works, Vendor guide                                                  | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). "Vendor guide" links `/docs/vendors/overview`, the vendor guide's first page (AECI-1253). It is not called "For vendors", because that is the Company column's link to `/vendor-program`. "How ranking works" is also reached from the header's "How we rank". Four items, inside the four-to-six range. |
+| **Legal**     | Terms, Privacy, Review guidelines, Listing accuracy, Vendor terms, Managed plan agreement, Third-party notices | Trust-first positioning means the legal set is one click from every page, not buried.                                                                                                                                                                                                                                                                                                                       |
+| **Company**   | About, Methodology, For vendors, Contact, Updates, Roadmap                                                     | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination (AECI-804). "For vendors" is the public vendor landing page `/vendor-program`, after Methodology (AECI-1283, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4). The header now links For vendors too (clash 26). Methodology, Updates and Roadmap stay footer-only. Six items is the column's ceiling.       |
 
 Nothing in the footer's links changes (AECI-1776: "keep the four columns and every link exactly"), with one addition: "Third-party notices", a plain `href` (same tab, not a route) to the static `/third-party-notices.txt`, last in the Legal column. It carries Lucide's licence text (AECI-1753) and changes no `/legal/*` page.
 
@@ -2280,13 +2302,12 @@ Until clash 16, all three shared the same outer container. DetailLayout now has 
   - **No lede.** The payload has no one-line description, and About already prints the full description.
   - **Known cost: a font-swap shift.** On an unclaimed product at 1280px the page's layout shift rose from 0.0096 to 0.0327, because the web font's swap re-wraps a facts-card row that is now above the fold. It is well under the 0.1 floor and was accepted. A metric-matched fallback font would remove it.
   - **The panel slot is empty.** R3 decision 1 settled the visual as a category hub with a pair finder. AECI-1787 builds it.
-- **Bone band** (`<aec-bone-band>`, `shared/bone-band/bone-band.ts`, AECI-1766) — the page's one Bone band, a frame with projected content and no named slots. Values from mock-ups 6 to 8 (`.band`, lines 203 to 206 and 579 to 580): the 1328px wrap with 24, 32 and 48px gutters, 96px of padding above and below, 64px below `md`. The `first` input is the mock-up's `.band.first`: 48px above, 32px below `md`. The ground is `--accent-warm`. It has no border in normal rendering, since Bone against white is 1.12:1 and the mock-up draws none. Under forced colours it gets a 1px `CanvasText` edge above and below (`.aec-bone-band`, unlayered). It does not move and reads no visitor state.
+- **Bone band** (`<aec-bone-band>`, `shared/bone-band/bone-band.ts`, AECI-1766) — the page's one Bone band, a frame with projected content and no named slots. Values from mock-ups 6 to 8 (`.band`, lines 203 to 206 and 579 to 580): the 1328px wrap with 24, 32 and 48px gutters, 96px of padding above and below, 64px below `md`. The `first` input is the mock-up's `.band.first`: 48px above, 32px below `md`. The `flushEnd` input drops the bottom padding, for content that closes the band itself: the home hero ends on its credibility row, 24px above the band's edge (mock-up 9, AECI-1792). The ground is `--accent-warm`. It has no border in normal rendering, since Bone against white is 1.12:1 and the mock-up draws none. Under forced colours it gets a 1px `CanvasText` edge above and below (`.aec-bone-band`, unlayered). It does not move and reads no visitor state.
   - **Ink and controls on Bone, measured:** `--text-primary` 17.70:1, `--text-secondary` 6.91:1, Forest 11.03:1 (a ghost button's hover text and the default Forest focus ring), error 5.84:1, `--text-tertiary` 4.32:1 (never on Bone). A form control's edge `--border-field` is 3.31:1, and its `--surface-base` fill is 1.12:1 against Bone and 3.71:1 against that edge. The primary button is Forest on Forest hover and unchanged. A secondary button brings its own `--surface-raised` fill and hover `--surface-sunken`, so its label is 18.97:1 and 18.01:1 on its own fill. Its edge `--border-strong` is only 1.32:1 on Bone and its fill is 1.07:1. That edge is as weak on white, and the label names the control (WCAG 1.4.11), so it is flagged for Chris and not changed here. A ghost button has no fill and no edge. `--surface-on-brand-hover` is the hover of the Bone button on Forest, so it is never used on Bone.
   - **Seam with the Forest footer:** a flat edge, no gap and no hairline. Bone against the footer ground is 13.71:1, so the step is itself the boundary. The specimen sits last on `/_demo/spartan` to show it.
   - **One per page is a usage rule.** In dev mode a second `aec-bone-band` in the document logs an error after the first browser render. Production never logs, and the check does not run on the server.
   - **Live Bone-ground surfaces, not moved by AECI-1766.** Page grounds, which a later issue moves onto the band or onto white:
-    - `home/home-hero.ts:110` and `home/home.ts:66` (two Bone grounds on the home page): AECI-1789 and AECI-1792.
-    - `home/home-closing-cta.ts:32`: AECI-1789 and AECI-1792.
+    - The home page moved in AECI-1792: the hero is on `aec-bone-band` and the closing call to action is a white card on a white band.
     - `shared/mailing-list-signup/mailing-list-signup.ts:49`: on the band shell it is white (§4 item 6). AECI-1799.
     - `about/about.ts:41` and `methodology/methodology.ts:55`: AECI-1800.
     - `updates/updates.ts:70`, `roadmap/roadmap.ts:37` and `contact/contact.ts:48`: AECI-1801.
@@ -2313,7 +2334,7 @@ Until clash 16, all three shared the same outer container. DetailLayout now has 
 - **Form + context rail** (AECI-987; a pattern, not a shell component): for single-step forms, namely the review form, the routed claim and correction pages, `/welcome`. Anchor: Stripe (the AECi chrome anchor), whose settings and checkout forms pair a capped form with a quiet summary column.
   - **Grid:** the standard canvas, then from `lg` a 12-column grid with `gap-x-12`. The header and the form take columns 1 to 7, the controls capped at `max-w-2xl`. The `aside` takes columns 9 to 12 (`lg:col-start-9 lg:col-span-4`), spans the header and form rows, and is `lg:sticky lg:top-8 lg:self-start`.
   - **Sticky goes on the tall column's child.** The sticky classes sit on the `aside` itself, a direct grid child whose grid area is the full row height. Never on a `nav` or `aside` inside a short host box: sticky travels only within its containing block, so it would not stick.
-  - **Below `lg`** the rail stacks between the page header and the form as a contained panel: `surface-raised` fill, `border-default` hairline, `rounded-card`, `p-6`. Docked at `lg` it is bare on the page background. *(2026-11-14: the card radius is now 24px, `rounded-card` and `--radius-card` (clash 12). `rounded-lg` still renders 8px. `p-5` is 20px, off the spacing scale, so it is `p-6`. The rail's content is short copy, so nothing nests in it today, though clash 14 would allow it. Whether it takes the card shadow is open, with the rest of that set in §4 "Open values" (AECI-1765). Until then it takes none.)*
+  - **Below `lg`** the rail stacks between the page header and the form as a contained panel: `surface-raised` fill, `border-default` hairline, `rounded-card`, `p-6`. Docked at `lg` it is bare on the page background. _(2026-11-14: the card radius is now 24px, `rounded-card` and `--radius-card` (clash 12). `rounded-lg` still renders 8px. `p-5` is 20px, off the spacing scale, so it is `p-6`. The rail's content is short copy, so nothing nests in it today, though clash 14 would allow it. Whether it takes the card shadow is open, with the rest of that set in §4 "Open values" (AECI-1765). Until then it takes none.)_
   - **Content:** only data the page already loads (no new API call) and short static copy: what you are acting on, what happens next, one docs link that opens a new tab so a half-filled form survives. All copy is `i18n` / `$localize`.
 
 Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
@@ -2326,7 +2347,7 @@ The strategic anti-references in `PRODUCT.md` carry through here as concrete vis
 
 ### Floors that no ruling overrides
 
-These are accessibility and legal rules, not style. `PLAN.md` §9.2 lists the first four, and ADR 0056 records them. Reviews added the rest. None of them is a lint check unless a line says so.
+These are accessibility and legal rules, not style. `PLAN.md` §9.2 lists the first four, and ADR 0057 records them. Reviews added the rest. None of them is a lint check unless a line says so.
 
 1. **Inputs keep a 3:1 boundary** (clash 23, WCAG 1.4.11). Every form control has a visible edge at 3:1 against its ground (§5 "Inputs / Fields").
 2. **The mobile menu toggle has an accessible name, and the open menu traps focus** (clash 30, §5 "The mobile menu").
@@ -2356,7 +2377,7 @@ These are accessibility and legal rules, not style. `PLAN.md` §9.2 lists the fi
 - **Do** use sentence case everywhere. Headings, buttons, labels, navigation, table headers, page titles, section titles. The overline role is the single uppercase exception (§3).
 - **Do** use a 1px border on controls and chips (`border-default`, with `border-strong` for emphasis and 2px for featured and error states). This rewrites "0.5px default borders" (clashes 20, 22 and 23). Some shipped surfaces still draw 0.5px and change as each is rebuilt.
 - **Do** keep Clay rare (≤5% per screen, decorative/fill only — fills carry `text-primary`, never white). Clay-colored text and icons use Clay deep (`#A14D22`). Star-rating glyphs use Goldenrod (`#DAA520` / `--accent-rating`). The main button is Forest with white text (the Forest-Anchor Rule). On a Forest ground it is Bone with Forest text (clash 3). It is never Clay.
-- **Do** use Bone as a *warm-tinted accent surface*: one band per page (clash 2), never a page background. On a Forest ground Bone is the ink (clashes 3 and 4).
+- **Do** use Bone as a _warm-tinted accent surface_: one band per page (clash 2), never a page background. On a Forest ground Bone is the ink (clashes 3 and 4).
 - **Do** vary spacing for visual rhythm (4pt scale: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96). Tight groupings, generous separations.
 - **Do** use container queries (`@container`) for component-level responsiveness; viewport queries for page layout.
 - **Do** respect `prefers-reduced-motion` on every transition. Use the three durations: fast 120ms for press and row hover, base 180ms for hover, focus and disclosure, slow 280ms for menu open, the nav ink bar and the scrim (clash 36, §5 "Motion").

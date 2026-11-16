@@ -414,7 +414,7 @@ never exempt.
 Exempt (derived, log-class, ledger and service-log writes):
 
 `claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
-`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
+`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` · `plan_change_snapshots` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
 count columns · the Algolia sync watermark · the `sitemap:*` KV keys.
@@ -553,3 +553,30 @@ account, or an operator action edits a row, that is domain state and audits in t
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and the consolidated list above carries it.
+
+## Amendment 2026-11-16 — the plan-change ranking evidence ledger (AECI-1621)
+
+Nothing above is reversed, and no new class is added. `plan_change_snapshots`
+(`DATABASE_SCHEMA.md` §9.16) is a ledger of evidence snapshots, like `page_views_archive_days` is a
+ledger of archive copies. It joins the consolidated exemption list above.
+
+**The table.** Two rows per product whose live license appeared or disappeared in a license write:
+an `event` row due at once and a `followup` row due 30 days later. `assemble()` in
+`apps/api/src/lib/license.ts` inserts them in the same `db.batch` as the license change, through
+`apps/api/src/lib/plan-change-ledger.ts`. The 15-minute sweep in
+`apps/api/src/lib/plan-snapshot-sweep.ts` writes each snapshot to R2 and stamps `r2_key`,
+`written_at`, `attempts` and `last_error` (ADR 0056).
+
+**Why it is exempt.** The license write already emits its `audit_log` row (`license.granted`,
+`license.lapsed` and the rest) in the same batch, with the actor and the reason. This row only
+schedules a copy of public catalog facts. It changes no domain state, it is invisible on every
+public surface, and `ranking-firewall.spec.ts` forbids every ranking module from reading it. The
+sweep's UPDATEs are bookkeeping on the same footing as `job_runs`.
+
+**What would end the exemption.** If any code ever reads this table to decide a ranking, a
+person's access or a vendor's standing, or an operator action edits a row through the app, that is
+domain state and audits in the same `db.batch`. A delete would be a scheduled or operator `DELETE`
+and is never exempt. There is no delete path: the R2 objects are under a 4-year bucket lock.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writers, and the consolidated list above carries it.

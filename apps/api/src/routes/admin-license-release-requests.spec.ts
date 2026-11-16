@@ -265,8 +265,8 @@ describe('PATCH /api/admin/license-release-requests/:id: approve', () => {
     });
     expect(batch).toHaveBeenCalledTimes(1);
     // request UPDATE, sentinel, license UPDATE, sentinel, audit, product mirror,
-    // reconcile, notice.
-    expect(batch.mock.calls[0]![0]).toHaveLength(8);
+    // plan-change evidence rows (AECI-1621), reconcile, notice.
+    expect(batch.mock.calls[0]![0]).toHaveLength(9);
     batch.mockRestore();
 
     const after = await readLicense();

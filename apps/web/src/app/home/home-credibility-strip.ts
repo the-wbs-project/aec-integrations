@@ -9,9 +9,11 @@ import { AecIcon } from '../shared/icon/icon';
  * already say it, and the page says it at most twice (AECI-1555). It is the
  * home's only figure row.
  *
- * Background-agnostic: it paints no ground of its own. `home.ts` mounts it inside
- * the hero's Bone wrapper, and its hairline `border-t` sits inside the centred
- * content column, so it reads as the last row of the hero band.
+ * Background-agnostic: it paints no ground and no wrap of its own. `home.ts`
+ * mounts it inside the page's one Bone band (`aec-bone-band`), whose 1328px wrap
+ * it sits on, so it reads as the last row of the hero band. Its hairline is
+ * `--border-strong` (`.aec-rule-strong`), because `--border-default` all but
+ * vanishes on Bone.
  *
  * Purely presentational: counts arrive as signal inputs from `HomeStatsResponse`
  * (the cached `GET /api/stats/home` snapshot, never live-aggregated) via the 4.11
@@ -26,11 +28,12 @@ import { AecIcon } from '../shared/icon/icon';
  * renders. Pluralization is handled in the component (mirrors `IntegrationStat`)
  * rather than ICU, keeping the markup readable.
  *
- * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` rule),
- * Forest (`--accent-primary`) on every figure, `--text-secondary` for labels
+ * Treatment per DESIGN.md and mock-up 9: a 1px `--border-strong` rule, the counts
+ * in the body face at 600 and 16px in Forest (`--accent-primary`), because Source
+ * Serif never sits below 20px (the Serif-Floor Rule), `--text-secondary` for labels
  * (never `--text-tertiary`, which fails AA). Sentence case, no em dashes. Light
  * theme only (Stage 1). i18n throughout; the aec-icon scale glyph is `aria-hidden`
- * (the visible text carries the meaning). Anchor site: Faire (AECI-270).
+ * (the visible text carries the meaning). Anchor: mock-up 9 (AECI-1789).
  *
  * The glyph is a BALANCE SCALE, deliberately not a shield-check. A checkmark on a
  * public surface reads as a verification/endorsement signal, and AECi verifies
@@ -57,39 +60,38 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
       aria-label="Directory coverage and independence"
       i18n-aria-label="@@home.credibility.region.aria"
     >
-      <div class="mx-auto w-full max-w-7xl px-6 md:px-8">
-        <div
-          class="flex flex-col gap-3 border-t border-(--border-default) py-4 sm:flex-row
-            sm:items-center sm:justify-between sm:gap-6"
-        >
-          @if (metrics().length > 0) {
-            <ul role="list" class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-              @for (m of metrics(); track m.key) {
-                <li class="flex items-baseline gap-1.5">
-                  <span
-                    class="font-display text-base font-semibold tabular-nums text-(--accent-primary)"
-                  >
-                    {{ m.count }}
-                  </span>
-                  <span class="text-sm text-(--text-secondary)">{{ m.label }}</span>
-                  @if (m.note) {
-                    <span class="text-sm text-(--text-secondary)" aria-hidden="true">·</span>
-                    <span class="text-sm tabular-nums text-(--text-secondary)">{{ m.note }}</span>
-                  }
-                </li>
-              }
-            </ul>
-          } @else {
-            <p class="text-sm text-(--text-secondary)" i18n="@@home.credibility.empty">
-              Indexing in progress
-            </p>
-          }
-
-          <p class="flex items-center gap-2 text-sm font-semibold text-(--text-secondary)">
-            <aec-icon class="text-(--accent-primary)" name="scale" decorative [size]="4" />
-            <span i18n="@@home.credibility.promise">Independent. Rankings are algorithmic.</span>
+      <div
+        class="aec-rule-strong flex flex-col gap-3 border-t pt-4 pb-6 sm:flex-row sm:flex-wrap
+          sm:items-center sm:justify-between sm:gap-x-6"
+      >
+        @if (metrics().length > 0) {
+          <ul role="list" class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+            @for (m of metrics(); track m.key) {
+              <li class="flex items-baseline gap-1.5">
+                <span
+                  data-testid="credibility-count"
+                  class="text-t-16 font-semibold tabular-nums text-(--accent-primary)"
+                >
+                  {{ m.count }}
+                </span>
+                <span class="text-t-14 text-(--text-secondary)">{{ m.label }}</span>
+                @if (m.note) {
+                  <span class="text-t-14 text-(--text-secondary)" aria-hidden="true">·</span>
+                  <span class="text-t-14 tabular-nums text-(--text-secondary)">{{ m.note }}</span>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="text-t-14 text-(--text-secondary)" i18n="@@home.credibility.empty">
+            Indexing in progress
           </p>
-        </div>
+        }
+
+        <p class="flex items-center gap-2 text-t-14 font-semibold text-(--text-secondary)">
+          <aec-icon class="text-(--accent-primary)" name="scale" decorative [size]="4" />
+          <span i18n="@@home.credibility.promise">Independent. Rankings are algorithmic.</span>
+        </p>
       </div>
     </section>
   `,

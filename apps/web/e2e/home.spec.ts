@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Locator, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { untilHydrated } from './hydration';
 
 // The home browse block (`home-browse-block.ts`): one "Browse the directory"
@@ -90,7 +90,8 @@ test.describe('/ — home browse block', () => {
       // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
       // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
       // global header flyout (AECI-155, outside #main), which the `#main ul`
-      // scope excludes. The hero "Popular:" row links to products, not facets.
+      // scope excludes. The hero "Largest categories" fallback links to
+      // `/categories/:slug` too, but it is a `<p>`, not a `ul`, so it is excluded.
       // The "View all" link is `/{segment}` (no slug) so it too is excluded.
       const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);
@@ -312,67 +313,54 @@ test.describe('/ — home assembly', () => {
   });
 });
 
-test.describe('/ — citation reflow (AECI-1846)', () => {
+test.describe('/ — printed citations (AECI-1846, AECI-1792)', () => {
   // Measure settled geometry: focus navigation otherwise starts the home's smooth scroll.
   test.use({ reducedMotion: 'reduce' });
 
   for (const width of [320, 639, 640, 768, 1024]) {
-    test(`keeps the page and every citation inside ${width}px`, async ({ page }) => {
+    test(`prints every citation inside ${width}px with no sideways scroll`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       const figures = page.getByTestId('home-why-figures');
-      const links = figures.locator('a[aria-describedby]');
-      const tooltips = figures.locator('[role="tooltip"]');
+      const citations = figures.getByTestId('home-why-citation');
+      const links = figures.locator('a[target="_blank"]');
+      await expect(citations).toHaveCount(3);
       await expect(links).toHaveCount(3);
       await page.evaluate(() => document.fonts.ready);
+      // Mock-up 9 prints the citation: no tooltip, nothing to hover.
+      await expect(figures.locator('[role="tooltip"]')).toHaveCount(0);
 
-      for (const tooltip of await tooltips.all()) {
-        await expect(tooltip).toHaveCSS('opacity', '0');
-      }
-      // Invisible, absolutely positioned citations must not enlarge the page either.
-      // clientWidth excludes classic scrollbar gutters; innerWidth includes them.
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
-      // Overflow means scrollWidth exceeds clientWidth. On Linux CI the root's
-      // scrollWidth excludes the 15px classic scrollbar and clientWidth does not,
-      // so equality fails with no overflow at all.
+      // On Linux CI the root's scrollWidth excludes the classic scrollbar and
+      // clientWidth does not, so compare with <=.
       expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
-      expect(await page.evaluate(() => window.innerWidth)).toBe(width);
 
       for (let i = 0; i < 3; i++) {
-        const link = links.nth(i);
-        const tooltip = tooltips.nth(i);
-        const citation = (await tooltip.textContent())?.replace(/\s+/g, ' ').trim() ?? '';
-        expect(citation).not.toBe('');
-        await expect(link).toHaveAccessibleDescription(citation);
-        await link.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await link.hover();
-        await expect(tooltip).toHaveCSS('opacity', '1');
-        await expectCitationInsideViewport(tooltip);
-        await page.mouse.move(0, 0);
-        await expect(tooltip).toHaveCSS('opacity', '0');
+        const citation = citations.nth(i);
+        await citation.evaluate((el) =>
+          el.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+        await expect(citation).toBeVisible();
+        await expect(citation).toHaveCSS('opacity', '1');
+        await expectCitationInsideViewport(citation);
       }
 
-      // Start immediately before the first source, then reach all three with real Tab presses.
+      // Reach all three Source links with real Tab presses.
       await links.first().focus();
       await page.keyboard.press('Shift+Tab');
       for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Tab');
         await expect(links.nth(i)).toBeFocused();
-        await links
-          .nth(i)
-          .evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await expect(tooltips.nth(i)).toHaveCSS('opacity', '1');
-        await expectCitationInsideViewport(tooltips.nth(i));
       }
     });
   }
 });
 
-async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
-  const bounds = await tooltip.evaluate((el) => {
+async function expectCitationInsideViewport(citation: Locator): Promise<void> {
+  const bounds = await citation.evaluate((el) => {
     const rect = el.getBoundingClientRect();
     return {
       left: rect.left,
@@ -381,27 +369,64 @@ async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
       bottom: rect.bottom,
       viewportWidth: document.documentElement.clientWidth,
       viewportHeight: window.innerHeight,
-      pageWidth: document.documentElement.scrollWidth,
       contentWidth: el.scrollWidth,
       availableWidth: el.clientWidth,
-      contentHeight: el.scrollHeight,
-      availableHeight: el.clientHeight,
     };
   });
   expect(bounds.left, 'citation left edge').toBeGreaterThanOrEqual(0);
   expect(bounds.right, 'citation right edge').toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.top, 'citation top edge').toBeGreaterThanOrEqual(0);
   expect(bounds.bottom, 'citation bottom edge').toBeLessThanOrEqual(bounds.viewportHeight);
-  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBeLessThanOrEqual(
-    bounds.viewportWidth,
-  );
   expect(bounds.contentWidth, 'citation text must not be clipped horizontally').toBe(
     bounds.availableWidth,
   );
-  expect(bounds.contentHeight, 'citation text must not be clipped vertically').toBe(
-    bounds.availableHeight,
-  );
 }
+
+// AECI-1862, AECI-1792: the "Most viewed" row ships in the server HTML whichever
+// list fills it, and its height is reserved, so the page does not move after load.
+test.describe('/ — the "Most viewed" row holds its place (AECI-1862)', () => {
+  test('the server HTML carries the row with a label that states its order', async ({
+    request,
+  }) => {
+    const [html, stats, taxonomy] = await Promise.all([
+      request.get('/').then((r) => r.text()),
+      request
+        .get('/api/stats/home')
+        .then((r) => r.json() as Promise<{ popular_products?: unknown[] }>),
+      request.get('/api/taxonomy').then((r) => r.json() as Promise<{ categories?: unknown[] }>),
+    ]);
+    expect(html).toContain('data-testid="home-popular"');
+    expect(html, 'the old unlabelled order is gone').not.toContain('Popular:');
+    if ((stats.popular_products ?? []).length > 0) {
+      expect(html).toContain('Most viewed, last 30 days:');
+    } else if ((taxonomy.categories ?? []).length > 0) {
+      expect(html).toContain('Largest categories:');
+    }
+  });
+
+  for (const width of [1440, 390]) {
+    test(`layout shift after load stays under 0.1 at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.addInitScript(() => {
+        const w = window as unknown as { __cls: number };
+        w.__cls = 0;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as unknown as Array<{
+            value: number;
+            hadRecentInput: boolean;
+          }>) {
+            if (!entry.hadRecentInput) w.__cls += entry.value;
+          }
+        }).observe({ type: 'layout-shift', buffered: true });
+      });
+      await page.goto('/', { waitUntil: 'networkidle' });
+      await untilHydrated(page.locator('#hero-search'));
+      await page.waitForTimeout(1000);
+      const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+      expect(cls).toBeLessThan(0.1);
+    });
+  }
+});
 
 // AECI-830: a rotor or `NVDA+F7` list strips the surrounding card, so each name
 // must stand alone. axe's `identical-links-same-purpose` and `landmark-unique` are
@@ -447,9 +472,15 @@ test.describe('pair finder: a pick that does not resolve (AECI-1823)', () => {
     expect(res.status()).toBe(404);
   });
 
+  // AECI-1868: deterministic. The suggestions come from a fixed Algolia answer,
+  // not the shared index. Each option is looked up in its own field's listbox and
+  // clicked by name, so neither the pre-selected first option nor the other
+  // field's list can decide the pick. The field must show the picked title before
+  // the test moves on.
   test('a finder pick whose pair is NOT_FOUND lands on /search?q= with the typed name', async ({
     page,
   }) => {
+    await routeFinderSuggestions(page);
     await page.route('**/api/products/*/integrations/*', (route) =>
       route.fulfill({
         status: 404,
@@ -458,31 +489,108 @@ test.describe('pair finder: a pick that does not resolve (AECI-1823)', () => {
       }),
     );
     await page.goto('/');
-    await expect(page.locator('app-root')).toBeAttached();
-    const hasAlgolia = await page.evaluate(
-      () => !!(window as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__,
-    );
-    test.skip(!hasAlgolia, 'no Algolia config here, so the finder cannot offer picks to choose');
 
     const form = page.locator('form[aria-labelledby="hero-pair-title"]');
     await untilHydrated(form);
-    const pickFirst = async (id: string, term: string): Promise<string> => {
-      const input = form.locator(`#${id}`);
-      await input.fill(term);
-      const option = page.getByRole('option').first();
-      await option.waitFor({ state: 'visible', timeout: 15_000 });
-      await input.press('ArrowDown');
-      await input.press('Enter');
-      return input.inputValue();
-    };
-    const first = await pickFirst('hero-pair-tool', 'procore');
-    await pickFirst('hero-pair-other', 'revit');
+    await pick(page, form.locator('#hero-pair-tool'), 'procore', 'Zz Finder Procore');
+    await pick(page, form.locator('#hero-pair-other'), 'revit', 'Zz Finder Revit LT');
+    // Both picks held: neither field was cleared or rewritten by the other.
+    await expect(form.locator('#hero-pair-tool')).toHaveValue('Zz Finder Procore');
     await form.getByRole('button', { name: 'Show integrations' }).click();
 
     await expect(page).toHaveURL(/\/search\?q=/);
-    expect(new URL(page.url()).searchParams.get('q')).toBe(first);
+    expect(new URL(page.url()).searchParams.get('q')).toBe('Zz Finder Procore');
   });
 });
+
+/**
+ * Fixed product suggestions for the pair finder (AECI-1868). Two hits per query, so a
+ * pick of the second option proves the test chose by name. The slugs exist in no
+ * database. `__AECI_ALGOLIA__` gets a stand-in config before the page scripts run;
+ * the server's inline config replaces it where one is set. Either way every query
+ * lands on the route below and never reaches a live index.
+ */
+const FINDER_HITS: Record<string, Array<{ name: string; slug: string }>> = {
+  procore: [
+    { name: 'Zz Finder Procore', slug: 'zz-e2e-finder-procore' },
+    { name: 'Zz Finder Procore Pay', slug: 'zz-e2e-finder-procore-pay' },
+  ],
+  revit: [
+    { name: 'Zz Finder Revit', slug: 'zz-e2e-finder-revit' },
+    { name: 'Zz Finder Revit LT', slug: 'zz-e2e-finder-revit-lt' },
+  ],
+};
+
+async function routeFinderSuggestions(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__ = {
+      appId: 'E2EFINDER',
+      searchKey: 'e2e-search-only',
+      indexes: {
+        products: 'e2e_products',
+        vendors: 'e2e_vendors',
+        integrations: 'e2e_integrations',
+      },
+    };
+  });
+  await page.route(/\/1\/indexes\/\*\/queries/, async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as {
+      requests?: Array<{ query?: string; params?: string }>;
+    };
+    const results = (body.requests ?? []).map((req, i) => {
+      const query = (req.query ?? new URLSearchParams(req.params ?? '').get('query') ?? '')
+        .trim()
+        .toLowerCase();
+      // Request 0 is products, request 1 vendors (autocomplete-search.factory.ts).
+      const hits =
+        i === 0
+          ? (FINDER_HITS[query] ?? []).map((h) => ({
+              objectID: h.slug,
+              name: h.name,
+              slug: h.slug,
+              vendor_name: 'Zz Finder Vendor',
+            }))
+          : [];
+      return {
+        hits,
+        nbHits: hits.length,
+        page: 0,
+        nbPages: 1,
+        hitsPerPage: 5,
+        processingTimeMS: 1,
+        exhaustiveNbHits: true,
+        query,
+        params: '',
+      };
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ results }),
+    });
+  });
+}
+
+/**
+ * Type `term` into one finder field and commit the option named `title` from that
+ * field's own listbox (the one its `aria-controls` names), then wait until the field
+ * shows the title.
+ */
+async function pick(page: Page, input: Locator, term: string, title: string): Promise<void> {
+  await input.fill(term);
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  const listId = await input.getAttribute('aria-controls');
+  expect(listId, 'the expanded field names its listbox').toBeTruthy();
+  // Exact title text, so "Procore" never matches "Procore Pay".
+  const option = page
+    .locator(`[id="${listId}"]`)
+    .getByRole('option')
+    .filter({ has: page.getByText(title, { exact: true }) });
+  await option.click();
+  await expect(input).toHaveValue(title);
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+}
 
 /** Each element's computed accessible name, read from its ARIA snapshot line. */
 async function accessibleNames(locator: Locator): Promise<string[]> {

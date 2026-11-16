@@ -1,5 +1,5 @@
 /**
- * The twenty-five cron expressions the API Worker is triggered on, in one place.
+ * The twenty-seven cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-five, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-seven, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -135,6 +135,19 @@ export const RECONCILE_CRON = '*/15 * * * *';
  *  daily slots, so the 05:00 backstop that marks it dirty is rebuilt at 05:07.
  *  Queue-backed on `RECONCILE_QUEUE`, which already dispatches on `message.job`. */
 export const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
+
+/** The plan-change snapshot sweep (AECI-1621, ADR 0056). **Every 15 minutes, at
+ *  minute 11, 26, 41 and 56.** It writes the due ranking-evidence snapshots of
+ *  `plan_change_snapshots` to R2 under `evidence/plan-snapshots/`, so a plan start or
+ *  end is snapshotted within about 15 minutes, and its follow-up 30 days later.
+ *
+ *  **Why its own expression.** Two jobs can never share one (`scheduled.ts` switches on
+ *  the raw `controller.cron`), and minute 11 is clear of the `*` `/15`, `7-59/15` and
+ *  minute-0 slots. The account cap is 250 cron triggers on Workers Paid, and this Worker
+ *  declares 27 per tier, 81 across its three tiers. Queue-backed on `RECONCILE_QUEUE`,
+ *  which already dispatches on `message.job`. A retry is safe: a written row is no
+ *  longer due, and an object already in R2 is adopted, never overwritten. */
+export const PLAN_SNAPSHOT_CRON = '11-59/15 * * * *';
 
 /** WAF firewall-event poll (AECI-262 / §15.1). **Every hour** at minute 0 — it
  *  reads the *previous clock hour* of `firewallEventsAdaptiveGroups` from
@@ -440,6 +453,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'vendor-claim-nudge': VENDOR_CLAIM_NUDGE_CRON,
   'brand-asset-removal': BRAND_ASSET_REMOVAL_CRON,
   'acceptance-evidence-removal': ACCEPTANCE_EVIDENCE_REMOVAL_CRON,
+  'plan-snapshot': PLAN_SNAPSHOT_CRON,
 };
 
 /**
@@ -479,6 +493,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   vendor_claim_nudge: 'vendor-claim-nudge',
   brand_asset_removal: 'brand-asset-removal',
   acceptance_evidence_removal: 'acceptance-evidence-removal',
+  plan_snapshot: 'plan-snapshot',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -514,6 +529,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'acceptance-evidence-removal',
   'request-reconcile',
   'sitemap-rebuild',
+  'plan-snapshot',
   'waf-poll',
   'indexnow-drain',
   'claim-stale-check',

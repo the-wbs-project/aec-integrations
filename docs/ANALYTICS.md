@@ -847,6 +847,61 @@ classification objects with the same `read_json` call and their own path.
 **Health.** Metric `aeci.pageviews.archive`, alert `pageviews-archive-failed`, runbook "page_views
 archive failed" in `docs/runbooks/alerts.md`.
 
+## 11d. Plan-change ranking snapshots
+
+**Answer first.** Every time a plan starts or ends on a product, AECi writes two JSON snapshots of that
+product's ranking to R2: one at the event and one 30 days later. They are kept at least four years under
+an R2 bucket lock, so nobody can delete or overwrite them. They are the records behind the Terms' "never
+influenced by payment" (`SEARCH_RANKING.md` §7a, counsel Q23). Decision: ADR 0056.
+
+**What it is.** One JSON object per snapshot, written by the 15-minute `plan-snapshot` sweep
+(`apps/api/src/lib/plan-snapshot-sweep.ts`) into the existing `UPLOADS` bucket of each tier:
+`aeci-uploads-staging`, `aeci-uploads-demo` and `aeci-uploads-production`. Local dev writes the local
+emulated bucket. The ledger `plan_change_snapshots` (`DATABASE_SCHEMA.md` §9.16) lists every snapshot
+and its key.
+
+| Key | Holds |
+|---|---|
+| `evidence/plan-snapshots/product=<product id>/<event_at>-<start\|end>-<event\|followup>-<row id>.json` | One snapshot |
+
+Listing one product's prefix returns its snapshots in date order. Each object's `customMetadata` holds
+`schema`, `sha256`, `product_id`, `kind` and `phase`.
+
+**The snapshot.** `schema` (1), the ledger row (`snapshot_id`, `product_id`, `kind`, `phase`, `cause`,
+`license_id`, `event_at`), `taken_at`, `commit_sha`, and:
+
+- `plan_now`: whether a live license is on the product at `taken_at`. Context, not an input.
+- `product`: slug, name, hidden, promotion status. NULL with `reason: "product_missing"` for a
+  retracted product.
+- `inputs`: `listing_tier` and its inputs (`productListingTier`), review count, both rating averages,
+  `created_at`, integration count, and `algolia_record`, the record the sync would write now
+  (`toAlgoliaProduct`), or NULL when the sync would delete it. If the transform throws,
+  `algolia_record_error` says why and the rest of the snapshot is kept.
+- `positions`: one entry per list, `{ list, sort, rank, of }`. `/products` and each taxonomy page the
+  product is on, under the default `created` order through `buildProductsWhere` and
+  `resolveProductOrderBy`, and `home:most-integrated` under the home stat's own order. `rank` is
+  1-based, NULL when the product is not in the list.
+
+Positions are computed from live D1 at `taken_at`, not from cached pages or the Algolia index.
+Algolia's Newest replica uses whole-second timestamps and different tie breakers, and its sync can
+lag D1, so a saved D1 position is not a search position. `algolia_record` is the record the sync
+would write, not the stored index record. See `SEARCH_RANKING.md` §7a.
+
+No personal data: no actor, no email, no billing account. The vendor's company name rides in the
+search record, as on the public page.
+
+**The lock.** One rule per bucket on the prefix `evidence/`, retention 1461 days (4 years). Chris adds
+it by hand after the first deploy (`docs/environments.md` "Logo storage deployment"). R2 refuses an
+overwrite or a delete of a locked object, so the sweep checks for the key before it writes, and adopts
+an object an earlier run left behind. A lock rule on the bucket also stops anyone emptying the bucket.
+
+**Reading it.** No live request reads a snapshot. `runbooks/legal.md` "Pull the ranking evidence for a
+product" gives the D1 query and the `wrangler r2 object get` command.
+
+**Health.** Metric `aeci.plan_snapshot.run` (the liveness heartbeat), the `plan-snapshot` row on
+`/admin/system`, and the `plan_snapshot_overdue` data-quality check for a row still unwritten 24 hours
+after it was due. Runbook "Plan-change snapshot sweep" in `docs/runbooks/alerts.md`.
+
 ## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric

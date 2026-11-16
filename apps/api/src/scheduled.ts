@@ -117,6 +117,7 @@ import {
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
+  PLAN_SNAPSHOT_CRON,
   VENDOR_CLAIM_NUDGE_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
@@ -254,6 +255,11 @@ import {
   ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
   runAcceptanceEvidenceRemoval,
 } from './lib/acceptance-evidence-removal';
+import {
+  PLAN_SNAPSHOT_RUN_METRIC,
+  PLAN_SNAPSHOT_SOURCE,
+  runPlanSnapshotSweep,
+} from './lib/plan-snapshot-sweep';
 import { auditVendorLogFields } from './lib/moderation-forward';
 import { enqueueOwnershipSync } from './lib/ownership-sync';
 import {
@@ -1425,6 +1431,58 @@ async function runAcceptanceEvidenceRemovalJob(
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. A failed batch rolled back whole.
+    throw error;
+  }
+}
+
+/**
+ * The 15-minute plan-change snapshot sweep (AECI-1621, ADR 0056). The logic lives in
+ * `./lib/plan-snapshot-sweep`; this shell supplies the DB, the `UPLOADS` bucket, the
+ * commit SHA and the PostHog sink. `aeci.plan_snapshot.run` fires on every run, so it
+ * doubles as the liveness heartbeat. A row that fails is recorded on the row and
+ * retried next run, so the run stays `ok`. A crash rethrows so the queue retries. No
+ * `UPLOADS` binding is `skipped`: every deployed tier binds it.
+ */
+async function runPlanSnapshotJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/plan-snapshot');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  if (!env.UPLOADS) {
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'plan-snapshot', reason: 'no_bucket' } };
+  }
+  try {
+    const { db } = cronDb(env);
+    const result = await runPlanSnapshotSweep(db, env.UPLOADS, {
+      now: new Date(),
+      commitSha: env.COMMIT_SHA ?? 'unknown',
+    });
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    if (result.due > 0) {
+      logToPosthog(ctx, env, req, {
+        level: result.failed > 0 ? 'warn' : 'info',
+        message: `aeci.plan_snapshot due=${result.due} written=${result.written} adopted=${result.adopted} failed=${result.failed}`,
+        source: PLAN_SNAPSHOT_SOURCE,
+      });
+    }
+    return {
+      outcome: 'ok',
+      detail: { job: 'plan-snapshot', durationMs: Date.now() - started, ...result },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.plan_snapshot.crashed',
+      source: PLAN_SNAPSHOT_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. Each row's stamp is guarded, so a retry
+    // redoes only the rows still due.
     throw error;
   }
 }
@@ -2997,6 +3055,10 @@ function queueForJob(
       // AECI-1505: rides the reconcile queue. The consumer dispatches on
       // `message.job`, so the two never mix, and nothing new is provisioned.
       return env.RECONCILE_QUEUE;
+    case 'plan_snapshot':
+      // AECI-1621: rides the reconcile queue, the `sitemap_rebuild` precedent. A retry is
+      // safe: a written row is no longer due, and an object already in R2 is adopted.
+      return env.RECONCILE_QUEUE;
     case 'vendor_claim_nudge':
       // AECI-1305: rides the attestation queue, the `sitemap_rebuild` precedent. The
       // consumer dispatches on `message.job`, and nothing new is provisioned.
@@ -3239,6 +3301,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
     };
   }
+  if (job === 'plan_snapshot') {
+    return {
+      path: '/cron/plan-snapshot',
+      message: 'aeci.plan_snapshot.enqueue_failed',
+      source: PLAN_SNAPSHOT_SOURCE,
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3398,6 +3467,8 @@ async function dispatchScheduledJob(
       return runGscInspectJob(env, ctx, message);
     case 'sitemap_rebuild':
       return runSitemapRebuildJob(env, ctx);
+    case 'plan_snapshot':
+      return runPlanSnapshotJob(env, ctx, message);
     case 'vendor_claim_nudge':
       return runVendorClaimNudgeJob(env, ctx);
   }
@@ -3520,6 +3591,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case SITEMAP_REBUILD_CRON:
       await enqueueOrRun(env, ctx, 'sitemap_rebuild');
+      return;
+    case PLAN_SNAPSHOT_CRON:
+      await enqueueOrRun(env, ctx, 'plan_snapshot');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');
