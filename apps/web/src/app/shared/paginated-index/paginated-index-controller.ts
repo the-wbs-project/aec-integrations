@@ -180,6 +180,15 @@ function parsePage(raw: string | null): number {
   return parseIndexPage(raw);
 }
 
+/**
+ * What starts the append buffer over (AECI-1902): the sort and filters
+ * (`resetKey`) and the page the URL starts the listing at.
+ */
+interface BufferKey {
+  reset: string;
+  page: number;
+}
+
 /** Pages read back from `ListingHistoryStore` for one request line (AECI-1900). */
 interface Restored<TResponse> {
   line: string;
@@ -258,23 +267,33 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     return parts.join('&');
   });
 
+  // The page the URL asks the listing to start at: `?page=`, or 1 when absent.
+  // A number, so a navigation that leaves it alone (the `?view=` cards/table
+  // toggle) does not notify anything below.
+  const urlPage = computed<number>(() => parsePage(queryParamMap().get('page')));
+
+  // Everything that starts the append buffer over: `resetKey` plus the URL's
+  // first page (AECI-1902). Before, the first page was read once, when the
+  // listing was built. A navigation that kept this component and changed only
+  // `?page=` (the header "Browse" link from `/products?page=2` to `/products`,
+  // or a Back to `?page=2` across an in-page filter change) left the old pages
+  // on screen under the new URL.
+  const bufferKey = computed<BufferKey>(() => ({ reset: resetKey(), page: urlPage() }), {
+    equal: (a, b) => a.reset === b.reset && a.page === b.page,
+  });
+
   // Append mode drives paging from this internal signal, NOT the URL — so loading
-  // more never writes `?page=` to the address bar. It is seeded from `?page=` on
-  // the first evaluation (so SSR of `/products?page=N` — reached by a crawler or
-  // a no-JS visitor following the footer's fallback anchor — still renders page N
-  // and keeps the crawl trail intact), then advances via `loadMore()` and resets
-  // to page 1 whenever `resetKey` changes (a sort/filter change). Replace mode
-  // reads `?page=` straight from the URL (the classic prev/next paginator), so
-  // this signal is inert there.
-  const targetPage = linkedSignal<string, number>({
-    source: resetKey,
-    // Seed from the URL via the NON-reactive snapshot: reading the
-    // `queryParamMap()` signal here would make it a tracked dependency, so an
-    // unrelated nav (e.g. the `?view=` cards/table toggle) would reset the buffer
-    // to page 1. The snapshot is correct on both the server and the first client
-    // evaluation, and the reset is driven solely by `resetKey`.
-    computation: (_key, previous) =>
-      previous == null ? parsePage(route.snapshot.queryParamMap.get('page')) : 1,
+  // more never writes `?page=` to the address bar. It starts at the URL's first
+  // page (so SSR of `/products?page=N` — reached by a crawler or a no-JS visitor
+  // following the footer's fallback anchor — still renders page N and keeps the
+  // crawl trail intact), advances via `loadMore()`, and starts over at the URL's
+  // first page whenever `bufferKey` changes. A sort or filter change drops
+  // `?page=` (`onSortChange`, `FacetSidebar`), so it starts over at 1. Replace
+  // mode reads `?page=` straight from the URL (the classic prev/next paginator),
+  // so this signal is inert there.
+  const targetPage = linkedSignal<BufferKey, number>({
+    source: bufferKey,
+    computation: (key) => key.page,
   });
 
   // Per-page fetch. The request object is rebuilt whenever its inputs change; the
@@ -306,10 +325,22 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // filter or sort states on this page reuses this component: the query changes
   // and nothing is rebuilt. A change with no Back behind it ("Load more", a
   // filter click) finds nothing and fetches as before.
+  //
+  // Also on each start-over of the buffer (`bufferKey`), even when the request
+  // line comes out the same (AECI-1902). `/products?page=2`, the header link to
+  // `/products`, "Load more" to page 2, then Back: the line is page 2's both
+  // before and after the Back, but the buffer starts over and must be read.
   const initialRestore = readRestored(requestLine());
-  const restored = linkedSignal<string | null, Restored<TResponse> | null>({
-    source: requestLine,
-    computation: (line, previous) => {
+  const restoreSource = computed<{ line: string | null; key: BufferKey }>(
+    () => ({ line: requestLine(), key: bufferKey() }),
+    { equal: (a, b) => a.line === b.line && a.key === b.key },
+  );
+  const restored = linkedSignal<
+    { line: string | null; key: BufferKey },
+    Restored<TResponse> | null
+  >({
+    source: restoreSource,
+    computation: ({ line }, previous) => {
       if (previous == null) return initialRestore?.line === line ? initialRestore : null;
       return untracked(() => readRestored(line));
     },
@@ -406,13 +437,17 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // The accumulated pages, ascending and de-duped by page number. A pure
   // `linkedSignal` (no `effect`) so it folds correctly during SSR too: read in
   // the template on the server, it computes `[page1]` from the SSR-resolved
-  // resource value. Resets to the fresh first page whenever `resetKey` changes.
+  // resource value. Resets to the fresh first page whenever `bufferKey` changes.
   const pages = linkedSignal<
-    { key: string; value: TResponse | undefined; restored: Restored<TResponse> | null },
+    {
+      key: BufferKey;
+      value: TResponse | undefined;
+      restored: Restored<TResponse> | null;
+    },
     TResponse[]
   >({
     source: () => ({
-      key: resetKey(),
+      key: bufferKey(),
       value: current(),
       restored: restored(),
     }),
@@ -421,6 +456,8 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       // Replace mode never accumulates — latest page only (it's unused there, but
       // keep the signal well-defined so reads from either mode are safe).
       if (mode !== 'append') return value ? [value] : (previous?.value ?? []);
+      // `bufferKey` keeps its object while nothing in it changes, so identity
+      // is the change test.
       const isReset = previous != null && previous.source.key !== source.key;
       // The first evaluation, and every reset, starts from the restored pages
       // when a Back or Forward brought the reader here (AECI-1900), so the
@@ -468,9 +505,10 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   });
 
   // Append-mode dim signal: true only while a RESET refetch (sort/filter change,
-  // which restarts at page 1) is in flight — NOT while appending a later page.
-  // Lets the page dim on reset but keep the accumulated rows bright as it grows.
-  const reloading = computed<boolean>(() => loading() && targetPage() <= 1);
+  // or a new `?page=`, which restarts at the URL's first page) is in flight —
+  // NOT while appending a later page. Lets the page dim on reset but keep the
+  // accumulated rows bright as it grows.
+  const reloading = computed<boolean>(() => loading() && targetPage() <= urlPage());
 
   // --- History restore (AECI-1900) -------------------------------------------
 
@@ -490,8 +528,8 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   /**
    * Store the pages on screen as the reader leaves this history entry, keyed by
    * the request line of the first page in the buffer and the entry on screen.
-   * That line is the one a Back to this entry builds first (`?page=` seeds
-   * `targetPage`, a reset starts at 1), and that entry is the one it returns
+   * That line is the one a Back to this entry builds first (`?page=` sets
+   * `targetPage` on every navigation), and that entry is the one it returns
    * to, so the two meet.
    */
   function saveForHistory(): void {
