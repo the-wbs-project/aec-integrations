@@ -23,7 +23,10 @@
        48px figure. The third card is the range marker: both scores as pins on
        one 1 to 5 axis. It repeats numbers the cards already print, so it is
        hidden from assistive tech. -->
-  <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr]" data-testid="review-summary">
+  <div
+    class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr]"
+    data-testid="review-summary"
+  >
     <div
       aecCard
       stripe="forest"
@@ -101,8 +104,10 @@
   }
 
   <!-- Review cards (AECI-1784): three columns from xl, two from md, one below.
-       Every card is one cell (ruling A8). The order is the API's, newest first. -->
-  <ul class="grid items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
+       Every card is one cell (ruling A8). The order is the API's, newest first.
+       grid-cols-1 pins the single column to minmax(0, 1fr), so one long
+       unbroken word or URL wraps instead of widening the page. -->
+  <ul class="grid grid-cols-1 items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
     @for (r of reviews(); track r.id) {
     <li>
       <!-- Each review is an article named by its title, and the article is the
@@ -134,7 +139,7 @@
                 i18n="@@products.detail.reviews.item.overall"
                 >Overall</span
               >
-              <span class="flex items-center gap-2">
+              <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <aec-review-stars [rating]="r.rating_overall" kind="overall" />
                 <span
                   class="text-t-14 font-semibold tabular-nums text-(--text-primary)"
@@ -151,7 +156,7 @@
                 i18n="@@products.detail.reviews.item.onboarding"
                 >Onboarding</span
               >
-              <span class="flex items-center gap-2">
+              <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <aec-review-stars [rating]="r.rating_onboarding" kind="onboarding" />
                 <span
                   class="text-t-14 font-semibold tabular-nums text-(--text-primary)"
