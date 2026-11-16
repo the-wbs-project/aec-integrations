@@ -51,7 +51,7 @@ import type { RefinementItem } from './refinement-item';
   selector: 'aec-facet-sidebar',
   imports: [FacetPanel, SearchRefinementList],
   template: `
-    <aec-facet-panel [activeCount]="activeFilterCount()" [orderNote]="orderNote">
+    <aec-facet-panel [activeCount]="activeFilterCount()" [orderNote]="orderNote()">
       @for (group of groups(); track group.kind) {
         <aec-search-refinement-list
           [label]="group.label"
@@ -78,13 +78,6 @@ export class FacetSidebar {
 
   protected readonly clearClass = FILTER_LINK_CLASS;
 
-  /**
-   * How the terms are ordered, stated under the panel (rulings 5 and 6 of
-   * 2026-11-16). True of `GET /api/products/facets`: phases by `display_order`
-   * (project order), categories and trades by `display_order`, which is A to Z
-   * (held by `apps/api/src/lib/taxonomy-a-to-z.spec.ts`), audiences by name.
-   */
-  protected readonly orderNote = $localize`:@@listing.filters.order.directory:Phases in project order. Other terms A to Z.`;
   private readonly router = inject(Router);
 
   /** Browse pages lock (and hide) their own dimension; `/products` passes none. */
@@ -188,6 +181,30 @@ export class FacetSidebar {
         .filter((item) => item.count > 0 || item.isRefined);
       return { kind: d.kind, label: this.groupLabel(d.kind), items };
     });
+  });
+
+  /**
+   * How the terms are ordered, stated under the panel (rulings 5 and 6 of
+   * 2026-11-16). True of `GET /api/products/facets`: phases by `display_order`
+   * (project order), categories and trades by `display_order`, which is A to Z
+   * (held by `apps/api/src/lib/taxonomy-a-to-z.spec.ts`), audiences by name.
+   *
+   * The caption names only groups the reader can see (AECI-1794). A phase term
+   * page locks and hides the Phases group, and a group with no terms left under
+   * the active filters renders nothing. With no Phases group on screen, every
+   * group shown is A to Z, so the caption says only that. Before the counts
+   * load there are no groups, and the caption follows the lock alone, so the
+   * server render and the first client render agree.
+   */
+  protected readonly orderNote = computed(() => {
+    const groups = this.groups();
+    const phasesShown =
+      groups.length === 0
+        ? this.lockedKind() !== 'phase'
+        : groups.some((g) => g.kind === 'phase' && g.items.length > 0);
+    return phasesShown
+      ? $localize`:@@listing.filters.order.directory:Phases in project order. Other terms A to Z.`
+      : $localize`:@@listing.filters.order.directoryNoPhases:Terms A to Z.`;
   });
 
   /** True when any non-locked dimension filter is active in the URL. */

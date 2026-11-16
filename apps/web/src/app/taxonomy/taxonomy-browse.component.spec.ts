@@ -264,3 +264,63 @@ describe('TaxonomyBrowsePage breadcrumb (AECI-1777)', () => {
     ]);
   });
 });
+
+describe('TaxonomyBrowsePage — page header and empty term (AECI-1794)', () => {
+  function setup(term: typeof TERM): void {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([
+          {
+            path: 'categories/:slug',
+            component: TaxonomyBrowsePage,
+            data: { kind: 'category', term },
+          },
+        ]),
+      ],
+    });
+  }
+
+  async function open(): Promise<ComponentFixture<OutletHost>> {
+    const fixture = TestBed.createComponent(OutletHost);
+    await TestBed.inject(Router).navigateByUrl('/categories/project-management');
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('sets the h1, the description as the lede and the count line in the header roles', async () => {
+    setup(TERM);
+    const fixture = await open();
+    const header = el(fixture).querySelector('[slot="header"]')!;
+    const h1 = header.querySelector('h1')!;
+    expect(h1.textContent?.trim()).toBe('Project Management');
+    expect([...h1.classList].filter((c) => /^(md:)?text-/.test(c))).toEqual([]);
+    const [lede, count] = [...header.querySelectorAll(':scope > p')];
+    expect(lede?.textContent?.trim()).toBe('Tools that run the job.');
+    expect(lede?.classList.contains('text-t-20')).toBe(true);
+    expect(count?.textContent?.trim()).toBe('2 products');
+    TestBed.inject(HttpTestingController).match(() => true);
+  });
+
+  it('shows an empty term with the same words, the link to /products, and no filter rail', async () => {
+    setup({ ...TERM, name: 'Robotics', product_count: 0 });
+    const fixture = await open();
+    const root = el(fixture);
+    const empty = root.querySelector('aec-empty-state')!;
+    const [head, body] = [...empty.querySelectorAll('p')];
+    expect(head?.textContent?.trim()).toBe('No products are tagged Robotics yet.');
+    expect(head?.classList.contains('font-semibold')).toBe(true);
+    expect(body?.textContent?.trim()).toBe('As the catalog grows, this page fills in on its own.');
+    const link = empty.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('/products');
+    expect(link.textContent?.trim()).toBe('Browse all products');
+    // The standalone link role: a 44px target.
+    expect(link.classList.contains('min-h-11')).toBe(true);
+    expect(root.querySelector('aec-facet-sidebar')).toBeNull();
+    // The grid controller still asks for page 1. Drain it.
+    TestBed.inject(HttpTestingController).match(() => true);
+  });
+});

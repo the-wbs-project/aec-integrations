@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import type { ProductsListResponse } from '@aeci/shared';
 
 import { listingCanonicalUrl } from '../core/canonical';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
@@ -79,23 +80,16 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
   ],
   template: `
     <aec-browse-layout>
-      <div slot="header" class="space-y-3">
+      <!-- The page header roles (mock-up 10): the h1 takes the Headline role from
+           the global h1 rule, the lede the Lede role. Ruling 8 of 2026-11-16
+           drops the count from the lede: it followed the filters and could read
+           "(0 in total)". The footer's "Showing X of Y" is the one count. -->
+      <div slot="header">
         <aec-breadcrumb [items]="crumbs" />
-        <h1
-          class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
-          i18n="@@products.index.title"
-        >
-          Products
-        </h1>
-        @if (idx.total() !== null) {
-          <p class="text-(--text-secondary)" i18n="@@products.index.lede">
-            Every AEC software product indexed on AEC Integrations ({{ idx.total() }} in total).
-          </p>
-        } @else {
-          <p class="text-(--text-secondary)" i18n="@@products.index.lede.loading">
-            Every AEC software product indexed on AEC Integrations.
-          </p>
-        }
+        <h1 [class]="headerClass.title" i18n="@@products.index.title">Products</h1>
+        <p [class]="headerClass.lede" i18n="@@products.index.lede">
+          Every AEC software product indexed on AEC Integrations.
+        </p>
       </div>
 
       <aec-facet-sidebar slot="filters" [resetsPage]="false" />
@@ -163,6 +157,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
   `,
 })
 export class ProductsIndex {
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+
   protected readonly crumbs: BreadcrumbItem[] = [
     homeCrumb(),
     { label: $localize`:@@products.index.breadcrumbs.current:Products` },
