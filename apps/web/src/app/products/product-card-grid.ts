@@ -28,11 +28,14 @@ import { RoleBadge } from './role-badge';
  * product can sit in several categories, and no one of them is its "main" one.
  * Both themes via tokens (§11.4).
  */
+/** A fixed column count for a short grid (AECI-1785). See `ProductCardGrid.columns`. */
+export type ProductCardGridColumns = 1 | 2;
+
 @Component({
   selector: 'aec-product-card-grid',
   imports: [RouterLink, AecCard, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
   template: `
-    <ul role="list" [class]="gridClass">
+    <ul role="list" [class]="gridClass" [attr.data-columns]="columns()">
       @if (featured(); as product) {
         <li class="group/card md:col-span-2">
           <div aecCard interactive tone="warm" class="flex h-full flex-col gap-4 p-6 md:p-8">
@@ -160,6 +163,14 @@ export class ProductCardGrid {
    * to render "Most viewed this week" on the same broken grid.
    */
   readonly featuredEyebrow = input<'recently-added' | 'trending'>('recently-added');
+  /**
+   * Caps the columns for a short grid (AECI-1785, the product page's similar products):
+   * `1` keeps one column at every width, `2` keeps two at `lg`. Null, the default,
+   * leaves the shared `.aec-card-grid` steps, so `/products` and the term pages are
+   * unchanged. The rules live beside `.aec-card-grid` in `styles.css`, because an
+   * unlayered grid rule beats a column utility.
+   */
+  readonly columns = input<ProductCardGridColumns | null>(null);
 
   protected readonly featured = computed<ProductListItem | null>(() =>
     this.featuredLead() ? (this.products()[0] ?? null) : null,

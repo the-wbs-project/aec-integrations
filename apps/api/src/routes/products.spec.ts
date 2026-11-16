@@ -1445,13 +1445,20 @@ describe('GET /api/products/:slug — related products', () => {
     const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
     await seedProduct(u(1), 'page', 'Page', { createdAt: at(1) });
     // Eight products share a category with the page product. Two share BOTH,
-    // and must still appear once. u(4) and u(5) have the same timestamp, so
-    // `id ASC` decides their order.
-    for (let n = 2; n <= 9; n++) await seedProduct(u(n), `p${n}`, `P${n}`, { createdAt: at(n) });
-    await t.db
-      .update(products)
-      .set({ createdAt: at(5) })
-      .where(eq(products.id, u(4)));
+    // and must still appear once. Names mix case on purpose: a BINARY order would
+    // put every capital first. u(4) and u(5) tie under NOCASE, so `id ASC` decides
+    // them. Timestamps rise with the id, so a newest-first order would differ.
+    const names: Record<number, string> = {
+      2: 'delta',
+      3: 'Alpha',
+      4: 'beta',
+      5: 'Beta',
+      6: 'Gamma',
+      7: 'eSUB',
+      8: 'Zeta',
+      9: 'charlie',
+    };
+    for (let n = 2; n <= 9; n++) await seedProduct(u(n), `p${n}`, names[n]!, { createdAt: at(n) });
     await seedProduct(u(10), 'elsewhere', 'Elsewhere', { createdAt: at(20) });
     await seedProduct(u(11), 'bare', 'Bare', { createdAt: at(21) });
     await t.db
@@ -1469,8 +1476,8 @@ describe('GET /api/products/:slug — related products', () => {
     ProductDetailSchema.parse(await (await get(detailApp(), `/api/products/${slug}`)).json())
       .related_products;
 
-  it('lists the latest 6 sharing a category, newest first, id breaking ties, self excluded', async () => {
-    expect((await related('page')).map((p) => p.id)).toEqual([u(9), u(8), u(7), u(6), u(4), u(5)]);
+  it('lists the first 6 sharing a category, A to Z by name whatever the case, id breaking ties, self excluded', async () => {
+    expect((await related('page')).map((p) => p.id)).toEqual([u(3), u(4), u(5), u(9), u(2), u(7)]);
   });
 
   it('is empty for a product with no category', async () => {

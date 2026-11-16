@@ -14,6 +14,9 @@
  *    selected every row renders (up to the 20-row `@defer` cut): a default filter on a
  *    paid input is placement. A filter the reader types is allowed, and is checked to
  *    keep the same rows whatever the paid inputs.
+ *  - The product page Similar products section (`ProductSimilarProducts`, AECI-1785).
+ *    The API orders `related_products` A to Z by name, id breaking a tie (R1). The
+ *    section must render that order and every row, whatever the paid inputs.
  */
 
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
@@ -35,6 +38,7 @@ import { TaxonomyIndexPage } from '../taxonomy/taxonomy-index';
 
 import { INTEGRATIONS_ABOVE_FOLD } from './connector-lane-grouping';
 import { ProductIntegrationsSection } from './product-integrations-section';
+import { ProductSimilarProducts } from './product-similar-products';
 
 type Direction = 'rising' | 'falling';
 const DIRECTIONS = ['rising', 'falling'] as const;
@@ -279,5 +283,105 @@ describe('on-page ordering firewall: the product page Integrations section, rend
       const flipped = rows.map((r, i) => paid(r, levelOf(i, rows.length, dir)));
       expect(renderedRows(flipped, 'partner 0'), dir).toEqual(base);
     }
+  });
+});
+
+// ─── The product page Similar products section, rendered ──────────────────────
+
+/**
+ * Six related products as the API sends them: A to Z by name, with a real tie
+ * ("delta" and "Delta" fold to one name, id decides). Every other field is a
+ * payload field that a plan can reach or that a sort could be tempted to read.
+ */
+function similarFixture(): ProductListItem[] {
+  const names = ['Alpha', 'bravo', 'delta', 'Delta', 'Echo', 'foxtrot'];
+  return names.map((name, i) => ({
+    id: `00000000-0000-4000-8000-${String(100 + i).padStart(12, '0')}`,
+    slug: `similar-${i}`,
+    name,
+    logo_url: null,
+    product_role: 'application',
+    vendor: null,
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  }));
+}
+
+/** Every non-order field of one card, raised to `level`. Name and id stay. */
+function paidCard(item: ProductListItem, level: number): ProductListItem {
+  return {
+    ...item,
+    logo_url: level === 0 ? null : `https://cdn.example.com/logo-${level}.png`,
+    product_role: level % 3 === 0 ? 'application' : level % 3 === 1 ? 'connector' : 'hybrid',
+    vendor:
+      level === 0
+        ? null
+        : { id: `v-${level}`, slug: `vendor-${level}`, name: `Vendor ${level}`, logo_url: null },
+    integration_count: level * 40,
+    review_count: level * 7,
+    rating_overall_avg: level === 0 ? null : 1 + (level % 4),
+    rating_onboarding_avg: level === 0 ? null : 1 + ((level + 2) % 4),
+    created_at: `2026-${String((level % 12) + 1).padStart(2, '0')}-01T00:00:00.000Z`,
+    updated_at: `2026-${String(((level + 5) % 12) + 1).padStart(2, '0')}-01T00:00:00.000Z`,
+  };
+}
+
+@Component({
+  imports: [ProductSimilarProducts],
+  template: `
+    <section
+      aec-product-similar-products
+      id="similar"
+      aria-labelledby="similar-title"
+      productName="Procore"
+      [products]="products()"
+    ></section>
+  `,
+})
+class SimilarHost {
+  products = signal<readonly ProductListItem[]>([]);
+}
+
+/** The product each rendered card links to, in render order. */
+function renderedSimilar(items: readonly ProductListItem[]): string[] {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    providers: [provideZonelessChangeDetection(), provideRouter([])],
+  });
+  const fixture = TestBed.createComponent(SimilarHost);
+  fixture.componentInstance.products.set(items);
+  fixture.detectChanges();
+  const el = fixture.nativeElement as HTMLElement;
+  return [...el.querySelectorAll('#similar li a')].map((a) => a.getAttribute('href') ?? '?');
+}
+
+describe('on-page ordering firewall: the product page Similar products section, rendered', () => {
+  const items = similarFixture();
+  const apiOrder = items.map((p) => `/products/${p.slug}`);
+
+  it('[surface:product-page-similar-products] renders every row in the API order, the tie included', () => {
+    expect(renderedSimilar(items)).toEqual(apiOrder);
+  });
+
+  for (const dir of DIRECTIONS) {
+    it(`[surface:product-page-similar-products] the rows and their order ignore every paid input (${dir})`, () => {
+      const flipped = items.map((p, i) => paidCard(p, levelOf(i, items.length, dir) + 1));
+      expect(renderedSimilar(flipped)).toEqual(apiOrder);
+    });
+  }
+
+  it('[surface:product-page-similar-products] loading every paid input onto one card moves nothing', () => {
+    for (let i = 0; i < items.length; i++) {
+      const loaded = items.map((p, j) => paidCard(p, j === i ? 9 : 0));
+      expect(renderedSimilar(loaded), `card ${i} loaded`).toEqual(apiOrder);
+    }
+  });
+
+  it('sees a move when the API order changes (the comparison is not vacuous)', () => {
+    expect(renderedSimilar([...items].reverse())).toEqual([...apiOrder].reverse());
   });
 });

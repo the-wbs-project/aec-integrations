@@ -1032,6 +1032,18 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* A short grid caps its columns so a row is not two thirds empty (AECI-1785,
+   `ProductCardGrid.columns`). Only a caller that sets `data-columns` changes. */
+.aec-card-grid[data-columns='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .aec-card-grid[data-columns='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
    the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
    gradients in a single colour, Forest hover at 75% and 45%, taken from the
