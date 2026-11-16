@@ -9,9 +9,11 @@ import {
   inject,
   linkedSignal,
   makeStateKey,
+  untracked,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, type ParamMap, Router } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationStart, type ParamMap, Router } from '@angular/router';
+import { filter } from 'rxjs';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
@@ -178,6 +180,12 @@ function parsePage(raw: string | null): number {
   return parseIndexPage(raw);
 }
 
+/** Pages read back from `ListingHistoryStore` for one request line (AECI-1900). */
+interface Restored<TResponse> {
+  line: string;
+  pages: TResponse[];
+}
+
 /**
  * The listing page the SSR resolver parked in TransferState for this request
  * line, or `null` when there is none (AECI-1863). Reads without removing it:
@@ -212,8 +220,18 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   const history = isBrowser && mode === 'append' ? inject(ListingHistoryStore) : null;
   const traversal = history ? inject(HistoryTraversal) : null;
   if (history) {
-    // Registered before `toSignal` and `httpResource` so it runs before their own
-    // teardown, while every signal below still reads its live value.
+    // Save as the reader leaves each history entry. A filter, sort or view change
+    // on this page pushes a new entry and keeps this component, so leaving an
+    // entry is a `NavigationStart`, not only a teardown. At that moment every
+    // signal below still describes the entry being left.
+    router.events
+      .pipe(
+        filter((e) => e instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => saveForHistory());
+    // And at teardown, registered before `toSignal` and `httpResource` so it runs
+    // before their own, while every signal still reads its live value.
     inject(DestroyRef).onDestroy(() => saveForHistory());
   }
 
@@ -279,20 +297,30 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   });
 
   // AECI-1900: on Back or Forward, the pages this listing showed when the reader
-  // left it, so the first render is as tall as that page was and the router's
-  // own scroll restoration can reach the saved position. Only a history
+  // left that history entry, so the render is as tall as that page was and the
+  // router's own scroll restoration can reach the saved position. Only a history
   // traversal reads the store; a fresh navigation to the same URL fetches.
-  const restored = readRestored();
-
-  // True while the restored pages stand in for the first request. The resource
-  // asks for nothing meanwhile: the rows on screen stay exactly the ones the
-  // reader left, with no refetch that could dim the grid or swap rows under
-  // them. Any change of request line ("Load more", a sort, a filter) ends it
-  // for good, and from there the resource fetches as on any other visit.
-  const restoreActive = linkedSignal<string | null, boolean>({
+  //
+  // Read twice over. When the listing is built, inside the navigation. And on
+  // each later change of request line, because a Back or Forward between two
+  // filter or sort states on this page reuses this component: the query changes
+  // and nothing is rebuilt. A change with no Back behind it ("Load more", a
+  // filter click) finds nothing and fetches as before.
+  const initialRestore = readRestored(requestLine());
+  const restored = linkedSignal<string | null, Restored<TResponse> | null>({
     source: requestLine,
-    computation: (line, previous) => previous == null && restored != null && line === restored.line,
+    computation: (line, previous) => {
+      if (previous == null) return initialRestore?.line === line ? initialRestore : null;
+      return untracked(() => readRestored(line));
+    },
   });
+
+  // True while restored pages stand in for the request. The resource asks for
+  // nothing meanwhile: the rows on screen stay exactly the ones the reader
+  // left, with no refetch that could dim the grid or swap rows under them. Any
+  // other change of request line ends it, and the resource fetches as on any
+  // other visit.
+  const restoreActive = computed<boolean>(() => restored() !== null);
 
   const resource = httpResource<TResponse>(() => {
     const params = requestParams();
@@ -310,7 +338,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // server render. Read only, never removed: the interceptor still spends it.
   // A restored listing has its rows already and never takes the seed.
   const seed =
-    isBrowser && restored == null
+    isBrowser && initialRestore == null
       ? readSeed<TResponse>(inject(TransferState), requestLine())
       : null;
 
@@ -379,10 +407,14 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // `linkedSignal` (no `effect`) so it folds correctly during SSR too: read in
   // the template on the server, it computes `[page1]` from the SSR-resolved
   // resource value. Resets to the fresh first page whenever `resetKey` changes.
-  const pages = linkedSignal<{ key: string; value: TResponse | undefined }, TResponse[]>({
+  const pages = linkedSignal<
+    { key: string; value: TResponse | undefined; restored: Restored<TResponse> | null },
+    TResponse[]
+  >({
     source: () => ({
       key: resetKey(),
       value: current(),
+      restored: restored(),
     }),
     computation: (source, previous) => {
       const value = source.value;
@@ -390,9 +422,10 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       // keep the signal well-defined so reads from either mode are safe).
       if (mode !== 'append') return value ? [value] : (previous?.value ?? []);
       const isReset = previous != null && previous.source.key !== source.key;
-      // The first evaluation starts from the restored pages on Back/Forward
-      // (AECI-1900), so the first render already has every page the reader saw.
-      const prior = isReset ? [] : (previous?.value ?? restored?.pages ?? []);
+      // The first evaluation, and every reset, starts from the restored pages
+      // when a Back or Forward brought the reader here (AECI-1900), so the
+      // render already has every page the reader saw on that history entry.
+      const prior = previous == null || isReset ? (source.restored?.pages ?? []) : previous.value;
       if (!value) return prior; // reload in flight — keep what we have
       if (prior.some((p) => p.page === value.page)) return prior; // dedupe (hydration double-resolve)
       return [...prior, value].sort((a, b) => a.page - b.page);
@@ -441,10 +474,9 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
 
   // --- History restore (AECI-1900) -------------------------------------------
 
-  /** The store entry for this listing on a Back/Forward, or `null`. */
-  function readRestored(): { line: string; pages: TResponse[] } | null {
+  /** The store entry for this request line on a Back/Forward, or `null`. */
+  function readRestored(line: string | null): Restored<TResponse> | null {
     if (!history || !traversal?.isTraversal()) return null;
-    const line = requestLine();
     if (line === null) return null;
     // The history entry this Back/Forward returns to, so two visits to one URL
     // never share an entry.
@@ -456,10 +488,11 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   }
 
   /**
-   * Store the pages on screen as the listing is torn down, keyed by the request
-   * line of the first page in the buffer and the history entry on screen. That
-   * line is the one a Back to this URL builds first (`?page=` seeds
-   * `targetPage`), and that entry is the one it returns to, so the two meet.
+   * Store the pages on screen as the reader leaves this history entry, keyed by
+   * the request line of the first page in the buffer and the entry on screen.
+   * That line is the one a Back to this entry builds first (`?page=` seeds
+   * `targetPage`, a reset starts at 1), and that entry is the one it returns
+   * to, so the two meet.
    */
   function saveForHistory(): void {
     if (!history || (config.enabled && !config.enabled())) return;

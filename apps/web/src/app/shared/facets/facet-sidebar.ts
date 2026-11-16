@@ -10,8 +10,9 @@ import {
   linkedSignal,
   untracked,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationStart, Router } from '@angular/router';
+import { filter } from 'rxjs';
 
 import type { ProductFacetsResponse } from '@aeci/shared';
 
@@ -151,27 +152,28 @@ export class FacetSidebar {
     ? inject(FacetHistoryStore)
     : null;
   private readonly traversal = this.history ? inject(HistoryTraversal) : null;
-  // Whether this panel is built by a Back or Forward, and the history entry it
-  // returns to. Asked now, at creation: the store is read only for the panel's
-  // first counts request.
-  private readonly builtByTraversal = this.traversal?.isTraversal() ?? false;
-  private readonly restoredEntryId = this.traversal?.restoredEntryId() ?? null;
 
   /**
    * The stored counts on a Back or Forward, so the panel renders at full height
    * in its first frame and the router's restore can reach the saved position.
-   * Read on the first counts request only (the inputs that lock a term page are
-   * set by then). Any later change of filters ends it, and the resource fetches.
+   * Read for the first counts request (the inputs that lock a term page are set
+   * by then) and for each later change of filters, because a Back or Forward
+   * between two filter states on one page keeps this panel. A filter click is
+   * not a Back, finds nothing, and the resource fetches.
    */
   private readonly restored = linkedSignal<
     string | null,
     { line: string; body: ProductFacetsResponse } | null
   >({
     source: this.facetLine,
-    computation: (line, previous) => {
-      if (previous != null || !this.builtByTraversal || line === null) return null;
+    computation: (line) => {
+      const traversal = this.traversal;
+      if (line === null || !this.history || !traversal?.isTraversal()) return null;
       const body = untracked(() =>
-        this.history?.read<ProductFacetsResponse>(this.historyKey(line), this.restoredEntryId),
+        this.history?.read<ProductFacetsResponse>(
+          this.historyKey(line),
+          traversal.restoredEntryId(),
+        ),
       );
       return body ? { line, body } : null;
     },
@@ -203,9 +205,21 @@ export class FacetSidebar {
     computation: (current, previous) => current ?? previous?.value ?? null,
   });
 
+  private readonly destroyRef = inject(DestroyRef);
+
   constructor() {
-    // Keep the counts on screen for a later Back or Forward to this page.
-    if (this.history) inject(DestroyRef).onDestroy(() => this.saveForHistory());
+    // Keep the counts on screen for a later Back or Forward to this history
+    // entry: as the reader leaves it (a filter click keeps this panel, so that
+    // is a `NavigationStart`), and at teardown.
+    if (this.history) {
+      this.router.events
+        .pipe(
+          filter((e) => e instanceof NavigationStart),
+          takeUntilDestroyed(this.destroyRef),
+        )
+        .subscribe(() => this.saveForHistory());
+      this.destroyRef.onDestroy(() => this.saveForHistory());
+    }
   }
 
   private historyKey(line: string): string {

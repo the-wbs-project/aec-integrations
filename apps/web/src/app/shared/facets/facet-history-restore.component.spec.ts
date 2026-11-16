@@ -188,6 +188,39 @@ describe('FacetSidebar history restore (AECI-1900)', () => {
     env.httpMock.verify();
   });
 
+  it('Back and Forward between two filter states on one page restore the counts without a request', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list?category_id=c1');
+    env.harness.detectChanges();
+    await settle();
+    env.httpMock.expectOne((r) => r.url === FACETS_URL).flush(counts('One'));
+    await settle();
+    env.harness.detectChanges();
+
+    // A filter click: same panel, new history entry, fresh counts.
+    await env.harness.navigateByUrl('/list?category_id=c1,c2');
+    env.harness.detectChanges();
+    await settle();
+    env.httpMock.expectOne((r) => r.url === FACETS_URL).flush(counts('Two'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.text()).toContain('Cat Two');
+
+    await back(env);
+    expect(env.location.path()).toBe('/list?category_id=c1');
+    expect(env.text()).toContain('Cat One');
+    env.httpMock.expectNone((r) => r.url === FACETS_URL);
+
+    env.location.forward();
+    await settle();
+    env.harness.detectChanges();
+    await settle();
+    env.harness.detectChanges();
+    expect(env.text()).toContain('Cat Two');
+    env.httpMock.expectNone((r) => r.url === FACETS_URL);
+    env.httpMock.verify();
+  });
+
   it('the server never reads or writes the store', async () => {
     const read = vi.spyOn(FacetHistoryStore.prototype, 'read');
     const write = vi.spyOn(FacetHistoryStore.prototype, 'write');

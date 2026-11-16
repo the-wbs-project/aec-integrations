@@ -315,4 +315,72 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     env.httpMock.expectNone((r) => r.url === '/api/test');
     env.httpMock.verify();
   });
+
+  // A filter or sort change on the page pushes a history entry and keeps the
+  // component. Back between two such states used to refetch page 1 and lose the
+  // "Load more" pages.
+  it('Back and Forward between two filter states on one page restore each without a request', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list');
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1, 'a'));
+    await settle();
+    env.harness.detectChanges();
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('page') === '2').flush(page(2, 'a'));
+    await settle();
+    env.harness.detectChanges();
+    const host = env.host();
+
+    // A filter click: same component, new history entry, fresh fetch.
+    await env.harness.navigateByUrl('/list?category_id=x');
+    env.harness.detectChanges();
+    env.httpMock
+      .expectOne((r) => r.params.get('category_id') === 'x' && r.params.get('page') === '1')
+      .flush(page(1, 'f'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['f1']);
+    expect(env.host()).toBe(host);
+
+    await back(env); // to the unfiltered state, same component
+    expect(env.location.path()).toBe('/list');
+    expect(env.host()).toBe(host);
+    expect(env.rows()).toEqual(['a1', 'a2']);
+    expect(env.host().idx.reloading()).toBe(false);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+
+    env.location.forward(); // to the filtered state
+    await settle();
+    env.harness.detectChanges();
+    expect(env.location.path()).toBe('/list?category_id=x');
+    expect(env.rows()).toEqual(['f1']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+
+    // "Load more" after an in-page restore fetches the next page.
+    await back(env);
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('page') === '3').flush(page(3, 'a'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['a1', 'a2', 'a3']);
+    env.httpMock.verify();
+  });
+
+  it('a filter click (not a Back) on the page still fetches', async () => {
+    const env = await setup();
+    await browseThenLeave(env, '/list?category_id=x', 1, 'f');
+    await browseThenLeave(env, '/list', 1, 'a');
+    await back(env); // restored /list
+    // Clicking the same filter again is a fresh navigation: it must fetch,
+    // although an entry for that request is stored.
+    await env.harness.navigateByUrl('/list?category_id=x');
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('category_id') === 'x').flush(page(1, 'fresh'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['fresh1']);
+    env.httpMock.verify();
+  });
 });

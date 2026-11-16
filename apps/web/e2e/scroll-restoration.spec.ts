@@ -464,7 +464,7 @@ test('two visits to /products keep their own pages and positions on Back', async
 // The reader stops a little above the bottom of the page, deep in the panel,
 // and leaves through the site header. The filters are picked from the live
 // counts so the cases do not depend on seeded ids.
-type FacetTerm = { id: string; slug: string; product_count: number };
+type FacetTerm = { id: string; slug: string; name: string; product_count: number };
 type FacetCounts = Record<'categories' | 'audiences' | 'phases' | 'trades', FacetTerm[]>;
 
 async function facetCounts(page: Page, query = ''): Promise<FacetCounts> {
@@ -560,6 +560,158 @@ test.describe('Back returns the reader to their place in a filtered listing (AEC
       await expectRestored(page, saved, 'Back');
     });
   }
+});
+
+// AECI-1900, Back and Forward between filter states on one page. A filter click
+// pushes a history entry and keeps the listing and its panel, so a Back or
+// Forward between two filter states rebuilds nothing. Both now save as the
+// reader leaves each entry and look the entry up again on the way back, so
+// the rows (with every "Load more" page) and the counts are there at once.
+//
+// Here the reader applies the filters by clicking the panel, so every filter
+// state is its own history entry, then leaves through the site header.
+type FilterClick = { group: string; name: string };
+type FilterPlan = { start: string; clicks: FilterClick[]; end: string };
+
+const FILTER_PLANS: { name: string; plan: (page: Page) => Promise<FilterPlan | null> }[] = [
+  {
+    name: '/products with one filter',
+    plan: async (page) => {
+      const [phase] = busiest((await facetCounts(page)).phases);
+      return phase
+        ? {
+            start: '/products',
+            clicks: [{ group: 'Phases', name: phase.name }],
+            end: `/products?phase_id=${phase.id}`,
+          }
+        : null;
+    },
+  },
+  {
+    name: '/products with two filters',
+    plan: async (page) => {
+      const [first, second] = busiest((await facetCounts(page)).phases);
+      return first && second
+        ? {
+            start: '/products',
+            clicks: [
+              { group: 'Phases', name: first.name },
+              { group: 'Phases', name: second.name },
+            ],
+            end: `/products?phase_id=${[first.id, second.id].sort().join(',')}`,
+          }
+        : null;
+    },
+  },
+  {
+    name: 'a term page with a filter',
+    plan: async (page) => {
+      const [phase] = busiest((await facetCounts(page)).phases);
+      if (!phase) return null;
+      const [audience] = busiest((await facetCounts(page, `?phase_id=${phase.id}`)).audiences);
+      return audience
+        ? {
+            start: `/phases/${phase.slug}`,
+            clicks: [{ group: 'Audiences', name: audience.name }],
+            end: `/phases/${phase.slug}?audience_id=${audience.id}`,
+          }
+        : null;
+    },
+  },
+];
+
+/**
+ * Brings one filter checkbox to the middle of the viewport and clicks it with a
+ * DOM click, as a reader ticking a filter. Returns the position at the click:
+ * what the router saves for a later Back to the state being left.
+ */
+async function clickFilter(page: Page, click: FilterClick): Promise<number> {
+  const group = page.locator('aec-facet-sidebar fieldset', {
+    has: page.locator('legend', { hasText: click.group }),
+  });
+  const box = group.getByRole('checkbox', {
+    name: new RegExp(`^${click.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`),
+  });
+  if ((await box.count()) === 0) await group.getByRole('button').first().click();
+  await untilHydrated(page.locator('aec-facet-sidebar'));
+  return box.evaluate((input) => {
+    input.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+    const y = Math.round(window.scrollY);
+    (input as HTMLInputElement).click();
+    return y;
+  });
+}
+
+test.describe('Back and Forward between filter states on one page (AECI-1900)', () => {
+  for (const { name, plan } of FILTER_PLANS) {
+    test(`${name}: Back and Forward restore the filtered listing`, async ({ page }) => {
+      const steps = await plan(page);
+      test.skip(steps === null, 'no filter with products in this environment');
+      await page.goto(steps!.start);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator(LISTING_CARDS).first()).toBeVisible({ timeout: 15_000 });
+
+      let clickedAt = 0;
+      for (const click of steps!.clicks) {
+        clickedAt = await clickFilter(page, click);
+        await expect(page).toHaveURL(new RegExp(click.group === 'Phases' ? 'phase_id=' : '_id='));
+        await page.waitForLoadState('networkidle');
+        await layoutSettled(page);
+      }
+      await expect(page).toHaveURL(urlEndingWith(steps!.end));
+      const cards = await page.locator(LISTING_CARDS).count();
+      const saved = await stopNearBottomThenLeave(page);
+
+      // Back from another page: the listing is rebuilt from the store.
+      await page.goBack();
+      await expect(page).toHaveURL(urlEndingWith(steps!.end), { timeout: 15_000 });
+      await expectRestored(page, saved, 'Back');
+
+      // Back to the state before the last filter click: same listing, new query.
+      await page.goBack();
+      await expect(page).not.toHaveURL(urlEndingWith(steps!.end));
+      await expectRestored(page, clickedAt, 'Back to the previous filter state');
+
+      // Forward to the filtered state: same listing again.
+      await page.goForward();
+      await expect(page).toHaveURL(urlEndingWith(steps!.end), { timeout: 15_000 });
+      await expectRestored(page, saved, 'Forward');
+      expect(await page.locator(LISTING_CARDS).count()).toBe(cards);
+    });
+  }
+
+  test('/products: Back across a filter click keeps the "Load more" pages', async ({ page }) => {
+    const [phase] = busiest((await facetCounts(page)).phases);
+    test.skip(!phase, 'no filter with products in this environment');
+    await page.goto('/products');
+    await page.waitForLoadState('networkidle');
+    const cards = page.locator(LISTING_CARDS);
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    const loadMore = page.locator('aec-pagination-footer a').first();
+    test.skip((await loadMore.count()) === 0, 'the listing has no "Load more" here');
+    await untilHydrated(loadMore);
+    const firstPage = await cards.count();
+    await loadMore.click();
+    await expect.poll(() => cards.count()).toBeGreaterThan(firstPage);
+    const loaded = await cards.count();
+    await markDocument(page);
+
+    const clickedAt = await clickFilter(page, { group: 'Phases', name: phase!.name });
+    await expect(page).toHaveURL(/phase_id=/);
+    await page.waitForLoadState('networkidle');
+    const filteredAt = await layoutSettled(page);
+    const filteredCards = await cards.count();
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/products$/);
+    await expectRestored(page, clickedAt, 'Back across the filter click');
+    expect(await cards.count(), 'the "Load more" page is still there').toBe(loaded);
+
+    await page.goForward();
+    await expect(page).toHaveURL(/phase_id=/);
+    await expectRestored(page, filteredAt, 'Forward across the filter click');
+    expect(await cards.count()).toBe(filteredCards);
+  });
 });
 
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets
