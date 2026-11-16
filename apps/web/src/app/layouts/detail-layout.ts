@@ -90,9 +90,10 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
       <!-- The band shell (AECI-1778). See the class comment for the order. -->
       <!-- The nav host takes the band wrap's gutters as padding, so its bar spans the page
            and its links line up with every band. 3rem plus half the space beyond 1328px is
-           BAND_WRAP_CLASS's content edge. -->
+           BAND_WRAP_CLASS's content edge. The container is Bone, so a nav with rest="clear"
+           shows the Bone band behind it at rest. The body below sits on its own white band. -->
       <div
-        class="bg-(--surface-base) text-(--text-primary) [&>[slot=nav]]:px-6 md:[&>[slot=nav]]:px-8 lg:[&>[slot=nav]]:px-[max(3rem,calc((100%-1328px)/2+3rem))]"
+        class="bg-(--accent-warm) text-(--text-primary) [&>[slot=nav]]:px-6 md:[&>[slot=nav]]:px-8 lg:[&>[slot=nav]]:px-[max(3rem,calc((100%-1328px)/2+3rem))]"
         data-shell="bands"
       >
         <ng-container [ngTemplateOutlet]="heroSlot" />
@@ -119,7 +120,8 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 
         <!-- The page's one Bone band, the About band. With no lead it is not shown: the
              outer has() hides it when the inner wrap holds nothing. The facts ground above
-             is the same band, cut by the nav bar, which is white at rest and stuck. -->
+             is the same band. It runs through the nav at rest when the nav is rest="clear";
+             a solid nav cuts it with a white bar. -->
         <div
           class="aec-bone-band bg-(--accent-warm) has-[>[data-lead]:empty]:hidden"
           data-testid="detail-lead-band"
@@ -129,8 +131,10 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
           </div>
         </div>
 
-        <div [class]="wrap" class="space-y-12 py-16 md:py-24">
-          <ng-container [ngTemplateOutlet]="bodySlot" />
+        <div class="bg-(--surface-base)" data-testid="detail-body-band">
+          <div [class]="wrap" class="space-y-12 py-16 md:py-24">
+            <ng-container [ngTemplateOutlet]="bodySlot" />
+          </div>
         </div>
       </div>
     } @else {

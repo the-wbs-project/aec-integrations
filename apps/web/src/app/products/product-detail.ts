@@ -479,7 +479,7 @@ import { AecCard } from '../shared/card/card';
           wrapper to inherit spacing from. See DetailLayout.
         -->
         @if (sectionNav().length >= 2) {
-          <aec-section-nav slot="nav" [pageName]="p.name" [sections]="sectionNav()" />
+          <aec-section-nav slot="nav" rest="clear" [pageName]="p.name" [sections]="sectionNav()" />
         }
 
         <!--

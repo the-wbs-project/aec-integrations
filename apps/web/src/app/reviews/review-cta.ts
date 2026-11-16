@@ -61,8 +61,11 @@ type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
         >
       </span>
     } @else {
+      <!-- grow: the button fills the host when a parent stretches it (the hero band's
+           equal columns below md, AECI-1778). With a content-sized host it changes nothing. -->
       <a
         aecButton
+        class="grow"
         [variant]="variant()"
         [routerLink]="linkCommands()"
         [queryParams]="queryParams()"

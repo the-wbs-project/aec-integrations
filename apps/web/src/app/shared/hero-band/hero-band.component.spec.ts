@@ -95,7 +95,10 @@ describe('aec-hero-band (AECI-1766)', () => {
     const actions = q('[data-testid="action"]')!.parentElement!;
     expect(actions.className).toContain('flex-wrap');
     expect(actions.className).not.toContain('flex-col');
-    expect(actions.className).toContain('max-md:[&>*]:flex-1');
+    // Below md: equal columns of one row (AECI-1778), so the actions share the width evenly.
+    expect(actions.className).toContain('max-md:grid');
+    expect(actions.className).toContain('max-md:grid-flow-col');
+    expect(actions.className).toContain('max-md:auto-cols-fr');
     expect(actions.className).toContain('mt-6');
     const panel = q('.aec-hero-panel')!;
     expect(panel.classList.contains('bg-(--surface-hero-panel)')).toBe(true);

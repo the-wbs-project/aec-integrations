@@ -32,7 +32,7 @@ import { RoleBadge } from './role-badge';
  * for every visitor:
  *
  *   - the breadcrumb, Bone on Forest;
- *   - the kicker row: the "Product" eyebrow, the role chip and the maintenance chip with
+ *   - the kicker row: the role chip and the maintenance chip with
  *     its "Reviewed" or "Updated" date (ruling R3, decision 12);
  *   - the mark and the name. The band renders the page's only `h1`. An unclaimed product's
  *     104px mark is the initial tile (the logo rule, AECI-1769, until counsel answers
@@ -76,15 +76,10 @@ import { RoleBadge } from './role-badge';
       <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
       <!-- The role chip renders nothing for the default "application" role, so most
-           products show the eyebrow and the maintenance chip. A connector or hybrid is
-           flagged where the visitor first looks (Stage 1.5 Addendum B). -->
+           products show the maintenance chip alone. A connector or hybrid is flagged where
+           the visitor first looks (Stage 1.5 Addendum B). No "Product" eyebrow: the
+           breadcrumb already says Products, and mock-up 6 drops it (AECI-1778). -->
       <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
-        <p
-          class="text-t-12 uppercase tracking-[0.14em] text-(--text-on-brand-secondary)"
-          i18n="@@products.detail.eyebrow"
-        >
-          Product
-        </p>
         <aec-role-badge [role]="p.product_role" />
         <aec-maintenance-marker
           [maintainedBy]="p.maintenance.maintained_by"

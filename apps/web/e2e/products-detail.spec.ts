@@ -230,3 +230,62 @@ test.describe('product detail — table names and section-nav location (AECI-831
     await expect(nav.locator('a[aria-current="location"]')).toHaveCount(1);
   });
 });
+
+// AECI-1778 review: below md the two hero actions are equal columns, each on one line.
+test.describe('product hero actions below md (AECI-1778)', () => {
+  for (const width of [390, 640]) {
+    test(`at ${width}px "Visit website" and "Write a review" are equal and on one line`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      const band = page.locator('.aec-hero-band');
+      await expect(band.locator('h1')).toBeVisible();
+      // Computed sizes are read once every finite animation has finished.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document
+                .getAnimations()
+                .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity).length,
+          ),
+        )
+        .toBe(0);
+      const boxes = await band.locator('[data-variant^="on-brand"]').evaluateAll((els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          // One line of label text: every visible text box of the label shares one row.
+          // The sr-only new-tab note is a clipped 1px box, so text in it is skipped.
+          const tops: number[] = [];
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const parent = n.parentElement!;
+            if (!n.textContent!.trim() || parent.getBoundingClientRect().width <= 2) continue;
+            const range = document.createRange();
+            range.selectNodeContents(n);
+            for (const q of range.getClientRects()) if (q.width > 0) tops.push(q.top);
+          }
+          tops.sort((x, y) => x - y);
+          const lines = tops.filter((t, i) => i === 0 || t - tops[i - 1]! > 6).length;
+          return {
+            text: el.textContent!.trim(),
+            width: r.width,
+            height: r.height,
+            lines,
+          };
+        }),
+      );
+      expect(boxes.map((b) => b.text)).toEqual([
+        expect.stringContaining('Visit website'),
+        'Write a review',
+      ]);
+      const [visit, review] = boxes;
+      expect(Math.abs(visit!.width - review!.width), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
+      for (const b of boxes) {
+        expect(b.lines, `${b.text} at ${width}px: ${JSON.stringify(boxes)}`).toBe(1);
+        expect(b.height).toBe(44);
+      }
+    });
+  }
+});
