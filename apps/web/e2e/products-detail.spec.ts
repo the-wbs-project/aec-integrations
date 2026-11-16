@@ -231,10 +231,13 @@ test.describe('product detail — table names and section-nav location (AECI-831
   });
 });
 
-// AECI-1778 review: below md the two hero actions are equal columns, each on one line.
+// AECI-1778 review: below md every hero action is on one line and 44px tall. From 480px
+// to md they are equal columns. Below 480px they stack full width (AECI-1780), because two
+// columns at 390px wrapped "Sign in to review" to two lines.
 test.describe('product hero actions below md (AECI-1778)', () => {
-  for (const width of [390, 640]) {
-    test(`at ${width}px "Visit website" and "Write a review" are equal and on one line`, async ({
+  for (const width of [320, 390, 640]) {
+    const stacked = width < 480;
+    test(`at ${width}px "Visit website" and "Write a review" are ${stacked ? 'full width' : 'equal'} and on one line`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -283,10 +286,64 @@ test.describe('product hero actions below md (AECI-1778)', () => {
       ]);
       const [visit, review] = boxes;
       expect(Math.abs(visit!.width - review!.width), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
+      const row = await band
+        .locator('[data-testid="hero-band-actions"]')
+        .evaluate((el) => el.getBoundingClientRect().width);
+      if (stacked) {
+        // One column: each action spans the whole row, one under the other.
+        for (const b of boxes) {
+          expect(Math.abs(b.width - row), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
+        }
+      } else {
+        // Two equal columns of one row: each is about half the row, less the 12px gap.
+        expect(Math.abs(visit!.width - (row - 12) / 2), JSON.stringify(boxes)).toBeLessThanOrEqual(
+          1,
+        );
+      }
       for (const b of boxes) {
         expect(b.lines, `${b.text} at ${width}px: ${JSON.stringify(boxes)}`).toBe(1);
         expect(b.height).toBe(44);
       }
+    });
+  }
+});
+
+// AECI-1780: the About band holds the description and "Who it is for", on the Bone band.
+// fixture-procore carries a description and audience terms in the e2e seed.
+test.describe('product About band (AECI-1780)', () => {
+  for (const [width, sideBySide] of [
+    [1280, true],
+    [390, false],
+  ] as const) {
+    test(`at ${width}px "Who it is for" sits ${sideBySide ? 'beside' : 'under'} the description`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      const about = page.locator('#about');
+      const description = about.locator('[data-testid="product-description"]');
+      const panel = about.locator('[data-testid="product-who-it-is-for"]');
+      await expect(description).toBeVisible();
+      await expect(panel.getByRole('heading', { name: 'Who it is for' })).toBeVisible();
+      // The facts card no longer holds the facets.
+      await expect(page.locator('[data-testid="product-facts"] #audiences-label')).toHaveCount(0);
+      const d = (await description.boundingBox())!;
+      const p = (await panel.boundingBox())!;
+      if (sideBySide) {
+        expect(p.x).toBeGreaterThan(d.x + d.width - 1);
+      } else {
+        expect(p.y).toBeGreaterThanOrEqual(d.y + d.height);
+      }
+      // The band is the page's Bone band, and the panel is a white card on it.
+      const ground = await page
+        .locator('[data-testid="detail-lead-band"]')
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
+      const white = await page
+        .locator('[data-testid="detail-body-band"]')
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
+      const card = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(ground).not.toBe(card);
+      expect(card).toBe(white);
     });
   }
 });

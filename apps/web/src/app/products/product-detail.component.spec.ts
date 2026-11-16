@@ -1493,7 +1493,9 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     expect(el.textContent).not.toContain('Written by');
   });
 
-  it('gives the Managed group exactly one caption, after Resources', () => {
+  // AECI-1780: the facets moved to the About band, so the Managed group's line sits with
+  // each part of the group: after Resources in the facts card, and after the facets in About.
+  it('puts the Managed caption beside each part of the group it marks', () => {
     const { el } = setup(
       buildProduct({
         audiences: [term('a')],
@@ -1502,21 +1504,29 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
         captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
       }),
     );
-    expect(lines(el, 'field-caption')).toHaveLength(1);
-    // AECI-1779: the caption closes the facts card, after every group it speaks for.
-    // Resources sits in the top row and the three facets in the row below it.
-    const managed = el.querySelector('[data-testid="managed-caption"]')!;
-    for (const id of ['resources-label', 'audiences-label', 'phases-label']) {
-      const group = el.querySelector(`[aria-labelledby="${id}"]`)!;
+    const words = 'Maintained by Procore Technologies · updated October 4, 2026';
+    expect(lines(el, 'field-caption')).toEqual([words, words]);
+    const [card, about] = Array.from(el.querySelectorAll('[data-testid="managed-caption"]'));
+    // In the facts card: after Resources, never in the About band.
+    const resources = el.querySelector('[aria-labelledby="resources-label"]')!;
+    expect(card!.closest('aec-product-facts-card')).not.toBeNull();
+    expect(
+      resources.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // In About: closing "Who it is for", after every facet group it speaks for.
+    const panel = el.querySelector('#about [data-testid="product-who-it-is-for"]')!;
+    expect(about!.closest('#about')).not.toBeNull();
+    for (const id of ['audiences-label', 'phases-label']) {
+      const group = panel.querySelector(`[aria-labelledby="${id}"]`)!;
       expect(
-        group.compareDocumentPosition(managed) & Node.DOCUMENT_POSITION_FOLLOWING,
+        group.compareDocumentPosition(about!) & Node.DOCUMENT_POSITION_FOLLOWING,
         id,
       ).toBeTruthy();
     }
-    expect(managed.parentElement?.lastElementChild).toBe(managed);
+    expect(panel.lastElementChild).toBe(about);
   });
 
-  it('keeps the Managed caption when the group holds facets but no Resources', () => {
+  it('keeps the Managed caption in About when the group holds facets but no Resources', () => {
     const { el } = setup(
       buildProduct({
         trades: [term('t')],
@@ -1525,6 +1535,20 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     );
     expect(el.querySelector('#resources-label')).toBeNull();
     expect(lines(el, 'field-caption')).toHaveLength(1);
+    expect(el.querySelector('#about [data-testid="managed-caption"]')).not.toBeNull();
+  });
+
+  it('keeps the Managed caption under Resources when the group holds only doc links', () => {
+    const { el } = setup(
+      buildProduct({
+        tool_integrations_url: 'https://www.procore.com/integrations',
+        captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
+      }),
+    );
+    expect(lines(el, 'field-caption')).toHaveLength(1);
+    const managed = el.querySelector('[data-testid="managed-caption"]')!;
+    expect(managed.closest('aec-product-facts-card')).not.toBeNull();
+    expect(el.querySelector('[data-testid="product-who-it-is-for"]')).toBeNull();
   });
 
   it('drops the Managed caption when the group shows nothing', () => {
@@ -1756,6 +1780,99 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     const section = el.querySelector('aec-mailing-list-signup section')!;
     expect(section.classList.contains('bg-(--surface-base)')).toBe(true);
     expect(section.classList.contains('bg-(--accent-warm)')).toBe(false);
+  });
+});
+
+describe('ProductDetailPage About band (AECI-1780)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const t = (slug: string, name = slug) => ({ id: `id-${slug}`, slug, name });
+
+  it('puts the description and "Who it is for" in #about, on the Bone lead band', () => {
+    const { el } = setup(
+      buildProduct({
+        audiences: [t('architects', 'Architects')],
+        trades: [t('electrical', 'Electrical')],
+        phases: [t('design', 'Design'), t('construction', 'Construction')],
+      }),
+    );
+    const about = el.querySelector('#about')!;
+    expect(about.closest('[slot="body-lead"]')).not.toBeNull();
+    expect(about.querySelector('[data-testid=product-description]')?.textContent?.trim()).toBe(
+      'Construction management platform.',
+    );
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(panel.querySelector('h3')?.textContent?.trim()).toBe('Who it is for');
+    // Group order is the facet sidebar's, and terms keep the API's order (phases in
+    // lifecycle order), each a chip link to its term page.
+    expect(Array.from(panel.querySelectorAll('h4')).map((h) => h.textContent?.trim())).toEqual([
+      'Audiences',
+      'Trades',
+      'Project phases',
+    ]);
+    const phases = panel.querySelector('[aria-labelledby=phases-label]')!;
+    expect(
+      Array.from(phases.querySelectorAll('a.aec-chip')).map((a) => a.getAttribute('href')),
+    ).toEqual(['/phases/design', '/phases/construction']);
+    // The facts card no longer carries any of the three groups.
+    const facts = el.querySelector('aec-product-facts-card')!;
+    for (const id of ['audiences-label', 'trades-label', 'phases-label']) {
+      expect(facts.querySelector(`#${id}`), id).toBeNull();
+    }
+  });
+
+  it('keeps heading order h2, h3, h4 inside About (axe heading-order)', () => {
+    const { el } = setup(buildProduct({ audiences: [t('a')] }));
+    const tags = Array.from(el.querySelectorAll('#about h2, #about h3, #about h4')).map(
+      (h) => h.tagName,
+    );
+    expect(tags).toEqual(['H2', 'H3', 'H4']);
+  });
+
+  it('renders About for facets alone, with no description, and lists it in the nav', () => {
+    const { el } = setup(buildProduct({ description: null, audiences: [t('a')] }));
+    const about = el.querySelector('#about')!;
+    expect(about).not.toBeNull();
+    expect(about.querySelector('[data-testid=product-description]')).toBeNull();
+    expect(about.querySelector('[data-testid=product-who-it-is-for]')).not.toBeNull();
+    expect(navIds(el)[0]).toBe('about');
+  });
+
+  it('renders About for a facet emptied by AECi, with the removal in its slot', () => {
+    const { el } = setup(
+      buildProduct({
+        description: null,
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'trade_slugs',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: true,
+            },
+          ],
+        },
+      }),
+    );
+    const trades = el.querySelector('#about [aria-labelledby=trades-label]')!;
+    expect(trades.textContent).toContain('Removed by AEC Integrations on September 15, 2026');
+  });
+
+  it('drops the band and its nav entry when there is no description and no facet', () => {
+    const { el } = setup(buildProduct({ description: null }));
+    expect(el.querySelector('#about')).toBeNull();
+    expect(el.querySelector('[slot="body-lead"]')).toBeNull();
+    expect(navIds(el)).not.toContain('about');
+  });
+
+  it('shows the description alone, with no empty "Who it is for" card', () => {
+    const { el } = setup(buildProduct());
+    expect(el.querySelector('#about [data-testid=product-description]')).not.toBeNull();
+    expect(el.querySelector('aec-product-who-it-is-for')).toBeNull();
   });
 });
 
