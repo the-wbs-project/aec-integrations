@@ -104,10 +104,16 @@
   }
 
   <!-- Review cards (AECI-1784): three columns from xl, two from md, one below.
-       Every card is one cell (ruling A8). The order is the API's, newest first.
+       One or two reviews share the row equally (ruling 34, 2026-11-16): one is
+       full width, two are halves from md, so no blank column is left. Every
+       card is one cell (ruling A8). The order is the API's, newest first.
        grid-cols-1 pins the single column to minmax(0, 1fr), so one long
        unbroken word or URL wraps instead of widening the page. -->
-  <ul class="grid grid-cols-1 items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
+  <ul
+    class="grid grid-cols-1 items-start gap-6"
+    [class]="listColumnsClass()"
+    data-testid="review-list"
+  >
     @for (r of reviews(); track r.id) {
     <li>
       <!-- Each review is an article named by its title, and the article is the
@@ -167,7 +173,9 @@
             </span>
           </div>
 
-          <p class="break-words text-t-16 leading-relaxed text-(--text-primary)">{{ r.body }}</p>
+          <p class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary)">
+            {{ r.body }}
+          </p>
 
           <div class="flex flex-wrap items-center gap-2">
             @if (r.role_at_company) {
@@ -238,7 +246,9 @@
           </div>
           }
           <!-- Plain text by interpolation, never innerHTML: line breaks kept. -->
-          <p class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)">
+          <p
+            class="max-w-prose whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)"
+          >
             {{ u.body }}
           </p>
         </section>
@@ -275,7 +285,9 @@
           </div>
           <!-- Plain text by interpolation, never innerHTML: line breaks kept,
                URLs stay text (11c.5). -->
-          <p class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)">
+          <p
+            class="max-w-prose whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)"
+          >
             {{ resp.body }}
           </p>
         </section>

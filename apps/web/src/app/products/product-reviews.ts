@@ -105,6 +105,21 @@ export class ProductReviews {
     () => this.reviewCount() > 0 && this.reviewCount() < 5,
   );
 
+  /**
+   * The review grid's column steps (ruling 34, Chris, 2026-11-16). One or two
+   * reviews share the row equally, so no blank column is left: one review is
+   * full width, two are halves from `md`. Three or more take the grid: two
+   * columns from `md`, three from `xl`. Every card in a row is the same width,
+   * so no review is featured. It reads only the number of cards shown, never
+   * their content, and it never reorders.
+   */
+  protected readonly listColumnsClass = computed(() => {
+    const shown = this.reviews().length;
+    if (shown <= 1) return '';
+    if (shown === 2) return 'md:grid-cols-2';
+    return 'md:grid-cols-2 xl:grid-cols-3';
+  });
+
   protected readonly hasMore = computed(() => this.reviews().length < this.reviewCount());
 
   protected readonly overallDisplay = computed(() => (this.ratingOverallAvg() ?? 0).toFixed(1));

@@ -224,6 +224,55 @@ describe('ProductReviews', () => {
     ]);
   });
 
+  describe('row sharing (ruling 34, 2026-11-16)', () => {
+    const columns = (n: number) => {
+      TestBed.resetTestingModule();
+      const { el } = setup({ reviewCount: n, firstPage: makeReviews(n) });
+      const list = el.querySelector('[data-testid="review-list"]') as HTMLElement;
+      return {
+        md: list.classList.contains('md:grid-cols-2'),
+        xl: list.classList.contains('xl:grid-cols-3'),
+        base: list.classList.contains('grid-cols-1') && list.classList.contains('grid'),
+        titles: [...list.querySelectorAll('h3')].map((h) => h.textContent?.trim()),
+      };
+    };
+
+    it('gives one review the full row at every width', () => {
+      expect(columns(1)).toMatchObject({ md: false, xl: false, base: true });
+    });
+
+    it('splits two reviews into halves from md, never a three-column row', () => {
+      expect(columns(2)).toMatchObject({ md: true, xl: false, base: true });
+    });
+
+    it('keeps the grid at three or more, in the API order', () => {
+      for (const n of [3, 4, 11]) {
+        const c = columns(n);
+        expect(c).toMatchObject({ md: true, xl: true, base: true });
+        expect(c.titles).toEqual(makeReviews(n).map((r) => r.title));
+      }
+    });
+
+    it('caps the text measure inside the card, not the card', () => {
+      TestBed.resetTestingModule();
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [makeReview(1, { updates: [makeUpdate()], vendor_responses: [makeResponse()] })],
+      });
+      const article = el.querySelector('ul > li > article') as HTMLElement;
+      expect(article.classList).not.toContain('max-w-prose');
+      expect(article.querySelector('[data-testid="review-original"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+      expect(article.querySelector('[data-testid="review-update"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+      expect(article.querySelector('[data-testid="vendor-response"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+    });
+  });
+
   it('shows no company or firm on a review', () => {
     const { el } = setup({
       reviewCount: 1,
