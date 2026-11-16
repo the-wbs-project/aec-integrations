@@ -221,6 +221,58 @@ describe('FacetSidebar history restore (AECI-1900)', () => {
     env.httpMock.verify();
   });
 
+  it('never stores the previous counts under a filter state whose counts had not arrived', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list?category_id=c1');
+    env.harness.detectChanges();
+    await settle();
+    env.httpMock.expectOne((r) => r.url === FACETS_URL).flush(counts('One'));
+    await settle();
+    env.harness.detectChanges();
+
+    // A filter click, then the reader leaves before its counts arrive. The panel
+    // still shows "One" while it waits, but those are not the counts for c1,c2.
+    await env.harness.navigateByUrl('/list?category_id=c1,c2');
+    env.harness.detectChanges();
+    await settle();
+    expect(env.text()).toContain('Cat One');
+    env.httpMock.expectOne((r) => r.url === FACETS_URL && r.params.get('category_id') === 'c1,c2');
+    await env.harness.navigateByUrl('/detail');
+
+    await back(env);
+    expect(env.location.path()).toBe('/list?category_id=c1,c2');
+    env.httpMock
+      .expectOne((r) => r.url === FACETS_URL && r.params.get('category_id') === 'c1,c2')
+      .flush(counts('Two'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.text()).toContain('Cat Two');
+    expect(env.text()).not.toContain('Cat One');
+    env.httpMock.verify();
+  });
+
+  it('keeps restored counts while a later navigation runs, and asks for none on the way out', async () => {
+    const env = await setup();
+    await visitThenLeave(env, '/list?category_id=c1', 'A');
+    await back(env);
+    const requested: string[] = [];
+    const router = TestBed.inject(Router);
+    // Each render while the reader leaves; a counts request would show up here.
+    const sub = router.events.subscribe(() => {
+      env.harness.detectChanges();
+      for (const req of env.httpMock.match((r) => r.url === FACETS_URL)) {
+        requested.push(req.request.urlWithParams);
+      }
+    });
+    await env.harness.navigateByUrl('/detail');
+    sub.unsubscribe();
+    expect(requested).toEqual([]);
+    // And the entry left behind still restores.
+    await back(env);
+    expect(env.text()).toContain('Cat A');
+    env.httpMock.expectNone((r) => r.url === FACETS_URL);
+  });
+
   it('the server never reads or writes the store', async () => {
     const read = vi.spyOn(FacetHistoryStore.prototype, 'read');
     const write = vi.spyOn(FacetHistoryStore.prototype, 'write');

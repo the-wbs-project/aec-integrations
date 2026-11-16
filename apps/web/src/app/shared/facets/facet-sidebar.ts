@@ -166,17 +166,19 @@ export class FacetSidebar {
     { line: string; body: ProductFacetsResponse } | null
   >({
     source: this.facetLine,
-    computation: (line) => {
-      const traversal = this.traversal;
-      if (line === null || !this.history || !traversal?.isTraversal()) return null;
-      const body = untracked(() =>
-        this.history?.read<ProductFacetsResponse>(
+    // Untracked: `isTraversal` reads `router.currentNavigation()`, a signal.
+    // Tracked, every later navigation would re-run this, drop the restored
+    // counts as the reader leaves, and fire a counts request on the way out.
+    computation: (line) =>
+      untracked(() => {
+        const traversal = this.traversal;
+        if (line === null || !this.history || !traversal?.isTraversal()) return null;
+        const body = this.history.read<ProductFacetsResponse>(
           this.historyKey(line),
           traversal.restoredEntryId(),
-        ),
-      );
-      return body ? { line, body } : null;
-    },
+        );
+        return body ? { line, body } : null;
+      }),
   });
 
   /**
@@ -228,8 +230,15 @@ export class FacetSidebar {
 
   private saveForHistory(): void {
     const line = this.facetLine();
-    const counts = this.retainedFacets();
-    if (!this.history || line === null || counts === null) return;
+    if (!this.history || line === null) return;
+    // Only counts that answer `line`. `retainedFacets` keeps the previous
+    // filter state's counts on screen while the new request is in flight or
+    // after it failed. Stored under this line, a later Back would show them as
+    // this state's counts and never fetch.
+    const restored = this.restored();
+    const counts =
+      restored?.line === line ? restored.body : this.facets.hasValue() ? this.facets.value() : null;
+    if (counts === null) return;
     this.history.write(this.historyKey(line), this.traversal?.currentEntryId() ?? null, counts);
   }
 

@@ -368,6 +368,30 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     env.httpMock.verify();
   });
 
+  it('never stores the previous rows under a filter state whose rows had not arrived', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list');
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1, 'a'));
+    await settle();
+    env.harness.detectChanges();
+
+    // A filter click, then the reader leaves before its rows arrive. The grid
+    // still shows "a1" while it waits, but those are not the rows for `x`.
+    await env.harness.navigateByUrl('/list?category_id=x');
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['a1']);
+    env.httpMock.expectOne((r) => r.params.get('category_id') === 'x');
+    await env.harness.navigateByUrl('/detail');
+
+    await back(env);
+    expect(env.location.path()).toBe('/list?category_id=x');
+    env.httpMock.expectOne((r) => r.params.get('category_id') === 'x').flush(page(1, 'f'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['f1']);
+    env.httpMock.verify();
+  });
+
   it('a filter click (not a Back) on the page still fetches', async () => {
     const env = await setup();
     await browseThenLeave(env, '/list?category_id=x', 1, 'f');
