@@ -108,10 +108,10 @@ describe('ProductSimilarProducts', () => {
   it.each([
     [1, '1'],
     [2, '2'],
-    [3, null],
+    [3, '3'],
     [4, '2'],
-    [5, null],
-    [6, null],
+    [5, '3'],
+    [6, '3'],
   ])('caps a grid of %i cards at data-columns=%s', (n, expected) => {
     const { section } = mount(items(n));
     expect(section.querySelector('ul.aec-card-grid')?.getAttribute('data-columns')).toBe(expected);

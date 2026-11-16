@@ -28,8 +28,8 @@ import { RoleBadge } from './role-badge';
  * product can sit in several categories, and no one of them is its "main" one.
  * Both themes via tokens (§11.4).
  */
-/** A fixed column count for a short grid (AECI-1785). See `ProductCardGrid.columns`. */
-export type ProductCardGridColumns = 1 | 2;
+/** A set column count (AECI-1785). See `ProductCardGrid.columns`. */
+export type ProductCardGridColumns = 1 | 2 | 3;
 
 @Component({
   selector: 'aec-product-card-grid',
@@ -164,11 +164,11 @@ export class ProductCardGrid {
    */
   readonly featuredEyebrow = input<'recently-added' | 'trending'>('recently-added');
   /**
-   * Caps the columns for a short grid (AECI-1785, the product page's similar products):
-   * `1` keeps one column at every width, `2` keeps two at `lg`. Null, the default,
-   * leaves the shared `.aec-card-grid` steps, so `/products` and the term pages are
-   * unchanged. The rules live beside `.aec-card-grid` in `styles.css`, because an
-   * unlayered grid rule beats a column utility.
+   * A set column count (AECI-1785, the product page's similar products). Any value
+   * makes every row the same height. `1` keeps one column at every width, `2` keeps
+   * two at `lg`, and `3` keeps the shared steps. Null, the default, sets nothing, so
+   * `/products` and the term pages are unchanged. The rules live beside
+   * `.aec-card-grid` in `styles.css`, because an unlayered grid rule beats a utility.
    */
   readonly columns = input<ProductCardGridColumns | null>(null);
 

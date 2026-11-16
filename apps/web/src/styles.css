@@ -1032,8 +1032,14 @@ button.aec-chip:focus-visible {
   }
 }
 
-/* A short grid caps its columns so a row is not two thirds empty (AECI-1785,
-   `ProductCardGrid.columns`). Only a caller that sets `data-columns` changes. */
+/* A grid with a set column count (AECI-1785, `ProductCardGrid.columns`). Every row
+   takes the tallest card's height, so a card with a role chip does not make its row
+   taller than the rest. A short grid caps its columns so a row is not two thirds
+   empty. Only a caller that sets `data-columns` changes. */
+.aec-card-grid[data-columns] {
+  grid-auto-rows: 1fr;
+}
+
 .aec-card-grid[data-columns='1'] {
   grid-template-columns: minmax(0, 1fr);
 }

@@ -20,7 +20,7 @@ import { ProductCardGrid, type ProductCardGridColumns } from './product-card-gri
  * Layout by count, so a short list does not leave a blank right half where the grid
  * can avoid it. One card sits beside the heading from `md`. Two or four cards take
  * two columns at `lg`, so the rows are full. Three, five and six keep the grid's
- * three columns.
+ * three columns. Every row is the same height, so every card is the same size.
  *
  * Attribute selector on the page's `<section id="similar">`, like the extensions
  * section, so the anchor and the labelled region stay on the element the section nav
@@ -67,11 +67,11 @@ export class ProductSimilarProducts {
   readonly productName = input.required<string>();
   readonly products = input.required<readonly ProductListItem[]>();
 
-  protected readonly columns = computed<ProductCardGridColumns | null>(() => {
+  protected readonly columns = computed<ProductCardGridColumns>(() => {
     const n = this.products().length;
     if (n === 1) return 1;
     if (n === 2 || n === 4) return 2;
-    return null;
+    return 3;
   });
 
   protected readonly layoutClass = computed(() =>
