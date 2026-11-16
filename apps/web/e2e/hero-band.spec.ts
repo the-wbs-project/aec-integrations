@@ -333,18 +333,24 @@ test.describe('hero band rendered (AECI-1766)', () => {
           ),
         )
         .toBe(0);
-      const headerBottom = await page
+      const { bottom: headerBottom, right: headerRight } = await page
         .locator('header')
         .first()
-        .evaluate((el) => Math.round(el.getBoundingClientRect().bottom));
+        .evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { bottom: Math.round(r.bottom), right: Math.floor(r.right) };
+        });
       const ground = rgb(FOREST);
-      // The header's last row and the band's first row, across the full width.
+      // The header's last row and the band's first row, across the header's own
+      // width. `html` reserves a stable scrollbar gutter, so where the browser draws
+      // classic scrollbars the viewport's last ~15px are the page ground, not the
+      // header (AECI-1854).
       for (const [label, y] of [
         ['header last row', headerBottom - 1],
         ['band top row', headerBottom],
       ] as const) {
-        const row = await pixelRow(page, y, width);
-        expect(row).toHaveLength(width);
+        const row = await pixelRow(page, y, headerRight);
+        expect(row).toHaveLength(headerRight);
         const worst = Math.max(
           ...row.map((px) => Math.max(...px.map((c, i) => Math.abs(c - ground[i])))),
         );

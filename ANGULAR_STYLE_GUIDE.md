@@ -389,6 +389,28 @@ Lint: 🟡 review-only.
 
 ---
 
+## 20b. First paint and critical CSS
+
+**How it works.** Angular SSR runs Beasties on every server render. Beasties inlines a per-page subset of `styles.css` into a `<style>` in the head: every rule whose selector matches an element in the server HTML, plus `:root`, `html`, `body`, every `@property` and every `@layer` statement. About 30 kB raw and 6.5 kB gzipped per page. The full `styles-*.css` (about 105 kB raw, 18 kB gzipped) loads without blocking render: a `media="print"` link that an inline script switches to `all`. Until it arrives, the page paints with the subset alone. On a cold load over a throttled mobile connection (150ms latency, 1.6 Mbps) we measured about 500ms.
+
+**Two Beasties defects broke the subset (AECI-1854).** Both are fixed in `pnpm-workspace.yaml`.
+
+- Beasties 0.5.4 wrote a `;` after each `@property` rule. The browser drops the rule after a stray `;`. That lost 78 of 80 `@property` rules and the whole `:root` token block, so every `var(--token)` was empty at first paint. The override pins 0.5.5, which fixes it.
+- Beasties drops a rule whose selector is wholly `:where(…)`. Tailwind v4 writes `space-*` and `divide-*` that way. `patches/beasties@0.5.5.patch` matches the selector's argument instead.
+
+**The rule.** First paint must equal the final paint for everything in the server HTML.
+
+- Put design values in tokens on `:root` in `styles.css`. Tokens always reach the subset.
+- A class only reaches the subset if an element in the server HTML carries it. Content that renders only in the browser (a `@defer` block, an `isPlatformBrowser` branch, data fetched after hydration) gets its rules only from the full stylesheet. Give that content a server-rendered placeholder of the same size, or accept that it can paint unstyled for a moment.
+- Never add a selector Beasties cannot match to style a first-paint state. It strips pseudo-classes before matching, so `:hover` and `:focus-visible` rules are kept when the element exists. A selector that is only pseudo-classes and no class, tag or attribute is kept or dropped as a whole.
+- Do not fix a first-paint flash with a literal value in one component (AECI-1852 did). Find why the subset differs and fix that once.
+
+**The guard.** `apps/web/e2e/first-paint.spec.ts` runs in the CI e2e lane. It parses the inlined CSS of `/` with the browser's parser and asserts every `@property` rule, the `:root` tokens and the `space-y` rules survive. It then renders six public pages at 1440px and 390px with scripts off, once with `styles-*.css` blocked and once loaded. The header, the first heading, the first button and the header search field must match in background, colour, corner radius and box. When you bump Angular or Beasties, run it. Drop the override and the patch once Angular pins a Beasties release that carries both fixes.
+
+Lint: 🟡 review-only. The e2e is the enforcement.
+
+---
+
 ## 21. Accessibility (WCAG AA + axe-clean)
 
 - Spartan brain primitives give you a11y for free — don't break their built-in semantics.
@@ -556,6 +578,7 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |
 | Which token is the *right* one (Clay ≤5% of a screen, Bone never a page background, contrast pairings) — the literal ban itself is `Lint: ✅` as of AECI-597 | §20, `DESIGN.md` |
+| First paint equals final paint for server HTML (caught by `e2e/first-paint.spec.ts`, not lint) | §20b |
 | i18n string wrapping; `Cache-Tag` emission; `db.batch([...])` atomicity; no pay-for-placement | §22 |
 
 ### Future enforcement (deferred)
