@@ -259,6 +259,20 @@ export async function computeTotalContributingFirms(db: Db): Promise<number> {
   return row?.value ?? 0;
 }
 
+/** The "most integrated" eligibility: visible, and not a connector (AECI-1087, below).
+ *  Exported so the plan-change evidence (AECI-1621) reads the same set. */
+export const mostIntegratedWhere: SQL = and(
+  ne(products.productRole, 'connector'),
+  visibleProductWhere,
+) as SQL;
+
+/** The "most integrated" order. Exported for the same reason as the `where`. */
+export const mostIntegratedOrderBy: SQL[] = [
+  desc(products.integrationCount),
+  textAsc(products.name),
+  asc(products.id),
+];
+
 export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegratedProduct | null> {
   // Ordering is delegated to the DB: highest `integration_count` wins, then name
   // ascending, then `id`. The name term is case-insensitive (AECI-825), which
@@ -273,10 +287,10 @@ export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegrat
   // itself is unchanged; only this one product ranking filters on role.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
-    where: and(ne(products.productRole, 'connector'), visibleProductWhere),
+    where: mostIntegratedWhere,
     // AECI-1618: a home-page logo shows only while the listing is claimed.
     extras: claimedProductExtra,
-    orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],
+    orderBy: mostIntegratedOrderBy,
   });
   if (!row) return null;
   return {

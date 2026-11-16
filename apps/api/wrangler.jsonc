@@ -609,6 +609,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -893,6 +896,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1201,6 +1207,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

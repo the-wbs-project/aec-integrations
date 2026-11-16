@@ -3,7 +3,8 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: November 6, 2026
+version: 1.0
+last_updated: November 16, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -70,6 +71,12 @@ We hold ourselves to this with automated checks, not only a promise. [How we res
 ## Corrections are free
 
 Anyone can ask us to correct a listing, at no charge. A more complete, accurate listing is ranked by the same rules as every other one. See [Requests and corrections](/docs/reviewers/requests-and-corrections).
+
+## Versions
+
+We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
+
+- [Version 1.0](/docs/trust/how-ranking-works/v1.0) (this version): recorded November 16, 2026. The first recorded version.
 
 ## Related
 

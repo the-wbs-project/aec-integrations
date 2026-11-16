@@ -188,6 +188,13 @@ scope:
     # `legal_notice_reader_deliveries` (DATABASE_SCHEMA.md §8.6l), on the same
     # footing and under the same rule: a writer in any other file is a finding.
     - apps/api/src/lib/legal-notice.ts
+    # Added 2026-11-16 (AECI-1621): the plan-change ranking evidence ledger
+    # `plan_change_snapshots`, log-class under the ADR 0022 amendment of 2026-11-16.
+    # The INSERTs ride the license write's own audited batch (built in
+    # `plan-change-ledger.ts`, called from `license.ts`); the sweep's UPDATEs stamp
+    # where the R2 object went. Never deleted.
+    - apps/api/src/lib/plan-change-ledger.ts
+    - apps/api/src/lib/plan-snapshot-sweep.ts
   categories:
     - Audit logging
     - Data integrity

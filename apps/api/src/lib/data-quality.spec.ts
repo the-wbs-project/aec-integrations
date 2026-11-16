@@ -23,6 +23,7 @@ import {
   mailingList,
   ownershipSyncDeliveries,
   pageViews,
+  planChangeSnapshots,
   products,
   productVendors,
   profiles,
@@ -53,6 +54,7 @@ import {
   checkLicenseMirrorDrift,
   checkLogo404Sample,
   checkOwnershipSyncUnknownVendor,
+  checkPlanSnapshotOverdue,
   checkProductsWithoutVendor,
   checkReviewMirrorDrift,
   checkReviewsMissingAnonymizedAt,
@@ -868,6 +870,44 @@ describe('checkVendorSuspensionPastWindow and checkTerminationRefundUnsettled', 
     for (const id of ['vendor_suspension_past_window', 'termination_refund_unsettled']) {
       expect(CHECKS.find((c) => c.id === id)?.severity).toBe('warn');
     }
+  });
+});
+
+// ── plan-change snapshots overdue (AECI-1621) ─────────────────────────────────
+
+describe('checkPlanSnapshotOverdue', () => {
+  const NOW = new Date('2026-11-16T12:00:00.000Z');
+  const row = (id: string, dueAt: string, r2Key: string | null = null) => ({
+    id,
+    productId: 'p-1',
+    kind: 'end' as const,
+    licenseId: 'l-1',
+    cause: 'license.lapsed',
+    eventAt: dueAt,
+    phase: 'event' as const,
+    dueAt,
+    r2Key,
+    attempts: 3,
+    lastError: 'put_refused key=x',
+  });
+
+  it('lists only rows unwritten more than 24 hours after they were due', async () => {
+    await t.db
+      .insert(planChangeSnapshots)
+      .values([
+        row('late', '2026-11-15T11:00:00.000Z'),
+        row('recent', '2026-11-15T13:00:00.000Z'),
+        row('written', '2026-11-01T00:00:00.000Z', 'evidence/x.json'),
+        row('future', '2026-12-16T00:00:00.000Z'),
+      ]);
+    const { lines } = await checkPlanSnapshotOverdue(t.db, NOW);
+    expect(lines).toEqual([
+      'p-1 end/event due 2026-11-15T11:00:00.000Z, 3 attempts (put_refused key=x)',
+    ]);
+  });
+
+  it('is an error: the ranking evidence is missing', () => {
+    expect(CHECKS.find((c) => c.id === 'plan_snapshot_overdue')?.severity).toBe('error');
   });
 });
 
