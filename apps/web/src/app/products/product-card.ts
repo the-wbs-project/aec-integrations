@@ -91,10 +91,12 @@ export type ProductRow = Pick<
                product has no vendor (AECI-115); cleaner than a stray dash. -->
           @if (vendor(); as v) {
             <!-- Text secondary at 13px (mock-up 10), which holds AA on the white
-                 row and on the muted hover fill alike. -->
+                 row and on the muted hover fill alike. A 24px line box, like the
+                 name link above it, so the two stacked targets each meet the
+                 24px minimum (WCAG 2.5.8). -->
             <a
               [routerLink]="['/vendors', v.slug]"
-              class="w-fit truncate rounded-sm text-t-13 font-normal text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) md:hidden"
+              class="min-h-6 w-fit truncate rounded-sm text-t-13 leading-6 font-normal text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) md:hidden"
               >{{ v.name }}</a
             >
           }

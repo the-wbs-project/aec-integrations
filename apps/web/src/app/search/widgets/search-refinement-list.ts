@@ -42,6 +42,9 @@ let nextListId = 0;
 
 @Component({
   selector: 'aec-search-refinement-list',
+  // A group with no terms renders nothing. empty:hidden takes the bare host out
+  // of the panel's flex gap, so an empty group leaves no 24px hole (AECI-1793).
+  host: { class: 'empty:hidden' },
   template: `
     @if (items().length) {
       <fieldset class="min-w-0 border-0 p-0">

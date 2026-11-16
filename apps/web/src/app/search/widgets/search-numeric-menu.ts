@@ -20,6 +20,8 @@ import type { NumericMenuItem } from '../search-controller';
  */
 @Component({
   selector: 'aec-search-numeric-menu',
+  // As on the refinement list: an empty menu leaves no hole in the panel's gap.
+  host: { class: 'empty:hidden' },
   template: `
     @if (items().length) {
       <fieldset class="min-w-0 border-0 p-0">
