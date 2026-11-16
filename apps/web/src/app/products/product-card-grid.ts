@@ -37,7 +37,12 @@ import { RoleBadge } from './role-badge';
         <li class="group/card md:col-span-2">
           <div aecCard interactive tone="warm" class="flex h-full flex-col gap-4 p-6 md:p-8">
             <div class="flex items-start justify-between gap-4">
-              <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="lg" />
+              <aec-logo-or-initial
+                [claimStatus]="'server-filtered'"
+                [src]="product.logo_url"
+                [name]="product.name"
+                size="lg"
+              />
               @switch (featuredEyebrow()) {
                 @case ('trending') {
                   <span
@@ -95,7 +100,12 @@ import { RoleBadge } from './role-badge';
         <li class="group/card">
           <div aecCard interactive class="flex h-full flex-col gap-4 p-6">
             <div class="flex items-start justify-between gap-3">
-              <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="sm" />
+              <aec-logo-or-initial
+                [claimStatus]="'server-filtered'"
+                [src]="product.logo_url"
+                [name]="product.name"
+                size="sm"
+              />
               <aec-integration-stat [count]="product.integration_count" variant="badge" />
             </div>
             <div class="min-w-0 flex-1">

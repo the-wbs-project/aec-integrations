@@ -383,6 +383,7 @@ function emptyDraft(): Draft {
                     data-testid="create-counterpart"
                   >
                     <aec-logo-or-initial
+                      [claimStatus]="'stored'"
                       [src]="chosen.logo_url ?? null"
                       [name]="chosen.name"
                       size="sm"
@@ -651,7 +652,12 @@ function emptyDraft(): Draft {
               data-testid="create-own-product"
             >
               @if (contextOwnProduct(); as own) {
-                <aec-logo-or-initial [src]="own.logo_url" [name]="own.name" size="sm" />
+                <aec-logo-or-initial
+                  [claimStatus]="'stored'"
+                  [src]="own.logo_url"
+                  [name]="own.name"
+                  size="sm"
+                />
                 <span
                   id="vendor-create-own-name"
                   class="min-w-0 flex-1 truncate text-sm font-medium text-(--text-primary)"

@@ -30,7 +30,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   template: `
     <div aecCard interactive class="flex h-full flex-col gap-4 p-6">
       <div class="flex items-start justify-between gap-3">
-        <aec-logo-or-initial [src]="record().logo_url" [name]="record().name" size="sm" />
+        <aec-logo-or-initial
+          [claimStatus]="'server-filtered'"
+          [src]="record().logo_url"
+          [name]="record().name"
+          size="sm"
+        />
         <aec-integration-stat [count]="record().integration_count" variant="badge" />
       </div>
       <div class="min-w-0 flex-1">

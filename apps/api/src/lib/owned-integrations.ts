@@ -35,7 +35,7 @@ import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { storedFieldValue, toWireValue } from './integration-contests';
-import { productLinkColumns, toMechanismKind, toProductLink } from './drizzle-helpers';
+import { productLinkColumns, toMechanismKind, toOwnedProductLink } from './drizzle-helpers';
 
 /** The owned-rows predicate on `integrations`. */
 export function ownedIntegrationsWhere(vendorId: string) {
@@ -136,9 +136,9 @@ export async function loadOwnedIntegrations(
       name: row.name,
       mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
       mechanism_name: row.mechanismName,
-      product_a: toProductLink(row.sourceProduct),
-      product_b: toProductLink(row.targetProduct),
-      connector: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
+      product_a: toOwnedProductLink(row.sourceProduct),
+      product_b: toOwnedProductLink(row.targetProduct),
+      connector: row.poweredByProduct ? toOwnedProductLink(row.poweredByProduct) : null,
       connector_powered: isConnectorPoweredEdge(row),
       claimed_at: row.claimedAt,
       retired_at: row.retiredAt,
@@ -154,9 +154,9 @@ export async function loadOwnedIntegrations(
       name: pair.name,
       mechanism_kind: null,
       mechanism_name: pair.mechanismName,
-      product_a: toProductLink(pair.productA),
-      product_b: toProductLink(pair.productB),
-      connector: toProductLink(pair.connectorProduct),
+      product_a: toOwnedProductLink(pair.productA),
+      product_b: toOwnedProductLink(pair.productB),
+      connector: toOwnedProductLink(pair.connectorProduct),
       connector_powered: true,
       claimed_at: pair.claimedAt,
       retired_at: pair.retiredAt,

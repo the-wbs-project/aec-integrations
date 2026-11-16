@@ -92,6 +92,7 @@ describe('ProductDetailSchema', () => {
   it('parses a detail with empty relations', () => {
     const parsed = ProductDetailSchema.parse({
       ...validListItem,
+      claim_status: 'claimed',
       vendor_facts: { company_size: null, ownership_type: null },
       description: null,
       website: null,
@@ -118,6 +119,7 @@ describe('ProductDetailSchema', () => {
   it('parses a detail with hydrated taxonomy and related products', () => {
     const parsed = ProductDetailSchema.parse({
       ...validListItem,
+      claim_status: 'claimed',
       vendor_facts: { company_size: null, ownership_type: null },
       description: 'Construction management platform.',
       website: 'https://procore.com',
@@ -166,6 +168,7 @@ describe('ProductDetailSchema', () => {
   it('rejects when trades is missing (the fourth facet is required, not optional)', () => {
     const detail: Record<string, unknown> = {
       ...validListItem,
+      claim_status: 'claimed',
       description: null,
       website: null,
       tool_integrations_url: null,
@@ -182,6 +185,32 @@ describe('ProductDetailSchema', () => {
       reviews: [],
     };
     delete detail.trades;
+    expect(ProductDetailSchema.safeParse(detail).success).toBe(false);
+  });
+
+  // AECI-1851: no `claimed` default papers over a missing claim status.
+  it('rejects when claim_status is missing, and accepts unclaimed', () => {
+    const detail: Record<string, unknown> = {
+      ...validListItem,
+      claim_status: 'unclaimed',
+      vendor_facts: { company_size: null, ownership_type: null },
+      description: null,
+      website: null,
+      tool_integrations_url: null,
+      api_docs_url: null,
+      categories: [],
+      audiences: [],
+      phases: [],
+      trades: [],
+      usefulness: null,
+      integrations_as_source: [],
+      integrations_as_target: [],
+      integrations_as_connector: [],
+      related_products: [],
+      reviews: [],
+    };
+    expect(ProductDetailSchema.parse(detail).claim_status).toBe('unclaimed');
+    delete detail.claim_status;
     expect(ProductDetailSchema.safeParse(detail).success).toBe(false);
   });
 });
