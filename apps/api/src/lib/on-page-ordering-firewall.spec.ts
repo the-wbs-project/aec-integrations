@@ -244,6 +244,16 @@ const SURFACES: readonly Surface[] = [
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'trades' },
+      // The `/search` refinement lists' own comparator (AECI-1796): checked first, then
+      // count, then `compareText`. It is the order Algolia's default gave before, made
+      // explicit so a count tie no longer falls to letter case. It serves every list
+      // above and in `FREE_COUNT_SITES`, so it sits under the exception.
+      {
+        file: 'search/search-facet-order.ts',
+        kind: 'count-compare',
+        facet: '*',
+        detail: 'b.count - a.count',
+      },
       // `topByCount` itself: its comparator reads `SORT_KEY`, which is `product_count`.
       {
         file: 'core/taxonomy/taxonomy-rank.ts',
