@@ -15,3 +15,17 @@ onlyBuiltDependencies:
 # override when apps/agent moves to it.
 overrides:
   '@flue/runtime>hono': 4.13.16
+  # AECI-1854: @angular/build and @angular/ssr 22.2.x pin beasties to exactly
+  # 0.5.4. Its compiler appends ";" after every @property rule in the inlined
+  # critical CSS. The browser then drops the rule after each ";": 78 of 80
+  # @property rules and the whole unlayered :root token block. First paint had
+  # no colour, font, radius or shadow token. 0.5.5 fixes it
+  # (rule.nodes === undefined guard). Drop this when Angular pins >= 0.5.5.
+  beasties: 0.5.5
+# AECI-1854: beasties 0.5.5 still drops any rule whose selector is wholly
+# `:where(...)` or `:is(...)`. Its normaliser strips pseudo-classes and the
+# selector becomes empty. Tailwind v4 writes space-*, divide-* and similar that
+# way, so first paint lost every space-y gap and divide rule. The patch matches
+# the selector's argument instead. Drop it when beasties ships the same fix.
+patchedDependencies:
+  beasties@0.5.5: patches/beasties@0.5.5.patch

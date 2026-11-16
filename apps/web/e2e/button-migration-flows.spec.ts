@@ -19,6 +19,11 @@ const BORDER_STRONG = 'rgb(212, 212, 216)';
 
 /** Computed colours come back as `oklch(…)` in some engines, so read them via a canvas. */
 async function style(loc: Locator) {
+  // The recipe transitions colour. Read the settled value, never a frame taken
+  // mid-transition (AECI-1854: a read of rgb(227, 231, 229) for white).
+  await loc.evaluate((el) =>
+    Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))),
+  );
   return loc.evaluate((el) => {
     const toRgb = (c: string) => {
       const ctx = document.createElement('canvas').getContext('2d')!;
