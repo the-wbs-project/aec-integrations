@@ -531,15 +531,17 @@ The directory has **four independent taxonomy facets**. Each is a small, closed 
 
 A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` / `product_trades` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases, trades, total_products }` and per-term browse pages at `GET /api/{categories|audiences|phases|trades}/:slug`.
 
-**Index-page ordering.** All four flat index pages (`/categories`, `/audiences`, `/phases`, `/trades`) are one component, `TaxonomyIndexPage`, carrying a sort toggle whose **option set is per-facet**:
+**Index-page ordering.** All four flat index pages (`/categories`, `/audiences`, `/phases`, `/trades`) are one component, `TaxonomyIndexPage`, carrying the shared listing sort control (`aec-listing-sort-select`, AECI-1795) whose **option set is per-facet**. The options are listed in this order:
 
-| Mode | Order | Offered on |
+| Option | Order | Offered on |
 |---|---|---|
-| **Sequence** | The API's own `display_order ASC, name ASC`, with NULL `display_order` sorted LAST (`API_CONTRACTS.md` §3.2, AECI-925) | **`/phases` only**, where it is also the default |
-| **A → Z** | `name` A–Z, collation pinned to `en` | All four; the default for the other three |
-| **Products** | `product_count` DESC, then `integration_count` DESC, then `name` | All four |
+| **Project order** | The API's own `display_order ASC, name ASC`, with NULL `display_order` sorted LAST (`API_CONTRACTS.md` §3.2, AECI-925) | **`/phases` only**, where it is also the default |
+| **Name (A–Z)** | `name` A–Z, collation pinned to `en` | All four; the default for the other three |
+| **Most products** | `product_count` DESC, then `integration_count` DESC, then `name` | All four |
 
-`Sequence` exists for `/phases` because that vocabulary genuinely *is* one (Concept & Planning → … → Closeout & Operations) and alphabetising it would destroy meaning the terms carry. The other three facets do **not** offer it: their `display_order` is an editorial convenience rather than something the reader needs, and a term grid answers "is my thing in here?", which A→Z answers better. For categories and trades, `display_order` still sets the API list order that the facet sidebar and the vendor facet editor render. The header's Browse menu and the home browse grids rank those facets by product count. Only phases follow `display_order` there. Audiences are the exception everywhere. Since AECI-1242 the facet sidebar (`GET /api/products/facets`) and the product page list them A to Z. Since AECI-1243 the flat and aggregate taxonomy endpoints (`GET /api/audiences`, `GET /api/taxonomy`) do too, so the vendor facet editor's Audiences tab reads A to Z. `GET /api/admin/catalog/coverage` orders audiences the same way. The audience `display_order` is disciplines then job titles and reads as unsorted in a list. The nav flyout and home grids rank audiences by product count.
+Until AECI-1795 these were pressed buttons labelled "Sequence", "A → Z" and "Products". Only the control and the labels changed. The orders and the defaults did not.
+
+`Project order` exists for `/phases` because that vocabulary genuinely *is* one (Concept & Planning → … → Closeout & Operations) and alphabetising it would destroy meaning the terms carry. The other three facets do **not** offer it: their `display_order` is an editorial convenience rather than something the reader needs, and a term grid answers "is my thing in here?", which A→Z answers better. For categories and trades, `display_order` still sets the API list order that the facet sidebar and the vendor facet editor render. The header's Browse menu and the home browse grids rank those facets by product count. Only phases follow `display_order` there. Audiences are the exception everywhere. Since AECI-1242 the facet sidebar (`GET /api/products/facets`) and the product page list them A to Z. Since AECI-1243 the flat and aggregate taxonomy endpoints (`GET /api/audiences`, `GET /api/taxonomy`) do too, so the vendor facet editor's Audiences tab reads A to Z. `GET /api/admin/catalog/coverage` orders audiences the same way. The audience `display_order` is disciplines then job titles and reads as unsorted in a list. The nav flyout and home grids rank audiences by product count.
 
 **Products, not integrations, is the magnitude sort.** `integration_count` is a downstream consequence of the catalog rather than a measure of the term itself, so it ranks only as a tiebreaker among terms carrying the same number of products. It is still *displayed* on each card (`API_CONTRACTS.md` §6.4).
 
