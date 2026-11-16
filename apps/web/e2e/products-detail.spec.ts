@@ -278,7 +278,8 @@ test.describe('product hero actions below md (AECI-1778)', () => {
       );
       expect(boxes.map((b) => b.text)).toEqual([
         expect.stringContaining('Visit website'),
-        'Write a review',
+        // Signed-out visitors see either label, depending on the auth config of the stack.
+        expect.stringMatching(/^(Write a review|Sign in to review)$/),
       ]);
       const [visit, review] = boxes;
       expect(Math.abs(visit!.width - review!.width), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
