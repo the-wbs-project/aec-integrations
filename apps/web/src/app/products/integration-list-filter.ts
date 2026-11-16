@@ -84,8 +84,17 @@ export class IntegrationListFilter {
   /** Rows the section would render with no query. */
   readonly total = input.required<number>();
 
+  /**
+   * Whether ANY filter is on, when the caller has filters beside this box
+   * (AECI-1782: the product page's direction and category chips). `null`, the
+   * default, means the query alone decides, which is every other caller. The
+   * status then reports a chip filter too, and stays empty while nothing filters.
+   */
+  readonly active = input<boolean | null>(null);
+
   protected readonly status = computed(() => {
-    if (this.query().trim() === '') return '';
+    const active = this.active() ?? this.query().trim() !== '';
+    if (!active) return '';
     return $localize`:@@products.detail.filter.status:Showing ${this.shown()}:SHOWN: of ${this.total()}:TOTAL:`;
   });
 

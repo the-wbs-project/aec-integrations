@@ -192,9 +192,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-integrations-redesign',
-    status: 'pending',
-    owner: 'AECI-1782',
-    order: 'New list: A to Z by name, id tie-break (R1); long lists in AECI-1783',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Cards and table keep the lane orders above (R1 keeps existing orders); reader filters remove rows only; chip options A to Z by name, slug tie-break; long lists in AECI-1783',
   },
   {
     key: 'product-page-hero-visual',

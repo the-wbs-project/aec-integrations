@@ -227,8 +227,30 @@ class Host {
   hosts = signal<readonly ProductListItem[]>([]);
 }
 
-/** The partner each rendered row links to, in render order; optionally after typing a query. */
-function renderedRows(rows: ProductIntegrationItem[], query?: string): string[] {
+/** What the reader did before the rows are read (AECI-1782). */
+interface ReaderChoices {
+  readonly query?: string;
+  /** The default is cards, as the server renders it. */
+  readonly view?: 'cards' | 'table';
+  /** Visible chip text to press, in the direction or category group. */
+  readonly chips?: readonly string[];
+}
+
+function pressChip(el: HTMLElement, text: string): void {
+  const chip = [...el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].find((b) =>
+    (b.textContent ?? '').includes(text),
+  );
+  if (!chip) throw new Error(`no filter chip "${text}"`);
+  chip.click();
+}
+
+/** The partner each rendered row links to, in render order, after the reader's choices. */
+function renderedRows(
+  rows: ProductIntegrationItem[],
+  choices: ReaderChoices | string = {},
+): string[] {
+  const { query, view = 'cards', chips = [] } =
+    typeof choices === 'string' ? { query: choices } : choices;
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), provideRouter([])],
@@ -237,13 +259,26 @@ function renderedRows(rows: ProductIntegrationItem[], query?: string): string[] 
   fixture.componentInstance.asSource.set(rows);
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
+  if (view === 'table') {
+    const button = [...el.querySelectorAll<HTMLButtonElement>('aec-listing-view-toggle button')].find(
+      (b) => b.textContent?.includes('Table'),
+    )!;
+    button.click();
+    fixture.detectChanges();
+  }
   if (query !== undefined) {
     const input = el.querySelector<HTMLInputElement>('input#integrations-filter')!;
     input.value = query;
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   }
-  return [...el.querySelectorAll('tr[aec-product-integration-row]')].map((tr) => {
+  for (const chip of chips) {
+    pressChip(el, chip);
+    fixture.detectChanges();
+  }
+  const selector =
+    view === 'table' ? 'tr[aec-product-integration-row]' : 'li[aec-product-integration-card]';
+  return [...el.querySelectorAll(selector)].map((tr) => {
     const a = [...tr.querySelectorAll('a')].find((x) =>
       /^\/products\/[^/]+$/.test(x.getAttribute('href') ?? ''),
     );
@@ -279,5 +314,118 @@ describe('on-page ordering firewall: the product page Integrations section, rend
       const flipped = rows.map((r, i) => paid(r, levelOf(i, rows.length, dir)));
       expect(renderedRows(flipped, 'partner 0'), dir).toEqual(base);
     }
+  });
+});
+
+// ─── AECI-1782: the redesigned section (cards, table, filter panel) ───────────
+
+/**
+ * Only the inputs a paid plan can change, at `level`: the data objects (adding a
+ * flow needs `attestation.author`), "confirmed by both companies", and the edit
+ * stamps. The direction and the partner categories stay as the fixture set them,
+ * because they are what the reader filters on.
+ */
+function paidOnly(row: ProductIntegrationItem, level: number): ProductIntegrationItem {
+  const { partner_categories, context_direction } = row;
+  return { ...paid(row, level), partner_categories, context_direction };
+}
+
+const ACCOUNTING = { slug: 'accounting', name: 'Accounting' };
+const FIELD = { slug: 'field-management', name: 'Field management' };
+
+/**
+ * Real ties: two partners share a name and two share a name and an edge name, so
+ * the id decides. Directions and categories are spread so each chip keeps several
+ * rows, and a Via group gives the lane cards.
+ */
+function redesignFixture(): ProductIntegrationItem[] {
+  seq = 0;
+  const twinA = link('twin-a', 'Twin Co');
+  const twinB = link('twin-b', 'Twin Co');
+  const spec: [ProductLink, ProductIntegrationItem['context_direction'], (typeof ACCOUNTING)[]][] = [
+    [link('zeta', 'Zeta ERP'), 'outbound', [ACCOUNTING]],
+    [twinB, 'outbound', [ACCOUNTING]],
+    [link('alpha', 'alpha docs'), 'inbound', [FIELD]],
+    [twinA, 'outbound', [ACCOUNTING, FIELD]],
+    [link('mid', 'Mid Field'), 'both', []],
+    [link('mid-2', 'Mid Field'), 'outbound', [FIELD]],
+    [link('quick', 'QuickBooks'), null, [ACCOUNTING]],
+  ];
+  const rows = spec.map(([partner, context_direction, partner_categories]) =>
+    edge(partner, { context_direction, partner_categories, name: 'Shared edge name' }),
+  );
+  rows.push(
+    edge(link('sage', 'Sage'), {
+      via: AGAVE,
+      mechanism_kind: null,
+      context_direction: 'outbound',
+      partner_categories: [ACCOUNTING],
+    }),
+  );
+  return rows;
+}
+
+describe('on-page ordering firewall: the redesigned product page Integrations section (AECI-1782)', () => {
+  const cases: [string, ReaderChoices][] = [
+    ['cards, no filter', {}],
+    ['table, no filter', { view: 'table' }],
+    ['cards, Outbound', { chips: ['Outbound'] }],
+    ['table, Accounting', { view: 'table', chips: ['Accounting'] }],
+    ['cards, Outbound and Accounting and a query', { query: 'co', chips: ['Outbound', 'Accounting'] }],
+  ];
+
+  for (const [label, choices] of cases) {
+    it(`[surface:product-page-integrations-redesign] ${label}: the same rows in the same order whatever the paid inputs`, () => {
+      const rows = redesignFixture();
+      const base = renderedRows(rows, choices);
+      expect(base.length).toBeGreaterThan(1);
+      expect(base).not.toContain('?');
+      for (const dir of DIRECTIONS) {
+        const flipped = rows.map((r, i) => paidOnly(r, levelOf(i, rows.length, dir)));
+        expect(renderedRows(flipped, choices), `${label} ${dir}`).toEqual(base);
+      }
+      for (let i = 0; i < rows.length; i++) {
+        const loaded = rows.map((r, j) => paidOnly(r, j === i ? 9 : 0));
+        expect(renderedRows(loaded, choices), `${label} row ${i} loaded`).toEqual(base);
+      }
+    });
+  }
+
+  it('[surface:product-page-integrations-redesign] no filter: every row renders, A to Z by partner name, id last; the Via lane after', () => {
+    const rows = redesignFixture();
+    const cards = renderedRows(rows);
+    expect(cards).toEqual(renderedRows(rows, { view: 'table' }));
+    expect(cards).toHaveLength(rows.length);
+    // alpha docs, Mid Field x2 (id order), QuickBooks, Twin Co x2 (id order), Zeta ERP, then Via Agave: Sage.
+    expect(cards).toEqual([
+      '/products/alpha',
+      '/products/mid',
+      '/products/mid-2',
+      '/products/quick',
+      '/products/twin-b',
+      '/products/twin-a',
+      '/products/zeta',
+      '/products/sage',
+    ]);
+  });
+
+  it('[surface:product-page-integrations-redesign] the panel offers no control on the agreement state and no sort', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideRouter([])],
+    });
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.asSource.set(
+      redesignFixture().map((r, i) => paidOnly(r, i % 2 === 0 ? 9 : 1)),
+    );
+    fixture.detectChanges();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="integrations-filter-panel"]',
+    )!;
+    const controls = [...panel.querySelectorAll('button, select, [role="combobox"]')].map(
+      (b) => b.textContent?.trim() ?? '',
+    );
+    expect(controls.some((t) => /confirm|compan|agree|sort|evidence/i.test(t))).toBe(false);
+    expect(panel.querySelector('select, [role="combobox"]')).toBeNull();
   });
 });
