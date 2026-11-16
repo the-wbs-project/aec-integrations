@@ -739,7 +739,9 @@ export class SearchPage implements OnDestroy {
 
   protected readonly resultsStatus = computed(() => {
     const ctrl = this.controller();
-    if (!ctrl) return '';
+    // Silent until the current query's answer lands, like `countFor`, so a
+    // screen reader is not told the empty query's count first.
+    if (!ctrl?.ready()) return '';
     const count = ctrl[this.activeTab()].nbHits();
     return $localize`:@@search.results.status:${count}:COUNT: results`;
   });
@@ -970,9 +972,14 @@ export class SearchPage implements OnDestroy {
     this.tabButtons()[next]?.nativeElement.focus();
   }
 
+  /**
+   * A tab's count, once the answer to the current query has landed. Before that
+   * `nbHits` holds the empty-query search `start()` runs first, so `?q=procore`
+   * showed "Products 344" before "Products 106" (AECI-1796).
+   */
   protected countFor(tab: EntityTab): number | null {
     const ctrl = this.controller();
-    return ctrl ? ctrl[tab].nbHits() : null;
+    return ctrl?.ready() ? ctrl[tab].nbHits() : null;
   }
 
   protected tabId(tab: EntityTab): string {
