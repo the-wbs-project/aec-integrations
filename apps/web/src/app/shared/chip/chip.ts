@@ -1,5 +1,15 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, booleanAttribute, computed, input, output } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  booleanAttribute,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AecIcon } from '../icon/icon';
@@ -82,7 +92,7 @@ export type ChipTone =
         [attr.data-face]="face()"
         [attr.data-icon]="hasIcon()"
         [disabled]="disabled()"
-        (click)="activated.emit()"
+        (click)="activate()"
       >
         <ng-container [ngTemplateOutlet]="body" />
       </button>
@@ -133,6 +143,33 @@ export class Chip {
 
   /** Fires when a filter chip (a `selected` chip) is clicked. */
   readonly activated = output<void>();
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  /**
+   * Emit, then keep the reader's place. Releasing a chip whose count is 0 disables it
+   * (AECI-1783), and a native `disabled` drops focus to the page body. When that
+   * happens the chip's `role="group"` takes focus (`tabindex="-1"`, set only then), so a keyboard reader stays in the
+   * same chip row and Tab moves on from there.
+   */
+  protected activate(): void {
+    this.activated.emit();
+    afterNextRender(
+      () => {
+        const button = this.host.nativeElement.querySelector('button');
+        if (!button?.disabled) return;
+        // Chrome moves focus to the body; another engine may leave it on the dead button.
+        const active = button.ownerDocument.activeElement;
+        if (active !== button && active !== button.ownerDocument.body) return;
+        const group = this.host.nativeElement.closest<HTMLElement>('[role="group"]');
+        if (!group) return;
+        if (!group.hasAttribute('tabindex')) group.setAttribute('tabindex', '-1');
+        group.focus();
+      },
+      { injector: this.injector },
+    );
+  }
 
   protected readonly face = computed(() => (this.label() ? 'label' : null));
   protected readonly hasIcon = computed(() =>
