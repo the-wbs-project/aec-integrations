@@ -255,30 +255,34 @@ test.describe('product hero actions below md (AECI-1778)', () => {
           ),
         )
         .toBe(0);
-      const boxes = await band.locator('[data-variant^="on-brand"]').evaluateAll((els) =>
-        els.map((el) => {
-          const r = el.getBoundingClientRect();
-          // One line of label text: every visible text box of the label shares one row.
-          // The sr-only new-tab note is a clipped 1px box, so text in it is skipped.
-          const tops: number[] = [];
-          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-            const parent = n.parentElement!;
-            if (!n.textContent!.trim() || parent.getBoundingClientRect().width <= 2) continue;
-            const range = document.createRange();
-            range.selectNodeContents(n);
-            for (const q of range.getClientRects()) if (q.width > 0) tops.push(q.top);
-          }
-          tops.sort((x, y) => x - y);
-          const lines = tops.filter((t, i) => i === 0 || t - tops[i - 1]! > 6).length;
-          return {
-            text: el.textContent!.trim(),
-            width: r.width,
-            height: r.height,
-            lines,
-          };
-        }),
-      );
+      // The hero's actions row only: the pair finder's button (AECI-1787) is not an action.
+      const boxes = await band
+        .getByTestId('hero-band-actions')
+        .locator('[data-variant^="on-brand"]')
+        .evaluateAll((els) =>
+          els.map((el) => {
+            const r = el.getBoundingClientRect();
+            // One line of label text: every visible text box of the label shares one row.
+            // The sr-only new-tab note is a clipped 1px box, so text in it is skipped.
+            const tops: number[] = [];
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const parent = n.parentElement!;
+              if (!n.textContent!.trim() || parent.getBoundingClientRect().width <= 2) continue;
+              const range = document.createRange();
+              range.selectNodeContents(n);
+              for (const q of range.getClientRects()) if (q.width > 0) tops.push(q.top);
+            }
+            tops.sort((x, y) => x - y);
+            const lines = tops.filter((t, i) => i === 0 || t - tops[i - 1]! > 6).length;
+            return {
+              text: el.textContent!.trim(),
+              width: r.width,
+              height: r.height,
+              lines,
+            };
+          }),
+        );
       expect(boxes.map((b) => b.text)).toEqual([
         expect.stringContaining('Visit website'),
         // Signed-out visitors see either label, depending on the auth config of the stack.
