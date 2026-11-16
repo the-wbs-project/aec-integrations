@@ -28,13 +28,13 @@ import { AecButton } from '../shared/button/button';
   template: `
     @if (show()) {
       <aside
-        class="border-b border-(--border-default) bg-(--accent-primary-soft)"
+        class="aec-notice-neutral border-b bg-(--accent-primary-soft)"
         role="region"
         aria-label="Waitlist welcome"
         i18n-aria-label="@@waitlist.welcome.regionLabel"
       >
         <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-8 py-3">
-          <p class="text-sm/6 text-(--text-primary)" i18n="@@waitlist.welcome.message">
+          <p class="text-t-14 leading-6 text-(--text-primary)" i18n="@@waitlist.welcome.message">
             Thanks for waiting. Here's the directory.
           </p>
           <button

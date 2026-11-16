@@ -58,6 +58,7 @@ import { filter, map } from 'rxjs';
 import { DOCS_SECTIONS, type DocsGuide, type DocsPage, type DocsSection } from './docs-content';
 import { DocsSearchComponent } from './docs-search';
 import { AecButton } from '../shared/button/button';
+import { AecBreadcrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 export interface Crumb {
   readonly label: string;
@@ -106,7 +107,14 @@ const GUIDE_LINK =
 
 @Component({
   selector: 'app-docs-shell',
-  imports: [AecButton, DocsSearchComponent, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [
+    AecBreadcrumb,
+    AecButton,
+    DocsSearchComponent,
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+  ],
   host: {
     class: 'block border-t border-(--border-default)',
     // On the host, not the panel: a key handler on a non-focusable element fails
@@ -146,28 +154,7 @@ const GUIDE_LINK =
           </svg>
         </button>
 
-        <nav class="min-w-0" i18n-aria-label="@@app.docs.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex min-w-0 items-center gap-2 text-sm">
-            @for (crumb of location().crumbs; track $index) {
-              <li class="flex min-w-0 items-center gap-2">
-                @if (!$first) {
-                  <span aria-hidden="true" class="text-(--text-tertiary)">/</span>
-                }
-                @if (crumb.path; as path) {
-                  <a
-                    [routerLink]="path"
-                    class="truncate rounded-sm text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    >{{ crumb.label }}</a
-                  >
-                } @else {
-                  <span aria-current="page" class="truncate font-semibold text-(--text-primary)">{{
-                    crumb.label
-                  }}</span>
-                }
-              </li>
-            }
-          </ol>
-        </nav>
+        <aec-breadcrumb class="min-w-0" [items]="trail()" [truncate]="true" />
 
         @if (location().page; as page) {
           <p
@@ -291,6 +278,11 @@ export class DocsShellComponent {
   );
 
   protected readonly location = computed<DocsLocation>(() => locate(this.path()));
+
+  /** The top-bar trail for the shared breadcrumb. A crumb with no path is text. */
+  protected readonly trail = computed<BreadcrumbItem[]>(() =>
+    this.location().crumbs.map((crumb) => ({ label: crumb.label, link: crumb.path })),
+  );
 
   /** The current guide's sections, as sidebar items. */
   protected readonly tree = computed<readonly TreeSection[]>(() =>

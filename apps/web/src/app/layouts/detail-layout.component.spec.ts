@@ -8,7 +8,7 @@ import { DetailLayout } from './detail-layout';
   imports: [DetailLayout],
   template: `
     <aec-detail-layout>
-      <nav slot="breadcrumbs" data-testid="breadcrumbs">Breadcrumbs marker</nav>
+      <div slot="breadcrumbs" data-testid="breadcrumbs">Breadcrumbs marker</div>
       <header slot="hero" data-testid="hero">Hero marker</header>
       <div slot="nav" data-testid="nav">Nav marker</div>
       <section slot="body-lead" data-testid="body-lead">Body lead marker</section>
@@ -94,13 +94,13 @@ describe('DetailLayout', () => {
     expect(nav.closest('.grid')).toBeNull();
   });
 
-  it('renders landmark regions for breadcrumbs and metadata with i18n aria-labels', () => {
+  it('renders the metadata landmark and leaves the breadcrumb landmark to aec-breadcrumb', () => {
     const fixture = TestBed.createComponent(DetailLayoutHost);
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    // Breadcrumb nav landmark
-    expect(root.querySelectorAll('nav[aria-label]').length).toBeGreaterThanOrEqual(1);
+    // The slot is a plain wrapper. aec-breadcrumb owns the one nav landmark (AECI-1777).
+    expect(root.querySelectorAll('nav')).toHaveLength(0);
     // Metadata aside landmark
     expect(root.querySelector('aside[aria-label]')).not.toBeNull();
     // Body column must NOT be a <main> — the app shell owns the main landmark;

@@ -45,7 +45,7 @@ import { Component } from '@angular/core';
  * Usage:
  * ```html
  * <aec-detail-layout>
- *   <nav slot="breadcrumbs">…</nav>
+ *   <aec-breadcrumb slot="breadcrumbs" [items]="crumbs" />
  *   <header slot="hero">…</header>
  *   <aec-section-nav slot="nav" />
  *   <div slot="body-lead">…</div>
@@ -59,13 +59,9 @@ import { Component } from '@angular/core';
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 pt-3 pb-8 md:px-8 md:pt-4 md:pb-12">
-        <nav
-          class="mb-4"
-          i18n-aria-label="@@app.layouts.detail.breadcrumbs.aria"
-          aria-label="Breadcrumb"
-        >
+        <div class="mb-4">
           <ng-content select="[slot=breadcrumbs]" />
-        </nav>
+        </div>
 
         <header class="mb-8 border-b border-(--border-default) pb-8 md:mb-12 md:pb-12">
           <ng-content select="[slot=hero]" />
@@ -119,8 +115,12 @@ import { Component } from '@angular/core';
             <ng-content select="[slot=body-lead]" />
           </div>
 
+          <!-- Sticky below the section bar when the page has one: --aec-sticky-offset is
+               its height (styles.css, AECI-1768), and unset with no bar, so 2rem. Under the
+               bar it sticks only on screens tall enough to show it whole (.aec-detail-aside
+               in styles.css). -->
           <aside
-            class="mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-8 lg:col-start-2
+            class="aec-detail-aside mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-[calc(var(--aec-sticky-offset,0px)+2rem)] lg:col-start-2
               lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start"
             i18n-aria-label="@@app.layouts.detail.metadata.aria"
             aria-label="Metadata"

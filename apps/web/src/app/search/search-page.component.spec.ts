@@ -10,6 +10,7 @@ import { PRODUCT_DEFAULT_SORT } from '../shared/listing-toolbar/product-sort-key
 import { type InstantSearchLib, type IsWidget, type SearchController } from './search-controller';
 import { SearchPage } from './search-page';
 import { type SearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 /**
  * `ng test` shell coverage for `SearchPage`.
@@ -591,5 +592,21 @@ describe('SearchPage shell', () => {
     };
     page.controller.set({ products: view, vendors: view, dispose: () => {} });
     expect(page.activeFilterCount()).toBe(0);
+  });
+});
+
+describe('SearchPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__);
+
+  it('reads Home, then Search as the current page', async () => {
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    expect(trail(fixture.nativeElement as HTMLElement)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Search', href: null, current: true },
+    ]);
   });
 });

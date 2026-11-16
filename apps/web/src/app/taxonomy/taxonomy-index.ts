@@ -14,6 +14,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * How the term grid is ordered.
@@ -71,27 +72,12 @@ const SORT_MODES_BY_KIND: Record<TaxonomyKind, readonly SortMode[]> = {
  */
 @Component({
   selector: 'aec-taxonomy-index',
-  imports: [RouterLink, MailingListSignup],
+  imports: [AecBreadcrumb, RouterLink, MailingListSignup],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <header class="mb-8 border-b border-(--border-default) pb-6 md:mb-12 md:pb-8">
-          <nav i18n-aria-label="@@taxonomy.index.breadcrumbs.aria" aria-label="Breadcrumb">
-            <ol
-              class="flex items-center gap-2 text-xs tracking-wide uppercase text-(--text-secondary)"
-            >
-              <li>
-                <a
-                  routerLink="/"
-                  class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@taxonomy.index.breadcrumbs.home"
-                  >Home</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              <li class="text-(--text-primary)" aria-current="page">{{ title() }}</li>
-            </ol>
-          </nav>
+          <aec-breadcrumb [items]="crumbs()" />
           <h1 class="mt-3 font-display text-4xl font-semibold tracking-tight md:text-5xl">
             {{ title() }}
           </h1>
@@ -171,6 +157,11 @@ const SORT_MODES_BY_KIND: Record<TaxonomyKind, readonly SortMode[]> = {
   `,
 })
 export class TaxonomyIndexPage {
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.title() },
+  ]);
+
   private readonly route = inject(ActivatedRoute);
 
   /** Facet kind for this route — static `data: { kind }` in `app.routes.ts`. */

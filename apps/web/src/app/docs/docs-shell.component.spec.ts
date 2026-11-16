@@ -313,3 +313,40 @@ describe('DocsShellComponent', () => {
     expect(locate('/docs/nope', sections).crumbs).toEqual([{ label: 'Help center' }]);
   });
 });
+
+// AECI-1777: the top-bar trail on the shared breadcrumb. An article's trail ends on its
+// section link, so no item is current. A section or home page ends on text that is.
+describe('DocsShellComponent breadcrumb (AECI-1777)', () => {
+  const items = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll('nav[aria-label="Breadcrumb"] li')).map((li) => ({
+      label: (
+        li.querySelector('a') ?? li.querySelector('span:not([aria-hidden])')
+      )?.textContent?.trim(),
+      href: li.querySelector('a')?.getAttribute('href') ?? null,
+      current: li.querySelector('[aria-current="page"]') !== null,
+    }));
+
+  it('ends an article on its section link, with no current item', async () => {
+    const { host } = await renderAt(ARTICLE);
+    expect(items(host)).toEqual([
+      { label: 'Help center', href: '/docs', current: false },
+      { label: 'Trust and ranking', href: '/docs/trust', current: false },
+    ]);
+  });
+
+  it('ends a section page on the current text', async () => {
+    const { host } = await renderAt('/docs/trust');
+    expect(items(host)).toEqual([
+      { label: 'Help center', href: '/docs', current: false },
+      { label: 'Trust and ranking', href: null, current: true },
+    ]);
+  });
+
+  it('draws the separator as an aria-hidden ›, never a slash', async () => {
+    const { host } = await renderAt(ARTICLE);
+    const seps = Array.from(
+      host.querySelectorAll('nav[aria-label="Breadcrumb"] [aria-hidden="true"]'),
+    );
+    expect(seps.map((s) => s.textContent)).toEqual(['›']);
+  });
+});
