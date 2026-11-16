@@ -47,7 +47,7 @@ Filters change which products you see, not their order.
 
 ## The home page
 
-- **Most viewed, last 30 days**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row is labelled **Largest categories** and names the five categories with the most products instead. That fallback counts products, not views.
+- **Most viewed**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row is labelled **Largest categories** and names the five categories with the most products instead. That fallback counts products, not views.
 - **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
 
 ## The Browse menu
