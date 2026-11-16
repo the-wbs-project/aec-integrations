@@ -107,7 +107,7 @@ test.describe('SSR hydration contract (AECI-1655)', () => {
   });
 
   test('a button clicked before hydration is replayed after it', async ({ page }) => {
-    // The header menu trigger only renders below `md`.
+    // The mobile menu toggle only renders below `lg`.
     await page.setViewportSize({ width: 390, height: 800 });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -118,16 +118,18 @@ test.describe('SSR hydration contract (AECI-1655)', () => {
     });
 
     await page.goto('/about', { waitUntil: 'commit' });
-    const trigger = page.locator('aec-site-header button[aria-haspopup="dialog"]').first();
+    const trigger = page.locator('aec-site-header [data-nav-menu-toggle]');
     await trigger.waitFor({ state: 'attached' });
     await expect(trigger).toHaveAttribute('jsaction', /click/);
     await trigger.click({ force: true, noWaitAfter: true });
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
     release();
-    await expect(
-      page.locator('aec-site-header button[aria-haspopup="dialog"]').first(),
-    ).toHaveAttribute('aria-expanded', 'true', { timeout: 15_000 });
+    await expect(page.locator('aec-site-header [data-nav-menu-toggle]')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+      { timeout: 15_000 },
+    );
   });
 
   test('a section-nav link clicked before hydration still jumps after it', async ({

@@ -3,7 +3,7 @@ import type { AuthService } from './auth.service';
 
 /**
  * Shared sign-out action (AECI-259) — used by the desktop user menu
- * (`layout/user-menu.ts`) and the mobile overlay (`layout/nav-menu.ts`), so
+ * (`layout/user-menu.ts`) and the mobile menu (`layout/nav-menu-account.ts`), so
  * the flow lives in one place and can't drift. The account page's own
  * sign-out button was removed (AECI-986); session exit is menu-only.
  *
