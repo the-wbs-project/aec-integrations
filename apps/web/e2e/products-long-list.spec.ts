@@ -172,7 +172,9 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(overflow).toBe(0);
+    // On Linux CI the root's scrollWidth excludes the classic scrollbar gutter and
+    // clientWidth does not, so the difference can be negative. Overflow is above 0.
+    expect(overflow).toBeLessThanOrEqual(0);
     const names = await text(page, '[data-testid="integrations-rail-link"]');
     expect(names.length).toBeGreaterThan(1);
   });
