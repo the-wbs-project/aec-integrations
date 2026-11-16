@@ -51,8 +51,9 @@
  *     same-origin frame stays allowed. The grant loads nothing by itself: the
  *     browser `TurnstileService` only injects the script when the env ships a
  *     `TURNSTILE_SITE_KEY` (dark by default).
- *   - `style-src` / `font-src` — Google Fonts stylesheet + woff2 (index.html).
- *     Angular SSR also inlines component `<style>` blocks → `'unsafe-inline'`.
+ *   - `style-src` — Angular SSR inlines component `<style>` blocks →
+ *     `'unsafe-inline'`. `font-src 'self'` — the web fonts are self-hosted under
+ *     `/fonts/` (AECI-1892). The two Google Fonts origins left with that change.
  *   - `img-src 'self' data: https:` — vendor `logo_url`s from the review app come from
  *     arbitrary https origins; `data:` for inline SVG/placeholders.
  *   - `connect-src` — `'self'` for the `/api/*` service-binding proxy. (Two
@@ -91,8 +92,8 @@
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
   "img-src 'self' data: https:",
   "connect-src 'self' https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com https://ktuhnlypztujpsseujzx.supabase.co",
   "frame-src 'self' https://challenges.cloudflare.com",

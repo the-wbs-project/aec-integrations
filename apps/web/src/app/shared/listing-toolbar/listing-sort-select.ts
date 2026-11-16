@@ -41,7 +41,8 @@ export class ListingSortIds {
 
 /**
  * The sort control on every listing: `/products`, the four taxonomy browse pages
- * (both through `aec-listing-toolbar`) and `/search`. Ruled on 2026-10-26: one
+ * (both through `aec-listing-toolbar`), the four taxonomy index pages (on its
+ * own, AECI-1795) and `/search`. Ruled on 2026-10-26: one
  * control everywhere, the `/search` one (`DESIGN.md` "The Same-Behavior Rule").
  *
  * A non-editable Angular Aria combobox + listbox-in-overlay, the project's

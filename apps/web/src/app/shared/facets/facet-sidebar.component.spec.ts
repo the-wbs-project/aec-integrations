@@ -502,6 +502,82 @@ describe('FacetSidebar, mock-up 10 shell (AECI-1793)', () => {
     httpMock.verify();
   });
 
+  /** The caption under the panel: its last child. */
+  const caption = (root: HTMLElement) =>
+    root.querySelector('#aec-facet-panel')!.lastElementChild!.textContent?.trim();
+
+  it('names only the groups shown: a phase term page hides Phases, so the caption drops them (AECI-1794)', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'phases');
+    await router.navigateByUrl('/phases');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.componentInstance.kind.set('phase');
+    fixture.componentInstance.lockedId.set('p1');
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    // Before the counts load the caption follows the lock alone.
+    expect(caption(root)).toBe('Terms A to Z.');
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          categories: [term('c1', 'Cat One', 3)],
+          audiences: [term('a1', 'Aud One', 2)],
+          // The API still returns phases; the locked group is hidden.
+          phases: [term('p1', 'Phase One', 3)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    expect(legends(root)).not.toContain('Phases');
+    expect(caption(root)).toBe('Terms A to Z.');
+    httpMock.verify();
+  });
+
+  it('keeps the directory caption on a category term page, which still shows Phases', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'categories');
+    await router.navigateByUrl('/categories');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.componentInstance.kind.set('category');
+    fixture.componentInstance.lockedId.set('c1');
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(caption(root)).toBe('Phases in project order. Other terms A to Z.');
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({ audiences: [term('a1', 'Aud One', 2)], phases: [term('p1', 'Phase One', 1)] }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    expect(legends(root)).toContain('Phases');
+    expect(caption(root)).toBe('Phases in project order. Other terms A to Z.');
+    httpMock.verify();
+  });
+
+  it('drops Phases from the caption when no phase term is left to show', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({ categories: [term('c1', 'Cat One', 3)], phases: [term('p1', 'Phase One', 0)] }),
+      );
+    await settle();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(legends(root)).not.toContain('Phases');
+    expect(caption(root)).toBe('Terms A to Z.');
+    httpMock.verify();
+  });
+
   it('draws every term row as a 44px label holding a 20px checkbox', async () => {
     const { httpMock, root } = await render('/products');
     const rows = [...root.querySelectorAll('fieldset label')];

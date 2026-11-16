@@ -509,6 +509,7 @@ request context, a cookie domain or a session mint, imports `E2E_BASE_URL` from
 - The local environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
 - Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765), then `db:grant-vendor:local` seats `LOCAL_VENDOR_USER_ID` as a `vendor_admin` on `LOCAL_VENDOR_SLUG` (default `autodesk`) so `/vendor` is reachable too. Unset → each no-ops; both always exit 0 so they can never fail a seed run
+- `seed/long-list-fixtures.sql` (AECI-1868) seeds `fixture-long-list`: 14 integrations to 14 partner products in three local-only categories, so the product page's grouped integration list renders and `products-long-list.spec.ts` asserts against that slug instead of skipping. It adds 15 products, which gives `/products` a second page. Every name starts "Zz Fixture" and every `created_at` is 2020-01-01, so A to Z and Newest lists keep their top. The categories live in this file, not `taxonomy.sql`, because `taxonomy.sql` is applied to staging and production.
 
 ### 7.6 Auth in tests
 
@@ -992,8 +993,9 @@ bafflingly wrong assertion target ("expected Fixture Procore, received ConEst
 IntelliBid").
 
   **Remedy — gate on a rendered value that can only come from the new data**,
-  then snapshot. On the listing pages the lede total works (`(N in total)`),
-  because the lede and the grid are driven by the same `httpResource`. Where a
+  then snapshot. On the listing pages the footer's status line works
+  (`Showing X of N`), because the footer and the grid are driven by the same
+  `httpResource`. The `/products` lede no longer carries a count (AECI-1794). Where a
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
 
