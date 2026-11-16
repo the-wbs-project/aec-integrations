@@ -11,8 +11,12 @@
  * visible. The open and closed states are CSS only (`.aec-docs-toc` in
  * `styles.css`); no script decides what is shown.
  *
- * **Links.** Plain anchors to the page's absolute path plus `#id`, never a bare
- * `#id`, which `<base href>` would resolve against `/`. The browser does the
+ * **Links.** Plain anchors to the current path and query plus `#id`, never a bare
+ * `#id`, which `<base href>` would resolve against `/`. They come from
+ * `injectInPageHrefFor()` (`shared/in-page-href.ts`), so a docs URL with a query
+ * (`?utm_source=…`) jumps in place instead of reloading (AECI-1843), and the
+ * server HTML keeps only the cache key's params, so it is the same for every
+ * visitor. The browser does the
  * same-document jump itself and honours each heading's `scroll-margin-top`, the
  * way the product page section nav does (`shared/section-nav/section-nav.ts`).
  * Each link carries `data-smooth-scroll`, so `InPageSmoothScroll`
@@ -45,6 +49,7 @@ import {
   signal,
 } from '@angular/core';
 
+import { injectInPageHrefFor } from '../shared/in-page-href';
 import type { DocsHeading } from './docs-markdown';
 
 /** Below this many headings the rail is not worth a column. */
@@ -63,7 +68,7 @@ export const DOCS_TOC_MIN_HEADINGS = 2;
           @for (heading of headings(); track heading.id) {
             <li>
               <a
-                [href]="path() + '#' + heading.id"
+                [href]="hrefFor()(heading.id)"
                 [attr.data-heading-id]="heading.id"
                 data-smooth-scroll
                 [attr.aria-current]="heading.id === activeId() ? 'location' : null"
@@ -85,8 +90,8 @@ export class DocsTocComponent {
 
   /** The article's `h2`s, the closing "Related" already left out. */
   readonly headings = input.required<readonly DocsHeading[]>();
-  /** The article's absolute path, so each link keeps the page and adds a fragment. */
-  readonly path = input.required<string>();
+  /** Builds `{path}[?query]#id` for the current URL (AECI-1843). */
+  protected readonly hrefFor = injectInPageHrefFor();
 
   protected readonly visible = computed(() => this.headings().length >= DOCS_TOC_MIN_HEADINGS);
 

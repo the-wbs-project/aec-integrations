@@ -657,12 +657,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
           wrapper to inherit spacing from. See DetailLayout.
         -->
         @if (sectionNav().length >= 2) {
-          <aec-section-nav
-            slot="nav"
-            class="mb-12"
-            [basePath]="'/products/' + p.slug"
-            [sections]="sectionNav()"
-          />
+          <aec-section-nav slot="nav" class="mb-12" [pageName]="p.name" [sections]="sectionNav()" />
         }
 
         <!--
@@ -1082,13 +1077,18 @@ export class ProductDetailPage {
       items.push({
         id: 'extensions',
         label: $localize`:@@products.detail.nav.extensions:Extensions`,
+        count: p.extensions.length,
       });
     }
     // Reviews always renders (its empty state still does), so it is always in
     // the nav — same rule as Integrations above.
+    // Counts are quiet facts about the section (AECI-1768), the same figures the sections
+    // print. Integrations carries none yet: its count lives in the integrations section and
+    // AECI-1782 rebuilds it, so the bar would risk a second, disagreeing figure.
     items.push({
       id: 'reviews',
       label: $localize`:@@products.detail.nav.reviews:Reviews`,
+      count: p.review_count,
     });
     return items;
   });
