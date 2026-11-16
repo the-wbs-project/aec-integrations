@@ -380,13 +380,16 @@ test.describe('hero band rendered (AECI-1766)', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    // Mock-up 6: below md the actions are a wrapping row that shares the width.
+    // AECI-1778: below md the actions are equal columns of one row, so they share the width.
     const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
     const look = await actions.evaluate((el) => {
       const s = getComputedStyle(el);
-      return `${s.flexDirection} ${s.flexWrap}`;
+      const widths = [...el.children].map((c) => Math.round(c.getBoundingClientRect().width));
+      return { display: s.display, flow: s.gridAutoFlow, widths };
     });
-    expect(look).toBe('row wrap');
+    expect(look.display).toBe('grid');
+    expect(look.flow).toBe('column');
+    expect(new Set(look.widths).size, JSON.stringify(look.widths)).toBe(1);
   });
 
   test('is axe clean', async ({ page }) => {

@@ -1349,7 +1349,9 @@ aec-section-nav
    until the page ends. The tallest seeded aside measured 669px at 1280px wide (2026-11-14), so
    the aside sticks only from a 50rem (800px) tall viewport: 73px bar, 32px gap, 669px aside.
    Below that it scrolls with the page. Unlayered, so it beats the `lg:sticky` utility. Pages
-   with no section bar keep their sticky aside unchanged. */
+   with no section bar keep their sticky aside unchanged. Since AECI-1778 the product page is on
+   the band shell, whose facts card never sticks, so only a column-shell page with a section
+   bar meets this rule. None does today. */
 @media (min-width: 64rem) and (max-height: 49.99rem) {
   aec-section-nav ~ * .aec-detail-aside {
     position: static;

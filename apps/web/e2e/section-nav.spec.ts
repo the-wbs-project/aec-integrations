@@ -340,27 +340,30 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     await expect(brand).toHaveCount(0);
     await animationsSettled(page);
 
-    const surface = await nav.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return {
-        position: s.position,
-        top: s.top,
-        background: s.backgroundColor,
-        backdrop: s.backdropFilter,
-        shadow: s.boxShadow,
-        border: s.borderBottomWidth,
-        borderColor: s.borderBottomColor,
-        zIndex: s.zIndex,
-      };
-    });
-    expect(surface).toEqual({
+    const readSurface = () =>
+      nav.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          position: s.position,
+          top: s.top,
+          background: s.backgroundColor,
+          backdrop: s.backdropFilter,
+          shadow: s.boxShadow,
+          border: s.borderBottomWidth,
+          borderColor: s.borderBottomColor,
+          zIndex: s.zIndex,
+        };
+      });
+    // AECI-1778: the product page's bar is clear at rest (rest="clear"), so the Bone band runs
+    // through it. The solid surface is asserted once it sticks, below.
+    expect(await readSurface()).toEqual({
       position: 'sticky',
       top: '0px',
-      background: await tokenColor(page, '--surface-base'),
+      background: 'rgba(0, 0, 0, 0)',
       backdrop: 'none',
       shadow: 'none',
       border: '1px',
-      borderColor: await tokenColor(page, '--border-default'),
+      borderColor: 'rgba(0, 0, 0, 0)',
       zIndex: '20',
     });
     // The header is not sticky, so the bar is the only bar at the top.
@@ -376,6 +379,17 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     );
     await expect(nav).toHaveAttribute('data-stuck', '');
     await expect(brand).toBeVisible();
+    await animationsSettled(page);
+    expect(await readSurface()).toEqual({
+      position: 'sticky',
+      top: '0px',
+      background: await tokenColor(page, '--surface-base'),
+      backdrop: 'none',
+      shadow: 'none',
+      border: '1px',
+      borderColor: await tokenColor(page, '--border-default'),
+      zIndex: '20',
+    });
     const home = brand.getByRole('link', { name: 'AEC Integrations home' });
     await expect(home).toHaveAttribute('href', '/');
     const name = await page.locator('aec-product-detail h1').first().innerText();
@@ -614,22 +628,97 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
   }
 
   // AECI-1768 review: a sticky aside taller than the space under the bar loses its foot.
-  test('the metadata aside sticks under the bar only where it fits', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 600 });
-    const path = await openProduct(page);
-    await hydrated(page, path);
-    const aside = page.locator('aec-detail-layout aside');
-    await animationsSettled(page);
-    expect(await aside.evaluate((el) => getComputedStyle(el).position)).toBe('static');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    const sticky = await aside.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { position: s.position, top: s.top, h: el.getBoundingClientRect().height };
-    });
-    expect(sticky.position).toBe('sticky');
-    // The bar's 73px plus the shipped 32px gap.
-    expect(sticky.top).toBe('105px');
-    expect(105 + sticky.h, 'the aside fits under the bar at 900px').toBeLessThanOrEqual(900);
+  // AECI-1778 moved the product page onto the band shell, where the metadata is the facts
+  // card in the page flow. It never sticks, at any height, so it can never lose its foot
+  // under the bar. The column shell's sticky aside (`.aec-detail-aside`) stays for the
+  // vendor page, which has no section bar.
+  test('the facts card never sticks under the bar on the band shell', async ({ page }) => {
+    for (const height of [600, 900]) {
+      await page.setViewportSize({ width: 1280, height });
+      const path = await openProduct(page);
+      await hydrated(page, path);
+      await animationsSettled(page);
+      const aside = page.locator('aec-detail-layout aside');
+      const position = await aside.evaluate((el) => getComputedStyle(el).position);
+      expect(position, `at ${height}px`).toBe('relative');
+      expect(await aside.evaluate((el) => el.classList.contains('aec-detail-aside'))).toBe(false);
+    }
   });
 });
+
+// AECI-1778: on the product band shell the bar is clear at rest, so the Bone band runs through
+// it, and solid white with its hairline once stuck. Only colours change, so nothing moves.
+test.describe('section nav at rest on the band shell (AECI-1778)', () => {
+  test('is clear on Bone at rest and solid white with a hairline when stuck', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const path = await openProduct(page);
+    await hydrated(page, path);
+    const nav = page.locator('aec-section-nav');
+    await expect(nav).toHaveAttribute('data-rest', 'clear');
+    await page.evaluate(() => {
+      const n = document.querySelector('aec-section-nav')!;
+      window.scrollTo({ top: n.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' });
+    });
+    await expect(nav).not.toHaveAttribute('data-stuck', '');
+    await animationsSettled(page);
+    const read = () =>
+      nav.evaluate((el) => {
+        // Computed colours can come back as oklch(); paint each onto a canvas to read sRGB.
+        const ctx = document.createElement('canvas').getContext('2d')!;
+        const rgb = (c: string) => {
+          ctx.clearRect(0, 0, 1, 1);
+          ctx.fillStyle = c;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+          return a === 0 ? 'rgba(0, 0, 0, 0)' : `rgb(${r}, ${g}, ${b})`;
+        };
+        const s = getComputedStyle(el);
+        // The colour behind the bar: its parent's ground.
+        const ground = getComputedStyle(el.parentElement!).backgroundColor;
+        const link = el.querySelector('nav a:not([aria-current])') ?? el.querySelector('nav a')!;
+        return {
+          bg: rgb(s.backgroundColor),
+          edge: rgb(s.borderBottomColor),
+          edgeWidth: s.borderBottomWidth,
+          ground: rgb(ground),
+          link: rgb(getComputedStyle(link).color),
+          height: el.getBoundingClientRect().height,
+        };
+      });
+    const rest = await read();
+    expect(rest.bg).toBe('rgba(0, 0, 0, 0)');
+    expect(rest.edge).toBe('rgba(0, 0, 0, 0)');
+    expect(rest.ground).toBe('rgb(245, 242, 234)');
+    expect(contrastOf(rest.link, rest.ground)).toBeGreaterThan(6.5);
+    // The Forest focus ring on Bone.
+    expect(contrastOf('rgb(30, 58, 47)', rest.ground)).toBeGreaterThan(11);
+
+    await page.evaluate(() =>
+      document.getElementById('reviews')!.scrollIntoView({ behavior: 'instant' }),
+    );
+    await expect(nav).toHaveAttribute('data-stuck', '');
+    await animationsSettled(page);
+    const stuck = await read();
+    expect(stuck.bg).toBe('rgb(255, 255, 255)');
+    expect(stuck.edge).not.toBe('rgba(0, 0, 0, 0)');
+    // Same border width and height at rest and stuck: the swap moves nothing.
+    expect(stuck.edgeWidth).toBe(rest.edgeWidth);
+    expect(stuck.height).toBe(rest.height);
+  });
+});
+
+function contrastOf(a: string, b: string): number {
+  const lum = (c: string) => {
+    const [r, g, bl] = c
+      .match(/[\d.]+/g)!
+      .slice(0, 3)
+      .map(Number);
+    const lin = (v: number) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(bl!);
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x! + 0.05) / (y! + 0.05);
+}

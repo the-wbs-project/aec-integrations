@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -18,6 +18,25 @@ import { DetailLayout } from './detail-layout';
   `,
 })
 class DetailLayoutHost {}
+
+@Component({
+  imports: [DetailLayout],
+  template: `
+    <aec-detail-layout shell="bands">
+      <div slot="breadcrumbs" data-testid="breadcrumbs">Breadcrumbs marker</div>
+      <header slot="hero" data-testid="hero">Hero marker</header>
+      <div slot="nav" data-testid="nav">Nav marker</div>
+      @if (withLead()) {
+        <section slot="body-lead" data-testid="body-lead">Body lead marker</section>
+      }
+      <div slot="metadata" data-testid="metadata">Metadata marker</div>
+      <section slot="body" data-testid="body">Body marker</section>
+    </aec-detail-layout>
+  `,
+})
+class BandShellHost {
+  readonly withLead = signal(true);
+}
 
 describe('DetailLayout', () => {
   it('projects all six named slots', () => {
@@ -107,5 +126,71 @@ describe('DetailLayout', () => {
     // a second <main> here would create a duplicate main landmark (axe:
     // landmark-no-duplicate-main).
     expect(root.querySelector('main')).toBeNull();
+  });
+});
+
+// AECI-1778: the product page's band shell. The column shell above stays the default, for
+// the vendor page.
+describe('DetailLayout band shell (AECI-1778)', () => {
+  function render(withLead = true) {
+    const fixture = TestBed.createComponent(BandShellHost);
+    fixture.componentInstance.withLead.set(withLead);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('reads hero, facts, nav, lead, body in DOM order, and drops the breadcrumbs slot', () => {
+    const root = render();
+    const order = [...root.querySelectorAll('[data-testid]')]
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id) => !id!.startsWith('detail-'));
+    expect(order).toEqual(['hero', 'metadata', 'nav', 'body-lead', 'body']);
+    // The hero holds its own breadcrumb on the band shell.
+    expect(root.querySelector('[data-testid=breadcrumbs]')).toBeNull();
+  });
+
+  it('keeps the nav a direct child of the page container, with no wrapper', () => {
+    const root = render();
+    const container = root.querySelector('[data-shell=bands]')!;
+    expect(root.querySelector('[data-testid=nav]')!.parentElement).toBe(container);
+    expect(root.querySelector('[data-testid=hero]')!.parentElement).toBe(container);
+  });
+
+  it('pulls the facts up over the hero by no more than the hero padding', () => {
+    const root = render();
+    const aside = root.querySelector('aside[aria-label=Metadata]')!;
+    expect(aside.querySelector('[data-testid=metadata]')).not.toBeNull();
+    const classes = [...aside.classList];
+    // 64px below md and 96px from md, under the hero's 96px and 128px bottom padding.
+    expect(classes).toContain('-mt-16');
+    expect(classes).toContain('md:-mt-24');
+    expect(classes).toContain('relative');
+    // The ground behind it is a block formatting context, so the negative margin cannot
+    // collapse through it and drag the Bone ground over the hero.
+    expect(aside.closest('.flow-root')).not.toBeNull();
+    // No docked sidebar on the band shell.
+    expect(classes).not.toContain('lg:sticky');
+  });
+
+  it('puts the lead on the Bone band and the body on white, in the 1328px wrap', () => {
+    const root = render();
+    const lead = root.querySelector('[data-testid=body-lead]')!;
+    const leadBand = lead.closest('[data-testid=detail-lead-band]')!;
+    expect(leadBand.classList.contains('bg-(--accent-warm)')).toBe(true);
+    expect(lead.parentElement!.classList.contains('max-w-[1328px]')).toBe(true);
+    const body = root.querySelector('[data-testid=body]')!;
+    expect(body.closest('[data-testid=detail-lead-band]')).toBeNull();
+    expect(body.parentElement!.classList.contains('max-w-[1328px]')).toBe(true);
+  });
+
+  it('leaves the lead wrap empty when the page projects no lead, so the band hides', () => {
+    const root = render(false);
+    const wrap = root.querySelector('[data-lead]')!;
+    expect(wrap.children).toHaveLength(0);
+    expect(
+      root
+        .querySelector('[data-testid=detail-lead-band]')!
+        .classList.contains('has-[>[data-lead]:empty]:hidden'),
+    ).toBe(true);
   });
 });

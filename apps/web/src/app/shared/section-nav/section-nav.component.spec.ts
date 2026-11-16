@@ -20,11 +20,12 @@ const sections: SectionNavItem[] = [
 
 @Component({
   imports: [SectionNav],
-  template: `<aec-section-nav [sections]="items()" [pageName]="name()" />`,
+  template: `<aec-section-nav [sections]="items()" [pageName]="name()" [rest]="rest()" />`,
 })
 class Host {
   items = signal<readonly SectionNavItem[]>(sections);
   name = signal<string | null>('Bluebeam Revu');
+  rest = signal<'solid' | 'clear'>('solid');
 }
 
 const Stub = class {};
@@ -68,6 +69,7 @@ async function setup(
     cookie?: string;
     items?: readonly SectionNavItem[];
     name?: string | null;
+    rest?: 'solid' | 'clear';
   } = {},
 ): Promise<ComponentFixture<Host>> {
   TestBed.resetTestingModule();
@@ -92,6 +94,7 @@ async function setup(
   const fixture = TestBed.createComponent(Host);
   if (opts.items) fixture.componentInstance.items.set(opts.items);
   if (opts.name !== undefined) fixture.componentInstance.name.set(opts.name);
+  if (opts.rest) fixture.componentInstance.rest.set(opts.rest);
   fixture.detectChanges();
   await fixture.whenStable();
   return fixture;
@@ -176,6 +179,21 @@ describe('SectionNav', () => {
       expect(FakeObserver.instances.filter((o) => Array.isArray(o.options.threshold))).toHaveLength(
         0,
       );
+    });
+  });
+
+  // AECI-1778: the caller says what the bar sits on at rest. The CSS keys off the attribute.
+  describe('the bar at rest', () => {
+    it('is solid by default and says so on the host', async () => {
+      const el = (await setup()).nativeElement as HTMLElement;
+      expect(el.querySelector('aec-section-nav')!.getAttribute('data-rest')).toBe('solid');
+    });
+
+    it('renders rest="clear" on the server, never stuck, so cached HTML is one look', async () => {
+      const el = (await setup({ platform: 'server', rest: 'clear' })).nativeElement as HTMLElement;
+      const host = el.querySelector('aec-section-nav')!;
+      expect(host.getAttribute('data-rest')).toBe('clear');
+      expect(host.hasAttribute('data-stuck')).toBe(false);
     });
   });
 

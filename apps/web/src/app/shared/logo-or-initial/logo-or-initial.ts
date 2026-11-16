@@ -62,7 +62,7 @@ import {
  * rounded logo and its tile share the box, the border and the fill, and the tile takes
  * no muted styling.
  */
-export type LogoSize = 'lg' | 'sm';
+export type LogoSize = 'hero' | 'lg' | 'sm';
 
 /**
  * What the caller knows about the logo's claim state (AECI-1851). See the class comment:
@@ -115,7 +115,11 @@ export class LogoOrInitial {
   readonly name = input.required<string>();
   /** Passed through verbatim — `''` is decorative, meaningful for heroes. */
   readonly alt = input<string>('');
-  /** `lg` = 64px framed hero, `sm` = 32px inline avatar. */
+  /**
+   * `lg` = 64px framed mark, `sm` = 32px inline avatar. `hero` fills the box its caller
+   * draws: the hero band's `heroMark` slot, 104px and 68px below `md` (AECI-1778). An
+   * unclaimed subject is always the initial tile at `hero` (counsel's "keep it small").
+   */
   readonly size = input<LogoSize>('lg');
   /** `rounded` for a company logo, `circle` for a person's avatar. */
   readonly shape = input<LogoShape>('rounded');
@@ -183,7 +187,17 @@ export class LogoOrInitial {
     return (Array.from(name)[0] ?? '').toUpperCase() || '·';
   });
 
-  protected readonly dim = computed(() => (this.size() === 'lg' ? 64 : 32));
+  /** The intrinsic size `NgOptimizedImage` reserves. `hero` is the slot's largest box. */
+  protected readonly dim = computed(() => {
+    const size = this.size();
+    return size === 'hero' ? 104 : size === 'lg' ? 64 : 32;
+  });
+
+  /** The box: fixed for `lg` and `sm`, the caller's box for `hero`. */
+  private readonly boxClass = computed(() => {
+    const size = this.size();
+    return size === 'hero' ? 'size-full' : size === 'lg' ? 'h-16 w-16' : 'h-8 w-8';
+  });
 
   /** `circle` overrides the per-size radius; a photo is cropped, not framed, so
    *  it also takes `object-cover` rather than the logo's `object-contain`.
@@ -206,14 +220,18 @@ export class LogoOrInitial {
   );
 
   protected readonly imgClass = computed(
-    () =>
-      `${this.size() === 'lg' ? 'h-16 w-16' : 'h-8 w-8'} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}`,
+    () => `${this.boxClass()} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}`,
   );
 
-  protected readonly spanClass = computed(() =>
-    this.size() === 'lg'
-      ? `flex h-16 w-16 items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)`
-      : `flex h-8 w-8 items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display text-sm font-semibold text-(--text-primary)`,
+  /** The initial steps with the box: `--t-36` in the hero tile, 24px at 64px, 14px at 32px. */
+  private readonly initialClass = computed(() => {
+    const size = this.size();
+    return size === 'hero' ? 'text-t-36' : size === 'lg' ? 'text-2xl' : 'text-sm';
+  });
+
+  protected readonly spanClass = computed(
+    () =>
+      `flex ${this.boxClass()} items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display ${this.initialClass()} font-semibold text-(--text-primary)`,
   );
 
   constructor() {

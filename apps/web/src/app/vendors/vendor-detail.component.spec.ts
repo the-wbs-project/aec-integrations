@@ -140,6 +140,23 @@ describe('VendorDetailPage outbound click ownership (AECI-933)', () => {
   });
 });
 
+// AECI-1778: DetailLayout grew a band shell for the product page. The vendor page stays on
+// the shipped column shell until its own mock-up lands (AECI-1791, AECI-1797), so its
+// metadata keeps the docked sidebar and its own header with the breadcrumb.
+describe('VendorDetailPage keeps the column shell (AECI-1778)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders the docked metadata sidebar, not the band shell', () => {
+    const { el } = setup(buildVendor());
+    expect(el.querySelector('[data-shell=bands]')).toBeNull();
+    const aside = el.querySelector('aside[aria-label=Metadata]');
+    expect(aside).not.toBeNull();
+    expect([...aside!.classList]).toContain('lg:sticky');
+    expect(aside!.querySelector('[slot=metadata]')).not.toBeNull();
+    expect(el.querySelector('nav[aria-label=Breadcrumb]')).not.toBeNull();
+  });
+});
+
 // AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
 // at `lg` and so leaves the body column 608px wide. At the old 44rem the
 // products table overflowed that by 96px and scrolled inside a narrow well.

@@ -13,31 +13,26 @@ import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
-import { ReviewCta } from '../reviews/review-cta';
-import { ReviewStars } from '../reviews/review-stars';
 import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
-import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
-import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
+import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin, ProductExtensionsSection } from './product-extensions';
+import { ProductHero } from './product-hero';
 import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
-import { RoleBadge } from './role-badge';
 import { AecIcon } from '../shared/icon/icon';
-import { Chip } from '../shared/chip/chip';
-import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
+import { AecCard } from '../shared/card/card';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -50,14 +45,16 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
  *     the resolver already set `RESPONSE_INIT.status = 404` and
  *     `MetaService.setNotFoundMeta`. URL stays at /products/:slug so the
  *     visitor can correct a typo in place — no router redirect.
- *   - `product` set → render hero / metadata sidebar / description /
- *     integrations sections inside the shared `DetailLayout`.
+ *   - `product` set → render the hero (`aec-product-hero`), the facts card,
+ *     the description and the integrations sections inside the shared
+ *     `DetailLayout` on its band shell (AECI-1778, DESIGN.md §4).
  *
  * Integrations section: extracted to `aec-product-integrations-section`
  * (AECI-841), which owns the §13.2/§13.3 lane split, the `@defer` cut, the
  * collapsible lane cards and the name filter. Nothing else on this page needs
- * any of the four, so the page component keeps only the hero, the metadata
- * sidebar, the powered section's render gates and the jump nav.
+ * any of the four, so the page component keeps only the facts card, the
+ * powered section's render gates and the jump nav. The hero is its own
+ * component (`product-hero.ts`).
  *
  * Powered-integrations section (Stage 1.5 Addendum B): a *second*, distinct
  * integrations surface for connector-role products. The table above lists edges
@@ -83,229 +80,55 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
 @Component({
   selector: 'aec-product-detail',
   imports: [
-    AecBreadcrumb,
     AecButton,
+    AecCard,
     AecIcon,
     DetailLayout,
     ExternalLinkTracker,
     FieldCaptionLine,
     UnderReviewMarker,
     LogoOrInitial,
-    UnclaimedNote,
     MailingListSignup,
-    MaintenanceMarker,
     NgTemplateOutlet,
     NewTabIcon,
     NotFound,
     ProductBuiltWithin,
     ProductExtensionsSection,
+    ProductHero,
     ProductIntegrationsSection,
     ProductPoweredHub,
     ProductReviews,
     ProductUsefulnessSection,
     RequestDrawer,
     RequestTrigger,
-    ReviewCta,
-    ReviewStars,
-    RoleBadge,
     RouterLink,
     SectionNav,
     TaxonomyBadge,
-    Chip,
   ],
   template: `
     @let p = product();
     @if (p === null) {
       <aec-not-found />
     } @else {
-      <aec-detail-layout>
-        <aec-breadcrumb slot="breadcrumbs" [items]="crumbs()" />
-
-        <div slot="hero" class="space-y-5">
-          <!-- items-center, not items-start. The logo is a 64px square and the
-               column beside it opens with a row of ~29px chips, so top-aligning
-               anchored the logo to the chip row and left it relating to nothing:
-               its optical centre landed in the gap ABOVE the name. Centring ties
-               it to the h1, which is what it belongs to. The column is always
-               taller than 64px (eyebrow plus h1 clears it at every breakpoint),
-               so the logo never becomes the taller item. -->
-          <div class="flex items-center gap-5">
-            @if (p.claim_status !== 'unclaimed') {
-              <aec-logo-or-initial
-                [src]="p.logo_url"
-                [name]="p.name"
-                [alt]="logoAlt(p.name)"
-                [claimStatus]="p.claim_status"
-                size="lg"
-                [priority]="true"
-              />
-            }
-            <div class="min-w-0 space-y-2">
-              <!-- Eyebrow + role chip. The role badge renders nothing for the
-                   default "application" role, so most products keep the bare
-                   eyebrow; a connector / hybrid is flagged where the visitor
-                   first looks (Stage 1.5 Addendum B). -->
-              <div class="flex flex-wrap items-center gap-2">
-                <p
-                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                  i18n="@@products.detail.eyebrow"
-                >
-                  Product
-                </p>
-                <aec-role-badge [role]="p.product_role" />
-                <aec-maintenance-marker
-                  [maintainedBy]="p.maintenance.maintained_by"
-                  [reviewedAt]="p.maintenance.last_reviewed_at"
-                  [ownerName]="p.vendor?.name ?? null"
-                />
-              </div>
-              <h1
-                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
-              >
-                {{ p.name }}
-              </h1>
-              <!-- AECI-1628: AECi replaced or removed the logo a vendor holds. The logo
-                   sits beside this column, so the line names it. -->
-              @if (slotCorrection('logo_url', !!p.logo_url); as c) {
-                <aec-field-caption
-                  data-testid="logo-correction"
-                  [correction]="c"
-                  [label]="logoLabel"
-                  [page]="captionPage()"
-                />
-              }
-              <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
-                   image, with counsel's wording directly beside it. -->
-              @if (p.claim_status === 'unclaimed') {
-                <div class="flex items-center gap-2 pt-1">
-                  <aec-logo-or-initial
-                    [src]="p.logo_url"
-                    [name]="p.name"
-                    [alt]="logoAlt(p.name)"
-                    [claimStatus]="p.claim_status"
-                    [ownPage]="true"
-                    size="sm"
-                    [priority]="true"
-                  />
-                  <aec-unclaimed-note />
-                </div>
-              }
-              <!-- Connector reach line (Stage 1.5 Addendum C, §13.6). Rendered
-                   whenever the product reaches at least one catalog product,
-                   with no role gate: §13.6 states only the N > 0 condition, and
-                   a mis-roled application that powers edges is described just
-                   as accurately by it. "in the AEC Integrations catalog" carries §12.7's
-                   scope framing inline, so the number never reads as the
-                   vendor's full partner set. -->
-              @if (connectsLabel(); as connects) {
-                <p class="text-sm text-(--text-secondary)">{{ connects }}</p>
-              }
-            </div>
-          </div>
-
-          <!-- Rating / review meta line. Always rendered: a rated product (≥5
-               approved reviews) shows the aggregate; below that §5.5 threshold the
-               API nulls the average, so we show a "Not yet rated" chip + the live
-               review count instead of hiding the line. Every value derives from
-               static product fields, so this stays edge-cache-neutral (§8).
-
-               ZERO reviews collapses to ONE statement. "Not yet rated · No
-               reviews yet" said the same thing twice in two different visual
-               registers, and the second half explains the first, so the count
-               line is the one that survives. At 1-4 reviews both halves carry
-               their own fact ("Not yet rated · 3 reviews") and both render.
-
-               The chip is SENTENCE CASE. It was uppercase with 0.08em tracking,
-               which is the overline role, and DESIGN.md's Sentence-Case Rule
-               allows exactly one exception to sentence case: eyebrows, kickers
-               and sidebar microheadings. A chip is none of those, and this one
-               sat two lines under a real overline ("PRODUCT"), competing with it.
-               Metrics now match RoleBadge / MaintenanceMarker so every chip on
-               this page is one height. -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-            @if (p.rating_overall_avg !== null) {
-              <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
-              <span class="font-display text-xl font-semibold text-(--text-primary)">{{
-                decimal(p.rating_overall_avg)
-              }}</span>
-              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
-            } @else if (p.review_count > 0) {
-              <aec-chip tone="quiet" i18n="@@products.detail.hero.notRated">Not yet rated</aec-chip>
-              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
-            }
-            @if (p.review_count > 0) {
-              <a
-                [href]="'/products/' + p.slug + '#reviews'"
-                data-smooth-scroll
-                class="text-sm font-semibold text-(--text-secondary) no-underline transition-colors
-                  hover:text-(--accent-primary) focus-visible:outline-none
-                  focus-visible:rounded-(--radius-sm) focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
-              >
-                {{ reviewCountLabel(p.review_count) }}
-              </a>
-            } @else {
-              <span class="text-sm font-semibold text-(--text-secondary)">{{
-                reviewCountLabel(p.review_count)
-              }}</span>
-            }
-          </div>
-
-          <!-- Primary action ("Visit website", when present) sits beside the
-               write-a-review CTA. The CTA reuses the cache-neutral, auth-aware
-               aec-review-cta (its SSR render is the generic "Write a review"); the
-               secondary variant keeps "Visit website" the single accent button.
-               The row renders even with no website so the CTA is always present. -->
-          <div class="flex flex-wrap items-center gap-3">
-            @if (p.website) {
-              <a
-                aecButton
-                [href]="p.website"
-                target="_blank"
-                rel="noopener nofollow"
-                aecTrackExternalLink="product_detail"
-                [aecLinkContext]="websiteLinkContext()!"
-              >
-                <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
-                <aec-new-tab-icon />
-              </a>
-            }
-            <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
-          </div>
-          @if (slotCorrection('website', !!p.website); as c) {
-            <aec-field-caption [correction]="c" [label]="websiteLabel" [page]="captionPage()" />
-          }
-          <!-- AECI-1238 (§11d.7): AECi hid the website while it checks it. -->
-          @if (underReview('website')) {
-            <aec-under-review data-testid="website-under-review" [label]="websiteLabel" />
-          }
-          <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
-               With no categories, it sits here under the website. -->
-          @if (p.categories.length === 0 && p.captions?.profile; as c) {
-            <aec-field-caption data-testid="profile-caption" [caption]="c" [page]="captionPage()" />
-          }
-        </div>
+      <aec-detail-layout shell="bands">
+        <!-- The Forest hero (AECI-1778): breadcrumb, name, vendor, ratings and the two
+             actions, in its own component so the other product-page issues do not collide
+             here. It renders the page's only h1. -->
+        <aec-product-hero slot="hero" [product]="p" />
 
         <!--
-          One instance, two formats. At lg this is the docked sidebar: a single
-          column of stacked groups on the page background. Below lg the layout
-          drops it in right under About, where a full-bleed stack of stretched
-          rows read as leftovers. There it becomes a contained fact panel: groups
-          pair up into two columns from sm, the vendor row and the action buttons
-          become surface-base cards on the panel, and the actions sit inline at
-          their natural width instead of spanning the viewport.
+          The facts position on the band shell (AECI-1778): one elevated card that the
+          layout pulls up over the hero's lower edge. Its groups are the shipped sidebar's,
+          unchanged. Groups pair up into two columns from md and four from xl. AECI-1779
+          rebuilds what the card holds.
         -->
         <div
           slot="metadata"
-          class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
-            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 lg:block lg:space-y-6
-            lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          aecCard
+          class="grid gap-x-8 gap-y-6 p-6 md:grid-cols-2 md:p-8 xl:grid-cols-4"
+          data-testid="product-facts"
         >
-          <section
-            aria-labelledby="vendor-card-title"
-            class="space-y-3 sm:col-span-2 lg:col-span-1"
-          >
+          <section aria-labelledby="vendor-card-title" class="space-y-3 md:col-span-2">
             <h2
               id="vendor-card-title"
               class="aec-overline text-(--text-secondary)"
@@ -318,8 +141,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                 [routerLink]="['/vendors', v.slug]"
                 class="flex items-center gap-3 rounded-(--radius-lg) border
                   border-(--border-default) bg-(--surface-base) p-3 no-underline
-                  transition-colors hover:border-(--border-strong)
-                  lg:bg-(--surface-raised) lg:p-4"
+                  transition-colors hover:border-(--border-strong)"
               >
                 <aec-logo-or-initial
                   [claimStatus]="'server-filtered'"
@@ -344,8 +166,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
             } @else {
               <p
                 class="rounded-(--radius-lg) border border-(--border-default)
-                  bg-(--surface-base) p-3 text-(--text-secondary)
-                  lg:bg-(--surface-raised) lg:p-4"
+                  bg-(--surface-base) p-3 text-(--text-secondary)"
                 i18n="@@products.detail.vendor.none"
               >
                 No vendor listed
@@ -360,7 +181,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
             <section
               aec-product-built-within
               aria-labelledby="built-within-title"
-              class="space-y-3 sm:col-span-2 lg:col-span-1"
+              class="space-y-3 md:col-span-2"
               [hosts]="p.extension_of"
             ></section>
           }
@@ -568,17 +389,17 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                the same sentence four times down a sidebar is noise that starts to read as
                a badge. A sibling of Resources, not inside it, because the group can hold
                facets alone and Resources then does not render. Below lg it spans the
-               fact panel, since it speaks for both columns. -->
+               card, since it speaks for every column. -->
           @if (managedCaption(); as c) {
             <aec-field-caption
-              class="sm:col-span-2 lg:col-span-1"
+              class="md:col-span-2 xl:col-span-4"
               data-testid="managed-caption"
               [caption]="c"
               [page]="captionPage()"
             />
           }
 
-          <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 lg:col-span-1">
+          <section aria-labelledby="actions-label" class="space-y-3 md:col-span-2">
             <h2
               id="actions-label"
               class="aec-overline text-(--text-secondary)"
@@ -586,7 +407,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
             >
               Actions
             </h2>
-            <div class="flex flex-wrap gap-2 lg:flex-col">
+            <div class="flex flex-wrap gap-2">
               <a
                 aecButton
                 variant="secondary"
@@ -658,7 +479,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
           wrapper to inherit spacing from. See DetailLayout.
         -->
         @if (sectionNav().length >= 2) {
-          <aec-section-nav slot="nav" class="mb-12" [pageName]="p.name" [sections]="sectionNav()" />
+          <aec-section-nav slot="nav" rest="clear" [pageName]="p.name" [sections]="sectionNav()" />
         }
 
         <!--
@@ -668,8 +489,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
           under Reviews at the foot of the page. At lg this is simply the top of
           column 1, and nothing moves. See DetailLayout.
         -->
-        <div slot="body-lead" class="space-y-12">
-          @if (p.description || underReview('description')) {
+        @if (p.description || underReview('description')) {
+          <div slot="body-lead" class="space-y-12">
             <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
               <h2
                 id="description-title"
@@ -692,8 +513,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                 <aec-under-review data-testid="description-under-review" />
               }
             </section>
-          }
-        </div>
+          </div>
+        }
 
         <div slot="body" class="space-y-12">
           @if (p.usefulness; as u) {
@@ -776,7 +597,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
         </div>
       </aec-detail-layout>
 
-      <aec-mailing-list-signup />
+      <!-- White on the band shell: the About band is the page's one Bone band. -->
+      <aec-mailing-list-signup ground="white" />
 
       <!-- In-place claim/correction drawer (AECI-128); opened by the
            aecRequestTrigger anchors above. Renders nothing until opened. -->
@@ -785,12 +607,6 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
   `,
 })
 export class ProductDetailPage {
-  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
-    homeCrumb(),
-    { label: $localize`:@@products.detail.breadcrumbs.products:Products`, link: '/products' },
-    { label: this.product()?.name ?? '' },
-  ]);
-
   private readonly route = inject(ActivatedRoute);
   private readonly analytics = inject(Analytics);
 
@@ -816,11 +632,6 @@ export class ProductDetailPage {
     });
   }
 
-  /**
-   * Ownership facts for the "Visit website" click (AECI-933). The owner is the
-   * product's primary vendor, the one `vendor` already resolves to. A product with
-   * no vendor sends a `null` owner rather than guessing.
-   */
   /** The vendor card's one line (AECI-1310). Sources stay on the vendor page. */
   protected readonly vendorFactsLine = computed<string | null>(() => {
     const facts = this.product()?.vendor_facts;
@@ -834,6 +645,10 @@ export class ProductDetailPage {
     return parts.length > 0 ? parts.join(' · ') : null;
   });
 
+  /**
+   * Ownership facts for the "Resources" links. The owner is the product's primary vendor.
+   * The hero builds the same facts for "Visit website" (`product-hero.ts`).
+   */
   protected readonly websiteLinkContext = computed<ExternalLinkContext | null>(() => {
     const p = this.product();
     if (!p) return null;
@@ -870,8 +685,6 @@ export class ProductDetailPage {
     entityId: this.product()?.id ?? '',
   }));
 
-  protected readonly websiteLabel = fieldOverrideLabel('website');
-  protected readonly logoLabel = fieldOverrideLabel('logo_url');
   protected readonly correctionLabel = fieldOverrideLabel;
 
   /**
@@ -903,23 +716,6 @@ export class ProductDetailPage {
       !!p.api_docs_url;
     return hasValues ? (p.captions?.managed ?? null) : null;
   });
-
-  /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
-  protected decimal(value: number): string {
-    return value.toFixed(1);
-  }
-
-  /**
-   * Hero review-count label. Renders for any count (the meta line shows
-   * "Not yet rated · N reviews" below the §5.5 5-review rating threshold, not
-   * just for rated products), so it pluralizes all three cases. Pluralization
-   * lives in the component rather than a template ICU, matching `IntegrationStat`.
-   */
-  protected reviewCountLabel(count: number): string {
-    if (count === 0) return $localize`:@@products.detail.hero.reviewCount.none:No reviews yet`;
-    if (count === 1) return $localize`:@@products.detail.hero.reviewCount.one:1 review`;
-    return $localize`:@@products.detail.hero.reviewCount.other:${count}:COUNT: reviews`;
-  }
 
   /**
    * Whether the "Integrations it powers" section renders. Three branches, in
@@ -983,35 +779,6 @@ export class ProductDetailPage {
     const p = this.product();
     if (!p) return groupPoweredIntegrations([], '');
     return groupPoweredIntegrations(p.integrations_as_connector, p.slug);
-  });
-
-  /**
-   * Hero line: "Connects N products in the AEC Integrations catalog" (§13.6).
-   *
-   * `null` when N is 0, which is the section's own render gate turned into a
-   * copy gate: a connector with nothing to count says nothing rather than
-   * saying zero. Deliberately NOT gated on `product_role`: §13.6 states only
-   * the `N > 0` condition, and a mis-roled application that powers edges is
-   * described just as accurately by the line as a connector is — the same
-   * data-driven reading `showPowered` takes.
-   *
-   * "in the AEC Integrations catalog" carries §12.7's catalog-scope framing
-   * inline, so this line needs no separate scope note: an `integrations` row
-   * only exists once BOTH endpoints are promoted products, and the count must
-   * not read as the vendor's full partner set.
-   *
-   * Pluralized in the component rather than a template ICU, matching
-   * `reviewCountLabel` above and `IntegrationStat`.
-   */
-  protected readonly connectsLabel = computed<string | null>(() => {
-    const p = this.product();
-    if (!p) return null;
-    const count = connectedProductCount(p.integrations_as_connector, p.slug);
-    if (count === 0) return null;
-    if (count === 1) {
-      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AEC Integrations catalog`;
-    }
-    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
   });
 
   /**

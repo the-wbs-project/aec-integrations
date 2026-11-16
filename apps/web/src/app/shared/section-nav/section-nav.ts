@@ -114,13 +114,22 @@ const FADE_PX = 40;
   host: {
     class: 'block sticky top-0 z-20 border-b bg-(--surface-base)',
     '[attr.data-stuck]': 'stuck() ? "" : null',
+    '[attr.data-rest]': 'rest()',
     // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
     '(click)': 'onClick($event)',
     // Delegated too: a link reached by Tab is scrolled fully into the row (see `reveal`).
     '(focusin)': 'onFocusIn($event)',
-    '(focusout)': 'fadesOff.set(false)',
+    '(focusout)': 'onFocusOut()',
   },
   styles: `
+    /* rest="clear" (AECI-1778): at rest the bar shows the band behind it, with no fill and
+       no hairline. Stuck, it is the solid white bar with its hairline. Only colours change, the
+       1px border stays, so the swap moves nothing (CLS 0). Unlayered here, so it beats the
+       layered fill utility and the unlayered star rule for border colour, which has no specificity. */
+    :host([data-rest='clear']:not([data-stuck])) {
+      background-color: transparent;
+      border-bottom-color: transparent;
+    }
     .aec-section-nav-row {
       scrollbar-width: none;
     }
@@ -272,6 +281,13 @@ export class SectionNav {
    * Integrations › Bluebeam Revu"). Text only: the bar never draws the entity's logo.
    */
   readonly pageName = input<string | null>(null);
+  /**
+   * The bar at rest. `solid` (default) is white with its hairline at rest and stuck. `clear` is
+   * for a bar that sits on a band at rest (the product band shell, where it crosses the Bone
+   * band): no fill and no hairline until it sticks. The caller says so; the bar never assumes
+   * its ground. The server always renders the bar at rest.
+   */
+  readonly rest = input<'solid' | 'clear'>('solid');
 
   protected readonly hrefFor = injectInPageHrefFor();
 
@@ -312,6 +328,14 @@ export class SectionNav {
   /** True while a focused link is too wide to sit clear of both fades. */
   protected readonly fadesOff = signal(false);
 
+  /**
+   * The section whose link holds keyboard focus, or null. While set, it wins over the current
+   * section in the row: the scroll-spy and the stuck cluster both re-run the "keep the current
+   * link visible" effect after focus has moved, and that effect used to scroll the row back to
+   * the current link, leaving the focused one off-screen (WCAG 2.4.11, AECI-1778).
+   */
+  private readonly focusedId = signal<string | null>(null);
+
   private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
   private readonly track = viewChild.required<ElementRef<HTMLElement>>('track');
   private readonly brand = viewChild<ElementRef<HTMLElement>>('brand');
@@ -342,8 +366,15 @@ export class SectionNav {
   protected onFocusIn(event: Event): void {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
+    const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id') ?? null;
+    this.focusedId.set(id);
     if (id) this.fadesOff.set(this.reveal(id));
+  }
+
+  /** Focus left a link. Tab between links fires focusin straight after, in the same task. */
+  protected onFocusOut(): void {
+    this.focusedId.set(null);
+    this.fadesOff.set(false);
   }
 
   /**
@@ -427,13 +458,20 @@ export class SectionNav {
       onCleanup(() => observer.disconnect());
     });
 
-    // Keep the current link visible in the row. Runs only when the row overflows (from the
+    // Keep the current link visible in the row, or the focused one while a link has keyboard
+    // focus: focus always wins, so a later scroll-spy update or the stuck cluster arriving never
+    // scrolls the focused link out of the row. Runs only when the row overflows (from the
     // ResizeObserver figures), and `reveal` defers while the page is moving.
     afterRenderEffect(() => {
-      const id = this.activeId();
+      const focused = this.focusedId();
+      const id = focused ?? this.activeId();
       const overflows = this.overflows();
       this.shift(); // the brand cluster changes what is visible
-      if (id && overflows) untracked(() => this.reveal(id));
+      if (!id || !overflows) return;
+      untracked(() => {
+        const tooWide = this.reveal(id);
+        if (focused) this.fadesOff.set(tooWide);
+      });
     });
 
     // The stuck brand cluster's width, from its own ResizeObserver while it exists.
