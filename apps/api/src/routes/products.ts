@@ -36,6 +36,7 @@ import {
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { textAsc } from '../lib/collation';
 import { reachablePartnerProductIdsQuery, toReachablePartnerIds } from '../lib/connector-reach';
 import {
   buildProductsWhere,
@@ -128,9 +129,12 @@ function productIdBySlug(db: Db, slug: string): SQL {
 }
 
 /**
- * Baseline `related_products`: the latest 6 products sharing at least one
- * category with the page product, excluding itself. `id` tiebreaks equal
- * timestamps, which promote writes in bulk. A product with no category has none.
+ * `related_products`: the first 6 products, A to Z by name, sharing at least one
+ * category with the page product, excluding itself. Ruling R1 (AECI-1732): the list
+ * was never on a page before AECI-1785, so it is a new list and reads A to Z. The
+ * name is case-folded (`textAsc`) and `id` breaks a tie, so the cut at six is total.
+ * Neither input reads a plan: a rename is a correction request, and category
+ * membership is a Free capability. A product with no category has none.
  */
 function relatedProductsQuery(db: Db, productId: SQL) {
   const pageCategories = db
@@ -151,7 +155,7 @@ function relatedProductsQuery(db: Db, productId: SQL) {
           .where(inArray(productCategories.categoryId, pageCategories)),
       ),
     ),
-    orderBy: [desc(products.createdAt), asc(products.id)],
+    orderBy: [textAsc(products.name), asc(products.id)],
     limit: 6,
   });
 }

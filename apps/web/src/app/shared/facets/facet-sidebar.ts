@@ -9,6 +9,7 @@ import { SearchRefinementList } from '../../search/widgets/search-refinement-lis
 import type { TaxonomyKind } from '../taxonomy-badge/taxonomy-badge';
 
 import { FacetPanel } from './facet-panel';
+import { FILTER_LINK_CLASS } from './filter-row';
 import type { RefinementItem } from './refinement-item';
 
 /**
@@ -50,7 +51,7 @@ import type { RefinementItem } from './refinement-item';
   selector: 'aec-facet-sidebar',
   imports: [FacetPanel, SearchRefinementList],
   template: `
-    <aec-facet-panel [activeCount]="activeFilterCount()">
+    <aec-facet-panel [activeCount]="activeFilterCount()" [orderNote]="orderNote">
       @for (group of groups(); track group.kind) {
         <aec-search-refinement-list
           [label]="group.label"
@@ -62,7 +63,7 @@ import type { RefinementItem } from './refinement-item';
       @if (hasActiveFilters()) {
         <button
           type="button"
-          class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="clearClass"
           (click)="clearFilters()"
           i18n="@@listing.filters.clear"
         >
@@ -74,6 +75,16 @@ import type { RefinementItem } from './refinement-item';
 })
 export class FacetSidebar {
   private readonly route = inject(ActivatedRoute);
+
+  protected readonly clearClass = FILTER_LINK_CLASS;
+
+  /**
+   * How the terms are ordered, stated under the panel (rulings 5 and 6 of
+   * 2026-11-16). True of `GET /api/products/facets`: phases by `display_order`
+   * (project order), categories and trades by `display_order`, which is A to Z
+   * (held by `apps/api/src/lib/taxonomy-a-to-z.spec.ts`), audiences by name.
+   */
+  protected readonly orderNote = $localize`:@@listing.filters.order.directory:Phases in project order. Other terms A to Z.`;
   private readonly router = inject(Router);
 
   /** Browse pages lock (and hide) their own dimension; `/products` passes none. */

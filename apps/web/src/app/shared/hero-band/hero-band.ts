@@ -27,8 +27,13 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  *    column and its gap are not rendered.
  *
  * Spacing is mock-up 6's (`.namerow`, `.hacts`): 24px above the name row, 16px
- * under it (12px below `md`), 24px above the actions, a 12px gap, and a wrapping
- * row at every width. Below `md` the actions share the row (`flex: 1`).
+ * under it (12px below `md`), 24px above the actions and a 12px gap. From `md` the
+ * actions are a wrapping row at their own widths. From 480px to `md` they are equal
+ * columns of one row (`grid-flow-col auto-cols-fr`), so one, two or three actions always
+ * share the width evenly, whatever their padding or label length (AECI-1778). Below 480px
+ * they stack in one full-width column, so a longer label such as "Sign in to review" stays
+ * on one line and every action keeps the 44px height. A projected wrapper, such as
+ * `aec-review-cta`, must let its button fill it.
  *
  * The ground is `--accent-primary`, the same token the header paints, so the
  * seam between them is one ground with no edge. The glow is the one gradient the
@@ -77,7 +82,10 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               </div>
             </div>
             <ng-content />
-            <div class="mt-6 flex flex-wrap gap-3 empty:hidden max-md:[&>*]:flex-1">
+            <div
+              class="mt-6 flex flex-wrap gap-3 empty:hidden max-md:grid min-[480px]:max-md:auto-cols-fr min-[480px]:max-md:grid-flow-col"
+              data-testid="hero-band-actions"
+            >
               <ng-content select="[heroActions]" />
             </div>
           </div>

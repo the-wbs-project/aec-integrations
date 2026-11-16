@@ -95,7 +95,14 @@ describe('aec-hero-band (AECI-1766)', () => {
     const actions = q('[data-testid="action"]')!.parentElement!;
     expect(actions.className).toContain('flex-wrap');
     expect(actions.className).not.toContain('flex-col');
-    expect(actions.className).toContain('max-md:[&>*]:flex-1');
+    // From 480px to md: equal columns of one row (AECI-1778). Below 480px the grid keeps
+    // its default row flow, so the actions stack full width (the AECI-1778 follow-up).
+    const classes = actions.className.split(/\s+/);
+    expect(classes).toContain('max-md:grid');
+    expect(classes).toContain('min-[480px]:max-md:grid-flow-col');
+    expect(classes).toContain('min-[480px]:max-md:auto-cols-fr');
+    expect(classes).not.toContain('max-md:grid-flow-col');
+    expect(classes).not.toContain('max-md:auto-cols-fr');
     expect(actions.className).toContain('mt-6');
     const panel = q('.aec-hero-panel')!;
     expect(panel.classList.contains('bg-(--surface-hero-panel)')).toBe(true);

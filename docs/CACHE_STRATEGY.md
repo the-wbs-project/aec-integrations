@@ -138,6 +138,8 @@ Codified so callers don't re-derive the rules per surface:
    - **At most 1,000 tags per queue message.** A large company can exceed one message. `sitemap` stays in the first chunk, and `purgeTags` turns it into the dirty mark, never a tag (AECI-1505).
    - **The recrawl and home stats follow.** The removed or restored company, product and pair URLs go to the recrawl buffer, and `requestHomeStatsRefresh` runs after commit, because the home stats come from `stats_cache`, not from the cached page.
 
+9. **A product page lists its similar products** (AECI-1785). The resolver pushes `product:{slug}` for every card in "Similar products", so an edit to a shown product purges the page (rule 2). A product newly added to a shared category, renamed into the first six, or restored from a hide (rule 8), carries no tag the page holds yet. The page shows it within the 15-minute detail TTL (§4). The page carries no `category:{slug}` tag, so promote's term tags do not reach it.
+
 ### Cache-Tag header construction helper
 
 Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Lives at `apps/web/src/server/cache-tags.ts`:

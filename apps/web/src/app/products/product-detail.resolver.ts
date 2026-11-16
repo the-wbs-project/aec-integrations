@@ -213,5 +213,9 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
     for (const extension of product.extensions) {
       ctx.embedded.push({ type: 'product', slug: extension.slug });
     }
+    // AECI-1785: every "Similar products" card renders that product's name and logo.
+    for (const related of product.related_products) {
+      ctx.embedded.push({ type: 'product', slug: related.slug });
+    }
   },
 });

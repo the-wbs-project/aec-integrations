@@ -299,7 +299,7 @@ There is no separate marketing page: the app home **is** the marketing page. It 
 **Right rail:**
 - "Submit a review" CTA (auth-gated)
 - Quick stats: integration count, review count, last updated
-- Related products (same category, by integration overlap)
+- Related products (same category, by integration overlap) *(Since AECI-1785 (2026-11) the page renders them as "Similar products", the last body section: up to six products sharing a category, A to Z by name with id breaking a tie, per ruling R1 on AECI-1732. No integration overlap is read. `API_CONTRACTS.md` has the order.)*
 
 **Below the fold:**
 - "Report an error" link → correction request form
@@ -339,10 +339,11 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 ### 4.3 Vendor page (`/vendors/:slug`)
 
 - Vendor header: name, logo, website
-- Company facts panel in the sidebar: headquarters, founded year, size, ownership, parent, funding, each with its source (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23)
-- Open Government Licence attribution at the foot of the sidebar, on every vendor, ruled 2026-11-04 (`apps/web/src/content/legal/README.md`)
-- Description (from Crunchbase/Wikipedia enrichment)
-- Products table — all products under this vendor as a column-aligned `<table>` (product · rating · integrations), mirroring the integrations table on the product page. Rating collapses at `md` (matching the browse tables); each row's whole surface links to `/products/:slug`. Replaces the former card grid.
+- Layout: `DetailLayout`'s band shell since AECI-1797 (`DESIGN.md` §4 "The vendor page on the band shell"): a Forest hero, a facts card on one Bone band, the products on white
+- Company facts in the facts card: headquarters, founded year, size, ownership, parent, funding, each with its source (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23)
+- Open Government Licence attribution under the facts card, on every vendor, ruled 2026-11-04 (`apps/web/src/content/legal/README.md`)
+- Description (from Crunchbase/Wikipedia enrichment), the hero lede with no heading (ruled 2026-11-16)
+- Products table — all products under this vendor as a column-aligned `<table>` (product · Overall · integrations), mirroring the integrations table on the product page. Overall, the rating column, collapses at `md` (matching the browse tables); each row's whole surface links to `/products/:slug`. Replaces the former card grid. Ordered A to Z by name, then id, and captioned "A to Z by name." (ruled 2026-11-16).
 - Aggregate stats: total products, total integrations across portfolio, total reviews
 - "Is this your company?" CTA → claim form modal
 

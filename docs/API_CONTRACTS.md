@@ -852,8 +852,10 @@ so none waits on another's result. The statements are the product (the relationa
 `productDetailConfig` shape), related products, the first review page, the published vendor replies
 for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
 every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
-empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
-products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the first 6
+products sharing a category, A to Z by name, case folded (`textAsc`), then `id ASC`, self excluded.
+The order changed from newest first in AECI-1785, which first renders the list ("Similar products").
+Ruling R1 (AECI-1732) makes a list new to a page A to Z.
 
 #### `GET /api/products/:slug/reviews`
 

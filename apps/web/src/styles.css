@@ -888,6 +888,17 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The pressed view in the cards/table toggle (`listing-view-toggle.ts`, AECI-1793).
+   The Forest fill vanishes in forced-colours mode, so the pressed button takes the
+   system selection pair. The tick stays, so the state is still not colour alone. */
+@media (forced-colors: active) {
+  .aec-view-toggle-btn[aria-pressed='true'] {
+    background-color: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
 /* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
    trigger). Unlayered for the reason `.aec-nav-tab` records: a border-colour
    utility loses to the `*` rule. Rest is the 3:1 `--border-input`. Invalid is
@@ -1037,6 +1048,24 @@ button.aec-chip:focus-visible {
 @media (min-width: 64rem) {
   .aec-card-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A grid with a set column count (AECI-1785, `ProductCardGrid.columns`). Every row
+   takes the tallest card's height, so a card with a role chip does not make its row
+   taller than the rest. A short grid caps its columns so a row is not two thirds
+   empty. Only a caller that sets `data-columns` changes. */
+.aec-card-grid[data-columns] {
+  grid-auto-rows: 1fr;
+}
+
+.aec-card-grid[data-columns='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .aec-card-grid[data-columns='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1357,7 +1386,9 @@ aec-section-nav
    until the page ends. The tallest seeded aside measured 669px at 1280px wide (2026-11-14), so
    the aside sticks only from a 50rem (800px) tall viewport: 73px bar, 32px gap, 669px aside.
    Below that it scrolls with the page. Unlayered, so it beats the `lg:sticky` utility. Pages
-   with no section bar keep their sticky aside unchanged. */
+   with no section bar keep their sticky aside unchanged. Since AECI-1778 the product page is on
+   the band shell, whose facts card never sticks, so only a column-shell page with a section
+   bar meets this rule. None does today. */
 @media (min-width: 64rem) and (max-height: 49.99rem) {
   aec-section-nav ~ * .aec-detail-aside {
     position: static;

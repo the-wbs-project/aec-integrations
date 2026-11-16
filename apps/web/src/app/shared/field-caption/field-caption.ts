@@ -36,6 +36,10 @@ export interface FieldCaptionPage {
  * **Text colour.** `--text-secondary` passes AA on every surface this sits on: base, raised,
  * Bone and a hovered table row. `--text-tertiary` fails on muted and sunken ones.
  *
+ * **On Forest.** `tone="on-brand"` is for the hero band (AECI-1778). The line takes
+ * `--text-on-brand-secondary` (7.96:1 on Forest), and the source link takes a Bone
+ * underline, Bone hover and the Bone ring, 3px at 3px. The words do not change.
+ *
  * **Visitor-neutral.** A pure function of its inputs, with no cookie, session or clock, so
  * it belongs in the edge-cached HTML. The date is formatted in UTC, the same as
  * `MaintenanceMarker`: the SSR Worker runs in UTC and the browser does not, and a local
@@ -52,12 +56,12 @@ export interface FieldCaptionPage {
   host: { class: 'block', '[hidden]': '!maintained() && !corrected()' },
   template: `
     @if (maintained(); as text) {
-      <span class="block text-xs leading-5 text-(--text-secondary)" data-testid="field-caption">{{
+      <span class="block text-xs leading-5" [class]="toneClass()" data-testid="field-caption">{{
         text
       }}</span>
     }
     @if (corrected(); as text) {
-      <span class="block text-xs leading-5 text-(--text-secondary)" data-testid="field-correction"
+      <span class="block text-xs leading-5" [class]="toneClass()" data-testid="field-correction"
         >{{ text }}
         @if (sourceHref(); as href) {
           <span aria-hidden="true">·</span>&ngsp;
@@ -71,9 +75,8 @@ export interface FieldCaptionPage {
             [aecLinkContext]="sourceLinkContext()"
             data-testid="field-correction-source"
             class="inline-flex items-center gap-1 rounded-(--radius-sm) font-semibold underline
-              decoration-(--border-strong) underline-offset-4 transition-colors
-              hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
-              focus-visible:outline-(--accent-primary)"
+              underline-offset-4 transition-colors"
+            [class]="sourceLinkClass()"
             ><span
               ><ng-container i18n="@@fieldCaption.source.link">Source</ng-container
               ><span class="sr-only" i18n="@@fieldCaption.source.link.sr">
@@ -95,6 +98,19 @@ export class FieldCaptionLine {
   readonly label = input<string | null>(null);
   /** The page this sits on, reported with a click on the source link. */
   readonly page = input.required<FieldCaptionPage>();
+  /** `default` on a light ground, `on-brand` on Forest. */
+  readonly tone = input<'default' | 'on-brand'>('default');
+
+  protected readonly toneClass = computed(() =>
+    this.tone() === 'on-brand' ? 'text-(--text-on-brand-secondary)' : 'text-(--text-secondary)',
+  );
+
+  /** The citation link's colours. Shape and weight are shared in the template. */
+  protected readonly sourceLinkClass = computed(() =>
+    this.tone() === 'on-brand'
+      ? 'decoration-(--border-on-brand-strong) hover:text-(--text-on-brand) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+      : 'decoration-(--border-strong) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
 
   private readonly locale = inject(LOCALE_ID);
 

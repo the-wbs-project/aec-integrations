@@ -36,6 +36,18 @@ describe('UnderReviewMarker (AECI-1238)', () => {
     );
   });
 
+  // AECI-1778: on the Forest hero the line takes Bone-secondary. The words do not change.
+  it('takes Bone-secondary on Forest and keeps the words', () => {
+    configure();
+    const fixture = TestBed.createComponent(UnderReviewMarker);
+    fixture.componentRef.setInput('tone', 'on-brand');
+    fixture.detectChanges();
+    const line = fixture.nativeElement.querySelector('[data-testid="field-under-review"]');
+    expect(line.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
+    expect(line.classList.contains('text-(--text-secondary)')).toBe(false);
+    expect(text(line)).toBe(WORDS);
+  });
+
   it('names the field when it cannot sit in the value slot', () => {
     configure();
     const fixture = TestBed.createComponent(UnderReviewMarker);

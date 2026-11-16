@@ -70,9 +70,9 @@ export class ListingSortIds {
       >
       <div #origin class="relative">
         <!-- The shared field recipe (AECI-1764): 44px, 12px radius, field edge.
-             The view toggle beside it is 42px (2px border + 8px p-1 + 12px py-1.5
-             + 20px text-sm line box), so the pair is 2px apart until AECI-1759
-             migrates the toggle. -->
+             The view toggle beside it is 44px on the same edge (AECI-1793).
+             176px wide at least, so the trigger does not change width with the
+             chosen sort. -->
         <button
           ngCombobox
           #cb="ngCombobox"
@@ -80,7 +80,7 @@ export class ListingSortIds {
           type="button"
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId + ' ' + triggerId"
-          class="aec-field-control flex items-center justify-between gap-2 rounded-control border
+          class="aec-field-control flex min-w-44 items-center justify-between gap-3 rounded-control border
             bg-(--surface-base) py-2 ps-4 pe-3 text-t-16 text-(--text-primary)
             focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >

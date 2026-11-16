@@ -373,20 +373,42 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect(contrast(panelText.color, panel.background)).toBeGreaterThan(6);
   });
 
-  test('has no horizontal overflow at 320px and the actions wrap in a row', async ({ page }) => {
+  test('has no horizontal overflow at 320px and the actions stack full width', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    // Mock-up 6: below md the actions are a wrapping row that shares the width.
+    // Below 480px the actions stack in one full-width column (AECI-1780), so a long label
+    // such as "Sign in to review" stays on one line.
     const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
     const look = await actions.evaluate((el) => {
       const s = getComputedStyle(el);
-      return `${s.flexDirection} ${s.flexWrap}`;
+      const row = Math.round(el.getBoundingClientRect().width);
+      const widths = [...el.children].map((c) => Math.round(c.getBoundingClientRect().width));
+      return { display: s.display, flow: s.gridAutoFlow, row, widths };
     });
-    expect(look).toBe('row wrap');
+    expect(look.display).toBe('grid');
+    expect(look.flow).toBe('row');
+    for (const w of look.widths) expect(w, JSON.stringify(look)).toBe(look.row);
+  });
+
+  test('from 480px to md the actions are equal columns of one row', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 900 });
+    await open(page);
+    // AECI-1778: equal columns of one row, so one, two or three actions share the width.
+    const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
+    const look = await actions.evaluate((el) => {
+      const s = getComputedStyle(el);
+      const tops = [...el.children].map((c) => Math.round(c.getBoundingClientRect().top));
+      const widths = [...el.children].map((c) => Math.round(c.getBoundingClientRect().width));
+      return { display: s.display, flow: s.gridAutoFlow, tops, widths };
+    });
+    expect(look.display).toBe('grid');
+    expect(look.flow).toBe('column');
+    expect(new Set(look.widths).size, JSON.stringify(look.widths)).toBe(1);
+    expect(new Set(look.tops).size, JSON.stringify(look.tops)).toBe(1);
   });
 
   test('is axe clean', async ({ page }) => {
