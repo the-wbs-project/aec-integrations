@@ -20,6 +20,12 @@ import type { ActivatedRouteSnapshot } from '@angular/router';
  *   reload must start empty. The server never reads or writes it.
  * - Bounded to the last {@link LISTING_HISTORY_LIMIT} listings, least recently
  *   used first out.
+ * - Bounded in age to {@link LISTING_HISTORY_MAX_AGE_MS} from when the reader
+ *   left the listing. A restore makes no request, so without a bound a tab left
+ *   open for days could show rows the server now withholds: a hidden product, or
+ *   a logo an unclaimed listing no longer shows (ADR 0051). Five minutes is the
+ *   edge TTL of the index and browse pages, so a restored list is never older
+ *   than a fresh visit to the edge could be.
  * - Keyed by every axis of the payload (see {@link listingHistoryKey}). This
  *   codebase has rendered a swapped list before because a cache key dropped an
  *   axis, so two different lists must never share an entry.
@@ -27,6 +33,9 @@ import type { ActivatedRouteSnapshot } from '@angular/router';
  *   URL fetches as it always has. `createPaginatedIndex` owns that rule.
  */
 export const LISTING_HISTORY_LIMIT = 5;
+
+/** How long an entry stays usable after it was written: 5 minutes. */
+export const LISTING_HISTORY_MAX_AGE_MS = 5 * 60 * 1000;
 
 /**
  * The store key: the listing's URL path plus the request line of the first page
@@ -54,22 +63,27 @@ export function listingPath(snapshot: ActivatedRouteSnapshot): string {
 @Injectable({ providedIn: 'root' })
 export class ListingHistoryStore {
   // Insertion order is recency order: a read or write moves the key to the end.
-  private readonly entries = new Map<string, readonly unknown[]>();
+  private readonly entries = new Map<string, { savedAt: number; pages: readonly unknown[] }>();
 
-  /** The pages stored under `key`, oldest page first, or `null`. */
-  read<T>(key: string): readonly T[] | null {
-    const pages = this.entries.get(key);
-    if (pages === undefined) return null;
+  /**
+   * The pages stored under `key`, oldest page first, or `null`. An entry older
+   * than {@link LISTING_HISTORY_MAX_AGE_MS} is dropped and reads as `null`, so
+   * the listing fetches. `now` is for specs.
+   */
+  read<T>(key: string, now: number = Date.now()): readonly T[] | null {
+    const entry = this.entries.get(key);
+    if (entry === undefined) return null;
     this.entries.delete(key);
-    this.entries.set(key, pages);
-    return pages as readonly T[];
+    if (now - entry.savedAt > LISTING_HISTORY_MAX_AGE_MS) return null;
+    this.entries.set(key, entry);
+    return entry.pages as readonly T[];
   }
 
-  /** Store the pages a listing rendered. An empty list stores nothing. */
-  write<T>(key: string, pages: readonly T[]): void {
+  /** Store the pages a listing rendered. An empty list stores nothing. `now` is for specs. */
+  write<T>(key: string, pages: readonly T[], now: number = Date.now()): void {
     if (pages.length === 0) return;
     this.entries.delete(key);
-    this.entries.set(key, [...pages]);
+    this.entries.set(key, { savedAt: now, pages: [...pages] });
     while (this.entries.size > LISTING_HISTORY_LIMIT) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;

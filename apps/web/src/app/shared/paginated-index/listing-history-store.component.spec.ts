@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   LISTING_HISTORY_LIMIT,
+  LISTING_HISTORY_MAX_AGE_MS,
   ListingHistoryStore,
   listingHistoryKey,
 } from './listing-history-store';
@@ -129,5 +130,29 @@ describe('ListingHistoryStore (AECI-1900)', () => {
     const first = new ListingHistoryStore();
     first.write('a', [1]);
     expect(new ListingHistoryStore().read('a')).toBeNull();
+  });
+
+  it('reads an entry up to five minutes after it was written', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', [1], 1_000);
+    expect(LISTING_HISTORY_MAX_AGE_MS).toBe(5 * 60 * 1000);
+    expect(store.read('a', 1_000 + LISTING_HISTORY_MAX_AGE_MS)).toEqual([1]);
+  });
+
+  it('drops an entry older than five minutes, so the listing fetches fresh rows', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', [1], 1_000);
+    expect(store.read('a', 1_000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
+    expect(store.size).toBe(0);
+    // Gone for good: a later read at an earlier time does not bring it back.
+    expect(store.read('a', 1_000)).toBeNull();
+  });
+
+  it('measures age from the latest write, not the first, and a read does not refresh it', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', [1], 0);
+    store.write('a', [1, 2], 4 * 60 * 1000);
+    expect(store.read('a', 8 * 60 * 1000)).toEqual([1, 2]);
+    expect(store.read('a', 4 * 60 * 1000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
   });
 });

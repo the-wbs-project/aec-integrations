@@ -1,7 +1,7 @@
 import { Location } from '@angular/common';
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Component } from '@angular/core';
+import { Component, PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideLocationMocks } from '@angular/common/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -12,7 +12,7 @@ import type { PaginatedResponse } from '@aeci/shared';
 
 import { settle } from '../../core/testing/index-page.harness';
 
-import { ListingHistoryStore } from './listing-history-store';
+import { LISTING_HISTORY_MAX_AGE_MS, ListingHistoryStore } from './listing-history-store';
 import { type PaginatedIndex, createPaginatedIndex } from './paginated-index-controller';
 
 type Row = { id: string };
@@ -228,6 +228,48 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     expect(env.rows()).toEqual(['p1', 'p2']);
     expect(setItem).not.toHaveBeenCalled();
     expect(cookie).not.toHaveBeenCalled();
+  });
+
+  it('a Back more than five minutes after leaving fetches fresh rows', async () => {
+    // A restore makes no request, so an old entry could show a product since
+    // hidden, or a logo an unclaimed listing no longer shows (ADR 0051).
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const env = await setup();
+    await browseThenLeave(env, '/list', 2);
+    now.mockReturnValue(1_000_000 + LISTING_HISTORY_MAX_AGE_MS + 1);
+
+    await back(env);
+    expect(env.rows()).toEqual([]);
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1, 'fresh'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['fresh1']);
+    env.httpMock.verify();
+  });
+
+  it('a Back within five minutes of leaving still restores', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const env = await setup();
+    await browseThenLeave(env, '/list', 2);
+    now.mockReturnValue(1_000_000 + LISTING_HISTORY_MAX_AGE_MS);
+
+    await back(env);
+    expect(env.rows()).toEqual(['p1', 'p2']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+    env.httpMock.verify();
+  });
+
+  it('never reads or writes the store when rendering on the server', async () => {
+    const read = vi.spyOn(ListingHistoryStore.prototype, 'read');
+    const write = vi.spyOn(ListingHistoryStore.prototype, 'write');
+    TestBed.configureTestingModule({ providers: [{ provide: PLATFORM_ID, useValue: 'server' }] });
+    const env = await setup();
+    await browseThenLeave(env, '/list', 2);
+    await back(env);
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    // The server path fetches the page it renders, as before.
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1));
   });
 
   it('a sort change after a restore resets to a fresh page 1', async () => {
