@@ -1,5 +1,6 @@
 import {
   Component,
+  ElementRef,
   Injector,
   afterNextRender,
   computed,
@@ -165,6 +166,7 @@ import { ProductIntegrationCard } from './product-integration-card';
 })
 export class ProductIntegrationCategoryGroup {
   private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly group = input.required<IntegrationCategoryGroup>();
   /** This page's product slug; the pair-page context on every card. */
@@ -212,12 +214,23 @@ export class ProductIntegrationCategoryGroup {
   protected toggle(button: HTMLElement): void {
     const closing = this.open();
     this.open.set(!closing);
-    // Closing removes the rows above the button, which can leave it off screen. Bring
-    // it back so focus is never left out of sight (WCAG 2.4.11).
-    if (closing) {
-      afterNextRender(() => button.scrollIntoView({ block: 'nearest', behavior: 'instant' }), {
-        injector: this.injector,
-      });
-    }
+    afterNextRender(
+      () => {
+        if (closing) {
+          // Closing removes the rows above the button, which can leave it off screen.
+          // Bring it back so focus is never left out of sight (WCAG 2.4.11).
+          button.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+          return;
+        }
+        // Opening adds the rows above the button and pushes it down the page, often off
+        // screen. Focus the first card it revealed instead, as "Load more" does in the
+        // one list, so the reader lands on the new rows (AECI-1783 review).
+        const links = this.host.nativeElement.querySelectorAll<HTMLElement>(
+          ':scope > ul > li .aec-partner-link',
+        );
+        links.item(this.peekSize)?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 }

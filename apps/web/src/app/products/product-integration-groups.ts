@@ -12,11 +12,7 @@ import {
 
 import { injectInPageHrefFor } from '../shared/in-page-href';
 
-import {
-  applyGroupDeferCut,
-  groupDomId,
-  type IntegrationCategoryGroup,
-} from './integration-category-groups';
+import { groupDomId, type IntegrationCategoryGroup } from './integration-category-groups';
 import { ProductIntegrationCategoryGroup } from './product-integration-category-group';
 
 /**
@@ -36,9 +32,11 @@ import { ProductIntegrationCategoryGroup } from './product-integration-category-
  * as the section bar marks its current item. The first group is current until the
  * reader scrolls, so the server HTML is the same for every visitor.
  *
- * **The `@defer` cut** is by whole groups (`applyGroupDeferCut`). Deferred groups are
- * still rendered on the server and hydrate on viewport. An active filter turns the
- * cut off, as it does for the lane cut.
+ * **No `@defer`.** Every group renders and hydrates with the page. A deferred group
+ * that was still dehydrated when the reader filtered stayed in the DOM as a stale
+ * copy with duplicate ids. After a client-side navigation its rail link pointed at a
+ * placeholder. And a find-in-page match in it was hidden again when it hydrated. The
+ * cards are all in the server HTML either way (AECI-1783 review).
  */
 @Component({
   selector: 'aec-product-integration-groups',
@@ -86,30 +84,13 @@ import { ProductIntegrationCategoryGroup } from './product-integration-category-
       </nav>
 
       <div class="min-w-0 space-y-12">
-        @for (group of cut().above; track group.key) {
+        @for (group of groups(); track group.key) {
           <section
             aec-product-integration-category-group
             [group]="group"
             [contextSlug]="contextSlug()"
             [forceOpen]="forceOpen()"
           ></section>
-        }
-        @if (cut().deferred.length > 0) {
-          @defer (on viewport; hydrate on viewport) {
-            @for (group of cut().deferred; track group.key) {
-              <section
-                aec-product-integration-category-group
-                [group]="group"
-                [contextSlug]="contextSlug()"
-                [forceOpen]="forceOpen()"
-              ></section>
-            }
-          } @placeholder (minimum 100ms) {
-            <div
-              aria-hidden="true"
-              class="h-40 animate-pulse rounded-card bg-(--surface-sunken)"
-            ></div>
-          }
         }
       </div>
     </div>
@@ -124,14 +105,10 @@ export class ProductIntegrationGroups {
   readonly groups = input.required<readonly IntegrationCategoryGroup[]>();
   /** This page's product slug; the pair-page context on every card. */
   readonly contextSlug = input.required<string>();
-  /** Peek rows rendered before the `@defer` boundary. */
-  readonly deferLimit = input.required<number>();
   /** Open every group and drop the buttons (a short filtered list). */
   readonly forceOpen = input(false);
 
   protected readonly hrefFor = injectInPageHrefFor();
-
-  protected readonly cut = computed(() => applyGroupDeferCut(this.groups(), this.deferLimit()));
 
   /** The group the reader is in. `null` means the first, which is the server's answer. */
   private readonly spied = signal<string | null>(null);

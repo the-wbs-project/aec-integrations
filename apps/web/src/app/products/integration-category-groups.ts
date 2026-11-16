@@ -139,31 +139,6 @@ export function stackPartners(hidden: readonly IntegrationLaneRow[]): Integratio
   return hidden.slice(0, GROUP_STACK_LOGOS);
 }
 
-/** Groups before and after the section's `@defer` boundary. */
-export interface DeferredGroups {
-  readonly above: readonly IntegrationCategoryGroup[];
-  readonly deferred: readonly IntegrationCategoryGroup[];
-}
-
-/**
- * The `@defer` cut in grouped mode, by whole groups in group order. A group renders
- * eagerly while fewer than `limit` peek rows have rendered before it, so the boundary
- * lands near the same 20 visible rows as the lane cut. A group's own "Show more" state
- * lives inside it, so it is never split across the boundary.
- */
-export function applyGroupDeferCut(
-  groups: readonly IntegrationCategoryGroup[],
-  limit: number,
-): DeferredGroups {
-  let shown = 0;
-  let index = 0;
-  while (index < groups.length && shown < limit) {
-    shown += peekGroup(groups[index]!.rows).peek.length;
-    index += 1;
-  }
-  return { above: groups.slice(0, index), deferred: groups.slice(index) };
-}
-
 /**
  * The DOM id of a group's section and the target of its rail link. Categories and the
  * uncategorised group use different prefixes, so no category slug can collide with it.

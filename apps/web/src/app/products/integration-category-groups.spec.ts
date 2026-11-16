@@ -8,7 +8,6 @@ import {
   GROUP_PEEK_ROWS,
   GROUP_STACK_LOGOS,
   ONE_LIST_PAGE_SIZE,
-  applyGroupDeferCut,
   groupDomId,
   groupRowsByCategory,
   isLongIntegrationList,
@@ -203,16 +202,6 @@ describe('the cuts', () => {
     expect(peek).toEqual(group.rows.slice(0, GROUP_PEEK_ROWS));
     expect(hidden).toEqual(group.rows.slice(GROUP_PEEK_ROWS));
     expect(stackPartners(hidden)).toEqual(hidden.slice(0, GROUP_STACK_LOGOS));
-  });
-
-  it('the defer cut takes whole groups in group order until 20 peek rows have rendered', () => {
-    const groups = groupRowsByCategory(longView(58).direct);
-    const cut = applyGroupDeferCut(groups, 7);
-    // 3 + 3 + 3 peek rows: the third group crosses 7, so it is the last one above.
-    expect(cut.above.map((g) => g.key)).toEqual(groups.slice(0, 3).map((g) => g.key));
-    expect([...cut.above, ...cut.deferred]).toEqual(groups);
-    expect(applyGroupDeferCut(groups, Number.POSITIVE_INFINITY).deferred).toEqual([]);
-    expect(applyGroupDeferCut(groups, 0).above).toEqual([]);
   });
 
   it('group ids never collide with the uncategorised group', () => {

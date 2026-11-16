@@ -303,7 +303,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               <aec-product-integration-groups
                 [groups]="categoryGroups()"
                 [contextSlug]="slug()"
-                [deferLimit]="groupDeferLimit()"
                 [forceOpen]="openAllGroups()"
               />
             } @else {
@@ -578,11 +577,6 @@ export class ProductIntegrationsSection {
    *  the reader pressed category chips. */
   protected readonly categoryGroups = computed(() =>
     groupRowsByCategory(this.categoryCountRows(), this.categories()),
-  );
-
-  /** The grouped list's `@defer` budget: the lane cut's, and off under a filter. */
-  protected readonly groupDeferLimit = computed(() =>
-    this.filterActive() ? Number.POSITIVE_INFINITY : INTEGRATIONS_ABOVE_FOLD,
   );
 
   /** A filter that leaves one page or less opens every group (mock-up 7). */

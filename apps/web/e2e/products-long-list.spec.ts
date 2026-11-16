@@ -12,7 +12,11 @@
  *  - a rail link moves focus to its group heading;
  *  - "Show more" reveals rows already in the DOM, with no network request;
  *  - "One list" shows 12 and "Load more" adds 12;
- *  - the rail and the page do not overflow sideways at 320px.
+ *  - the rail and the page do not overflow sideways at 320px;
+ *  - a filter on a freshly loaded page leaves no stale group and no duplicate id;
+ *  - after a client-side navigation a rail link still reaches its group;
+ *  - "Show more" moves focus to the first card it revealed;
+ *  - a text-fragment link to a hidden card opens its group, and it stays open.
  */
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -167,5 +171,103 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     expect(overflow).toBe(0);
     const names = await text(page, '[data-testid="integrations-rail-link"]');
     expect(names.length).toBeGreaterThan(1);
+  });
+
+  test('a filter on a freshly loaded page leaves no stale group and no duplicate id', async ({
+    page,
+  }) => {
+    await page.goto(`/products/${target!.slug}`);
+    const search = page.locator('#integrations input[type=search]');
+    await untilHydrated(page.getByTestId('integrations-rail-link').first());
+    // One partner's name, typed before the reader scrolls anywhere: most groups drop.
+    const name = (await page.locator('.aec-partner-link').first().textContent())!.trim();
+    await search.fill(name);
+    await expect(page.locator('#integrations [role=status]')).toContainText('Showing');
+    const railCount = await page.getByTestId('integrations-rail-link').count();
+    await expect(page.locator('section[aec-product-integration-category-group]')).toHaveCount(
+      railCount,
+    );
+    const duplicates = await page.evaluate(() => {
+      const seen = new Map<string, number>();
+      for (const el of document.querySelectorAll('[id]'))
+        seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+      return [...seen].filter(([, n]) => n > 1).map(([id]) => id);
+    });
+    expect(duplicates).toEqual([]);
+  });
+
+  test('after a client-side navigation, the last rail link reaches its group', async ({ page }) => {
+    await page.goto('/');
+    await untilHydrated(page.locator('a[href="/products"]').first());
+    // Navigate inside the app, as a reader coming from search or browse does.
+    await page.evaluate((slug) => {
+      history.pushState({}, '', `/products/${slug}`);
+      dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    }, target!.slug);
+    const rail = page.getByTestId('integrations-rail-link');
+    await expect(rail.first()).toBeVisible();
+    await rail.last().click();
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.id ?? ''))
+      .toMatch(/^integrations-(cat-.+|uncategorised)-title$/);
+    const focused = await page.evaluate(() => document.activeElement!.id);
+    await expect(page.locator(`#${focused}`)).toBeInViewport();
+  });
+
+  test('"Show more" moves focus to the first card it revealed', async ({ page }) => {
+    await page.goto(`/products/${target!.slug}`);
+    const group = page
+      .locator('section[aec-product-integration-category-group]')
+      .filter({ has: page.getByTestId('integration-category-group-toggle') })
+      .first();
+    test.skip((await group.count()) === 0, 'no group is longer than its peek');
+    const toggle = group.getByTestId('integration-category-group-toggle');
+    await untilHydrated(toggle);
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    const revealed = group.locator(':scope > ul > li').nth(3).locator('.aec-partner-link');
+    await expect(revealed).toBeFocused();
+    await expect(revealed).toBeInViewport();
+  });
+
+  test('a text-fragment link to a hidden card opens its group, and it stays open', async ({
+    page,
+  }) => {
+    await page.goto(`/products/${target!.slug}`);
+    // A hidden card in the last group with a toggle, whose name occurs once on the page.
+    const pick = await page.evaluate(() => {
+      const groups = [
+        ...document.querySelectorAll('section[aec-product-integration-category-group]'),
+      ]
+        .filter((s) => s.querySelector('[data-testid=integration-category-group-toggle]'))
+        .reverse();
+      // Every card name on the page. A name that is part of no other card's name is
+      // matched by the fragment in this card only.
+      const names = [...document.querySelectorAll('.aec-partner-link')].map(
+        (a) => a.textContent?.trim() ?? '',
+      );
+      for (const section of groups) {
+        for (const li of section.querySelectorAll(':scope > ul > li[hidden]')) {
+          const name = li.querySelector('.aec-partner-link')?.textContent?.trim() ?? '';
+          if (name && names.filter((n) => n.includes(name)).length === 1) {
+            return { id: section.id, name };
+          }
+        }
+      }
+      return null;
+    });
+    test.skip(pick === null, 'no hidden card with a name unique on the page');
+    const fragment = encodeURIComponent(pick!.name).replace(/-/g, '%2D');
+    // A fresh load, as from a search result, not a same-document jump.
+    await page.goto('about:blank');
+    await page.goto(`/products/${target!.slug}#:~:text=${fragment}`);
+    const group = page.locator(`#${pick!.id}`);
+    const toggle = group.getByTestId('integration-category-group-toggle');
+    await untilHydrated(toggle);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(group.locator(':scope > ul > li[hidden]')).toHaveCount(0);
+    // Still open once everything has settled: hydration does not hide it again.
+    await page.waitForTimeout(1000);
+    await expect(group.locator(':scope > ul > li[hidden]')).toHaveCount(0);
   });
 });

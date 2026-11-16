@@ -70,7 +70,6 @@ import {
 } from './connector-lane-grouping';
 import {
   ONE_LIST_PAGE_SIZE,
-  applyGroupDeferCut,
   groupRowsByCategory,
   isLongIntegrationList,
   peekGroup,
@@ -686,7 +685,6 @@ describe('on-page ordering firewall: product page integrations', () => {
         aboveShowMore: keys(peekGroup(g.rows).peek),
         stack: keys(stackPartners(peekGroup(g.rows).hidden)),
       })),
-      aboveDefer: keys(applyGroupDeferCut(groups, INTEGRATIONS_ABOVE_FOLD).above),
       oneListFirstPage: keys(view.direct.slice(0, ONE_LIST_PAGE_SIZE)),
       chosen: keys(groupRowsByCategory(view.direct, ['field-a', 'accounting'])),
     };
