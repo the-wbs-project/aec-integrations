@@ -358,6 +358,72 @@ test.describe('product hero actions below md (AECI-1778)', () => {
   }
 });
 
+/**
+ * AECI-1785: "Similar products" is in the server HTML, A to Z, and absent with its
+ * section-nav link when the list is empty. JavaScript is off, so this is what a
+ * crawler and a first paint see.
+ *
+ * The catalog seed (`apps/api/seed/catalog.sql`) gives Trimble Accubid Classic two
+ * products in its category, written with one timestamp. ConEst IntelliBid has the
+ * higher id, so the old newest-first order (`created_at DESC, id ASC`) put McCormick
+ * Estimating first and A to Z puts ConEst first. `fixture-acme-connector` has no
+ * category, so it has no similar products. Both self-skip when the seed is absent.
+ */
+test.describe('product detail — Similar products (AECI-1785)', () => {
+  test.use({ javaScriptEnabled: false });
+
+  const WITH = 'trimble-accubid-classic';
+  const WITHOUT = 'fixture-acme-connector';
+
+  async function relatedNames(slug: string): Promise<string[] | null> {
+    const api = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await api.get(`/api/products/${slug}`);
+      if (!res.ok()) return null;
+      const body = (await res.json()) as { related_products?: { name: string }[] };
+      return body.related_products?.map((p) => p.name) ?? null;
+    } finally {
+      await api.dispose();
+    }
+  }
+
+  test('renders in the server HTML, A to Z, with its nav link', async ({ page }) => {
+    const names = await relatedNames(WITH);
+    test.skip(names === null || names.length < 2, `seed missing: ${WITH} has ${names?.length}`);
+
+    await page.goto(`/products/${WITH}`);
+    const section = page.locator('section#similar');
+    await expect(
+      section.getByRole('heading', { level: 2, name: 'Similar products' }),
+    ).toBeVisible();
+    await expect(section.getByTestId('similar-products-order')).toHaveText('A to Z by name.');
+
+    const shown = await section.locator('li a').allTextContents();
+    const trimmed = shown.map((s) => s.trim());
+    expect(trimmed).toEqual(names);
+    expect(trimmed).toEqual(
+      [...trimmed].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+    );
+    expect(trimmed.slice(0, 2)).toEqual(['ConEst IntelliBid', 'McCormick Estimating']);
+
+    await expect(page.locator('a[data-section-id="similar"]')).toHaveAttribute(
+      'href',
+      new RegExp(`/products/${WITH}#similar$`),
+    );
+  });
+
+  test('is absent, with its nav link, when the list is empty', async ({ page }) => {
+    const names = await relatedNames(WITHOUT);
+    test.skip(names === null || names.length > 0, `seed missing: ${WITHOUT} has ${names?.length}`);
+
+    await page.goto(`/products/${WITHOUT}`);
+    await expect(page.locator('h1')).toHaveCount(1);
+    await expect(page.locator('#similar')).toHaveCount(0);
+    await expect(page.locator('a[data-section-id="similar"]')).toHaveCount(0);
+    await expect(page.locator('a[href$="#similar"]')).toHaveCount(0);
+  });
+});
+
 // AECI-1780: the About band holds the description and "Who it is for", on the Bone band.
 // fixture-procore carries a description and audience terms in the e2e seed.
 test.describe('product About band (AECI-1780)', () => {
