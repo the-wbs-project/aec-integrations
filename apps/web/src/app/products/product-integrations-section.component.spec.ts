@@ -755,6 +755,14 @@ describe('ProductIntegrationsSection reach line (§13.7)', () => {
     expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
   });
 
+  // With the heading count gone, the "Showing n of m" total is the section's one row
+  // count, so it carries the §13.5 guard the heading test used to (AECI-1783 review).
+  it('never moves the "Showing n of m" total', () => {
+    const { fixture, el } = setup(NINE, 99);
+    type(fixture, filterInput(el)!, 'Bluebeam');
+    expect(el.querySelector('[role="status"]')!.textContent).toContain('Showing 1 of 9');
+  });
+
   it('is not a table row and not a card', () => {
     const { el } = setup([edge(link('acumatica', 'Acumatica'))], 5);
     const line = [...el.querySelectorAll('p')].find((p) =>
