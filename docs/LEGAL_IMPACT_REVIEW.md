@@ -171,6 +171,14 @@ Not a `/legal/*` page and not versioned (`docs/STAGE_1_SPEC.md` §27.6), but a p
   (`apps/web/src/content/legal/README.md`, "The Plans page is versioned too"). Moving a capability
   between plans, or changing a price, bumps it too, because `TIER_CAPABILITIES` and the
   `MANAGED_*_PRICE_CENTS` constants feed the snapshot. `plans-snapshot.spec.ts` fails until it is done.
+- `/docs/trust/how-ranking-works` is linked from the Terms of Service ("never influenced by
+  payment", with "If that page and these terms conflict, these terms control") and from the Vendor
+  Terms. Counsel Q23 makes it part of our representations, so since AECI-1621 (2026-11-16) it is
+  versioned and archived. Any change to the page is a version bump: a new file under
+  `content/docs/trust/versions/how-ranking-works/`, a `## Versions` line and the new version in
+  `ranking-page-versions.ts` (`apps/web/src/content/legal/README.md`, "The ranking page is
+  versioned too"). `ranking-page-versions.spec.ts` fails until it is done. A change to a ranking
+  rule the page describes therefore bumps the page in the same PR.
 - `docs/PRICING_RULES.md` and the Managed plan agreement must agree. `PRICING_RULES.md` names the
   agreement as the binding contract, so a change to one is a change to both.
 - `LEGAL_AGREEMENT_CURRENT_VERSIONS` in `packages/shared/src/api/agreements.ts` must equal each

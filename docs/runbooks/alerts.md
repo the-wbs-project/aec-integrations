@@ -2339,6 +2339,26 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
 
+## Plan-change snapshot sweep (AECI-1621)
+
+Use this when `aeci.plan_snapshot.run` reports `outcome:failed`, the liveness sweep says `plan-snapshot` is missing, or the data-quality digest lists `plan_snapshot_overdue`.
+
+What the job does: every 15 minutes, at minute 11, it reads up to 25 due rows of `plan_change_snapshots`. Each row is one ranking snapshot of one product, scheduled by a plan start or end: one at the event and one 30 days later. The job builds the snapshot, writes it to the `UPLOADS` bucket under `evidence/plan-snapshots/`, checks it with `head`, and stamps `r2_key`. The objects sit under a 4-year bucket lock. These are the records the Terms' ranking promise relies on. ADR 0056, `ANALYTICS.md` §11d.
+
+1. Check the last run. `/admin/system` shows the `plan-snapshot` row. A `failed` row names the reason. The queue retries a failed message three times, and a retry is safe: a written row is no longer due.
+2. List the rows still unwritten with the next command. Rows due in the last 15 minutes are normal.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, product_id, kind, phase, due_at, attempts, last_error FROM plan_change_snapshots WHERE r2_key IS NULL AND due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at"
+```
+
+3. `last_error` names the step. `put_refused` or a thrown R2 error is the bucket. `head_mismatch` means the object did not read back as written. A D1 error means the snapshot read failed. Fix the cause and wait for the next run. The sweep retries every failed row on every run.
+4. Never delete a row, and never clear `r2_key` by hand. The bucket lock refuses an overwrite. A row whose object is already in R2 is adopted on the next run, without a write.
+5. A product that was retracted still gets its snapshot, with `product: null` and `reason: "product_missing"`. That is correct.
+6. A new cron trigger takes about 15 minutes to propagate after a deploy.
+
+To read a snapshot, use `legal.md` "Pull the ranking evidence for a product".
+
 ## Runbooks kept in other files
 
 The index of every runbook is [`README.md`](./README.md).
