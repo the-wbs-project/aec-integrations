@@ -16,3 +16,5 @@ alternates. The default of each control is the decision.
 - `mockups/` holds the four final HTML mock-ups and the sources that build two of them.
 - `screens/` holds the screenshots the plan embeds.
 - `records/` holds the 45 design clashes, Chris's rulings, the legal review and two design reviews.
+- `mockups/9-home.html` is the home page (AECI-1789), awaiting Chris's approval. Its decision note is
+  `records/9-home-notes.md` and its screenshots are `screens/9-home-*.png`.

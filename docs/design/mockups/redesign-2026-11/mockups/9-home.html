@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en" data-trust="card" data-h1="display" data-popular="products">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEC Integrations: the independent directory of AEC software integrations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<!--
+  Mock-up 9: the home page in the November 2026 design language (AECI-1789).
+  Build issue: AECI-1792. Decision note: ../records/9-home-notes.md.
+
+  Tokens: the names and values are copied from apps/web/src/styles.css on
+  redesign/on-hold-2026-11-16, so a builder can read each rule straight across.
+  Data: category, phase and audience counts are the review app's promoted set on
+  2026-11-16 (read tools only). Trade chips, the "Most viewed" names and their
+  order are placeholders: no read tool returns them. The notes say which is which.
+  The Options control (bottom right) switches alternates. Its defaults are the
+  recommendation, not decisions.
+-->
+<style>
+/* ---------- Tokens: copied from apps/web/src/styles.css ---------- */
+:root {
+  --surface-base: oklch(100% 0 0); /* #FFFFFF */
+  --surface-raised: oklch(98.43% 0 0); /* #FAFAFA */
+  --surface-sunken: oklch(96.74% 0.0013 286.38); /* #F4F4F5 */
+  --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
+  --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
+  --border-field: oklch(61.63% 0.0134 286); /* #84848D */
+  --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
+  --text-secondary: oklch(44.19% 0.0146 285.79); /* #52525B */
+  --accent-primary: oklch(32.24% 0.0397 166.73); /* #1E3A2F Forest */
+  --accent-primary-hover: oklch(43.47% 0.0641 160.3); /* #2E5C45 */
+  --accent-primary-soft: oklch(95.35% 0.0066 160.07); /* #ECF1EE */
+  --accent-secondary: oklch(74.64% 0.1164 49.55); /* #E89668 Clay, strokes only */
+  --accent-warm: oklch(96.13% 0.0111 89.72); /* #F5F2EA Bone */
+  --surface-footer: oklch(26.02% 0.0324 161.25); /* #15291F */
+  --text-on-brand: var(--accent-warm);
+  --text-on-brand-secondary: oklch(85.36% 0.0195 157.8); /* #C5D3CA */
+  --text-on-footer-secondary: oklch(81.66% 0.0189 161.01); /* #B9C7BF */
+  --focus-ring-on-brand: var(--accent-warm);
+  --surface-on-brand-hover: oklch(91.04% 0.0211 88.73); /* #E7E1D2 */
+  --surface-on-brand-wash: oklch(96.13% 0.0111 89.72 / 10%);
+  --surface-on-brand-wash-hover: oklch(96.13% 0.0111 89.72 / 16%);
+  --border-on-brand-subtle: oklch(96.13% 0.0111 89.72 / 14%);
+  --border-on-brand-strong: oklch(96.13% 0.0111 89.72 / 50%);
+  --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --t-12: 0.75rem; --t-13: 0.8125rem; --t-14: 0.875rem; --t-16: 1rem; --t-20: 1.25rem; --t-24: 1.5rem;
+  --t-36: clamp(1.75rem, 1vw + 1.35rem, 2.25rem);
+  --t-fig: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+  --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
+  --radius-control: 0.75rem; --radius-card: 1.5rem; --radius-pill: 9999px; --radius-mark: 0.5rem;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
+  --duration-fast: 120ms; --duration-base: 180ms; --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ---------- Base ---------- */
+* { box-sizing: border-box; border-color: var(--border-default); }
+body { margin: 0; font: 400 var(--t-16)/1.6 var(--font-body); color: var(--text-primary); background: var(--surface-base); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4, p, ul { margin: 0; }
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; }
+ul { padding: 0; list-style: none; }
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent-primary); outline-offset: 3px; }
+.site-head :focus-visible, .foot :focus-visible,
+[data-trust="card"] .trust-card :focus-visible, [data-trust="vendor"] .cta :focus-visible { outline-color: var(--focus-ring-on-brand); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums lining-nums; }
+.ico { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ico.s { width: 16px; height: 16px; }
+.wm-mark { fill: var(--accent-secondary); }
+/* The band wrap: BAND_WRAP_CLASS (shared/band-wrap.ts). 1328px, gutters 24 / 32 / 48. */
+.wrap { max-width: 1328px; margin: 0 auto; padding: 0 24px; }
+@media (min-width: 768px) { .wrap { padding: 0 32px; } }
+@media (min-width: 1024px) { .wrap { padding: 0 48px; } }
+.overline { font: 600 var(--t-12)/1.4 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); }
+.section-title { font-size: var(--t-36); line-height: 1.1; letter-spacing: -0.02em; }
+.link { color: var(--text-secondary); text-decoration: underline; text-decoration-color: var(--border-field); text-underline-offset: 4px; border-radius: 4px; }
+.link:hover { color: var(--accent-primary); text-decoration-color: currentColor; }
+
+/* ---------- Buttons: aecButton (shared/button/button.ts) ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 24px; border: 1px solid transparent; border-radius: var(--radius-control); font: 600 var(--t-14)/1.5 var(--font-body); text-decoration: none; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+@media (prefers-reduced-motion: no-preference) { .btn:active { transform: translateY(1px) scale(0.98); } }
+.btn-primary { background: var(--accent-primary); color: var(--surface-base); }
+.btn-primary:hover { background: var(--accent-primary-hover); }
+.btn-secondary { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-primary); }
+.btn-secondary:hover { background: var(--surface-sunken); color: var(--accent-primary); }
+.btn-on-brand { background: var(--accent-warm); color: var(--accent-primary); }
+.btn-on-brand:hover { background: var(--surface-on-brand-hover); }
+.btn-on-brand-secondary { background: var(--surface-on-brand-wash); border-color: var(--border-on-brand-strong); color: var(--text-on-brand); }
+.btn-on-brand-secondary:hover { background: var(--surface-on-brand-wash-hover); }
+
+/* ---------- Chip: aec-chip / aec-taxonomy-badge (shared/chip) ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border: 1px solid var(--border-default); border-radius: var(--radius-pill); background: var(--surface-raised); font-size: var(--t-13); line-height: 1.6; text-decoration: none; transition: background-color var(--duration-fast); }
+.chip:hover { background: var(--surface-sunken); }
+.chip .n { color: var(--text-secondary); }
+
+/* ---------- Fields: .aec-field-control ---------- */
+.field-label { display: block; margin-bottom: 8px; font-size: var(--t-14); font-weight: 600; }
+.field { position: relative; display: block; }
+.field input { width: 100%; height: 44px; padding: 0 16px; border: 1px solid var(--border-field); border-radius: var(--radius-control); background: var(--surface-base); font-size: var(--t-16); }
+.field input::placeholder { color: var(--text-secondary); }
+.field input:focus-visible { border-color: var(--accent-primary); }
+.field.has-icon input { padding-left: 48px; }
+.field.has-icon .ico { position: absolute; left: 16px; top: 12px; color: var(--text-secondary); pointer-events: none; }
+
+/* ---------- Card: aecCard (shared/card) ---------- */
+.card { border: 1px solid transparent; border-radius: var(--radius-card); background: var(--surface-base); box-shadow: var(--shadow-card); }
+
+/* ---------- Skip link ---------- */
+.skip { position: absolute; left: 16px; top: -64px; z-index: 50; padding: 8px 16px; border-radius: var(--radius-control); background: var(--accent-warm); color: var(--accent-primary); font-weight: 600; }
+.skip:focus { top: 16px; }
+
+/* ---------- Header: copied from layout/site-header.ts ---------- */
+.site-head { background: var(--accent-primary); color: var(--text-on-brand); }
+.site-head .wrap { display: flex; align-items: center; gap: 32px; min-height: 76px; }
+.wordmark { display: inline-flex; color: var(--text-on-brand); border-radius: 8px; }
+.wordmark svg { display: block; height: 30px; width: auto; }
+.head-search { flex: 1; max-width: 460px; min-width: 240px; position: relative; }
+.head-search input { width: 100%; height: 44px; padding: 0 72px 0 48px; border: 1px solid var(--border-on-brand-strong); border-radius: var(--radius-pill); background: var(--surface-on-brand-wash); color: var(--text-on-brand); font-size: var(--t-16); }
+.head-search input::placeholder { color: var(--text-on-brand-secondary); }
+.head-search input:hover { background: var(--surface-on-brand-wash-hover); }
+.head-search .ico { position: absolute; left: 16px; top: 12px; color: var(--text-on-brand-secondary); }
+.head-search kbd { position: absolute; right: 12px; top: 11px; padding: 0 8px; border: 1px solid var(--border-on-brand-strong); border-radius: var(--radius-mark); font: 400 var(--t-12)/20px var(--font-body); color: var(--text-on-brand-secondary); }
+.head-nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.head-nav a { display: inline-flex; align-items: center; gap: 4px; padding: 10px 12px; border-radius: var(--radius-control); color: var(--text-on-brand); text-decoration: none; white-space: nowrap; }
+.head-nav a:hover { background: var(--surface-on-brand-wash); }
+.head-actions { display: flex; align-items: center; gap: 12px; }
+.btn-signin { padding: 8px 16px; }
+.menu-btn { display: none; width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid var(--border-on-brand-strong); border-radius: var(--radius-control); background: var(--surface-on-brand-wash); color: var(--text-on-brand); }
+@media (max-width: 1023px) {
+  .head-search, .head-nav { display: none; }
+  .head-actions { margin-left: auto; }
+  .menu-btn { display: inline-flex; }
+}
+@media (max-width: 767px) { .head-actions .btn-signin { display: none; } }
+
+/* ---------- 1. Hero: the page's one Bone band (aec-bone-band ground) ---------- */
+.hero { background: var(--accent-warm); }
+.hero-grid { display: grid; gap: 48px; padding: 64px 0 48px; }
+@media (min-width: 1024px) { .hero-grid { grid-template-columns: minmax(0, 1fr) 416px; gap: 64px; align-items: center; padding: 96px 0 64px; } }
+.hero h1 { margin-top: 16px; font-weight: 400; }
+.hero h1 span { display: block; font-size: var(--t-display); line-height: 1.05; letter-spacing: -0.02em; }
+[data-h1="headline"] .hero h1 span { font-size: var(--t-fig); line-height: 1.15; letter-spacing: -0.005em; }
+.hero .lede { margin-top: 24px; max-width: 36em; font-size: var(--t-20); line-height: 1.5; color: var(--text-secondary); }
+.hero-search { margin-top: 32px; max-width: 576px; }
+/* AECI-1862: the row ships in the SSR HTML and its height is reserved, so nothing below it moves.
+   Two lines at sm and up, three below sm: the five-name worst case at each width. */
+.popular { margin-top: 16px; min-height: 48px; display: flex; flex-wrap: wrap; align-items: baseline; align-content: flex-start; gap: 0 16px; font-size: var(--t-14); line-height: 24px; }
+@media (max-width: 639px) { .popular { min-height: 72px; } .popular .lbl { flex-basis: 100%; } }
+.popular .lbl { color: var(--text-secondary); }
+.popular a { text-decoration: underline; text-decoration-color: var(--border-field); text-underline-offset: 4px; border-radius: 4px; }
+.popular a:hover { color: var(--accent-primary); text-decoration-color: currentColor; }
+.popular [data-set] { display: none; }
+[data-popular="products"] .popular [data-set="products"],
+[data-popular="categories"] .popular [data-set="categories"] { display: contents; }
+[data-popular="reserved"] .popular { outline: 1px dashed var(--border-field); outline-offset: 4px; }
+
+.finder { padding: 32px; }
+.finder h2 { font-size: var(--t-24); line-height: 1.25; }
+.finder .hint { margin-top: 4px; font-size: var(--t-14); color: var(--text-secondary); }
+.finder form { margin-top: 24px; display: grid; gap: 16px; }
+.finder .btn { width: 100%; margin-top: 8px; }
+
+.cred { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 0 24px; border-top: 1px solid var(--border-strong); font-size: var(--t-14); color: var(--text-secondary); }
+.cred ul { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.cred b { font-weight: 600; font-size: var(--t-16); color: var(--accent-primary); }
+.cred .promise { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.cred .promise .ico { color: var(--accent-primary); }
+
+/* ---------- White bands ---------- */
+.band { padding: 96px 0; }
+.band + .band { border-top: 1px solid var(--border-default); }
+@media (max-width: 767px) { .band { padding: 64px 0; } }
+
+/* ---------- 2. Browse ---------- */
+.browse-rows { margin-top: 32px; }
+.brow { padding: 24px 0; border-top: 1px solid var(--border-default); }
+@media (min-width: 768px) { .brow { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 32px; } }
+.brow h3 { font-size: var(--t-20); line-height: 1.25; }
+.brow .meta { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-14); }
+.brow .order { font-size: var(--t-13); color: var(--text-secondary); }
+.brow .lede { max-width: 42rem; margin: 16px 0; font-size: var(--t-14); line-height: 1.6; color: var(--text-secondary); }
+@media (min-width: 768px) { .brow .lede { margin-top: 0; } }
+
+/* ---------- 3. The argument ---------- */
+.why-head { display: grid; gap: 24px; }
+@media (min-width: 1024px) { .why-head { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 64px; } }
+.why-head h2 { margin-top: 12px; }
+.why-prose { display: grid; gap: 16px; max-width: 42rem; color: var(--text-secondary); }
+.figs { margin-top: 48px; display: grid; border-block: 1px solid var(--border-default); }
+.fig { padding: 24px 0; }
+.fig + .fig { border-top: 1px solid var(--border-default); }
+@media (min-width: 768px) {
+  .figs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fig { padding: 24px; }
+  .fig:first-child { padding-left: 0; }
+  .fig:last-child { padding-right: 0; }
+  .fig + .fig { border-top: 0; border-left: 1px solid var(--border-default); }
+}
+.fig .v { font-family: var(--font-display); font-weight: 600; font-size: var(--t-24); line-height: 1.25; color: var(--accent-primary); }
+.fig .d { margin-top: 8px; font-size: var(--t-16); }
+.fig .cite { margin-top: 12px; font-size: var(--t-13); line-height: 1.6; color: var(--text-secondary); }
+.fig .cite a { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+
+.instead { margin-top: 64px; }
+.instead h3 { font-size: var(--t-24); line-height: 1.25; }
+.ideas { margin-top: 24px; display: grid; gap: 24px; }
+@media (min-width: 768px) { .ideas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.idea h4 { margin-top: 16px; font-size: var(--t-20); line-height: 1.25; }
+.idea p { margin-top: 8px; font-size: var(--t-16); color: var(--text-secondary); }
+.tile { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-control); background: var(--accent-primary-soft); color: var(--accent-primary); }
+/* B and C: three white cards. */
+.idea { padding: 24px; }
+.instead .btn { display: none; }
+/* A (recommended): the page's one Forest feature card. Bone ink, the Bone main button. */
+.trust-card { display: contents; }
+/* DOM order is the reading order: heading, points, button. From md the button sits top right. */
+[data-trust="card"] .trust-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 24px; padding: 32px; border-radius: var(--radius-card); background: var(--accent-primary); color: var(--text-on-brand); box-shadow: var(--shadow-card); }
+@media (min-width: 1024px) { [data-trust="card"] .trust-card { padding: 48px; } }
+[data-trust="card"] .instead .btn { display: inline-flex; grid-row: 1; grid-column: 2; }
+[data-trust="card"] .ideas { grid-column: 1 / -1; }
+@media (max-width: 767px) { [data-trust="card"] .instead .btn { grid-row: 3; grid-column: 1; justify-self: start; margin-top: 32px; } }
+[data-trust="card"] .idea { padding: 0; border-radius: 0; background: none; box-shadow: none; }
+[data-trust="card"] .ideas { margin-top: 32px; gap: 32px; }
+@media (min-width: 768px) { [data-trust="card"] .idea + .idea { padding-left: 32px; border-left: 1px solid var(--border-on-brand-subtle); } }
+@media (max-width: 767px) { [data-trust="card"] .idea + .idea { padding-top: 32px; border-top: 1px solid var(--border-on-brand-subtle); } }
+[data-trust="card"] .idea p { color: var(--text-on-brand-secondary); }
+[data-trust="card"] .tile { background: var(--surface-on-brand-wash); color: var(--text-on-brand); }
+
+/* ---------- 4. Closing call to action ---------- */
+.cta { display: grid; }
+@media (min-width: 768px) { .cta { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+.cta-main, .cta-side { padding: 32px; }
+@media (min-width: 1024px) { .cta-main, .cta-side { padding: 48px; } }
+.cta-main h2 { margin-top: 12px; max-width: 20em; }
+.cta-main p { margin-top: 16px; max-width: 36em; color: var(--text-secondary); }
+.cta-main .btn { margin-top: 32px; }
+.cta-side { display: flex; flex-direction: column; justify-content: center; border-top: 1px solid var(--border-default); }
+@media (min-width: 768px) { .cta-side { border-top: 0; border-left: 1px solid var(--border-default); } }
+.cta-side h3 { font-size: var(--t-20); line-height: 1.25; }
+.cta-side p { margin-top: 8px; font-size: var(--t-14); color: var(--text-secondary); }
+.cta-side .btn { margin-top: 24px; align-self: flex-start; }
+.cta .btn-on-brand, .cta .btn-on-brand-secondary { display: none; }
+/* C: the vendor card is the Forest card instead. */
+[data-trust="vendor"] .cta { background: var(--accent-primary); color: var(--text-on-brand); }
+[data-trust="vendor"] .cta .overline, [data-trust="vendor"] .cta p { color: var(--text-on-brand-secondary); }
+[data-trust="vendor"] .cta-side { border-color: var(--border-on-brand-subtle); }
+[data-trust="vendor"] .cta .btn-primary, [data-trust="vendor"] .cta .btn-secondary { display: none; }
+[data-trust="vendor"] .cta .btn-on-brand, [data-trust="vendor"] .cta .btn-on-brand-secondary { display: inline-flex; }
+
+/* ---------- Footer: copied from layout/site-footer.ts ---------- */
+.foot { background: var(--surface-footer); color: var(--text-on-brand); }
+.foot-top { display: flex; flex-direction: column; gap: 48px; padding: 64px 0 48px; }
+@media (min-width: 1024px) { .foot-top { flex-direction: row; justify-content: space-between; gap: 64px; } }
+.foot .wordmark svg { height: 28px; }
+.foot .tag { margin-top: 12px; max-width: 20rem; font-size: var(--t-14); color: var(--text-on-footer-secondary); }
+.foot-cols { display: grid; grid-template-columns: repeat(2, auto); gap: 32px 48px; justify-content: start; }
+@media (min-width: 768px) { .foot-cols { grid-template-columns: repeat(4, auto); } }
+.foot .overline { margin-bottom: 16px; color: var(--text-on-footer-secondary); }
+.foot ul { display: grid; gap: 12px; }
+.foot ul a { text-decoration: none; line-height: 24px; border-radius: 4px; }
+.foot ul a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.foot-base { border-top: 1px solid var(--border-on-brand-subtle); }
+.foot-base p { padding: 24px 0 32px; font-size: var(--t-14); }
+
+/* ---------- Mock-up chrome: the Options control (same as mock-ups 5 to 8) ---------- */
+#mock { position: fixed; right: 16px; bottom: 16px; z-index: 100; font: 13px/1.4 var(--font-body); color: #E8E8E8; }
+#mockToggle { border: 1px dashed #888; background: #2A2A2A; color: #E8E8E8; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+#mockPanel { display: none; position: absolute; right: 0; bottom: 38px; width: 320px; max-height: calc(100vh - 80px); overflow-y: auto; background: #2A2A2A; border: 1px dashed #888; border-radius: 6px; padding: 10px 12px; }
+#mock.open #mockPanel { display: block; }
+#mockPanel fieldset { border: 0; margin: 0 0 8px; padding: 0; }
+#mockPanel legend { margin: 8px 0 4px; padding: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #CCCCCC; text-transform: uppercase; }
+#mockPanel label { display: block; padding: 2px 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="wm" viewBox="3 25 196 30"><g fill="currentColor">
+    <path transform="translate(10.00 47)" d="M0.16 0.00 5.70 -14.70H8.87L14.41 0.00H11.31L10.32 -2.88H4.24L3.25 0.00ZM5.03 -5.24H9.52L7.27 -11.71Z M15.71 0.00V-14.70H26.34V-12.20H18.57V-8.81H23.80V-6.31H18.57V-2.50H26.43V0.00Z M34.30 0.26Q32.09 0.26 30.52 -0.68Q28.94 -1.63 28.10 -3.35Q27.25 -5.06 27.25 -7.36Q27.25 -9.67 28.14 -11.38Q29.02 -13.08 30.64 -14.02Q32.25 -14.96 34.43 -14.96Q36.42 -14.96 37.94 -14.06Q39.46 -13.17 40.26 -11.59L37.73 -10.67Q37.25 -11.61 36.35 -12.10Q35.45 -12.59 34.32 -12.59Q33.18 -12.59 32.26 -11.99Q31.33 -11.38 30.79 -10.21Q30.25 -9.04 30.25 -7.36Q30.25 -5.68 30.78 -4.51Q31.31 -3.34 32.25 -2.72Q33.20 -2.11 34.37 -2.11Q35.11 -2.11 35.77 -2.31Q36.43 -2.52 36.97 -2.94Q37.51 -3.37 37.84 -4.02L40.34 -3.10Q39.50 -1.50 37.92 -0.62Q36.34 0.26 34.30 0.26Z"/>
+    <path transform="translate(82.11 47)" d="M1.23 0.00V-1.20H3.30V-13.50H1.23V-14.70H6.97V-13.50H4.90V-1.20H6.97V0.00Z M9.54 0.00V-10.91H10.63L10.99 -9.20Q11.28 -9.67 11.74 -10.10Q12.21 -10.53 12.91 -10.82Q13.60 -11.10 14.55 -11.10Q15.88 -11.10 16.69 -10.58Q17.50 -10.06 17.87 -9.15Q18.24 -8.24 18.24 -7.07V0.00H16.77V-6.62Q16.77 -7.50 16.56 -8.23Q16.35 -8.96 15.79 -9.38Q15.23 -9.81 14.20 -9.81Q12.77 -9.81 11.89 -8.82Q11.02 -7.84 11.02 -5.97V0.00Z M23.80 0.00Q22.86 0.00 22.33 -0.20Q21.80 -0.41 21.59 -0.98Q21.38 -1.54 21.38 -2.63V-9.72H19.52V-10.91H21.38V-13.64H22.86V-10.91H25.10V-9.72H22.86V-2.78Q22.86 -1.84 23.08 -1.57Q23.30 -1.31 24.03 -1.31H25.09V0.00Z M31.33 0.26Q29.70 0.26 28.54 -0.49Q27.38 -1.25 26.77 -2.54Q26.17 -3.83 26.17 -5.41Q26.17 -7.16 26.84 -8.44Q27.51 -9.71 28.67 -10.41Q29.84 -11.11 31.28 -11.11Q32.53 -11.11 33.48 -10.61Q34.44 -10.10 35.06 -9.26Q35.67 -8.41 35.96 -7.35Q36.24 -6.29 36.17 -5.18H27.70Q27.73 -3.96 28.12 -3.16Q28.50 -2.35 29.06 -1.89Q29.62 -1.43 30.24 -1.24Q30.86 -1.04 31.39 -1.04Q32.36 -1.04 33.02 -1.40Q33.68 -1.76 34.08 -2.31L35.53 -1.84Q34.96 -0.97 33.93 -0.35Q32.90 0.26 31.33 0.26ZM27.73 -6.39H34.60Q34.60 -7.19 34.21 -7.98Q33.82 -8.77 33.09 -9.30Q32.35 -9.82 31.28 -9.82Q30.50 -9.82 29.74 -9.50Q28.98 -9.18 28.44 -8.43Q27.90 -7.68 27.73 -6.39Z M42.62 4.15Q41.74 4.15 40.88 3.89Q40.02 3.63 39.38 3.07Q38.74 2.51 38.49 1.62L39.96 1.20Q40.19 1.98 40.91 2.41Q41.62 2.84 42.70 2.84Q43.59 2.84 44.26 2.54Q44.92 2.24 45.31 1.59Q45.70 0.95 45.70 -0.09V-2.12Q45.28 -1.32 44.46 -0.73Q43.64 -0.14 42.26 -0.14Q41.05 -0.14 39.99 -0.74Q38.92 -1.34 38.27 -2.54Q37.61 -3.75 37.61 -5.53Q37.61 -7.29 38.23 -8.53Q38.85 -9.78 39.91 -10.44Q40.97 -11.11 42.28 -11.11Q43.63 -11.11 44.42 -10.55Q45.22 -9.98 45.70 -9.13L46.09 -10.91H47.18V-0.03Q47.18 1.30 46.61 2.24Q46.04 3.17 45.02 3.66Q44.00 4.15 42.62 4.15ZM42.51 -1.41Q43.40 -1.41 44.12 -1.83Q44.84 -2.26 45.28 -3.19Q45.73 -4.11 45.73 -5.58Q45.73 -7.07 45.28 -8.01Q44.84 -8.94 44.11 -9.38Q43.38 -9.82 42.50 -9.82Q41.05 -9.82 40.11 -8.69Q39.17 -7.56 39.17 -5.55Q39.17 -3.57 40.12 -2.49Q41.06 -1.41 42.51 -1.41Z M50.10 0.00V-10.91H51.18L51.64 -8.86Q51.97 -9.45 52.52 -9.96Q53.07 -10.46 53.83 -10.77Q54.59 -11.08 55.53 -11.05V-9.57Q54.04 -9.56 53.17 -8.98Q52.31 -8.41 51.94 -7.37Q51.57 -6.32 51.57 -4.87V0.00Z M59.73 0.26Q58.69 0.26 57.83 -0.09Q56.97 -0.44 56.47 -1.11Q55.96 -1.79 55.96 -2.75Q55.96 -4.03 56.80 -4.84Q57.63 -5.65 59.29 -6.10Q60.95 -6.56 63.42 -6.76V-7.01Q63.42 -8.32 62.78 -9.11Q62.15 -9.90 60.77 -9.90Q59.69 -9.90 59.01 -9.39Q58.33 -8.88 58.14 -8.07L56.66 -8.46Q57.10 -9.75 58.22 -10.43Q59.33 -11.11 60.73 -11.11Q62.86 -11.11 63.85 -10.03Q64.85 -8.95 64.85 -6.80V-4.20Q64.85 -3.22 64.90 -2.46Q64.96 -1.70 65.05 -1.10Q65.14 -0.50 65.24 0.00H63.95L63.51 -1.66Q63.11 -0.88 62.19 -0.31Q61.27 0.26 59.73 0.26ZM59.96 -0.96Q60.87 -0.96 61.66 -1.29Q62.45 -1.62 62.94 -2.37Q63.42 -3.12 63.42 -4.38V-5.57Q60.47 -5.35 59.00 -4.69Q57.54 -4.04 57.54 -2.81Q57.54 -1.99 58.19 -1.48Q58.84 -0.96 59.96 -0.96Z M70.79 0.00Q69.84 0.00 69.31 -0.20Q68.78 -0.41 68.57 -0.98Q68.37 -1.54 68.37 -2.63V-9.72H66.51V-10.91H68.37V-13.64H69.85V-10.91H72.09V-9.72H69.85V-2.78Q69.85 -1.84 70.07 -1.57Q70.29 -1.31 71.02 -1.31H72.07V0.00Z M74.74 0.00V-9.72H73.32V-10.91H76.22V0.00ZM75.26 -13.12Q74.79 -13.12 74.44 -13.46Q74.10 -13.81 74.10 -14.28Q74.10 -14.77 74.44 -15.11Q74.79 -15.45 75.26 -15.45Q75.75 -15.45 76.09 -15.11Q76.43 -14.77 76.43 -14.28Q76.43 -13.81 76.09 -13.46Q75.75 -13.12 75.26 -13.12Z M83.51 0.26Q82.61 0.26 81.71 -0.07Q80.82 -0.40 80.08 -1.09Q79.34 -1.78 78.89 -2.86Q78.44 -3.94 78.44 -5.42Q78.44 -6.91 78.89 -7.99Q79.34 -9.07 80.08 -9.76Q80.82 -10.45 81.71 -10.78Q82.61 -11.11 83.51 -11.11Q84.40 -11.11 85.30 -10.78Q86.19 -10.45 86.93 -9.76Q87.67 -9.07 88.12 -7.99Q88.57 -6.91 88.57 -5.42Q88.57 -3.94 88.12 -2.86Q87.67 -1.78 86.93 -1.09Q86.19 -0.40 85.30 -0.07Q84.40 0.26 83.51 0.26ZM83.51 -1.04Q84.41 -1.04 85.20 -1.51Q86.00 -1.98 86.51 -2.95Q87.02 -3.92 87.02 -5.43Q87.02 -6.94 86.51 -7.91Q86.00 -8.87 85.20 -9.34Q84.41 -9.80 83.51 -9.80Q82.62 -9.80 81.81 -9.34Q81.01 -8.88 80.50 -7.91Q79.99 -6.95 79.99 -5.42Q79.99 -3.92 80.50 -2.95Q81.01 -1.98 81.81 -1.51Q82.62 -1.04 83.51 -1.04Z M90.75 0.00V-10.91H91.84L92.20 -9.20Q92.49 -9.67 92.95 -10.10Q93.42 -10.53 94.11 -10.82Q94.81 -11.10 95.76 -11.10Q97.09 -11.10 97.90 -10.58Q98.71 -10.06 99.08 -9.15Q99.45 -8.24 99.45 -7.07V0.00H97.97V-6.62Q97.97 -7.50 97.76 -8.23Q97.55 -8.96 96.99 -9.38Q96.43 -9.81 95.40 -9.81Q93.98 -9.81 93.10 -8.82Q92.23 -7.84 92.23 -5.97V0.00Z M105.89 0.26Q105.05 0.26 104.16 -0.03Q103.27 -0.32 102.56 -0.92Q101.84 -1.53 101.48 -2.46L102.92 -3.00Q103.20 -2.04 104.05 -1.53Q104.91 -1.02 105.91 -1.02Q107.07 -1.02 107.84 -1.54Q108.60 -2.07 108.60 -2.94Q108.60 -3.78 107.98 -4.21Q107.35 -4.63 106.02 -4.93L104.93 -5.18Q103.99 -5.40 103.28 -5.73Q102.56 -6.07 102.17 -6.63Q101.77 -7.19 101.77 -8.10Q101.77 -8.99 102.29 -9.67Q102.81 -10.36 103.71 -10.75Q104.60 -11.13 105.74 -11.13Q107.04 -11.13 108.14 -10.56Q109.25 -10.00 109.72 -8.91L108.32 -8.38Q108.04 -9.11 107.26 -9.48Q106.49 -9.85 105.65 -9.85Q104.62 -9.85 103.92 -9.38Q103.22 -8.91 103.22 -8.16Q103.22 -7.51 103.72 -7.13Q104.22 -6.75 105.30 -6.50L106.39 -6.25Q107.54 -5.99 108.35 -5.64Q109.17 -5.28 109.62 -4.67Q110.06 -4.06 110.06 -3.03Q110.06 -2.07 109.51 -1.32Q108.96 -0.57 108.02 -0.15Q107.08 0.26 105.89 0.26Z"/>
+  </g>
+  <g class="wm-mark">
+    <circle cx="59.84" cy="40" r="2.5"/>
+    <rect x="63.34" y="39.25" width="7" height="1.5"/>
+    <circle cx="73.84" cy="40" r="2.5"/>
+  </g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 4v16M8 20h8M5 7h14"/><path d="m5 7-3 6a3 3 0 0 0 6 0zM19 7l-3 6a3 3 0 0 0 6 0z"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+</svg>
+
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="wordmark" href="#" aria-label="AEC Integrations home"><svg viewBox="0 0 196 30" aria-hidden="true" focusable="false"><use href="#wm"/></svg></a>
+    <div class="head-search" role="search">
+      <label class="sr" for="header-search">Search directory</label>
+      <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="header-search" type="search" placeholder="Search directory" aria-keyshortcuts="Control+/">
+      <kbd aria-hidden="true">Ctrl /</kbd>
+    </div>
+    <nav class="head-nav" aria-label="Primary">
+      <a href="#" aria-expanded="false" aria-haspopup="true">Browse <svg class="ico s" aria-hidden="true"><use href="#i-chev"/></svg></a>
+      <a href="#">How we rank</a>
+      <a href="#">For vendors</a>
+    </nav>
+    <div class="head-actions">
+      <a class="btn btn-on-brand btn-signin" href="#">Sign in</a>
+      <button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- 1. Hero: the page's one Bone band. The pair finder keeps its behaviour. -->
+<section class="hero" aria-labelledby="home-title">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <p class="overline">The independent reference for AEC software</p>
+        <h1 id="home-title"><span>Find the integrations between your AEC tools.</span></h1>
+        <p class="lede">The independent directory of integrations across the AEC stack, with no pay-for-placement.</p>
+        <form class="hero-search" role="search" action="#" aria-label="Search the directory">
+          <label class="sr" for="hero-search">Search the directory</label>
+          <span class="field has-icon">
+            <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+            <input id="hero-search" type="search" name="q" placeholder="Try Procore, Sage 300, Bluebeam">
+          </span>
+        </form>
+        <p class="popular" id="popular">
+          <span data-set="products">
+            <span class="lbl">Most viewed, last 30 days:</span>
+            <a href="#">Procore</a><a href="#">Bluebeam Revu</a><a href="#">Autodesk Revit</a><a href="#">Sage 300 CRE</a><a href="#">Fieldwire</a>
+          </span>
+          <span data-set="categories">
+            <span class="lbl">Largest categories:</span>
+            <a href="#">Accounting &amp; ERP</a><a href="#">AI</a><a href="#">Project Management</a><a href="#">Document Management</a><a href="#">Field Management</a>
+          </span>
+        </p>
+      </div>
+
+      <div class="card finder">
+        <h2 id="pair-title">Do these two connect?</h2>
+        <p class="hint">Pick two products to see every integration between them.</p>
+        <form role="search" aria-labelledby="pair-title" action="#" method="get">
+          <div>
+            <label class="field-label" for="pair-tool">Your tool</label>
+            <span class="field"><input id="pair-tool" type="text" placeholder="Type a product name" autocomplete="off"></span>
+          </div>
+          <div>
+            <label class="field-label" for="pair-other">Connects to</label>
+            <span class="field"><input id="pair-other" type="text" placeholder="Type a product name" autocomplete="off"></span>
+          </div>
+          <button class="btn btn-primary" type="submit">Show integrations</button>
+        </form>
+      </div>
+    </div>
+
+    <section class="cred" aria-label="Directory coverage and independence">
+      <ul>
+        <li><b class="num">445</b> products</li>
+        <li><b class="num">251</b> vendors</li>
+        <li><b class="num">3,162</b> integrations</li>
+      </ul>
+      <p class="promise"><svg class="ico s" aria-hidden="true"><use href="#i-scale"/></svg>Independent. Rankings are algorithmic.</p>
+    </section>
+  </div>
+</section>
+
+<!-- 2. Browse: one block, four rows. Each row states its order. -->
+<section class="band" aria-labelledby="browse-title">
+  <div class="wrap">
+    <h2 class="section-title" id="browse-title">Browse the directory</h2>
+    <div class="browse-rows">
+
+      <div class="brow">
+        <div class="meta">
+          <h3>Category</h3>
+          <a class="link" href="#">View all categories</a>
+          <span class="order">Most products first</span>
+        </div>
+        <div>
+          <p class="lede">What the software does: estimating, project management, accounting and the rest. Start here when you know the job and need the tools that do it.</p>
+          <ul class="chips">
+            <li><a class="chip" href="#" aria-label="Accounting &amp; ERP, 92 products">Accounting &amp; ERP <span class="n num">92</span></a></li>
+            <li><a class="chip" href="#" aria-label="AI, 69 products">AI <span class="n num">69</span></a></li>
+            <li><a class="chip" href="#" aria-label="Project Management, 62 products">Project Management <span class="n num">62</span></a></li>
+            <li><a class="chip" href="#" aria-label="Document Management, 55 products">Document Management <span class="n num">55</span></a></li>
+            <li><a class="chip" href="#" aria-label="Field Management, 54 products">Field Management <span class="n num">54</span></a></li>
+            <li><a class="chip" href="#" aria-label="Analytics &amp; Reporting, 51 products">Analytics &amp; Reporting <span class="n num">51</span></a></li>
+            <li><a class="chip" href="#" aria-label="Construction Management, 51 products">Construction Management <span class="n num">51</span></a></li>
+            <li><a class="chip" href="#" aria-label="Collaboration &amp; Communication, 46 products">Collaboration &amp; Communication <span class="n num">46</span></a></li>
+            <li><a class="chip" href="#" aria-label="Workforce Management, 44 products">Workforce Management <span class="n num">44</span></a></li>
+            <li><a class="chip" href="#" aria-label="Safety &amp; Compliance, 39 products">Safety &amp; Compliance <span class="n num">39</span></a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Trade chips: names are real vocabulary terms. Which trades clear the
+           publication floor, their counts and their order are placeholders. -->
+      <div class="brow">
+        <div class="meta">
+          <h3>Trade</h3>
+          <a class="link" href="#">View all trades</a>
+          <span class="order">Most products first</span>
+        </div>
+        <div>
+          <p class="lede">Tools built for one trade. Start here when generic construction software misses what your crews actually do.</p>
+          <ul class="chips">
+            <li><a class="chip" href="#">Electrical</a></li>
+            <li><a class="chip" href="#">HVAC &amp; Mechanical</a></li>
+            <li><a class="chip" href="#">Plumbing</a></li>
+            <li><a class="chip" href="#">Concrete</a></li>
+            <li><a class="chip" href="#">Roofing</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="brow">
+        <div class="meta">
+          <h3>Project phase</h3>
+          <a class="link" href="#">View all phases</a>
+          <span class="order">In project order</span>
+        </div>
+        <div>
+          <p class="lede">Where in the project the tool is used, from concept through closeout. Start here when you are fixing a hand-off between phases.</p>
+          <ul class="chips">
+            <li><a class="chip" href="#" aria-label="Concept &amp; Planning, 88 products">Concept &amp; Planning <span class="n num">88</span></a></li>
+            <li><a class="chip" href="#" aria-label="Design, 144 products">Design <span class="n num">144</span></a></li>
+            <li><a class="chip" href="#" aria-label="Pre-Construction, 214 products">Pre-Construction <span class="n num">214</span></a></li>
+            <li><a class="chip" href="#" aria-label="Construction, 270 products">Construction <span class="n num">270</span></a></li>
+            <li><a class="chip" href="#" aria-label="Closeout &amp; Operations, 135 products">Closeout &amp; Operations <span class="n num">135</span></a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="brow">
+        <div class="meta">
+          <h3>Audience</h3>
+          <a class="link" href="#">View all audiences</a>
+          <span class="order">Roles chosen by AEC Integrations</span>
+        </div>
+        <div>
+          <p class="lede">Whether you're comparing three to five tools in a category or justifying a decision to a steering committee, start from your role.</p>
+          <ul class="chips">
+            <li><a class="chip" href="#" aria-label="Architects, 84 products">Architects <span class="n num">84</span></a></li>
+            <li><a class="chip" href="#" aria-label="Structural engineers, 35 products">Structural engineers <span class="n num">35</span></a></li>
+            <li><a class="chip" href="#" aria-label="MEP engineers, 42 products">MEP engineers <span class="n num">42</span></a></li>
+            <li><a class="chip" href="#" aria-label="General contractors, 195 products">General contractors <span class="n num">195</span></a></li>
+            <li><a class="chip" href="#" aria-label="Estimators, 34 products">Estimators <span class="n num">34</span></a></li>
+            <li><a class="chip" href="#" aria-label="Project managers, 107 products">Project managers <span class="n num">107</span></a></li>
+            <li><a class="chip" href="#" aria-label="Owners &amp; developers, 91 products">Owners &amp; developers <span class="n num">91</span></a></li>
+            <li><a class="chip" href="#" aria-label="Subcontractors, 114 products">Subcontractors <span class="n num">114</span></a></li>
+            <li><a class="chip" href="#" aria-label="Facilities managers, 22 products">Facilities managers <span class="n num">22</span></a></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- 3. The argument: the problem, three cited figures, what we do instead. -->
+<section class="band" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="why-head">
+      <div>
+        <p class="overline">Why this exists</p>
+        <h2 class="section-title" id="why-title">The way AEC firms find software is broken</h2>
+      </div>
+      <div class="why-prose">
+        <p>AEC firms make six and seven figure software decisions on platforms shaped by pay-to-play rankings and vendor-funded visibility. The tools at the top are often the ones that paid the most, not the ones that fit the work.</p>
+        <p>Meanwhile the information that actually decides a purchase is hard to find: whether an integration really works, and what implementation takes once the sales pitch ends.</p>
+      </div>
+    </div>
+
+    <ul class="figs">
+      <li class="fig">
+        <p class="v num">≈19%</p>
+        <p class="d">of Google reviews were AI-generated by late 2024, up from about 5% in 2019</p>
+        <p class="cite">Originality.AI, 2025. AI-generated reviews on Google rose from about 5% in 2019 to 19% by the end of 2024. Measured on Google reviews; no equivalent study exists for B2B software review sites. <a class="link" href="https://originality.ai/blog/ai-google-reviews-study" target="_blank" rel="noopener nofollow">Source<span class="sr"> for the 19% AI-generated figure, Originality.AI (opens in a new tab)</span><svg class="ico s" aria-hidden="true"><use href="#i-ext"/></svg></a></p>
+      </li>
+      <li class="fig">
+        <p class="v num">$27K</p>
+        <p class="d">a year is what a typical vendor pays for paid visibility on a leading review site</p>
+        <p class="cite">Vendr, 2026. The median annual amount vendors pay for G2, across 512 purchases. Paid plans and add-ons scale to $95K or more. <a class="link" href="https://www.vendr.com/marketplace/g2" target="_blank" rel="noopener nofollow">Source<span class="sr"> for the $27K paid visibility figure, Vendr (opens in a new tab)</span><svg class="ico s" aria-hidden="true"><use href="#i-ext"/></svg></a></p>
+      </li>
+      <li class="fig">
+        <p class="v num">900+</p>
+        <p class="d">tools lumped into generic categories with no way to filter by AEC discipline</p>
+        <p class="cite">Capterra, 2026. Its single construction management category alone lists about 986 products, with no facet for AEC discipline. <a class="link" href="https://www.capterra.com/construction-management-software/" target="_blank" rel="noopener nofollow">Source<span class="sr"> for the 900+ generic category figure, Capterra (opens in a new tab)</span><svg class="ico s" aria-hidden="true"><use href="#i-ext"/></svg></a></p>
+      </li>
+    </ul>
+
+    <!-- The trust block. Options: A, the one Forest feature card (default). B, three white cards. C, three white cards and the vendor card is the Forest card. -->
+    <div class="instead">
+      <div class="trust-card">
+        <h3>What we do instead</h3>
+        <ul class="ideas">
+          <li class="idea card">
+            <span class="tile" aria-hidden="true"><svg class="ico"><use href="#i-doc"/></svg></span>
+            <h4>Every connection is documented</h4>
+            <p>Each integration records what it links, the mechanism behind it, and where it falls short. A logo count tells you none of that.</p>
+          </li>
+          <li class="idea card">
+            <span class="tile" aria-hidden="true"><svg class="ico"><use href="#i-scale"/></svg></span>
+            <h4>Position is earned, never bought</h4>
+            <p>Rankings are algorithmic. Listings are never boosted by spend, and there is no pay-for-placement.</p>
+          </li>
+          <li class="idea card">
+            <span class="tile" aria-hidden="true"><svg class="ico"><use href="#i-grid"/></svg></span>
+            <h4>Organized the way AEC works</h4>
+            <p>Browse by AEC category, project phase and role, not a generic software taxonomy with construction added as an afterthought.</p>
+          </li>
+        </ul>
+        <a class="btn btn-on-brand" href="#">How we rank</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Closing call to action: one white card, two panes. One filled button. -->
+<section class="band" aria-labelledby="cta-title">
+  <div class="wrap">
+    <div class="card cta">
+      <div class="cta-main">
+        <p class="overline">For vendors</p>
+        <h2 class="section-title" id="cta-title">If you build AEC software, your product may already be listed here.</h2>
+        <p>AEC Integrations lists products and their integrations independently. Vendors claim a listing to correct the facts and keep them current, and position in the directory is never for sale.</p>
+        <a class="btn btn-primary" href="#">Claim or list your product</a>
+        <a class="btn btn-on-brand" href="#">Claim or list your product</a>
+      </div>
+      <div class="cta-side">
+        <h3>Think we're missing a tool?</h3>
+        <p>Tell us what to add or what to cover next.</p>
+        <button class="btn btn-secondary" type="button">Suggest a tool</button>
+        <button class="btn btn-on-brand-secondary" type="button">Suggest a tool</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <div>
+        <a class="wordmark" href="#" aria-label="AEC Integrations home"><svg viewBox="0 0 196 30" aria-hidden="true" focusable="false"><use href="#wm"/></svg></a>
+        <p class="tag">The independent directory of AEC software integrations.</p>
+      </div>
+      <div class="foot-cols">
+        <nav aria-label="Directory"><p class="overline">Directory</p><ul><li><a href="#">Home</a></li><li><a href="#">Products</a></li><li><a href="#">Categories</a></li><li><a href="#">Audiences</a></li><li><a href="#">Trades</a></li><li><a href="#">Phases</a></li></ul></nav>
+        <nav aria-label="Help"><p class="overline">Help</p><ul><li><a href="#">Help center</a></li><li><a href="#">Getting started</a></li><li><a href="#">How ranking works</a></li><li><a href="#">Vendor guide</a></li></ul></nav>
+        <nav aria-label="Legal"><p class="overline">Legal</p><ul><li><a href="#">Terms</a></li><li><a href="#">Privacy</a></li><li><a href="#">Review guidelines</a></li><li><a href="#">Listing accuracy</a></li><li><a href="#">Vendor terms</a></li><li><a href="#">Managed plan agreement</a></li><li><a href="#">Third-party notices</a></li></ul></nav>
+        <nav aria-label="Company"><p class="overline">Company</p><ul><li><a href="#">About</a></li><li><a href="#">Methodology</a></li><li><a href="#">For vendors</a></li><li><a href="#">Contact</a></li><li><a href="#">Updates</a></li><li><a href="#">Roadmap</a></li></ul></nav>
+      </div>
+    </div>
+  </div>
+  <div class="foot-base"><div class="wrap"><p>© 2026 AEC Integrations.</p></div></div>
+</footer>
+
+<div id="mock">
+  <div id="mockPanel">
+    <fieldset><legend>Trust block (the Forest card)</legend>
+      <label><input type="radio" name="trust" value="card" checked> A. "What we do instead" is the Forest card (recommended)</label>
+      <label><input type="radio" name="trust" value="white"> B. No Forest card: three white cards</label>
+      <label><input type="radio" name="trust" value="vendor"> C. The vendor card is the Forest card</label>
+    </fieldset>
+    <fieldset><legend>Hero headline</legend>
+      <label><input type="radio" name="h1" value="display" checked> Display, 40 to 72px (recommended)</label>
+      <label><input type="radio" name="h1" value="headline"> Headline, 28 to 40px (what renders today)</label>
+    </fieldset>
+    <fieldset><legend>Most viewed row (AECI-1862)</legend>
+      <label><input type="radio" name="popular" value="products" checked> Most viewed products</label>
+      <label><input type="radio" name="popular" value="categories"> Fallback: five largest categories</label>
+      <label><input type="radio" name="popular" value="reserved"> Show the reserved space</label>
+    </fieldset>
+  </div>
+  <button type="button" id="mockToggle" aria-expanded="false" aria-controls="mockPanel">Options</button>
+</div>
+
+<script>
+// Options: each radio group sets one data attribute on <html>. The URL hash can
+// preset them for screenshots, e.g. 9-home.html#trust=white&h1=headline.
+(function () {
+  var root = document.documentElement;
+  var params = new URLSearchParams(location.hash.slice(1));
+  document.querySelectorAll('#mockPanel input[type=radio]').forEach(function (input) {
+    if (params.get(input.name) === input.value) input.checked = true;
+    if (input.checked) root.dataset[input.name] = input.value;
+    input.addEventListener('change', function () { root.dataset[input.name] = input.value; });
+  });
+  var mock = document.getElementById('mock');
+  var toggle = document.getElementById('mockToggle');
+  toggle.addEventListener('click', function () {
+    var open = mock.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  if (params.has('panel')) { mock.classList.add('open'); toggle.setAttribute('aria-expanded', 'true'); }
+})();
+</script>
+</body>
+</html>
