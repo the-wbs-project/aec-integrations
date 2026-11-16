@@ -266,6 +266,18 @@ export function rowsForFacetCount(
   return allRows(filterIntegrationLanes(view, { ...filter, [facet]: [] }));
 }
 
+/**
+ * How many of `rows` move one data object: a data chip's count (AECI-1783). Data chips
+ * AND together, so the caller passes the rows every filter keeps, and the count is the
+ * rows the list would show with this chip pressed as well.
+ */
+export function countRowsMovingDataObject(
+  rows: readonly IntegrationLaneRow[],
+  slug: string,
+): number {
+  return rows.reduce((total, row) => total + (row.dataObjectSlugs.includes(slug) ? 1 : 0), 0);
+}
+
 /** How many of `rows` flow in one direction: a direction chip's count. */
 export function countRowsWithDirection(
   rows: readonly IntegrationLaneRow[],

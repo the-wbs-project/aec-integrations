@@ -13,7 +13,7 @@ import { AecButton } from '../shared/button/button';
 import { AecMeter } from '../shared/meter/meter';
 
 import type { IntegrationLaneRow } from './connector-lane-grouping';
-import { ONE_LIST_PAGE_SIZE } from './integration-category-groups';
+import { ONE_LIST_PAGE_SIZE, sharedRowColumns } from './integration-category-groups';
 import { ProductIntegrationCard } from './product-integration-card';
 
 /**
@@ -40,6 +40,7 @@ import { ProductIntegrationCard } from './product-integration-card';
       class="aec-card-grid aec-one-list"
       role="list"
       [attr.aria-label]="ariaLabel()"
+      [attr.data-columns]="columns()"
       data-testid="integration-cards"
     >
       @for (row of rows(); track row.key; let i = $index) {
@@ -103,6 +104,9 @@ export class ProductIntegrationOneList {
   readonly contextSlug = input.required<string>();
   /** The list's accessible name. */
   readonly ariaLabel = input.required<string>();
+
+  /** One or two cards share the row equally (ruled 2026-11-16). */
+  protected readonly columns = computed(() => sharedRowColumns(this.rows().length));
 
   /** How many rows show. A new row set (a filter changed) starts again at one page. */
   protected readonly shown = linkedSignal({

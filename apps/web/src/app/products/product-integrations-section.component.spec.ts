@@ -461,7 +461,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       );
     // AECI-1783: every chip prints how many rows it would show.
     expect(chips(groups[0]!)).toEqual(['→ Outbound 1', '← Inbound 1', '⇄ Both 1']);
-    expect(chips(groups[1]!)).toEqual(['Accounting 2', 'Field management 2']);
+    // AECI-1783: "Types of data" sits between direction and categories.
+    expect(chips(groups[1]!)).toEqual(['Invoices 1']);
+    expect(chips(groups[2]!)).toEqual(['Accounting 2', 'Field management 2']);
   });
 
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
@@ -487,7 +489,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(cardNames(el)).toEqual(['Xero']);
     type(fixture, filterInput(el)!, 'sage');
     expect(cardNames(el)).toEqual([]);
-    expect(el.textContent).toContain('No integrations match that search');
+    // Chips and a search together take the filters message (approved 2026-11-16).
+    expect(el.textContent).toContain('No integrations match these filters.');
+    expect(el.textContent).not.toContain('No integrations match that search');
   });
 
   it('"Clear filters" shows only while a filter is on and clears every facet and the query', () => {
@@ -545,6 +549,117 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
  *  - it must render on the EMPTY branch, which is the page the AECI-889 sweep
  *    creates and the only reason this work exists.
  */
+describe('ProductIntegrationsSection approved copy (AECI-1783, 2026-11-16)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const INV = { slug: 'invoice', name: 'Invoices' };
+  const RFI = { slug: 'rfi', name: 'RFIs' };
+  const ACC = { slug: 'accounting', name: 'Accounting' };
+  const rows = () => [
+    edge(link('sage', 'Sage'), {
+      context_direction: 'outbound',
+      partner_categories: [ACC],
+      data_objects: [INV, RFI],
+      data_object_slugs: ['invoice', 'rfi'],
+    }),
+    edge(link('vista', 'Vista'), {
+      context_direction: 'inbound',
+      data_objects: [INV],
+      data_object_slugs: ['invoice'],
+    }),
+    edge(link('xero', 'Xero'), { context_direction: 'inbound' }),
+  ];
+  const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+  const cardNames = (el: HTMLElement) =>
+    [...el.querySelectorAll('li[aec-product-integration-card] h3')].map(text);
+  const dataGroup = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('[aria-labelledby="integrations-filter-data"]')!;
+
+  it('says "A to Z by partner name." under the heading on a page with no Via lane', () => {
+    const { el } = setup(rows());
+    expect(text(el.querySelector('[data-testid="integrations-order"]')!)).toBe(
+      'A to Z by partner name.',
+    );
+  });
+
+  it('drops the order line on a page with a Via lane, whose groups go by row count', () => {
+    const { el } = setup([
+      ...rows(),
+      edge(link('acumatica', 'Acumatica'), { via: AGAVE, mechanism_kind: null }),
+    ]);
+    expect(el.querySelector('[data-testid="integrations-order"]')).toBeNull();
+  });
+
+  it('shows "Types of data" chips A to Z, and the note only while one is pressed', () => {
+    const { fixture, el } = setup(rows());
+    expect(text(el.querySelector('#integrations-filter-data')!)).toBe('Types of data');
+    const chips = [...dataGroup(el).querySelectorAll('button[aria-pressed]')].map(text);
+    expect(chips).toEqual(['Invoices 2', 'RFIs 1']);
+    expect(el.querySelector('[data-testid="integrations-filter-data-note"]')).toBeNull();
+    expect(dataGroup(el).getAttribute('aria-describedby')).toBeNull();
+
+    pressChip(fixture, el, 'Invoices');
+    expect(cardNames(el)).toEqual(['Sage', 'Vista']);
+    const note = el.querySelector('[data-testid="integrations-filter-data-note"]')!;
+    expect(text(note)).toBe(
+      'Integrations with no types of data on record are not shown while this filter is on.',
+    );
+    expect(note.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(dataGroup(el).getAttribute('aria-describedby')).toBe(note.id);
+    // Data chips AND together: RFIs would leave one row.
+    expect(chips.length).toBe(2);
+    expect(
+      text(
+        [...dataGroup(el).querySelectorAll('button[aria-pressed]')].find((b) =>
+          text(b).startsWith('RFIs'),
+        )!,
+      ),
+    ).toBe('RFIs 1');
+  });
+
+  it('a search alone keeps the search message; chips take the filters message', () => {
+    const { fixture, el } = setup(rows());
+    type(fixture, filterInput(el)!, 'zzz');
+    expect(text(el.querySelector('[data-testid="integrations-filter-empty"]')!)).toBe(
+      'No integrations match that search.',
+    );
+    type(fixture, filterInput(el)!, '');
+    pressChip(fixture, el, 'Outbound');
+    pressChip(fixture, el, 'Invoices');
+    type(fixture, filterInput(el)!, 'vista');
+    expect(text(el.querySelector('[data-testid="integrations-filter-empty"]')!)).toBe(
+      'No integrations match these filters.',
+    );
+  });
+
+  it('labels each card chip row, and names the list with the same words', () => {
+    const { el } = setup(rows());
+    const sage = [...el.querySelectorAll('li[aec-product-integration-card]')].find((c) =>
+      text(c).includes('Sage'),
+    )!;
+    const cats = sage.querySelector('[data-testid="integration-card-categories"]')!;
+    const data = sage.querySelector('[data-testid="integration-card-data-objects"]')!;
+    expect(cats.getAttribute('aria-label')).toBe('Categories');
+    expect(data.getAttribute('aria-label')).toBe('Types of data');
+    expect(text(sage.querySelector('[data-testid="integration-card-categories-label"]')!)).toBe(
+      'Categories',
+    );
+    expect(text(sage.querySelector('[data-testid="integration-card-data-objects-label"]')!)).toBe(
+      'Types of data',
+    );
+  });
+
+  it('one or two cards share the row; three or more keep the grid steps', () => {
+    const grid = (el: HTMLElement) =>
+      el.querySelector('[data-testid="integration-cards"]')!.getAttribute('data-columns');
+    expect(grid(setup(rows().slice(0, 1)).el)).toBe('1');
+    TestBed.resetTestingModule();
+    expect(grid(setup(rows().slice(0, 2)).el)).toBe('2');
+    TestBed.resetTestingModule();
+    expect(grid(setup(rows()).el)).toBeNull();
+  });
+});
+
 describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

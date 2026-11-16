@@ -147,6 +147,15 @@ export function stackPartners(hidden: readonly IntegrationLaneRow[]): Integratio
 }
 
 /**
+ * `data-columns` for a card grid of `count` cards (ruled 2026-11-16): one or two cards
+ * share the full row width equally, so a desktop row never ends in a blank column and
+ * no card is wider than its siblings. Three or more keep the grid's own steps.
+ */
+export function sharedRowColumns(count: number): 1 | 2 | null {
+  return count === 1 ? 1 : count === 2 ? 2 : null;
+}
+
+/**
  * The DOM id of a group's section and the target of its rail link. Categories and the
  * uncategorised group use different prefixes, so no category slug can collide with it.
  */

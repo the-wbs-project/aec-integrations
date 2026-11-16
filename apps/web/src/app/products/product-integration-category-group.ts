@@ -17,6 +17,7 @@ import {
   GROUP_PEEK_ROWS,
   groupDomId,
   peekGroup,
+  sharedRowColumns,
   stackPartners,
   type IntegrationCategoryGroup,
 } from './integration-category-groups';
@@ -74,6 +75,7 @@ import { ProductIntegrationCard } from './product-integration-card';
     <ul
       class="aec-category-grid mt-4"
       role="list"
+      [attr.data-columns]="columns()"
       [id]="listId()"
       [attr.aria-labelledby]="headingId()"
       data-testid="integration-cards"
@@ -146,6 +148,19 @@ import { ProductIntegrationCard } from './product-integration-card';
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
+    /* One or two cards share the full row equally (ruled 2026-11-16), and their row
+       is one height, so no card is larger than its sibling. */
+    .aec-category-grid[data-columns] {
+      grid-auto-rows: 1fr;
+    }
+    .aec-category-grid[data-columns='1'] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    @media (min-width: 80rem) {
+      .aec-category-grid[data-columns='2'] {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
     /* A card hidden until found leaves the grid flow, so it holds no empty cell. Its
        contents are skipped by the browser (content-visibility: hidden), but
        find-in-page still searches them and opens the card on a match. A browser
@@ -182,6 +197,9 @@ export class ProductIntegrationCategoryGroup {
   protected readonly isOpen = computed(() => this.forceOpen() || this.open());
 
   protected readonly split = computed(() => peekGroup(this.group().rows));
+
+  /** One or two cards share the row equally (ruled 2026-11-16). */
+  protected readonly columns = computed(() => sharedRowColumns(this.group().rows.length));
 
   protected readonly stack = computed(() => stackPartners(this.split().hidden));
 

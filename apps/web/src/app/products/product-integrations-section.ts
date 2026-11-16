@@ -25,7 +25,10 @@ import {
   type IntegrationArrangement,
 } from './integration-category-groups';
 import {
+  allRows,
+  countRowsMovingDataObject,
   countRowsWithDirection,
+  dataObjectOptions,
   directionOptions,
   filterIntegrationLanes,
   isIntegrationFilterActive,
@@ -162,6 +165,18 @@ import { ProductIntegrationsTable } from './product-integrations-table';
     <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
       {{ heading() }}
     </h2>
+    <!-- The order line (approved 2026-11-16). Only where it is true of every row: a
+         page with a Via lane orders its connector groups by row count (R1), so it shows
+         only on a page with no Via lane. Grouped or not, the rows run A to Z by partner. -->
+    @if (lanes().rowCount > 0 && lanes().via.length === 0) {
+      <p
+        class="text-sm text-(--text-secondary)"
+        data-testid="integrations-order"
+        i18n="@@products.detail.body.integrations.order"
+      >
+        A to Z by partner name.
+      </p>
+    }
 
     <!-- The filter panel (AECI-1782). Ruling R5 kept "integration filters in their
          own panel": one panel of its own, not the shared facet panel. Every control
@@ -243,6 +258,49 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 }}</span>
               </aec-chip>
             }
+          </div>
+        }
+
+        @if (dataChoices().length > 0) {
+          <div class="space-y-2">
+            <div
+              role="group"
+              aria-labelledby="integrations-filter-data"
+              [attr.aria-describedby]="dataFilterActive() ? 'integrations-filter-data-note' : null"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <span
+                id="integrations-filter-data"
+                class="me-2 text-sm font-semibold text-(--text-primary)"
+                i18n="@@products.detail.body.integrations.dataTypes"
+                >Types of data</span
+              >
+              @for (choice of dataChoices(); track choice.slug) {
+                <aec-chip
+                  [selected]="choice.selected"
+                  [disabled]="choice.count === 0 && !choice.selected"
+                  (activated)="toggleDataObject(choice.slug)"
+                  >{{ choice.name }}
+                  <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                    choice.count
+                  }}</span></aec-chip
+                >
+              }
+            </div>
+            <!-- AECI-1816: about a third of live rows have no data object on record, and
+                 a data filter leaves every one of them out. Say so while it is on. The
+                 live region is always present, so the note is announced as it appears. -->
+            <p class="text-sm text-(--text-secondary)" aria-live="polite">
+              @if (dataFilterActive()) {
+                <span
+                  id="integrations-filter-data-note"
+                  data-testid="integrations-filter-data-note"
+                  i18n="@@products.detail.body.integrations.filter.dataTypes.note"
+                  >Integrations with no types of data on record are not shown while this filter is
+                  on.</span
+                >
+              }
+            </p>
           </div>
         }
 
@@ -413,12 +471,22 @@ import { ProductIntegrationsTable } from './product-integrations-table';
       }
 
       @if (filteredLanes().rowCount === 0) {
+        <!-- Chips, with or without a search, take the filters message (approved
+             2026-11-16). A search alone keeps the search message. -->
         <p
           class="rounded-(--radius-lg) border border-dashed border-(--border-default)
               bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-          i18n="@@products.detail.body.integrations.filter.empty"
+          data-testid="integrations-filter-empty"
         >
-          No integrations match that search.
+          @if (chipFilterActive()) {
+            <span i18n="@@products.detail.body.integrations.filter.empty.chips"
+              >No integrations match these filters.</span
+            >
+          } @else {
+            <span i18n="@@products.detail.body.integrations.filter.empty"
+              >No integrations match that search.</span
+            >
+          }
         </p>
       }
 
@@ -513,6 +581,9 @@ export class ProductIntegrationsSection {
   /** The partner-category chips the reader pressed (AECI-1782). */
   private readonly categories = signal<readonly string[]>([]);
 
+  /** The "Types of data" chips the reader pressed (AECI-1783, copy approved 2026-11-16). */
+  private readonly dataObjects = signal<readonly string[]>([]);
+
   /**
    * Cards or table (AECI-1782). Cards by default, and the server always renders
    * cards. Component-local rather than `?view=`, for the query's reason: a view in
@@ -530,16 +601,25 @@ export class ProductIntegrationsSection {
   );
 
   /**
-   * The reader's whole filter, as one value. The data-object facet stays empty: its
-   * chips wait for approved copy (a public label, and the note that rows with no
-   * data object are left out, AECI-1816).
+   * The reader's whole filter, as one value. The data-object chips shipped with their
+   * approved copy on 2026-11-16: the label "Types of data" and the note that rows with
+   * no data object are left out (AECI-1816).
    */
   protected readonly filterState = computed<IntegrationFilterState>(() => ({
     query: this.query(),
     directions: this.directions(),
-    dataObjects: [],
+    dataObjects: this.dataObjects(),
     partnerCategories: this.categories(),
   }));
+
+  /** A data chip is pressed: the note says rows with no data on record are left out. */
+  protected readonly dataFilterActive = computed(() => this.dataObjects().length > 0);
+
+  /** Any chip is pressed, whatever the search box holds. Picks the empty message. */
+  protected readonly chipFilterActive = computed(
+    () =>
+      this.directions().length > 0 || this.categories().length > 0 || this.dataObjects().length > 0,
+  );
 
   protected readonly filterActive = computed(() => isIntegrationFilterActive(this.filterState()));
 
@@ -612,6 +692,21 @@ export class ProductIntegrationsSection {
     });
   });
 
+  /**
+   * "Types of data" chips: the data objects the section's rows move, A to Z by name with
+   * the slug breaking a tie (ruling R1, the chips' shared term order). Data chips AND together, so each
+   * counts the rows the list would show with it pressed too.
+   */
+  protected readonly dataChoices = computed(() => {
+    const chosen = this.dataObjects();
+    const rows = allRows(this.filteredLanes());
+    return dataObjectOptions(this.lanes()).map((term) => ({
+      ...term,
+      selected: chosen.includes(term.slug),
+      count: countRowsMovingDataObject(rows, term.slug),
+    }));
+  });
+
   /** Partner-category chips: A to Z by name, slug breaking a tie (ruling R1). */
   protected readonly categoryChoices = computed(() => {
     const chosen = this.categories();
@@ -631,11 +726,16 @@ export class ProductIntegrationsSection {
     this.categories.update((current) => toggleFacetValue(current, slug));
   }
 
+  protected toggleDataObject(slug: string): void {
+    this.dataObjects.update((current) => toggleFacetValue(current, slug));
+  }
+
   /** "Clear filters": every facet and the query, back to the whole section. */
   protected clearFilters(): void {
     this.query.set('');
     this.directions.set([]);
     this.categories.set([]);
+    this.dataObjects.set([]);
   }
 
   /**
