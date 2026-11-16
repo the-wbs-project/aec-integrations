@@ -24,6 +24,7 @@ import type {
 
 import { Analytics } from '../analytics/analytics';
 import { ProductsPairPage } from './products-pair';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 const productListItem = (slug: string, name: string, overrides = {}) => ({
   claim_status: 'claimed' as const,
@@ -1892,5 +1893,29 @@ describe('ProductsPairPage — integration_viewed', () => {
   it('does not fire when the pair did not resolve', async () => {
     const spy = await renderWith(null);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// AECI-1777: the trail is Home, the context product, Integrations, the other product.
+// Swapping the middle two reads as "the other product belongs to the context
+// product", so the order and both link targets are pinned.
+describe('ProductsPairPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reads Home, context product, Integrations, other product', () => {
+    const { el } = setup(buildPair());
+    expect(trail(el)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Procore', href: '/products/procore', current: false },
+      { label: 'Integrations', href: '/products/procore#integrations', current: false },
+      { label: 'Revit', href: null, current: true },
+    ]);
+  });
+
+  it('marks only the last item as the current page', () => {
+    const { el } = setup(buildPair());
+    expect(el.querySelectorAll('nav[aria-label="Breadcrumb"] [aria-current="page"]')).toHaveLength(
+      1,
+    );
   });
 });

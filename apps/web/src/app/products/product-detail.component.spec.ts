@@ -38,6 +38,7 @@ import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 
 import { ProductDetailPage } from './product-detail';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
@@ -1638,5 +1639,18 @@ describe('ProductDetailPage values under review (AECI-1238)', () => {
   it('renders no marker when nothing is under review', () => {
     const { el } = setup(buildProduct({}));
     expect(markers(el)).toEqual([]);
+  });
+});
+
+describe('ProductDetailPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reads Home, Products, then the product as the current page', () => {
+    const { el } = setup(buildProduct());
+    expect(trail(el)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Products', href: '/products', current: false },
+      { label: 'Procore', href: null, current: true },
+    ]);
   });
 });

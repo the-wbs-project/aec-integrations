@@ -1,5 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
 
@@ -17,6 +17,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 import { ProductCard } from './product-card';
 import { ProductCardGrid } from './product-card-grid';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * Phase 2.12 (AECI-58) product index. Composes two features:
@@ -64,7 +65,7 @@ import { ProductCardGrid } from './product-card-grid';
 @Component({
   selector: 'app-products-index',
   imports: [
-    RouterLink,
+    AecBreadcrumb,
     BrowseLayout,
     FacetSidebar,
     ListingToolbar,
@@ -76,26 +77,7 @@ import { ProductCardGrid } from './product-card-grid';
   template: `
     <aec-browse-layout>
       <div slot="header" class="space-y-3">
-        <nav i18n-aria-label="@@products.index.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex items-center gap-2 text-sm text-(--text-secondary)">
-            <li>
-              <a
-                routerLink="/"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@products.index.breadcrumbs.home"
-                >Home</a
-              >
-            </li>
-            <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-            <li
-              class="text-(--text-primary)"
-              aria-current="page"
-              i18n="@@products.index.breadcrumbs.current"
-            >
-              Products
-            </li>
-          </ol>
-        </nav>
+        <aec-breadcrumb [items]="crumbs" />
         <h1
           class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
           i18n="@@products.index.title"
@@ -226,6 +208,11 @@ import { ProductCardGrid } from './product-card-grid';
   `,
 })
 export class ProductsIndex {
+  protected readonly crumbs: BreadcrumbItem[] = [
+    homeCrumb(),
+    { label: $localize`:@@products.index.breadcrumbs.current:Products` },
+  ];
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 

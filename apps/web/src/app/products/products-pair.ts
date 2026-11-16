@@ -47,6 +47,7 @@ import {
 } from './pair-direction-labels';
 import { PairVersionSelect } from './pair-version-select';
 import { Chip } from '../shared/chip/chip';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /** The two vendor names a pair page can attribute an attestation to, keyed by
  *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
@@ -565,6 +566,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 @Component({
   selector: 'aec-products-pair',
   imports: [
+    AecBreadcrumb,
     FieldCaptionLine,
     UnderReviewMarker,
     AgreementBadge,
@@ -589,46 +591,7 @@ function writePairViewCookie(mode: PairViewMode): void {
       @let other = v.pair.other_product;
       <div class="bg-(--surface-base) text-(--text-primary)">
         <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12" data-testid="page-canvas">
-          <nav [attr.aria-label]="breadcrumbAria" class="mb-6">
-            <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
-              <li>
-                <a
-                  routerLink="/"
-                  class="no-underline hover:text-(--accent-primary)"
-                  i18n="@@pair.breadcrumb.home"
-                  >Home</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              <li>
-                <a
-                  [routerLink]="['/products', context.slug]"
-                  class="no-underline hover:text-(--accent-primary)"
-                  >{{ context.name }}</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              <!-- The trail is Home › {context} › Integrations › {other}. Without the
-                   "Integrations" crumb the last two read as a parent/child pair, which
-                   says the OTHER product belongs to the context product rather than
-                   that this page is one edge in the context product's integration
-                   list. The crumb deep-links to that list's section anchor on the
-                   context product's detail page. -->
-              <li>
-                <a
-                  [routerLink]="['/products', context.slug]"
-                  fragment="integrations"
-                  class="no-underline hover:text-(--accent-primary)"
-                  i18n="@@pair.breadcrumb.integrations"
-                  >Integrations</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-                {{ other.name }}
-              </li>
-            </ol>
-          </nav>
+          <div class="mb-6"><aec-breadcrumb [items]="crumbs()" /></div>
 
           <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div class="space-y-3">
@@ -1318,7 +1281,27 @@ export class ProductsPairPage {
   private readonly router = inject(Router);
   private readonly locale = inject(LOCALE_ID);
 
-  protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
+  /**
+   * The trail is Home, the context product, Integrations, then the other product.
+   * Without "Integrations" the last two read as a parent and child, which says the
+   * other product belongs to the context product. The crumb deep-links to that
+   * list's section anchor on the context product's page.
+   */
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => {
+    const v = this.view();
+    if (v === null) return [];
+    const context = v.pair.context_product;
+    return [
+      homeCrumb(),
+      { label: context.name, link: ['/products', context.slug] },
+      {
+        label: $localize`:@@pair.breadcrumb.integrations:Integrations`,
+        link: ['/products', context.slug],
+        fragment: 'integrations',
+      },
+      { label: v.pair.other_product.name },
+    ];
+  });
   protected readonly logoAlt = logoAlt;
   protected readonly correctionLabel = fieldOverrideLabel;
 
