@@ -1490,6 +1490,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: 'help center pages and sections in authored order; static content',
   },
   {
+    file: 'apps/web/src/app/products/category-hub.ts',
+    count: 1,
+    registered: ['product-page-hero-visual'],
+  },
+  {
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',
     count: 3,
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
