@@ -188,4 +188,42 @@ test.describe('vendor detail — band shell (AECI-1797)', () => {
       .analyze();
     expect(results.violations).toEqual([]);
   });
+
+  // Ruling 77 (2026-11-16): below 640px the lede steps down one ramp role, 20px to
+  // 16px, so a long description does not make the hero a wall. No word is hidden.
+  test('the lede is 16px on a phone and 20px from 640px, with every word shown', async ({
+    page,
+    request,
+  }) => {
+    const res = await request.get(`/api/vendors/${CLAIMED}`);
+    const description = res.ok()
+      ? ((await res.json()) as { description?: string }).description
+      : null;
+    test.skip(!description, `seed missing a description: ${CLAIMED}`);
+
+    const lede = page.getByTestId('vendor-description');
+    const sizeOf = () =>
+      lede.evaluate((p) => {
+        const cs = getComputedStyle(p);
+        return {
+          fontSize: cs.fontSize,
+          lineHeight: cs.lineHeight,
+          clamp: cs.webkitLineClamp,
+          overflow: cs.overflow,
+        };
+      });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/vendors/${CLAIMED}`);
+    expect(await sizeOf()).toEqual({
+      fontSize: '16px',
+      lineHeight: '25.6px',
+      clamp: 'none',
+      overflow: 'visible',
+    });
+    await expect(lede).toHaveText(description!.trim());
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    expect((await sizeOf()).fontSize).toBe('20px');
+  });
 });
