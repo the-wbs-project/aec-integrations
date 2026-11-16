@@ -239,6 +239,8 @@ export class FacetSidebar {
     const counts =
       restored?.line === line ? restored.body : this.facets.hasValue() ? this.facets.value() : null;
     if (counts === null) return;
+    // Entries under the id this entry carried before a Back or Forward are dead.
+    this.history.retire(this.traversal?.retiredEntryId() ?? null);
     this.history.write(this.historyKey(line), this.traversal?.currentEntryId() ?? null, counts);
   }
 

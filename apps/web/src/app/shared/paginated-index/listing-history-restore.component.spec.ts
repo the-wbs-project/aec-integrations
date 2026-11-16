@@ -292,6 +292,27 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
   // The router writes `navigationId` into `history.state` for each entry, and a
   // Back hands it back as `NavigationStart.restoredState.navigationId`. Keyed by
   // URL alone, leaving the second visit overwrote the first visit's pages.
+  // After a Back or Forward the router gives the entry a new id. Saving it again
+  // under that id retires the old one, so repeat trips do not fill the bound
+  // with dead entries.
+  it('repeat Back trips to one entry keep one stored entry, not one per trip', async () => {
+    const env = await setup();
+    await browseThenLeave(env, '/list', 2);
+    const store = TestBed.inject(ListingHistoryStore);
+    expect(store.size).toBe(1);
+
+    for (let trip = 0; trip < 3; trip++) {
+      await back(env); // to /list, restored
+      expect(env.rows()).toEqual(['p1', 'p2']);
+      await env.harness.navigateByUrl('/detail'); // leave again: saved under the new id
+      expect(store.size, `after trip ${trip + 1}`).toBe(1);
+    }
+    // And the one entry left is the live one: Back still restores.
+    await back(env);
+    expect(env.rows()).toEqual(['p1', 'p2']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+  });
+
   it('two visits to one URL keep their own pages: Back to each restores its own count', async () => {
     const env = await setup();
     await browseThenLeave(env, '/list', 1, 'a'); // first visit: 1 page

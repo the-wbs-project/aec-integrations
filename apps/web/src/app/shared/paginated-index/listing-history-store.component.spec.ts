@@ -188,4 +188,25 @@ describe('ListingHistoryStore history entries (AECI-1900)', () => {
     expect(store.read('a', 5)).toBeNull();
     expect(store.read('a', null)).toEqual([1]);
   });
+
+  it('retire drops every entry under a dead history entry id, and nothing else', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', 3, [1]);
+    store.write('a?filter', 3, [2]);
+    store.write('a', 4, [3]);
+    store.write('b', null, [4]);
+    store.retire(3);
+    expect(store.size).toBe(2);
+    expect(store.read('a', 3)).toBeNull();
+    expect(store.read('a?filter', 3)).toBeNull();
+    expect(store.read('a', 4)).toEqual([3]);
+    expect(store.read('b', null)).toEqual([4]);
+  });
+
+  it('retire(null) drops nothing', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', null, [1]);
+    store.retire(null);
+    expect(store.size).toBe(1);
+  });
 });

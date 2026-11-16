@@ -108,6 +108,20 @@ abstract class BoundedHistoryStore<V> {
     }
   }
 
+  /**
+   * Drop every entry stored under a history entry id that no longer exists.
+   * Called at save time, never at read time. A Back or Forward rewrites the
+   * entry it lands on with a new id, so the old id is gone from the tab's
+   * history for good and its entries are dead: without this they would hold
+   * slots of the 5-entry bound until pushed out. `null` drops nothing.
+   */
+  retire(entryId: number | null): void {
+    if (entryId === null) return;
+    for (const [slot, entry] of this.entries) {
+      if (entry.entryId === entryId) this.entries.delete(slot);
+    }
+  }
+
   private newestSlotFor(key: string): string | null {
     let found: string | null = null;
     for (const [slot, entry] of this.entries) if (entry.key === key) found = slot;
@@ -210,6 +224,7 @@ export class HistoryTraversal {
   private readonly router = inject(Router);
   private latest: { id: number; popstate: boolean; restoredId: number | null } | null = null;
   private onScreen: number | null = null;
+  private retired: number | null = null;
 
   constructor() {
     this.router.events.subscribe((e) => {
@@ -221,6 +236,9 @@ export class HistoryTraversal {
         };
       } else if (e instanceof NavigationEnd) {
         this.onScreen = e.id;
+        // A Back or Forward that landed rewrote its entry's id: the old one is gone.
+        const latest = this.latest;
+        this.retired = latest?.id === e.id && latest.popstate ? latest.restoredId : null;
       }
     });
   }
@@ -240,5 +258,14 @@ export class HistoryTraversal {
   /** The id of the history entry on screen, or `null` before the first `NavigationEnd` this has seen. */
   currentEntryId(): number | null {
     return this.onScreen;
+  }
+
+  /**
+   * The id the entry on screen carried before a Back or Forward rewrote it, or
+   * `null` when the page on screen was not reached that way. No history entry
+   * carries that id any more, so a save can retire it.
+   */
+  retiredEntryId(): number | null {
+    return this.retired;
   }
 }

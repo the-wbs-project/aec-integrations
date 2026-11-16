@@ -503,6 +503,9 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       config,
       buildIndexParams(config, queryParamMap(), { page: first.page }),
     );
+    // The entry on screen may carry a new id after a Back or Forward. Its old
+    // id's entries are dead, so they stop holding slots of the bound.
+    history.retire(traversal?.retiredEntryId() ?? null);
     history.write(
       listingHistoryKey(listingPath(route.snapshot), line),
       traversal?.currentEntryId() ?? null,
