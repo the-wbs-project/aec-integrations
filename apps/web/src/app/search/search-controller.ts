@@ -280,16 +280,19 @@ export function flattenPages(pages: HitsPages): unknown[] {
  * search it answers (`bind`). The init render cannot bind them: it reads the
  * index's own state, which lacks the query the root adds to every search, so
  * every later read would miss. The page seeds the cache only when the restored
- * instance starts on exactly the URL state the pages were saved under, so the
- * first answer is the search they belong to. From then on "Load more" asks for
- * the page after the last one held, so it continues with no hit twice and none
- * missing.
+ * instance starts on exactly the URL state the pages were saved under. A filter,
+ * sort or query changed before an answer binds them drops them for that tab
+ * (`dropSeed`), so only an answer to the search they belong to binds them. From
+ * then on "Load more" asks for the page after the last one held, so it
+ * continues with no hit twice and none missing.
  */
 class HitsCache {
   private state: unknown = null;
   private hits: Record<number, unknown[]> = {};
   private seed: Record<number, unknown[]> | null;
   private lastRead: unknown = null;
+  /** True from a dropped seed until the next write: the new search has not answered. */
+  private waiting = false;
 
   constructor(seed?: HitsPages) {
     this.seed = seed ? ({ ...seed } as Record<number, unknown[]>) : null;
@@ -304,6 +307,26 @@ class HitsCache {
     return this.state !== null && sameState(this.state, without) ? this.hits : null;
   };
 
+  /**
+   * Forget seeded pages no answer has bound yet. For a search other than the
+   * one they were saved under, whose answer would otherwise draw them.
+   */
+  dropSeed(): void {
+    if (!this.seed) return;
+    this.seed = null;
+    this.lastRead = null;
+    this.waiting = true;
+  }
+
+  /**
+   * True after a dropped seed until the new search's answer is written. An
+   * answer to the search the restore started on can still land first. The
+   * connector holds no page for it, so it would draw an empty list.
+   */
+  awaitingAnswer(): boolean {
+    return this.waiting;
+  }
+
   /** Bind seeded pages to the search last read: the one the first answer is for. */
   bind(): void {
     if (!this.seed || this.lastRead === null) return;
@@ -314,6 +337,7 @@ class HitsCache {
 
   readonly write = ({ state, hits }: { state: unknown; hits: Record<number, unknown[]> }) => {
     this.seed = null;
+    this.waiting = false;
     this.state = withoutPage(state);
     this.hits = hits;
   };
@@ -566,6 +590,12 @@ export class SearchController {
   private lastFilters: SearchFilters;
   /** True when started from a snapshot of a history entry (Back or Forward). */
   private readonly restored: boolean;
+  /** Each tab's infinite-hits cache, seeded on a restore. */
+  private readonly hitsCaches: Partial<Record<'products' | 'vendors', HitsCache>> = {};
+  /** The filters a restore started on, to tell its own search from any other. */
+  private readonly restoredFilters: SearchFilters;
+  /** The query a restore started on. */
+  private readonly query0: string;
   /** Each tab's snapshot builder, for `snapshot()`. */
   private readonly indexSnapshots: Record<'products' | 'vendors', () => IndexSnapshot | null> = {
     products: () => null,
@@ -610,6 +640,7 @@ export class SearchController {
     restore: SearchSnapshot | null = null,
   ) {
     this.restored = restore !== null && restore.query === initialQuery;
+    this.query0 = initialQuery;
     const seed = this.restored ? restore : null;
     this.query = signal(initialQuery);
     this.ready = signal(seed !== null);
@@ -617,6 +648,7 @@ export class SearchController {
     // Start from the URL's filters (or none), so the first keystroke, which
     // also changes the UI state, is not mistaken for a filter change.
     this.lastFilters = urlState.initialFilters ?? emptyFilters();
+    this.restoredFilters = this.lastFilters;
 
     // The root has no index (it sends no query); products and vendors are
     // sibling nested `index()` widgets so neither inherits the other's filters
@@ -648,6 +680,7 @@ export class SearchController {
       // part moved. Comparing against the last known filters keeps typing,
       // paging, sorting and our own `setFilters` from firing it.
       onStateChange: ({ uiState, setUiState }) => {
+        if (this.restored) this.dropSeedUnlessRestored(uiState);
         setUiState(uiState);
         const filters = filtersFromUiState(uiState);
         if (sameFilters(filters, this.lastFilters)) return;
@@ -711,6 +744,26 @@ export class SearchController {
     // A restore already started with it, so seeding it again would search twice.
     const initial = this.query();
     if (initial && !this.restored) this.setQuery(initial);
+  }
+
+  /**
+   * A restore's seeded pages answer the search it started on, and an answer
+   * binds them. Until one does, the cache hands them to every read. So when the
+   * first answer failed, or has not landed, the answer to a new filter, sort or
+   * query drew the old rows under its own count. Now a tab whose query, filters
+   * or sort moved drops them, and its search starts its own pages. A tab whose
+   * search did not move keeps them. The rows on screen stay until it answers.
+   */
+  private dropSeedUnlessRestored(uiState: UiState): void {
+    const query = (uiState['']?.['query'] as string | undefined) ?? '';
+    const filters = filtersFromUiState(uiState);
+    for (const entity of ['products', 'vendors'] as const) {
+      const same =
+        query === this.query0 &&
+        sameFilters({ ...this.restoredFilters, [entity]: filters[entity] }, this.restoredFilters) &&
+        uiState[entity]?.['sortBy'] === undefined;
+      if (!same) this.hitsCaches[entity]?.dropSeed();
+    }
   }
 
   /** The filters the search is on now (the UI state's, not the helper's). */
@@ -866,6 +919,7 @@ export class SearchController {
     // signals in place: the rows themselves stay the cached pages.
     const keep = (isFirstRender: boolean) => this.restored && isFirstRender;
     const cache = new HitsCache(seed?.pages);
+    this.hitsCaches[entity] = cache;
     const hits = signal<T[]>(seed ? (flattenPages(seed.pages) as T[]) : []);
     const nbHits = signal(seed?.nbHits ?? 0);
     const hasMore = signal(seed?.hasMore ?? false);
@@ -893,6 +947,10 @@ export class SearchController {
         showMore = state.showMore;
         if (keep(isFirstRender)) return;
         if (state.results) cache.bind();
+        // A restore whose search moved before its first answer: an answer to the
+        // old search can land while the new one is in flight, with no page to
+        // draw. Keep the rows on screen until the new search answers.
+        if (cache.awaitingAnswer()) return;
         hits.set(state.items as T[]);
         hasMore.set(!state.isLastPage);
         // A new results object means a search landed, which ends an error.

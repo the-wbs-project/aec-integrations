@@ -314,3 +314,183 @@ describe('SearchPage on Back and Forward', () => {
     expect(new Set(after).size).toBe(60);
   });
 });
+
+// A restore's stored pages answer the search it started on. A filter, sort or
+// query changed before an answer bound them used to get them as its own answer:
+// the old rows under the new count ("Showing 24 of 5").
+describe('SearchPage restored, then the search changes before an answer binds the rows', () => {
+  afterEach(() => {
+    delete (globalThis as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__;
+    traversal.back = false;
+    TestBed.resetTestingModule();
+  });
+
+  /**
+   * Answers by filter and query: `categories:BIM` gives 5 "b-" products, the
+   * query "other" gives "o-" products, anything else 60 "p-" products. The
+   * first `failFirst` calls fail; `hold` keeps every answer back until released.
+   */
+  function filterClient(failFirst = 0, hold = false) {
+    const batches: FakeRequest[][] = [];
+    const held: (() => void)[] = [];
+    let calls = 0;
+    const client = {
+      search(requests: FakeRequest[]) {
+        batches.push(requests);
+        if (calls++ < failFirst) return Promise.reject(new Error('network'));
+        const body = {
+          results: requests.map((r) => {
+            const products = r.indexName.startsWith('p');
+            const bim = JSON.stringify(r.params?.['facetFilters'] ?? []).includes('categories:BIM');
+            const query = (r.params?.['query'] as string | undefined) ?? '';
+            const total = products ? (bim ? 5 : 60) : 10;
+            const perPage = Number(r.params?.['hitsPerPage'] ?? 24);
+            const page = Number(r.params?.['page'] ?? 0);
+            const prefix = products ? (bim ? 'b' : query === 'other' ? 'o' : 'p') : 'v';
+            const hits = Array.from({ length: total }, (_, i) => ({
+              objectID: `${prefix}-${String(i).padStart(2, '0')}`,
+              name: `Name ${i}`,
+              company_name: `Vendor ${i}`,
+              slug: `${prefix}-${String(i).padStart(2, '0')}`,
+            })).slice(page * perPage, page * perPage + perPage);
+            return {
+              index: r.indexName,
+              query,
+              params: '',
+              hits,
+              nbHits: total,
+              page,
+              nbPages: Math.ceil(total / perPage),
+              hitsPerPage: perPage,
+              processingTimeMS: 1,
+              exhaustiveNbHits: true,
+              exhaustiveFacetsCount: true,
+              facets: products ? { categories: bim ? { BIM: 5 } : { AI: total, BIM: 5 } } : {},
+            };
+          }),
+        };
+        if (!hold) return Promise.resolve(body);
+        return new Promise((resolve) => held.push(() => resolve(body)));
+      },
+    };
+    return { client, batches, held };
+  }
+
+  /** A fresh visit to `/search?q=zz`, left: what the store kept. */
+  async function leave(): Promise<SearchSnapshot> {
+    const { client } = filterClient();
+    configure(async () => ({ lib: (await createSearchEngine(CONFIG)).lib, searchClient: client }));
+    await TestBed.inject(Router).navigateByUrl('/search?q=zz');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    await settle(fixture, () => rowIds(el).length === 24);
+    const store = TestBed.inject(SearchHistoryStore);
+    fixture.destroy();
+    return store.read(key({ q: 'zz' }), 7)!;
+  }
+
+  /** A Back to `/search?q=zz`, with the search code held until `load()`. */
+  async function back(kept: SearchSnapshot, failFirst = 0, hold = false) {
+    TestBed.resetTestingModule();
+    const { client, batches, held } = filterClient(failFirst, hold);
+    let load!: () => void;
+    const loaded = new Promise<void>((resolve) => (load = resolve));
+    configure(async () => {
+      await loaded;
+      return { lib: (await createSearchEngine(CONFIG)).lib, searchClient: client };
+    });
+    TestBed.inject(SearchHistoryStore).write(key({ q: 'zz' }), 7, kept);
+    await TestBed.inject(Router).navigateByUrl('/search?q=zz');
+    traversal.back = true;
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    return { fixture, el, load, batches, held };
+  }
+
+  function check(el: HTMLElement, value: string): void {
+    const box = [...el.querySelectorAll('input[type=checkbox]')].find((input) =>
+      input.closest('label')?.textContent?.includes(value),
+    ) as HTMLInputElement;
+    box.click();
+  }
+
+  async function flush(fixture: { detectChanges(): void }, ms = 50): Promise<void> {
+    await tick(ms);
+    fixture.detectChanges();
+  }
+
+  it('a filter clicked before the search code loads draws the filtered rows', async () => {
+    const { fixture, el, load, batches } = await back(await leave());
+    expect(rowIds(el)).toHaveLength(24);
+    check(el, 'BIM');
+    load();
+    await settle(fixture, () => batches.length > 0);
+    await flush(fixture);
+    expect(rowIds(el)).toEqual(
+      ['b-00', 'b-01', 'b-02', 'b-03', 'b-04'].map((id) => `/products/${id}`),
+    );
+    expect(el.querySelector('aec-pagination-footer')?.textContent).toContain('5');
+  });
+
+  it('a filter after a failed first answer draws the filtered rows', async () => {
+    const { fixture, el, load, batches } = await back(await leave(), 1);
+    load();
+    await settle(fixture, () => batches.length > 0);
+    await flush(fixture);
+    // The failed answer leaves the stored rows on screen.
+    expect(rowIds(el)).toHaveLength(24);
+    check(el, 'BIM');
+    await flush(fixture, 100);
+    expect(rowIds(el)).toHaveLength(5);
+    expect(rowIds(el).every((href) => href.startsWith('/products/b-'))).toBe(true);
+  });
+
+  it('a new query after a failed first answer draws its own rows', async () => {
+    const { fixture, el, load, batches } = await back(await leave(), 1);
+    load();
+    await settle(fixture, () => batches.length > 0);
+    await flush(fixture);
+    const input = el.querySelector('#search-input') as HTMLInputElement;
+    input.value = 'other';
+    input.dispatchEvent(new Event('input'));
+    await flush(fixture, 500);
+    expect(rowIds(el)[0]).toBe('/products/o-00');
+  });
+
+  it('"Load more" after a failed first answer continues the stored rows', async () => {
+    const { fixture, el, load, batches } = await back(await leave(), 1);
+    load();
+    await settle(fixture, () => batches.length > 0);
+    await flush(fixture);
+    for (const want of [48, 60]) {
+      (el.querySelector('aec-pagination-footer button') as HTMLElement).click();
+      await settle(fixture, () => rowIds(el).length >= want);
+    }
+    const ids = rowIds(el);
+    expect(ids).toHaveLength(60);
+    expect(new Set(ids).size).toBe(60);
+  });
+
+  it('a filter while the first answer is in flight keeps the rows, then draws the filtered ones', async () => {
+    const { fixture, el, load, batches, held } = await back(await leave(), 0, true);
+    load();
+    await settle(fixture, () => batches.length > 0);
+    await flush(fixture);
+    check(el, 'BIM');
+    await settle(fixture, () => batches.length > 1);
+    const seen: string[] = [];
+    const sample = async () => {
+      await flush(fixture, 10);
+      seen.push(`${rowIds(el).length}${el.querySelector('aec-empty-state') ? ' empty' : ''}`);
+    };
+    // The answer to the search the restore started on lands first: no empty list.
+    held.shift()!();
+    for (let i = 0; i < 3; i++) await sample();
+    held.shift()!();
+    for (let i = 0; i < 3; i++) await sample();
+    expect(seen).toEqual(['24', '24', '24', '5', '5', '5']);
+    expect(rowIds(el).every((href) => href.startsWith('/products/b-'))).toBe(true);
+  });
+});
