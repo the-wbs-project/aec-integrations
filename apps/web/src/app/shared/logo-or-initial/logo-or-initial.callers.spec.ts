@@ -64,8 +64,11 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'products/product-integration-row.ts': { link: 1 },
   // AECI-1782: the card view of the same row, the same server-filtered ProductLink.
   'products/product-integration-card.ts': { link: 1 },
+  // AECI-1783: the "Show more" stack names hidden partners, the same ProductLinks.
+  'products/product-integration-category-group.ts': { link: 1 },
   'products/product-powered-hub.ts': { link: 3 },
-  'products/products-pair.ts': { subject: 4 },
+  // AECI-1798: one loop renders both sides, each with its 64px mark and its 32px mark.
+  'products/products-pair.ts': { subject: 2 },
   'reviews/review-form.html': { subject: 1 },
   'search/search-product-card.ts': { link: 1 },
   'search/search-vendor-card.ts': { link: 1 },
@@ -169,7 +172,8 @@ describe('aec-logo-or-initial callers (AECI-1769)', () => {
         expect(after.startsWith('<aec-unclaimed-note'), file).toBe(true);
       }
     }
-    // Product page, vendor page and both pair-page subjects.
-    expect(seen).toBe(4);
+    // Product page, vendor page, and the pair page's one side template, which renders
+    // for both subjects (AECI-1798).
+    expect(seen).toBe(3);
   });
 });

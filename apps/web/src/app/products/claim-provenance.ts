@@ -3,6 +3,8 @@ import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/br
 
 import type { ProductPairClaim } from '@aeci/shared';
 
+import { AecIcon } from '../shared/icon/icon';
+
 /**
  * One rendered source line: who spoke and what they said. `stance` is `null`
  * when `who` already reads as a whole line ("Listed by AEC Integrations"),
@@ -20,7 +22,8 @@ interface ProvenanceEntry {
  * The **provenance affordance** for a claim, titled "Sources" for readers since
  * AECI-1142 (Stage 1.5 §8 — AECI-300; widened to
  * the four agreement states by `STAGE_2_ATTESTATIONS_SPEC.md` §4.3 — AECI-605).
- * A small `i` trigger per `data_object` row opens a popover attributing the
+ * A 44px info-icon trigger per `data_object` row (AECI-1798, the 44px floor; it was a
+ * 24px `i` letter) opens a popover attributing the
  * claim to everyone who has spoken about it, and closing with a line that states
  * what is *missing* — the counterparty's silence, or the nature of the
  * disagreement. It shows stances only: no attestation note is public (AECI-1139).
@@ -41,19 +44,19 @@ interface ProvenanceEntry {
 @Component({
   selector: 'aec-claim-provenance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BrnPopover, BrnPopoverContent, BrnPopoverTrigger],
+  imports: [AecIcon, BrnPopover, BrnPopoverContent, BrnPopoverTrigger],
   template: `
     <button
       brnPopoverTrigger
       [brnPopoverTriggerFor]="provPop"
       type="button"
-      class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full
-        text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken)
-        hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2
-        focus-visible:outline-(--accent-primary)"
+      class="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full
+        text-(--text-secondary) transition-colors duration-fast ease-standard
+        hover:bg-(--surface-sunken) hover:text-(--text-primary) focus-visible:outline-3
+        focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       [attr.aria-label]="ariaLabel()"
     >
-      <span aria-hidden="true" class="text-xs font-semibold">i</span>
+      <aec-icon name="info" decorative [size]="5" />
     </button>
 
     <brn-popover #provPop="brnPopover" class="contents" align="end" [sideOffset]="6">
@@ -83,7 +86,7 @@ interface ProvenanceEntry {
             }
           </ul>
 
-          <p class="text-xs leading-relaxed text-(--text-tertiary)">{{ closing() }}</p>
+          <p class="text-xs leading-relaxed text-(--text-secondary)">{{ closing() }}</p>
         </div>
       </ng-template>
     </brn-popover>

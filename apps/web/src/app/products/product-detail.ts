@@ -128,7 +128,8 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
             <section
               id="about"
               aria-labelledby="description-title"
-              class="grid scroll-mt-20 items-start gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-12"
+              class="grid scroll-mt-20 items-start"
+              [class]="aboutColumns()"
             >
               <div class="min-w-0 space-y-6">
                 <h2 id="description-title">
@@ -208,6 +209,7 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
             [reachableCount]="p.reachable_pair_count"
             [productName]="p.name"
             [hosts]="p.extension_of"
+            [product]="p"
           ></section>
 
           @if (showPowered() && !leadWithPowered()) {
@@ -311,6 +313,20 @@ export class ProductDetailPage {
     const p = this.product();
     if (!p) return false;
     return !!p.description || isUnderReview(p.under_review, 'description') || this.hasWhoItIsFor();
+  });
+
+  /**
+   * Ruling 36 (2026-11-16): the About band splits into two columns only when the left
+   * column has the description or its under-review line. With neither, "Who it is for"
+   * takes the band's full width under the heading, 24px below it as the description
+   * would sit. Product data only, so the server and the browser render the same layout.
+   */
+  protected readonly aboutColumns = computed(() => {
+    const p = this.product();
+    const hasDescription = !!p?.description || isUnderReview(p?.under_review, 'description');
+    return hasDescription
+      ? 'gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-12'
+      : 'gap-6';
   });
 
   /**

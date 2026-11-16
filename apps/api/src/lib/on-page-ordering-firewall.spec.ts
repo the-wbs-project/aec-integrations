@@ -199,6 +199,13 @@ const SURFACES: readonly Surface[] = [
       'Cards and table keep the lane orders above (R1 keeps existing orders); reader filters remove rows only; chip options A to Z by name, slug tie-break; long lists in AECI-1783',
   },
   {
+    key: 'product-page-integrations-long-list',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'AECI-1783: groups A to Z by category name, slug tie-break, uncategorised last (R1); rows keep the lane order inside a group; a list groups only at 13 rows or more with fewer groups than half its rows (row count and categories only); a row sits in each of its categories; the first 6 rows of a group above "Show more"; one list shows the first 12 in lane order; no @defer cut in the grouped list',
+  },
+  {
     key: 'product-page-hero-visual',
     status: 'covered',
     spec: 'web',
@@ -238,6 +245,16 @@ const SURFACES: readonly Surface[] = [
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'trades' },
+      // The `/search` refinement lists' own comparator (AECI-1796): checked first, then
+      // count, then `compareText`. It is the order Algolia's default gave before, made
+      // explicit so a count tie no longer falls to letter case. It serves every list
+      // above and in `FREE_COUNT_SITES`, so it sits under the exception.
+      {
+        file: 'search/search-facet-order.ts',
+        kind: 'count-compare',
+        facet: '*',
+        detail: 'b.count - a.count',
+      },
       // `topByCount` itself: its comparator reads `SORT_KEY`, which is `product_count`.
       {
         file: 'core/taxonomy/taxonomy-rank.ts',

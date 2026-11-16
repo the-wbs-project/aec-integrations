@@ -216,11 +216,12 @@ describe('ProductIntegrationsSection filter box', () => {
     expect(el.querySelector('[role="status"]')!.textContent).toContain('Showing 1 of 10');
   });
 
-  it('leaves the section heading count alone, because that is a fact about the product', () => {
+  it('leaves the section heading alone under a filter', () => {
     const { fixture, el } = setup([...NINE, edge(link('sage-300-cre', 'Sage 300 CRE'))]);
     type(fixture, filterInput(el)!, 'sage');
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (10)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
   });
 
   it('shows a no-match state rather than an empty section', () => {
@@ -250,6 +251,9 @@ describe('ProductIntegrationsSection filter box', () => {
       edge(link('partner-' + String(i).padStart(2, '0'), 'Partner ' + String(i).padStart(2, '0'))),
     );
     const { fixture, el } = setup(many);
+    // AECI-1783: 25 rows group by category in the card view, so the lane cut is
+    // exercised in the table, which keeps it.
+    showTable(fixture, el);
     expect(rowCount(el)).toBe(20);
 
     type(fixture, filterInput(el)!, 'Partner 24');
@@ -455,8 +459,11 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       [...g.querySelectorAll('button[aria-pressed]')].map((b) =>
         b.textContent!.replace(/\s+/g, ' ').trim(),
       );
-    expect(chips(groups[0]!)).toEqual(['→ Outbound', '← Inbound', '⇄ Both']);
-    expect(chips(groups[1]!)).toEqual(['Accounting', 'Field management']);
+    // AECI-1783: every chip prints how many rows it would show.
+    expect(chips(groups[0]!)).toEqual(['→ Outbound 1', '← Inbound 1', '⇄ Both 1']);
+    // AECI-1783: "Types of data" sits between direction and categories.
+    expect(chips(groups[1]!)).toEqual(['Invoices 1']);
+    expect(chips(groups[2]!)).toEqual(['Accounting 2', 'Field management 2']);
   });
 
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
@@ -466,7 +473,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     pressChip(fixture, el, 'Outbound');
     expect(cardNames(el)).toEqual(['Sage']);
     expect(status.textContent).toContain('Showing 1 of 4');
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (4)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     const chip = [...el.querySelectorAll('aec-chip button[aria-pressed="true"]')];
     expect(chip).toHaveLength(1);
   });
@@ -481,7 +489,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(cardNames(el)).toEqual(['Xero']);
     type(fixture, filterInput(el)!, 'sage');
     expect(cardNames(el)).toEqual([]);
-    expect(el.textContent).toContain('No integrations match that search');
+    // Chips and a search together take the filters message (approved 2026-11-16).
+    expect(el.textContent).toContain('No integrations match these filters.');
+    expect(el.textContent).not.toContain('No integrations match that search');
   });
 
   it('"Clear filters" shows only while a filter is on and clears every facet and the query', () => {
@@ -514,9 +524,14 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       }),
     );
     const { fixture, el } = setup(many);
+    // AECI-1783: the card view groups 25 rows, so the lane cut is checked in the table.
+    showTable(fixture, el);
     expect(rowCount(el)).toBe(20);
     pressChip(fixture, el, 'Inbound');
-    expect(cardNames(el)).toEqual(['Partner 24']);
+    expect(rowCount(el)).toBe(1);
+    expect(el.querySelector('tr[aec-product-integration-row]')!.textContent).toContain(
+      'Partner 24',
+    );
   });
 });
 
@@ -525,8 +540,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
  * section could violate while still looking right, which is why they are
  * asserted rather than reviewed:
  *
- *  - it must not enter `Integrations (N)`. §13.5 is categorical that reachable
- *    never counts, and the heading is the one number a reader can check;
+ *  - it must not enter the section row count. §13.5 is categorical that reachable
+ *    never counts, and the row count is a number a reader can check;
  *  - it must not be a table row or a card. A "Via {connector}" group that
  *    outlives its own delivered row asserts a delivery the I24 ruling has just
  *    said does not exist;
@@ -534,6 +549,318 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
  *  - it must render on the EMPTY branch, which is the page the AECI-889 sweep
  *    creates and the only reason this work exists.
  */
+describe('ProductIntegrationsSection approved copy (AECI-1783, 2026-11-16)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const INV = { slug: 'invoice', name: 'Invoices' };
+  const RFI = { slug: 'rfi', name: 'RFIs' };
+  const ACC = { slug: 'accounting', name: 'Accounting' };
+  const rows = () => [
+    edge(link('sage', 'Sage'), {
+      context_direction: 'outbound',
+      partner_categories: [ACC],
+      data_objects: [INV, RFI],
+      data_object_slugs: ['invoice', 'rfi'],
+    }),
+    edge(link('vista', 'Vista'), {
+      context_direction: 'inbound',
+      data_objects: [INV],
+      data_object_slugs: ['invoice'],
+    }),
+    edge(link('xero', 'Xero'), { context_direction: 'inbound' }),
+  ];
+  const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+  const cardNames = (el: HTMLElement) =>
+    [...el.querySelectorAll('li[aec-product-integration-card] h3')].map(text);
+  const dataGroup = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('[aria-labelledby="integrations-filter-data"]')!;
+
+  it('says "A to Z by partner name." under the heading on a page with no Via lane', () => {
+    const { el } = setup(rows());
+    expect(text(el.querySelector('[data-testid="integrations-order"]')!)).toBe(
+      'A to Z by partner name.',
+    );
+  });
+
+  it('drops the order line on a page with a Via lane, whose groups go by row count', () => {
+    const { el } = setup([
+      ...rows(),
+      edge(link('acumatica', 'Acumatica'), { via: AGAVE, mechanism_kind: null }),
+    ]);
+    expect(el.querySelector('[data-testid="integrations-order"]')).toBeNull();
+  });
+
+  it('shows "Types of data" chips A to Z, and the note only while one is pressed', () => {
+    const { fixture, el } = setup(rows());
+    expect(text(el.querySelector('#integrations-filter-data')!)).toBe('Types of data');
+    const chips = [...dataGroup(el).querySelectorAll('button[aria-pressed]')].map(text);
+    expect(chips).toEqual(['Invoices 2', 'RFIs 1']);
+    expect(el.querySelector('[data-testid="integrations-filter-data-note"]')).toBeNull();
+    expect(dataGroup(el).getAttribute('aria-describedby')).toBeNull();
+
+    pressChip(fixture, el, 'Invoices');
+    expect(cardNames(el)).toEqual(['Sage', 'Vista']);
+    const note = el.querySelector('[data-testid="integrations-filter-data-note"]')!;
+    expect(text(note)).toBe(
+      'Integrations with no types of data on record are not shown while this filter is on.',
+    );
+    expect(note.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(dataGroup(el).getAttribute('aria-describedby')).toBe(note.id);
+    // Data chips AND together: RFIs would leave one row.
+    expect(chips.length).toBe(2);
+    expect(
+      text(
+        [...dataGroup(el).querySelectorAll('button[aria-pressed]')].find((b) =>
+          text(b).startsWith('RFIs'),
+        )!,
+      ),
+    ).toBe('RFIs 1');
+  });
+
+  it('a search alone keeps the search message; chips take the filters message', () => {
+    const { fixture, el } = setup(rows());
+    type(fixture, filterInput(el)!, 'zzz');
+    expect(text(el.querySelector('[data-testid="integrations-filter-empty"]')!)).toBe(
+      'No integrations match that search.',
+    );
+    type(fixture, filterInput(el)!, '');
+    pressChip(fixture, el, 'Outbound');
+    pressChip(fixture, el, 'Invoices');
+    type(fixture, filterInput(el)!, 'vista');
+    expect(text(el.querySelector('[data-testid="integrations-filter-empty"]')!)).toBe(
+      'No integrations match these filters.',
+    );
+  });
+
+  it('labels each card chip row, and names the list with the same words', () => {
+    const { el } = setup(rows());
+    const sage = [...el.querySelectorAll('li[aec-product-integration-card]')].find((c) =>
+      text(c).includes('Sage'),
+    )!;
+    const cats = sage.querySelector('[data-testid="integration-card-categories"]')!;
+    const data = sage.querySelector('[data-testid="integration-card-data-objects"]')!;
+    expect(cats.getAttribute('aria-label')).toBe('Categories');
+    expect(data.getAttribute('aria-label')).toBe('Types of data');
+    expect(text(sage.querySelector('[data-testid="integration-card-categories-label"]')!)).toBe(
+      'Categories',
+    );
+    expect(text(sage.querySelector('[data-testid="integration-card-data-objects-label"]')!)).toBe(
+      'Types of data',
+    );
+  });
+
+  it('one or two cards share the row; three or more keep the grid steps', () => {
+    const grid = (el: HTMLElement) =>
+      el.querySelector('[data-testid="integration-cards"]')!.getAttribute('data-columns');
+    expect(grid(setup(rows().slice(0, 1)).el)).toBe('1');
+    TestBed.resetTestingModule();
+    expect(grid(setup(rows().slice(0, 2)).el)).toBe('2');
+    TestBed.resetTestingModule();
+    expect(grid(setup(rows()).el)).toBeNull();
+  });
+});
+
+describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const ACC = { slug: 'accounting', name: 'Accounting' };
+  const SCHED = { slug: 'scheduling', name: 'Scheduling' };
+  const BIM = { slug: 'bim', name: 'BIM' };
+
+  /** `n` partners, A to Z by name; categories cycle, so some rows carry two and some none. */
+  const rows = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const name = `Partner ${String(i).padStart(2, '0')}`;
+      const sets = [[ACC], [SCHED, BIM], [], [BIM], [ACC, SCHED]];
+      return edge(link(`partner-${i}`, name), {
+        context_direction: i % 2 === 0 ? 'outbound' : 'inbound',
+        partner_categories: sets[i % sets.length]!,
+      });
+    });
+
+  const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+  const groups = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLElement>('section[aec-product-integration-category-group]'),
+  ];
+  const railLinks = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLAnchorElement>('[data-testid="integrations-rail-link"]'),
+  ];
+  const categoryChips = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLButtonElement>(
+      '[aria-labelledby="integrations-filter-categories"] button[aria-pressed]',
+    ),
+  ];
+
+  it('a list of 12 renders as before: one list, no rail, no arrangement toggle', () => {
+    const { el } = setup(rows(12));
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('[data-testid="integrations-rail"]')).toBeNull();
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('li[aec-product-integration-card]')).toHaveLength(12);
+  });
+
+  it('a list of 13 groups A to Z by category, with the uncategorised rows last', () => {
+    const { el } = setup(rows(13));
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual([
+      'Accounting',
+      'BIM',
+      'Scheduling',
+      'No category on record',
+    ]);
+    // Rows keep the lane order inside a group, and the cards are h4 under the group h3.
+    const acc = [...groups(el)[0]!.querySelectorAll('li[aec-product-integration-card] h4')];
+    const names = acc.map(text);
+    expect(names).toEqual([...names].sort());
+  });
+
+  it('the rail, the group heading and the chip print the same count for one category', () => {
+    const { fixture, el } = setup(rows(58));
+    const check = () => {
+      for (const group of groups(el)) {
+        const name = text(group.querySelector('h3')!);
+        const heading = text(
+          group.querySelector('[data-testid="integration-category-group-count"] [aria-hidden]')!,
+        );
+        const rail = railLinks(el).find((a) => text(a).startsWith(name))!;
+        const railCount = text(rail.querySelector('[aria-hidden]')!);
+        expect(railCount, name).toBe(heading);
+        const chip = categoryChips(el).find((b) => text(b).startsWith(name));
+        if (chip) {
+          expect(text(chip.querySelector('[data-testid="integrations-chip-count"]')!), name).toBe(
+            heading,
+          );
+        }
+      }
+    };
+    check();
+    pressChip(fixture, el, 'Inbound');
+    check();
+    pressChip(fixture, el, 'Scheduling');
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual(['Scheduling']);
+    check();
+  });
+
+  it('a closed group shows its first six cards (ruled 2026-11-16); the rest are in the DOM, hidden until found', () => {
+    const { fixture, el } = setup(rows(58));
+    const first = groups(el)[0]!;
+    const cards = [...first.querySelectorAll('li[aec-product-integration-card]')];
+    expect(cards.length).toBeGreaterThan(6);
+    expect(cards.slice(0, 6).every((c) => !c.hasAttribute('hidden'))).toBe(true);
+    expect(cards.slice(6).every((c) => c.getAttribute('hidden') === 'until-found')).toBe(true);
+    // Hidden cards keep their pair-page links in the markup.
+    expect(cards[6]!.querySelector('a[href^="/products/procore/integrations/"]')).not.toBeNull();
+
+    const button = first.querySelector<HTMLButtonElement>(
+      '[data-testid="integration-category-group-toggle"]',
+    )!;
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(text(button.querySelector(':scope > span:not([aria-hidden])')!)).toBe(
+      `Show ${cards.length - 6} more in Accounting`,
+    );
+    // The stack names the first hidden partners, in row order, with no logo above 32px.
+    const stack = [...button.querySelectorAll('aec-logo-or-initial')].map(text);
+    expect(stack).toEqual(
+      cards.slice(6, 11).map((c) => text(c.querySelector('h4')!).charAt(0).toUpperCase()),
+    );
+    button.click();
+    fixture.detectChanges();
+    expect(cards.every((c) => !c.hasAttribute('hidden'))).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(text(button)).toBe('Show fewer');
+  });
+
+  it('a 13-row list whose rows fall into 13 groups stays one flat list (ruled 2026-11-16)', () => {
+    const spread = Array.from({ length: 13 }, (_, i) =>
+      edge(link(`s-${i}`, `S ${String(i).padStart(2, '0')}`), {
+        partner_categories: [{ slug: `cat-${i}`, name: `Cat ${i}` }],
+      }),
+    );
+    const { el } = setup(spread);
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('li[aec-product-integration-card]')).toHaveLength(13);
+  });
+
+  it('a group of six or fewer shows every card and has no button', () => {
+    const { el } = setup(rows(13));
+    for (const group of groups(el)) {
+      const cards = group.querySelectorAll('li[aec-product-integration-card]');
+      expect(cards.length).toBeLessThanOrEqual(6);
+      expect(group.querySelector('li[hidden]')).toBeNull();
+      expect(group.querySelector('[data-testid="integration-category-group-toggle"]')).toBeNull();
+    }
+  });
+
+  it('a chip that would leave no rows is disabled, unless it is pressed', () => {
+    const { fixture, el } = setup(rows(58));
+    // Every row is outbound or inbound, so "Both" is absent; narrow by query instead.
+    type(fixture, filterInput(el)!, 'Partner 01');
+    const chip = (name: string) => categoryChips(el).find((b) => text(b).startsWith(name))!;
+    // Partner 01 is in Scheduling and BIM only.
+    expect(chip('Accounting').disabled).toBe(true);
+    expect(chip('Scheduling').disabled).toBe(false);
+    // A pressed chip whose count falls to 0 stays pressable, so it can be released.
+    type(fixture, filterInput(el)!, '');
+    pressChip(fixture, el, 'Accounting');
+    type(fixture, filterInput(el)!, 'Partner 01');
+    expect(chip('Accounting').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('Accounting').disabled).toBe(false);
+  });
+
+  it('find-in-page opening a hidden card opens its group', () => {
+    const { fixture, el } = setup(rows(58));
+    const first = groups(el)[0]!;
+    const hidden = first.querySelector('li[aec-product-integration-card][hidden]')!;
+    hidden.dispatchEvent(new Event('beforematch'));
+    fixture.detectChanges();
+    expect(first.querySelectorAll('li[aec-product-integration-card][hidden]')).toHaveLength(0);
+  });
+
+  it('a rail link targets its group and moves focus to the group heading', async () => {
+    const { fixture, el } = setup(rows(58));
+    document.body.appendChild(el);
+    const link = railLinks(el)[1]!;
+    expect(link.getAttribute('href')).toMatch(/#integrations-cat-bim$/);
+    link.addEventListener('click', (e) => e.preventDefault());
+    link.click();
+    await new Promise((r) => setTimeout(r, 10));
+    fixture.detectChanges();
+    expect(document.activeElement?.id).toBe('integrations-cat-bim-title');
+    el.remove();
+  });
+
+  it('"One list" shows 12 in lane order, and "Load more" adds 12 without fetching', () => {
+    const { fixture, el } = setup(rows(30));
+    [...el.querySelectorAll<HTMLButtonElement>('aec-integration-arrangement-toggle button')]
+      .find((b) => text(b) === 'One list')!
+      .click();
+    fixture.detectChanges();
+    const list = el.querySelector('aec-product-integration-one-list')!;
+    const visible = () =>
+      [...list.querySelectorAll(':scope > ul > li')].filter((li) => !li.hasAttribute('hidden'));
+    expect(visible().map((li) => text(li.querySelector('h3')!))).toEqual(
+      Array.from({ length: 12 }, (_, i) => `Partner ${String(i).padStart(2, '0')}`),
+    );
+    expect(list.querySelectorAll(':scope > ul > li')).toHaveLength(30);
+    expect(text(list.querySelector('[aria-live="polite"]')!)).toBe('Showing 12 of 30');
+    list.querySelector<HTMLButtonElement>('[data-testid="integrations-load-more"]')!.click();
+    fixture.detectChanges();
+    expect(visible()).toHaveLength(24);
+    list.querySelector<HTMLButtonElement>('[data-testid="integrations-load-more"]')!.click();
+    fixture.detectChanges();
+    expect(visible()).toHaveLength(30);
+    expect(list.querySelector('[data-testid="integrations-load-bar"]')).toBeNull();
+  });
+
+  it('the table view stays one flat table on a long list', () => {
+    const { fixture, el } = setup(rows(20));
+    showTable(fixture, el);
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('table')).toHaveLength(1);
+  });
+});
+
 describe('ProductIntegrationsSection reach line (§13.7)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -575,9 +902,18 @@ describe('ProductIntegrationsSection reach line (§13.7)', () => {
     expect(reachText(setup([], 1).el)).toContain('1 pair reachable via connectors');
   });
 
-  it('never moves the section heading count', () => {
+  it('never moves the section heading', () => {
     const { el } = setup(NINE, 99);
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (9)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
+  });
+
+  // With the heading count gone, the "Showing n of m" total is the section's one row
+  // count, so it carries the §13.5 guard the heading test used to (AECI-1783 review).
+  it('never moves the "Showing n of m" total', () => {
+    const { fixture, el } = setup(NINE, 99);
+    type(fixture, filterInput(el)!, 'Bluebeam');
+    expect(el.querySelector('[role="status"]')!.textContent).toContain('Showing 1 of 9');
   });
 
   it('is not a table row and not a card', () => {

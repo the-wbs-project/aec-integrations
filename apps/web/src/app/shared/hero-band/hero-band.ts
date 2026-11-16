@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { BAND_WRAP_CLASS } from '../band-wrap';
 
@@ -74,7 +74,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               </div>
               <div class="min-w-0">
                 <h1 class="m-0 break-words">
-                  <span class="font-display text-t-display font-normal tracking-[-0.02em]">
+                  <span [class]="titleClass()">
                     <ng-content select="[heroTitle]" />
                   </span>
                 </h1>
@@ -91,9 +91,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               <ng-content select="[heroActions]" />
             </div>
           </div>
-          <div
-            class="aec-hero-panel min-w-0 rounded-card bg-(--surface-hero-panel) p-6 empty:hidden md:p-8"
-          >
+          <div [class]="panelClass()">
             <ng-content select="[heroPanel]" />
           </div>
         </div>
@@ -102,5 +100,31 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   `,
 })
 export class HeroBand {
+  /**
+   * The title's size. `display` is the default: the product name, and the vendor name.
+   * `statement` is the pair page's h1 (DESIGN.md §3, `--t-statement`, AECI-1798), the
+   * pair page's one display-scale line. The size sits on the inner span either way.
+   */
+  readonly titleSize = input<'display' | 'statement'>('display');
+  /**
+   * The right column's ground. `surface` is the default: the `--surface-hero-panel`
+   * panel with its padding. `bare` draws no panel, for a caller whose projected content
+   * is already its own white cards on Forest, as the pair page's two products are
+   * (mock-up 12, AECI-1798). The column, its width and its forced-colours edge are the same.
+   */
+  readonly panel = input<'surface' | 'bare'>('surface');
+
   protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
+
+  protected readonly titleClass = computed(() =>
+    this.titleSize() === 'statement'
+      ? 'font-display text-t-statement font-normal tracking-[-0.02em]'
+      : 'font-display text-t-display font-normal tracking-[-0.02em]',
+  );
+
+  protected readonly panelClass = computed(() =>
+    this.panel() === 'bare'
+      ? 'aec-hero-panel min-w-0 empty:hidden'
+      : 'aec-hero-panel min-w-0 rounded-card bg-(--surface-hero-panel) p-6 empty:hidden md:p-8',
+  );
 }

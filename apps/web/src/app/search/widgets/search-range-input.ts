@@ -1,5 +1,8 @@
 import { Component, input, output } from '@angular/core';
 
+import { FILTER_LEGEND_CLASS } from '../../shared/facets/filter-row';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+
 /**
  * Generic numeric range facet widget (AECI-142): a min/max number-input pair
  * bound to a `connectRange` render-state slice (vendor `founded_year`, §7.2).
@@ -14,12 +17,8 @@ import { Component, input, output } from '@angular/core';
   selector: 'aec-search-range-input',
   template: `
     <fieldset class="min-w-0 border-0 p-0">
-      <legend
-        class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
-      >
-        {{ label() }}
-      </legend>
-      <div class="flex items-center gap-2">
+      <legend [class]="legendClass">{{ label() }}</legend>
+      <div class="mt-1 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
         <label class="sr-only" [attr.for]="name() + '-min'" i18n="@@search.range.min"
           >Minimum</label
         >
@@ -27,7 +26,7 @@ import { Component, input, output } from '@angular/core';
           #minInput
           type="number"
           [id]="name() + '-min'"
-          class="h-9 w-20 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2 text-sm tabular-nums text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
           [value]="start()[0] ?? ''"
           [attr.min]="bounds().min ?? null"
           [attr.max]="bounds().max ?? null"
@@ -42,7 +41,7 @@ import { Component, input, output } from '@angular/core';
           #maxInput
           type="number"
           [id]="name() + '-max'"
-          class="h-9 w-20 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2 text-sm tabular-nums text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
           [value]="start()[1] ?? ''"
           [attr.min]="bounds().min ?? null"
           [attr.max]="bounds().max ?? null"
@@ -64,6 +63,14 @@ export class SearchRangeInput {
   readonly start = input.required<readonly [number | undefined, number | undefined]>();
   /** Emits the new `[min, max]` (either side `undefined` to leave it open). */
   readonly refine = output<[number | undefined, number | undefined]>();
+
+  /** The overline legend every filter group uses (AECI-1793). */
+  protected readonly legendClass = FILTER_LEGEND_CLASS;
+  /**
+   * Each bound is the shared field (AECI-1796): the 3:1 field edge, 44px, 12px
+   * radius, 16px text. The two fields share the rail's width around the dash.
+   */
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} min-w-0 tabular-nums`;
 
   protected emit(minRaw: string, maxRaw: string): void {
     this.refine.emit([this.parse(minRaw), this.parse(maxRaw)]);

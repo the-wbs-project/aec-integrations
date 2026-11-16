@@ -102,14 +102,29 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
         </a>
       </div>
 
+      <!-- Each chip row carries a small visible label (approved 2026-11-16). The list
+           takes the same words as its accessible name, so a screen reader hears it as
+           the name of the chip group; the visible label is aria-hidden to say it once. -->
       @if (row().integration.partner_categories.length > 0) {
-        <ul class="flex flex-wrap gap-1.5" data-testid="integration-card-categories">
-          @for (category of row().integration.partner_categories; track category.slug) {
-            <li>
-              <aec-chip density="dense">{{ category.name }}</aec-chip>
-            </li>
-          }
-        </ul>
+        <div class="space-y-1">
+          <span
+            class="block text-xs text-(--text-secondary)"
+            aria-hidden="true"
+            data-testid="integration-card-categories-label"
+            >{{ categoriesLabel }}</span
+          >
+          <ul
+            class="flex flex-wrap gap-1.5"
+            [attr.aria-label]="categoriesLabel"
+            data-testid="integration-card-categories"
+          >
+            @for (category of row().integration.partner_categories; track category.slug) {
+              <li>
+                <aec-chip density="dense">{{ category.name }}</aec-chip>
+              </li>
+            }
+          </ul>
+        </div>
       }
 
       <p class="flex flex-wrap items-center gap-x-1.5 text-sm text-(--text-secondary)">
@@ -134,13 +149,25 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
       </p>
 
       @if (row().dataObjects.length > 0) {
-        <ul class="flex flex-wrap gap-1.5" data-testid="integration-card-data-objects">
-          @for (object of row().dataObjects; track object.slug) {
-            <li>
-              <aec-chip density="dense" tone="neutral">{{ object.name }}</aec-chip>
-            </li>
-          }
-        </ul>
+        <div class="space-y-1">
+          <span
+            class="block text-xs text-(--text-secondary)"
+            aria-hidden="true"
+            data-testid="integration-card-data-objects-label"
+            >{{ dataTypesLabel }}</span
+          >
+          <ul
+            class="flex flex-wrap gap-1.5"
+            [attr.aria-label]="dataTypesLabel"
+            data-testid="integration-card-data-objects"
+          >
+            @for (object of row().dataObjects; track object.slug) {
+              <li>
+                <aec-chip density="dense" tone="neutral">{{ object.name }}</aec-chip>
+              </li>
+            }
+          </ul>
+        </div>
       } @else if (dataObjectLabel(); as objects) {
         <!-- Slugs with no names on the wire: the row's count label, never nothing. -->
         <p>
@@ -216,6 +243,11 @@ export class ProductIntegrationCard {
   readonly headingLevel = input<3 | 4>(3);
   /** Inside a lane card: the nested card surface (tint, no shadow). */
   readonly nested = input(false);
+
+  // The chip-row labels, in TS so one string is both the visible label and the list's
+  // name. The same message ids as the filter panel's "Categories" and "Types of data".
+  protected readonly categoriesLabel = $localize`:@@search.facet.categories:Categories`;
+  protected readonly dataTypesLabel = $localize`:@@products.detail.body.integrations.dataTypes:Types of data`;
 
   protected readonly pairLink = computed(() => [
     '/products',
