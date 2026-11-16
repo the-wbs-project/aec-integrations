@@ -329,12 +329,12 @@ test.describe('/ — citation reflow (AECI-1846)', () => {
         await expect(tooltip).toHaveCSS('opacity', '0');
       }
       // Invisible, absolutely positioned citations must not enlarge the page either.
-      // clientWidth excludes classic scrollbar gutters; innerWidth includes them.
+      // A stable classic scrollbar gutter can make scrollWidth smaller than clientWidth.
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
-      expect(scrollWidth, 'no horizontal page scroll').toBe(clientWidth);
+      expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
       expect(await page.evaluate(() => window.innerWidth)).toBe(width);
 
       for (let i = 0; i < 3; i++) {
@@ -388,7 +388,9 @@ async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
   expect(bounds.right, 'citation right edge').toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.top, 'citation top edge').toBeGreaterThanOrEqual(0);
   expect(bounds.bottom, 'citation bottom edge').toBeLessThanOrEqual(bounds.viewportHeight);
-  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBe(bounds.viewportWidth);
+  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBeLessThanOrEqual(
+    bounds.viewportWidth,
+  );
   expect(bounds.contentWidth, 'citation text must not be clipped horizontally').toBe(
     bounds.availableWidth,
   );
