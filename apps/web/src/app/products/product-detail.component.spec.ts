@@ -2004,6 +2004,55 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
   });
 
+  it('captions a link AECi corrected, in the zero card as in the facts card', () => {
+    const { el } = setup(
+      buildProduct({
+        tool_integrations_url: 'https://marketplace.procore.com',
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'tool_integrations_url',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: false,
+            },
+          ],
+        },
+      }),
+    );
+    const vendor = section(el).querySelector('[data-testid=integrations-zero-vendor]')!;
+    const caption = vendor.querySelector('[data-testid=field-correction]');
+    expect(squash(caption?.textContent)).toContain('Corrected by AEC Integrations');
+  });
+
+  it('holds the No directory line when AECi removed the integrations page link', () => {
+    const { el } = setup(
+      buildProduct({
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'tool_integrations_url',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: true,
+            },
+          ],
+        },
+      }),
+    );
+    expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
+    // The heading and caveat still render.
+    expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).not.toBeNull();
+  });
+
   it('holds the No directory line when the product has no vendor to name', () => {
     const { el } = setup(buildProduct({ vendor: null }));
     expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
