@@ -1,0 +1,471 @@
+{
+ "_source": "Read on 2026-11-16 from production through the public API the site's own pages call: GET /api/vendors/:slug and GET /api/products/:a/integrations/:b.",
+ "survey": {
+  "vendors": 251,
+  "claim_status": {
+   "unclaimed": 247,
+   "claimed": 4
+  },
+  "vendors_with_no_products": 0
+ },
+ "vendors": {
+  "autodesk": {
+   "slug": "autodesk",
+   "name": "Autodesk",
+   "claim_status": "unclaimed",
+   "logo_url": null,
+   "description": "Autodesk makes design and construction software for architecture, engineering, construction, product design, manufacturing, and media and entertainment. Architects, engineers and builders use its tools to design, document, coordinate and deliver buildings and infrastructure, and connect other AEC software to them through Autodesk's platform APIs.",
+   "website": "https://www.autodesk.com",
+   "social": {
+    "linkedin": "https://www.linkedin.com/company/autodesk",
+    "x": "https://x.com/autodesk",
+    "youtube": "https://www.youtube.com/@Autodesk",
+    "facebook": "https://www.facebook.com/autodesk",
+    "instagram": "https://www.instagram.com/autodesk/"
+   },
+   "product_count": 19,
+   "integration_count": 48,
+   "maintenance": {
+    "maintained_by": "aeci",
+    "last_reviewed_at": null
+   },
+   "corrections": [],
+   "under_review": [],
+   "company_facts": {
+    "headquarters": {
+     "value": "San Francisco, California, United States",
+     "source": {
+      "set_by": "aeci",
+      "date": "2026-11-04T05:08:25.837Z",
+      "url": "https://www.wikidata.org/wiki/Q628051"
+     }
+    },
+    "founded_year": {
+     "value": 1982,
+     "source": {
+      "set_by": "aeci",
+      "date": "2026-11-04T05:08:25.837Z",
+      "url": "https://www.wikidata.org/wiki/Q628051"
+     }
+    },
+    "company_size": {
+     "value": "1001+",
+     "source": {
+      "set_by": "aeci",
+      "date": "2026-11-04T08:48:32.735Z",
+      "url": "https://www.autodesk.com/company/newsroom/corporate-info"
+     }
+    },
+    "ownership_type": {
+     "value": "public",
+     "source": {
+      "set_by": "aeci",
+      "date": "2026-11-04T05:08:25.837Z",
+      "url": "https://www.wikidata.org/wiki/Q628051"
+     }
+    },
+    "parent_company": null,
+    "funding_stage": {
+     "value": "Public",
+     "source": {
+      "set_by": "aeci",
+      "date": "2026-11-04T08:48:32.735Z",
+      "url": "https://investors.autodesk.com/stock-information/stock-quote-chart"
+     }
+    }
+   },
+   "products": [
+    {
+     "name": "AutoCAD",
+     "slug": "autocad",
+     "logo_url": null,
+     "integrations": 18,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD Architecture",
+     "slug": "autocad-architecture",
+     "logo_url": null,
+     "integrations": 2,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD Electrical",
+     "slug": "autocad-electrical",
+     "logo_url": null,
+     "integrations": 0,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD LT",
+     "slug": "autocad-lt",
+     "logo_url": null,
+     "integrations": 1,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD Map 3D",
+     "slug": "autocad-map-3d",
+     "logo_url": null,
+     "integrations": 1,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD MEP",
+     "slug": "autocad-mep",
+     "logo_url": null,
+     "integrations": 0,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "AutoCAD Plant 3D",
+     "slug": "autocad-plant-3d",
+     "logo_url": null,
+     "integrations": 1,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Autodesk Forma",
+     "slug": "autodesk-forma",
+     "logo_url": null,
+     "integrations": 54,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Autodesk Forma Build",
+     "slug": "autodesk-build",
+     "logo_url": null,
+     "integrations": 22,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Autodesk Forma Takeoff",
+     "slug": "autodesk-forma-takeoff",
+     "logo_url": null,
+     "integrations": 3,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Autodesk Revit",
+     "slug": "autodesk-revit",
+     "logo_url": null,
+     "integrations": 35,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "BIM 360",
+     "slug": "bim-360",
+     "logo_url": null,
+     "integrations": 20,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Civil 3D",
+     "slug": "civil-3d",
+     "logo_url": null,
+     "integrations": 18,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Forma Data Management",
+     "slug": "forma-data-management",
+     "logo_url": null,
+     "integrations": 12,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Forma for Buildings",
+     "slug": "forma-for-buildings",
+     "logo_url": null,
+     "integrations": 1,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Forma Site Design",
+     "slug": "forma-site-design",
+     "logo_url": null,
+     "integrations": 3,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "InfraWorks",
+     "slug": "infraworks",
+     "logo_url": null,
+     "integrations": 5,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "Navisworks",
+     "slug": "navisworks",
+     "logo_url": null,
+     "integrations": 18,
+     "reviews": 0,
+     "rating": null
+    },
+    {
+     "name": "PlanGrid",
+     "slug": "plangrid",
+     "logo_url": null,
+     "integrations": 12,
+     "reviews": 0,
+     "rating": null
+    }
+   ]
+  },
+  "rental-leak": {
+   "slug": "rental-leak",
+   "name": "Rental Leak",
+   "claim_status": "claimed",
+   "logo_url": "https://www.aecintegrations.com/api/logos/5592e9720b5a9a2522df91886d416f6f1cfffdde5ca6be2d92e125df99a7c05c",
+   "description": "Rental Leak makes construction software for contractors who rent equipment and temporary jobsite services from outside vendors. Its product tracks rental billing cycles, off-rent requests, returns and vendor invoices across jobsites, alongside owned equipment, tasks and daily logs.",
+   "website": "https://getrentalleak.com",
+   "social": {
+    "linkedin": "https://www.linkedin.com/company/rental-leak",
+    "x": "https://x.com/RentalLeak",
+    "youtube": "https://www.youtube.com/@RentalLeak",
+    "facebook": "https://www.facebook.com/profile.php?id=61594208769684"
+   },
+   "product_count": 1,
+   "integration_count": 1,
+   "maintenance": {
+    "maintained_by": "vendor",
+    "last_reviewed_at": "2026-10-21T04:11:28.660Z"
+   },
+   "corrections": [],
+   "under_review": [],
+   "company_facts": {
+    "headquarters": {
+     "value": "Pullman, Washington, United States",
+     "source": {
+      "set_by": "vendor",
+      "date": null,
+      "url": null
+     }
+    },
+    "founded_year": {
+     "value": 2026,
+     "source": {
+      "set_by": "vendor",
+      "date": null,
+      "url": null
+     }
+    },
+    "company_size": null,
+    "ownership_type": {
+     "value": "private",
+     "source": {
+      "set_by": "vendor",
+      "date": null,
+      "url": null
+     }
+    },
+    "parent_company": null,
+    "funding_stage": null
+   },
+   "products": [
+    {
+     "name": "Rental Leak",
+     "slug": "rental-leak",
+     "logo_url": "https://www.aecintegrations.com/api/logos/5592e9720b5a9a2522df91886d416f6f1cfffdde5ca6be2d92e125df99a7c05c",
+     "integrations": 1,
+     "reviews": 0,
+     "rating": null
+    }
+   ]
+  }
+ },
+ "pairs": {
+  "rental-leak": {
+   "context": {
+    "name": "Rental Leak",
+    "slug": "rental-leak",
+    "claim_status": "claimed",
+    "logo_url": "https://www.aecintegrations.com/api/logos/5592e9720b5a9a2522df91886d416f6f1cfffdde5ca6be2d92e125df99a7c05c",
+    "vendor": "Rental Leak",
+    "vendor_slug": "rental-leak",
+    "reviews": 0,
+    "rating": null
+   },
+   "other": {
+    "name": "QuickBooks Online",
+    "slug": "quickbooks-online",
+    "claim_status": "unclaimed",
+    "logo_url": null,
+    "vendor": "Intuit",
+    "vendor_slug": "intuit",
+    "reviews": 0,
+    "rating": null
+   },
+   "mechanisms": [
+    {
+     "mechanism_kind": "native",
+     "mechanism_name": "QuickBooks Online integration",
+     "direction": "outbound",
+     "effective_direction": "outbound",
+     "description": "Rental Leak sends reviewed vendor rental invoices to QuickBooks Online as Bills, with the invoice file attached. It also reads QuickBooks vendor, customer and project data on demand for matching, and reads back the status of Bills created by Rental Leak.",
+     "listing_url": "https://getrentalleak.com/guides/track-rental-costs-in-quickbooks/",
+     "docs_url": "https://getrentalleak.com/guides/track-rental-costs-in-quickbooks/",
+     "pricing_model": "Rental Leak integration included with eligible Rental Leak plans. QuickBooks Online subscription sold separately by Intuit.",
+     "pricing_url": "https://getrentalleak.com/pricing",
+     "maturity": null,
+     "last_reviewed_at": "2026-10-21T04:49:20.028Z",
+     "vendor_links": {
+      "context": {
+       "listing_url": "https://app.getrentalleak.com/sign-up",
+       "docs_url": null
+      },
+      "other": null
+     },
+     "origin": "aeci",
+     "caption": null,
+     "corrections": [],
+     "built_by_vendor": "Rental Leak",
+     "built_by_vendor_slug": "rental-leak",
+     "through": null,
+     "claims": [
+      {
+       "data_object": "Invoices & Payments",
+       "direction": "outbound",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      }
+     ]
+    }
+   ],
+   "sync_headline": {
+    "total": 1,
+    "confirmed": 0,
+    "single_source": 0
+   },
+   "maintenance": {
+    "maintained_by": "vendor",
+    "last_reviewed_at": "2026-10-21T04:49:20.028Z"
+   },
+   "version_diff": null
+  },
+  "jobtread": {
+   "context": {
+    "name": "JobTread",
+    "slug": "jobtread",
+    "claim_status": "unclaimed",
+    "logo_url": null,
+    "vendor": "JobTread",
+    "vendor_slug": "jobtread",
+    "reviews": 0,
+    "rating": null
+   },
+   "other": {
+    "name": "QuickBooks Online",
+    "slug": "quickbooks-online",
+    "claim_status": "unclaimed",
+    "logo_url": null,
+    "vendor": "Intuit",
+    "vendor_slug": "intuit",
+    "reviews": 0,
+    "rating": null
+   },
+   "mechanisms": [
+    {
+     "mechanism_kind": "native",
+     "mechanism_name": "Native integration",
+     "direction": "both",
+     "effective_direction": "both",
+     "description": null,
+     "listing_url": "https://www.jobtread.com/integrations/quickbooks-online",
+     "docs_url": null,
+     "pricing_model": null,
+     "pricing_url": null,
+     "maturity": null,
+     "last_reviewed_at": null,
+     "vendor_links": {
+      "context": null,
+      "other": null
+     },
+     "origin": "aeci",
+     "caption": null,
+     "corrections": [],
+     "built_by_vendor": "JobTread",
+     "built_by_vendor_slug": "jobtread",
+     "through": null,
+     "claims": [
+      {
+       "data_object": "Cost Codes",
+       "direction": "outbound",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      },
+      {
+       "data_object": "Invoices & Payments",
+       "direction": "both",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      },
+      {
+       "data_object": "Time & Labor",
+       "direction": "both",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      },
+      {
+       "data_object": "Documents",
+       "direction": "both",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      },
+      {
+       "data_object": "Directory & Contacts",
+       "direction": "outbound",
+       "agreement": "unverified",
+       "refuted": false,
+       "attestors": [
+        "aeci"
+       ]
+      }
+     ]
+    }
+   ],
+   "sync_headline": {
+    "total": 5,
+    "confirmed": 0,
+    "single_source": 0
+   },
+   "maintenance": {
+    "maintained_by": "aeci",
+    "last_reviewed_at": null
+   },
+   "version_diff": null
+  }
+ }
+}
