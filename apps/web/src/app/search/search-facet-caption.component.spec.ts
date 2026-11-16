@@ -3,6 +3,8 @@ import { Router, provideRouter } from '@angular/router';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createSearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
+import { compareText } from '@aeci/shared/text-sort';
+
 import { COUNT_ORDERED_FACETS, PHASE_LIFECYCLE_ORDER } from './search-facet-order';
 import { SearchPage } from './search-page';
 
@@ -10,10 +12,11 @@ import { SearchPage } from './search-page';
  * The `/search` order caption (AECI-1796, ruled 2026-11-16) promises an order.
  * This runs the REAL InstantSearch connectors (the production factory) against
  * a fake search client whose facet counts arrive shuffled, and checks that the
- * rendered options follow what the caption says. It fails if someone passes a
- * `sortBy` to the refinement lists, sets a facet order in the index settings
- * that the connector picks up, or stops re-sorting phases, without changing the
- * caption too.
+ * rendered options follow what the caption says. It fails if someone changes
+ * the refinement lists' `sortBy` away from count order, sets a facet order in
+ * the index settings that the connector picks up, or stops re-sorting phases,
+ * without changing the caption too. Equal counts break by `compareText`, so
+ * case never decides the order (AECI-825).
  */
 
 const CONFIG = {
@@ -27,7 +30,16 @@ const FACETS: Record<string, Record<string, number>> = {
   categories: { 'Field Management': 4, 'Accounting & ERP': 34, AI: 20, 'Bid Management': 10 },
   audiences: { 'Owner/Developer': 2, 'General Contracting': 73, 'Project Manager': 41 },
   trades: { Roofing: 1, 'Earthwork & Excavation': 6, 'HVAC & Mechanical': 3 },
-  vendor_name: { Oracle: 5, 'Procore Technologies': 8, SAP: 2 },
+  // Four ties at 2 whose code-unit order differs from `compareText` (the real
+  // staging pair for `roofing` is "SRS Distribution" and "Spotable").
+  vendor_name: {
+    Oracle: 5,
+    'Procore Technologies': 8,
+    SAP: 2,
+    'SRS Distribution': 2,
+    Spotable: 2,
+    airSlate: 2,
+  },
   phases: { Construction: 86, Design: 11, 'Concept & Planning': 9, 'Pre-Construction': 66 },
 };
 
@@ -118,7 +130,9 @@ describe('/search order caption is true (AECI-1796)', () => {
 
     for (const attribute of COUNT_ORDERED_FACETS) {
       const counts = FACETS[attribute];
-      const expected = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+      const expected = Object.keys(counts).sort(
+        (a, b) => counts[b] - counts[a] || compareText(a, b),
+      );
       expect(groups.get(LEGEND[attribute]), attribute).toEqual(expected);
     }
     const phases = Object.keys(FACETS['phases']).sort(
@@ -130,6 +144,30 @@ describe('/search order caption is true (AECI-1796)', () => {
     expect(note).toBe(
       'Categories, Audiences, Trades, and Vendor: most matching products first. Phases in project order.',
     );
+  });
+
+  it('breaks equal counts by name with case folded, not by code unit', async () => {
+    const el = await mount('/search?q=procore');
+    expect(renderedGroups(el).get('Vendor')).toEqual([
+      'Procore Technologies',
+      'Oracle',
+      'airSlate',
+      'SAP',
+      'Spotable',
+      'SRS Distribution',
+    ]);
+  });
+
+  it('keeps a checked option at the top of its group, then count, then name', async () => {
+    const el = await mount('/search?q=procore&vendor_name=Spotable');
+    expect(renderedGroups(el).get('Vendor')).toEqual([
+      'Spotable',
+      'Procore Technologies',
+      'Oracle',
+      'airSlate',
+      'SAP',
+      'SRS Distribution',
+    ]);
   });
 
   it('shows no caption on the Vendors tab, which has only count ranges and Founded', async () => {

@@ -675,9 +675,9 @@ export class SearchPage implements OnDestroy {
    * The order caption under the filter panel (ruled 2026-11-16, AECI-1796). It
    * names only the groups on screen that it is true for:
    *
-   * - Categories, Audiences, Trades and Vendor keep InstantSearch's default
-   *   order: most matching products first, then name. A checked term moves to
-   *   the top of its group.
+   * - Categories, Audiences, Trades and Vendor are ordered by
+   *   `compareFacetValues`: most matching products first, then name with case
+   *   folded. A checked term moves to the top of its group.
    * - Phases are re-sorted into project order (`search-facet-order.ts`).
    * - The count menus and Founded are not named. Their order is fixed buckets
    *   or a field, not terms.

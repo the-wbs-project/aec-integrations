@@ -57,7 +57,7 @@ import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/alg
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
-import { orderFacetItems } from './search-facet-order';
+import { compareFacetValues, type FacetSortValue, orderFacetItems } from './search-facet-order';
 import {
   emptyFilters,
   filtersFromUiState,
@@ -294,7 +294,12 @@ export interface InstantSearchLib {
   connectStats: Connector<StatsRenderState, Record<string, unknown>>;
   connectRefinementList: Connector<
     RefinementListRenderState,
-    { attribute: string; limit?: number; operator?: 'or' | 'and'; sortBy?: string[] }
+    {
+      attribute: string;
+      limit?: number;
+      operator?: 'or' | 'and';
+      sortBy?: string[] | ((a: FacetSortValue, b: FacetSortValue) => number);
+    }
   >;
   connectNumericMenu: Connector<
     NumericMenuRenderState,
@@ -756,7 +761,13 @@ export class SearchController {
           items.set(orderFacetItems(attribute, state.items));
           canRefine.set(state.canRefine);
           refineFn = state.refine;
-        })({ attribute, limit: REFINEMENT_LIST_LIMIT, operator: 'or' }),
+        })({
+          attribute,
+          limit: REFINEMENT_LIST_LIMIT,
+          operator: 'or',
+          // The connector default with a `compareText` name tie-break (AECI-825).
+          sortBy: compareFacetValues,
+        }),
       );
       return {
         attribute,
