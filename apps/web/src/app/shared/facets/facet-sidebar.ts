@@ -193,8 +193,12 @@ export class FacetSidebar {
    * page locks and hides the Phases group, and a group with no terms left under
    * the active filters renders nothing. With no Phases group on screen, every
    * group shown is A to Z, so the caption says only that. Before the counts
-   * load there are no groups, and the caption follows the lock alone, so the
-   * server render and the first client render agree.
+   * load there are no groups, and the caption follows the lock alone. The
+   * server renders with the counts, but the first client render runs before
+   * `httpResource` hands them back. So on a filtered URL that leaves no phase
+   * term, the caption reads the long form for one render after hydration
+   * (about 20ms), then the short form again. It is not a live region and does
+   * not move the layout.
    */
   protected readonly orderNote = computed(() => {
     const groups = this.groups();
