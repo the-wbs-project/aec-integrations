@@ -19,9 +19,11 @@ test.describe('aecCard rendered (AECI-1765)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator(CARD).first()).toBeVisible();
-    // Read styles only after hydration: a read on a node the grid is about to
-    // replace returns an empty computed style (AECI-1854).
+    // After hydration the page swaps the server-rendered grid for a new one, about
+    // 600ms after load. A read or scroll on an outgoing node gets an empty computed
+    // style or "not attached". Wait for the swap to finish (AECI-1854).
     await untilHydrated(page.locator('aec-product-card-grid'));
+    await page.waitForLoadState('networkidle');
   });
 
   test('a card is 24px round, shadowed, with a 1px transparent edge', async ({ page }) => {
