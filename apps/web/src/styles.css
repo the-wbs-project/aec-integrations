@@ -888,6 +888,17 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The pressed view in the cards/table toggle (`listing-view-toggle.ts`, AECI-1793).
+   The Forest fill vanishes in forced-colours mode, so the pressed button takes the
+   system selection pair. The tick stays, so the state is still not colour alone. */
+@media (forced-colors: active) {
+  .aec-view-toggle-btn[aria-pressed='true'] {
+    background-color: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
 /* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
    trigger). Unlayered for the reason `.aec-nav-tab` records: a border-colour
    utility loses to the `*` rule. Rest is the 3:1 `--border-input`. Invalid is
