@@ -59,6 +59,28 @@ describe('AboutPage', () => {
     ]);
   });
 
+  it('has one Bone band, the hero, and no Forest ground in the body (AECI-1800)', () => {
+    const { host } = setup();
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    // Forest may fill only the header, a detail hero, the footer and one feature
+    // card. The commitments band used to be a mid-page Forest ground.
+    expect(host.querySelector('[class*="bg-(--accent-primary)"]')).toBeNull();
+    expect(host.querySelector('[class*="bg-(--accent-warm)"]:not(.aec-bone-band)')).toBeNull();
+  });
+
+  it('puts every band on the shared page wrap and sizes h2s on an inner span', () => {
+    const { host } = setup();
+    // The bone band wrap plus the three white bands.
+    expect(host.querySelectorAll('.max-w-\\[1328px\\]')).toHaveLength(4);
+    // The unlayered h2 rule beats a size utility on the element itself.
+    for (const h2 of Array.from(host.querySelectorAll('h2'))) {
+      expect(h2.className).not.toMatch(/text-t-|text-\d?xl/);
+      expect(h2.querySelector('span.text-t-36')).not.toBeNull();
+    }
+  });
+
   it('routes onward to the directory and contact', () => {
     const { host } = setup();
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));

@@ -25,6 +25,19 @@ describe('HomeTrustPillars', () => {
     ]);
   });
 
+  it('sits on white: no Forest ground, the commitments are shared cards (AECI-1800)', () => {
+    const h = setup();
+    expect(h.querySelector('[class*="bg-(--accent-primary)"]')).toBeNull();
+    const list = h.querySelector('ul');
+    expect(list?.classList).toContain('aec-card-grid');
+    for (const li of Array.from(h.querySelectorAll('li'))) {
+      expect(li.classList).toContain('aec-card');
+      expect(li.classList).toContain('shadow-card');
+      // Not a link, so the card does not lift.
+      expect(li.className).not.toContain('translate-y');
+    }
+  });
+
   it('is a static band — no rotation, no controls', () => {
     const h = setup();
     // All content present at once; no single-slide panel and no buttons to drive.

@@ -70,6 +70,28 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText("couldn't find anywhere");
   });
 
+  test('one Bone band, and the commitments sit on white, not Forest (AECI-1800)', async ({
+    page,
+  }) => {
+    await page.goto('/about');
+    await expect(page.locator('aec-bone-band')).toHaveCount(1);
+    await expect(page.locator('aec-bone-band h1')).toHaveCount(1);
+    // Walk up from the commitments to the first painted ground.
+    const ground = await page.locator('aec-home-trust-pillars').evaluate((el) => {
+      let node: Element | null = el;
+      while (node) {
+        const bg = getComputedStyle(node).backgroundColor;
+        if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+        node = node.parentElement;
+      }
+      return 'none';
+    });
+    // The page ground is white. Engines may report it as rgb() or oklch(), so
+    // compare against the body's own computed ground rather than a literal.
+    const body = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(ground).toBe(body);
+  });
+
   test('has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto('/about');
     await expect(page.locator('app-root')).toBeAttached();

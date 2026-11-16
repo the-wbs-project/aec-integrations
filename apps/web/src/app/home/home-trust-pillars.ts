@@ -13,16 +13,24 @@
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and no
  * client JS — all three pillars render into cacheable, visitor-state-neutral HTML,
- * identical for every visitor. The hover lift is pure CSS (neutralised under
- * `prefers-reduced-motion` by the global rule in styles.css), so there is no
- * auto-motion and therefore no pause control to reason about. Cards are a real
- * `<ul>`/`<li>` list with a visible `<h3>` each, keeping a valid heading order
- * under the section `<h2>`.
+ * identical for every visitor. Cards are a real `<ul>`/`<li>` list with a visible
+ * `<h3>` each, keeping a valid heading order under the section `<h2>`.
+ *
+ * **Design (AECI-1800).** A bare `<section>`: `/about` owns the white band and the
+ * page wrap around it. Forest may fill only the header, a detail page hero, the
+ * footer and one feature card (DESIGN.md §2), so the band left its mid-page Forest
+ * ground. The head row is the home argument band's 5:7 split (overline and the
+ * Section-role `<h2>` left, the lede right). The three commitments are shared
+ * `aecCard`s in the shared `aec-card-grid`. They are not links, so they do not
+ * lift, and the Clay top stripe is gone (Clay is a stroke, and a stripe needs a
+ * text label it would mark).
  *
  * Light theme only (Stage 1). Copy is authored with `$localize` so it stays
  * i18n-extractable in one place.
  */
 import { ChangeDetectionStrategy, Component } from '@angular/core';
+
+import { AecCard } from '../shared/card/card';
 
 /** One trust commitment: the mantra and the one-line explanation. */
 interface Pillar {
@@ -35,38 +43,39 @@ interface Pillar {
   selector: 'aec-home-trust-pillars',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
+  imports: [AecCard],
   template: `
-    <section class="border-y border-(--accent-primary-hover) bg-(--accent-primary)">
-      <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-        <div class="max-w-2xl">
-          <p class="aec-overline text-(--accent-secondary)" i18n="@@home.trust.eyebrow">
+    <section>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+        <div>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@home.trust.eyebrow">
             Our commitment
           </p>
-          <h2
-            class="mt-3 font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--surface-base) md:text-4xl"
-            i18n="@@home.trust.headline"
-          >
-            Trust is the product
-          </h2>
-          <p class="mt-4 text-lg leading-relaxed text-(--text-on-brand-secondary)">{{ lede }}</p>
-        </div>
-
-        <ul class="mt-12 grid gap-4 md:grid-cols-3">
-          @for (p of pillars; track p.id) {
-            <li
-              class="relative flex flex-col rounded-(--radius-lg) bg-(--surface-base) p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+          <h2 class="mt-3 text-(--text-primary)">
+            <span
+              class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
+              i18n="@@home.trust.headline"
+              >Trust is the product</span
             >
-              <span class="absolute inset-x-0 top-0 h-1 bg-(--accent-secondary)"></span>
-              <h3 class="font-display text-xl leading-snug text-(--text-primary)">{{ p.title }}</h3>
-              <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ p.body }}</p>
-            </li>
-          }
-        </ul>
-
-        <p class="mt-8 max-w-3xl text-sm leading-relaxed text-(--text-on-brand-secondary)">
-          {{ closing }}
+          </h2>
+        </div>
+        <p class="max-w-[36em] text-t-20 leading-normal text-(--text-secondary)">
+          {{ lede }}
         </p>
       </div>
+
+      <ul class="aec-card-grid mt-12">
+        @for (p of pillars; track p.id) {
+          <li aecCard class="flex flex-col p-6 md:p-8">
+            <h3 class="text-(--text-primary)">{{ p.title }}</h3>
+            <p class="mt-3 text-t-16 leading-relaxed text-(--text-secondary)">{{ p.body }}</p>
+          </li>
+        }
+      </ul>
+
+      <p class="mt-8 max-w-[70ch] text-t-14 leading-relaxed text-(--text-secondary)">
+        {{ closing }}
+      </p>
     </section>
   `,
 })
