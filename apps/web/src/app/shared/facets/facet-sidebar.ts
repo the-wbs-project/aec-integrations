@@ -150,10 +150,12 @@ export class FacetSidebar {
   private readonly history = isPlatformBrowser(inject(PLATFORM_ID))
     ? inject(FacetHistoryStore)
     : null;
-  // Whether this panel is built by a Back or Forward. Asked now, at creation:
-  // the store is read only for the panel's first counts request.
-  private readonly builtByTraversal =
-    this.history !== null && inject(HistoryTraversal).isTraversal();
+  private readonly traversal = this.history ? inject(HistoryTraversal) : null;
+  // Whether this panel is built by a Back or Forward, and the history entry it
+  // returns to. Asked now, at creation: the store is read only for the panel's
+  // first counts request.
+  private readonly builtByTraversal = this.traversal?.isTraversal() ?? false;
+  private readonly restoredEntryId = this.traversal?.restoredEntryId() ?? null;
 
   /**
    * The stored counts on a Back or Forward, so the panel renders at full height
@@ -169,7 +171,7 @@ export class FacetSidebar {
     computation: (line, previous) => {
       if (previous != null || !this.builtByTraversal || line === null) return null;
       const body = untracked(() =>
-        this.history?.read<ProductFacetsResponse>(this.historyKey(line)),
+        this.history?.read<ProductFacetsResponse>(this.historyKey(line), this.restoredEntryId),
       );
       return body ? { line, body } : null;
     },
@@ -214,7 +216,7 @@ export class FacetSidebar {
     const line = this.facetLine();
     const counts = this.retainedFacets();
     if (!this.history || line === null || counts === null) return;
-    this.history.write(this.historyKey(line), counts);
+    this.history.write(this.historyKey(line), this.traversal?.currentEntryId() ?? null, counts);
   }
 
   /** One render group per non-locked dimension, terms mapped to refinement items. */

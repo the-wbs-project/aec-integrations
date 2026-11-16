@@ -86,73 +86,106 @@ describe('listingHistoryKey (AECI-1900)', () => {
 describe('ListingHistoryStore (AECI-1900)', () => {
   it('returns what was written under the same key and nothing under another', () => {
     const store = new ListingHistoryStore();
-    store.write('a', [{ page: 1 }, { page: 2 }]);
-    expect(store.read('a')).toEqual([{ page: 1 }, { page: 2 }]);
-    expect(store.read('b')).toBeNull();
+    store.write('a', 7, [{ page: 1 }, { page: 2 }]);
+    expect(store.read('a', 7)).toEqual([{ page: 1 }, { page: 2 }]);
+    expect(store.read('b', 7)).toBeNull();
   });
 
   it('keeps its own copy of the page list', () => {
     const store = new ListingHistoryStore();
     const pages = [{ page: 1 }];
-    store.write('a', pages);
+    store.write('a', 7, pages);
     pages.push({ page: 2 });
-    expect(store.read('a')).toEqual([{ page: 1 }]);
+    expect(store.read('a', 7)).toEqual([{ page: 1 }]);
   });
 
   it('stores nothing for an empty list', () => {
     const store = new ListingHistoryStore();
-    store.write('a', []);
-    expect(store.read('a')).toBeNull();
+    store.write('a', 7, []);
+    expect(store.read('a', 7)).toBeNull();
     expect(store.size).toBe(0);
   });
 
   it(`holds at most ${LISTING_HISTORY_LIMIT} listings and drops the least recently used`, () => {
     const store = new ListingHistoryStore();
-    for (let i = 0; i < LISTING_HISTORY_LIMIT; i++) store.write(`k${i}`, [i]);
+    for (let i = 0; i < LISTING_HISTORY_LIMIT; i++) store.write(`k${i}`, 7, [i]);
     // Reading k0 makes it the most recent, so k1 is the oldest now.
-    expect(store.read('k0')).toEqual([0]);
-    store.write('new', [99]);
+    expect(store.read('k0', 7)).toEqual([0]);
+    store.write('new', 7, [99]);
     expect(store.size).toBe(LISTING_HISTORY_LIMIT);
-    expect(store.read('k1')).toBeNull();
-    expect(store.read('k0')).toEqual([0]);
-    expect(store.read('new')).toEqual([99]);
+    expect(store.read('k1', 7)).toBeNull();
+    expect(store.read('k0', 7)).toEqual([0]);
+    expect(store.read('new', 7)).toEqual([99]);
   });
 
   it('replaces an entry in place on a second write to the same key', () => {
     const store = new ListingHistoryStore();
-    store.write('a', [1]);
-    store.write('a', [1, 2]);
+    store.write('a', 7, [1]);
+    store.write('a', 7, [1, 2]);
     expect(store.size).toBe(1);
-    expect(store.read('a')).toEqual([1, 2]);
+    expect(store.read('a', 7)).toEqual([1, 2]);
   });
 
   it('starts empty in every new instance: nothing survives a reload', () => {
     const first = new ListingHistoryStore();
-    first.write('a', [1]);
-    expect(new ListingHistoryStore().read('a')).toBeNull();
+    first.write('a', 7, [1]);
+    expect(new ListingHistoryStore().read('a', 7)).toBeNull();
   });
 
   it('reads an entry up to five minutes after it was written', () => {
     const store = new ListingHistoryStore();
-    store.write('a', [1], 1_000);
+    store.write('a', 7, [1], 1_000);
     expect(LISTING_HISTORY_MAX_AGE_MS).toBe(5 * 60 * 1000);
-    expect(store.read('a', 1_000 + LISTING_HISTORY_MAX_AGE_MS)).toEqual([1]);
+    expect(store.read('a', 7, 1_000 + LISTING_HISTORY_MAX_AGE_MS)).toEqual([1]);
   });
 
   it('drops an entry older than five minutes, so the listing fetches fresh rows', () => {
     const store = new ListingHistoryStore();
-    store.write('a', [1], 1_000);
-    expect(store.read('a', 1_000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
+    store.write('a', 7, [1], 1_000);
+    expect(store.read('a', 7, 1_000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
     expect(store.size).toBe(0);
     // Gone for good: a later read at an earlier time does not bring it back.
-    expect(store.read('a', 1_000)).toBeNull();
+    expect(store.read('a', 7, 1_000)).toBeNull();
   });
 
   it('measures age from the latest write, not the first, and a read does not refresh it', () => {
     const store = new ListingHistoryStore();
-    store.write('a', [1], 0);
-    store.write('a', [1, 2], 4 * 60 * 1000);
-    expect(store.read('a', 8 * 60 * 1000)).toEqual([1, 2]);
-    expect(store.read('a', 4 * 60 * 1000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
+    store.write('a', 7, [1], 0);
+    store.write('a', 7, [1, 2], 4 * 60 * 1000);
+    expect(store.read('a', 7, 8 * 60 * 1000)).toEqual([1, 2]);
+    expect(store.read('a', 7, 4 * 60 * 1000 + LISTING_HISTORY_MAX_AGE_MS + 1)).toBeNull();
+  });
+});
+
+describe('ListingHistoryStore history entries (AECI-1900)', () => {
+  it('keeps one entry per history entry: two visits to one URL do not overwrite each other', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', 3, [1]);
+    store.write('a', 9, [1, 2, 3]);
+    expect(store.read('a', 3)).toEqual([1]);
+    expect(store.read('a', 9)).toEqual([1, 2, 3]);
+    expect(store.size).toBe(2);
+  });
+
+  it('with an id, matches that id only: an unknown entry reads as nothing', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', 3, [1]);
+    expect(store.read('a', 4)).toBeNull();
+    expect(store.read('b', 3)).toBeNull();
+  });
+
+  it('without an id, falls back to the newest entry for the URL', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', 3, [1]);
+    store.write('a', 9, [1, 2, 3]);
+    store.write('b', 10, [7]);
+    expect(store.read('a', null)).toEqual([1, 2, 3]);
+  });
+
+  it('an entry written without an id is found only by the fallback', () => {
+    const store = new ListingHistoryStore();
+    store.write('a', null, [1]);
+    expect(store.read('a', 5)).toBeNull();
+    expect(store.read('a', null)).toEqual([1]);
   });
 });

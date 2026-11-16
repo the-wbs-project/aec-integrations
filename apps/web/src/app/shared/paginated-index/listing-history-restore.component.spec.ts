@@ -288,4 +288,31 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     expect(env.rows()).toEqual(['s1']);
     env.httpMock.verify();
   });
+
+  // The router writes `navigationId` into `history.state` for each entry, and a
+  // Back hands it back as `NavigationStart.restoredState.navigationId`. Keyed by
+  // URL alone, leaving the second visit overwrote the first visit's pages.
+  it('two visits to one URL keep their own pages: Back to each restores its own count', async () => {
+    const env = await setup();
+    await browseThenLeave(env, '/list', 1, 'a'); // first visit: 1 page
+    await browseThenLeave(env, '/list', 3, 'b'); // second visit: 3 pages
+
+    await back(env); // to the second visit
+    expect(env.location.path()).toBe('/list');
+    expect(env.rows()).toEqual(['b1', 'b2', 'b3']);
+    await back(env); // /detail
+    await back(env); // to the first visit
+    expect(env.location.path()).toBe('/list');
+    expect(env.rows()).toEqual(['a1']);
+
+    // Forward again: each entry still gets its own pages.
+    env.location.forward();
+    await settle();
+    env.location.forward();
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['b1', 'b2', 'b3']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+    env.httpMock.verify();
+  });
 });

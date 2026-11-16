@@ -393,6 +393,66 @@ test.describe('Back and Forward return the reader to their place in a listing (A
   }
 });
 
+// AECI-1900, one URL visited twice in one tab. The store keeps one entry per
+// history entry (the router's `navigationId` in `history.state`), not per URL.
+// Keyed by URL alone, leaving the second visit overwrote the first, and Back to
+// the first visit restored the second visit's pages.
+test('two visits to /products keep their own pages and positions on Back', async ({ page }) => {
+  const listing = LISTINGS[0]!;
+  await page.goto('/categories');
+  await page.waitForLoadState('networkidle');
+  await listing.open(page);
+  await markDocument(page);
+  const cards = page.locator(LISTING_CARDS);
+  await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+  test.skip((await cards.count()) < 24, 'the catalogue has no second page in this environment');
+
+  // First visit: page 1 only, a card high enough that the footer's auto-load
+  // sentinel (600px margin) stays out of reach.
+  await page.evaluate((selector) => {
+    const r = document.querySelectorAll(selector)[3]!.getBoundingClientRect();
+    window.scrollTo({ top: r.top + window.scrollY - 120, behavior: 'instant' as ScrollBehavior });
+  }, LISTING_CARDS);
+  await layoutSettled(page);
+  const firstCount = await cards.count();
+  const first = await clickVisibleCard(page);
+  await expect(page.locator('aec-product-detail')).toBeVisible();
+
+  // Second visit, a fresh navigation: "Load more", a card on page 2.
+  const productsLink = page.locator('header a[href="/products"]').first();
+  await untilHydrated(productsLink);
+  await productsLink.click();
+  await expect(page).toHaveURL(/\/products$/);
+  await expect(cards.first()).toBeVisible();
+  await page.locator('aec-pagination-footer a').first().click();
+  await expect.poll(() => cards.count()).toBeGreaterThan(firstCount);
+  const secondCount = await cards.count();
+  await page.evaluate((selector) => {
+    const r = document.querySelectorAll(selector)[30]!.getBoundingClientRect();
+    window.scrollTo({ top: r.top + window.scrollY - 120, behavior: 'instant' as ScrollBehavior });
+  }, LISTING_CARDS);
+  await layoutSettled(page);
+  const second = await clickVisibleCard(page);
+  await expect(page.locator('aec-product-detail')).toBeVisible();
+
+  await page.goBack(); // to the second visit
+  await expect(page).toHaveURL(/\/products$/);
+  await expectRestored(page, second.y, 'Back to the second visit');
+  expect(await cards.count()).toBe(secondCount);
+
+  await page.goBack(); // to the first product
+  await expect(page).toHaveURL(urlEndingWith(first.href));
+  // A Back changes the URL before the router has rendered the page. Pressing
+  // Back again before that supersedes the navigation, which is the router's
+  // own business and not what this test is about.
+  await expect(page.locator('aec-product-detail')).toBeVisible();
+  await layoutSettled(page);
+  await page.goBack(); // to the first visit
+  await expect(page).toHaveURL(/\/products$/);
+  await expectRestored(page, first.y, 'Back to the first visit');
+  expect(await cards.count(), 'the first visit had page 1 only').toBe(firstCount);
+});
+
 // AECI-1900, filtered listings. With a filter on, the rows are few and the
 // filter panel sets the page height. On Back the panel fetched its counts again,
 // so in the frame the router restored the position it was about 127px tall,

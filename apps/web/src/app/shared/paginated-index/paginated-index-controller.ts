@@ -446,14 +446,20 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     if (!history || !traversal?.isTraversal()) return null;
     const line = requestLine();
     if (line === null) return null;
-    const pages = history.read<TResponse>(listingHistoryKey(listingPath(route.snapshot), line));
+    // The history entry this Back/Forward returns to, so two visits to one URL
+    // never share an entry.
+    const pages = history.read<TResponse>(
+      listingHistoryKey(listingPath(route.snapshot), line),
+      traversal.restoredEntryId(),
+    );
     return pages === null ? null : { line, pages: [...pages] };
   }
 
   /**
    * Store the pages on screen as the listing is torn down, keyed by the request
-   * line of the first page in the buffer. That is the line a Back to this URL
-   * builds first (`?page=` seeds `targetPage`), so the two meet.
+   * line of the first page in the buffer and the history entry on screen. That
+   * line is the one a Back to this URL builds first (`?page=` seeds
+   * `targetPage`), and that entry is the one it returns to, so the two meet.
    */
   function saveForHistory(): void {
     if (!history || (config.enabled && !config.enabled())) return;
@@ -464,7 +470,11 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       config,
       buildIndexParams(config, queryParamMap(), { page: first.page }),
     );
-    history.write(listingHistoryKey(listingPath(route.snapshot), line), loaded);
+    history.write(
+      listingHistoryKey(listingPath(route.snapshot), line),
+      traversal?.currentEntryId() ?? null,
+      loaded,
+    );
   }
 
   return {
