@@ -152,11 +152,11 @@ describe('TaxonomyIndexPage', () => {
         .map((o) => o.label);
 
     it.each(['category', 'audience', 'trade'] as const)(
-      'offers %s only Name (A–Z) and Most products, and defaults to A to Z',
+      'offers %s only Name (A–Z) and Products, and defaults to A to Z',
       (kind) => {
         const fixture = mount(kind, facet());
         const root = fixture.nativeElement as HTMLElement;
-        expect(optionLabels(fixture)).toEqual(['Name (A–Z)', 'Most products']);
+        expect(optionLabels(fixture)).toEqual(['Name (A–Z)', 'Products']);
         expect(sortControl(fixture)?.value()).toBe('name');
         expect(cardOrder(root)).toEqual(['Alpha', 'Bravo', 'Charlie']);
       },
@@ -165,7 +165,7 @@ describe('TaxonomyIndexPage', () => {
     it('offers phases Project order as well, and defaults to it', () => {
       const fixture = mount('phase', facet());
       const root = fixture.nativeElement as HTMLElement;
-      expect(optionLabels(fixture)).toEqual(['Project order', 'Name (A–Z)', 'Most products']);
+      expect(optionLabels(fixture)).toEqual(['Project order', 'Name (A–Z)', 'Products']);
       expect(sortControl(fixture)?.value()).toBe('sequence');
       // The API order, untouched — a phase vocabulary is a sequence.
       expect(cardOrder(root)).toEqual(['Charlie', 'Alpha', 'Bravo']);
@@ -173,7 +173,7 @@ describe('TaxonomyIndexPage', () => {
 
     it('sorts by product count, descending', () => {
       const fixture = mount('category', facet());
-      clickSort(fixture, 'Most products');
+      clickSort(fixture, 'Products');
       // Bravo 9, Charlie 5, Alpha 1 — note Alpha has the MOST integrations and
       // still sorts last, which is what makes this a product-count sort.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual([
@@ -203,7 +203,7 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'e', name: 'Echo', count: 4, integrations: 8 },
         ),
       );
-      clickSort(fixture, 'Most products');
+      clickSort(fixture, 'Products');
       // Echo first on the integration tiebreak; Delta before Zulu on name.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Echo', 'Delta', 'Zulu']);
     });
@@ -216,18 +216,16 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'known', name: 'Known', count: 3, integrations: 4 },
         ),
       );
-      clickSort(fixture, 'Most products');
+      clickSort(fixture, 'Products');
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Known', 'Legacy']);
     });
 
     it('shows the active option in the control trigger', () => {
       const fixture = mount('category', facet());
-      clickSort(fixture, 'Most products');
+      clickSort(fixture, 'Products');
       const root = fixture.nativeElement as HTMLElement;
       expect(sortControl(fixture)?.value()).toBe('products');
-      expect(root.querySelector('button[role="combobox"]')?.textContent?.trim()).toBe(
-        'Most products',
-      );
+      expect(root.querySelector('button[role="combobox"]')?.textContent?.trim()).toBe('Products');
     });
 
     it('ignores a value that is not one of the facet modes', () => {
@@ -256,7 +254,7 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'electrical', name: 'Electrical', count: 9, integrations: 50 },
         ),
       );
-      clickSort(fixture, 'Most products');
+      clickSort(fixture, 'Products');
       // `Hidden` is below the floor, so no ordering may promote it back onto the
       // page — the floor is applied before the sort, not after.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Electrical', 'Roofing']);
