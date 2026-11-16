@@ -423,6 +423,44 @@ describe('SearchPage shell', () => {
     expect([...tabs].every((tab) => tab.classList.contains('aec-nav-tab'))).toBe(true);
   });
 
+  it('marks the selected tab by weight too, and keeps every tab 44px (ruling 9)', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search?tab=vendors');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const tabs = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]'),
+    ];
+    expect(tabs.every((tab) => tab.classList.contains('min-h-11'))).toBe(true);
+    const [products, vendors] = tabs;
+    expect(vendors.getAttribute('aria-selected')).toBe('true');
+    expect(vendors.classList.contains('font-semibold')).toBe(true);
+    expect(products.classList.contains('font-semibold')).toBe(false);
+  });
+
+  it('puts the query box on the shared field edge with a decorative search glyph (AECI-1850)', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const input = el.querySelector('#search-input') as HTMLInputElement;
+    expect(input.classList.contains('aec-field-control')).toBe(true);
+    expect(input.classList.contains('border-(--border-default)')).toBe(false);
+    const form = input.closest('form[role="search"]') as HTMLElement;
+    const glyph = form.querySelector('aec-icon');
+    expect(glyph).not.toBeNull();
+    // The label names the field; the glyph adds nothing for a screen reader.
+    expect(form.querySelector('label[for="search-input"]')?.textContent?.trim()).toBe(
+      'Search the directory',
+    );
+    expect(form.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')).not.toBeNull();
+  });
+
   it('counts active refinements and clears them on BOTH tabs through each connector', () => {
     setConfigPresent();
     setup();
