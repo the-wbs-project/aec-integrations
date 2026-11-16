@@ -399,7 +399,10 @@ const COMPANY_FACT_FIELDS = [
               </section>
             </div>
           </div>
-          <aec-company-facts-note class="mt-6 block" />
+          <!-- The link stays on one line: the fallback font wrapped its last word and
+               icon to a third line at 390px, and the web font swap pulled it back
+               (layout shift 0.0186 to 0.0099). -->
+          <aec-company-facts-note class="mt-6 block [&_a]:whitespace-nowrap" />
         </div>
 
         <div slot="body" class="space-y-12">
@@ -453,8 +456,11 @@ const COMPANY_FACT_FIELDS = [
                    column, collapses at md (matching ProductCard and the browse tables). It
                    reads "Overall" as on the browse lists (ruling 5, 2026-11-16). Four
                    columns: product, overall rating, integrations, and the row link. On the band shell the body is the
-                   full page wrap at every width, so the 34rem minimum has room from md. -->
-              <div class="overflow-x-auto">
+                   full page wrap at every width, so the 34rem minimum has room from md.
+                   relative: the sr-only "Details" header is absolutely positioned, and
+                   without a positioned scroller it escaped it and scrolled the page 1px
+                   sideways at 320px. -->
+              <div class="relative overflow-x-auto" data-testid="vendor-products-scroller">
                 <table
                   class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
                   i18n-aria-label="@@vendors.detail.body.products.table.aria"

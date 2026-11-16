@@ -93,6 +93,15 @@ describe('VendorDetailPage company facts licence note (AECI-1310)', () => {
     const { el } = setup(buildVendor({ headquarters: null, founded_year: null }));
     expect(el.querySelector('aec-company-facts-note')).not.toBeNull();
   });
+
+  // The fallback font wrapped the link over two lines at 390px and the web font pulled
+  // it back to one, which shifted the page on load.
+  it('keeps the licence link on one line', () => {
+    const { el } = setup(buildVendor({}));
+    expect(el.querySelector('aec-company-facts-note')?.className).toContain(
+      '[&_a]:whitespace-nowrap',
+    );
+  });
 });
 
 // AECI-933: the vendor owns its own website and social profiles, so both clicks
@@ -303,6 +312,13 @@ describe('VendorDetailPage products table width floor', () => {
     expect(table).not.toBeNull();
     expect([...table.classList]).toContain('md:min-w-[34rem]');
     expect([...table.classList].some((c) => /min-w-\[(3[89]|[4-9]\d)rem\]/.test(c))).toBe(false);
+    // The scroller is positioned, so the absolutely positioned sr-only header stays
+    // inside it and cannot widen the page at 320px.
+    const scroller = el.querySelector('[data-testid=vendor-products-scroller]')!;
+    expect(scroller.contains(table)).toBe(true);
+    expect([...scroller.classList]).toEqual(
+      expect.arrayContaining(['relative', 'overflow-x-auto']),
+    );
   });
 });
 

@@ -61,6 +61,8 @@ interface FactRow {
                 >
                   {{ row.value }}
                 </dd>
+                <!-- "Source" and its icon wrap as one, so the fallback font cannot leave the
+                     icon alone on a second line that the web font then removes. -->
                 <dd class="mt-0.5 text-xs leading-5 text-(--text-secondary)">
                   {{ row.note }}
                   @if (row.url; as url) {
@@ -68,7 +70,7 @@ interface FactRow {
                       [href]="url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="rounded-(--radius-sm) text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
+                      class="whitespace-nowrap rounded-(--radius-sm) text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
                     >
                       <span i18n="@@vendors.detail.companyFacts.source">Source</span>
                       <span class="sr-only">: {{ row.label }}</span>
