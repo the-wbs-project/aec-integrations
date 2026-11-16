@@ -1,5 +1,13 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 
+import {
+  FILTER_COUNT_CLASS,
+  FILTER_INPUT_CLASS,
+  FILTER_LABEL_CLASS,
+  FILTER_LEGEND_CLASS,
+  FILTER_LINK_CLASS,
+  FILTER_ROW_CLASS,
+} from '../../shared/facets/filter-row';
 import type { RefinementItem } from '../../shared/facets/refinement-item';
 
 /**
@@ -23,6 +31,11 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
  * `collapsedLimit` values in the order given, plus any checked value further
  * down, so a selection never hides. "Show more" reveals the rest in place and
  * becomes "Show fewer". The toggle text is the one localized string here.
+ *
+ * **Rows (AECI-1793, mock-up 10).** Each row is a 44px label with a 20px
+ * checkbox and the count on the end edge; the parts are the shared
+ * `shared/facets/filter-row.ts` constants, so `/search` and `/products` draw
+ * the same row.
  */
 /** Per-instance id for `aria-controls`. Deterministic per render (SSR-safe). */
 let nextListId = 0;
@@ -32,27 +45,19 @@ let nextListId = 0;
   template: `
     @if (items().length) {
       <fieldset class="min-w-0 border-0 p-0">
-        <legend
-          class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
-        >
-          {{ label() }}
-        </legend>
-        <ul class="space-y-1" [id]="listId">
+        <legend [class]="legendClass">{{ label() }}</legend>
+        <ul [id]="listId">
           @for (item of visibleItems(); track item.value) {
             <li>
-              <label
-                class="flex cursor-pointer items-center gap-2 rounded-(--radius-sm) px-1 py-0.5 text-sm text-(--text-primary) hover:bg-(--surface-muted)"
-              >
+              <label [class]="rowClass">
                 <input
                   type="checkbox"
-                  class="h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  [class]="inputClass"
                   [checked]="item.isRefined"
                   (change)="refine.emit(item.value)"
                 />
-                <span class="min-w-0 truncate">{{ item.label }}</span>
-                <span class="shrink-0 text-xs tabular-nums text-(--text-secondary)"
-                  >({{ item.count }})</span
-                >
+                <span [class]="labelClass">{{ item.label }}</span>
+                <span [class]="countClass">({{ item.count }})</span>
               </label>
             </li>
           }
@@ -60,7 +65,7 @@ let nextListId = 0;
         @if (canToggle()) {
           <button
             type="button"
-            class="mt-1 rounded-(--radius-sm) px-1 text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="linkClass"
             [attr.aria-expanded]="expanded()"
             [attr.aria-controls]="listId"
             (click)="expanded.set(!expanded())"
@@ -87,6 +92,12 @@ export class SearchRefinementList {
   readonly collapsedLimit = input(10);
 
   protected readonly listId = `aec-refinement-list-${nextListId++}`;
+  protected readonly legendClass = FILTER_LEGEND_CLASS;
+  protected readonly rowClass = FILTER_ROW_CLASS;
+  protected readonly inputClass = FILTER_INPUT_CLASS;
+  protected readonly labelClass = FILTER_LABEL_CLASS;
+  protected readonly countClass = FILTER_COUNT_CLASS;
+  protected readonly linkClass = FILTER_LINK_CLASS;
   protected readonly expanded = signal(false);
 
   /** The first `collapsedLimit` values, plus any checked value past them. */

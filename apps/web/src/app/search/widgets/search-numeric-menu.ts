@@ -1,5 +1,11 @@
 import { Component, input, output } from '@angular/core';
 
+import {
+  FILTER_INPUT_CLASS,
+  FILTER_LABEL_CLASS,
+  FILTER_LEGEND_CLASS,
+  FILTER_ROW_CLASS,
+} from '../../shared/facets/filter-row';
 import type { NumericMenuItem } from '../search-controller';
 
 /**
@@ -17,25 +23,19 @@ import type { NumericMenuItem } from '../search-controller';
   template: `
     @if (items().length) {
       <fieldset class="min-w-0 border-0 p-0">
-        <legend
-          class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
-        >
-          {{ label() }}
-        </legend>
-        <ul class="space-y-1">
+        <legend [class]="legendClass">{{ label() }}</legend>
+        <ul>
           @for (item of items(); track item.value) {
             <li>
-              <label
-                class="flex cursor-pointer items-center gap-2 rounded-(--radius-sm) px-1 py-0.5 text-sm text-(--text-primary) hover:bg-(--surface-muted)"
-              >
+              <label [class]="rowClass">
                 <input
                   type="radio"
-                  class="h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  [class]="inputClass"
                   [name]="name()"
                   [checked]="item.isRefined"
                   (change)="refine.emit(item.value)"
                 />
-                <span class="min-w-0 flex-1 truncate">{{ item.label || allLabel() }}</span>
+                <span [class]="labelClass">{{ item.label || allLabel() }}</span>
               </label>
             </li>
           }
@@ -55,4 +55,10 @@ export class SearchNumericMenu {
   readonly items = input.required<readonly NumericMenuItem[]>();
   /** Emits the encoded bucket value to select. */
   readonly refine = output<string>();
+
+  /** The shared filter-row parts (AECI-1793), as on the checkbox lists. */
+  protected readonly legendClass = FILTER_LEGEND_CLASS;
+  protected readonly rowClass = FILTER_ROW_CLASS;
+  protected readonly inputClass = FILTER_INPUT_CLASS;
+  protected readonly labelClass = FILTER_LABEL_CLASS;
 }

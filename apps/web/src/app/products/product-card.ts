@@ -63,15 +63,14 @@ export type ProductRow = Pick<
   selector: 'tr[aec-product-card]',
   imports: [RouterLink, LogoOrInitial, IntegrationStat, RatingSummary],
   host: {
-    // `group` so the stacked-vendor sublabel can react to the row's hover /
-    // focus-within state (it steps tertiary→secondary when the row fill goes
-    // muted — see the vendor link below).
+    // `border-b`: the hairline under each row (AECI-1793). The colour is the
+    // unlayered `*` rule's `--border-default`.
     class:
-      'group text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+      'border-b text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
-    <td class="px-4 py-3 font-semibold">
-      <span class="flex items-center gap-3">
+    <td class="px-4 py-3 align-middle font-semibold">
+      <span class="flex min-w-0 items-center gap-3">
         <aec-logo-or-initial
           [claimStatus]="'server-filtered'"
           [src]="product().logo_url"
@@ -81,7 +80,7 @@ export type ProductRow = Pick<
         <span class="flex min-w-0 flex-col">
           <a
             [routerLink]="['/products', product().slug]"
-            class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="inline-block min-h-6 rounded-sm leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >{{ product().name }}</a
           >
           <!-- Below the md breakpoint the Vendor <td> is hidden (md:hidden here,
@@ -91,49 +90,41 @@ export type ProductRow = Pick<
                container query (see the class doc above for why). Omitted when the
                product has no vendor (AECI-115); cleaner than a stray dash. -->
           @if (vendor(); as v) {
-            <!-- Muted via text-tertiary AT REST (4.83:1 on the white row). The
-                 row fill flips to surface-muted on hover/focus-within, where
-                 tertiary would drop to 4.40:1 (below AA). DESIGN.md §"Tertiary"
-                 says never on sunken/muted surfaces; step up to text secondary.
-                 So group-hover / group-focus-within raise it to secondary (7:1
-                 on muted). Direct link hover/focus keeps the accent. -->
+            <!-- Text secondary at 13px (mock-up 10), which holds AA on the white
+                 row and on the muted hover fill alike. -->
             <a
               [routerLink]="['/vendors', v.slug]"
-              class="mt-0.5 truncate rounded-sm text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary) hover:text-(--accent-primary) focus-visible:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) md:hidden"
+              class="w-fit truncate rounded-sm text-t-13 font-normal text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) md:hidden"
               >{{ v.name }}</a
             >
           }
         </span>
       </span>
     </td>
-    <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
+    <td class="hidden px-4 py-3 align-middle text-(--text-secondary) md:table-cell">
       @if (vendor(); as v) {
         <a
           [routerLink]="['/vendors', v.slug]"
-          class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="rounded-sm text-(--text-secondary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           >{{ v.name }}</a
         >
       } @else {
-        <span
-          class="text-(--text-secondary)"
-          i18n="@@products.card.vendor.none"
-          aria-label="No vendor listed"
-          >–</span
-        >
+        <span aria-hidden="true" i18n="@@products.card.vendor.none">–</span>
+        <span class="sr-only" i18n="@@products.detail.vendor.none">No vendor listed</span>
       }
     </td>
     <!-- Rating column collapses below md alongside the Vendor column (same
          breakpoint as BrowseLayout's filter sidebar); the card-grid view carries
          the rating on small screens. The cell variant keeps the cell populated
          with an en-dash when the §5.5 gate withholds the average. -->
-    <td class="hidden px-4 py-3 text-end md:table-cell">
+    <td class="hidden px-4 py-3 text-end align-middle md:table-cell">
       <aec-rating-summary
         variant="cell"
         [ratingOverall]="product().rating_overall_avg"
         [reviewCount]="product().review_count"
       />
     </td>
-    <td class="px-4 py-3 text-end">
+    <td class="px-4 py-3 text-end align-middle">
       <aec-integration-stat [count]="product().integration_count" variant="inline" />
     </td>
   `,

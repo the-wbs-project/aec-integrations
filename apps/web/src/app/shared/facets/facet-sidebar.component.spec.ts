@@ -101,10 +101,14 @@ describe('FacetSidebar (AECI-143)', () => {
     await settle();
     fixture.detectChanges();
 
-    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Active');
-    expect(text).toContain('Has');
-    expect(text).not.toContain('Other');
+    // Read the term rows, not the whole panel: the order caption under the
+    // panel says "Other terms A to Z" (AECI-1793).
+    const labels = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('fieldset label'),
+    ).map((label) => label.textContent ?? '');
+    expect(labels.some((t) => t.includes('Active'))).toBe(true);
+    expect(labels.some((t) => t.includes('Has'))).toBe(true);
+    expect(labels.some((t) => t.includes('Other'))).toBe(false);
     httpMock.verify();
   });
 
@@ -462,6 +466,76 @@ describe('FacetSidebar (AECI-143)', () => {
     const root = fixture.nativeElement as HTMLElement;
     expect(legends(root)).toEqual(['Trades']);
     expect(root.textContent ?? '').toContain('Thin Trade');
+    httpMock.verify();
+  });
+});
+
+describe('FacetSidebar, mock-up 10 shell (AECI-1793)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  async function render(url: string) {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl(url);
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          categories: [term('c1', 'Cat One', 3), term('c2', 'Cat Two', 2)],
+          phases: [term('p1', 'Phase One', 1)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+    return { httpMock, root: fixture.nativeElement as HTMLElement };
+  }
+
+  it('states the directory order under the panel, inside the disclosure (rulings 5 and 6)', async () => {
+    const { httpMock, root } = await render('/products');
+    const panel = root.querySelector('#aec-facet-panel')!;
+    const note = panel.lastElementChild!;
+    expect(note.tagName).toBe('P');
+    expect(note.textContent?.trim()).toBe('Phases in project order. Other terms A to Z.');
+    httpMock.verify();
+  });
+
+  it('draws every term row as a 44px label holding a 20px checkbox', async () => {
+    const { httpMock, root } = await render('/products');
+    const rows = [...root.querySelectorAll('fieldset label')];
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.classList.contains('min-h-11')).toBe(true);
+      const box = row.querySelector('input[type="checkbox"]')!;
+      expect(box.classList.contains('size-5')).toBe(true);
+    }
+    httpMock.verify();
+  });
+
+  it('names the active count in the trigger, not only in the badge', async () => {
+    const { httpMock, root } = await render('/products?category_id=c1,c2');
+    const trigger = root.querySelector('button[aria-controls="aec-facet-panel"]')!;
+    expect(trigger.querySelector('.sr-only')?.textContent?.trim()).toBe(', 2 active');
+    expect(trigger.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('2');
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('shows "Clear filters" as a standalone link with a 44px target only when a filter is on', async () => {
+    const first = await render('/products');
+    expect(first.root.textContent).not.toContain('Clear filters');
+    first.httpMock.verify();
+
+    TestBed.resetTestingModule();
+    const { httpMock, root } = await render('/products?category_id=c1');
+    const clear = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Clear filters'),
+    )!;
+    expect(clear.classList.contains('min-h-11')).toBe(true);
+    expect(clear.classList.contains('underline')).toBe(true);
+    drain(httpMock);
     httpMock.verify();
   });
 });
