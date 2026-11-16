@@ -4,6 +4,8 @@ import { FormField, form, submit, validateStandardSchema } from '@angular/forms/
 import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aeci/shared';
 
 import { AecButton } from '../button/button';
+import { BAND_WRAP_CLASS } from '../band-wrap';
+import { AecCard } from '../card/card';
 import { Analytics } from '../../analytics/analytics';
 import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
@@ -37,35 +39,41 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
  *
  * Design: the chosen concept **b** ("Warm commerce") from
  * `docs/design/unified-home-direction.md` — a full-bleed Bone band
- * (`--accent-warm`) wrapping the form in a bordered `--surface-base` card, Forest
- * subscribe button (Forest-Anchor Rule), borders not shadows.
+ * (`--accent-warm`) wrapping the form in a white card, Forest subscribe button
+ * (Forest-Anchor Rule). The controls take borders, not shadows.
  *
  * `ground="white"` is for a page on the detail band shell (AECI-1778, DESIGN.md §4 "The
  * detail page band shell"), which already has its one Bone band. The band is then white,
  * with a hairline `border-default` rule above it, and the card is unchanged.
+ *
+ * **Redesign (AECI-1799).** The band sits on the 1328px page wrap (`BAND_WRAP_CLASS`)
+ * with the Bone band's rhythm, 64px above and below, 96px from `md`. The card is the
+ * shared `aecCard` (24px radius, the card shadow, no hairline), with the home closing
+ * card's padding. The headline is the Section role on an inner span, because the
+ * unlayered `h2` rule beats a size utility on the element. The field, the button, the
+ * words, the validation, the POST and the analytics event are unchanged.
  */
 @Component({
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecButton, AecIcon, FormField, FoundViaField],
+  imports: [AecButton, AecCard, AecIcon, FormField, FoundViaField],
   template: `
     <section [class]="groundClass()">
-      <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-        <div
-          class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
-        >
+      <div [class]="wrap">
+        <div aecCard class="p-8 lg:p-12">
           <p class="aec-overline text-(--text-secondary)" i18n="@@mailing-list-signup.eyebrow">
             Directory updates
           </p>
-          <h2
-            class="mt-3 max-w-2xl font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-4xl"
-            i18n="@@mailing-list-signup.headline"
-          >
-            Know when new tools and reviews land
+          <h2 class="mt-3 max-w-2xl text-(--text-primary)">
+            <span
+              class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
+              i18n="@@mailing-list-signup.headline"
+              >Know when new tools and reviews land</span
+            >
           </h2>
           <p
-            class="mt-4 max-w-xl text-base leading-relaxed text-(--text-secondary)"
+            class="mt-4 max-w-xl text-t-16 leading-relaxed text-(--text-secondary)"
             i18n="@@mailing-list-signup.body"
           >
             AEC Integrations is live and still growing. Add your email for occasional updates as we
@@ -197,9 +205,20 @@ export class MailingListSignup {
   /** `bone` (default) is the shipped band. `white` keeps a band-shell page to one Bone band. */
   readonly ground = input<'bone' | 'white'>('bone');
 
+  /**
+   * The band ground. Bone is the shared Bone band's look (`aec-bone-band` is the
+   * unlayered class that gives it an edge under forced colours, as on the detail
+   * layout's lead band). The element is not used, so its one-per-page dev check
+   * keeps counting only real page bands.
+   */
   protected readonly groundClass = computed(() =>
-    this.ground() === 'white' ? 'border-t bg-(--surface-base)' : 'bg-(--accent-warm)',
+    this.ground() === 'white'
+      ? 'block border-t bg-(--surface-base)'
+      : 'aec-bone-band block bg-(--accent-warm)',
   );
+
+  /** The page wrap and the band rhythm of `aec-bone-band`: 64px, 96px from `md`. */
+  protected readonly wrap = `${BAND_WRAP_CLASS} py-16 md:py-24`;
 
   private readonly model = signal<SubscribeModel>({
     email: '',

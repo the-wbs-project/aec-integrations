@@ -2307,7 +2307,7 @@ Until clash 16, all three shared the same outer container. DetailLayout now has 
   - **One per page is a usage rule.** In dev mode a second `aec-bone-band` in the document logs an error after the first browser render. Production never logs, and the check does not run on the server.
   - **Live Bone-ground surfaces, not moved by AECI-1766.** Page grounds, which a later issue moves onto the band or onto white:
     - The home page moved in AECI-1792: the hero is on `aec-bone-band` and the closing call to action is a white card on a white band.
-    - `shared/mailing-list-signup/mailing-list-signup.ts:49`: on the band shell it is white (§4 item 6). AECI-1799.
+    - `shared/mailing-list-signup/mailing-list-signup.ts`: on the band shell it is white (§4 item 6). Elsewhere it is the page's Bone band, drawn with the `aec-bone-band` class and the same wrap and rhythm, not the element, so the dev check counts only page bands. Since AECI-1799 its card is the shared `aecCard`.
     - `/about` and `/methodology` moved in AECI-1800: the hero is on `aec-bone-band` and the body is white on the page wrap.
     - `updates/updates.ts:70`, `roadmap/roadmap.ts:37` and `contact/contact.ts:48`: AECI-1801.
     - `vendor-program/vendor-program.ts:147`: AECI-1802. The panel at `vendor-program.ts:438` is a nested fill.
