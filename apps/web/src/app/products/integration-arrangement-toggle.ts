@@ -6,8 +6,10 @@ import type { IntegrationArrangement } from './integration-category-groups';
 
 // The Cards/Table toggle's own button recipe (`listing-view-toggle.ts`), so the two
 // segmented controls in the filter panel read as one kind of control.
+// Mock-up 10 (AECI-1793) gave that toggle the 3:1 field edge and a tick on the pressed
+// button, so the state is not colour alone; this one follows it.
 const BTN_BASE =
-  'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-view-toggle-btn inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-3.5 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
 /**
  * AECI-1783: "By category" or "One list", the long integration list's arrangement.
@@ -23,8 +25,7 @@ const BTN_BASE =
   template: `
     <div
       role="group"
-      class="inline-flex gap-1 rounded-(--radius-md) border border-(--border-default)
-        bg-(--surface-raised) p-1"
+      class="aec-field-control inline-flex gap-0.5 border bg-(--surface-base) p-[3px]"
       i18n-aria-label="@@products.detail.body.integrations.arrange.aria"
       aria-label="Arrange integrations"
       data-testid="integrations-arrangement"
@@ -35,7 +36,7 @@ const BTN_BASE =
         [attr.aria-pressed]="arrangement() === 'grouped'"
         (click)="arrangementChange.emit('grouped')"
       >
-        <aec-icon name="layers" decorative [size]="4" />
+        <aec-icon [name]="arrangement() === 'grouped' ? 'check' : 'layers'" decorative [size]="4" />
         <span i18n="@@products.detail.body.integrations.arrange.grouped">By category</span>
       </button>
       <button
@@ -44,7 +45,7 @@ const BTN_BASE =
         [attr.aria-pressed]="arrangement() === 'one-list'"
         (click)="arrangementChange.emit('one-list')"
       >
-        <aec-icon name="rows" decorative [size]="4" />
+        <aec-icon [name]="arrangement() === 'one-list' ? 'check' : 'rows'" decorative [size]="4" />
         <span i18n="@@products.detail.body.integrations.arrange.oneList">One list</span>
       </button>
     </div>
@@ -57,6 +58,6 @@ export class IntegrationArrangementToggle {
   protected btnClass(value: IntegrationArrangement): string {
     return this.arrangement() === value
       ? `${BTN_BASE} bg-(--accent-primary) text-(--surface-base)`
-      : `${BTN_BASE} text-(--text-secondary) hover:text-(--text-primary)`;
+      : `${BTN_BASE} text-(--text-primary) hover:bg-(--surface-sunken)`;
   }
 }
