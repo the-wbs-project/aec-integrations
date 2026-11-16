@@ -10,6 +10,7 @@ import {
 } from '../core/testing/index-page.harness';
 
 import { ProductsIndex } from './products-index';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 // The seven cases shared with the vendors index live in `index-page.harness.ts`
 // (AECI-113); only the products fixture + config live here.
@@ -125,5 +126,19 @@ describe('ProductsIndex paginated canonical', () => {
 
   it('canonicalises a facet-filtered listing to /products', async () => {
     expect(await canonicalFor('/products?category_id=abc')).toMatch(/\/products$/);
+  });
+});
+
+describe('ProductsIndex breadcrumb (AECI-1777)', () => {
+  it('reads Home, then Products as the current page', async () => {
+    const { httpMock, router } = createIndexSetup(ProductsIndex, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(ProductsIndex);
+    fixture.detectChanges();
+    expect(trail(fixture.nativeElement as HTMLElement)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Products', href: null, current: true },
+    ]);
+    httpMock.match(() => true);
   });
 });

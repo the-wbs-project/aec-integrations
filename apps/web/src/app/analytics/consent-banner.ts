@@ -50,7 +50,7 @@ import { AecButton } from '../shared/button/button';
           class="aec-popover pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 p-5
             sm:flex-row sm:items-center sm:justify-between"
         >
-          <p class="text-sm/6 text-(--text-secondary)">
+          <p class="text-t-14 leading-6 text-(--text-secondary)">
             <span i18n="@@analytics.consent.message"
               >We use privacy-friendly product analytics to understand how the directory is used and
               make it better. No ads, and we never sell your data.</span

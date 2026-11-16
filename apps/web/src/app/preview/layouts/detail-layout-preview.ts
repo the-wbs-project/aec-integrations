@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 
 import { DetailLayout } from '../../layouts/detail-layout';
+import { AecBreadcrumb, type BreadcrumbItem } from '../../shared/breadcrumb/breadcrumb';
 
 /**
  * Dev-only preview for `DetailLayout`. Fixture content is fully synthetic and
@@ -11,14 +12,10 @@ import { DetailLayout } from '../../layouts/detail-layout';
  */
 @Component({
   selector: 'app-detail-layout-preview',
-  imports: [DetailLayout],
+  imports: [AecBreadcrumb, DetailLayout],
   template: `
     <aec-detail-layout>
-      <ol slot="breadcrumbs" class="flex gap-2 text-sm text-(--text-secondary)">
-        <li><a href="#" class="hover:text-(--accent-primary)">Products</a></li>
-        <li aria-hidden="true">/</li>
-        <li class="text-(--text-primary)">Example Product</li>
-      </ol>
+      <aec-breadcrumb slot="breadcrumbs" [items]="crumbs" />
 
       <div slot="hero" class="space-y-4">
         <p class="font-mono text-xs tracking-widest text-(--text-secondary) uppercase">Product</p>
@@ -65,4 +62,9 @@ import { DetailLayout } from '../../layouts/detail-layout';
     </aec-detail-layout>
   `,
 })
-export class DetailLayoutPreview {}
+export class DetailLayoutPreview {
+  protected readonly crumbs: BreadcrumbItem[] = [
+    { label: 'Products', link: '/products' },
+    { label: 'Example Product' },
+  ];
+}

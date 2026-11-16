@@ -92,7 +92,7 @@ function writeDismissed(ids: readonly string[]): void {
         data-testid="legal-notice"
       >
         <div class="mx-auto flex max-w-7xl items-start justify-between gap-4 px-6 py-3 md:px-8">
-          <p class="min-w-0 text-sm/6 text-(--text-primary)">
+          <p class="min-w-0 text-t-14 leading-6 text-(--text-primary)">
             <span class="font-semibold" i18n="@@legal.notice.lead"
               >Changes to the {{ notice.title }} take effect on
               {{ notice.effectiveDateLabel }}.</span

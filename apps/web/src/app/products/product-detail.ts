@@ -37,6 +37,7 @@ import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
 import { AecIcon } from '../shared/icon/icon';
 import { Chip } from '../shared/chip/chip';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -82,6 +83,7 @@ import { Chip } from '../shared/chip/chip';
 @Component({
   selector: 'aec-product-detail',
   imports: [
+    AecBreadcrumb,
     AecButton,
     AecIcon,
     DetailLayout,
@@ -117,34 +119,7 @@ import { Chip } from '../shared/chip/chip';
       <aec-not-found />
     } @else {
       <aec-detail-layout>
-        <ol
-          slot="breadcrumbs"
-          class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)"
-        >
-          <li>
-            <a
-              routerLink="/"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@products.detail.breadcrumbs.home"
-            >
-              Home
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li>
-            <a
-              routerLink="/products"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@products.detail.breadcrumbs.products"
-            >
-              Products
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-            {{ p.name }}
-          </li>
-        </ol>
+        <aec-breadcrumb slot="breadcrumbs" [items]="crumbs()" />
 
         <div slot="hero" class="space-y-5">
           <!-- items-center, not items-start. The logo is a 64px square and the
@@ -809,6 +784,12 @@ import { Chip } from '../shared/chip/chip';
   `,
 })
 export class ProductDetailPage {
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: $localize`:@@products.detail.breadcrumbs.products:Products`, link: '/products' },
+    { label: this.product()?.name ?? '' },
+  ]);
+
   private readonly route = inject(ActivatedRoute);
   private readonly analytics = inject(Analytics);
 
