@@ -243,8 +243,15 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
     await page.locator('#pair-version-trigger-context').focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('listbox')).toBeVisible();
+    const listbox = page.getByRole('listbox');
+    await expect(listbox).toBeVisible();
+    // Opening the popup moves the active option onto the selected one. A key pressed
+    // before that lands is overwritten, and Enter then re-selects the current version, so
+    // the URL never changes. Wait for the active option, as a reader's eye would.
+    const options = listbox.getByRole('option');
+    await expect(options.first()).toHaveAttribute('data-active', 'true');
     await page.keyboard.press('ArrowDown');
+    await expect(options.nth(1)).toHaveAttribute('data-active', 'true');
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/context_version=/);
   });
