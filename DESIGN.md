@@ -699,7 +699,7 @@ The recipes are written here once. Every other section and every component point
   | Surface | Card shadow |
   | -- | -- |
   | Product card grid, search hit cards, integration group card | Yes, built (AECI-1765) |
-  | Facts card | Yes, when AECI-1778 builds it |
+  | Facts card | Yes, built (AECI-1779, `products/product-facts-card.ts`) |
   | Free and Managed plan cards (`shared/plan-cta/plan-cards.ts`) | Yes, built (A7). The Managed card keeps its 2px Forest border, and its "Managed" name and price also mark it |
   | Review cards and score cards | Yes, when their own issues build them |
   | Table wrappers | Never |
@@ -794,6 +794,17 @@ From top to bottom, a product page is:
 - **The body is one white band in the wrap**, with 64px of padding above and below (96px from `md`) and `space-y-12` between sections. Each product-page issue turns its own section into a band.
 - **The mailing-list band is white** on the band shell (`ground="white"`), with a hairline above. Other pages keep the Bone band.
 
+**Settled by AECI-1779 (built).** The facts card is `aec-product-facts-card` (`products/product-facts-card.ts`), one `aecCard` with `overflow-hidden` so the Bone stat panel clips to the card's 24px corner.
+
+- **Top row, in reading order:** the Bone stat panel, Vendor (with "Built within" under it), Categories, then Resources and Actions. Columns from `xl` take the mock-up's ratios, `0.95fr 1fr 1fr 1.15fr`. With no Categories group the row is `0.95fr 1fr 1.15fr`, so no column stands empty. Two columns from `md`, where an odd last column spans both. One column below `md`.
+- **Column rules.** From `xl` each column after the stat panel has a 1px `--border-default` line on its start edge, inset 24px top and bottom. It is a pseudo-element fill, because a border-colour utility loses to the unlayered `*` rule. Below `xl` there is no rule, as in the mock-up. Each column has 24px padding.
+- **The stat panel** is `aec-figure` on `integration_count`, the same number the product cards print, with the cards' "integration" or "integrations" noun. A zero uses the figure's legal-reviewed zero mode. A stored zero never sits over listed rows: the column is recomputed after each write and can lag, so when it reads 0 and the page lists rows, the card prints the row count of the Integrations and "Integrations it powers" headings instead. A non-zero count is printed as stored, so it can exceed the Integrations heading: a connector's count includes the pairs it powers, and the Via lanes collapse several edges into one row. The numeral is not `aria-hidden` when it is not zero, so a screen reader hears "14", then "integrations", once.
+- **The reach line stays out of the card.** `STAGE_1_5_SPEC.md` §13.7 places "N more pairs reachable via connectors" under the Integrations section, and the payload contract says `reachable_pair_count` feeds that one sentence. Mock-up 6 puts it in the stat panel. Moving it needs a spec change first.
+- **Vendor** is a borderless row link with a hover fill (`--surface-sunken`), the 32px mark, the name in Source Serif at `--t-20` and the size and ownership line at `--t-13`.
+- **Resources** are row links: a 32px Forest-soft tile with the glyph, the label at `--t-16` weight 600, and the new-tab cue at the end.
+- **Group headings** are the overline with a 16px glyph: building, tag, book, hand, users, hard hat and gantt.
+- **Audiences, Trades and Project phases stay in the card** in a lower row under a hairline, one equal column per group from `md`, with the Managed caption closing the card. AECI-1780 moves them into the About band, as mock-up 6 draws them.
+
 #### Hero glow, no blur, no noise (clash 13)
 
 Chris ruled BLEND on the second pass, 2026-11-13: "Keep the soft single-colour glow in the hero. Drop the frosted-glass blur on the sticky bar. Drop the noise texture."
@@ -845,7 +856,7 @@ These are measured from the default state of `docs/design/mockups/redesign-2026-
 | Gutter | `24px` below `md`, `32px` from `md` to `lg`, `48px` from `lg` | 535, 550 |
 | Column steps for cards and similar products | 3 columns from `lg`, 2 from `md`, 1 below `md` | 292, 451, 538, 599 |
 | Review list columns | 3 from `xl`, 2 from `md`, 1 below `md` | 413, 530, 599 |
-| Facts card columns | 4 from `xl`, 2 from `md`, 1 below `md` | 114, 526, 570 |
+| Facts card columns | 4 from `xl` at `0.95fr 1fr 1fr 1.15fr`, 2 from `md`, 1 below `md` (settled by AECI-1779) | 114, 526, 570 |
 | Hero padding | `24px` top and `128px` bottom, `16px` and `96px` below `md` | 49, 554 |
 | Facts card overlap | `margin-top: -96px`, the Bone strip starting 96px down | 113 |
 | Band padding | `96px` top and bottom, first band `48px` top, `64px` and `32px` below `md` | 203, 206, 579, 580 |

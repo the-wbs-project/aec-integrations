@@ -1282,14 +1282,17 @@ describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
     name,
   });
 
-  it('puts "Built within" in the metadata sidebar, directly under Vendor', () => {
+  it('puts "Built within" in the facts card, directly under Vendor', () => {
     const { el } = setup(buildProduct({ extension_of: [listItem('salesforce', 'Salesforce')] }));
     const metadata = el.querySelector('[slot="metadata"]')!;
-    const groups = [...metadata.querySelectorAll(':scope > section')].map((s) =>
+    // AECI-1779: Vendor and Built within share the card's vendor column, in that order.
+    const groups = [...metadata.querySelectorAll('section[aria-labelledby]')].map((s) =>
       s.getAttribute('aria-labelledby'),
     );
 
     expect(groups.slice(0, 2)).toEqual(['vendor-card-title', 'built-within-title']);
+    const vendor = metadata.querySelector('[aria-labelledby="vendor-card-title"]')!;
+    expect(vendor.nextElementSibling?.getAttribute('aria-labelledby')).toBe('built-within-title');
     expect(el.querySelector('[slot="body"] [aec-product-built-within]')).toBeNull();
   });
 
@@ -1500,8 +1503,17 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
       }),
     );
     expect(lines(el, 'field-caption')).toHaveLength(1);
+    // AECI-1779: the caption closes the facts card, after every group it speaks for.
+    // Resources sits in the top row and the three facets in the row below it.
     const managed = el.querySelector('[data-testid="managed-caption"]')!;
-    expect(managed.previousElementSibling?.getAttribute('aria-labelledby')).toBe('resources-label');
+    for (const id of ['resources-label', 'audiences-label', 'phases-label']) {
+      const group = el.querySelector(`[aria-labelledby="${id}"]`)!;
+      expect(
+        group.compareDocumentPosition(managed) & Node.DOCUMENT_POSITION_FOLLOWING,
+        id,
+      ).toBeTruthy();
+    }
+    expect(managed.parentElement?.lastElementChild).toBe(managed);
   });
 
   it('keeps the Managed caption when the group holds facets but no Resources', () => {
