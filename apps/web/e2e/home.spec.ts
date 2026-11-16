@@ -335,7 +335,10 @@ test.describe('/ — citation reflow (AECI-1846)', () => {
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
-      expect(scrollWidth, 'no horizontal page scroll').toBe(clientWidth);
+      // Overflow means scrollWidth exceeds clientWidth. On Linux CI the root's
+      // scrollWidth excludes the 15px classic scrollbar and clientWidth does not,
+      // so equality fails with no overflow at all.
+      expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
       expect(await page.evaluate(() => window.innerWidth)).toBe(width);
 
       for (let i = 0; i < 3; i++) {
