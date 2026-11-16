@@ -289,8 +289,8 @@ const SURFACES: readonly Surface[] = [
  */
 const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'core/taxonomy/browse-menu-model.ts', kind: 'top-by-count', facet: 'categories' },
-  // The home hero's fallback row (`home-hero.ts`).
-  { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'categories' },
+  // The home browse block's category row. Its head (`slice(0, 5)`) is also the home
+  // hero's "Largest categories" fallback row (AECI-1792), so one site serves both.
   { file: 'home/home.ts', kind: 'top-by-count', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'phases' },

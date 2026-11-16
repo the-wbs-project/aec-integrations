@@ -4,7 +4,6 @@ import {
   provideHttpClientTesting,
   type TestRequest,
 } from '@angular/common/http/testing';
-import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
@@ -16,8 +15,6 @@ import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from '../search/autocomplete-search.factory';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 
-import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
-
 import { HomeHero } from './home-hero';
 
 /**
@@ -27,9 +24,11 @@ import { HomeHero } from './home-hero';
  * behaviour is covered by its spec, so here we assert the hero's contract: the
  * editorial copy + i18n surfaces render, the widget is mounted as the
  * `hero-search` instance with its real `<label>`, the two search outputs are
- * wired to Router navigation (mirroring `SiteHeader`), and the "Popular:" links
- * render from the `popularProducts` input (AECI-1572): capped at five, each
- * linking to its product page, with a largest-categories fallback when it is empty.
+ * wired to Router navigation (mirroring `SiteHeader`), and the "Most viewed" row
+ * renders from the `popularProducts` input (AECI-1572): capped at five, each
+ * linking to its product page, with the `largestCategories` input as its fallback
+ * when it is empty. Both rows are inputs, so both are in the server render, and
+ * the slot keeps its height when both are empty (AECI-1862).
  *
  * Algolia is never loaded: `__AECI_ALGOLIA__` is absent so the widget's
  * `afterNextRender` returns before touching the factory; the never-resolving
@@ -66,18 +65,17 @@ async function setup(
   popularProducts: ProductListItem[] = [],
   categories: TaxonomyTermWithCount[] = [],
 ) {
-  const categoriesTop10 = signal<TaxonomyTermWithCount[]>(categories);
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: TaxonomyNavStore, useValue: { categoriesTop10 } },
       { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
     ],
   });
   const fixture = TestBed.createComponent(HomeHero);
   fixture.componentRef.setInput('popularProducts', popularProducts);
+  fixture.componentRef.setInput('largestCategories', categories);
   fixture.detectChanges();
   await fixture.whenStable();
   return { fixture, host: fixture.nativeElement as HTMLElement };
@@ -117,17 +115,22 @@ describe('HomeHero', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__);
 
-  it('renders the editorial hero on a Bone band', async () => {
+  it('renders the editorial hero with no ground of its own', async () => {
     const { host } = await setup();
 
-    const section = host.querySelector('section')!;
-    expect(section.className).toContain('bg-(--accent-warm)'); // warm Bone band
-    // No bottom rule: the credibility row below closes the Bone band (home.ts).
-    expect(section.className).not.toContain('border-b');
+    // The Bone ground and the wrap belong to the page's one aec-bone-band (home.ts).
+    expect(host.querySelector('[class*="bg-(--accent-warm)"]')).toBeNull();
+    expect(host.querySelector('[class*="max-w-7xl"]')).toBeNull();
 
     expect(host.querySelector('h1')?.textContent?.trim()).toBe(
       'Find the integrations between your AEC tools.',
     );
+    // Ruling 2: Display size, weight 400. The size sits on the inner span because
+    // the unlayered h1 rule beats any utility on the h1 itself.
+    const title = host.querySelector<HTMLElement>('h1 > [data-testid="home-hero-title"]')!;
+    expect(title.classList).toContain('text-t-display');
+    expect(title.classList).toContain('font-normal');
+    expect(host.querySelector('h1')!.className).not.toMatch(/text-(t-|[0-9]?xl|lg|base|sm)/);
     expect(host.querySelector('.aec-overline')?.textContent?.trim()).toBe(
       'The independent reference for AEC software',
     );
@@ -153,6 +156,18 @@ describe('HomeHero', () => {
     expect(input.getAttribute('placeholder')).toBe('Try Procore, Sage 300, Bluebeam');
   });
 
+  it('puts all three fields on the shared control recipe, so each has a 3:1 edge on Bone', async () => {
+    const { host } = await setup();
+
+    for (const id of ['hero-search', 'hero-pair-tool', 'hero-pair-other']) {
+      const input = host.querySelector<HTMLInputElement>(`#${id}`)!;
+      expect(input.classList, id).toContain('aec-field-control');
+      expect(input.classList, id).toContain('focus-visible:outline-3');
+    }
+    // The hero search makes room for its leading glyph.
+    expect(host.querySelector('#hero-search')!.classList).toContain('ps-12');
+  });
+
   it('navigates to /search when the widget emits a free-text query', async () => {
     const { fixture } = await setup();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -173,10 +188,15 @@ describe('HomeHero', () => {
     expect(navigate).toHaveBeenCalledWith(['/products', 'revit']);
   });
 
-  it('omits the "Popular:" row when there are no popular products and no categories', async () => {
+  it('keeps the row height reserved but unlabelled when both lists are empty (AECI-1862)', async () => {
     const { host } = await setup([]);
 
-    expect(host.textContent).not.toContain('Popular');
+    const slot = host.querySelector<HTMLElement>('[data-testid="home-popular"]')!;
+    expect(slot).not.toBeNull();
+    // Three 24px lines below sm, two from sm: the slot never collapses.
+    expect(slot.classList).toContain('min-h-[72px]');
+    expect(slot.classList).toContain('sm:min-h-12');
+    expect(slot.textContent?.trim()).toBe('');
     expect(host.querySelector('a[href^="/products/"]')).toBeNull();
   });
 
@@ -191,7 +211,10 @@ describe('HomeHero', () => {
     }));
     const { host } = await setup([], cats);
 
-    expect(host.textContent).toContain('Popular:');
+    // Ruling 3: the fallback names its own order.
+    expect(host.textContent).toContain('Largest categories:');
+    expect(host.textContent).not.toContain('Most viewed');
+    expect(host.textContent).not.toContain('Popular');
     const links = host.querySelectorAll('a[href^="/categories/"]');
     expect(links).toHaveLength(5);
     expect(links[0]?.getAttribute('href')).toBe('/categories/cat-0');
@@ -213,6 +236,7 @@ describe('HomeHero', () => {
 
     expect(host.querySelector('a[href="/products/procore"]')).not.toBeNull();
     expect(host.querySelector('a[href^="/categories/"]')).toBeNull();
+    expect(host.textContent).not.toContain('Largest categories');
   });
 
   it('renders up to five product links from the popularProducts input, in rank order', async () => {
@@ -225,7 +249,9 @@ describe('HomeHero', () => {
       popular('newforma', 'Newforma'), // 6th: must be dropped by the slice(0, 5)
     ]);
 
-    expect(host.textContent).toContain('Popular:');
+    // Ruling 3: the label states the order.
+    expect(host.textContent).toContain('Most viewed, last 30 days:');
+    expect(host.textContent).not.toContain('Popular');
     const links = Array.from(host.querySelectorAll<HTMLAnchorElement>('a[href^="/products/"]'));
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
       '/products/procore',

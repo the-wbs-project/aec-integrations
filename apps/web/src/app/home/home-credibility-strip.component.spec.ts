@@ -148,6 +148,24 @@ describe('HomeCredibilityStrip', () => {
     expect(section.className).not.toContain('bg-');
     expect(section.className).not.toContain('border');
     // The hairline sits on the inner row, so the Bone hero band above shows through.
-    expect(el.querySelector('section .border-t')).not.toBeNull();
+    // It is --border-strong through the unlayered class: a border-colour utility
+    // never applies, and --border-default all but vanishes on Bone.
+    const rule = el.querySelector('section .border-t');
+    expect(rule).not.toBeNull();
+    expect(rule!.classList).toContain('aec-rule-strong');
+    // The Bone band owns the page wrap, so the strip draws none of its own.
+    expect(el.innerHTML).not.toContain('max-w-7xl');
+  });
+
+  it('sets each count in the body face at 600 and 16px, Forest (the Serif-Floor Rule)', () => {
+    const counts = Array.from(setup().querySelectorAll('[data-testid="credibility-count"]'));
+    expect(counts).toHaveLength(5);
+    for (const c of counts) {
+      expect(c.classList).not.toContain('font-display');
+      expect(c.classList).toContain('text-t-16');
+      expect(c.classList).toContain('font-semibold');
+      expect(c.classList).toContain('text-(--accent-primary)');
+      expect(c.classList).toContain('tabular-nums');
+    }
   });
 });
