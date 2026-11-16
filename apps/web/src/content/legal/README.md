@@ -156,6 +156,15 @@ Built rules that match the current text, for the legal stream to know:
 
 **Open item for the legal stream (AECI-1363): the first in-force version is a new version number.** The code requires it (the draft versions are pinned undated). It stands pending the legal stream's confirmation.
 
+**Open items for the legal stream (AECI-1363): counsel's batch 4 answers, November 15 and 16, 2026.** Counsel answered Q44 to Q60 on two planned features. Most of it waits for those features. Four things touch the documents that exist today, and none is applied yet. The answers and rulings 26 to 39 are in `docs/LEGAL_COUNSEL_RECORD.md`.
+
+- **Text items 14.1 to 14.4, Vendor Terms (Q50, ruling 26).** A specific warranty for third-party material with a duty to redact. Privacy, name and likeness, data-protection and third-party confidentiality claims named in the indemnity and in its uncapped list. "Your breach of confidentiality" covers a duty owed to anyone. Vendors can upload screenshots today, so this is a present gap.
+- **Text item 14.5, Terms and Vendor Terms content license (Q53, ruling 27).** "You also authorize our service providers to do these things on our behalf."
+- **Gate.** Items 14.1 to 14.5 go into the first in-force versions, so every vendor accepts them once on the acceptance screen. **No effective date may be set before they are applied.** Landed later, 14.1 to 14.5 reduce a vendor's rights under the indemnity and content license sections, so ruling 25 makes each company accept them in the portal.
+- **AECI-1869, Privacy Policy "Retention".** "About you answers ... are deleted when you delete your account" is false while the audit record keeps their earlier values. Fix the code or the sentence before an effective date.
+- **AECI-1871, `/docs/trust/how-ranking-works` (Q44, ruling 36).** One plain sentence saying what a paid plan does buy. A ranking-page version bump.
+- **AECI-1870 (Q60, ruling 28).** A short notice when the first versions take effect. Counsel said none is owed for text added before the first effective date. A new use of data we already hold needs notice whenever its text lands.
+
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
 
 On November 7, 2026 the sign-in page redesign added a paragraph to the Privacy Policy's "Cookies and similar technologies": the sign-in page keeps one word in local storage, the method last chosen, to mark it "Last used". It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
