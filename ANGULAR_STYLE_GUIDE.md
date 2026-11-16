@@ -391,7 +391,7 @@ Lint: 🟡 review-only.
 
 ## 20b. First paint and critical CSS
 
-**How it works.** Angular SSR runs Beasties on every server render. Beasties inlines a per-page subset of `styles.css` into a `<style>` in the head: every rule whose selector matches an element in the server HTML, plus `:root`, `html`, `body`, every `@property` and every `@layer` statement. About 30 kB raw and 6.5 kB gzipped per page. The full `styles-*.css` (about 105 kB raw, 18 kB gzipped) loads without blocking render: a `media="print"` link that an inline script switches to `all`. Until it arrives, the page paints with the subset alone. On a cold mobile load that is about 500ms.
+**How it works.** Angular SSR runs Beasties on every server render. Beasties inlines a per-page subset of `styles.css` into a `<style>` in the head: every rule whose selector matches an element in the server HTML, plus `:root`, `html`, `body`, every `@property` and every `@layer` statement. About 30 kB raw and 6.5 kB gzipped per page. The full `styles-*.css` (about 105 kB raw, 18 kB gzipped) loads without blocking render: a `media="print"` link that an inline script switches to `all`. Until it arrives, the page paints with the subset alone. On a cold load over a throttled mobile connection (150ms latency, 1.6 Mbps) we measured about 500ms.
 
 **Two Beasties defects broke the subset (AECI-1854).** Both are fixed in `pnpm-workspace.yaml`.
 
