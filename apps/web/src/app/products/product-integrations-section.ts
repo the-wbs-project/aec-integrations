@@ -147,7 +147,8 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * chrome with a button on it.
  *
  * ── THE `@defer` CUT ────────────────────────────────────────────────────────────
- * Past 20 rows the remainder ships as deferred `<tr>`s in an
+ * Table view only since AECI-1891: the card view renders every row eagerly (see
+ * `laneCut`). In the table, past 20 rows the remainder ships as deferred `<tr>`s in an
  * `@defer (on viewport; hydrate on viewport)` block, and the budget is spent
  * across the FLATTENED lane order so it lands after 20 visible rows rather than
  * 20 rows into every lane. Under v22 incremental hydration those rows are
@@ -877,10 +878,18 @@ export class ProductIntegrationsSection {
    * The filtered view with the `@defer (on viewport)` boundary applied, over the
    * FLATTENED render order (§13.3). A filter raises the limit to the whole
    * filtered set — see the class note.
+   *
+   * **The card view has no cut (AECI-1891).** The server always renders cards, and
+   * every card is already in its HTML, so the cut only deferred hydration. A filter
+   * typed before the reader scrolled left the still-dehydrated tail in the DOM: stale
+   * unfiltered cards under the filtered list. AECI-1783 removed the same cut from the
+   * grouped list for the same reason. The table is only ever rendered in the browser,
+   * so it keeps the cut.
    */
   protected readonly laneCut = computed(() => {
     const view = this.filteredLanes();
-    const limit = this.filterActive() ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
+    const whole = this.filterActive() || this.view() === 'cards';
+    const limit = whole ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
     return applyDeferCut(view, limit);
   });
 

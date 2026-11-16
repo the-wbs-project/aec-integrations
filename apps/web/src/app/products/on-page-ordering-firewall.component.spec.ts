@@ -298,9 +298,12 @@ describe('on-page ordering firewall: the product page Integrations section, rend
     it(`[surface:product-integrations-above-fold] ${size} direct rows: the rendered rows and their order ignore every paid input`, () => {
       const rows = sectionFixture(size);
       const base = renderedRows(rows);
-      // No filter selected: every row renders, up to the @defer cut. Nothing is held back.
-      expect(base).toHaveLength(Math.min(rows.length, INTEGRATIONS_ABOVE_FOLD));
+      // No filter selected: every row renders. The card view has no @defer cut since
+      // AECI-1891. The table keeps it, and its eager rows are the same head, in order.
+      expect(base).toHaveLength(rows.length);
       expect(base).not.toContain('?');
+      const table = renderedRows(rows, { view: 'table' });
+      expect(table).toEqual(base.slice(0, Math.min(rows.length, INTEGRATIONS_ABOVE_FOLD)));
 
       for (const dir of DIRECTIONS) {
         const flipped = rows.map((r, i) => paid(r, levelOf(i, rows.length, dir)));
