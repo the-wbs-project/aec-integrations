@@ -1963,6 +1963,39 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     expect(button.getAttribute('href')).toBe('/products/procore/correction');
   });
 
+  // Ruling 51, option A (2026-11-16): the STAGE_1_5_SPEC.md section 11.4 heading and line
+  // sit directly above the button, in one group, and the line describes the button.
+  it('puts "Know of one?" and its line directly above "It does exist", and the line describes the button', () => {
+    const { el } = setup(buildProduct());
+    const group = section(el).querySelector<HTMLElement>('[data-testid=integrations-zero-know]')!;
+    const children = [...group.children];
+
+    expect(children.map((c) => c.tagName)).toEqual(['H3', 'P', 'A']);
+    expect(squash(children[0]!.textContent)).toBe('Know of one?');
+    expect(squash(children[1]!.textContent)).toBe(
+      'Tell us where you saw it and we will look at it.',
+    );
+    expect(children[2]!.getAttribute('data-testid')).toBe('integrations-zero-correction');
+
+    const button = children[2] as HTMLAnchorElement;
+    const described = el.querySelector('#' + button.getAttribute('aria-describedby'));
+    expect(described).toBe(children[1]);
+    // The label is unchanged: the description adds to the name, it does not replace it.
+    expect(squash(button.textContent)).toBe('It does exist');
+  });
+
+  it('keeps the outline: the section h2, then the h3 "Know of one?" before the h3 Resources', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
+    const headings = [...section(el).querySelectorAll('h2, h3')].map(
+      (h) => `${h.tagName} ${squash(h.textContent)}`,
+    );
+    expect(headings).toEqual([
+      'H2 We have no integrations for Procore on record',
+      'H3 Know of one?',
+      'H3 Resources',
+    ]);
+  });
+
   it('drops the filter panel, the Cards or Table toggle, the scope note and the old empty line', () => {
     const { el } = setup(buildProduct());
     const s = section(el);

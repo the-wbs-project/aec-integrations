@@ -207,23 +207,46 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           @if (builtWithinLine(); as line) {
             <p class="max-w-prose text-t-16 text-(--text-secondary)">{{ line }}</p>
           }
-          <!-- The existing correction request, the same trigger as every "suggest a
-               correction" link: the drawer in the browser, the routed form without
-               JavaScript or on a modified click. -->
-          <a
-            aecButton
-            aecRequestTrigger
-            [entity]="'product'"
-            [kind]="'correction'"
-            [slug]="p.slug"
-            [href]="'/products/' + p.slug + '/correction'"
-            data-testid="integrations-zero-correction"
-          >
-            <ng-container i18n="@@products.detail.body.integrations.zero.exists"
-              >It does exist</ng-container
+          <!-- Ruling 51, option A (2026-11-16): the heading and the line the legal review
+               relied on sit directly above the button, as one group. The words are the
+               ones STAGE_1_5_SPEC.md section 11.4 approved for the empty pair page. The
+               line is also the button's description, so a screen reader hears what the
+               button is for. -->
+          <div class="space-y-3" data-testid="integrations-zero-know">
+            <h3>
+              <span
+                class="font-display text-t-20 font-semibold text-(--text-primary)"
+                i18n="@@products.detail.body.integrations.zero.knowHeading"
+                >Know of one?</span
+              >
+            </h3>
+            <p
+              id="integrations-zero-know-line"
+              class="max-w-prose text-t-16 text-(--text-secondary)"
+              data-testid="integrations-zero-know-line"
+              i18n="@@products.detail.body.integrations.zero.knowLine"
             >
-            <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
-          </a>
+              Tell us where you saw it and we will look at it.
+            </p>
+            <!-- The existing correction request, the same trigger as every "suggest a
+                 correction" link: the drawer in the browser, the routed form without
+                 JavaScript or on a modified click. -->
+            <a
+              aecButton
+              aecRequestTrigger
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="p.slug"
+              [href]="'/products/' + p.slug + '/correction'"
+              aria-describedby="integrations-zero-know-line"
+              data-testid="integrations-zero-correction"
+            >
+              <ng-container i18n="@@products.detail.body.integrations.zero.exists"
+                >It does exist</ng-container
+              >
+              <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
+            </a>
+          </div>
         </div>
 
         <!-- The vendor's own links, the same fields and labels as the facts card's

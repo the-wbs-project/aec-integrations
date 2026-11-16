@@ -66,6 +66,17 @@ test.describe('zero-integration product in the raw SSR HTML (AECI-1786)', () => 
       `We have not found an integrations page published by ${product.vendor.name}.`,
     );
     expect(sectionText).toContain('It does exist');
+    // Ruling 51, option A (2026-11-16): the heading and the line sit above the button, in
+    // that order, and the line describes the button.
+    const know = sectionText.indexOf('Know of one?');
+    const line = sectionText.indexOf('Tell us where you saw it and we will look at it.');
+    const button = sectionText.indexOf('It does exist');
+    expect(know, 'the heading is in the server HTML').toBeGreaterThan(-1);
+    expect(line, 'the line follows the heading').toBeGreaterThan(know);
+    expect(button, 'the button follows the line').toBeGreaterThan(line);
+    expect(section).toMatch(/<h3\b[^>]*>\s*<span[^>]*>Know of one\?<\/span>\s*<\/h3>/);
+    expect(section).toMatch(/aria-describedby="integrations-zero-know-line"/);
+    expect(section).toMatch(/<p\b[^>]*\bid="integrations-zero-know-line"/);
     expect(section).toContain(`href="/products/${SLUG}/correction"`);
 
     // The absent controls: no filter panel, no Cards or Table toggle, no list, no scope note.
