@@ -184,7 +184,7 @@ const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
  * A connector product as the pair read hydrates it (AECI-933): the `ProductLink`
  * columns plus the vendor links `pickPrimaryVendor` reads, so the mapper can set
  * `ProductPairMechanism.connector_vendor_id`. Pair reads only. The list and detail
- * configs keep the bare `productLinkColumns` and do not pay for the join.
+ * configs keep the bare {@link publicProductLinkConfig} and do not pay for the join.
  */
 const pairConnectorProductConfig = {
   ...publicProductLinkConfig,

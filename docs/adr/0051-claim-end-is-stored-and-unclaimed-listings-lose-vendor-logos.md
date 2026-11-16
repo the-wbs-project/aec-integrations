@@ -49,14 +49,14 @@ These two were open questions in the first draft. Both are decided and built.
 1. **Term pages need no new purge tag.** The first draft said category, audience, phase and trade pages carry no tag that a claim end or a removal purges. That was wrong. Each term page embeds `product:{slug}` for every product its term carries (`taxonomy-browse.resolver.ts`, `CACHE_STRATEGY.md` §3 rule 2). Every AECI-1618 path already purges `product:{slug}` for the company's products: the claim end, the claim restore, the removal job, a product-logo objection and the removal election. So those pages repaint in the same purge. Per-term tags would add nothing, and the index tags would purge far more. The term index pages show names and counts, not logos. A vendor-logo objection purges `vendor:{slug}` only, which is enough because term-page cards show the vendor's name and never its logo. The cards show no description, so the election changes nothing there. No code changed for this item.
 2. **Share cards on unclaimed pages use the site default image.** A share card, a search result and structured data carry no "not affiliated" wording. So for `claim_status === 'unclaimed'`, `og:image` and `twitter:image` fall back to `DEFAULT_OG_IMAGE`, the vendor `Organization` JSON-LD drops `logo`, and the pair page's `about` nodes drop `image` for an unclaimed endpoint. One helper decides it: `shareableLogo` in `apps/web/src/app/core/meta.helpers.ts`. The product `SoftwareApplication` node never carried an image. The pair page's `og:image` was already the default. Claimed pages keep their logo.
 
+### Left as it is
+
+- The home page shows product logos from `stats_cache`. Those values change on the daily home-stats run, which purges `index:home`. So a removed or objected logo can stay on the home page for up to a day. That is inside 14 days, but it is not "at once" for an objection.
+
 ## Amended 2026-11-14: the rule fails closed (AECI-1851)
 
 Decision 4 now holds when a read forgets the claim fact. Before, a missing fact showed the logo in two layers. Now it hides it.
 
 - The public `toProductLink` shows a logo only when the row carries a truthy `claimed`. The portal and admin reads map with `toOwnedProductLink`, an explicit choice to keep the stored value. The vendor, list and search mappers already read an absent `owned_at` as unclaimed.
 - `claim_status` on a page subject is required, with no `claimed` default. `shareableLogo` carries a logo only for `'claimed'`.
-- `aec-logo-or-initial` takes a required `claimStatus`. A public list or link payload passes `'server-filtered'`, a portal, admin or avatar surface passes `'stored'`, and a missing value shows the tile.
-
-### Left as it is
-
-- The home page shows product logos from `stats_cache`. Those values change on the daily home-stats run, which purges `index:home`. So a removed or objected logo can stay on the home page for up to a day. That is inside 14 days, but it is not "at once" for an objection.
+- `aec-logo-or-initial` takes a required `claimStatus`. A public list or link payload passes `'server-filtered'`. A portal, admin or avatar surface, and the dev-only preview fixtures, pass `'stored'`. A missing value shows the tile.
