@@ -33,7 +33,6 @@ import { ProductCardGrid, type ProductCardGridColumns } from './product-card-gri
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class]': 'layoutClass()',
-    '[attr.data-count]': 'products().length',
   },
   template: `
     <div class="space-y-2">

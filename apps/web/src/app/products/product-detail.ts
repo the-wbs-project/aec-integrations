@@ -228,7 +228,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
             />
           </section>
 
-          <!-- AECI-1785: the last band, hidden with its nav link when the list is empty. -->
+          <!-- AECI-1785: the last section, hidden with its nav link when the list is empty. -->
           @if (p.related_products.length > 0) {
             <section
               aec-product-similar-products
