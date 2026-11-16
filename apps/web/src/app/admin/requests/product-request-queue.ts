@@ -254,6 +254,7 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                           data-testid="product-request-chosen"
                         >
                           <aec-logo-or-initial
+                            [claimStatus]="'stored'"
                             [src]="product.logo_url ?? null"
                             [name]="product.name"
                             size="sm"

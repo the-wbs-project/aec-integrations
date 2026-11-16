@@ -2,7 +2,19 @@ import { Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AecCard } from '../shared/card/card';
-import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { type LogoClaim, LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+/**
+ * A group card's mark (AECI-1851). The card passes all three to `aec-logo-or-initial`,
+ * so the logo rule decides here as everywhere else. `claimStatus` is required: a public
+ * `ProductLink` payload passes `'server-filtered'`.
+ */
+export interface GroupCardLogo {
+  src: string | null;
+  /** Drives the initial tile. */
+  name: string;
+  claimStatus: LogoClaim;
+}
 
 /**
  * AECI-841 — the collapsible group card both product-detail integration
@@ -106,8 +118,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             >
               <path d="m6 9 6 6 6-6" />
             </svg>
-            @if (logoName(); as name) {
-              <aec-logo-or-initial [src]="logoSrc()" [name]="name" size="sm" />
+            @if (logo(); as mark) {
+              <aec-logo-or-initial
+                [src]="mark.src"
+                [name]="mark.name"
+                [claimStatus]="mark.claimStatus"
+                size="sm"
+              />
             }
             <!-- text-t-20 is the card title role (DESIGN.md §3), with leading-tight
                  so the line is 25px, not the 31px text-lg gave it. The size lives on the SPAN because
@@ -172,11 +189,10 @@ export class IntegrationGroupCard {
   /** The group's subject, as a noun phrase. Named `heading` rather than `title`
    *  so it can never be confused with the native `title` attribute on the host. */
   readonly heading = input.required<string>();
-  /** Logo source for the subject, when it has one. */
-  readonly logoSrc = input<string | null>(null);
-  /** Subject name for the logo's initial fallback. `null` renders no logo at
-   *  all, which is the hubless "Other connections" card. */
-  readonly logoName = input<string | null>(null);
+  /** The subject's mark. `null` renders no mark at all, which is the hubless "Other
+   *  connections" card and the direct lane. Its `claimStatus` is required, so a parent
+   *  cannot hand over a logo without saying where it came from (AECI-1851). */
+  readonly logo = input<GroupCardLogo | null>(null);
   /** Localized group size, e.g. "12 connections" or "3 of 12" under a filter.
    *  Built by the section so the i18n ids stay where the copy is. */
   readonly countLabel = input<string>('');

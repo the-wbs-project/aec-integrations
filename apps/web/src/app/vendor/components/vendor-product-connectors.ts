@@ -95,6 +95,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
             >
               <div class="flex items-center gap-3 px-4 py-3">
                 <aec-logo-or-initial
+                  [claimStatus]="'stored'"
                   [src]="group.connector.logo_url"
                   [name]="group.connector.name"
                   size="sm"

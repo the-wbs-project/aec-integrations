@@ -20,7 +20,7 @@ import { IntegrationGroupCard } from './integration-group-card';
     <aec-integration-group-card
       headingId="card-heading"
       heading="Agave ERP Sync"
-      logoName="Agave ERP Sync"
+      [logo]="{ src: null, name: 'Agave ERP Sync', claimStatus: 'server-filtered' }"
       countLabel="12 connections"
       [link]="link()"
       linkLabel="View product"

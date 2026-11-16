@@ -12,9 +12,8 @@ import { TestBed } from '@angular/core/testing';
 import { Meta, Title } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProductListItem } from '@aeci/shared';
-
 import { buildManagedPlanJsonLd } from '../vendor-program/managed-plan-json-ld';
+import type { PairSubjectLd } from './meta.helpers';
 import { MetaService } from './meta.service';
 
 function setup(extraProviders: Provider[] = []): { service: MetaService; doc: Document } {
@@ -393,8 +392,9 @@ function ldKinds(doc: Document): string[] {
   );
 }
 
-function pairProduct(overrides: Partial<ProductListItem> = {}): ProductListItem {
-  const base: ProductListItem = {
+function pairProduct(overrides: Partial<PairSubjectLd> = {}): PairSubjectLd {
+  const base: PairSubjectLd = {
+    claim_status: 'claimed',
     id: '00000000-0000-0000-0000-000000000001',
     slug: 'revit',
     name: 'Revit',

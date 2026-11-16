@@ -1,7 +1,7 @@
 /**
  * The account menu's identity block — who you are, above the things you can do
  * (AECI-850). Rendered at the top of the desktop dropdown (`user-menu.ts`) and
- * the top of the mobile overlay's account section (`nav-menu.ts`).
+ * the top of the mobile menu's account block (`nav-menu-account.ts`).
  *
  * ── Why this is one component and not two inline blocks ─────────────────────
  * The two headers had already drifted once: the desktop menu and the mobile
@@ -57,6 +57,7 @@ import { Chip, type ChipTone } from '../shared/chip/chip';
       <!-- Empty alt: the name is in the adjacent text, so a described photo
            would make a screen reader announce the same person twice. -->
       <aec-logo-or-initial
+        [claimStatus]="'stored'"
         size="sm"
         shape="circle"
         alt=""

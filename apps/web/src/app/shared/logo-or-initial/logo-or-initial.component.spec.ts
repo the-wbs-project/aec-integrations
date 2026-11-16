@@ -1,9 +1,14 @@
-import type { ClaimStatus } from '@aeci/shared';
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import { LogoOrInitial, logoAlt, type LogoShape, type LogoSize } from './logo-or-initial';
+import {
+  type LogoClaim,
+  LogoOrInitial,
+  logoAlt,
+  type LogoShape,
+  type LogoSize,
+} from './logo-or-initial';
 
 // jsdom never loads images, so an `<img>` always reports `complete === true` /
 // `naturalWidth === 0`. The component's `afterNextRender` + `requestAnimationFrame`
@@ -26,7 +31,7 @@ import { LogoOrInitial, logoAlt, type LogoShape, type LogoSize } from './logo-or
   />`,
 })
 class LogoOrInitialHost {
-  claimStatus: ClaimStatus | null = null;
+  claimStatus: LogoClaim = 'server-filtered';
   ownPage = false;
   src: string | null = 'https://cdn.example.com/acme.png';
   name = 'Acme';
@@ -42,7 +47,13 @@ class LogoOrInitialHost {
 // inputs; see renderHost).
 @Component({
   imports: [LogoOrInitial],
-  template: `<aec-logo-or-initial [src]="src()" name="Acme" alt="" size="lg" />`,
+  template: `<aec-logo-or-initial
+    [src]="src()"
+    name="Acme"
+    alt=""
+    size="lg"
+    [claimStatus]="'server-filtered'"
+  />`,
 })
 class ReusedSrcHost {
   readonly src = signal<string | null>('https://cdn.example.com/dead.png');
@@ -257,9 +268,35 @@ describe('LogoOrInitial', () => {
     expect(root.querySelector('img')?.getAttribute('src')).toBe(LOGO);
   });
 
-  it('trusts a link payload with no claim status, whose logo the API already withheld', () => {
-    expect(renderHost({ src: LOGO }).root.querySelector('img')).not.toBeNull();
-    expect(renderHost({ src: null }).root.querySelector('img')).toBeNull();
+  it("trusts a 'server-filtered' link payload, whose logo the API already withheld", () => {
+    const shown = renderHost({ src: LOGO, claimStatus: 'server-filtered' }).root;
+    expect(shown.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+    const withheld = renderHost({ src: null, claimStatus: 'server-filtered' }).root;
+    expect(withheld.querySelector('img')).toBeNull();
+  });
+
+  it("shows the stored logo on a 'stored' portal or admin surface, at either size", () => {
+    for (const size of ['sm', 'lg'] as const) {
+      const { root } = renderHost({ src: LOGO, claimStatus: 'stored', size });
+      expect(root.querySelector('img')?.getAttribute('src')).toBe(LOGO);
+    }
+  });
+
+  // AECI-1851: the rule fails closed. A subject payload from an API that predates
+  // `claim_status`, or any value the type does not know, renders the tile.
+  it('shows the initial tile when the claim status is missing or unknown', () => {
+    for (const claimStatus of [undefined, null, '', 'pending']) {
+      for (const ownPage of [false, true]) {
+        const { root } = renderHost({
+          src: LOGO,
+          size: 'sm',
+          ownPage,
+          claimStatus: claimStatus as unknown as LogoClaim,
+        });
+        expect(root.querySelector('img'), String(claimStatus)).toBeNull();
+        expect(root.querySelector('span[aria-hidden]')?.textContent?.trim()).toBe('A');
+      }
+    }
   });
 
   it('never shows an unclaimed logo above 32px, even with ownPage (AECI-1826 open)', () => {

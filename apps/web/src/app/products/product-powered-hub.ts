@@ -145,8 +145,7 @@ import { Chip } from '../shared/chip/chip';
         <aec-integration-group-card
           [headingId]="'powers-group-' + group.hub.slug"
           [heading]="group.hub.name"
-          [logoSrc]="group.hub.logo_url"
-          [logoName]="group.hub.name"
+          [logo]="{ src: group.hub.logo_url, name: group.hub.name, claimStatus: 'server-filtered' }"
           [countLabel]="countLabel(group.partners.length, hubTotal(group.hub.slug))"
           [link]="'/products/' + group.hub.slug"
           i18n-linkLabel="@@products.detail.group.link"
@@ -167,6 +166,7 @@ import { Chip } from '../shared/chip/chip';
                     focus-visible:outline-(--accent-primary)"
                 >
                   <aec-logo-or-initial
+                    [claimStatus]="'server-filtered'"
                     [src]="partner.partner.logo_url"
                     [name]="partner.partner.name"
                     size="sm"
@@ -286,7 +286,12 @@ import { Chip } from '../shared/chip/chip';
                 >
                   <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="inline-flex min-w-0 items-center gap-2">
-                      <aec-logo-or-initial [src]="pair.a.logo_url" [name]="pair.a.name" size="sm" />
+                      <aec-logo-or-initial
+                        [claimStatus]="'server-filtered'"
+                        [src]="pair.a.logo_url"
+                        [name]="pair.a.name"
+                        size="sm"
+                      />
                       <span class="min-w-0 font-semibold break-words">{{ pair.a.name }}</span>
                     </span>
                     <span
@@ -296,7 +301,12 @@ import { Chip } from '../shared/chip/chip';
                       >{{ pair.direction ? directionGlyph(pair.direction) : '·' }}</span
                     >
                     <span class="inline-flex min-w-0 items-center gap-2">
-                      <aec-logo-or-initial [src]="pair.b.logo_url" [name]="pair.b.name" size="sm" />
+                      <aec-logo-or-initial
+                        [claimStatus]="'server-filtered'"
+                        [src]="pair.b.logo_url"
+                        [name]="pair.b.name"
+                        size="sm"
+                      />
                       <span class="min-w-0 font-semibold break-words">{{ pair.b.name }}</span>
                     </span>
                   </span>

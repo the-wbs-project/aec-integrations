@@ -144,6 +144,7 @@ import { AecCard } from '../shared/card/card';
                   transition-colors hover:border-(--border-strong)"
               >
                 <aec-logo-or-initial
+                  [claimStatus]="'server-filtered'"
                   [src]="v.logo_url"
                   [name]="v.name"
                   [alt]="logoAlt(v.name)"
