@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   ElementRef,
   inject,
   input,
@@ -33,7 +34,9 @@ const INPUT_ID = 'product-pair-other';
  *   - nothing chosen but text typed: `/search?q=`;
  *   - nothing at all: focus the field.
  *
- * Every string is the home finder's, with its message id: "Do these two connect?",
+ * The heading names this product: "Does {product} connect to…?" (ruling 61,
+ * 2026-11-16), its own message id, because the product side is already filled. It names
+ * the search landmark. The other strings are the home finder's, with their ids:
  * "Connects to", "Type a product name" and "Show integrations".
  *
  * No-JS base layer: a native `<form action="/search" method="get">`, as on home. The
@@ -62,10 +65,10 @@ const INPUT_ID = 'product-pair-other';
     >
       <p
         id="product-pair-title"
-        class="text-t-16 font-semibold text-(--text-on-brand)"
-        i18n="@@home.hero.pair.title"
+        class="text-t-16 font-semibold break-words text-(--text-on-brand)"
+        data-testid="product-pair-title"
       >
-        Do these two connect?
+        {{ title() }}
       </p>
       <aec-search-autocomplete
         [inputId]="inputId"
@@ -99,6 +102,14 @@ const INPUT_ID = 'product-pair-other';
 export class ProductPairFinder {
   /** The page's product: the side the finder fills. */
   readonly productSlug = input.required<string>();
+  /** The page's product name, for the heading. */
+  readonly productName = input.required<string>();
+
+  /** Ruling 61 (2026-11-16): the heading names the product already filled in. */
+  protected readonly title = computed(
+    () =>
+      $localize`:@@products.detail.hero.pairFinder.title:Does ${this.productName()}:PRODUCT: connect to…?`,
+  );
 
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);

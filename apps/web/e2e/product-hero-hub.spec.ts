@@ -72,6 +72,18 @@ test.describe('product hero category hub (AECI-1787)', () => {
     await expect(page.locator('.aec-hero-panel')).toBeHidden();
   });
 
+  test('the finder heading names the product, and names its search landmark (ruling 61)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/products/${WITH_HUB}`);
+    const heading = page.getByTestId('product-pair-title');
+    await expect(heading).toHaveText('Does Revit connect to…?');
+    await expect(page.getByRole('search', { name: 'Does Revit connect to…?' })).toHaveCount(1);
+    // With three categories there is no "Show all" control (ruling 59).
+    await expect(page.getByTestId('product-category-hub-toggle')).toHaveCount(0);
+  });
+
   test('the finder searches the typed text with no pick, after hydration', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/products/${WITH_HUB}`);

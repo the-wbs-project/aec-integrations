@@ -203,7 +203,7 @@ const SURFACES: readonly Surface[] = [
     status: 'covered',
     spec: 'web',
     order:
-      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); the count never orders or cuts',
+      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); from lg the first 8 of that order show and "Show all" reveals the rest (ruling 59); the count never orders or cuts',
   },
   {
     key: 'product-page-similar-products',

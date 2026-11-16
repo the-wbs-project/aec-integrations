@@ -254,6 +254,77 @@ describe('ProductHero visual: the category hub (AECI-1787)', () => {
   });
 });
 
+describe('ProductHero visual: many categories (ruling 59)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    seq = 0;
+  });
+
+  const withCategories = (n: number) =>
+    buildProduct({
+      integrations_as_source: Array.from({ length: n }, (_, i) =>
+        edge(link(`p-${i}`, `Partner ${i}`), [
+          {
+            slug: `cat-${String(i).padStart(2, '0')}`,
+            name: `Category ${String(i).padStart(2, '0')}`,
+          },
+        ]),
+      ),
+    });
+
+  it('with eight or fewer categories there is no control', () => {
+    const { el } = setup(withCategories(8));
+    expect(el.querySelector('[data-testid="product-category-hub-toggle"]')).toBeNull();
+    expect(el.querySelectorAll('li.lg\\:hidden')).toHaveLength(0);
+  });
+
+  it('with nine, all nine are in the HTML, the ninth waits behind "Show all 9 categories"', () => {
+    const { el } = setup(withCategories(9));
+    const items = [...el.querySelectorAll('[data-testid="product-category-hub-entry"]')];
+    expect(items).toHaveLength(9);
+    expect(items.map((li) => li.classList.contains('lg:hidden'))).toEqual([
+      ...Array(8).fill(false),
+      true,
+    ]);
+    const button = el.querySelector<HTMLButtonElement>(
+      '[data-testid="product-category-hub-toggle"]',
+    )!;
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.getAttribute('type')).toBe('button');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.getAttribute('aria-controls')).toBe('product-category-hub-list');
+    expect(el.querySelector('#product-category-hub-list')).not.toBeNull();
+    expect(button.textContent!.trim()).toBe('Show all 9 categories');
+    // No control below lg, where the row scrolls with every entry.
+    expect(button.classList).toContain('max-lg:hidden');
+  });
+
+  it('toggles: reveals the rest, keeps focus on the button, then collapses again', async () => {
+    const { fixture, el } = setup(withCategories(12));
+    document.body.appendChild(el);
+    const button = el.querySelector<HTMLButtonElement>(
+      '[data-testid="product-category-hub-toggle"]',
+    )!;
+    button.focus();
+    button.click();
+    await fixture.whenStable();
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(button.textContent!.trim()).toBe('Show fewer');
+    expect(
+      el.querySelectorAll('[data-testid="product-category-hub-entry"].lg\\:hidden'),
+    ).toHaveLength(0);
+    expect(document.activeElement).toBe(button);
+    button.click();
+    await fixture.whenStable();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.textContent!.trim()).toBe('Show all 12 categories');
+    expect(
+      el.querySelectorAll('[data-testid="product-category-hub-entry"].lg\\:hidden'),
+    ).toHaveLength(4);
+    el.remove();
+  });
+});
+
 describe('ProductHero visual: the pair finder (AECI-1787)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
@@ -272,14 +343,15 @@ describe('ProductHero visual: the pair finder (AECI-1787)', () => {
     return event;
   }
 
-  it('is a native GET to /search with one product picker, the home finder strings and no filled button', () => {
+  it('is a native GET to /search with one product picker, a heading naming the product, and no filled button', () => {
     const { fixture, el } = setup(buildProduct());
     const form = el.querySelector<HTMLFormElement>('[data-testid="product-pair-finder"]')!;
     expect(form.getAttribute('action')).toBe('/search');
     expect(form.getAttribute('method')).toBe('get');
     expect(form.getAttribute('role')).toBe('search');
+    // Ruling 61: the heading names the product already filled in, with a real ellipsis.
     expect(el.querySelector('#product-pair-title')!.textContent!.trim()).toBe(
-      'Do these two connect?',
+      'Does Revu connect to\u2026?',
     );
     expect(form.getAttribute('aria-labelledby')).toBe('product-pair-title');
     const input = form.querySelector<HTMLInputElement>('#product-pair-other')!;

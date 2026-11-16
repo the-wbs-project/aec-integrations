@@ -4,13 +4,16 @@ import {
   DestroyRef,
   ElementRef,
   afterNextRender,
+  computed,
   inject,
   input,
   signal,
   viewChild,
 } from '@angular/core';
 
-import type { CategoryHubEntry } from './category-hub';
+import { AecButton } from '../shared/button/button';
+
+import { hubCut, type CategoryHubEntry } from './category-hub';
 
 /**
  * AECI-1787 - the product hero's category hub (ruling R3 decision 1, AECI-1734: "The hero
@@ -40,12 +43,22 @@ import type { CategoryHubEntry } from './category-hub';
  * Without that, under reduced motion (no entrance transform) they escaped the row and
  * the whole page scrolled sideways.
  *
+ * Many categories (ruling 59, option A, 2026-11-16). From `lg` the list shows the first
+ * eight entries of the A to Z order (`hubCut`) and a "Show all {n} categories" button
+ * reveals the rest in place, then "Show fewer" collapses them again. Every entry is in
+ * the server HTML, which always renders the collapsed state. A collapsed entry is
+ * `lg:hidden` (display none), so it is neither focusable nor announced until revealed.
+ * The button is a real `button` with `aria-expanded` and `aria-controls`. Only its label
+ * changes, so focus stays on it. Below `lg` the one sideways row keeps every entry and
+ * there is no button. With eight or fewer entries there is no button anywhere.
+ *
  * The caller renders it only with at least one entry. The zero state is the facts
  * card's ("We have no integrations for {product} on record"), right below the hero.
  */
 @Component({
   selector: 'aec-product-category-hub',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AecButton],
   host: { class: 'block' },
   template: `
     <h2 id="product-category-hub-title" class="m-0" data-testid="product-category-hub-title">
@@ -57,6 +70,7 @@ import type { CategoryHubEntry } from './category-hub';
     </h2>
     <ul
       #list
+      id="product-category-hub-list"
       class="aec-category-hub relative mt-4 flex gap-2 max-lg:overflow-x-auto max-lg:pb-1 lg:flex-wrap"
       role="list"
       aria-labelledby="product-category-hub-title"
@@ -66,6 +80,7 @@ import type { CategoryHubEntry } from './category-hub';
       @for (entry of entries(); track entry.slug) {
         <li
           class="inline-flex shrink-0 items-center gap-3 rounded-pill border aec-on-brand-rule bg-(--surface-on-brand-wash) py-1 ps-1 pe-4 whitespace-nowrap lg:max-w-full lg:shrink lg:whitespace-normal"
+          [class.lg:hidden]="$index >= cut().shown.length && !expanded()"
           data-testid="product-category-hub-entry"
         >
           <!-- The bead: the count, Forest on Bone. The visible numeral is hidden from
@@ -81,6 +96,25 @@ import type { CategoryHubEntry } from './category-hub';
         </li>
       }
     </ul>
+    @if (cut().rest.length > 0) {
+      <button
+        aecButton
+        variant="on-brand-secondary"
+        compact
+        type="button"
+        class="mt-4 max-lg:hidden"
+        aria-controls="product-category-hub-list"
+        [attr.aria-expanded]="expanded()"
+        data-testid="product-category-hub-toggle"
+        (click)="toggle()"
+      >
+        @if (expanded()) {
+          <span i18n="@@facets.showFewer">Show fewer</span>
+        } @else {
+          {{ showAllLabel() }}
+        }
+      </button>
+    }
   `,
 })
 export class ProductCategoryHub {
@@ -90,6 +124,19 @@ export class ProductCategoryHub {
   /** The row is wider than its box (below `lg`), so it needs a tab stop to scroll. */
   protected readonly overflowing = signal(false);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** The first eight A to Z, then the rest (ruling 59). */
+  protected readonly cut = computed(() => hubCut(this.entries()));
+  /** Whether the entries past the cut show from `lg`. The server always renders false. */
+  protected readonly expanded = signal(false);
+  protected readonly showAllLabel = computed(() => {
+    const n = this.entries().length;
+    return $localize`:@@products.detail.hero.hub.showAll:Show all ${n}:count: categories`;
+  });
+
+  protected toggle(): void {
+    this.expanded.update((open) => !open);
+  }
 
   constructor() {
     // Browser only. The server renders no tab stop, which is right at `lg`.

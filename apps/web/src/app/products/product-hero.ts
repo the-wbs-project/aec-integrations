@@ -294,7 +294,11 @@ import { RoleBadge } from './role-badge';
         @if (hub().length > 0) {
           <aec-product-category-hub [entries]="hub()" />
         }
-        <aec-product-pair-finder class="max-lg:hidden" [productSlug]="p.slug" />
+        <aec-product-pair-finder
+          class="max-lg:hidden"
+          [productSlug]="p.slug"
+          [productName]="p.name"
+        />
       </div>
     </aec-hero-band>
   `,

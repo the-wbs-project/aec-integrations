@@ -54,3 +54,26 @@ export function categoryHub(
       (a, b) => compareText(a.name, b.name) || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0),
     );
 }
+
+/**
+ * How many entries the hub shows from `lg` before "Show all" (ruling 59, option A,
+ * 2026-11-16).
+ */
+export const HUB_COLLAPSED_COUNT = 8;
+
+/**
+ * The hub's cut (ruling 59). The first `HUB_COLLAPSED_COUNT` entries of the A to Z list
+ * sit above it, and the rest below. Nothing else decides the cut: not the count, not any
+ * input a paid plan can change. `entries` is `categoryHub`'s output, already A to Z.
+ * Every entry stays in the server HTML either way. The cut only decides which ones wait
+ * behind "Show all" from `lg`.
+ */
+export function hubCut(entries: readonly CategoryHubEntry[]): {
+  readonly shown: readonly CategoryHubEntry[];
+  readonly rest: readonly CategoryHubEntry[];
+} {
+  return {
+    shown: entries.slice(0, HUB_COLLAPSED_COUNT),
+    rest: entries.slice(HUB_COLLAPSED_COUNT),
+  };
+}

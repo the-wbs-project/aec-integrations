@@ -63,7 +63,7 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import type { RefinementItem } from '../shared/facets/refinement-item';
 import { orderFacetItems } from '../search/search-facet-order';
 
-import { categoryHub } from './category-hub';
+import { HUB_COLLAPSED_COUNT, categoryHub, hubCut } from './category-hub';
 import {
   INTEGRATIONS_ABOVE_FOLD,
   applyDeferCut,
@@ -766,6 +766,89 @@ describe('on-page ordering firewall: the product hero category hub', () => {
     expect(categoryHub(rename(asSource), rename(asTarget)).map((e) => e.slug)).not.toEqual(
       hubBaseline.map((e) => e.slug),
     );
+  });
+});
+
+/**
+ * Twelve categories, so the hub's cut at eight (ruling 59) has entries on both sides.
+ * Partner `j` carries every category from `j` on, so a category later in A to Z has MORE
+ * integrations: the eight with the highest counts are the LAST eight by name, and a cut
+ * by count picks a different set from the A to Z cut. One extra partner carries the first
+ * two categories, so counts tie at 3. Names mix case.
+ */
+function manyCategoryFixture(): ProductIntegrationItem[] {
+  seq = 300;
+  const names = ['alpha', 'Bravo', 'charlie', 'Delta', 'echo', 'Foxtrot', 'golf', 'Hotel'];
+  names.push('india', 'Juliet', 'kilo', 'Lima');
+  const terms = names.map((name, i) => hubTerm(`cat-${String(i).padStart(2, '0')}`, name));
+  const rows = terms.map((_, j) =>
+    endpointEdge(link(`p-${j}`, `Partner ${j}`), `Link ${j}`, {
+      partner_categories: terms.slice(j),
+    }),
+  );
+  rows.push(
+    endpointEdge(link('p-extra', 'Partner extra'), 'Link extra', {
+      partner_categories: terms.slice(0, 2),
+    }),
+  );
+  return rows;
+}
+
+describe('on-page ordering firewall: the category hub cut at eight (ruling 59)', () => {
+  const byName = (rows: ProductIntegrationItem[]) => hubCut(categoryHub(rows, []));
+  const slugs = (entries: readonly { slug: string }[]) => entries.map((e) => e.slug);
+  const base = byName(manyCategoryFixture());
+
+  it('[surface:product-page-hero-visual] the first eight A to Z sit above the cut, the rest below', () => {
+    const all = categoryHub(manyCategoryFixture(), []);
+    expect(all).toHaveLength(12);
+    expect(HUB_COLLAPSED_COUNT).toBe(8);
+    expect(slugs(base.shown)).toEqual(slugs(all.slice(0, 8)));
+    expect(base.shown.map((e) => e.name)).toEqual([
+      'alpha',
+      'Bravo',
+      'charlie',
+      'Delta',
+      'echo',
+      'Foxtrot',
+      'golf',
+      'Hotel',
+    ]);
+    expect(slugs(base.rest)).toEqual(slugs(all.slice(8)));
+  });
+
+  it('[surface:product-page-hero-visual] a cut by count would pick a different eight, so it fails the case above', () => {
+    // The planted alternative: the eight highest counts, ties A to Z. If `hubCut` ever
+    // cut this way, the first case's expected names would not match.
+    const all = categoryHub(manyCategoryFixture(), []);
+    const byCount = [...all]
+      .sort((a, b) => b.count - a.count || compareText(a.name, b.name))
+      .slice(0, 8);
+    expect(new Set(slugs(byCount))).not.toEqual(new Set(slugs(base.shown)));
+    // And the fixture's counts really disagree with the name order.
+    expect(base.rest.every((r) => base.shown.every((s) => r.count >= s.count))).toBe(true);
+  });
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it(`[surface:product-page-hero-visual] the cut takes the same eight when every paid input changes (${dir})`, () => {
+      expect(byName(flipRows(manyCategoryFixture(), HUB_PAID_FIELDS, dir))).toEqual(base);
+    });
+  }
+
+  it('[surface:product-page-hero-visual] the cut takes the same eight when every paid input is loaded onto one partner', () => {
+    const rows = manyCategoryFixture();
+    for (const row of rows) {
+      expect(byName(loadOne(rows, HUB_PAID_FIELDS, (r) => r === row)), row.target.slug).toEqual(
+        base,
+      );
+    }
+  });
+
+  it('eight or fewer entries leave nothing below the cut', () => {
+    const eight = manyCategoryFixture().slice(4, 12);
+    const cut = byName(eight);
+    expect(cut.shown).toHaveLength(8);
+    expect(cut.rest).toEqual([]);
   });
 });
 
