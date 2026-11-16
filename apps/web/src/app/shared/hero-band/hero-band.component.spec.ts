@@ -155,4 +155,47 @@ describe('aec-hero-band (AECI-1766)', () => {
     clone.querySelector('[data-testid="action"]')!.remove();
     expect(clone.innerHTML).not.toMatch(/animate-|transition-|motion-|animation/);
   });
+
+  it('defaults to the Display title and the panel surface, so existing callers are unchanged', () => {
+    expect(q('h1 > span')!.className).toContain('text-t-display');
+    expect(q('h1 > span')!.className).not.toContain('text-t-statement');
+    const panel = q('.aec-hero-panel')!;
+    expect(panel.classList.contains('bg-(--surface-hero-panel)')).toBe(true);
+    expect(panel.classList.contains('p-6')).toBe(true);
+  });
+});
+
+// AECI-1798: the pair page sets the Statement size and a bare panel for its own cards.
+@Component({
+  selector: 'aec-hero-band-pair-host',
+  imports: [HeroBand],
+  template: `
+    <aec-hero-band titleSize="statement" panel="bare">
+      <span heroTitle>How A and B exchange data</span>
+      <div heroPanel data-testid="panel-content">Cards</div>
+    </aec-hero-band>
+  `,
+})
+class PairHost {}
+
+describe('aec-hero-band, statement title and bare panel (AECI-1798)', () => {
+  it('puts the Statement size on the inner span and draws no panel ground', async () => {
+    await TestBed.configureTestingModule({
+      imports: [PairHost],
+      providers: [provideZonelessChangeDetection()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(PairHost);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const span = el.querySelector('h1 > span')!;
+    expect(span.className).toContain('text-t-statement');
+    expect(span.className).not.toContain('text-t-display');
+    expect(el.querySelectorAll('h1')).toHaveLength(1);
+    const panel = el.querySelector('.aec-hero-panel')!;
+    expect(panel.classList.contains('bg-(--surface-hero-panel)')).toBe(false);
+    expect(panel.classList.contains('p-6')).toBe(false);
+    // Still the same column: it hides when empty and keeps the forced-colours hook.
+    expect(panel.classList.contains('empty:hidden')).toBe(true);
+    expect(panel.querySelector('[data-testid="panel-content"]')).not.toBeNull();
+  });
 });
