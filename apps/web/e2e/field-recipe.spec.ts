@@ -108,4 +108,35 @@ test.describe('the shared field recipe (AECI-1764)', () => {
     expect(forced.background).not.toBe(forced.canvas);
     expect(forced.background).not.toBe('rgba(0, 0, 0, 0)');
   });
+
+  // AECI-1850 / AECI-1796: the /search query box was a 1.22:1 edge. It is
+  // server-rendered with or without the search config, so this holds in CI too.
+  test('the /search query box takes the field edge, 44px, with room for its glyph', async ({
+    page,
+  }) => {
+    await page.goto('/search');
+    const box = page.locator('#search-input');
+    await expect(box).toBeVisible();
+    const got = await box.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const glyph = el.parentElement!.querySelector('svg')!.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return {
+        colour: cs.borderTopColor,
+        width: cs.borderTopWidth,
+        radius: cs.borderTopLeftRadius,
+        shadow: cs.boxShadow,
+        height: r.height,
+        textStart: r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+        glyphEnd: glyph.right,
+      };
+    });
+    expect(got.colour).toBe(await resolveToken(page, '--border-field'));
+    expect(got.width).toBe('1px');
+    expect(got.radius).toBe('12px');
+    expect(got.shadow).toBe('none');
+    expect(got.height).toBeGreaterThanOrEqual(44);
+    // Typed text starts clear of the glyph.
+    expect(got.textStart).toBeGreaterThan(got.glyphEnd);
+  });
 });

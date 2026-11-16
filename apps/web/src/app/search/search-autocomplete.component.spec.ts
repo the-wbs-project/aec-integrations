@@ -207,7 +207,14 @@ describe('SearchAutocomplete', () => {
     // but it keeps its visual styling.
     expect(listbox!.classList.contains('absolute'), 'no self-positioning class').toBe(false);
     expect(listbox!.classList.contains('top-full'), 'no self-positioning class').toBe(false);
-    expect(listbox!.classList.contains('shadow-lg'), 'visual styling stays on the <ul>').toBe(true);
+    // The shared popover surface (AECI-1796): the class, not a hand copy of the shadow.
+    expect(listbox!.classList.contains('aec-popover'), 'visual styling stays on the <ul>').toBe(
+      true,
+    );
+    expect(listbox!.classList.contains('shadow-lg'), 'no off-vocabulary shadow').toBe(false);
+    // Every suggestion row is at least 44px tall.
+    const option = listbox!.querySelector('[role="option"]');
+    expect(option?.classList.contains('min-h-11')).toBe(true);
   });
 
   it('wires the controller to Analytics.autocompleteSearched (AECI-717)', async () => {

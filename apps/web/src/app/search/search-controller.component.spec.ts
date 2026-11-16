@@ -6,6 +6,7 @@ import {
   SearchController,
   type UiState,
 } from './search-controller';
+import { compareFacetValues } from './search-facet-order';
 import { emptyFilters, type SearchFilters } from './search-url-state';
 import type { AlgoliaPublicConfig } from './algolia-config';
 
@@ -257,12 +258,12 @@ describe('SearchController wiring', () => {
     expect(calls.range.map((c) => c.params['attribute'])).toEqual(['founded_year']);
   });
 
-  it('leaves every refinement list on the connector default (no sortBy)', () => {
+  it('orders every refinement list by compareFacetValues (count, then compareText)', () => {
     const { calls } = build();
-    // Only phases is reordered, and that happens post-render via orderFacetItems
-    // — no facet passes a sortBy to the connector.
+    // The connector default with a case-folded name tie-break (AECI-825). Phases
+    // are re-sorted again post-render via orderFacetItems.
     for (const c of calls.refinementList) {
-      expect(c.params['sortBy']).toBeUndefined();
+      expect(c.params['sortBy']).toBe(compareFacetValues);
     }
   });
 
@@ -356,9 +357,28 @@ describe('SearchController render-state → signal mapping', () => {
     // it — the first response hasn't landed yet.
     calls.hits[0].renderFn({ items: [] }, true);
     expect(controller.ready()).toBe(false);
-    // The first response render (isFirstRender=false) flips it — even with zero
+    // The first response render (a results object) flips it — even with zero
     // hits, the search has now settled.
+    calls.hits[0].renderFn({ items: [], results: { nbHits: 0, query: '' } }, false);
+    expect(controller.ready()).toBe(true);
+  });
+
+  it('does not flip `ready` on a response to an older query (AECI-1796)', () => {
+    const { calls, controller } = build();
+    controller.setQuery('procore');
+    calls.hits[0].renderFn({ items: [] }, true);
+    // A render with no results object yet.
     calls.hits[0].renderFn({ items: [] }, false);
+    expect(controller.ready()).toBe(false);
+    // The empty-query search that start() ran first lands while "procore" is
+    // in flight. The list renders it as no items. That is not "No results".
+    calls.hits[0].renderFn({ items: [], results: { nbHits: 344, query: '' } }, false);
+    expect(controller.ready()).toBe(false);
+    // The answer to the current query settles it.
+    calls.hits[0].renderFn(
+      { items: [{ objectID: 'a' }], results: { nbHits: 106, query: 'procore' } },
+      false,
+    );
     expect(controller.ready()).toBe(true);
   });
 

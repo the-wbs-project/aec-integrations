@@ -242,17 +242,22 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
               i18n-aria-label="@@app.search.autocomplete.listbox.aria"
               aria-label="Search suggestions"
               [style.max-height.px]="listMaxHeight()"
-              class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+              class="aec-popover m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
             >
+              <!-- The shared popover surface (.aec-popover, DESIGN.md "Overlays"):
+                   white, 12px radius, a hairline edge and the menu shadow. No
+                   logo on a row, so the logo rule has nothing to hold here. Rows
+                   are at least 44px, the active row on the sunken fill as in every
+                   listbox, 14px name at 600 and a 13px secondary line. -->
               @for (s of suggestions(); track s.objectID) {
                 <li
                   ngOption
                   [value]="s"
                   [label]="s.title"
-                  class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                  class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span class="flex items-center justify-between gap-2">
-                    <span class="truncate text-sm font-semibold text-(--text-primary)">{{
+                    <span class="truncate text-t-14 font-semibold text-(--text-primary)">{{
                       s.title
                     }}</span>
                     <aec-chip density="dense" tone="quiet" class="shrink-0">{{
@@ -260,7 +265,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
                     }}</aec-chip>
                   </span>
                   @if (s.subtitle) {
-                    <span class="truncate text-xs text-(--text-secondary)">{{ s.subtitle }}</span>
+                    <span class="truncate text-t-13 text-(--text-secondary)">{{ s.subtitle }}</span>
                   }
                 </li>
               }
