@@ -606,12 +606,18 @@ test.describe('primary navigation menu (1280px)', () => {
 // 50, 100, 200 and 400ms. The full stylesheet is held back 600ms so the window in
 // which the bug showed is always hit. A flat row means no Clay pixel.
 test.describe('the Browse Clay cue (AECI-1852)', () => {
-  async function lastRow(page: Page, width: number): Promise<number[][]> {
-    const bottom = await page
+  // Sample the header's own width, not the viewport's. `html` reserves a stable
+  // scrollbar gutter, so with classic scrollbars the last ~15px are the white page
+  // ground, which read as a 225 delta (AECI-1854).
+  async function lastRow(page: Page): Promise<number[][]> {
+    const { bottom, right } = await page
       .locator('header')
       .first()
-      .evaluate((el) => Math.round(el.getBoundingClientRect().bottom));
-    const png = await page.screenshot({ clip: { x: 0, y: bottom - 1, width, height: 1 } });
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { bottom: Math.round(r.bottom), right: Math.floor(r.right) };
+      });
+    const png = await page.screenshot({ clip: { x: 0, y: bottom - 1, width: right, height: 1 } });
     return page.evaluate(async (b64) => {
       const img = new Image();
       img.src = `data:image/png;base64,${b64}`;
@@ -642,7 +648,7 @@ test.describe('the Browse Clay cue (AECI-1852)', () => {
       for (const at of [0, 50, 100, 200, 400]) {
         const wait = at - (Date.now() - started);
         if (wait > 0) await page.waitForTimeout(wait);
-        const row = await lastRow(page, width);
+        const row = await lastRow(page);
         const ground = row[0];
         const worst = Math.max(
           ...row.map((px) => Math.max(...px.map((c, i) => Math.abs(c - ground[i])))),

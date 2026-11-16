@@ -19,22 +19,31 @@ test.describe('aecCard rendered (AECI-1765)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator(CARD).first()).toBeVisible();
+    // Read styles only after hydration: a read on a node the grid is about to
+    // replace returns an empty computed style (AECI-1854).
+    await untilHydrated(page.locator('aec-product-card-grid'));
   });
 
   test('a card is 24px round, shadowed, with a 1px transparent edge', async ({ page }) => {
-    const s = await page
-      .locator(CARD)
-      .nth(1)
-      .evaluate((el) => {
-        const c = getComputedStyle(el);
-        return {
-          radius: c.borderTopLeftRadius,
-          width: c.borderTopWidth,
-          edge: c.borderTopColor,
-          shadow: c.boxShadow,
-          bg: c.backgroundColor,
-        };
-      });
+    const read = () =>
+      page
+        .locator(CARD)
+        .nth(1)
+        .evaluate((el) => {
+          const c = getComputedStyle(el);
+          return {
+            radius: c.borderTopLeftRadius,
+            width: c.borderTopWidth,
+            edge: c.borderTopColor,
+            shadow: c.boxShadow,
+            bg: c.backgroundColor,
+          };
+        });
+    // The grid can re-render once after hydration. A read that lands on the
+    // outgoing node gets an empty computed style, so wait for a settled card
+    // (AECI-1854).
+    await expect.poll(async () => (await read()).radius).toBe('24px');
+    const s = await read();
     expect(s.radius).toBe('24px');
     expect(s.width).toBe('1px');
     expect(s.edge).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);

@@ -115,7 +115,8 @@ async function readPaint(page: Page): Promise<Record<string, Paint>> {
       header: document.querySelector('aec-site-header header'),
       heading: document.querySelector('main h1'),
       button: Array.from(document.querySelectorAll('.aec-btn')).find(visible) ?? null,
-      search: document.querySelector('#header-search'),
+      // The field itself, not its host element (both can carry the id).
+      search: document.querySelector('input#header-search, #header-search input'),
     };
     const out: Record<string, Paint> = {};
     for (const [name, el] of Object.entries(targets)) {
