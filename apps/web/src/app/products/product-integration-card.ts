@@ -65,7 +65,7 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
       aecCard
       interactive
       [nested]="nested()"
-      class="flex h-full flex-col gap-4 p-6 text-(--text-primary)"
+      class="flex h-full flex-col gap-4 p-6 text-(--text-primary) has-[.aec-partner-link:focus-visible]:outline-0"
       data-testid="integration-card"
     >
       <div class="flex items-start gap-3">
@@ -195,10 +195,13 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
 
     <ng-template #partnerLink>
       <!-- relative z-10 lifts the partner link above the stretched pair link, so it
-           keeps its own destination. py-0.5 with -my-0.5 keeps a 24px target. -->
+           keeps its own destination. py-0.5 with -my-0.5 keeps a 24px target. The
+           link draws its own ring, and the article's has-[.aec-partner-link] rule
+           drops the card ring meanwhile: the card ring means the pair-page link, so
+           showing both drew two rings around two different destinations. -->
       <a
         [routerLink]="['/products', row().other.slug]"
-        class="relative z-10 -my-0.5 inline-block rounded-sm py-0.5 text-t-20 leading-tight font-semibold transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        class="aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 text-t-20 leading-tight font-semibold transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >{{ row().other.name }}</a
       >
     </ng-template>
