@@ -193,9 +193,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-integrations-redesign',
-    status: 'pending',
-    owner: 'AECI-1782',
-    order: 'New list: A to Z by name, id tie-break (R1); long lists in AECI-1783',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Cards and table keep the lane orders above (R1 keeps existing orders); reader filters remove rows only; chip options A to Z by name, slug tie-break; long lists in AECI-1783',
   },
   {
     key: 'product-page-hero-visual',
@@ -1495,6 +1496,12 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',
     count: 3,
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
+  },
+  {
+    // AECI-1782: the filter panel's term chips, A to Z by name with the slug last.
+    file: 'apps/web/src/app/products/integration-filter.ts',
+    count: 1,
+    registered: ['product-page-integrations-redesign'],
   },
   {
     file: 'apps/web/src/app/products/powered-hub-grouping.ts',
