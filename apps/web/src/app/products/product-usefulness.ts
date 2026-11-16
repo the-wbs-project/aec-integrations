@@ -76,7 +76,8 @@ import { AecIcon } from '../shared/icon/icon';
                   {{ group.name }}
                 </dt>
                 <dd class="m-0">
-                  <ul class="m-0 grid list-none gap-3 p-0">
+                  <!-- role="list": Safari drops list semantics from a list-none list. -->
+                  <ul class="m-0 grid list-none gap-3 p-0" role="list">
                     @for (point of group.points; track $index) {
                       <li class="flex gap-2 text-t-16 leading-normal text-(--text-primary)">
                         <aec-icon
