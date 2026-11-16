@@ -1,0 +1,5 @@
+# Workers Static Assets response headers (AECI-1892). docs/CACHE_STRATEGY.md "Font files".
+# A font file never changes under its name: a new version ships under a new name,
+# so browsers and the edge may keep each file for a year without asking again.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
