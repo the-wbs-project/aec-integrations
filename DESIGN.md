@@ -920,7 +920,7 @@ The mock-up builds the glow with `color-mix()`, which clash 6 bans in components
   | 768px  | 32                      | 32                           | 32                                     | 32                             |
   | 390px  | 24                      | 24                           | 24                                     | 24                             |
 
-  Without a scrollbar the 1440px row is 104 against 112. The header stays 64px below `md` and 76px from `md`. The Browse panel's first column and the mobile menu's content sit 1px further in, inside the panel's 1px side edge, as before. Below 320px the mobile menu keeps its 16px gutter.
+  Without a scrollbar the 1440px row is 104 against 112. The `/about` column records the page before AECI-1800, which moved its body onto the wrap, so it now lines up with the header. The header stays 64px below `md` and 76px from `md`. The Browse panel's first column and the mobile menu's content sit 1px further in, inside the panel's 1px side edge, as before. Below 320px the mobile menu keeps its 16px gutter.
 
 - ~~**Connector products on the band shell (AECI-1778).**~~ Settled for now: nothing moves. "Built within" stays in the facts card, under Vendor. "Integrations it powers" stays in the body, before or after Integrations by the §13.6 role rule. The reach line ("Connects N products in the AEC Integrations catalog") sits in the hero under the name. AECI-1788 designs them.
 
