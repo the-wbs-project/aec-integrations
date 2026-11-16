@@ -8,7 +8,7 @@
  *   so a face moved into `styles.css` would only exist once the late stylesheet
  *   loads, and the text would move twice.
  * - Every fallback family the token stacks in `styles.css` name must be declared.
- * - Only the two latin files are preloaded, and the hints are the same on every page.
+ * - No font is preloaded (a preload delayed first paint, see index.html).
  * - The font files carry a one-year immutable Cache-Control (`public/_headers`).
  * - With the web fonts blocked, the first heading and the block under it sit where
  *   they sit with the fonts loaded. That check needs the local fallback fonts
@@ -29,22 +29,16 @@ function fontFaces(html: string): { family: string; src: string }[] {
 }
 
 test.describe('self-hosted web fonts (AECI-1892)', () => {
-  test('the server HTML declares every face and preloads the two latin files', async ({
-    request,
-  }) => {
+  test('the server HTML declares every face and preloads none', async ({ request }) => {
     for (const path of ['/', '/products/revit']) {
       const html = await (await request.get(path)).text();
       expect(html, `${path}: no Google Fonts request`).not.toMatch(
         /fonts\.(googleapis|gstatic)\.com/,
       );
 
-      const preloads = [...html.matchAll(/<link[^>]*rel="preload"[^>]*as="font"[^>]*>/g)].map(
-        (m) => m[0].match(/href="([^"]+)"/)?.[1],
-      );
-      expect(preloads, `${path}: font preloads`).toEqual([
-        '/fonts/atkinson-hyperlegible-next-v7-latin.woff2',
-        '/fonts/source-serif-4-v15-latin.woff2',
-      ]);
+      // No font preload: one delayed first paint without making the fonts arrive sooner
+      // (index.html). The critical-CSS pass adds none either.
+      expect(html, `${path}: no font preload`).not.toMatch(/<link[^>]*as="font"[^>]*>/);
 
       const families = new Set(fontFaces(html).map((f) => f.family));
       expect(families.has('Source Serif 4'), 'Source Serif 4 face').toBe(true);

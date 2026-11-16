@@ -29,28 +29,13 @@
     -->
     <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
     <!--
-      The two web fonts are self-hosted (AECI-1892): public/fonts/, licences beside them,
-      served with a one-year immutable Cache-Control (public/_headers). A file never
-      changes under its name: a new font version is a new file name. The two latin files
-      every page paints with are preloaded, so they start with the HTML. The other
-      subsets load only when a page has a character in their unicode-range.
-    -->
-    <link
-      rel="preload"
-      href="/fonts/atkinson-hyperlegible-next-v7-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/fonts/source-serif-4-v15-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <!--
       Font faces (AECI-1892). e2e/font-loading.spec.ts guards this block.
+      The two web fonts are self-hosted: public/fonts/, licences beside them, served with
+      a one-year immutable Cache-Control (public/_headers). A file never changes under its
+      name: a new font version is a new file name. A subset loads only when a page has a
+      character in its unicode-range. No font is preloaded: the browser finds these faces
+      at first layout, and a preload delayed first paint by about 100ms on a throttled
+      phone profile without making the fonts arrive sooner.
       The @font-face rules sit here, not in styles.css: the SSR critical-CSS pass
       (Beasties) drops every @font-face from the inlined styles, because the families are
       named through var(--font-*), so a face in styles.css would only exist once the
