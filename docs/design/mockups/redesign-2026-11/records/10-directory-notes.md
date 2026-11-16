@@ -256,3 +256,21 @@ Not done: a screen reader pass, and the `impeccable` detector against a rendered
 - Decide questions 5 and 6: keep both filter orders and state each under its panel. I recommend that, with a separate issue to align `/search`.
 - Decide questions 7 and 8: one sort control on the index pages, and no count in the `/products` lede. I recommend both.
 - Act on AECI-1867: reindex production search so unclaimed products lose their logos.
+
+## Rulings 2026-11-16
+
+Chris ruled on the nine questions above, in chat. These bind the browse builds.
+
+| # | Question | Ruling |
+| -- | -- | -- |
+| 1 | Grouping, jump rail and "Show more" per group on browse lists | No. Keep the filter panel, sort and "Load more". |
+| 2 | The wide "Recently added" lead card on `/products` | Keep it. The recommendation to drop it was not taken. |
+| 3 | Browse and search pages on the 1328px wrap | Yes. |
+| 4 | Rating below five reviews | No line on cards, a dash in the table. The "Rating" column is renamed "Overall". |
+| 5 | `/products` and `/search` order their filters differently | Keep both and state each order under its panel. A separate issue aligns `/search`. |
+| 6 | An order caption under each filter panel | Yes, with a test that holds categories and trades A to Z. |
+| 7 | The `/categories` sort buttons with the "A → Z" arrow | Use the shared sort control. |
+| 8 | The count in the `/products` lede | Drop the number. |
+| 9 | 44px filter rows; the `/search` tab marker | Keep 44px. Forest underline for the tabs. |
+
+Chris also asked for a separate issue on long product names in cards.

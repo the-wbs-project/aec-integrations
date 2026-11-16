@@ -250,3 +250,23 @@ Not done: a screen reader pass, and the `impeccable` detector against a rendered
 - Decide questions 10 and 11: nest the pair headings and move the view toggle into the data band. I recommend both.
 - Decide question 12: the facts ground is Bone on the vendor page, the mailing list is Bone on the pair page.
 - Ask someone to check what a vendor's `integration_count` counts. Autodesk shows 48 beside a product with 54.
+
+## Rulings 2026-11-16
+
+Chris ruled on the thirteen questions above, in chat. Every recommendation was accepted. These bind the vendor page and pair page builds.
+
+| # | Question | Ruling |
+| -- | -- | -- |
+| 1 | Vendor page takes the band shell | Yes. |
+| 2 | A picture on the right of the vendor hero | None, for now. |
+| 3 | Vendor description moves into the hero; the "About" heading goes | Yes. |
+| 4 | Keep the products table; add the caption "A to Z by name." | Yes. The caption is approved. |
+| 5 | The vendor table's "Rating" column | Renamed "Overall", as on the browse lists. |
+| 6 | The unclaimed mark beside the note | The logo component decides, never above 32px. |
+| 7 | "Claim {vendor}" on a claimed vendor | Keep today's rule. |
+| 8 | Pair page takes the hero with the two products as the diagram | Yes. |
+| 9 | The hero badge that repeats the data heading | Keep it. |
+| 10 | Pair page heading levels h2/h3/h4 | Yes. |
+| 11 | The Basic/Detailed toggle moves into the data section | Yes. |
+| 12 | Bone band: facts area on the vendor page, mailing list on the pair page | Accepted. |
+| 13 | Social buttons on Forest get a Bone wash; no section nav on the vendor page | Accepted. |
