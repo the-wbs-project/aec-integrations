@@ -992,8 +992,9 @@ bafflingly wrong assertion target ("expected Fixture Procore, received ConEst
 IntelliBid").
 
   **Remedy — gate on a rendered value that can only come from the new data**,
-  then snapshot. On the listing pages the lede total works (`(N in total)`),
-  because the lede and the grid are driven by the same `httpResource`. Where a
+  then snapshot. On the listing pages the footer's status line works
+  (`Showing X of N`), because the footer and the grid are driven by the same
+  `httpResource`. The `/products` lede no longer carries a count (AECI-1794). Where a
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
 

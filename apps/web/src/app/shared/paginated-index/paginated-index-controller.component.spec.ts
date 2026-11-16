@@ -1,9 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component, TransferState, makeStateKey, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
+import { apiStateKey } from '../../core/server-api-interceptor';
 import { createIndexSetup, settle } from '../../core/testing/index-page.harness';
 
 import { type PaginatedIndex, createPaginatedIndex } from './paginated-index-controller';
@@ -263,6 +264,108 @@ describe('createPaginatedIndex', () => {
 
     expect(fixture.componentInstance.idx.error()).toBeTruthy();
     expect(fixture.componentInstance.idx.data()).toBeNull();
+    httpMock.verify();
+  });
+});
+
+/**
+ * AECI-1863 host: the result branches of `/products` and the term pages, in
+ * their order. The grid when there are items, else the loading line.
+ */
+@Component({
+  template: `
+    @if (idx.items().length > 0) {
+      <ul class="grid" [class.dim]="idx.reloading()">
+        @for (row of idx.items(); track row.id) {
+          <li>{{ row.id }}</li>
+        }
+      </ul>
+    } @else if (idx.pending()) {
+      <p class="loading">Loading</p>
+    }
+  `,
+})
+class TestHydrationHost {
+  readonly idx: PaginatedIndex<Resp> = createPaginatedIndex<Resp>({
+    apiPath: '/api/test',
+    validSorts: new Set(['created', 'name']),
+    defaultSort: 'created',
+    mode: 'append',
+  });
+}
+
+describe('createPaginatedIndex first client render (AECI-1863)', () => {
+  const PAGE1: Resp = { data: [{ id: 'p1' }, { id: 'p2' }], page: 1, perPage: 24, total: 2 };
+  // The request line the SSR resolver keys its TransferState entry by.
+  const LINE = '/api/test?page=1&perPage=24&sort=created';
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('renders the server page on the first render and keeps the same grid nodes when the fetch lands', async () => {
+    const { httpMock, router } = createIndexSetup(TestHydrationHost, 'test');
+    TestBed.inject(TransferState).set(makeStateKey<Resp>(apiStateKey(LINE)), PAGE1);
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestHydrationHost);
+    fixture.detectChanges();
+
+    // The first render matches the server render: the grid, not the loading
+    // line, and not dimmed. Before the fix it took the loading branch, which
+    // made hydration remove the server's grid and put it back.
+    const root = fixture.nativeElement as HTMLElement;
+    const grid = root.querySelector('ul.grid');
+    expect(grid).not.toBeNull();
+    expect(root.querySelector('.loading')).toBeNull();
+    expect(grid?.classList.contains('dim')).toBe(false);
+    expect(fixture.componentInstance.idx.pending()).toBe(false);
+    expect(fixture.componentInstance.idx.total()).toBe(2);
+
+    // The resource still asks (serverApiInterceptor answers it in the app).
+    httpMock.expectOne((r) => r.urlWithParams === LINE).flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+
+    // Same element, still in the document, same rows.
+    expect(root.querySelector('ul.grid')).toBe(grid);
+    expect(grid?.isConnected).toBe(true);
+    expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['p1', 'p2']);
+    httpMock.verify();
+  });
+
+  it('shows the busy state as before for a request the server did not render', async () => {
+    const { httpMock, router } = createIndexSetup(TestHydrationHost, 'test');
+    TestBed.inject(TransferState).set(makeStateKey<Resp>(apiStateKey(LINE)), PAGE1);
+    await router.navigateByUrl('/test?sort=name');
+    const fixture = TestBed.createComponent(TestHydrationHost);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('ul.grid')).toBeNull();
+    expect(root.querySelector('.loading')).not.toBeNull();
+    expect(fixture.componentInstance.idx.pending()).toBe(true);
+    httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(PAGE1);
+    await settle();
+    httpMock.verify();
+  });
+
+  it('dims on a later filter change after starting from the server page', async () => {
+    const { httpMock, router } = createIndexSetup(TestHydrationHost, 'test');
+    TestBed.inject(TransferState).set(makeStateKey<Resp>(apiStateKey(LINE)), PAGE1);
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestHydrationHost);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.urlWithParams === LINE).flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+
+    fixture.componentInstance.idx.onSortChange('name');
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.pending()).toBe(true);
+    expect(fixture.componentInstance.idx.reloading()).toBe(true);
+    httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(PAGE1);
+    await settle();
     httpMock.verify();
   });
 });

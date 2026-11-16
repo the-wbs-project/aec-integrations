@@ -48,11 +48,11 @@ const FACET_PARAM = /[?&](category_id|audience_id|trade_id|phase_id)=/;
 // appends client-side; `?page=N` is only the load-more deep-link). These tests
 // assert that contract — refining must NOT introduce `page=…`.
 const PAGE_PARAM = /[?&]page=/;
-// The total appears in the lede ("…indexed on AEC Integrations (N in total).")
-// AND, once the list is fully loaded, the pagination footer ("You've reached the
-// end (N in total)."). Scope to the lede so the count assertion stays a single
-// match regardless of how many pages are loaded.
-const LEDE_TOTAL = /indexed on AEC Integrations \(\d+ in total\)/;
+// The total is in the pagination footer's status line ("Showing X of N"). The
+// `/products` lede carried it too until ruling 8 of 2026-11-16 (AECI-1794)
+// dropped the number from the lede, so the footer is the one count on the page.
+const FOOTER_TOTAL = /Showing \d+ of \d+/;
+const footerTotal = (n: number | string) => new RegExp(`Showing \\d+ of ${n}\\b`);
 const FACET_CHECKBOX = 'aec-facet-sidebar aec-search-refinement-list input[type="checkbox"]';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CROSS_PARAMS = ['audience_id', 'trade_id', 'phase_id'] as const;
@@ -141,11 +141,11 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     const firstFacet = page.locator(FACET_CHECKBOX).first();
     test.skip((await firstFacet.count()) === 0, 'no facet data seeded in this environment');
 
-    // Unfiltered total from the lede — the restore target for Clear below.
-    const lede = page.getByText(LEDE_TOTAL);
-    await expect(lede).toBeVisible();
-    const unfilteredTotal = ((await lede.textContent()) ?? '').match(/\((\d+) in total\)/)?.[1];
-    expect(unfilteredTotal, 'lede must expose the unfiltered total').toBeTruthy();
+    // Unfiltered total from the footer — the restore target for Clear below.
+    const status = page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL);
+    await expect(status).toBeVisible();
+    const unfilteredTotal = ((await status.textContent()) ?? '').match(/of (\d+)/)?.[1];
+    expect(unfilteredTotal, 'the footer must expose the unfiltered total').toBeTruthy();
 
     // Refining wires the facet to the URL (the API-driven filter — CACHE_STRATEGY
     // §4 facets-in-the-key). AECI-328: the append-mode list pages internally, so
@@ -171,9 +171,9 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await expect(page).not.toHaveURL(FACET_PARAM);
 
     // AECI-189 AC4 (half 2) — the unfiltered listing is restored (the retrying
-    // assertion rides out the refetch window, during which the lede drops its
-    // number) and the Clear affordance disappears again.
-    await expect(lede).toContainText(`(${unfilteredTotal} in total)`);
+    // assertion rides out the refetch window) and the Clear affordance
+    // disappears again.
+    await expect(status).toHaveText(footerTotal(unfilteredTotal!));
     await expect(clear).toHaveCount(0);
   });
 
@@ -213,12 +213,14 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
 
     // `waitForResponse` resolves when the response ARRIVES, not when Angular has
     // applied it — so the grid can still be showing pre-refine data here. Gate
-    // on the DOM instead: the lede and the grid are driven by the same
-    // `httpResource` value, so a lede reading N proves the rendered grid is the
+    // on the DOM instead: the footer and the grid are driven by the same
+    // `httpResource` value, so a footer reading N proves the rendered grid is the
     // FINAL, refined one. Without this the snapshot below reads the stale first
     // card and the click then navigates to the refined one (read "Fixture
     // Procore", landed on "ConEst IntelliBid").
-    await expect(page.getByText(LEDE_TOTAL)).toContainText(`(${n} in total)`);
+    await expect(page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL)).toHaveText(
+      footerTotal(n),
+    );
 
     // AECI-190: the default view is the card grid, so select the product link
     // view-agnostically within #main rather than via the table-row selector.
@@ -321,7 +323,9 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     // ⇒ identical payload.
     const gridBody = (await (await page.request.get(gridResp.url())).json()) as { total: number };
     expect(gridBody.total).toBe(n);
-    await expect(page.getByText(LEDE_TOTAL)).toContainText(`(${n} in total)`);
+    await expect(page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL)).toHaveText(
+      footerTotal(n),
+    );
     if (n <= 24) {
       // One page of results (perPage=24) — every match is exactly one card link.
       await expect(page.locator('aec-product-card-grid a[href^="/products/"]')).toHaveCount(n);
