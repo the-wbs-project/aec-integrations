@@ -8,8 +8,8 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
 
 /**
  * One labelled row of the home browse block (`home-browse-block.ts`): an `<h3>`
- * facet label, a "View all" link to the facet index, and a flex-wrap of taxonomy
- * count-chips (`TaxonomyBadge` with `[count]`). The block mounts it four times:
+ * facet label, a "View all" link to the facet index, a caption that states the
+ * row's order, and a flex-wrap of taxonomy count-chips (`TaxonomyBadge` with `[count]`). The block mounts it four times:
  * category, trade, project phase, audience. Every row uses the same chip.
  *
  * Purely presentational. `terms` arrives already ranked and sliced by the caller,
@@ -33,23 +33,22 @@ export type BrowseChipTerm = Pick<TaxonomyTermWithCount, 'slug' | 'name' | 'prod
   imports: [RouterLink, TaxonomyBadge],
   host: { class: 'block' },
   template: `
-    <div
-      class="border-t border-(--border-default) py-6 md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-8"
-    >
-      <div
-        class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 md:flex-col md:justify-start"
-      >
-        <h3 class="font-display text-lg font-semibold tracking-tight text-(--text-primary)">
-          {{ label() }}
+    <div class="border-t py-6 md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:gap-8">
+      <div class="flex flex-col items-start gap-1 text-t-14">
+        <h3 class="text-(--text-primary)">
+          <span class="block leading-tight">{{ label() }}</span>
         </h3>
         <a
           [routerLink]="indexPath()"
-          class="rounded-sm text-sm text-(--text-secondary) underline decoration-(--border-strong)
-            underline-offset-4 transition-colors hover:text-(--text-primary)
-            focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="rounded-sm text-(--text-secondary) underline decoration-(--border-field)
+            underline-offset-4 transition-colors hover:text-(--accent-primary) hover:decoration-current
+            focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >
           {{ viewAllLabel() }}
         </a>
+        <span data-testid="browse-order" class="text-t-13 text-(--text-secondary)">{{
+          orderLabel()
+        }}</span>
       </div>
 
       <div class="mt-4 md:mt-0">
@@ -105,6 +104,25 @@ export class BrowseGrid {
         return $localize`:@@home.browse.audience.viewAll:View all audiences`;
       case 'phase':
         return $localize`:@@home.browse.phase.viewAll:View all phases`;
+    }
+  });
+
+  /**
+   * How the row is ordered, printed under "View all" (mock-up 9, question 5). Every
+   * list on the home states its order (no pay-for-placement). The words follow the
+   * Browse menu's footer line (PLAN.md §4.8). The orders themselves are set by
+   * `home.ts` (counts, `display_order`) and by the curated role list.
+   */
+  protected readonly orderLabel = computed(() => {
+    switch (this.kind()) {
+      case 'category':
+        return $localize`:@@home.browse.category.order:Most products first`;
+      case 'trade':
+        return $localize`:@@home.browse.trade.order:Most products first`;
+      case 'audience':
+        return $localize`:@@home.browse.audience.order:Roles chosen by AEC Integrations`;
+      case 'phase':
+        return $localize`:@@home.browse.phase.order:In project order`;
     }
   });
 

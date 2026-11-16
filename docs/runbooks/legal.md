@@ -1,7 +1,7 @@
 # Legal runbooks
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
-report or demand letter, a subpoena for a reviewer's identity. The last four sections run our published legal versions: the
+report or demand letter, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
 change notice, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
 [`alerts.md`](./alerts.md). Subscription and billing procedures are in
 [`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
@@ -323,8 +323,58 @@ records before they run, rather than stopping the job:
 | GitHub Actions artifacts | Axe and e2e artifacts after 7 to 30 days | Continuous |
 | Account deletion | The user's profile, and the link from their reviews | When the user asks |
 
+**Records no job deletes.** The plan-change ranking snapshots under `evidence/` in each `UPLOADS`
+bucket are under a 4-year R2 bucket lock (ADR 0056). Nobody can delete or overwrite them, so the hold
+needs no step for them. Their ledger, `plan_change_snapshots` in D1, has no delete path either.
+
 **Ending a hold.** Only when the attorney says the matter is closed. Record the end date on the Linear
 issue and tell everyone who got the notice.
+
+## Pull the ranking evidence for a product
+
+Use this when a demand letter, a regulator or counsel asks us to show that a plan did not change a
+product's ranking. The Terms promise it, and Florida's unfair trade practices law (FDUTPA) wants
+records made at the time (counsel Q23). What exists and where is `docs/SEARCH_RANKING.md`
+"Substantiation and retention".
+
+Every time a plan starts or ends on a product, AECi records two ranking snapshots of it: one at the
+event and one 30 days later. Each holds the product's ranking inputs, the search record, and its
+position in `/products`, each taxonomy page it is on, and the home "most integrated" list. The
+snapshots are JSON objects in the production `UPLOADS` bucket, under a 4-year lock. The D1 table
+`plan_change_snapshots` is the index to them. ADR 0056.
+
+1. Open a Linear issue for the matter, as for every legal event above.
+2. Find the product id. Set `SLUG` in your shell to the product's slug from its URL, then run:
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, name FROM products WHERE slug = '$SLUG'"
+```
+
+3. Set `PRODUCT_ID` to that id. List its snapshots by date. Narrow `event_at` to the dates asked about.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT event_at, kind, phase, cause, r2_key, written_at FROM plan_change_snapshots WHERE product_id = '$PRODUCT_ID' ORDER BY event_at, phase"
+```
+
+4. A retracted product has no `products` row. Its snapshots are still in the ledger. Take its id from
+   the `product.deleted` audit row or from the request, and run step 3.
+5. For each `r2_key`, set `KEY` to it and download the object into the matter's hold folder:
+
+```
+cd /tmp && npx wrangler r2 object get "aeci-uploads-production/$KEY" --remote --file "$(basename "$KEY")"
+```
+
+6. Each file is one snapshot. `positions` gives the rank and list size per list. `inputs` gives
+   the ranking inputs. `plan_now` says whether a plan was live when it was taken. Compare the
+   `event` snapshot with the `followup` one 30 days later. `commit_sha` names the ranking code
+   that was running. That code and its tests are in git at that commit.
+   Positions are computed from live D1 at `taken_at`, not from cached pages or Algolia search.
+   Algolia uses whole-second timestamps and different tie breakers, and the index can lag D1.
+   `algolia_record` is what the sync would write, not a read of the stored index record. Do not
+   present the saved D1 rank as a search position (`SEARCH_RANKING.md` §7a).
+7. A row with `r2_key` NULL was not written yet, or is failing. See `alerts.md`
+   "Plan-change snapshot sweep". Say so in the reply rather than leave the date out.
+8. Move the files out of `/tmp` into the hold folder.
 
 ## A legal change notice did not go out
 

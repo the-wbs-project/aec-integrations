@@ -22,6 +22,11 @@
  * The AECI-1614 plan-end mirrors and edit stamps join too. They exist to print a caption
  * and read the plan's end, so nothing that ranks may read them (§13.4).
  *
+ * The AECI-1621 plan-change evidence ledger joins too. A snapshot records a product's
+ * plan beside its positions, so a ranking that read it would read the plan. Its modules
+ * (`plan-change-ledger.ts`, `plan-change-evidence.ts`, `plan-snapshot-sweep.ts`) sit
+ * outside the firewalled names on purpose: they read plan state as context.
+ *
  * This is an INVARIANT test, asserted over module SOURCE: behaviour cannot see a
  * read that does not exist yet, and a source scan can. It fails if any module on
  * those paths, in `apps/api/src` or `packages/shared/src`, names one of the tables
@@ -82,6 +87,10 @@ const FORBIDDEN = [
   'managedEditedAt',
   'vendor_edited_at',
   'vendorEditedAt',
+  // AECI-1621: the plan-change ranking evidence. It reads plan state by design, so no
+  // ranking module may read it back (ADR 0056).
+  'plan_change_snapshots',
+  'planChangeSnapshots',
 ];
 
 function sourceFiles(root: string, dir = root, acc: string[] = []): string[] {

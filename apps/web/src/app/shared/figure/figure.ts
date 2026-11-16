@@ -24,6 +24,20 @@ export type FigureSize = 'fig' | 'score';
 export type FigureZeroMode = 'integrations-not-on-record';
 
 /**
+ * The legal heading for a product with no integrations on record (`PLAN.md` §5.2). The
+ * figure and the product page's zero-integration section (AECI-1786) both print it, so
+ * one function owns the words and the one message id.
+ */
+export function integrationsZeroHeading(product: string): string {
+  return $localize`:@@shared.figure.zero.integrations.heading:We have no integrations for ${product}:PRODUCT: on record`;
+}
+
+/** The legal caveat that always sits with `integrationsZeroHeading` (`PLAN.md` §5.2). */
+export function integrationsZeroCaveat(): string {
+  return $localize`:@@shared.figure.zero.integrations.caveat:Not on record means we have not found one. It is not proof that none exists.`;
+}
+
+/**
  * `aec-figure` (AECI-1767; DESIGN.md §3 Figure, §5 Score Display and
  * Integration stat, clashes 8 and 25).
  *
@@ -94,14 +108,8 @@ export class AecFigure {
     () => this.isZero() && this.zero() !== null && !!this.product(),
   );
 
-  protected readonly zeroHeading = computed(() => {
-    const product = this.product();
-    return $localize`:@@shared.figure.zero.integrations.heading:We have no integrations for ${product}:PRODUCT: on record`;
-  });
-  protected readonly zeroCaveat = computed(
-    () =>
-      $localize`:@@shared.figure.zero.integrations.caveat:Not on record means we have not found one. It is not proof that none exists.`,
-  );
+  protected readonly zeroHeading = computed(() => integrationsZeroHeading(this.product() ?? ''));
+  protected readonly zeroCaveat = computed(() => integrationsZeroCaveat());
 
   protected readonly numeralClass = computed(
     () =>

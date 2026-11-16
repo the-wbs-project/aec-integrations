@@ -150,9 +150,10 @@ describe('POST /api/vendor/licenses/:id/assign', () => {
     });
     expect(parsed.license.assigned_at).not.toBeNull();
 
-    // [UPDATE, race sentinel, audit row, product mirror, vendor reconcile].
+    // [UPDATE, race sentinel, audit row, product mirror, plan-change evidence rows
+    // (AECI-1621), vendor reconcile].
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls[0]![0]).toHaveLength(5);
+    expect(batch.mock.calls[0]![0]).toHaveLength(6);
     batch.mockRestore();
 
     const row = await readLicense(pool);

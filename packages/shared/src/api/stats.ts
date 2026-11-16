@@ -121,7 +121,7 @@ export const statsCacheValueSchemas = {
   'home.most_integrated_product': MostIntegratedProductSchema,
   'home.most_active_category': MostActiveCategorySchema,
   'home.trending_products': z.array(ProductListItemSchema).max(5),
-  // The home hero's "Popular:" row: top 5 over 30 days (AECI-1572), by views the
+  // The home hero's "Most viewed" row: top 5 over 30 days (AECI-1572), by views the
   // traffic classifier judged a person or could not decide about (AECI-1586).
   'home.popular_products': z.array(ProductListItemSchema).max(5),
   'home.recently_added_products': z.array(ProductListItemSchema).max(10),
@@ -162,7 +162,7 @@ export const HomeStatsResponseSchema = z.object({
   // Optional (AECI-1572) because the two Workers deploy separately. An SSR Worker
   // on this schema can meet an API Worker that predates the key, and a page
   // cached before the deploy carries a payload without it. Absent reads as `[]`:
-  // the hero's "Popular:" row uses its category fallback. The endpoint always sends it.
+  // the hero's "Most viewed" row uses its category fallback. The endpoint always sends it.
   popular_products: statsCacheValueSchemas['home.popular_products'].optional(),
 });
 export type HomeStatsResponse = z.infer<typeof HomeStatsResponseSchema>;

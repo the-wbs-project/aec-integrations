@@ -14,7 +14,7 @@ import { BoneBand } from './bone-band';
   selector: 'aec-bone-band-host',
   imports: [BoneBand],
   template: `
-    <aec-bone-band [first]="first()" data-testid="one">
+    <aec-bone-band [first]="first()" [flushEnd]="flushEnd()" data-testid="one">
       <h2 data-testid="content">Heading</h2>
     </aec-bone-band>
     @if (second()) {
@@ -24,6 +24,7 @@ import { BoneBand } from './bone-band';
 })
 class Host {
   readonly first = signal(false);
+  readonly flushEnd = signal(false);
   readonly second = signal(false);
 }
 
@@ -78,6 +79,17 @@ describe('aec-bone-band (AECI-1766)', () => {
     expect(wrap.classList.contains('pt-8')).toBe(true);
     expect(wrap.classList.contains('md:pt-12')).toBe(true);
     expect(wrap.classList.contains('pt-16')).toBe(false);
+  });
+
+  it('drops only its bottom padding when flushEnd is set (AECI-1792)', async () => {
+    await make();
+    fixture.componentInstance.flushEnd.set(true);
+    await fixture.whenStable();
+    const wrap = q('.aec-bone-band > div')!;
+    expect(wrap.classList.contains('pb-0')).toBe(true);
+    expect(wrap.classList.contains('pb-16')).toBe(false);
+    expect(wrap.classList.contains('md:pb-24')).toBe(false);
+    expect(wrap.classList.contains('pt-16')).toBe(true);
   });
 
   it('has no border and no animation of its own', async () => {

@@ -18,7 +18,7 @@
  *     page_views, last 30d, same floor, AECI-1572; only views the traffic
  *     classifier judged a person or could not decide about, AECI-1586),
  *     recently_added_products (≤10, last 30d). The home renders only the
- *     counts and `popular_products` (the hero's "Popular:" row); the
+ *     counts and `popular_products` (the hero's "Most viewed" row); the
  *     trending/recently-added lists are computed but not rendered.
  *   - `recent_integrations` was dropped by AECI-1238. Nothing had rendered it since
  *     AECI-1573, and it carried `mechanism_name`, a value AECi can hide (§11d.7),
@@ -127,19 +127,19 @@ const TRENDING_LIMIT = 5;
  *  ingest-time bot filter (`PAGE_VIEWS_MIN_BOT_SCORE` is inert in prod). Inert at
  *  healthy traffic (the top-5 clear it many-fold); it only bites in low-traffic
  *  windows, where the key holds `[]` (for `popular_products` that sends the hero's
- *  "Popular:" row to its category fallback). Raising it never exceeds `TRENDING_LIMIT`, so the
+ *  "Most viewed" row to its category fallback). Raising it never exceeds `TRENDING_LIMIT`, so the
  *  `.max(5)` schema cap is unaffected. */
 const TRENDING_MIN_VIEWS = 3;
 
-/** "last N days" window for the home hero's "Popular:" row (AECI-1572). Longer
+/** "last N days" window for the home hero's "Most viewed" row (AECI-1572). Longer
  *  than trending so a thin month still names five products people actually read. */
 const POPULAR_WINDOW_DAYS = 30;
 
-/** How many products the "Popular:" row names (mirrored by the
+/** How many products the "Most viewed" row names (mirrored by the
  *  `home.popular_products` Zod `.max(5)` cap in `@aeci/shared`). */
 const POPULAR_LIMIT = 5;
 
-/** The classes whose views the "Popular:" row counts (AECI-1586): a person, or a
+/** The classes whose views the "Most viewed" row counts (AECI-1586): a person, or a
  *  view the classifier could not decide about. `unresolved` is in so the
  *  `TRENDING_MIN_VIEWS` floor stays reachable. Dropping it is a later ruling.
  *  Typed against `TrafficClass`, so a renamed class fails the build. */
@@ -149,7 +149,7 @@ const POPULAR_CLASSES = [
 ] as const satisfies readonly TrafficClass[];
 
 /**
- * The "Popular:" row's population (AECI-1586, ruled 2026-11-03): the view has a
+ * The "Most viewed" row's population (AECI-1586, ruled 2026-11-03): the view has a
  * classification at the current `TRAFFIC_CLASSIFIER_VERSION` in
  * {@link POPULAR_CLASSES}.
  *
@@ -259,6 +259,20 @@ export async function computeTotalContributingFirms(db: Db): Promise<number> {
   return row?.value ?? 0;
 }
 
+/** The "most integrated" eligibility: visible, and not a connector (AECI-1087, below).
+ *  Exported so the plan-change evidence (AECI-1621) reads the same set. */
+export const mostIntegratedWhere: SQL = and(
+  ne(products.productRole, 'connector'),
+  visibleProductWhere,
+) as SQL;
+
+/** The "most integrated" order. Exported for the same reason as the `where`. */
+export const mostIntegratedOrderBy: SQL[] = [
+  desc(products.integrationCount),
+  textAsc(products.name),
+  asc(products.id),
+];
+
 export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegratedProduct | null> {
   // Ordering is delegated to the DB: highest `integration_count` wins, then name
   // ascending, then `id`. The name term is case-insensitive (AECI-825), which
@@ -273,10 +287,10 @@ export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegrat
   // itself is unchanged; only this one product ranking filters on role.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
-    where: and(ne(products.productRole, 'connector'), visibleProductWhere),
+    where: mostIntegratedWhere,
     // AECI-1618: a home-page logo shows only while the listing is claimed.
     extras: claimedProductExtra,
-    orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],
+    orderBy: mostIntegratedOrderBy,
   });
   if (!row) return null;
   return {
@@ -445,7 +459,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
 }
 
 /**
- * The home hero's "Popular:" row (AECI-1572): the five most-viewed products over
+ * The home hero's "Most viewed" row (AECI-1572): the five most-viewed products over
  * the last `POPULAR_WINDOW_DAYS`. Same floor, operator exclusion and pair
  * attribution as trending (`NOT_INTERNAL`, pair views count for both endpoints,
  * `TRENDING_MIN_VIEWS`). The population differs (AECI-1586): views the nightly

@@ -9,6 +9,9 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
+
 import { HomeBrowseBlock } from './home-browse-block';
 import { HomeClosingCta } from './home-closing-cta';
 import { HomeCredibilityStrip } from './home-credibility-strip';
@@ -16,33 +19,34 @@ import { HomeHero } from './home-hero';
 import { HomeWhy } from './home-why';
 
 /**
- * Home page (`/`). Directory first, then the argument. Four bands, top to bottom:
+ * Home page (`/`). Directory first, then the argument. Four bands, top to bottom,
+ * built on mock-up 9 (AECI-1789, AECI-1792):
  *
- *   1. Hero band (Bone): the hero (search, the "Popular:" product row, the pair
- *      finder), then the credibility row as the last row inside the same Bone
- *      ground.
+ *   1. Hero band: the page's one Bone band (`aec-bone-band`). The hero (search,
+ *      the "Most viewed" row, the pair finder card), then the credibility row as
+ *      the band's last row.
  *   2. Browse (white): `HomeBrowseBlock`, one section with four chip rows
- *      (category, trade, project phase, audience).
- *   3. The argument (white): one evidence band (`HomeWhy`): the problem, three
- *      cited figures, and what we do instead.
- *   4. Closing CTA (Bone): the vendor call to action and suggest-a-tool.
+ *      (category, trade, project phase, audience). Each row states its order.
+ *   3. The argument (white): `HomeWhy`. The problem, three cited figures, and
+ *      "What we do instead" as the page's one Forest feature card.
+ *   4. Closing CTA (white): `HomeClosingCta`, one card with two panes.
  *
  * The footer lives in the app shell.
  *
- * **Grounds.** Two only. Bone (`--accent-warm`) frames the page: the hero band
- * and the closing CTA. Everything between them is white (`--surface-base`), and
- * white bands are separated by a hairline `border-t` plus their own spacing and
- * headings. Cards on the home use one recipe: white fill, a 1px
- * `--border-default` border, `--radius-lg`. The section components are
- * background-agnostic bare `<section>`s; the band wrapper (ground, `max-w-7xl`, vertical rhythm) lives here.
+ * **Grounds.** One Bone band, the hero (DESIGN.md §2, clash 2). Every other band
+ * is white, and two white bands are split by a hairline `border-t`. Every band's
+ * content sits on the 1328px page wrap (`BAND_WRAP_CLASS`). White bands take
+ * 96px above and below, 64px below `md`. The section components are bare
+ * `<section>`s. This file owns the band wrappers.
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
  *   - `browse` (`homeBrowseResolver`): the live aggregate taxonomy
- *     (`GET /api/taxonomy`) for the browse block, ranked by `product_count`.
+ *     (`GET /api/taxonomy`) for the browse block, ranked by `product_count`. Its
+ *     top five categories are also the hero's "Largest categories" fallback.
  *   - `stats` (`homeStatsResolver`): the nightly `stats_cache` snapshot
- *     (`GET /api/stats/home`) for the credibility row and the hero's "Popular:"
- *     row (`popular_products`, most viewed over 30 days).
+ *     (`GET /api/stats/home`) for the credibility row and the hero's "Most
+ *     viewed" row (`popular_products`, most viewed over 30 days).
  *
  * Both are null-safe: a null resolver result collapses each section to its
  * empty state (`?? 0` / `?? []`), so the page renders cleanly against a sparse
@@ -55,16 +59,21 @@ import { HomeWhy } from './home-why';
  * Caching: the route is cacheable and visitor-state-neutral (no cookie or theme
  * read). It carries `Cache-Tag: route:index,index:home,taxonomy` with the home
  * TTL (`s-maxage=900`) from `cacheTagInputsForPath('/')`. The daily snapshot
- * needs no extra purge handle; the 900s edge TTL bounds staleness.
+ * needs no extra purge handle; the 900s edge TTL bounds staleness. Both hero
+ * rows come from resolver data, so the row is in the cached HTML and the
+ * `taxonomy` tag purges the category fallback with the browse block.
  */
 @Component({
   selector: 'app-home',
-  imports: [HomeHero, HomeCredibilityStrip, HomeBrowseBlock, HomeWhy, HomeClosingCta],
+  imports: [BoneBand, HomeHero, HomeCredibilityStrip, HomeBrowseBlock, HomeWhy, HomeClosingCta],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- 1. Hero band (Bone): the hero, closed by the credibility row. -->
-      <div class="border-b border-(--border-default) bg-(--accent-warm)">
-        <aec-home-hero [popularProducts]="popularProducts()" />
+      <!-- 1. Hero band: the page's one Bone band, closed by the credibility row. -->
+      <aec-bone-band flushEnd>
+        <aec-home-hero
+          [popularProducts]="popularProducts()"
+          [largestCategories]="largestCategories()"
+        />
         <aec-home-credibility-strip
           [totalProducts]="totalProducts()"
           [totalVendors]="totalVendors()"
@@ -73,11 +82,11 @@ import { HomeWhy } from './home-why';
           [totalContributingFirms]="totalContributingFirms()"
           [integrationsAdded30d]="integrationsAdded30d()"
         />
-      </div>
+      </aec-bone-band>
 
       <!-- 2. Browse (white): one block, four chip rows. -->
-      <div class="bg-(--surface-base)">
-        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+      <div class="py-16 md:py-24">
+        <div [class]="wrap">
           <aec-home-browse-block
             [categories]="topCategories()"
             [trades]="topTrades()"
@@ -87,15 +96,19 @@ import { HomeWhy } from './home-why';
         </div>
       </div>
 
-      <!-- 3. The argument (white): one evidence band. -->
-      <div class="border-t border-(--border-default) bg-(--surface-base)">
-        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+      <!-- 3. The argument (white): figures, then the Forest feature card. -->
+      <div class="border-t py-16 md:py-24">
+        <div [class]="wrap">
           <aec-home-why />
         </div>
       </div>
 
-      <!-- 4. Closing CTA (Bone), directly above the app-shell footer. -->
-      <aec-home-closing-cta />
+      <!-- 4. Closing CTA (white), directly above the app-shell footer. -->
+      <div class="border-t py-16 md:py-24">
+        <div [class]="wrap">
+          <aec-home-closing-cta />
+        </div>
+      </div>
     </div>
   `,
 })
@@ -113,7 +126,14 @@ export class Home {
     { initialValue: (this.route.snapshot.data['stats'] ?? null) as HomeStatsResponse | null },
   );
 
+  protected readonly wrap = BAND_WRAP_CLASS;
+
   protected readonly topCategories = computed(() => topByCount(this.browse()?.categories, TOP_N));
+  /**
+   * The hero's fallback row: the five largest categories, the head of the same
+   * ranked list the browse block shows. Resolver data, so it is in the SSR HTML.
+   */
+  protected readonly largestCategories = computed(() => this.topCategories().slice(0, 5));
   /**
    * Trades are the one facet with a publication floor (`TRADES_VOCABULARY.md`
    * §6): a trade below it has no `/trades/:slug` page worth linking, so drop it
@@ -132,7 +152,7 @@ export class Home {
 
   // Stats inputs. A null resolver result (a render mode without REQUEST_CONTEXT,
   // or a failed client fetch) collapses to each section's empty state (`0`
-  // suppresses a credibility figure, `[]` sends the hero's "Popular:" row to its category fallback).
+  // suppresses a credibility figure, `[]` sends the hero's "Most viewed" row to its category fallback).
   protected readonly totalIntegrations = computed(() => this.stats()?.total_integrations ?? 0);
   protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
   protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
