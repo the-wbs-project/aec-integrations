@@ -24,6 +24,7 @@ import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
+import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -84,6 +85,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     ProductPoweredHub,
     ProductReviews,
     ProductUsefulnessSection,
+    ProductWhoItIsFor,
     RequestDrawer,
     SectionNav,
   ],
@@ -114,34 +116,43 @@ import { ProductUsefulnessSection } from './product-usefulness';
         }
 
         <!--
-          About goes in the LEAD slot, not the body slot: below lg the layout
-          renders the metadata sidebar directly after this block, so the vendor /
-          taxonomy / actions facts read as part of About instead of being dumped
-          under Reviews at the foot of the page. At lg this is simply the top of
-          column 1, and nothing moves. See DetailLayout.
+          About is the page's one Bone band (AECI-1780, mock-up 6): the description on the
+          left and "Who it is for" on the right from lg, stacked below it. It goes in the
+          LEAD slot, which the band shell paints Bone. It renders when either column has
+          something to show, and the section nav applies the same test (hasAbout).
         -->
-        @if (p.description || underReview('description')) {
-          <div slot="body-lead" class="space-y-12">
-            <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
-              <h2
-                id="description-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-                i18n="@@products.detail.body.description"
-              >
-                About
-              </h2>
-              @if (p.description) {
-                <p
-                  class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)"
-                >
-                  {{ p.description }}
-                </p>
-                @if (p.captions?.description; as c) {
-                  <aec-field-caption [caption]="c" [page]="captionPage()" />
+        @if (hasAbout()) {
+          <div slot="body-lead">
+            <section
+              id="about"
+              aria-labelledby="description-title"
+              class="grid scroll-mt-20 items-start gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-12"
+            >
+              <div class="min-w-0 space-y-6">
+                <h2 id="description-title">
+                  <span
+                    class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
+                    i18n="@@products.detail.body.description"
+                    >About</span
+                  >
+                </h2>
+                @if (p.description) {
+                  <p
+                    class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
+                    data-testid="product-description"
+                  >
+                    {{ p.description }}
+                  </p>
+                  @if (p.captions?.description; as c) {
+                    <aec-field-caption [caption]="c" [page]="captionPage()" />
+                  }
+                } @else if (underReview('description')) {
+                  <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
+                  <aec-under-review data-testid="description-under-review" />
                 }
-              } @else {
-                <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
-                <aec-under-review data-testid="description-under-review" />
+              </div>
+              @if (hasWhoItIsFor()) {
+                <aec-product-who-it-is-for class="min-w-0" [product]="p" [page]="captionPage()" />
               }
             </section>
           </div>
@@ -273,6 +284,22 @@ export class ProductDetailPage {
     return isUnderReview(this.product()?.under_review, field);
   }
 
+  /** Whether the About band's "Who it is for" column renders (AECI-1780). */
+  protected readonly hasWhoItIsFor = computed(() => {
+    const p = this.product();
+    return !!p && hasWhoItIsFor(p);
+  });
+
+  /**
+   * Whether the About band renders: the description, its under-review marker, or "Who it
+   * is for". An empty band does not render, and the section nav drops it (AECI-1780).
+   */
+  protected readonly hasAbout = computed(() => {
+    const p = this.product();
+    if (!p) return false;
+    return !!p.description || isUnderReview(p.under_review, 'description') || this.hasWhoItIsFor();
+  });
+
   /**
    * Whether the "Integrations it powers" section renders. Three branches, in
    * order (Stage 1.5 §12.3 as amended by §13.4(2) / AECI-707):
@@ -362,7 +389,7 @@ export class ProductDetailPage {
     const p = this.product();
     if (!p) return [];
     const items: SectionNavItem[] = [];
-    if (p.description || isUnderReview(p.under_review, 'description')) {
+    if (this.hasAbout()) {
       items.push({ id: 'about', label: $localize`:@@products.detail.nav.about:About` });
     }
     if (this.hasUsefulness()) {

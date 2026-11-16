@@ -297,34 +297,36 @@ describe('ProductFactsCard (AECI-1779)', () => {
     });
   });
 
-  describe('the lower "who it is for" row', () => {
-    it('holds Audiences, Trades and Project phases with the Managed caption, until AECI-1780', () => {
-      const { card } = setup(
-        buildProduct({
-          audiences: [audience],
-          captions: {
-            description: null,
-            profile: null,
-            usefulness: null,
-            managed: {
-              form: 'updated',
-              vendor_names: ['Procore Technologies'],
-              date: '2026-10-03',
-            },
-            corrections: [],
-          },
-        }),
-      );
-      const facets = card.querySelector('[data-testid=product-facts-facets]')!;
-      expect(facets.querySelector('#audiences-label')).not.toBeNull();
-      expect(facets.querySelector('[data-testid=managed-caption]')).not.toBeNull();
-      // It sits after the top row, so the reading order is the mock-up's.
-      expect(card.lastElementChild).toBe(facets);
+  // AECI-1780: Audiences, Trades and Project phases moved to the About band.
+  describe('the Managed group in the card', () => {
+    const managed = {
+      description: null,
+      profile: null,
+      usefulness: null,
+      managed: {
+        form: 'updated' as const,
+        vendor_names: ['Procore Technologies'],
+        date: '2026-10-03',
+      },
+      corrections: [],
+    };
+
+    it('holds no facet group, and no Managed caption for facets alone', () => {
+      const { card } = setup(buildProduct({ audiences: [audience], captions: managed }));
+      expect(card.querySelector('#audiences-label')).toBeNull();
+      expect(card.querySelector('[data-testid=product-facts-facets]')).toBeNull();
+      expect(card.querySelector('[data-testid=managed-caption]')).toBeNull();
     });
 
-    it('is absent when there is nothing to put in it', () => {
-      const { card } = setup(buildProduct());
-      expect(card.querySelector('[data-testid=product-facts-facets]')).toBeNull();
+    it('captions the Resources links, right after Resources', () => {
+      const { card } = setup(
+        buildProduct({ api_docs_url: 'https://developers.procore.com/docs', captions: managed }),
+      );
+      const caption = card.querySelector('[data-testid=managed-caption]')!;
+      expect(caption.textContent).toContain('Maintained by Procore Technologies');
+      expect(caption.previousElementSibling?.getAttribute('aria-labelledby')).toBe(
+        'resources-label',
+      );
     });
   });
 });

@@ -64,8 +64,9 @@ const FOCUS_RING =
  *   3. Categories, with AECi's correction and the profile caption;
  *   4. Resources, then the claim and correction entries and "Learn more about claiming".
  *
- * Audiences, Trades and Project phases keep their place in the card, in a lower row with
- * the Managed caption, until AECI-1780 moves them into the About band.
+ * Audiences, Trades and Project phases are not here. AECI-1780 moved them into the About
+ * band (`product-who-it-is-for.ts`) with their corrections and their copy of the Managed
+ * caption. The card keeps the Managed caption for the two Resources links.
  *
  * Not here: the reach line. `STAGE_1_5_SPEC.md` §13.7 places "N more pairs reachable via
  * connectors" under the Integrations section, and the payload contract says
@@ -294,6 +295,13 @@ const FOCUS_RING =
             </section>
           }
 
+          <!-- AECI-1614: the Managed group's line for the two Resources links, a sibling of
+               Resources. The group's audiences, trades and phases moved to the About band
+               (AECI-1780), which carries its own copy of the line beside them. -->
+          @if (managedCaption(); as c) {
+            <aec-field-caption data-testid="managed-caption" [caption]="c" [page]="captionPage()" />
+          }
+
           <section aria-labelledby="actions-label" class="space-y-3">
             <h2 id="actions-label" [class]="groupHeading">
               <aec-icon name="hand" decorative [size]="4" />
@@ -360,86 +368,6 @@ const FOCUS_RING =
           </section>
         </div>
       </div>
-
-      <!-- Who it is for: Audiences, Trades and Project phases, in the facet sidebar's
-           dimension order, with the Managed caption. In the card until AECI-1780 moves
-           them into the About band. -->
-      @if (hasFacets() || managedCaption()) {
-        <div class="space-y-6 border-t p-6" data-testid="product-facts-facets">
-          @if (hasFacets()) {
-            <div class="grid gap-6 md:auto-cols-fr md:grid-flow-col">
-              @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
-                <section aria-labelledby="audiences-label" class="min-w-0 space-y-3">
-                  <h2 id="audiences-label" [class]="groupHeading">
-                    <aec-icon name="users" decorative [size]="4" />
-                    <span i18n="@@products.detail.metadata.audiences">Audiences</span>
-                  </h2>
-                  @if (p.audiences.length > 0) {
-                    <div class="flex flex-wrap gap-2">
-                      @for (d of p.audiences; track d.slug) {
-                        <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
-                      }
-                    </div>
-                  }
-                  <aec-field-caption
-                    [correction]="slotCorrection('audience_slugs', p.audiences.length > 0)"
-                    [page]="captionPage()"
-                  />
-                </section>
-              }
-
-              <!-- Trades (AECI-544). Sparse by design: a product is tagged only when it has
-                   trade-specific value. Never gated on the publication floor, because the
-                   tag is true even when the trade page is not promoted yet
-                   (TRADES_VOCABULARY.md section 6). -->
-              @if (p.trades.length > 0 || slotCorrection('trade_slugs', false)) {
-                <section aria-labelledby="trades-label" class="min-w-0 space-y-3">
-                  <h2 id="trades-label" [class]="groupHeading">
-                    <aec-icon name="hard-hat" decorative [size]="4" />
-                    <span i18n="@@products.detail.metadata.trades">Trades</span>
-                  </h2>
-                  @if (p.trades.length > 0) {
-                    <div class="flex flex-wrap gap-2">
-                      @for (tr of p.trades; track tr.slug) {
-                        <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
-                      }
-                    </div>
-                  }
-                  @if (slotCorrection('trade_slugs', p.trades.length > 0); as c) {
-                    <aec-field-caption [correction]="c" [page]="captionPage()" />
-                  }
-                </section>
-              }
-
-              @if (p.phases.length > 0 || slotCorrection('phase_slugs', false)) {
-                <section aria-labelledby="phases-label" class="min-w-0 space-y-3">
-                  <h2 id="phases-label" [class]="groupHeading">
-                    <aec-icon name="gantt" decorative [size]="4" />
-                    <span i18n="@@products.detail.metadata.phases">Project phases</span>
-                  </h2>
-                  @if (p.phases.length > 0) {
-                    <div class="flex flex-wrap gap-2">
-                      @for (ph of p.phases; track ph.slug) {
-                        <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
-                      }
-                    </div>
-                  }
-                  @if (slotCorrection('phase_slugs', p.phases.length > 0); as c) {
-                    <aec-field-caption [correction]="c" [page]="captionPage()" />
-                  }
-                </section>
-              }
-            </div>
-          }
-
-          <!-- AECI-1614: the Managed group's one caption (audiences, trades, phases and the
-               two Resources links). One line, after the last of them, not one per group:
-               the same sentence four times is noise that starts to read as a badge. -->
-          @if (managedCaption(); as c) {
-            <aec-field-caption data-testid="managed-caption" [caption]="c" [page]="captionPage()" />
-          }
-        </div>
-      }
     </div>
   `,
 })
@@ -557,32 +485,15 @@ export class ProductFactsCard {
     return isUnderReview(this.product().under_review, field);
   }
 
-  /** Whether any of the three "who it is for" groups renders. */
-  protected readonly hasFacets = computed(() => {
-    const p = this.product();
-    return (
-      p.audiences.length > 0 ||
-      !!this.slotCorrection('audience_slugs', false) ||
-      p.trades.length > 0 ||
-      !!this.slotCorrection('trade_slugs', false) ||
-      p.phases.length > 0 ||
-      !!this.slotCorrection('phase_slugs', false)
-    );
-  });
-
   /**
-   * The Managed group's caption, while the group shows anything. A vendor can clear every
-   * field in it, and a caption under nothing says nothing. Categories and the website are
-   * not in the group (`field-captions.ts`).
+   * The Managed group's caption beside the Resources links, while one of them shows. A
+   * vendor can clear both, and a caption under nothing says nothing. The group's facets
+   * carry their own copy in the About band (`ProductWhoItIsFor`). Categories and the
+   * website are not in the group (`field-captions.ts`).
    */
   protected readonly managedCaption = computed(() => {
     const p = this.product();
-    const hasValues =
-      p.audiences.length > 0 ||
-      p.trades.length > 0 ||
-      p.phases.length > 0 ||
-      !!p.tool_integrations_url ||
-      !!p.api_docs_url;
+    const hasValues = !!p.tool_integrations_url || !!p.api_docs_url;
     return hasValues ? (p.captions?.managed ?? null) : null;
   });
 }
