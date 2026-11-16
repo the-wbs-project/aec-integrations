@@ -220,9 +220,12 @@ import { RoleBadge } from './role-badge';
         </p>
       }
 
+      <!-- Below sm the line holds two lines' height: the fallback font wraps it to two and
+           the web font often to one, and the swap moved the actions and facts card up 20px
+           (layout shift 0.0675 on a corrected website at 390px, 0.0058 with the reserve). -->
       @if (slotCorrection('website', !!p.website); as c) {
         <aec-field-caption
-          class="mt-4"
+          class="mt-4 max-sm:min-h-10"
           tone="on-brand"
           [correction]="c"
           [label]="websiteLabel"
