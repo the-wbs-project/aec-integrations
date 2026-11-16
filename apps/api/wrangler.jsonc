@@ -220,6 +220,8 @@
   // The production D1 primary is in ENAM since 2026-10-05. Read replication is on,
   // but replicas go inactive between requests in sparse regions, so a Worker in
   // the visitor's colo still pays 2-3 serial rounds to ENAM per render.
+  // Placed here, reads come from the ENAM replica. Replication stays on as a backup:
+  // a stall in the path to the primary does not hold a replica read (AECI-1686).
   // Targeted placement to `aws:us-east-1` runs the Worker in the Cloudflare data
   // center nearest that region. Cloudflare does not publish the D1 primary's exact
   // colo, so Virginia is the best guess. A wrong guess within ENAM costs tens of ms
