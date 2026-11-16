@@ -413,6 +413,81 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     env.httpMock.verify();
   });
 
+  // AECI-1902. The listing read `?page=` once, when it was built. A Back to
+  // `?page=K` across an in-page filter change kept the component, restarted at
+  // page 1, missed the store and fetched the wrong page.
+  it('Back to a listing opened at ?page=2, across a filter click, restores page 2 without a request', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list?page=2');
+    env.httpMock.expectOne((r) => r.params.get('page') === '2').flush(page(2));
+    await settle();
+    env.harness.detectChanges();
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('page') === '3').flush(page(3));
+    await settle();
+    env.harness.detectChanges();
+    const host = env.host();
+
+    // The filter panel drops `?page=` on a click, so the filter starts at 1.
+    await env.harness.navigateByUrl('/list?category_id=x');
+    env.harness.detectChanges();
+    env.httpMock
+      .expectOne((r) => r.params.get('category_id') === 'x' && r.params.get('page') === '1')
+      .flush(page(1, 'f'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['f1']);
+
+    await back(env);
+    expect(env.location.path()).toBe('/list?page=2');
+    expect(env.host()).toBe(host);
+    expect(env.rows()).toEqual(['p2', 'p3']);
+    expect(env.host().idx.firstPage()).toBe(2);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+
+    env.location.forward();
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['f1']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+    env.httpMock.verify();
+  });
+
+  it('Back and Forward between ?page=2 and the bare listing on one component restore each', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list?page=2');
+    env.httpMock.expectOne((r) => r.params.get('page') === '2').flush(page(2));
+    await settle();
+    env.harness.detectChanges();
+
+    // The header link: same component, `?page=` dropped, a fresh page 1.
+    await env.harness.navigateByUrl('/list');
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1));
+    await settle();
+    env.harness.detectChanges();
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    env.httpMock.expectOne((r) => r.params.get('page') === '2').flush(page(2));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['p1', 'p2']);
+
+    await back(env);
+    expect(env.location.path()).toBe('/list?page=2');
+    expect(env.rows()).toEqual(['p2']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+
+    env.location.forward();
+    await settle();
+    env.harness.detectChanges();
+    expect(env.location.path()).toBe('/list');
+    expect(env.rows()).toEqual(['p1', 'p2']);
+    env.httpMock.expectNone((r) => r.url === '/api/test');
+    env.httpMock.verify();
+  });
+
   it('a filter click (not a Back) on the page still fetches', async () => {
     const env = await setup();
     await browseThenLeave(env, '/list?category_id=x', 1, 'f');
@@ -426,6 +501,119 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     await settle();
     env.harness.detectChanges();
     expect(env.rows()).toEqual(['fresh1']);
+    env.httpMock.verify();
+  });
+});
+
+/** Navigate as a link click would, then render. */
+async function go(env: Env, url: string) {
+  await env.harness.navigateByUrl(url);
+  env.harness.detectChanges();
+}
+
+/** Answer the one request for `n` with that page, then render. */
+async function answer(env: Env, n: number, prefix = 'p') {
+  env.httpMock.expectOne((r) => r.params.get('page') === String(n)).flush(page(n, prefix));
+  await settle();
+  env.harness.detectChanges();
+}
+
+// AECI-1902. The listing read `?page=` once, when it was built. A navigation
+// that kept the component and changed only `?page=` left the old pages on
+// screen under the new URL: `/products?page=2`, then the header "Browse" link
+// to `/products`, still showed page 2 and no "Load more".
+describe('createPaginatedIndex first page follows ?page= on every navigation (AECI-1902)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('?page=2, then a link to the bare listing: page 1 alone, with "Load more"', async () => {
+    const env = await setup();
+    await go(env, '/list?page=2');
+    await answer(env, 2);
+    const host = env.host();
+    expect(env.rows()).toEqual(['p2']);
+
+    await go(env, '/list');
+    expect(env.host()).toBe(host);
+    await answer(env, 1);
+    expect(env.rows()).toEqual(['p1']);
+    expect(env.host().idx.firstPage()).toBe(1);
+    expect(env.host().idx.hasMore()).toBe(true);
+    env.httpMock.verify();
+  });
+
+  it('the bare listing, then a link to ?page=2: page 2 alone', async () => {
+    const env = await setup();
+    await go(env, '/list');
+    await answer(env, 1);
+
+    await go(env, '/list?page=2');
+    await answer(env, 2);
+    expect(env.rows()).toEqual(['p2']);
+    expect(env.host().idx.firstPage()).toBe(2);
+    env.httpMock.verify();
+  });
+
+  it('?page=2 and "Load more" to page 3, then the bare listing: page 1 only', async () => {
+    const env = await setup();
+    await go(env, '/list?page=2');
+    await answer(env, 2);
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    await answer(env, 3);
+    expect(env.rows()).toEqual(['p2', 'p3']);
+    expect(env.host().idx.hasMore()).toBe(false);
+
+    await go(env, '/list');
+    // While page 1 loads, the old rows stay on screen and the grid dims.
+    expect(env.host().idx.reloading()).toBe(true);
+    await answer(env, 1);
+    expect(env.rows()).toEqual(['p1']);
+    expect(env.host().idx.hasMore()).toBe(true);
+    // And "Load more" carries on from page 1.
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    await answer(env, 2);
+    expect(env.rows()).toEqual(['p1', 'p2']);
+    env.httpMock.verify();
+  });
+
+  it('a query change that leaves ?page= alone keeps every loaded page', async () => {
+    // `?view=` is presentation only: not a passthrough, not the page. The
+    // resource asks again for the page it is on (as before this fix), and the
+    // buffer keeps both pages rather than starting over at `?page=`.
+    const env = await setup();
+    await go(env, '/list?page=2');
+    await answer(env, 2);
+    env.host().idx.loadMore();
+    env.harness.detectChanges();
+    await answer(env, 3);
+
+    await go(env, '/list?page=2&view=table');
+    expect(env.rows()).toEqual(['p2', 'p3']);
+    env.httpMock.expectNone((r) => r.params.get('page') !== '3');
+    for (const req of env.httpMock.match(() => true)) req.flush(page(3));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['p2', 'p3']);
+    expect(env.host().idx.firstPage()).toBe(2);
+    env.httpMock.verify();
+  });
+
+  it('a sort change on ?page=2 drops ?page= and starts the new order at page 1', async () => {
+    const env = await setup();
+    await go(env, '/list?page=2');
+    await answer(env, 2);
+
+    env.host().idx.onSortChange('name');
+    await settle();
+    env.harness.detectChanges();
+    expect(env.location.path()).toBe('/list?sort=name');
+    env.httpMock
+      .expectOne((r) => r.params.get('sort') === 'name' && r.params.get('page') === '1')
+      .flush(page(1, 's'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['s1']);
     env.httpMock.verify();
   });
 });

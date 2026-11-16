@@ -713,6 +713,40 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
     await expectRestored(page, filteredAt, 'Forward across the filter click');
     expect(await cards.count()).toBe(filteredCards);
   });
+
+  // AECI-1902. The listing read `?page=` only when it was built, so this Back
+  // restarted at page 1, missed the stored pages and fetched the wrong rows.
+  test('/products?page=2: Back across a filter click returns to page 2 and its place', async ({
+    page,
+  }) => {
+    const [phase] = busiest((await facetCounts(page)).phases);
+    test.skip(!phase, 'no filter with products in this environment');
+    await page.goto('/products?page=2');
+    await page.waitForLoadState('networkidle');
+    const cards = page.locator(LISTING_CARDS);
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    const hrefs = () =>
+      page
+        .locator(LISTING_CARD_LINKS)
+        .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    const pageTwo = await hrefs();
+    await markDocument(page);
+
+    const clickedAt = await clickFilter(page, { group: 'Phases', name: phase!.name });
+    await expect(page).toHaveURL(/phase_id=/);
+    // The filter starts at its own page 1: the panel drops `?page=`.
+    await expect(page).not.toHaveURL(/[?&]page=/);
+    await page.waitForLoadState('networkidle');
+    await layoutSettled(page);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/products\?page=2$/);
+    await expectRestored(page, clickedAt, 'Back across the filter click');
+    // Bringing the filter into view can let the footer load page 3 first, and
+    // the store keeps it. The list must still start at page 2.
+    const restored = await hrefs();
+    expect(restored.slice(0, pageTwo.length), 'the page 2 rows are back, first').toEqual(pageTwo);
+  });
 });
 
 // /search gets its rows from Algolia only after the search code loads, after the
