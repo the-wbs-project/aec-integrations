@@ -1,10 +1,11 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import { HomeWhy } from './home-why';
 
 function setup(): HTMLElement {
-  TestBed.configureTestingModule({});
+  TestBed.configureTestingModule({ providers: [provideRouter([])] });
   const fixture = TestBed.createComponent(HomeWhy);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
@@ -25,7 +26,7 @@ describe('HomeWhy', () => {
 
   it('sets two short paragraphs in a reading-width column', () => {
     const prose = setup().querySelector('[data-testid="home-why-prose"]');
-    expect(prose?.getAttribute('class')).toContain('max-w-3xl');
+    expect(prose?.getAttribute('class')).toContain('max-w-2xl');
     const paras = Array.from(prose?.querySelectorAll('p') ?? []);
     expect(paras).toHaveLength(2);
     for (const p of paras) {
@@ -33,29 +34,37 @@ describe('HomeWhy', () => {
     }
   });
 
-  it('renders the three cited figures as a hairline spec-sheet row in Forest', () => {
+  it('renders the three cited figures as a hairline row in Forest at --t-24 (mock-up 9 question 4)', () => {
     const row = setup().querySelector('[data-testid="home-why-figures"]');
-    expect(row?.getAttribute('class')).toContain('divide-x');
+    expect(row?.getAttribute('class')).toContain('md:divide-x');
     const items = Array.from(row?.querySelectorAll(':scope > li') ?? []);
     expect(items.map((li) => text(li.querySelector('p')))).toEqual(['≈19%', '$27K', '900+']);
     for (const li of items) {
-      expect(li.querySelector('p')?.getAttribute('class')).toContain('--accent-primary');
+      const figure = li.querySelector('[data-testid="home-why-figure"]')!;
+      expect(figure.getAttribute('class')).toContain('--accent-primary');
+      // Sub-heading size, not the large figure size: clash 8 allows one per band.
+      expect(figure.getAttribute('class')).toContain('text-t-24');
+      expect(figure.getAttribute('class')).not.toContain('text-t-fig');
       // Spec-sheet row, not cards: no per-figure box.
       expect(li.getAttribute('class') ?? '').not.toContain('rounded');
     }
   });
 
-  it('wires every Source link to its citation tooltip', () => {
-    const items = Array.from(setup().querySelectorAll('[data-testid="home-why-figures"] > li'));
-    for (const li of items) {
-      const link = li.querySelector('a[aria-describedby]');
-      expect(link?.getAttribute('href')).toMatch(/^https:\/\//);
-      expect(link?.getAttribute('target')).toBe('_blank');
-      expect(link?.getAttribute('rel')).toContain('noopener');
-      const tooltip = li.querySelector(`#${link?.getAttribute('aria-describedby') ?? 'x'}`);
-      expect(tooltip?.getAttribute('role')).toBe('tooltip');
-      expect(text(tooltip).length).toBeGreaterThan(0);
-    }
+  it('prints each citation under its figure, ending in its Source link', () => {
+    const h = setup();
+    expect(h.querySelector('[role="tooltip"]')).toBeNull();
+    const items = Array.from(h.querySelectorAll('[data-testid="home-why-figures"] > li'));
+    const expected = ['Originality.AI, 2025.', 'Vendr, 2026.', 'Capterra, 2026.'];
+    items.forEach((li, i) => {
+      const cite = li.querySelector('[data-testid="home-why-citation"]')!;
+      expect(text(cite).startsWith(expected[i]!)).toBe(true);
+      // Printed, not revealed: nothing hides it.
+      expect(cite.getAttribute('class') ?? '').not.toMatch(/opacity-0|sr-only|hidden/);
+      const link = cite.querySelector('a')!;
+      expect(link.getAttribute('href')).toMatch(/^https:\/\//);
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toContain('noopener');
+    });
   });
 
   it('gives each Source link a distinct accessible name that starts with "Source" (AECI-830)', () => {
@@ -66,22 +75,35 @@ describe('HomeWhy', () => {
     expect(new Set(names).size).toBe(3);
   });
 
-  it('states what AECi does instead as three bordered white cards', () => {
+  it('states what AECi does instead as the one Forest feature card (mock-up 9 question 1)', () => {
     const h = setup();
-    expect(text(h.querySelector('h3'))).toBe('What we do instead');
-    const cards = Array.from(h.querySelectorAll('[data-testid="home-why-ideas"] > li'));
-    expect(cards.map((c) => text(c.querySelector('h4')))).toEqual([
+    const card = h.querySelector<HTMLElement>('[data-testid="home-why-instead"]')!;
+    const cls = card.getAttribute('class') ?? '';
+    // A card, never a band: card radius, card shadow, Forest fill, Bone ink, and the
+    // transparent .aec-card edge that forced-colours mode paints.
+    expect(cls).toContain('aec-card');
+    expect(cls).toContain('rounded-card');
+    expect(cls).toContain('shadow-card');
+    expect(cls).toContain('bg-(--accent-primary)');
+    expect(cls).toContain('text-(--text-on-brand)');
+    expect(text(card.querySelector('h3'))).toBe('What we do instead');
+    const points = Array.from(card.querySelectorAll('[data-testid="home-why-ideas"] > li'));
+    expect(points.map((c) => text(c.querySelector('h4')))).toEqual([
       'Every connection is documented',
       'Position is earned, never bought',
       'Organized the way AEC works',
     ]);
-    for (const card of cards) {
-      const cls = card.getAttribute('class') ?? '';
-      expect(cls).toContain('bg-(--surface-base)');
-      expect(cls).toContain('border-(--border-default)');
-      expect(cls).not.toContain('--surface-raised');
-      expect(cls).not.toContain('shadow');
+    // Secondary ink on Forest is the measured on-brand secondary, never text-secondary.
+    for (const point of points) {
+      expect(point.querySelector('p')?.getAttribute('class')).toContain(
+        'text-(--text-on-brand-secondary)',
+      );
     }
+    // The Bone main button, last in reading order, to the ranking page.
+    const button = card.querySelector('a[data-variant="on-brand"]')!;
+    expect(text(button)).toBe('How we rank');
+    expect(button.getAttribute('href')).toBe('/docs/trust/how-ranking-works');
+    expect(card.lastElementChild).toBe(button);
   });
 
   it('says no pay-for-placement exactly once in the band', () => {
@@ -101,15 +123,16 @@ describe('HomeWhy', () => {
     expect(text(row)).not.toMatch(/our reviews|we review|rate the product/i);
   });
 
-  it('carries no em dash and no Bone or raised surface', () => {
+  it('carries no em dash, and no Bone or raised surface outside the Bone button', () => {
     const h = setup();
     expect(h.textContent ?? '').not.toContain('—');
+    h.querySelector('a[data-variant="on-brand"]')?.remove();
     expect(h.innerHTML).not.toContain('--accent-warm');
     expect(h.innerHTML).not.toContain('--accent-primary-soft');
     expect(h.innerHTML).not.toContain('--surface-raised');
   });
 
-  it('is a static, cache-neutral band with no controls', () => {
+  it('is a static, cache-neutral band with no buttons (the one action is a link)', () => {
     expect(setup().querySelectorAll('button')).toHaveLength(0);
   });
 });

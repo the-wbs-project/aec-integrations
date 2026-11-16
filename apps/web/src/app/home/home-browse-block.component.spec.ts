@@ -115,6 +115,25 @@ describe('HomeBrowseBlock', () => {
     }
   });
 
+  it('states each row order under its "View all" link (mock-up 9 question 5)', () => {
+    const root = setup();
+    const orders = Array.from(root.querySelectorAll('[data-testid="browse-order"]')).map((o) =>
+      o.textContent?.trim(),
+    );
+    expect(orders).toEqual([
+      'Most products first',
+      'Most products first',
+      'In project order',
+      'Roles chosen by AEC Integrations',
+    ]);
+  });
+
+  it('sizes the h2 on an inner span (the Unlayered-Heading Rule)', () => {
+    const h2 = setup().querySelector('h2')!;
+    expect(h2.className).not.toMatch(/text-(t-|[0-9]?xl|lg|base|sm)/);
+    expect(h2.querySelector('span')?.classList).toContain('text-t-36');
+  });
+
   it('paints no ground of its own and no Bone or Clay accents', () => {
     const root = setup();
     expect(root.querySelector('[class*="--accent-warm"]')).toBeNull();

@@ -5,7 +5,8 @@ import { compareText } from '@aeci/shared/text-sort';
  * Pure ranking policy for the primary-nav taxonomy flyouts, kept free of any
  * Angular import so the node unit runner can cover it directly (importing the
  * `@Injectable` store pulls in `httpResource` / `@angular/common` and fails the
- * JIT-less node runner). The store (`taxonomy-nav.store.ts`) consumes these.
+ * JIT-less node runner). The Browse menu model (`browse-menu-model.ts`) and the
+ * home page (`home/home.ts`) consume these.
  */
 
 /**

@@ -52,7 +52,7 @@ const RESPONSE: TaxonomyResponse = {
  * `createPaginatedIndex` spec's host pattern.
  */
 @Component({
-  template: `<span class="count">{{ store.categoriesTop10().length }}</span>`,
+  template: `<span class="count">{{ store.browse().categories.length }}</span>`,
 })
 class StoreHost {
   readonly store = inject(TaxonomyNavStore);
@@ -76,10 +76,6 @@ describe('TaxonomyNavStore', () => {
     fixture.detectChanges();
 
     const store = fixture.componentInstance.store;
-    // Categories cap at 10 and sort descending (counts 11 → 2).
-    expect(store.categoriesTop10()).toHaveLength(10);
-    expect(store.categoriesTop10()[0]?.product_count).toBe(11);
-    expect(store.categoriesTop10()[9]?.product_count).toBe(2);
     const browse = store.browse();
     // The Browse columns cap at seven, most products first.
     expect(browse.categories.map((t) => t.product_count)).toEqual([11, 10, 9, 8, 7, 6, 5]);
@@ -108,7 +104,7 @@ describe('TaxonomyNavStore', () => {
     await settle();
 
     httpMock.expectNone('/api/taxonomy');
-    expect(fixture.componentInstance.store.categoriesTop10()).toEqual([]);
+    expect(fixture.componentInstance.store.browse().categories).toEqual([]);
     const browse = fixture.componentInstance.store.browse();
     expect(browse.phases).toEqual([]);
     expect(browse.trades).toEqual([]);
