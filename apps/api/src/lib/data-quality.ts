@@ -92,6 +92,7 @@ import {
   listingHides,
   mailingList,
   ownershipSyncDeliveries,
+  planChangeSnapshots,
   products,
   productVendors,
   reviews,
@@ -819,6 +820,35 @@ export async function checkVendorSuspensionPastWindow(db: Db, now: Date): Promis
   };
 }
 
+/**
+ * A plan-change ranking snapshot still unwritten 24 hours after it was due (AECI-1621,
+ * ADR 0056). The 15-minute sweep retries a failed row on every run, so a row this late
+ * means the sweep keeps failing it or has stopped. The evidence the Terms rely on is
+ * then missing for that product, so it is `error`. No seed writes the table.
+ */
+export async function checkPlanSnapshotOverdue(db: Db, now: Date): Promise<CheckFinding> {
+  const cutoff = new Date(now.getTime() - DAY_MS).toISOString();
+  const rows = await db
+    .select({
+      productId: planChangeSnapshots.productId,
+      kind: planChangeSnapshots.kind,
+      phase: planChangeSnapshots.phase,
+      dueAt: planChangeSnapshots.dueAt,
+      attempts: planChangeSnapshots.attempts,
+      lastError: planChangeSnapshots.lastError,
+    })
+    .from(planChangeSnapshots)
+    .where(and(isNull(planChangeSnapshots.r2Key), lt(planChangeSnapshots.dueAt, cutoff)))
+    .orderBy(asc(planChangeSnapshots.dueAt), asc(planChangeSnapshots.id));
+  return {
+    lines: rows.map(
+      (r) =>
+        `${r.productId} ${r.kind}/${r.phase} due ${r.dueAt}, ${r.attempts} attempts` +
+        (r.lastError ? ` (${r.lastError.slice(0, 120)})` : ''),
+    ),
+  };
+}
+
 /** A termination refund not settled a day after it was written (AECI-1623). A `failed` or
  *  stranded `pending` row is money the vendor is owed. `manual` is the operator's to pay. */
 export async function checkTerminationRefundUnsettled(db: Db, now: Date): Promise<CheckFinding> {
@@ -1528,6 +1558,14 @@ export const CHECKS: CheckSpec[] = [
     // obligation: a seeded database has no upcoming entry.
     severity: 'warn',
     run: ({ db }) => checkLegalAgreementDateMoved(db),
+  },
+  {
+    id: 'plan_snapshot_overdue',
+    label: 'Plan-change ranking snapshots still unwritten 24 hours after they were due',
+    // `error`: evidence the Terms' ranking promise relies on is missing. Not a seed
+    // obligation: no seed writes the table.
+    severity: 'error',
+    run: ({ db, now }) => checkPlanSnapshotOverdue(db, now),
   },
   {
     id: 'review_mirror_drift',

@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DOCS_PAGES, DOCS_SECTIONS, type DocsSection } from './docs-content';
+import { DOCS_ARCHIVE_PATHS } from './docs-page-versions';
 import {
   DOCS_RECORD_CONTENT_BYTES,
   buildDocsSearchRecords,
@@ -59,6 +60,15 @@ describe('buildDocsSearchRecords (real manifest)', () => {
     expect(guideOf('/docs/reviewers/writing-a-review')).toBe('help');
     for (const record of RECORDS) {
       expect(record.guide).toBe(record.url.startsWith('/docs/vendors') ? 'vendor' : 'help');
+    }
+  });
+
+  // AECI-1619, AECI-1621: a recorded version is not a manifest page, so search never lists it.
+  it('holds no recorded version of a versioned page', () => {
+    expect(DOCS_ARCHIVE_PATHS.length).toBeGreaterThan(0);
+    for (const record of RECORDS) {
+      const path = record.url.split('#')[0];
+      expect(DOCS_ARCHIVE_PATHS, record.url).not.toContain(path);
     }
   });
 

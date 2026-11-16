@@ -1,5 +1,5 @@
 /**
- * AECI-1769: the logo rule, end to end (ADR 0056 floor 3, counsel's ruling 9).
+ * AECI-1769: the logo rule, end to end (ADR 0057 floor 3, counsel's ruling 9).
  *
  * An unclaimed product shows an initial tile everywhere except the slot on its own
  * page where "Unclaimed · not affiliated with or endorsed by this vendor" sits beside

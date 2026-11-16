@@ -35,7 +35,7 @@ import {
  * a logo that identifies an entity on a detail page passes `logoAlt(name)`, and
  * an inline row icon or avatar stays `''` (AECI-1569, Stage 1 §21.1).
  *
- * **The logo rule (AECI-1769, ADR 0056 floor 3, counsel's ruling 9).** An unclaimed
+ * **The logo rule (AECI-1769, ADR 0057 floor 3, counsel's ruling 9).** An unclaimed
  * listing shows the initial tile everywhere except the one place on its own page
  * where the "not affiliated" note sits beside it. This component decides it:
  *

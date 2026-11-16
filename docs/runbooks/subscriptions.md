@@ -529,10 +529,9 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    subscriptions pro-rating, and a plan switch would mix intervals. Also in the live account's customer
    email settings, turn on emails for successful payments. Stripe attaches the
    invoice PDF, with its renewal footer, only when these are on (AECI-1596).
-4. **Rehearse on demo** with a sandbox test card. Demo ships `STRIPE_CHECKOUT_ENABLED="false"`
-   while it mirrors production, so first set it to `"true"` in the `demo` block of
-   `apps/api/wrangler.jsonc` and in `apps/api/src/stripe-secrets-ci.spec.ts`, merge, and promote
-   to demo. Then: buy 2 annual with `PILOT2026`, assign one, add 1,
+4. **Rehearse on demo** with a sandbox test card. Demo is configured with
+   `STRIPE_CHECKOUT_ENABLED="true"`; confirm that configuration has been promoted to demo.
+   Then: buy 2 annual with `PILOT2026`, assign one, add 1,
    open Manage billing in Stripe, cancel the annual Stripe subscription at period end and check the tab
    says it will not renew, cancel a monthly Stripe subscription, and trigger a failed payment
    with `stripe trigger invoice.payment_failed`. Check three AECI-1596 items: the renewal disclosure

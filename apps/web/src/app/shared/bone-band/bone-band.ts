@@ -14,7 +14,7 @@ import {
 
 /**
  * AECI-1766 - the one Bone band of a page (DESIGN.md §2 "Bone: one band per
- * page", §4 "The detail page band shell", clash 2, ADR 0056). A frame, not a
+ * page", §4 "The detail page band shell", clash 2, ADR 0057). A frame, not a
  * page: it paints the ground, holds the page wrap and sets the band rhythm. The
  * caller owns every word. Content is projected, with no named slots.
  *
@@ -52,8 +52,15 @@ export class BoneBand {
   /** The first band under the section nav: 48px above, 32px below `md`. */
   readonly first = input(false, { transform: booleanAttribute });
 
+  /**
+   * No bottom padding: the content closes the band itself. The home hero ends
+   * on its credibility row, 24px above the band's edge (mock-up 9, AECI-1792).
+   */
+  readonly flushEnd = input(false, { transform: booleanAttribute });
+
   protected readonly wrap = computed(
-    () => `${BAND_WRAP_CLASS} pb-16 md:pb-24 ${this.first() ? 'pt-8 md:pt-12' : 'pt-16 md:pt-24'}`,
+    () =>
+      `${BAND_WRAP_CLASS} ${this.flushEnd() ? 'pb-0' : 'pb-16 md:pb-24'} ${this.first() ? 'pt-8 md:pt-12' : 'pt-16 md:pt-24'}`,
   );
 
   private readonly doc = inject(DOCUMENT);

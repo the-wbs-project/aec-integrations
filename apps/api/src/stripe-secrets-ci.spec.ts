@@ -122,8 +122,7 @@ const VAR_BLOCKS = [
     label: 'demo',
     vars: config.env.demo?.vars,
     portal: { annual: 'bpc_1USXyuH3zp7gNZbr7U8MuNJB', monthly: 'bpc_1USXzYH3zp7gNZbrSE9UwOrt' },
-    // Off while demo mirrors production (2026-10-31). Back to 'true' for the switch-on rehearsal.
-    enabled: 'false',
+    enabled: 'true',
   },
   {
     label: 'production',

@@ -41,13 +41,20 @@ import { appRoutePatterns, findBrokenDocsLinks } from './docs-link-check.harness
 import { headingSlug } from './docs-markdown';
 import { DocsShellComponent, locate } from './docs-shell';
 import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
-import { getPlansSnapshot } from './plans-archive-content';
+import { getDocsSnapshot } from './docs-archive-content';
+import { DOCS_ARCHIVES, DOCS_ARCHIVE_PATHS, DOCS_PAGE_VERSIONS } from './docs-page-versions';
 import {
   PLANS_ARCHIVE_PATHS,
   PLANS_PAGE_CURRENT_VERSION,
   PLANS_PAGE_KNOWN_VERSIONS,
   plansArchivePath,
 } from './plans-versions';
+import {
+  RANKING_ARCHIVE_PATHS,
+  RANKING_PAGE_CURRENT_VERSION,
+  RANKING_PAGE_KNOWN_VERSIONS,
+  rankingArchivePath,
+} from './ranking-page-versions';
 
 // AECI-1265, AECI-1271: the vendor guide, overview and claiming first. Every
 // page keeps its `/docs/vendors/*` URL.
@@ -506,11 +513,14 @@ describe('docs manifest', () => {
         file: `src/content/docs/${section.id}/_index.md`,
         hrefs: hrefsIn(section.intro!.html),
       })),
-      // AECI-1619: the recorded Plans versions link like the live page.
-      ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => ({
-        file: `src/content/docs/vendors/versions/plans/v${version}.md`,
-        hrefs: hrefsIn(getPlansSnapshot(version)!.html),
-      })),
+      // AECI-1619, AECI-1621: the recorded versions link like the live pages.
+      ...DOCS_ARCHIVES.map(({ page, version }) => {
+        const [section, slug] = page.split('/');
+        return {
+          file: `src/content/docs/${section}/versions/${slug}/v${version}.md`,
+          hrefs: hrefsIn(getDocsSnapshot(page, version)!.html),
+        };
+      }),
     ];
     // AECI-1610: the one legal version route is a matcher. It serves exactly the
     // paths `servesLegalVersion` accepts, so expand it to those.
@@ -538,9 +548,9 @@ describe('docs manifest', () => {
       routePatterns,
       docsHeadingIds: (path) => {
         if (path === '/docs') return [];
-        // AECI-1619: a recorded Plans version is served by its own route, not the manifest.
-        const version = PLANS_PAGE_KNOWN_VERSIONS.find((v) => plansArchivePath(v) === path);
-        if (version !== undefined) return headingIdsIn(getPlansSnapshot(version)!.html);
+        // AECI-1619, AECI-1621: a recorded version is served by its own route, not the manifest.
+        const archive = DOCS_ARCHIVES.find((entry) => entry.path === path);
+        if (archive) return headingIdsIn(getDocsSnapshot(archive.page, archive.version)!.html);
         const html = getDocsPageByPath(path)?.html ?? getDocsSectionIndexByPath(path)?.intro?.html;
         if (html !== undefined) return headingIdsIn(html);
         return getDocsSectionIndexByPath(path) ? [] : undefined;
@@ -587,6 +597,7 @@ describe('docs manifest', () => {
       'what-does-not-count',
       'what-a-plan-does-not-buy',
       'corrections-are-free',
+      'versions',
     ]);
   });
 
@@ -810,7 +821,19 @@ describe('docs manifest', () => {
 
   it('explains ranking in words, with no numbers and no signal names (STAGE_2_5_SPEC.md §2)', () => {
     const page = getDocsPage('trust', 'how-ranking-works')!;
-    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    const doc = new DOMParser().parseFromString(page.html, 'text/html');
+    // AECI-1621: the Versions section carries version numbers and dates by design.
+    // It is the change history, not a ranking statement, so it is left out here.
+    const versions = doc.getElementById('versions');
+    let node = versions?.nextElementSibling;
+    while (node && node.tagName !== 'H2') {
+      const next = node.nextElementSibling;
+      node.remove();
+      node = next;
+    }
+    versions?.remove();
+    const text = doc.body.textContent ?? '';
+    expect(text).not.toContain('recorded November');
     // "No precise published numbers": no weight, threshold or count in the body.
     expect(text).not.toMatch(/\d/);
     // Parameters in words, never the index attributes or the formula.
@@ -863,13 +886,14 @@ describe('indexableDocsPaths', () => {
 
   it('holds no docs path out, and the prefix rule still works for a later entry', () => {
     // NOINDEX_PATH_PREFIXES holds no docs page since AECI-1253; its entries are
-    // the archived legal versions (AECI-1361) and the Plans snapshot pages
-    // (AECI-1619), which are not manifest pages. The explicit-list call pins the
+    // the archived legal versions (AECI-1361) and the recorded versions of the
+    // versioned docs pages (AECI-1619, AECI-1621), which are not manifest pages. The explicit-list call pins the
     // matching rule a later entry would rely on.
     expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
-    expect(NOINDEX_PATH_PREFIXES.filter((prefix) => prefix.startsWith('/docs'))).toEqual(
-      PLANS_ARCHIVE_PATHS,
-    );
+    expect(NOINDEX_PATH_PREFIXES.filter((prefix) => prefix.startsWith('/docs'))).toEqual([
+      ...PLANS_ARCHIVE_PATHS,
+      ...RANKING_ARCHIVE_PATHS,
+    ]);
     expect(indexableDocsPaths().some((path) => pathForcesNoindex(path))).toBe(false);
   });
 });
@@ -900,18 +924,30 @@ describe('DOCS_ROUTES', () => {
       ...ACCOUNT_SLUGS.map((slug) => `account/${slug}`),
       'vendors',
       ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
-      // AECI-1619: one explicit route per recorded Plans version.
+      // AECI-1619, AECI-1621: one explicit route per recorded version, Plans first.
       ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => `vendors/plans/v${version}`),
+      ...RANKING_PAGE_KNOWN_VERSIONS.map((version) => `trust/how-ranking-works/v${version}`),
     ]);
   });
 
-  it('serves each Plans version on the archive page with its version (AECI-1619)', () => {
-    for (const version of PLANS_PAGE_KNOWN_VERSIONS) {
-      const route = DOCS_CHILD_ROUTES.find(
-        (entry) => `/docs/${entry.path}` === plansArchivePath(version),
-      );
-      expect(route?.data, version).toEqual({ version });
-      expect(route?.loadComponent, version).toBeDefined();
+  it('serves each recorded version on the archive page with its page and version', () => {
+    const cases = [
+      ...PLANS_PAGE_KNOWN_VERSIONS.map((version) => ({
+        page: 'vendors/plans',
+        version,
+        path: plansArchivePath(version),
+      })),
+      ...RANKING_PAGE_KNOWN_VERSIONS.map((version) => ({
+        page: 'trust/how-ranking-works',
+        version,
+        path: rankingArchivePath(version),
+      })),
+    ];
+    expect(cases.map((c) => c.path)).toEqual(DOCS_ARCHIVE_PATHS);
+    for (const { page, version, path } of cases) {
+      const route = DOCS_CHILD_ROUTES.find((entry) => `/docs/${entry.path}` === path);
+      expect(route?.data, path).toEqual({ page, version });
+      expect(route?.loadComponent, path).toBeDefined();
     }
   });
 
@@ -1028,10 +1064,26 @@ describe('versioned docs pages (AECI-1619)', () => {
     expect(plans.headings.at(-1)?.text).toBe('Versions');
   });
 
-  it('keeps the snapshot pages out of the sitemap and the live page in', () => {
+  // AECI-1621: How ranking works joins the versioned set, on the same rules.
+  it('the live ranking page carries the current version and links every recorded version', () => {
+    const ranking = getDocsPage('trust', 'how-ranking-works')!;
+    expect(ranking.version).toBe(RANKING_PAGE_CURRENT_VERSION);
+    for (const path of RANKING_ARCHIVE_PATHS) expect(ranking.links).toContain(path);
+    expect(ranking.headings.at(-1)?.text).toBe('Versions');
+  });
+
+  it('registers exactly the pages that carry a frontmatter version', () => {
+    const versioned = DOCS_PAGES.filter((page) => page.version !== undefined).map(
+      (page) => `${page.section}/${page.slug}`,
+    );
+    expect(versioned.sort()).toEqual(Object.keys(DOCS_PAGE_VERSIONS).sort());
+  });
+
+  it('keeps the recorded pages out of the sitemap and the live pages in', () => {
     expect(indexableDocsPaths()).toContain('/docs/vendors/plans');
-    for (const path of PLANS_ARCHIVE_PATHS) expect(indexableDocsPaths()).not.toContain(path);
-    expect(DOCS_PAGES.some((page) => PLANS_ARCHIVE_PATHS.includes(page.path))).toBe(false);
+    expect(indexableDocsPaths()).toContain('/docs/trust/how-ranking-works');
+    for (const path of DOCS_ARCHIVE_PATHS) expect(indexableDocsPaths()).not.toContain(path);
+    expect(DOCS_PAGES.some((page) => DOCS_ARCHIVE_PATHS.includes(page.path))).toBe(false);
   });
 
   it('puts a Plans version page in the vendor guide, its trail ending at the version', () => {
@@ -1041,6 +1093,18 @@ describe('versioned docs pages (AECI-1619)', () => {
     expect(where.crumbs).toEqual([
       { label: 'Vendor guide', path: '/docs/vendors' },
       { label: 'Plans', path: '/docs/vendors/plans' },
+      { label: 'Version 1.0' },
+    ]);
+  });
+
+  it('puts a ranking version page in the General guide, its trail ending at the version', () => {
+    const where = locate(rankingArchivePath('1.0'));
+    expect(where.guide).toBe('help');
+    expect(where.page).toBeUndefined();
+    expect(where.crumbs).toEqual([
+      { label: 'Help center', path: '/docs' },
+      { label: 'Trust and ranking', path: '/docs/trust' },
+      { label: 'How ranking works', path: '/docs/trust/how-ranking-works' },
       { label: 'Version 1.0' },
     ]);
   });
