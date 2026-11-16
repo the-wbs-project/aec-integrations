@@ -871,6 +871,18 @@ button.aec-chip[aria-pressed]:not([data-tone]) {
   border-color: var(--border-strong);
 }
 
+/* A filter chip that would leave no rows (AECI-1783, ruled 2026-11-16). Native
+   disabled, so no hover and no pointer. The label stays in `--text-secondary`, which
+   keeps 4.5:1 on the raised fill, and the edge turns dashed, so the state is not
+   colour alone. */
+button.aec-chip:disabled,
+button.aec-chip:disabled:hover {
+  cursor: not-allowed;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
 a.aec-chip:focus-visible,
 button.aec-chip:focus-visible {
   outline: 3px solid var(--accent-primary);
