@@ -39,6 +39,10 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
  * `docs/design/unified-home-direction.md` — a full-bleed Bone band
  * (`--accent-warm`) wrapping the form in a bordered `--surface-base` card, Forest
  * subscribe button (Forest-Anchor Rule), borders not shadows.
+ *
+ * `ground="white"` is for a page on the detail band shell (AECI-1778, DESIGN.md §4 "The
+ * detail page band shell"), which already has its one Bone band. The band is then white,
+ * with a hairline `border-default` rule above it, and the card is unchanged.
  */
 @Component({
   selector: 'aec-mailing-list-signup',
@@ -46,7 +50,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
   host: { class: 'block' },
   imports: [AecButton, AecIcon, FormField, FoundViaField],
   template: `
-    <section class="bg-(--accent-warm)">
+    <section [class]="groundClass()">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
         <div
           class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
@@ -189,6 +193,13 @@ export class MailingListSignup {
    *  retained value no longer emitted: the home stopped mounting the band in
    *  AECI-1564. */
   readonly source = input('mailing_list_band');
+
+  /** `bone` (default) is the shipped band. `white` keeps a band-shell page to one Bone band. */
+  readonly ground = input<'bone' | 'white'>('bone');
+
+  protected readonly groundClass = computed(() =>
+    this.ground() === 'white' ? 'border-t bg-(--surface-base)' : 'bg-(--accent-warm)',
+  );
 
   private readonly model = signal<SubscribeModel>({
     email: '',

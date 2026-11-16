@@ -614,22 +614,20 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
   }
 
   // AECI-1768 review: a sticky aside taller than the space under the bar loses its foot.
-  test('the metadata aside sticks under the bar only where it fits', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 600 });
-    const path = await openProduct(page);
-    await hydrated(page, path);
-    const aside = page.locator('aec-detail-layout aside');
-    await animationsSettled(page);
-    expect(await aside.evaluate((el) => getComputedStyle(el).position)).toBe('static');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    const sticky = await aside.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { position: s.position, top: s.top, h: el.getBoundingClientRect().height };
-    });
-    expect(sticky.position).toBe('sticky');
-    // The bar's 73px plus the shipped 32px gap.
-    expect(sticky.top).toBe('105px');
-    expect(105 + sticky.h, 'the aside fits under the bar at 900px').toBeLessThanOrEqual(900);
+  // AECI-1778 moved the product page onto the band shell, where the metadata is the facts
+  // card in the page flow. It never sticks, at any height, so it can never lose its foot
+  // under the bar. The column shell's sticky aside (`.aec-detail-aside`) stays for the
+  // vendor page, which has no section bar.
+  test('the facts card never sticks under the bar on the band shell', async ({ page }) => {
+    for (const height of [600, 900]) {
+      await page.setViewportSize({ width: 1280, height });
+      const path = await openProduct(page);
+      await hydrated(page, path);
+      await animationsSettled(page);
+      const aside = page.locator('aec-detail-layout aside');
+      const position = await aside.evaluate((el) => getComputedStyle(el).position);
+      expect(position, `at ${height}px`).toBe('relative');
+      expect(await aside.evaluate((el) => el.classList.contains('aec-detail-aside'))).toBe(false);
+    }
   });
 });

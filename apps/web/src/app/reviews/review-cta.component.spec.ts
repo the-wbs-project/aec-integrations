@@ -196,4 +196,28 @@ describe('ReviewCta', () => {
     expect(el.textContent).toContain('Write a review');
     expect(a.getAttribute('href')).toBe('/products/procore/review');
   });
+
+  // AECI-1778: the product hero puts the CTA on Forest, as the second action.
+  it('renders the on-brand secondary button on Forest', () => {
+    const { fixture, el } = create();
+    fixture.componentRef.setInput('variant', 'on-brand-secondary');
+    fixture.detectChanges();
+    const a = anchor(el);
+    expect(a.getAttribute('data-variant')).toBe('on-brand-secondary');
+    expect(a.getAttribute('href')).toBe('/products/procore/review');
+    expect(el.textContent).toContain('Write a review');
+  });
+
+  it('keeps the "already reviewed" state readable on Forest after hydration', async () => {
+    const account = makeAccountMock({ review: existingReview });
+    const { fixture, el } = create('procore', makeAuthMock({ signedIn: true }), account);
+    fixture.componentRef.setInput('variant', 'on-brand-secondary');
+    await hydrate(fixture);
+    const a = anchor(el);
+    expect(a.getAttribute('href')).toBe('/account');
+    expect(a.classList.contains('text-(--text-on-brand)')).toBe(true);
+    expect(a.classList.contains('text-(--accent-primary)')).toBe(false);
+    expect(a.classList.contains('focus-visible:outline-(--focus-ring-on-brand)')).toBe(true);
+    expect(a.parentElement!.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
+  });
 });

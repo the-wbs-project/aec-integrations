@@ -277,13 +277,38 @@ describe('LogoOrInitial', () => {
     expect(claimed.root.querySelector('img')?.getAttribute('width')).toBe('64');
   });
 
+  // AECI-1778: the hero band's mark slot. The box is the caller's (104px, 68px below md).
+  it('fills the caller box at hero size and reserves the 104px slot for the image', () => {
+    const { root } = renderHost({ src: LOGO, claimStatus: 'claimed', size: 'hero' });
+    const img = root.querySelector('img')!;
+    expect(img.getAttribute('width')).toBe('104');
+    expect(img.getAttribute('height')).toBe('104');
+    expect(img.classList.contains('size-full')).toBe(true);
+    expect(img.classList.contains('h-16')).toBe(false);
+  });
+
+  it('shows the tile at hero size for an unclaimed listing, even with ownPage', () => {
+    const { root } = renderHost({
+      src: LOGO,
+      name: 'Acme',
+      claimStatus: 'unclaimed',
+      ownPage: true,
+      size: 'hero',
+    });
+    expect(root.querySelector('img')).toBeNull();
+    const tile = root.querySelector('span[aria-hidden]')!;
+    expect(tile.textContent?.trim()).toBe('A');
+    expect(tile.classList.contains('size-full')).toBe(true);
+    expect(tile.classList.contains('text-t-36')).toBe(true);
+  });
+
   it('ownPage never conjures a logo the payload does not carry', () => {
     const { root } = renderHost({ src: null, claimStatus: 'unclaimed', ownPage: true });
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('span[aria-hidden]')).not.toBeNull();
   });
 
-  it.each(['lg', 'sm'] as const)(
+  it.each(['hero', 'lg', 'sm'] as const)(
     'gives a %s logo and its initial tile the same box, border, fill and radius',
     (size) => {
       const logo = renderHost({ src: LOGO, size }).root.querySelector('img')!;
@@ -291,7 +316,7 @@ describe('LogoOrInitial', () => {
         'span[aria-hidden]',
       )!;
       const frame = (el: Element) =>
-        [...el.classList].filter((c) => /^(h-|w-|border|bg-|rounded)/.test(c)).sort();
+        [...el.classList].filter((c) => /^(h-|w-|size-|border|bg-|rounded)/.test(c)).sort();
       expect(frame(tile)).toEqual(frame(logo));
       expect(frame(logo)).toContain('border');
       expect(frame(logo)).toContain('bg-(--surface-raised)');
@@ -301,7 +326,7 @@ describe('LogoOrInitial', () => {
     },
   );
 
-  it.each(['lg', 'sm'] as const)(
+  it.each(['hero', 'lg', 'sm'] as const)(
     'rounds the %s mark and its tile at the 8px mark radius, so the scale never inverts',
     (size) => {
       const logo = renderHost({ src: LOGO, size }).root.querySelector('img')!;

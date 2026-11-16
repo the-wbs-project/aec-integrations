@@ -1373,13 +1373,33 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
     ).toContain(WORDING);
   });
 
-  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+  // AECI-1778: the claimed logo moved into the hero band's 104px mark slot.
+  it('keeps the hero logo and adds no wording on a claimed listing', () => {
     const { fixture } = setup(
       buildProduct({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
     );
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('aec-unclaimed-note')).toBeNull();
-    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
+    const mark = el.querySelector('[data-testid=product-hero-mark]');
+    expect(mark?.closest('.aec-hero-band')).not.toBeNull();
+    expect(mark?.querySelector('img')?.getAttribute('width')).toBe('104');
+  });
+
+  // AECI-1778 with the logo rule (AECI-1769): the 104px mark is the initial tile for an
+  // unclaimed product, even when the payload holds its logo. The note keeps its words.
+  it('shows the initial tile in the hero mark for an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const mark = el.querySelector('[data-testid=product-hero-mark]')!;
+    expect(mark.querySelector('img')).toBeNull();
+    expect(mark.querySelector('span[aria-hidden=true]')?.textContent?.trim()).toBe('P');
+    const note = el.querySelector('.aec-hero-band aec-unclaimed-note')!;
+    expect(note.textContent?.trim()).toBe(WORDING);
+    // Bone-secondary on Forest, never the light-ground grey.
+    expect(note.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
+    expect(note.classList.contains('text-(--text-secondary)')).toBe(false);
   });
 });
 
@@ -1639,6 +1659,91 @@ describe('ProductDetailPage values under review (AECI-1238)', () => {
   it('renders no marker when nothing is under review', () => {
     const { el } = setup(buildProduct({}));
     expect(markers(el)).toEqual([]);
+  });
+});
+
+// AECI-1778: the page sits on DetailLayout's band shell, with the Forest hero band.
+describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders exactly one h1, inside the hero band, holding only the product name', () => {
+    const { el } = setup(buildProduct());
+    const h1s = el.querySelectorAll('h1');
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]!.closest('.aec-hero-band')).not.toBeNull();
+    expect(h1s[0]!.textContent?.trim()).toBe('Procore');
+  });
+
+  it('mounts the band shell, with the facts card after the hero and before the nav', () => {
+    const { el } = setup(buildProduct({ description: 'A construction platform.' }));
+    expect(el.querySelector('[data-shell=bands]')).not.toBeNull();
+    const facts = el.querySelector('[data-testid=product-facts]')!;
+    expect(facts.hasAttribute('aeccard')).toBe(true);
+    const order = [
+      el.querySelector('aec-product-hero'),
+      facts,
+      el.querySelector('aec-section-nav'),
+      el.querySelector('#about'),
+      el.querySelector('#integrations'),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  it('names the vendor in the hero byline, linked to its page', () => {
+    const { el } = setup(buildProduct());
+    const byline = el.querySelector('[data-testid=product-hero-vendor]')!;
+    expect(byline.textContent?.replace(/\s+/g, ' ').trim()).toBe('by Procore Technologies');
+    expect(byline.querySelector('a')?.getAttribute('href')).toBe('/vendors/procore');
+  });
+
+  it('shows no byline for a product with no vendor', () => {
+    const { el } = setup(buildProduct({ vendor: null }));
+    expect(el.querySelector('[data-testid=product-hero-vendor]')).toBeNull();
+  });
+
+  it('makes "Visit website" the one Bone button and "Write a review" the secondary', () => {
+    const { el } = setup(buildProduct());
+    const band = el.querySelector('.aec-hero-band')!;
+    const visit = band.querySelector('a[href="https://www.procore.com"]')!;
+    expect(visit.getAttribute('data-variant')).toBe('on-brand');
+    expect(visit.getAttribute('rel')).toBe('noopener nofollow');
+    expect(visit.getAttribute('target')).toBe('_blank');
+    expect(band.querySelector('aec-review-cta a')?.getAttribute('data-variant')).toBe(
+      'on-brand-secondary',
+    );
+    expect(band.querySelectorAll('[data-variant=on-brand]')).toHaveLength(1);
+    expect(band.querySelector('[data-variant=ghost]')).toBeNull();
+  });
+
+  it('keeps the two averages apart, each at one decimal, and the count', () => {
+    const { el } = setup(
+      buildProduct({ review_count: 12, rating_overall_avg: 4.25, rating_onboarding_avg: 3 }),
+    );
+    const ratings = el.querySelector('[data-testid=product-hero-ratings]')!;
+    const text = ratings.textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('4.3');
+    expect(text).toContain('Overall');
+    expect(text).toContain('3.0');
+    expect(text).toContain('Onboarding');
+    expect(text).toContain('12 reviews');
+    const stars = ratings.querySelectorAll('aec-review-stars');
+    expect(stars).toHaveLength(2);
+  });
+
+  it('leaves the hero panel slot empty until AECI-1787 builds the visual', () => {
+    const { el } = setup(buildProduct());
+    expect(el.querySelector('.aec-hero-panel')?.children).toHaveLength(0);
+  });
+
+  it('puts the mailing-list band on white, so the page keeps one Bone band', () => {
+    const { el } = setup(buildProduct());
+    const section = el.querySelector('aec-mailing-list-signup section')!;
+    expect(section.classList.contains('bg-(--surface-base)')).toBe(true);
+    expect(section.classList.contains('bg-(--accent-warm)')).toBe(false);
   });
 });
 

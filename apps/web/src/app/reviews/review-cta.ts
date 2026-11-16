@@ -48,14 +48,14 @@ type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
   template: `
     @if (state() === 'reviewed') {
       <span
-        class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
+        class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+        [class]="onBrand() ? 'text-(--text-on-brand-secondary)' : 'text-(--text-secondary)'"
       >
         <span i18n="@@products.detail.reviews.cta.reviewed">You've already reviewed this</span>
         <a
           routerLink="/account"
-          class="font-semibold text-(--accent-primary) underline-offset-2 hover:underline
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-            focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+          class="font-semibold underline-offset-2"
+          [class]="reviewedLinkClass()"
           i18n="@@products.detail.reviews.cta.viewYourReview"
           >View your review</a
         >
@@ -95,10 +95,20 @@ export class ReviewCta {
    * button: the product page already has "Visit website" as its one filled button
    * (DESIGN.md §5, one filled button per surface), so neither "Write a review"
    * placement is filled. `primary` stays available to a caller with no other
-   * filled button. Only affects the button branch; the `reviewed` text state is
-   * variant-agnostic.
+   * filled button. `on-brand-secondary` is the second action on a Forest ground, the
+   * product hero (AECI-1778). There the `reviewed` text state also takes on-brand
+   * colours: Bone-secondary text, a Bone link with a permanent underline and the Bone
+   * ring, so it stays readable after hydration.
    */
-  readonly variant = input<'primary' | 'secondary'>('secondary');
+  readonly variant = input<'primary' | 'secondary' | 'on-brand-secondary'>('secondary');
+
+  protected readonly onBrand = computed(() => this.variant() === 'on-brand-secondary');
+
+  protected readonly reviewedLinkClass = computed(() =>
+    this.onBrand()
+      ? 'text-(--text-on-brand) underline hover:text-(--text-on-brand) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+      : 'text-(--accent-primary) hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)',
+  );
 
   protected readonly state = signal<CtaState>('neutral');
 
