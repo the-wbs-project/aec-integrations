@@ -95,14 +95,17 @@ interface Idea {
         class="mt-10 grid divide-y divide-(--border-default) border-y border-(--border-default) sm:grid-cols-3 sm:divide-x sm:divide-y-0"
       >
         @for (s of stats; track s.id) {
-          <li class="py-5 sm:px-6 sm:first:ps-0 sm:last:pe-0">
+          <li class="group/figure py-5 sm:px-6 sm:first:ps-0 sm:last:pe-0">
             <p class="font-display text-3xl tabular-nums text-(--accent-primary)">
               {{ s.figure }}
             </p>
             <p class="mt-2 text-sm leading-relaxed text-(--text-secondary)">{{ s.desc }}</p>
 
             <!-- Citation reveal (AECI-285): a real link, its citation shown on hover
-                 and focus and announced through aria-describedby. CSS only. -->
+                 and focus and announced through aria-describedby. CSS only.
+                 AECI-1846: in the three-column row, the last citation opens to the
+                 left of its link so even its invisible box stays inside the viewport.
+                 Below sm, all citations open from the single column's left edge. -->
             <span class="group relative mt-3 inline-flex">
               <a
                 [href]="s.source.url"
@@ -118,7 +121,7 @@ interface Idea {
               <span
                 [id]="s.id + '-source'"
                 role="tooltip"
-                class="pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-64 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-3 text-xs leading-relaxed text-(--text-secondary) opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                class="pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-64 max-w-[calc(100vw-3rem)] rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-3 text-xs leading-relaxed text-(--text-secondary) opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:group-last/figure:right-0 sm:group-last/figure:left-auto"
               >
                 {{ s.source.citation }}
               </span>
