@@ -40,9 +40,9 @@
  * when two pages share a path, when an intro is declared for a section with no
  * index page, or when a General page or intro links into the vendor guide.
  *
- * **Versioned pages (AECI-1619).** A page listed in `DOCS_PAGE_VERSIONS` (only
- * Plans) must carry frontmatter `version` equal to its current version, and a
- * `## Versions` section just before `## Related` that lists every known version
+ * **Versioned pages (AECI-1619, AECI-1621).** A page listed in
+ * `DOCS_PAGE_VERSIONS` (Plans and How ranking works) must carry frontmatter
+ * `version` equal to its current version, and a `## Versions` section just before `## Related` that lists every known version
  * once, each linking its snapshot route (`<path>/v<version>`) and giving its
  * recorded date. A page not listed there may not carry `version`. The checks
  * mirror `checkChangeHistory` in `legal/legal-versions.ts`.
@@ -77,11 +77,7 @@ import seatMd from '../../content/docs/vendors/your-seat.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { pathForcesNoindex } from './docs-indexing';
 import { type DocsBlock, type DocsHeading, renderDocsBody } from './docs-markdown';
-import {
-  PLANS_PAGE_CURRENT_VERSION,
-  PLANS_PAGE_KNOWN_VERSIONS,
-  PLANS_PAGE_RECORDED_ON,
-} from './plans-versions';
+import { DOCS_PAGE_VERSIONS, type DocsPageVersions } from './docs-page-versions';
 
 export type { DocsBlock, DocsHeading, DocsWidget } from './docs-markdown';
 
@@ -149,7 +145,7 @@ export interface DocsPage {
    * its rail and a sticky bar on phones (`shared/plan-cta/plan-cta.ts`). Only Plans does.
    */
   readonly cta?: 'managed';
-  /** Frontmatter `version`, on a page in `DOCS_PAGE_VERSIONS` only (Plans, AECI-1619). */
+  /** Frontmatter `version`, on a page in `DOCS_PAGE_VERSIONS` only (AECI-1619, AECI-1621). */
   readonly version?: string;
 }
 
@@ -312,23 +308,12 @@ const SECTION_INTROS: Readonly<Partial<Record<DocsSectionId, string>>> = {
   vendors: vendorGuideIntroMd,
 };
 
-/** A docs page served as dated versions (AECI-1619). */
-export interface DocsPageVersions {
-  readonly current: string;
-  /** Oldest first. The current one is last. */
-  readonly known: readonly string[];
-  /** version → "Month D, YYYY", the date its `## Versions` line gives. */
-  readonly recordedOn: Readonly<Record<string, string>>;
-}
-
-/** Versioned docs pages, keyed `<section>/<slug>`. Only Plans (counsel ruling 16). */
-export const DOCS_PAGE_VERSIONS: Readonly<Record<string, DocsPageVersions>> = {
-  'vendors/plans': {
-    current: PLANS_PAGE_CURRENT_VERSION,
-    known: PLANS_PAGE_KNOWN_VERSIONS,
-    recordedOn: PLANS_PAGE_RECORDED_ON,
-  },
-};
+/**
+ * Versioned docs pages, keyed `<section>/<slug>`: Plans (counsel ruling 16) and
+ * How ranking works (counsel Q23). The registry is `.md`-free, in
+ * `docs-page-versions.ts`, so the noindex list can read it. Re-exported here.
+ */
+export { DOCS_PAGE_VERSIONS, type DocsPageVersions };
 
 const VERSIONS_HEADING_TEXT = 'Versions';
 const LISTED_VERSION_RE = /\bVersion (\d+\.\d+)\b/g;

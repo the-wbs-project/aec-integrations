@@ -172,6 +172,11 @@
       "aeci.agreement.evidence_removal.run fires on EVERY run, outcome ok or failed. It carries",
       "activeFrom until its first production heartbeat.",
       "",
+      "AECI-1621 added plan-snapshot, the twenty-seventh cron, every 15 minutes at minute 11: it",
+      "writes the due plan-change ranking snapshots to R2. Its heartbeat aeci.plan_snapshot.run",
+      "fires on EVERY run, outcome ok, skipped or failed. It carries activeFrom until its first",
+      "production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -429,6 +434,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1505. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many skipped ones that find nothing dirty. A new cron can miss its first tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "plan-snapshot",
+        "cron": "11-59/15 * * * *",
+        "metric": "aeci.plan_snapshot.run",
+        "maxAgeMinutes": 90,
+        "trigger": "cron",
+        "activeFrom": "2026-11-24T00:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1621. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many with nothing due. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
       },
       {
         "job": "vendor-claim-nudge",
