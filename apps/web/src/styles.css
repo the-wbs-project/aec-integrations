@@ -725,6 +725,17 @@ h3 {
   border-color: var(--border-strong);
 }
 
+/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Same trap as
+   `.aec-nav-tab`: a `border-s-(--accent-primary)` utility never beats the `*` rule, so
+   the added row's Forest edge rendered grey. Start edge only, so RTL keeps it. */
+.aec-diff-added {
+  border-inline-start-color: var(--accent-primary);
+}
+
+.aec-diff-removed {
+  border-inline-start-color: var(--border-strong);
+}
+
 /* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
    trigger), AECI-1764. Unlayered for the reason `.aec-nav-tab` records: a
    border-colour utility loses to the `*` rule, and an unlayered rule here moves

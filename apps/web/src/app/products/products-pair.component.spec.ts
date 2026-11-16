@@ -1300,6 +1300,11 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
     expect(el.textContent).toContain('New in 2026.10 · v5');
     expect(el.textContent).toContain('+');
     expect(el.textContent).toContain('1 added');
+    // The edge colour is the unlayered class: a border-colour utility loses to the
+    // unlayered `* { border-color }` rule and rendered grey (AECI-1798 review).
+    const row = el.querySelector('aec-agreement-badge')?.closest('li');
+    expect(row?.classList).toContain('aec-diff-added');
+    expect(row?.classList).toContain('border-s-2');
   });
 
   it('renders the removed marker and strikes the name through', async () => {
@@ -1315,6 +1320,9 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
 
     expect(el.textContent).toContain('Removed in 2026.10 · v5');
     expect(el.querySelector('.line-through')).not.toBeNull();
+    expect(el.querySelector('aec-agreement-badge')?.closest('li')?.classList).toContain(
+      'aec-diff-removed',
+    );
     expect(el.textContent).toContain('1 removed');
   });
 
