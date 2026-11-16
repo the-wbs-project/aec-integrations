@@ -9,6 +9,15 @@ Contracts: `DESIGN.md` (laws + Anchor-Site Rule), `PRODUCT.md` (voice/audience),
 > [`unified-home-direction.md`](./unified-home-direction.md), which since epic **AECI-1554**
 > (2026-10-31) describes the shipped four-band home. This doc still governs the per-component
 > treatments it lists: hero, browse chips, empty states.
+>
+> **Superseded for the visual treatment by AECI-1792 (2026-11-16).** The home is built on
+> mock-up 9 (`mockups/redesign-2026-11/mockups/9-home.html`, decisions in
+> `mockups/redesign-2026-11/records/9-home-notes.md`). The Faire anchor retires for the home.
+> The grounds changed: the hero is the page's one Bone band, and the closing call to action
+> moved to a white band as a white card. "What we do instead" is the page's one Forest
+> feature card. The "Popular:" row is now the "Most viewed" row, with a label per order, both
+> lists in the server HTML and a reserved height. `STAGE_1_SPEC.md` §4.1 and `DESIGN.md` §5
+> "Home" describe the built page. The empty-state rules below still hold.
 
 This doc is self-contained: it is the contract a 4.7–4.11 port is reviewed against. The
 live concept prototype (`.context/aeci-181-home-concepts.html`, gitignored ephemeral

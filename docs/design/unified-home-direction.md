@@ -4,6 +4,8 @@ Status: **superseded 2026-10-31 by epic AECI-1554** for the section order, the b
 Spec anchor: `docs/STAGE_1_SPEC.md` §4.1. Page assembly: `apps/web/src/app/home/home.ts` (its doc comment holds the band order).
 Contracts: `DESIGN.md` (laws + Anchor-Site Rule → Faire), `PRODUCT.md` (voice / audiences / banned words), `packages/shared/src/api/{stats,taxonomy}.ts`.
 
+> **Grounds and treatments superseded by AECI-1792 (2026-11-16).** The band order is unchanged. The grounds and card treatments now follow mock-up 9 (`mockups/redesign-2026-11/mockups/9-home.html`): the hero is the page's one Bone band, the closing call to action is a white card on a white band, and "What we do instead" is the page's one Forest feature card. Where a ground or card rule below disagrees, `STAGE_1_SPEC.md` §4.1 and `DESIGN.md` §5 "Home" win.
+
 > **Relation to [`home-direction.md`](./home-direction.md) (AECI-181).** That doc owns the per-component treatments (hero, browse chips). This doc owns the page: band order, grounds, and the argument band. Where the two disagree, this doc wins.
 
 The dev-only **`/preview/unified-home`** route (`apps/web/src/app/preview/unified-home/`) is the 2026-06 concept review (concepts a, b, c; b was chosen 2026-06-25). It is kept for reference and is not the shipped home.

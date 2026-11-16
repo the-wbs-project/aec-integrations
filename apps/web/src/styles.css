@@ -959,6 +959,14 @@ button.aec-chip:focus-visible {
   border-color: var(--border-on-brand-strong);
 }
 
+/* The stronger hairline on a light ground: the rule that closes the home hero's
+   Bone band above the credibility row (AECI-1792). `--border-default` is about
+   1.1:1 on Bone and all but vanishes. Unlayered for the same reason as above.
+   Pair it with a width utility such as `border-t`. */
+.aec-rule-strong {
+  border-color: var(--border-strong);
+}
+
 /* The shortcut cap inside the header search pill (AECI-1772). A decorative hint,
    not a control, so it takes the quieter 32% edge and no fill. */
 .aec-on-brand-keycap {
