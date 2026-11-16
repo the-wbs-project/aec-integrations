@@ -789,12 +789,10 @@
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
-        // "false" (2026-10-31) so demo shows the production vendor flow: Stripe wired,
-        // checkout off. Set back to "true" before the demo rehearsal in docs/runbooks/subscriptions.md
-        // "Turning on Stripe in production" step 4.
+        // Checkout is enabled for the demo sandbox and switch-on rehearsal.
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
-        "STRIPE_CHECKOUT_ENABLED": "false",
+        "STRIPE_CHECKOUT_ENABLED": "true",
         // AECI-1553: threads off for now (see the base-config note).
         "THREADS_ENABLED": "false",
         // AECI-1688: legal publish off while demo mirrors production.
