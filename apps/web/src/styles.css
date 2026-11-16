@@ -223,9 +223,9 @@
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  /* The type ramp (AECI-1748; DESIGN.md §3 "The type ramp", PLAN.md §4.2). Ten
-     sizes, and no other size is allowed on a public page. `--t-12` to `--t-16`
-     are sans, serif starts at `--t-20`. Tailwind's `text-xs` to `text-9xl` all
+  /* The type ramp (AECI-1748; DESIGN.md §3 "The type ramp", PLAN.md §4.2). Eleven
+     sizes since ruling A3 added `--t-48`, and no other size is allowed on a
+     public page. `--t-12` to `--t-16` are sans, serif starts at `--t-20`. Tailwind's `text-xs` to `text-9xl` all
      resolve to one of these (the `@theme inline` block below).
 
      The four fluid steps use rem bounds and a rem-plus-vw middle term, so they
@@ -246,6 +246,10 @@
   --t-36: clamp(1.75rem, 1vw + 1.35rem, 2.25rem);
   /* 28 to 40px, 640 to 1120px wide. The pre-ramp h1 clamp, unchanged. */
   --t-fig: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+  /* 48px, fixed: the score figure (ruling A3, 2026-11-16). A fixed rem follows
+     zoom one for one, so it doubles by 200% zoom with no sweep needed. A clamp
+     would shrink it on a phone, and the score is the one number a reader came for. */
+  --t-48: 3rem;
   /* 34 to 56px, 222 to 1440px wide (35.8px at 320). */
   --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
   /* 40 to 72px, 83 to 1440px wide (45.7px at 320). */
@@ -550,6 +554,8 @@
   --text-t-36--line-height: 1.1;
   --text-t-fig: var(--t-fig);
   --text-t-fig--line-height: 1;
+  --text-t-48: var(--t-48);
+  --text-t-48--line-height: 1;
   --text-t-statement: var(--t-statement);
   --text-t-statement--line-height: 1.1;
   --text-t-display: var(--t-display);
@@ -1584,9 +1590,10 @@ aec-section-nav
 
 /* The Plans page's cards and comparison table (`docs-plans-comparison.ts`;
    anchor site Mintlify's billing page). Unlayered for the `.aec-nav-tab`
-   reason: a border-color utility loses to the unlayered `*` rule. Borders, never
-   shadows: the Managed card is marked by a 2px Forest border (the "featured"
-   weight in DESIGN.md's Borders-Not-Shadows Rule). */
+   reason: a border-color utility loses to the unlayered `*` rule. The Free and
+   Managed cards are the shared card (`aecCard`, ruling A7). `.aec-plan-card` is
+   left on the plans rail (`plan-cta.ts`). The Managed card keeps a 2px Forest
+   border; this rule sits after `.aec-card`, so it wins over the transparent edge. */
 .aec-plan-card {
   background-color: var(--surface-raised);
   border: 1px solid var(--border-default);

@@ -33,7 +33,9 @@ import { AecButton } from '../shared/button/button';
         aria-label="Waitlist welcome"
         i18n-aria-label="@@waitlist.welcome.regionLabel"
       >
-        <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-8 py-3">
+        <div
+          class="mx-auto flex w-full max-w-[1328px] items-center justify-between gap-4 px-6 py-3 md:px-8 lg:px-12"
+        >
           <p class="text-t-14 leading-6 text-(--text-primary)" i18n="@@waitlist.welcome.message">
             Thanks for waiting. Here's the directory.
           </p>

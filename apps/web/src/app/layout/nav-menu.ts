@@ -83,6 +83,7 @@ import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AecButton } from '../shared/button/button';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecIcon } from '../shared/icon/icon';
 
 import { inAppLinkPath } from './in-app-link-click';
@@ -164,9 +165,10 @@ const FOCUSABLE =
       [hidden]="!isOpen()"
       class="absolute inset-x-0 top-full z-10 max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain rounded-b-card border-x border-b bg-(--surface-base) text-start text-(--text-primary) shadow-menu md:max-h-[calc(100dvh-76px)]"
     >
-      <!-- The header's 32px gutter, so the menu lines up with the wordmark. Below
-           320px (a phone at 200% zoom) it drops to 16px so nothing is cut off. -->
-      <div class="mx-auto max-w-7xl px-4 pt-2 pb-6 min-[20rem]:px-8">
+      <!-- The header's page wrap (BAND_WRAP_CLASS), so the menu lines up with the
+           wordmark. Below 320px (a phone at 200% zoom) it drops to 16px so nothing
+           is cut off. -->
+      <div [class]="panelWrapClass">
         <nav i18n-aria-label="@@app.nav.primary.aria" aria-label="Primary">
           @defer (on idle; hydrate on idle) {
             <aec-nav-menu-panel [menu]="menu()" />
@@ -178,7 +180,7 @@ const FOCUSABLE =
         @if (isOpen()) {
           <aec-search-autocomplete
             class="mt-6 block"
-            inputId="mobile-search"
+            [inputId]="searchInputId"
             inputClass="w-full"
             inputHeightClass="h-11"
             [fitToViewport]="true"
@@ -224,6 +226,10 @@ export class NavMenu {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly panelId = NAV_MENU_PANEL_ID;
+  /** The menu field's input id. Bound, so the host does not repeat it. */
+  protected readonly searchInputId = 'mobile-search';
+  /** The panel's inner row: the header's page wrap, 16px gutters below 320px. */
+  protected readonly panelWrapClass = `${BAND_WRAP_CLASS} pt-2 pb-6 max-[20rem]:px-4`;
   /** The toggle's name and the open dialog's name (mock-up 6, line 1196). */
   protected readonly name = $localize`:@@app.nav.menu.name:Menu`;
   protected readonly menu = this.taxonomy.browse;

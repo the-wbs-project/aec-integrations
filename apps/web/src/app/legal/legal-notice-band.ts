@@ -91,7 +91,9 @@ function writeDismissed(ids: readonly string[]): void {
         class="aec-notice-neutral border-b bg-(--accent-warm)"
         data-testid="legal-notice"
       >
-        <div class="mx-auto flex max-w-7xl items-start justify-between gap-4 px-6 py-3 md:px-8">
+        <div
+          class="mx-auto flex w-full max-w-[1328px] items-start justify-between gap-4 px-6 py-3 md:px-8 lg:px-12"
+        >
           <p class="min-w-0 text-t-14 leading-6 text-(--text-primary)">
             <span class="font-semibold" i18n="@@legal.notice.lead"
               >Changes to the {{ notice.title }} take effect on

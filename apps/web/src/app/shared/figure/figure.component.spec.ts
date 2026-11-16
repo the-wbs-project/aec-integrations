@@ -5,7 +5,7 @@ import { Component, provideZonelessChangeDetection, signal } from '@angular/core
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AecFigure, type FigureTone, type FigureZeroMode } from './figure';
+import { AecFigure, type FigureSize, type FigureTone, type FigureZeroMode } from './figure';
 
 /** The words PLAN.md section 5.2 fixes. Pinned here so a copy edit fails a test. */
 const HEADING = 'We have no integrations for Bluebeam Revu on record';
@@ -20,6 +20,7 @@ const CAVEAT = 'Not on record means we have not found one. It is not proof that 
       [suffix]="suffix()"
       [label]="label()"
       [tone]="tone()"
+      [size]="size()"
       [zero]="zero()"
       [product]="product()"
     >
@@ -33,6 +34,7 @@ class Host {
   readonly suffix = signal<string | null>(null);
   readonly label = signal('integrations');
   readonly tone = signal<FigureTone>('forest');
+  readonly size = signal<FigureSize>('fig');
   readonly zero = signal<FigureZeroMode | null>(null);
   readonly product = signal<string | null>(null);
 }
@@ -91,6 +93,17 @@ describe('AecFigure', () => {
     expect(cls).toContain('font-display');
     expect(cls).toContain('font-semibold');
     expect(cls).toContain('text-t-fig');
+    expect(cls).not.toContain('text-t-48');
+    expect(cls).toContain('text-(--accent-primary)');
+  });
+
+  it('size="score" swaps --t-fig for the 48px score step, and nothing else', async () => {
+    const { numeral, update } = setup();
+    await update((h) => h.size.set('score'));
+    const cls = numeral()!.className;
+    expect(cls).toContain('text-t-48');
+    expect(cls).not.toContain('text-t-fig');
+    expect(cls).toContain('font-display');
     expect(cls).toContain('text-(--accent-primary)');
   });
 

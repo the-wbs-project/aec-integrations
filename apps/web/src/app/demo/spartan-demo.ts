@@ -333,11 +333,13 @@ import { AecMeter } from '../shared/meter/meter';
         <div class="space-y-1 rounded-card bg-(--accent-primary) p-6" data-testid="figure-on-brand">
           <aec-figure [value]="4" text="4.0" suffix="/5" label="Overall rating" tone="on-brand" />
         </div>
-        <!-- The reviews band, flagged for Chris: two figures, one per score, never merged. -->
+        <!-- The reviews band: two score figures at 48px, one per score, never merged
+             (rulings A3 and A4, 2026-11-16). -->
         <div class="grid gap-6 sm:grid-cols-2" data-testid="reviews-band">
           <div class="space-y-3 rounded-card bg-(--surface-raised) p-6 shadow-card">
             <aec-figure
               data-testid="score-quality"
+              size="score"
               [value]="4.3"
               text="4.3"
               label="Product quality, from 12 reviews"
@@ -347,6 +349,7 @@ import { AecMeter } from '../shared/meter/meter';
           <div class="space-y-3 rounded-card bg-(--surface-raised) p-6 shadow-card">
             <aec-figure
               data-testid="score-onboarding"
+              size="score"
               [value]="3.8"
               text="3.8"
               label="Onboarding experience, from 12 reviews"

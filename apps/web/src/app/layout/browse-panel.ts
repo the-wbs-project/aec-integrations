@@ -9,6 +9,7 @@ import {
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { type BrowseMenuModel, EMPTY_BROWSE_MENU } from '../core/taxonomy/browse-menu-model';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecIcon } from '../shared/icon/icon';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -49,7 +50,8 @@ const TEXT =
   selector: 'aec-browse-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AecIcon],
-  host: { class: 'mx-auto block max-w-7xl px-8 pt-12 pb-8' },
+  // The header's page wrap (BAND_WRAP_CLASS, ruling A2), so the columns line up with the wordmark.
+  host: { class: `${BAND_WRAP_CLASS} block pt-12 pb-8` },
   template: `
     <div class="grid grid-cols-5 gap-x-6 xl:gap-x-8">
       <div class="min-w-0">

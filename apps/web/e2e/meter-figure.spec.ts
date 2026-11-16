@@ -142,6 +142,27 @@ test.describe('aec-meter and aec-figure rendered (AECI-1767)', () => {
     }
   });
 
+  test('a score figure is a fixed 48px on every width (ruling A3)', async ({ page }) => {
+    for (const w of [320, 1440]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      // Wait out any entrance transition before reading a computed size.
+      await page.waitForFunction(() => document.getAnimations().length === 0);
+      for (const id of ['score-quality', 'score-onboarding']) {
+        const n = byId(page, id).locator('.aec-figure-value');
+        const s = await n.evaluate((e) => {
+          const c = getComputedStyle(e);
+          return { size: c.fontSize, weight: c.fontWeight, clipped: e.scrollWidth > e.clientWidth };
+        });
+        expect(s).toEqual({ size: '48px', weight: '600', clipped: false });
+      }
+      // The count figure keeps --t-fig beside it.
+      const fig = byId(page, 'figure-large').locator('.aec-figure-value');
+      expect(await fig.evaluate((e) => getComputedStyle(e).fontSize)).toBe(
+        w === 320 ? '28px' : '40px',
+      );
+    }
+  });
+
   test('the figure prints the caller text and suffix as given', async ({ page }) => {
     const f = byId(page, 'figure-decimal');
     await expect(f.locator('.aec-figure-value')).toHaveText('4.0');

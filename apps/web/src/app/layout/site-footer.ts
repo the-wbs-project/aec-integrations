@@ -32,6 +32,10 @@
  * group is `shrink-0`: at 1024px the brand's tagline gives up width, so no link
  * label wraps ("How ranking works" did before).
  *
+ * Both rows sit on the page wrap (`BAND_WRAP_CLASS`, ruling A2 of 2026-11-16):
+ * 1328px wide, with 24, 32 and 48px gutters, the same edge as the header and the
+ * bands. At 1024px that leaves a 928px row, and the four columns still fit on one.
+ *
  * The Help column (AECI-1252) is the footer-only entry into `/docs`
  * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "Vendor guide" (AECI-1253) is
  * its last link, to `/docs/vendors/overview`, the vendor guide's first page.
@@ -54,6 +58,7 @@ import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../accessibility/accessibility-published';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { BrandLogo } from './brand-logo';
 
 @Component({
@@ -61,9 +66,7 @@ import { BrandLogo } from './brand-logo';
   imports: [RouterLink, BrandLogo],
   template: `
     <footer class="bg-(--surface-footer) text-(--text-on-brand)">
-      <div
-        class="mx-auto flex max-w-7xl flex-col gap-10 px-8 pb-12 pt-16 lg:flex-row lg:justify-between lg:gap-16"
-      >
+      <div [class]="columnsClass">
         <div class="lg:max-w-xs">
           <aec-brand-logo tone="on-dark" [height]="28" [priority]="false" />
           <p
@@ -260,17 +263,16 @@ import { BrandLogo } from './brand-logo';
         </div>
       </div>
       <div class="aec-on-brand-rule border-t">
-        <p
-          class="mx-auto max-w-7xl px-8 pb-8 pt-6 text-sm text-(--text-on-brand)"
-          i18n="@@app.footer.copyright"
-        >
-          © {{ year }} AEC Integrations.
-        </p>
+        <p [class]="copyrightClass" i18n="@@app.footer.copyright">© {{ year }} AEC Integrations.</p>
       </div>
     </footer>
   `,
 })
 export class SiteFooter {
+  /** The brand area and the nav group, on the shared page wrap (ruling A2). */
+  protected readonly columnsClass = `${BAND_WRAP_CLASS} flex flex-col gap-10 pb-12 pt-16 lg:flex-row lg:justify-between lg:gap-16`;
+  /** The copyright strip, on the same wrap so its text starts on the columns' edge. */
+  protected readonly copyrightClass = `${BAND_WRAP_CLASS} pb-8 pt-6 text-sm text-(--text-on-brand)`;
   /**
    * Bone ink, a Bone underline on hover and focus, never a colour change:
    * `--text-on-footer-secondary` fails on a hover fill (DESIGN.md §5 The footer).
