@@ -256,6 +256,31 @@ describe('productDetailResolver — product-specific', () => {
     ]);
   });
 
+  it('tags every similar product the page renders (AECI-1785)', async () => {
+    // Each card renders that product's name and logo (CACHE_STRATEGY.md §3 rule 9).
+    const item = (slug: string) => ({ ...buildProduct(), slug, name: slug });
+    const product = buildProduct({
+      vendor: null,
+      related_products: [item('bluebeam'), item('plangrid')],
+    });
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toEqual([
+      { type: 'product', slug: 'bluebeam' },
+      { type: 'product', slug: 'plangrid' },
+    ]);
+  });
+
   it('does NOT tag the connector of a Convention-A edge, which renders no heading', async () => {
     // §13.2(a) keeps a self-referential powered edge in the DIRECT lane, so the
     // page never names the connector. Tagging on the raw FK instead of on the

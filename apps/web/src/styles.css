@@ -1032,6 +1032,24 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* A grid with a set column count (AECI-1785, `ProductCardGrid.columns`). Every row
+   takes the tallest card's height, so a card with a role chip does not make its row
+   taller than the rest. A short grid caps its columns so a row is not two thirds
+   empty. Only a caller that sets `data-columns` changes. */
+.aec-card-grid[data-columns] {
+  grid-auto-rows: 1fr;
+}
+
+.aec-card-grid[data-columns='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .aec-card-grid[data-columns='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
    the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
    gradients in a single colour, Forest hover at 75% and 45%, taken from the
