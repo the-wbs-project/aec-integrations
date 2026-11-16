@@ -627,10 +627,11 @@ describe('ProductDetailPage integrations table order', () => {
    */
   const partnerOrder = (el: HTMLElement) =>
     [
-      ...el.querySelectorAll<HTMLTableRowElement>(
-        // Attribute-selected component, so the `@defer` placeholder row (a bare
-        // `<tr aria-hidden>` skeleton, no links) can't be mistaken for a result.
-        '#integrations tbody tr[aec-product-integration-row]',
+      ...el.querySelectorAll<HTMLElement>(
+        // Attribute-selected components, so the `@defer` placeholder (a bare
+        // skeleton, no links) can't be mistaken for a result. Cards are the
+        // default view since AECI-1782; a table row reads the same way.
+        '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
       ),
     ].map((row) => {
       const partner = [...row.querySelectorAll('a')].find(
@@ -684,7 +685,7 @@ describe('ProductDetailPage integrations table order', () => {
     expect(partnerOrder(el)).toEqual(['Acumatica', 'Acumatica', 'Sage Intacct']);
     // Partner name and pair link are identical on both Acumatica rows, so the
     // mechanism is the only visible discriminator: `A — native` must lead.
-    const rows = el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]');
+    const rows = el.querySelectorAll('#integrations li[aec-product-integration-card]');
     expect(rows[0]!.textContent).toContain('Native link');
     expect(rows[1]!.textContent).toContain('REST bridge');
   });
@@ -755,8 +756,12 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     ...overrides,
   });
 
+  /** One named container per lane: a card list in the default view (AECI-1782), a
+   *  table in the table view. The naming rule is the same for both. */
   const tables = (el: HTMLElement) => [
-    ...el.querySelectorAll<HTMLTableElement>('#integrations table'),
+    ...el.querySelectorAll<HTMLElement>(
+      '#integrations table, #integrations [data-testid="integration-cards"]',
+    ),
   ];
 
   it('renders ONE unheaded table when nothing is connector-delivered', () => {
@@ -770,7 +775,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     const rendered = tables(el);
     expect(rendered).toHaveLength(1);
     expect(rendered[0]!.getAttribute('aria-label')).toBe('Integrations');
-    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+    // No lane heading: the cards' own h3s are the partners, not lanes (AECI-1782).
+    expect(el.querySelectorAll('#integrations aec-integration-group-card')).toHaveLength(0);
   });
 
   it('renders one table PER LANE, direct first, each with an accessible name', () => {
@@ -852,7 +858,7 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     expect(tables(el)).toHaveLength(1);
-    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+    expect(el.querySelectorAll('#integrations aec-integration-group-card')).toHaveLength(0);
   });
 
   it('sums the sub-counts to the section heading count', () => {
@@ -886,9 +892,11 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (1)');
-    expect(el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]')).toHaveLength(
-      1,
-    );
+    expect(
+      el.querySelectorAll(
+        '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
+      ),
+    ).toHaveLength(1);
   });
 
   it('renders the §12.7 catalog-scope note ONCE, not once per lane', () => {

@@ -1124,7 +1124,7 @@ group's rows.
   speech input can target it. The link keeps a 28px target, over the 24px floor (AECI-1079).
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
-- **Clash 24 (blend) and the mock-up.** The integrations section is built from shipped parts: this card, the table, the row and the List filter. Every row stays in the server-rendered HTML. The mock-up draws one card per partner product in a three-column grid, not one disclosure card per counterpart. Whether this card stays as that card is open (AECI-1782). The listing sort select is not one of the parts, because R5 rejects a sort control on the integrations list.
+- **Clash 24 (blend) and the mock-up.** The integrations section is built from shipped parts: this card, the table, the row and the List filter. Every row stays in the server-rendered HTML. The mock-up draws one card per partner product in a three-column grid, not one disclosure card per counterpart. AECI-1782 settled it: the per-partner card is its own card (`product-integration-card.ts`), and this card stays as the lane wrapper when a page has a Via lane. The listing sort select is not one of the parts, because R5 rejects a sort control on the integrations list.
 
 **Vendor portal variant (AECI-999) — superseded 2026-09-28 by the integration detail page, AECI-1156.**
 The portal's Integrations tab used to nest the same pattern three deep: `vendor-counterpart-group.ts`
@@ -1138,14 +1138,14 @@ this surface nests three deep any more.
 `apps/web/src/app/products/integration-list-filter.ts` (AECI-841; moved into the heading row and
 freed of its row threshold by AECI-848). The name filter over a section of groups.
 
-- **Placement (shipped):** *(2026-11-14: for the list of integrations, R5 puts the filters in one panel of their own, and the name filter becomes one control in that panel. AECI-1782 decides where the panel sits. This passage describes the shipped heading-row placement and the other sections that use it.)* In the section's heading row, right-aligned opposite the `<h2>`. The caller
+- **Placement (shipped):** *(2026-11-16: on the product page's `#integrations`, AECI-1782 moved the name filter into the R5 filter panel under the `<h2>`. The status line also reports the panel's chip filters there, through the `active` input. This passage still describes the heading-row placement the other sections use.)* In the section's heading row, right-aligned opposite the `<h2>`. The caller
   supplies that row (`flex flex-wrap items-center justify-between`); the filter's own host is the
   right-hand flex item. Below `sm` it goes full width and drops onto a second line under the
   heading. The host also carries `sm:ms-auto`, which holds the right edge when a long `<h2>` pushes
   it onto a second line at `sm` and above: `justify-between` puts a lone item on a wrapped line at
   flex-start, so without the auto inline-start margin a wrapped filter would render at the start
   edge.
-- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. *(2026-11-14: the shipped code still uses `rounded-sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it.)* That width is set by the placeholder
+- **Shape:** a `type="search"` input (the browser supplies the clear control), `surface-base` fill, `w-96` from `sm` up. *(2026-11-14: the shipped code still uses `rounded-sm`, a 0.5px `border-default` edge and `text-sm`. A `border-default` edge measures about 1.25:1, so it fails the 3:1 floor. The input takes the Inputs recipe below: 44px high, the field edge, 12px radius and 16px text, and the row grows to hold it. AECI-1764 applies it. 2026-11-16: AECI-1782 put the input on `.aec-field-control`, so the field edge, the 12px radius and the 44px height now apply on both product-page sections. The text stays at `text-sm`.)* That width is set by the placeholder
   ("Filter by product or connection") reading in full rather than by the row's spare space, so the
   control looks like somewhere to type. *(AECI-966 widened that string from "Filter by product
   name" when the filter learned to match the mechanism label; `w-96` still holds it in full.)*
@@ -1660,7 +1660,7 @@ Each value is set by the code issue named. A value the mock-ups set is not liste
 - **Whether the inline and badge weights of the integration stat follow the large zero (AECI-1767).** Kept as shipped: they read "Not yet connected". Asked of Chris on AECI-1767.
 - **Which filled button stays on the product page (AECI-1778).** AECI-1768 left "Write a review" off the sticky bar, so the bar adds no filled button (clash 21).
 - **The logo stack on the "Show more" button (AECI-1783).** It names hidden products. An unclaimed product shows its initial tile there, as everywhere else. Its items are `ProductLink`s, so the API's withheld logo already gives the tile (AECI-1769).
-- **The integrations section (AECI-1782).** Whether the Disclosure group card is the per-partner card. Where the filter panel sits (R5). How rows with no data object behave under a data-object filter. About a third of live integrations have none, and no vendor can add one today (AECI-1816, on AECI-1732).
+- **The integrations section (AECI-1782).** Settled in part. The per-partner card is a new card (`product-integration-card.ts`), not the Disclosure group card. The group card stays as the lane wrapper on pages with a Via lane, and its cards then take the nested surface (clash 14). The filter panel sits under the `<h2>`, a sunken 16px panel headed "Filters", holding the name filter, the Cards/Table toggle, "Clear filters", and direction and partner-category chips. Still open: the data-object chips. The filter model leaves out rows with no data object, but the chips wait for an approved public label and the sentence that says those rows are left out (AECI-1816). The order disclosure and per-filter empty messages also wait for approved copy.
 - **The grouped-list threshold and the one-list page size of 12 (AECI-1783).** Rail and chip counts must agree.
 - **The rule for public demand counts (no code issue).** Clash 43. Written before any count ships. See "Integration stat".
 
