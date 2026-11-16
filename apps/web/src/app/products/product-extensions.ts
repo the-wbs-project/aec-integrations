@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { AecCard, CARD_GRID_CLASS } from '../shared/card/card';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
@@ -20,11 +21,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * {brand}" parent strip is the pattern for the sidebar card, and its brand tile
  * row for the body grid. One verb, "built within", names the relation in both
  * directions so the two read as mirror images. The body tiles carry no chevron,
- * which is what keeps them from reading as integration rows, so they take a
- * surface wash on hover instead of relying on a border shift alone.
+ * which is what keeps them from reading as integration rows. Since ruling 35
+ * (2026-11-16, AECI-1784) they are the shared card (`aecCard`): white, the card
+ * shadow, and the card lift on hover.
  */
 
-/** Shared link-card classes: the vendor card's shape, plus a visible focus ring. */
+/** The "Built within" link card: the vendor card's shape, plus a visible focus ring. */
 const CARD_CLASS =
   'flex h-full items-center gap-3 rounded-(--radius-lg) border border-(--border-default) ' +
   'p-3 no-underline transition-colors hover:border-(--border-strong) ' +
@@ -90,8 +92,12 @@ export class ProductBuiltWithin {
 /**
  * "Extensions built within {product}": the products built within this one, as a
  * body section after Integrations. A grid of linked tiles, never table rows, so
- * it cannot read as a third integrations lane. The heading carries no `(N)`, so
- * the page never shows two counts that look like the same kind.
+ * it cannot read as a third integrations lane. Each tile is one `aecCard` that is
+ * itself the link, so it keeps the link name it had: the name, then the vendor.
+ * The tiles keep the API's order, A to Z by name then id
+ * (`apps/api/src/lib/product-extensions.ts`). This component adds no sort. The
+ * heading carries no `(N)`, so the page never shows two counts that look like the
+ * same kind.
  *
  * Attribute selector on the page's `<section id="extensions">`, like the
  * Integrations section, so the anchor and the labelled region stay on the
@@ -101,7 +107,7 @@ export class ProductBuiltWithin {
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-extensions-section]',
-  imports: [RouterLink, LogoOrInitial],
+  imports: [RouterLink, AecCard, LogoOrInitial],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-2">
@@ -110,13 +116,14 @@ export class ProductBuiltWithin {
       </h2>
       <p class="max-w-prose text-(--text-secondary)">{{ lead() }}</p>
     </div>
-    <ul class="grid gap-3 sm:grid-cols-2">
+    <ul role="list" [class]="gridClass" [attr.data-columns]="columns()">
       @for (extension of extensions(); track extension.id) {
-        <li>
+        <li class="group/card">
           <a
+            aecCard
+            interactive
             [routerLink]="['/products', extension.slug]"
-            [class]="cardClass"
-            class="bg-(--surface-raised) hover:bg-(--surface-sunken)"
+            class="flex h-full items-center gap-4 p-6 no-underline"
           >
             <aec-logo-or-initial
               [claimStatus]="'server-filtered'"
@@ -126,11 +133,14 @@ export class ProductBuiltWithin {
               size="sm"
             />
             <span class="min-w-0">
-              <span class="block break-words font-semibold text-(--text-primary)">{{
-                extension.name
-              }}</span>
+              <span
+                class="block font-display text-t-20 leading-tight font-semibold break-words text-(--text-primary) transition-colors group-hover/card:text-(--accent-primary)"
+                >{{ extension.name }}</span
+              >
               @if (extension.vendor; as v) {
-                <span class="block break-words text-sm text-(--text-secondary)">{{ v.name }}</span>
+                <span class="mt-0.5 block text-sm break-words text-(--text-secondary)">{{
+                  v.name
+                }}</span>
               }
             </span>
           </a>
@@ -143,7 +153,17 @@ export class ProductExtensionsSection {
   /** The page product's name: the host every listed extension is built within. */
   readonly productName = input.required<string>();
   readonly extensions = input.required<readonly ProductListItem[]>();
-  protected readonly cardClass = CARD_CLASS;
+  protected readonly gridClass = CARD_GRID_CLASS;
+
+  /**
+   * Ruling 35 (2026-11-16): one or two tiles share the row equally, three or more
+   * take the shared grid's three columns. A set `data-columns` also makes every row
+   * as tall as the tallest tile, so no tile is larger than its siblings.
+   */
+  protected readonly columns = computed<1 | 2 | 3>(() => {
+    const n = this.extensions().length;
+    return n <= 2 ? (Math.max(n, 1) as 1 | 2) : 3;
+  });
 
   protected readonly heading = computed(() => {
     const name = this.productName();
