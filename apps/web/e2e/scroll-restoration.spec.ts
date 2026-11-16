@@ -41,14 +41,66 @@ async function documentMarked(page: Page): Promise<boolean> {
   );
 }
 
+/** Product cards rendered in the listing grid. */
+const LISTING_CARDS = '#main aec-product-card-grid li';
+const LISTING_CARD_LINKS = '#main aec-product-card-grid a[href^="/products/"]';
+
+/** How far a restored position may sit from the one the reader left (AECI-1900). */
+const RESTORE_TOLERANCE_PX = 50;
+
 /**
- * Loads /products, scrolls it to the bottom, and clicks the first row through to
- * its detail page as a client navigation. A click that still lands before
- * hydration is a full document load; the marker catches it, the attempt is
- * annotated, and the setup runs again. Fails, rather than skips, when every
- * attempt loads a new document, so a broken hydration stays red.
+ * Waits in the page until `scrollY` and the document height both hold still for
+ * ten frames, and returns `scrollY`. A restore that lands before the rows render
+ * and then drifts as they arrive does not count as settled until the drift ends.
  */
-async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promise<void> {
+function layoutSettled(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const read = () => `${Math.round(window.scrollY)}:${document.documentElement.scrollHeight}`;
+        let last = read();
+        let still = 0;
+        const tick = () => {
+          const now = read();
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 10) resolve(Math.round(window.scrollY));
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+}
+
+/**
+ * Clicks the first product card link that sits wholly in the viewport, with a
+ * DOM click so Playwright does not scroll anything into view first. Returns the
+ * `scrollY` at the click: the position the router saves for Back.
+ */
+async function clickVisibleCard(page: Page): Promise<{ y: number; href: string }> {
+  const hit = await page.evaluate((selector) => {
+    const link = [...document.querySelectorAll<HTMLAnchorElement>(selector)].find((a) => {
+      const r = a.getBoundingClientRect();
+      return r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+    });
+    if (!link) return null;
+    const y = Math.round(window.scrollY);
+    link.click();
+    return { y, href: link.getAttribute('href')! };
+  }, LISTING_CARD_LINKS);
+  expect(hit, 'a product card is on screen to click').not.toBeNull();
+  return hit!;
+}
+
+/**
+ * Loads /products, scrolls to the end of the loaded rows, and clicks a card on
+ * screen through to its detail page as a client navigation. Returns the
+ * position it left the listing at. A click that still lands before hydration is
+ * a full document load; the marker catches it, the attempt is annotated, and the
+ * setup runs again. Fails, rather than skips, when every attempt loads a new
+ * document, so a broken hydration stays red.
+ */
+async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promise<number> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
@@ -67,23 +119,32 @@ async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promi
     // hydration). A quiet network alone still let a click land on a dead row.
     await untilHydrated(firstProductLink);
 
-    // Scroll the listing to the bottom so a naive SPA navigation would carry the
-    // offset over. Forced instant, so the setup never animates even if smooth
-    // scrolling is switched back on globally (AECI-1752).
-    await page.evaluate(() =>
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' as ScrollBehavior }),
-    );
-    const listingScrollY = await page.evaluate(() => Math.round(window.scrollY));
+    // Scroll so the last loaded card sits at the bottom of the viewport, far
+    // enough down that a naive SPA navigation would carry the offset over.
+    // Forced instant, so the setup never animates even if smooth scrolling is
+    // switched back on globally (AECI-1752). The footer's sentinel may load the
+    // next page from here; the settle waits that out.
+    await page.evaluate((selector) => {
+      const cards = document.querySelectorAll(selector);
+      const last = cards[cards.length - 1]!.getBoundingClientRect();
+      window.scrollTo({
+        top: last.bottom + window.scrollY - window.innerHeight,
+        behavior: 'instant' as ScrollBehavior,
+      });
+    }, LISTING_CARDS);
+    const listingScrollY = await layoutSettled(page);
     test.skip(
       listingScrollY === 0,
       'products listing is not tall enough to scroll in this environment',
     );
 
     await markDocument(page);
-    await firstProductLink.click();
+    // A DOM click on a card already on screen. Playwright's own click would first
+    // scroll the first row into view and so change the position under test.
+    const { y } = await clickVisibleCard(page);
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
     await expect(page.locator('aec-product-detail')).toBeVisible();
-    if (await documentMarked(page)) return;
+    if (await documentMarked(page)) return y;
     test.info().annotations.push({
       type: 'pre-hydration click',
       description: `attempt ${attempt} loaded a new document; retrying`,
@@ -172,7 +233,7 @@ test.describe('scroll restoration on navigation', () => {
   });
 
   test('Back restores the previous page scroll position', async ({ page }) => {
-    await scrollListingThenClickThrough(page);
+    const saved = await scrollListingThenClickThrough(page);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
 
     await page.goBack();
@@ -180,13 +241,156 @@ test.describe('scroll restoration on navigation', () => {
     // A Back that reloaded the document would open at the top for its own reasons.
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
 
-    // Back navigation restores (roughly) the offset we left the listing at, not 0.
-    await expect
-      .poll(() => page.evaluate(() => Math.round(window.scrollY)), {
-        message: 'Back must restore the previous scroll position, not reset to top',
-      })
-      .toBeGreaterThan(0);
+    // AECI-1900: the offset the reader left, not just "somewhere below the top".
+    // Before the fix the listing had no rows when the router restored, so the
+    // page was too short and the reader landed elsewhere.
+    const restored = await layoutSettled(page);
+    expect(
+      Math.abs(restored - saved),
+      `Back must restore ${saved}, landed at ${restored}`,
+    ).toBeLessThanOrEqual(RESTORE_TOLERANCE_PX);
   });
+});
+
+// AECI-1900. On Back, the router restores the saved position one frame after the
+// listing renders. The listing used to fetch its rows again, so in that frame it
+// had none (and every "Load more" page was gone): the page was too short to
+// reach the position, and scroll anchoring then carried the reader somewhere
+// else as the rows arrived. Measured on the base: left at 1200, landed at 3503.
+// The listing now renders the pages it had from an in-memory store on Back and
+// Forward (`shared/paginated-index/listing-history-store.ts`), and the router's
+// own restoration lands. Nothing here or in the fix scrolls by hand.
+//
+// Each case opens the listing by a client navigation from `/categories`, so
+// Back from the listing has somewhere to go and Forward returns to it.
+//
+// The term page. The local seed has no term with more than one page, so the
+// term cases drop the term filter from the grid's browser request: the term
+// page then lists the whole catalogue and shows "Load more". The page itself,
+// its controller and its store key are the term page's own. The SSR fetch is not
+// touched, which is why the term page is opened by a client navigation.
+type ListingCase = {
+  name: string;
+  /** Opens the listing from `/categories` by a client navigation. */
+  open: (page: Page) => Promise<void>;
+  /** The listing URL path, to wait on after Back and Forward. */
+  path: RegExp;
+};
+
+const TERM_PAGE = /\/categories\/[^/?#]+$/;
+
+const LISTINGS: ListingCase[] = [
+  {
+    name: '/products',
+    path: /\/products$/,
+    open: async (page) => {
+      const link = page.locator('header a[href="/products"]').first();
+      await untilHydrated(link);
+      await link.click();
+      await expect(page).toHaveURL(/\/products$/);
+    },
+  },
+  {
+    name: 'a term page',
+    path: TERM_PAGE,
+    open: async (page) => {
+      await page.route(
+        (url) => url.pathname === '/api/products' && url.searchParams.has('category_slug'),
+        (route) => {
+          const url = new URL(route.request().url());
+          url.searchParams.delete('category_slug');
+          return route.continue({ url: url.toString() });
+        },
+      );
+      // A term with products: an empty term renders its empty state, not the grid.
+      const taxonomy = (await (await page.request.get('/api/taxonomy')).json()) as {
+        categories: { slug: string; product_count: number }[];
+      };
+      const term = taxonomy.categories
+        .filter((c) => c.product_count > 0)
+        .sort((a, b) => b.product_count - a.product_count || (a.slug < b.slug ? -1 : 1))[0];
+      test.skip(!term, 'no category has products in this environment');
+      const link = page.locator(`#main a[href="/categories/${term!.slug}"]`).first();
+      await untilHydrated(link);
+      await link.click();
+      await expect(page).toHaveURL(TERM_PAGE);
+    },
+  },
+];
+
+/** Opens the listing, loads `pages` pages, and scrolls card `cardIndex` near the top. */
+async function browseListing(
+  page: Page,
+  listing: ListingCase,
+  pages: 1 | 2,
+  cardIndex: number,
+): Promise<number> {
+  await page.goto('/categories');
+  await page.waitForLoadState('networkidle');
+  await listing.open(page);
+  await markDocument(page);
+
+  const cards = page.locator(LISTING_CARDS);
+  await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+  test.skip((await cards.count()) < 24, 'the catalogue has no second page in this environment');
+  if (pages === 2) {
+    const loadMore = page.locator('aec-pagination-footer a').first();
+    test.skip((await loadMore.count()) === 0, 'the listing has no "Load more" here');
+    await loadMore.click();
+    await expect.poll(() => cards.count()).toBeGreaterThan(cardIndex);
+  }
+  expect(await cards.count(), `card ${cardIndex} exists`).toBeGreaterThan(cardIndex);
+
+  await page.evaluate(
+    ({ selector, i }) => {
+      const r = document.querySelectorAll(selector)[i]!.getBoundingClientRect();
+      window.scrollTo({ top: r.top + window.scrollY - 120, behavior: 'instant' as ScrollBehavior });
+    },
+    { selector: LISTING_CARDS, i: cardIndex },
+  );
+  return layoutSettled(page);
+}
+
+async function expectRestored(page: Page, saved: number, when: string): Promise<void> {
+  expect(await documentMarked(page), `${when} must stay in the same document`).toBe(true);
+  const restored = await layoutSettled(page);
+  expect(
+    Math.abs(restored - saved),
+    `${when} must restore ${saved}, landed at ${restored}`,
+  ).toBeLessThanOrEqual(RESTORE_TOLERANCE_PX);
+}
+
+test.describe('Back and Forward return the reader to their place in a listing (AECI-1900)', () => {
+  for (const listing of LISTINGS) {
+    for (const where of [
+      { label: 'a position on page 1', pages: 1 as const, card: 9 },
+      { label: 'a position inside a page added by "Load more"', pages: 2 as const, card: 30 },
+    ]) {
+      test(`${listing.name}: Back and Forward restore ${where.label}`, async ({ page }) => {
+        await browseListing(page, listing, where.pages, where.card);
+        const count = await page.locator(LISTING_CARDS).count();
+
+        const { y: saved, href } = await clickVisibleCard(page);
+        await expect(page).toHaveURL(new RegExp(`${href}$`));
+        await expect(page.locator('aec-product-detail')).toBeVisible();
+        await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+
+        await page.goBack();
+        await expect(page).toHaveURL(listing.path, { timeout: 15_000 });
+        await expectRestored(page, saved, 'Back');
+        // The pages added by "Load more" come back too.
+        expect(await page.locator(LISTING_CARDS).count()).toBe(count);
+
+        // Back once more to /categories, then Forward onto the listing.
+        await page.goBack();
+        await expect(page).toHaveURL(/\/categories$/, { timeout: 15_000 });
+        await page.goForward();
+        await expect(page).toHaveURL(listing.path, { timeout: 15_000 });
+        await expectRestored(page, saved, 'Forward');
+        expect(await page.locator(LISTING_CARDS).count()).toBe(count);
+      });
+    }
+  }
 });
 
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets
@@ -591,18 +795,21 @@ test.describe('smooth scrolling is scoped to in-page section links', () => {
   });
 
   test('Back after a route change restores the position without animation', async ({ page }) => {
-    await scrollListingThenClickThrough(page);
+    const saved = await scrollListingThenClickThrough(page);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
 
     await startScrollSampler(page);
     await page.goBack();
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
-    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);
-    const end = await scrollSettled(page);
+    const end = await layoutSettled(page);
+    expect(
+      Math.abs(end - saved),
+      `Back must restore ${saved}, landed at ${end}`,
+    ).toBeLessThanOrEqual(RESTORE_TOLERANCE_PX);
 
-    // The restore may land in one or two steps (the page can grow while the
-    // listing renders), but an animated glide passes through many offsets.
+    // The restore lands in one step now that the rows render with it (AECI-1900),
+    // but an animated glide passes through many offsets.
     const offsets = await distinctOffsets(page);
     expect(
       offsets.length,
