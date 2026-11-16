@@ -1,10 +1,12 @@
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { describe, expect, it } from 'vitest';
 import { of } from 'rxjs';
 
 import { type CategoriesListResponse, TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 
+import { ListingSortSelect } from '../shared/listing-toolbar/listing-sort-select';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { TaxonomyIndexPage } from './taxonomy-index';
@@ -53,15 +55,24 @@ function cardOrder(root: HTMLElement): string[] {
   );
 }
 
-/** Click a sort option by its visible label. */
+/** The shared sort control (AECI-1795), or `null` when the page has none. */
+function sortControl(fixture: ReturnType<typeof mount>): ListingSortSelect | null {
+  const debug = fixture.debugElement.query(By.directive(ListingSortSelect));
+  return debug ? (debug.componentInstance as ListingSortSelect) : null;
+}
+
+/** Choose a sort option by its visible label, as the control hands it back. */
 function clickSort(fixture: ReturnType<typeof mount>, label: string): void {
-  const root = fixture.nativeElement as HTMLElement;
-  const button = [...root.querySelectorAll('fieldset button')].find(
-    (b) => b.textContent?.trim() === label,
-  );
-  if (!button) throw new Error(`no sort button labelled "${label}"`);
-  (button as HTMLButtonElement).click();
+  const control = sortControl(fixture);
+  const option = control?.options().find((o) => o.label === label);
+  if (!control || !option) throw new Error(`no sort option labelled "${label}"`);
+  control.sortChange.emit(option.value);
   fixture.detectChanges();
+}
+
+/** The card (the list item) that holds the link to `href`. */
+function cardFor(root: HTMLElement, href: string): HTMLElement | null {
+  return root.querySelector(`a[href="${href}"]`)?.closest('li') ?? null;
 }
 
 describe('TaxonomyIndexPage', () => {
@@ -76,11 +87,13 @@ describe('TaxonomyIndexPage', () => {
       const root = render(kind, listOf({ slug: 'bim', name: 'BIM Authoring', count: 24 }));
 
       expect(root.querySelector('h1')?.textContent?.trim()).toBe(title);
-      const card = root.querySelector(`a[href="${base}/bim"]`);
-      expect(card).not.toBeNull();
-      expect(card?.textContent).toContain('BIM Authoring');
+      const link = root.querySelector(`a[href="${base}/bim"]`);
+      expect(link).not.toBeNull();
+      // The card recipe: one link, on the title, named by the term alone.
+      expect(link?.textContent?.trim()).toBe('BIM Authoring');
+      expect(link?.closest('h2')).not.toBeNull();
       // Count surfaced as "<n> products" on the index card.
-      expect(card?.textContent).toContain('24');
+      expect(cardFor(root, `${base}/bim`)?.textContent).toContain('24 products');
     },
   );
 
@@ -133,28 +146,34 @@ describe('TaxonomyIndexPage', () => {
         { slug: 'b', name: 'Bravo', count: 9, integrations: 40 },
       );
 
-    const optionLabels = (root: HTMLElement) =>
-      [...root.querySelectorAll('fieldset button')].map((b) => b.textContent?.trim());
+    const optionLabels = (fixture: ReturnType<typeof mount>) =>
+      sortControl(fixture)
+        ?.options()
+        .map((o) => o.label);
 
     it.each(['category', 'audience', 'trade'] as const)(
-      'offers %s only A→Z and Products, and defaults to A→Z',
+      'offers %s only Name (A–Z) and Most products, and defaults to A to Z',
       (kind) => {
-        const root = render(kind, facet());
-        expect(optionLabels(root)).toEqual(['A → Z', 'Products']);
+        const fixture = mount(kind, facet());
+        const root = fixture.nativeElement as HTMLElement;
+        expect(optionLabels(fixture)).toEqual(['Name (A–Z)', 'Most products']);
+        expect(sortControl(fixture)?.value()).toBe('name');
         expect(cardOrder(root)).toEqual(['Alpha', 'Bravo', 'Charlie']);
       },
     );
 
-    it('offers phases Sequence as well, and defaults to it', () => {
-      const root = render('phase', facet());
-      expect(optionLabels(root)).toEqual(['Sequence', 'A → Z', 'Products']);
+    it('offers phases Project order as well, and defaults to it', () => {
+      const fixture = mount('phase', facet());
+      const root = fixture.nativeElement as HTMLElement;
+      expect(optionLabels(fixture)).toEqual(['Project order', 'Name (A–Z)', 'Most products']);
+      expect(sortControl(fixture)?.value()).toBe('sequence');
       // The API order, untouched — a phase vocabulary is a sequence.
       expect(cardOrder(root)).toEqual(['Charlie', 'Alpha', 'Bravo']);
     });
 
     it('sorts by product count, descending', () => {
       const fixture = mount('category', facet());
-      clickSort(fixture, 'Products');
+      clickSort(fixture, 'Most products');
       // Bravo 9, Charlie 5, Alpha 1 — note Alpha has the MOST integrations and
       // still sorts last, which is what makes this a product-count sort.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual([
@@ -164,10 +183,10 @@ describe('TaxonomyIndexPage', () => {
       ]);
     });
 
-    it('returns a phase grid to its sequence when Sequence is re-selected', () => {
+    it('returns a phase grid to its sequence when Project order is re-selected', () => {
       const fixture = mount('phase', facet());
-      clickSort(fixture, 'A → Z');
-      clickSort(fixture, 'Sequence');
+      clickSort(fixture, 'Name (A–Z)');
+      clickSort(fixture, 'Project order');
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual([
         'Charlie',
         'Alpha',
@@ -184,7 +203,7 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'e', name: 'Echo', count: 4, integrations: 8 },
         ),
       );
-      clickSort(fixture, 'Products');
+      clickSort(fixture, 'Most products');
       // Echo first on the integration tiebreak; Delta before Zulu on name.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Echo', 'Delta', 'Zulu']);
     });
@@ -197,18 +216,30 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'known', name: 'Known', count: 3, integrations: 4 },
         ),
       );
-      clickSort(fixture, 'Products');
+      clickSort(fixture, 'Most products');
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Known', 'Legacy']);
     });
 
-    it('marks the active option with aria-pressed', () => {
+    it('shows the active option in the control trigger', () => {
       const fixture = mount('category', facet());
-      clickSort(fixture, 'Products');
+      clickSort(fixture, 'Most products');
       const root = fixture.nativeElement as HTMLElement;
-      const pressed = [...root.querySelectorAll('fieldset button')]
-        .filter((b) => b.getAttribute('aria-pressed') === 'true')
-        .map((b) => b.textContent?.trim());
-      expect(pressed).toEqual(['Products']);
+      expect(sortControl(fixture)?.value()).toBe('products');
+      expect(root.querySelector('button[role="combobox"]')?.textContent?.trim()).toBe(
+        'Most products',
+      );
+    });
+
+    it('ignores a value that is not one of the facet modes', () => {
+      const fixture = mount('category', facet());
+      sortControl(fixture)?.sortChange.emit('sequence');
+      fixture.detectChanges();
+      // Categories do not offer the API sequence, so the order stays A to Z.
+      expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual([
+        'Alpha',
+        'Bravo',
+        'Charlie',
+      ]);
     });
 
     it('sorts only the published trades', () => {
@@ -225,28 +256,28 @@ describe('TaxonomyIndexPage', () => {
           { slug: 'electrical', name: 'Electrical', count: 9, integrations: 50 },
         ),
       );
-      clickSort(fixture, 'Products');
+      clickSort(fixture, 'Most products');
       // `Hidden` is below the floor, so no ordering may promote it back onto the
       // page — the floor is applied before the sort, not after.
       expect(cardOrder(fixture.nativeElement as HTMLElement)).toEqual(['Electrical', 'Roofing']);
     });
 
     it('is not rendered when there is nothing to sort', () => {
-      const root = render('phase', listOf());
-      expect(root.querySelector('fieldset')).toBeNull();
+      const fixture = mount('phase', listOf());
+      expect(sortControl(fixture)).toBeNull();
     });
   });
 
   it('shows the integration count on a card alongside the product count', () => {
     const root = render('category', listOf({ slug: 'a', name: 'A', count: 3, integrations: 12 }));
-    const card = root.querySelector('a[href="/categories/a"]');
+    const card = cardFor(root, '/categories/a');
     expect(card?.textContent).toContain('3 products');
     expect(card?.textContent).toContain('12 integrations');
   });
 
   it('says "1 product" and "1 integration", not "1 products"', () => {
     const root = render('category', listOf({ slug: 'a', name: 'A', count: 1, integrations: 1 }));
-    const card = root.querySelector('a[href="/categories/a"]');
+    const card = cardFor(root, '/categories/a');
     expect(card?.textContent).toContain('1 product ');
     expect(card?.textContent).toContain('1 integration');
     expect(card?.textContent).not.toContain('1 products');
@@ -257,9 +288,7 @@ describe('TaxonomyIndexPage', () => {
   // renders no integrations phrase at all rather than "0 integrations".
   it('omits the integration phrase entirely when the payload carries no count', () => {
     const root = render('category', listOf({ slug: 'b', name: 'B', count: 3 }));
-    expect(root.querySelector('a[href="/categories/b"]')?.textContent).not.toContain(
-      'integrations',
-    );
+    expect(cardFor(root, '/categories/b')?.textContent).not.toContain('integrations');
   });
 
   it('renders a card description when present', () => {

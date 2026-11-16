@@ -21,6 +21,7 @@
 
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +34,7 @@ import type {
   TaxonomyTermWithCount,
 } from '@aeci/shared';
 
+import { ListingSortSelect } from '../shared/listing-toolbar/listing-sort-select';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 import { TaxonomyIndexPage } from '../taxonomy/taxonomy-index';
 
@@ -59,15 +61,18 @@ function mountIndex(kind: TaxonomyKind, terms: CategoriesListResponse) {
   return fixture;
 }
 
-/** The rendered order after choosing "Products", as positions in the input list. */
+/** The rendered order after choosing "Most products", as positions in the input list. */
 function productsOrder(kind: TaxonomyKind, terms: TaxonomyTermWithCount[]): number[] {
   const fixture = mountIndex(kind, { data: terms });
   const root = fixture.nativeElement as HTMLElement;
-  const button = [...root.querySelectorAll('fieldset button')].find(
-    (b) => b.textContent?.trim() === 'Products',
-  );
-  if (!button) throw new Error('no "Products" sort button');
-  (button as HTMLButtonElement).click();
+  // The shared sort control (AECI-1795) hands its choice back on `sortChange`.
+  const select = fixture.debugElement.query(By.directive(ListingSortSelect));
+  if (!select) throw new Error('no sort control');
+  const control = select.componentInstance as ListingSortSelect;
+  if (!control.options().some((o) => o.value === 'products' && o.label === 'Most products')) {
+    throw new Error('no "Most products" sort option');
+  }
+  control.sortChange.emit('products');
   fixture.detectChanges();
   return [...root.querySelectorAll('ul > li a')].map((a) => {
     const href = a.getAttribute('href') ?? '';
