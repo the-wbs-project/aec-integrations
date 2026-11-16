@@ -1846,6 +1846,30 @@ describe('ProductDetailPage About band (AECI-1780)', () => {
     expect(navIds(el)[0]).toBe('about');
   });
 
+  // Ruling 36 (2026-11-16): no empty left column beside "Who it is for".
+  const SPLIT = 'lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]';
+
+  it('gives "Who it is for" the full band width when there is no description', () => {
+    const { el } = setup(buildProduct({ description: null, audiences: [t('a')] }));
+    const about = el.querySelector('#about')!;
+    expect(about.classList).not.toContain(SPLIT);
+    expect(about.classList).toContain('grid');
+    // The heading still comes first, then the card.
+    const heading = about.querySelector('h2#description-title')!;
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(heading.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the two-column split with a description, or with its under-review line', () => {
+    const withText = setup(buildProduct({ audiences: [t('a')] })).el;
+    expect(withText.querySelector('#about')!.classList).toContain(SPLIT);
+    TestBed.resetTestingModule();
+    const hidden = setup(
+      buildProduct({ description: null, under_review: ['description'], audiences: [t('a')] }),
+    ).el;
+    expect(hidden.querySelector('#about')!.classList).toContain(SPLIT);
+  });
+
   it('renders About for a facet emptied by AECi, with the removal in its slot', () => {
     const { el } = setup(
       buildProduct({
