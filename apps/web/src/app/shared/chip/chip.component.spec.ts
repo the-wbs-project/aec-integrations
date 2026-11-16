@@ -90,3 +90,57 @@ describe('Chip', () => {
     expect(on.querySelector('svg')).not.toBeNull();
   });
 });
+
+@Component({
+  imports: [Chip],
+  template: `
+    <div role="group" aria-label="Types of data" id="group">
+      <aec-chip id="zero" [selected]="on()" [disabled]="!on()" (activated)="on.set(!on())"
+        >Models 0</aec-chip
+      >
+      <aec-chip id="other" [selected]="false">Drawings 4</aec-chip>
+    </div>
+  `,
+})
+class ZeroHost {
+  readonly on = signal(true);
+}
+
+describe('Chip: releasing a chip that becomes disabled (AECI-1783)', () => {
+  it('moves focus to its chip group instead of dropping it to the body', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+    const fixture = TestBed.createComponent(ZeroHost);
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const button = root.querySelector<HTMLButtonElement>('#zero button')!;
+    const group = root.querySelector<HTMLElement>('#group')!;
+    expect(group.getAttribute('tabindex')).toBeNull();
+    button.focus();
+    button.click();
+    await fixture.whenStable();
+    expect(button.disabled).toBe(true);
+    expect(document.activeElement).toBe(group);
+    expect(group.getAttribute('tabindex')).toBe('-1');
+    fixture.nativeElement.remove();
+  });
+
+  it('leaves focus alone when the released chip stays enabled', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideRouter([])],
+    });
+    const fixture = TestBed.createComponent(Host);
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '#filter button',
+    )!;
+    button.focus();
+    button.click();
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(button);
+    fixture.nativeElement.remove();
+  });
+});

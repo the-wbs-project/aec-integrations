@@ -199,10 +199,12 @@ const COMPANY_FACT_FIELDS = [
           }
 
           <!-- The description is the hero lede (ruling 3, 2026-11-16). Its words are
-               unchanged and it has no heading. -->
+               unchanged and it has no heading. Ruling 77: below sm it steps down one
+               ramp role, to the body size at its 1.6 line height, so a long description
+               does not make the hero a wall. Every word still shows. -->
           @if (v.description) {
             <p
-              class="mt-5 max-w-[40rem] break-words text-t-20 leading-normal text-(--text-on-brand-secondary)"
+              class="mt-5 max-w-[40rem] break-words text-t-16 text-(--text-on-brand-secondary) sm:text-t-20 sm:leading-normal"
               data-testid="vendor-description"
             >
               {{ v.description }}

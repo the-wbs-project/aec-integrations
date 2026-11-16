@@ -199,6 +199,13 @@ const SURFACES: readonly Surface[] = [
       'Cards and table keep the lane orders above (R1 keeps existing orders); reader filters remove rows only; chip options A to Z by name, slug tie-break; long lists in AECI-1783',
   },
   {
+    key: 'product-page-integrations-long-list',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'AECI-1783: groups A to Z by category name, slug tie-break, uncategorised last (R1); rows keep the lane order inside a group; a list groups only at 13 rows or more with fewer groups than half its rows (row count and categories only); a row sits in each of its categories; the first 6 rows of a group above "Show more"; one list shows the first 12 in lane order; no @defer cut in the grouped list',
+  },
+  {
     key: 'product-page-hero-visual',
     status: 'pending',
     owner: 'AECI-1787',
@@ -282,8 +289,8 @@ const SURFACES: readonly Surface[] = [
  */
 const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'core/taxonomy/browse-menu-model.ts', kind: 'top-by-count', facet: 'categories' },
-  // The home hero's fallback row (`home-hero.ts`).
-  { file: 'core/taxonomy/taxonomy-nav.store.ts', kind: 'top-by-count', facet: 'categories' },
+  // The home browse block's category row. Its head (`slice(0, 5)`) is also the home
+  // hero's "Largest categories" fallback row (AECI-1792), so one site serves both.
   { file: 'home/home.ts', kind: 'top-by-count', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'phases' },

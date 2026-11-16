@@ -162,7 +162,7 @@
                 // initial bundle because six always-loaded shell components
                 // (header, nav menu, search trigger, user menu, update banner,
                 // legal notice band) use four of its icons. The registry is not
-                // split: one object is cheaper than a chunk per icon (ADR 0056).
+                // split: one object is cheaper than a chunk per icon (ADR 0057).
                 //
                 // AECI-1763: raised 1.09MB -> 1.10MB. Measured with `ng build`
                 // (the budget's own total): base (`batch/redesign-shell`) at
