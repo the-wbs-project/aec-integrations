@@ -54,10 +54,20 @@ describe('SearchVendorRow', () => {
     expect(row?.textContent).toContain('40');
   });
 
-  it('shows an en dash, not a blank cell, when headquarters is missing', () => {
+  it('shows a dash for the eye and words for a screen reader when headquarters is missing', () => {
     const el = render({ ...RECORD, headquarters: null });
     const hqCell = el.querySelectorAll('td')[1];
-    expect(hqCell.textContent?.trim()).toBe('–');
-    expect(hqCell.querySelector('[aria-label="No headquarters listed"]')).not.toBeNull();
+    const dash = hqCell.querySelector('[aria-hidden="true"]');
+    expect(dash?.textContent?.trim()).toBe('–');
+    const words = hqCell.querySelector('.sr-only');
+    expect(words?.textContent?.trim()).toBe('No headquarters listed');
+    expect(words?.getAttribute('aria-hidden')).toBeNull();
+    // No aria-label on a plain span: it is not reliably read (AECI-1796).
+    expect(hqCell.querySelector('[aria-label]')).toBeNull();
+  });
+
+  it('draws the hairline under the row, as the shared product row does', () => {
+    const el = render();
+    expect(el.querySelector('tbody > tr')?.classList.contains('border-b')).toBe(true);
   });
 });

@@ -184,8 +184,11 @@ export interface InfiniteHitsRenderState {
   items: readonly unknown[];
   isLastPage: boolean;
   showMore(): void;
-  /** The response these items came from; a new object only when a search lands. */
-  results?: unknown;
+  /**
+   * The response these items came from; a new object only when a search lands.
+   * `query` is the text that response answers (Algolia's `SearchResults.query`).
+   */
+  results?: { readonly query?: string } | null;
 }
 export interface StatsRenderState {
   nbHits: number;
@@ -709,8 +712,15 @@ export class SearchController {
         lastResults = state.results;
         // The init render (isFirstRender) fires synchronously on start() with
         // empty items, before any network. The first response is the first
-        // non-initial render — that's when results have actually settled.
-        if (!isFirstRender) this.ready.set(true);
+        // non-initial render whose results answer the current query. With `?q=`
+        // set, `start()` runs an empty-query search first and seeds the query
+        // after it. That first response lands while the seeded query is still
+        // in flight, and the infinite-hits list renders it as no items. Flipping
+        // on it flashed "No results" for about 200ms and shifted a phone layout
+        // by about 0.39 (AECI-1796).
+        if (!isFirstRender && state.results && (state.results.query ?? '') === this.query()) {
+          this.ready.set(true);
+        }
         // `showMore()` triggers an immediate re-render with the OLD results, so
         // only a new `results` object means the page landed. Clearing on any
         // render made the footer's pending phase invisible, and its scroll

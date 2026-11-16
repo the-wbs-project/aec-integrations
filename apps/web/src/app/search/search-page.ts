@@ -62,7 +62,7 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
 import type { ProductRow } from '../products/product-card';
-import { ProductTable } from '../products/product-table';
+import { ProductTable, TABLE_HEADER_CELL_CLASS } from '../products/product-table';
 import { AecCard } from '../shared/card/card';
 import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { EmptyState } from '../shared/empty-state/empty-state';
@@ -90,6 +90,9 @@ import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
+import { FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
+import { AecIcon } from '../shared/icon/icon';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -147,6 +150,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   selector: 'app-search-page',
   imports: [
     AecBreadcrumb,
+    AecIcon,
     NgTemplateOutlet,
     RouterLink,
     AecCard,
@@ -168,16 +172,17 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   ],
   template: `
     <aec-browse-layout>
-      <div slot="header" class="space-y-3">
+      <!-- The shared browse header (browse-header.ts): breadcrumb, then the h1
+           16px below it, sized by the global h1 rule. Then the query box and
+           the tabs, both in the header (mock-up 10). -->
+      <div slot="header">
         <aec-breadcrumb [items]="crumbs" />
-        <h1
-          class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
-          i18n="@@search.title"
-        >
-          Search
-        </h1>
+        <h1 [class]="headerClass.title" i18n="@@search.title">Search</h1>
+        <!-- The query box on the shared field edge (.aec-field-control, 3:1),
+             44px, with a leading search glyph (AECI-1850). The glyph is
+             decorative: the label names the field. -->
         <form
-          class="max-w-2xl pt-2"
+          class="relative mt-6 max-w-2xl"
           role="search"
           action="/search"
           method="get"
@@ -186,6 +191,11 @@ const URL_SYNC_DEBOUNCE_MS = 350;
           <label class="sr-only" for="search-input" i18n="@@search.input.label"
             >Search the directory</label
           >
+          <span
+            class="pointer-events-none absolute start-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
+          >
+            <aec-icon name="search" decorative [size]="5" />
+          </span>
           <input
             id="search-input"
             name="q"
@@ -195,7 +205,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             (input)="onQueryInput($event)"
             i18n-placeholder="@@search.input.placeholder"
             placeholder="Search products and vendors"
-            class="h-12 w-full min-w-0 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 text-base text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="queryInputClass"
           />
         </form>
 
@@ -205,10 +215,12 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                it instead of drawing a second rule. It scrolls sideways rather
                than overflowing the viewport if the labels ever outgrow it. The
                underline colour comes from .aec-nav-tab in styles.css, because
-               border-colour utilities lose to the unlayered * rule there. -->
+               border-colour utilities lose to the unlayered * rule there.
+               Selected: the Forest underline and weight 600, so colour is not
+               the only cue (ruling 9 of 2026-11-16). 44px tall. -->
           <div
             role="tablist"
-            class="-mb-8 flex gap-1 overflow-x-auto pt-3 md:-mb-10"
+            class="mt-6 -mb-8 flex gap-1 overflow-x-auto md:-mb-10"
             aria-label="Search results by type"
             i18n-aria-label="@@search.tablist.aria"
           >
@@ -223,13 +235,16 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                 [tabindex]="activeTab() === tab ? 0 : -1"
                 (click)="selectTab(tab)"
                 (keydown)="onTabKeydown($event)"
-                class="aec-nav-tab shrink-0 cursor-pointer border-b-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-nav-tab min-h-11 shrink-0 cursor-pointer border-b-2 px-4 py-2.5 text-t-14 whitespace-nowrap transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [class.text-(--text-secondary)]="activeTab() !== tab"
                 [class.text-(--text-primary)]="activeTab() === tab"
+                [class.font-semibold]="activeTab() === tab"
               >
                 {{ tabLabel(tab) }}
                 @if (countFor(tab); as count) {
-                  <span class="ms-1.5 tabular-nums text-(--text-secondary)">{{ count }}</span>
+                  <span class="ms-1.5 font-normal tabular-nums text-(--text-secondary)">{{
+                    count
+                  }}</span>
                 }
               </button>
             }
@@ -386,38 +401,42 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                           >
                             @switch (listingView.view()) {
                               @case ('table') {
-                                <div class="overflow-x-auto">
+                                <!-- The shared product table's frame (product-table.ts):
+                                     hairlines only, a rule above the header, one under
+                                     it and one under each row (the row draws its own),
+                                     header cells at the Label role. -->
+                                <div class="overflow-x-auto border-t">
                                   <table
-                                    class="w-full border-collapse text-start text-sm md:min-w-[36rem]"
+                                    class="w-full border-collapse text-start text-t-14 md:min-w-[36rem]"
                                     i18n-aria-label="@@search.vendors.table.aria"
                                     aria-label="Vendors"
                                   >
-                                    <thead class="border-b border-(--border-default)">
-                                      <tr>
+                                    <thead>
+                                      <tr class="border-b">
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
+                                          [class]="thStart"
                                           i18n="@@search.vendors.col.name"
                                         >
                                           Name
                                         </th>
                                         <th
                                           scope="col"
-                                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
+                                          [class]="thStart + ' hidden md:table-cell'"
                                           i18n="@@search.vendors.col.headquarters"
                                         >
                                           Headquarters
                                         </th>
                                         <th
                                           scope="col"
-                                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
+                                          [class]="thEnd"
                                           i18n="@@search.vendors.col.integrations"
                                         >
                                           Integrations
                                         </th>
                                       </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-(--border-default)">
+                                    <tbody>
                                       @for (hit of hits; track hit.objectID) {
                                         <tr aec-search-vendor-row [record]="hit"></tr>
                                       }
@@ -490,11 +509,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
       <aec-empty-state>
         <p i18n="@@search.empty">
           No results. Try a broader search or
-          <a
-            routerLink="/categories"
-            class="text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >browse by category</a
-          >.
+          <a routerLink="/categories" [class]="inTextLinkClass">browse by category</a>.
         </p>
       </aec-empty-state>
     </ng-template>
@@ -549,6 +564,27 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   `,
 })
 export class SearchPage implements OnDestroy {
+  /** The shared browse header parts (AECI-1794). */
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+
+  /**
+   * The query box: the shared field recipe (the 3:1 field edge, 44px, 12px
+   * radius, 16px text), with 48px start padding for the search glyph
+   * (AECI-1850). `ps-12` sorts after the recipe's `px-4`, so it wins.
+   */
+  protected readonly queryInputClass = `${FIELD_INPUT_CLASS} min-w-0 ps-12`;
+
+  /** The Vendors table's header cells, the shared product table's (`product-table.ts`). */
+  protected readonly thStart = `${TABLE_HEADER_CELL_CLASS} text-start`;
+  protected readonly thEnd = `${TABLE_HEADER_CELL_CLASS} text-end`;
+
+  /**
+   * The empty state's link: the in-text link role (DESIGN.md, the Link Treatment
+   * Rule). Underlined at rest, not only on hover, so colour is not its only cue.
+   */
+  protected readonly inTextLinkClass =
+    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+
   /** "Clear filters", the shared filter-panel link (AECI-1793). */
   protected readonly clearClass = FILTER_LINK_CLASS;
 

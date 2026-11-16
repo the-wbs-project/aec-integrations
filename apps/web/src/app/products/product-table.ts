@@ -2,8 +2,14 @@ import { Component, input } from '@angular/core';
 
 import { ProductCard, type ProductRow } from './product-card';
 
-const TH_CLASS =
+/**
+ * A header cell at the Label role. Exported so the `/search` Vendors table draws
+ * the same header (AECI-1796).
+ */
+export const TABLE_HEADER_CELL_CLASS =
   'px-4 py-3 text-t-13 font-semibold tracking-[0.01em] whitespace-nowrap text-(--text-secondary)';
+
+const TH_CLASS = TABLE_HEADER_CELL_CLASS;
 
 /**
  * The table view of a product list: `/products`, the four taxonomy term pages
