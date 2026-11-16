@@ -89,6 +89,10 @@ test.describe('the inlined critical CSS (AECI-1854)', () => {
     expect(parsed.propertyRules, 'every @property rule parses').toBe(declared);
     expect(css!, 'no stray ";" between top-level rules').not.toMatch(/\}\s*;/);
     for (const token of TOKENS) expect(parsed.rootValues[token], `${token} on :root`).toBeTruthy();
+    // The home page uses `space-y-*`. Tailwind writes it as a selector that is
+    // wholly `:where(…)`, which unpatched beasties drops. This line fails if
+    // `patches/beasties@0.5.5.patch` stops applying.
+    expect(css!, 'space-y rules reach the critical CSS').toMatch(/:where\(\.space-y-[\w.\\-]+>/);
   });
 });
 
