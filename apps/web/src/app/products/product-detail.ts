@@ -209,6 +209,7 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
             [reachableCount]="p.reachable_pair_count"
             [productName]="p.name"
             [hosts]="p.extension_of"
+            [product]="p"
           ></section>
 
           @if (showPowered() && !leadWithPowered()) {
