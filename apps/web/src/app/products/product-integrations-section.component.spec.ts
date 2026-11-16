@@ -625,33 +625,71 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
     check();
   });
 
-  it('a closed group shows its first three cards; the rest are in the DOM, hidden until found', () => {
+  it('a closed group shows its first six cards (ruled 2026-11-16); the rest are in the DOM, hidden until found', () => {
     const { fixture, el } = setup(rows(58));
     const first = groups(el)[0]!;
     const cards = [...first.querySelectorAll('li[aec-product-integration-card]')];
-    expect(cards.length).toBeGreaterThan(3);
-    expect(cards.slice(0, 3).every((c) => !c.hasAttribute('hidden'))).toBe(true);
-    expect(cards.slice(3).every((c) => c.getAttribute('hidden') === 'until-found')).toBe(true);
+    expect(cards.length).toBeGreaterThan(6);
+    expect(cards.slice(0, 6).every((c) => !c.hasAttribute('hidden'))).toBe(true);
+    expect(cards.slice(6).every((c) => c.getAttribute('hidden') === 'until-found')).toBe(true);
     // Hidden cards keep their pair-page links in the markup.
-    expect(cards[3]!.querySelector('a[href^="/products/procore/integrations/"]')).not.toBeNull();
+    expect(cards[6]!.querySelector('a[href^="/products/procore/integrations/"]')).not.toBeNull();
 
     const button = first.querySelector<HTMLButtonElement>(
       '[data-testid="integration-category-group-toggle"]',
     )!;
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(text(button.querySelector(':scope > span:not([aria-hidden])')!)).toBe(
-      `Show ${cards.length - 3} more in Accounting`,
+      `Show ${cards.length - 6} more in Accounting`,
     );
     // The stack names the first hidden partners, in row order, with no logo above 32px.
     const stack = [...button.querySelectorAll('aec-logo-or-initial')].map(text);
     expect(stack).toEqual(
-      cards.slice(3, 8).map((c) => text(c.querySelector('h4')!).charAt(0).toUpperCase()),
+      cards.slice(6, 11).map((c) => text(c.querySelector('h4')!).charAt(0).toUpperCase()),
     );
     button.click();
     fixture.detectChanges();
     expect(cards.every((c) => !c.hasAttribute('hidden'))).toBe(true);
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(text(button)).toBe('Show fewer');
+  });
+
+  it('a 13-row list whose rows fall into 13 groups stays one flat list (ruled 2026-11-16)', () => {
+    const spread = Array.from({ length: 13 }, (_, i) =>
+      edge(link(`s-${i}`, `S ${String(i).padStart(2, '0')}`), {
+        partner_categories: [{ slug: `cat-${i}`, name: `Cat ${i}` }],
+      }),
+    );
+    const { el } = setup(spread);
+    expect(groups(el)).toHaveLength(0);
+    expect(el.querySelector('aec-integration-arrangement-toggle')).toBeNull();
+    expect(el.querySelectorAll('li[aec-product-integration-card]')).toHaveLength(13);
+  });
+
+  it('a group of six or fewer shows every card and has no button', () => {
+    const { el } = setup(rows(13));
+    for (const group of groups(el)) {
+      const cards = group.querySelectorAll('li[aec-product-integration-card]');
+      expect(cards.length).toBeLessThanOrEqual(6);
+      expect(group.querySelector('li[hidden]')).toBeNull();
+      expect(group.querySelector('[data-testid="integration-category-group-toggle"]')).toBeNull();
+    }
+  });
+
+  it('a chip that would leave no rows is disabled, unless it is pressed', () => {
+    const { fixture, el } = setup(rows(58));
+    // Every row is outbound or inbound, so "Both" is absent; narrow by query instead.
+    type(fixture, filterInput(el)!, 'Partner 01');
+    const chip = (name: string) => categoryChips(el).find((b) => text(b).startsWith(name))!;
+    // Partner 01 is in Scheduling and BIM only.
+    expect(chip('Accounting').disabled).toBe(true);
+    expect(chip('Scheduling').disabled).toBe(false);
+    // A pressed chip whose count falls to 0 stays pressable, so it can be released.
+    type(fixture, filterInput(el)!, '');
+    pressChip(fixture, el, 'Accounting');
+    type(fixture, filterInput(el)!, 'Partner 01');
+    expect(chip('Accounting').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('Accounting').disabled).toBe(false);
   });
 
   it('find-in-page opening a hidden card opens its group', () => {

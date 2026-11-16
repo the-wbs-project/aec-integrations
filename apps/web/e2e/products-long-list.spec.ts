@@ -2,7 +2,8 @@
  * AECI-1783: the long integration list on the product page.
  *
  * Runs against whatever D1 the stack under test reads. It looks for a product whose
- * section groups (13 rows or more, no Via lane) and skips when the database has none,
+ * section groups (13 rows or more, fewer groups than half the rows, no Via lane) and
+ * skips when the database has none,
  * as `detail-deferred-hydration.spec.ts` does. The committed seed has no such product,
  * so seed one locally to exercise it.
  *
@@ -30,6 +31,21 @@ interface Edge {
   via: unknown;
   powered_by_product: { id: string } | null;
   mechanism_kind: string | null;
+  partner_categories?: Array<{ slug: string }>;
+}
+
+/**
+ * The grouping rule ruled on 2026-11-16: 13 rows or more, and fewer category groups
+ * than half the rows. A row with no category adds the uncategorised group.
+ */
+function groups(edges: Edge[]): number {
+  const keys = new Set<string>();
+  for (const e of edges) {
+    const cats = e.partner_categories ?? [];
+    if (cats.length === 0) keys.add('');
+    for (const c of cats) keys.add(c.slug);
+  }
+  return keys.size;
 }
 
 /** A product whose Integrations section groups, or null. */
@@ -52,7 +68,7 @@ async function findLongList(
       const viaLane = edges.some(
         (e) => e.via || e.powered_by_product || e.mechanism_kind === 'iPaaS',
       );
-      if (!viaLane && edges.length >= GROUPED_LIST_MIN_ROWS) {
+      if (!viaLane && edges.length >= GROUPED_LIST_MIN_ROWS && groups(edges) * 2 < edges.length) {
         return { slug: item.slug, rows: edges.length };
       }
     }
@@ -225,7 +241,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await untilHydrated(toggle);
     await toggle.focus();
     await page.keyboard.press('Enter');
-    const revealed = group.locator(':scope > ul > li').nth(3).locator('.aec-partner-link');
+    const revealed = group.locator(':scope > ul > li').nth(6).locator('.aec-partner-link');
     await expect(revealed).toBeFocused();
     await expect(revealed).toBeInViewport();
   });

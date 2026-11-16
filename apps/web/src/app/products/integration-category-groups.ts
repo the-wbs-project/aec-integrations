@@ -31,9 +31,9 @@ import { partnerCategoryOptions } from './integration-filter';
  */
 
 /**
- * The size from which a list is grouped: more rows than one page of the one-list mode.
- * A list of {@link ONE_LIST_PAGE_SIZE} or fewer renders exactly as it did before
- * AECI-1783. Provisional: the documents leave the number to AECI-1783.
+ * The size from which a list may group: more rows than one page of the one-list mode.
+ * Ruled by Chris on 2026-11-16 (ruling 62). A list of {@link ONE_LIST_PAGE_SIZE} or
+ * fewer renders as it did before AECI-1783.
  */
 export const GROUPED_LIST_MIN_ROWS = 13;
 
@@ -41,11 +41,12 @@ export const GROUPED_LIST_MIN_ROWS = 13;
 export const ONE_LIST_PAGE_SIZE = 12;
 
 /**
- * Rows a closed group shows before its "Show more" button: one row of the widest grid.
- * A fixed number, never read from the viewport, so the server HTML is the same for
- * every visitor. Provisional.
+ * Rows a closed group shows before its "Show more" button: two rows of the widest grid,
+ * three rows of the two-column one. Ruled by Chris on 2026-11-16 (was 3). A group of
+ * this many or fewer shows every card and has no button. A fixed number, never read
+ * from the viewport, so the server HTML is the same for every visitor.
  */
-export const GROUP_PEEK_ROWS = 3;
+export const GROUP_PEEK_ROWS = 6;
 
 /** Logos in the "Show more" button's stack: the first hidden partners, in row order. */
 export const GROUP_STACK_LOGOS = 5;
@@ -63,13 +64,19 @@ export interface IntegrationCategoryGroup {
 }
 
 /**
- * Whether the section is long enough to group. Read from the UNFILTERED view, so a
- * filter never flips the layout under the reader. A page with a Via lane keeps its lane
- * cards: the connector groups are an existing order (R1) and the category groups would
- * nest inside them, which the documents do not design.
+ * Whether the section groups. Ruled by Chris on 2026-11-16: 13 rows or more, AND fewer
+ * groups than half the rows, so a list whose categories would leave most groups with
+ * one card stays one flat list. Read from the UNFILTERED view, so a filter never flips
+ * the layout under the reader, and from nothing but the row count and the partners'
+ * categories, so the server and the browser always agree. A page with a Via lane keeps
+ * its lane cards: the connector groups are an existing order (R1) and the category
+ * groups would nest inside them, which the documents do not design.
  */
 export function isLongIntegrationList(view: IntegrationLaneView): boolean {
-  return view.via.length === 0 && view.direct.length >= GROUPED_LIST_MIN_ROWS;
+  if (view.via.length > 0) return false;
+  const rows = view.direct.length;
+  if (rows < GROUPED_LIST_MIN_ROWS) return false;
+  return groupRowsByCategory(view.direct).length * 2 < rows;
 }
 
 /** The partner categories a row carries. */

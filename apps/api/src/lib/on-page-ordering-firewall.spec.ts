@@ -203,7 +203,7 @@ const SURFACES: readonly Surface[] = [
     status: 'covered',
     spec: 'web',
     order:
-      'AECI-1783: groups A to Z by category name, slug tie-break, uncategorised last (R1); rows keep the lane order inside a group; a row sits in each of its categories; the first 3 rows of a group above "Show more"; one list shows the first 12 in lane order; no @defer cut in the grouped list',
+      'AECI-1783: groups A to Z by category name, slug tie-break, uncategorised last (R1); rows keep the lane order inside a group; a list groups only at 13 rows or more with fewer groups than half its rows (row count and categories only); a row sits in each of its categories; the first 6 rows of a group above "Show more"; one list shows the first 12 in lane order; no @defer cut in the grouped list',
   },
   {
     key: 'product-page-hero-visual',

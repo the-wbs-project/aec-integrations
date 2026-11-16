@@ -106,6 +106,34 @@ describe('isLongIntegrationList', () => {
     expect(isLongIntegrationList(longView(58))).toBe(true);
   });
 
+  it('groups only with fewer groups than half the rows (ruled 2026-11-16)', () => {
+    seq = 0;
+    // Each row in a category of its own: categories cycle through `k` names.
+    const spread = (rows: number, k: number) =>
+      splitIntegrationLanes(
+        Array.from({ length: rows }, (_, i) =>
+          edge(link(`s-${i}`, `S ${String(i).padStart(2, '0')}`), [
+            term(`cat-${i % k}`, `Cat ${i % k}`),
+          ]),
+        ),
+        [],
+      );
+    // 13 rows in 13 one-card groups: a flat list.
+    expect(isLongIntegrationList(spread(13, 13))).toBe(false);
+    // 7 groups: 14 rows is not more than twice that, 15 is.
+    expect(isLongIntegrationList(spread(14, 7))).toBe(false);
+    expect(isLongIntegrationList(spread(15, 7))).toBe(true);
+    // The uncategorised group counts as a group.
+    const withNone = splitIntegrationLanes(
+      [
+        ...Array.from({ length: 13 }, (_, i) => edge(link(`n-${i}`, `N ${i}`), [])),
+        edge(link('one', 'One'), [SCHEDULING]),
+      ],
+      [],
+    );
+    expect(isLongIntegrationList(withNone)).toBe(true);
+  });
+
   it('never groups a page with a Via lane, whatever its length', () => {
     seq = 0;
     const rows = Array.from({ length: 20 }, (_, i) => edge(link(`p-${i}`, `P ${i}`), [SCHEDULING]));

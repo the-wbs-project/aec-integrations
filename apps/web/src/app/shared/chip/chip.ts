@@ -81,6 +81,7 @@ export type ChipTone =
         [attr.data-tone]="effectiveTone()"
         [attr.data-face]="face()"
         [attr.data-icon]="hasIcon()"
+        [disabled]="disabled()"
         (click)="activated.emit()"
       >
         <ng-container [ngTemplateOutlet]="body" />
@@ -122,6 +123,13 @@ export class Chip {
    * badge keep (DESIGN.md §3, §5). Nothing else sets it.
    */
   readonly label = input(false, { transform: booleanAttribute });
+
+  /**
+   * A filter chip that would leave no rows (AECI-1783, ruled 2026-11-16). A native
+   * `disabled`, so it cannot be pressed and leaves the tab order. The caller keeps a
+   * pressed chip enabled, so the reader can always release it. Only a filter chip reads it.
+   */
+  readonly disabled = input(false, { transform: booleanAttribute });
 
   /** Fires when a filter chip (a `selected` chip) is clicked. */
   readonly activated = output<void>();

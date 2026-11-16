@@ -709,7 +709,7 @@ describe('on-page ordering firewall: product page integrations', () => {
         lane.filter((k) => group.rows.includes(k)),
         group.group,
       ).toEqual(group.rows);
-      expect(group.aboveShowMore).toEqual(group.rows.slice(0, 3));
+      expect(group.aboveShowMore).toEqual(group.rows.slice(0, 6));
     }
     expect(order.oneListFirstPage).toEqual(lane.slice(0, ONE_LIST_PAGE_SIZE));
   });

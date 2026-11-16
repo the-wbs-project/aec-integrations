@@ -109,14 +109,16 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * orders, and the direct lane is already A to Z by partner name with the id last.
  *
  * ── LONG LISTS (AECI-1783) ───────────────────────────────────────────────────────
- * A single-lane section of 13 rows or more groups by partner category, with a jump
+ * A single-lane section of 13 rows or more, with fewer category groups than half its
+ * rows, groups by partner category (ruled 2026-11-16), with a jump
  * rail and a "Show more" per group (ruling R3 decision 20, ruling R5). The reader can
  * switch it to one list, 12 at a time. The server always renders the grouped
  * arrangement, and every row is in its HTML. The grouping rules, the counts and the
  * cuts live in `integration-category-groups.ts`; this component only wires them. Every
  * filter chip prints how many rows it would show, and a category chip's number is the
- * same `rowsInCategory` count the rail and the group heading print. A shorter list, a
- * page with a Via lane and the table view render as they did before.
+ * same `rowsInCategory` count the rail and the group heading print. A chip whose count
+ * is 0 is disabled unless it is pressed, so it can always be released (2026-11-16).
+ * A shorter list, a page with a Via lane and the table view render as they did before.
  *
  * ── SINGLE-LANE PAGES ────────────────────────────────────────────────────────────
  * A product with no connector-delivered edges — the overwhelming majority —
@@ -227,7 +229,11 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               >Direction</span
             >
             @for (choice of directionChoices(); track choice.token) {
-              <aec-chip [selected]="choice.selected" (activated)="toggleDirection(choice.token)">
+              <aec-chip
+                [selected]="choice.selected"
+                [disabled]="choice.count === 0 && !choice.selected"
+                (activated)="toggleDirection(choice.token)"
+              >
                 <span class="inline-block leading-none rtl:-scale-x-100" aria-hidden="true">{{
                   choice.glyph
                 }}</span>
@@ -253,7 +259,10 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               >Categories</span
             >
             @for (choice of categoryChoices(); track choice.slug) {
-              <aec-chip [selected]="choice.selected" (activated)="toggleCategory(choice.slug)"
+              <aec-chip
+                [selected]="choice.selected"
+                [disabled]="choice.count === 0 && !choice.selected"
+                (activated)="toggleCategory(choice.slug)"
                 >{{ choice.name }}
                 <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
                   choice.count
