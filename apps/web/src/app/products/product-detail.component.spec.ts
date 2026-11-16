@@ -2034,6 +2034,16 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     expect(section(el).textContent).toContain('No integrations recorded yet');
   });
 
+  it('is not the zero state when the reach line reports pairs reachable via connectors', () => {
+    const { el } = setup(buildProduct({ reachable_pair_count: 2 }));
+    const s = section(el);
+
+    expect(squash(s.querySelector('#integrations-title')!.textContent)).toBe('Integrations (0)');
+    expect(s.querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
+    expect(s.textContent).not.toContain('We have no integrations for');
+    expect(squash(s.textContent)).toContain('2 pairs reachable via connectors');
+  });
+
   it('is not the zero state when the stored count is above zero', () => {
     const { el } = setup(buildProduct({ integration_count: 3 }));
     expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();

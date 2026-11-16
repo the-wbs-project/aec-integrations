@@ -43,6 +43,7 @@ test.describe('zero-integration product in the raw SSR HTML (AECI-1786)', () => 
         product.integrations_as_source.length > 0 ||
         product.integrations_as_target.length > 0 ||
         product.integrations_as_connector.length > 0 ||
+        product.reachable_pair_count > 0 ||
         !product.vendor ||
         !!product.tool_integrations_url,
       `${SLUG} is not a zero-integration product with a vendor and no integrations page here`,

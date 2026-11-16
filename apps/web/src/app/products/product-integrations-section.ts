@@ -270,7 +270,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           }
         </div>
       </div>
-      <ng-container [ngTemplateOutlet]="reachLine" />
     } @else {
       <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
         {{ heading() }}
@@ -577,10 +576,17 @@ export class ProductIntegrationsSection {
    */
   readonly product = input<ProductDetail | null>(null);
 
-  /** The product when the page has no integrations on record, else `null`. */
+  /**
+   * The product when the page has no integrations on record, else `null`.
+   *
+   * Never while the §13.7 reach line has pairs to report: the legal heading directly
+   * above "N pairs reachable via connectors" reads as a contradiction. That page keeps
+   * the plain empty state with the reach line, as it did before AECI-1786.
+   */
   protected readonly zero = computed(() => {
     const p = this.product();
-    return p && hasNoIntegrationsOnRecord(p) ? p : null;
+    if (!p || this.reachableCount() > 0) return null;
+    return hasNoIntegrationsOnRecord(p) ? p : null;
   });
 
   /** "We have no integrations for {product} on record", the figure's own message. */

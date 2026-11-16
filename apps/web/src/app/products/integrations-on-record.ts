@@ -14,6 +14,10 @@ import { groupPoweredIntegrations } from './powered-hub-grouping';
  * zero, and a connector that only powers edges has integrations on record. So the
  * section never says "We have no integrations for X on record" while the card prints a
  * number, or the reverse.
+ *
+ * The section adds one condition of its own: no §13.7 reach line. A product with
+ * reachable pairs and nothing on record keeps the plain empty state and the reach line
+ * (`ProductIntegrationsSection.zero`).
  */
 export function hasNoIntegrationsOnRecord(p: ProductDetail): boolean {
   if (p.integration_count !== 0) return false;
