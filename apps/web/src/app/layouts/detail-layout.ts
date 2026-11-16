@@ -46,8 +46,8 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
  * this `ng-content` re-breaks it.
  *
  * **Two shells (AECI-1778).** `shell="columns"` (the default) is the shipped two-column
- * page with the docked metadata sidebar. The vendor page stays on it until its mock-up
- * lands (AECI-1791, AECI-1797). `shell="bands"` is the product page's band shell
+ * page with the docked metadata sidebar. No page uses it since the vendor page moved to
+ * the bands (AECI-1797). `shell="bands"` is the product and vendor pages' band shell
  * (DESIGN.md §4 "The detail page band shell"), one column at every width:
  *
  *   1. `hero` full bleed. The caller projects its own `aec-hero-band`, which holds the
@@ -219,7 +219,7 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
   `,
 })
 export class DetailLayout {
-  /** `columns` is the shipped sidebar page (vendor). `bands` is the product band shell. */
+  /** `columns` is the old sidebar page, unused since AECI-1797. `bands` is the band shell. */
   readonly shell = input<'columns' | 'bands'>('columns');
 
   protected readonly wrap = BAND_WRAP_CLASS;

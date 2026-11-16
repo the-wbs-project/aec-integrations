@@ -714,11 +714,17 @@ describe('ProductDetailPage integrations table order', () => {
       ),
     );
 
-    const { el } = setup(
+    const { fixture, el } = setup(
       buildProduct({
         integrations_as_source: partners.map((partner) => endpointEdge(procore, partner)),
       }),
     );
+    // AECI-1783: the card view groups a list this long, so the lane cut is read in the
+    // table, which keeps it.
+    [...el.querySelectorAll<HTMLButtonElement>('aec-listing-view-toggle button')]
+      .find((b) => b.textContent?.includes('Table'))!
+      .click();
+    fixture.detectChanges();
 
     // Only the undeferred head renders here — `@defer (on viewport)` never
     // triggers in this harness — which is exactly the boundary under test.
@@ -872,7 +878,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
       }),
     );
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (3)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     expect(el.querySelector('#integrations-direct')!.textContent).toContain('2 integrations');
     expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain(
       '1 integration',
@@ -891,7 +898,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
       }),
     );
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (1)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     expect(
       el.querySelectorAll(
         '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
@@ -1206,9 +1214,10 @@ describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
     );
     // The endpoint table carries every one of those edges, so the page still
     // answers "what does this connect".
-    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent).toContain(
-      'Integrations (3)',
+    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent!.trim()).toBe(
+      'Integrations',
     );
+    expect(el.querySelectorAll('#integrations li[aec-product-integration-card]')).toHaveLength(3);
   });
 
   it('keeps the empty state for a connector that genuinely powers nothing', () => {
@@ -2072,7 +2081,7 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
       buildProduct({ integrations_as_source: [directEdge(procore, acumatica)] }),
     );
     expect(squash(section(el).querySelector('#integrations-title')!.textContent)).toBe(
-      'Integrations (1)',
+      'Integrations',
     );
     expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
   });
@@ -2087,7 +2096,7 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     const { el } = setup(buildProduct({ reachable_pair_count: 2 }));
     const s = section(el);
 
-    expect(squash(s.querySelector('#integrations-title')!.textContent)).toBe('Integrations (0)');
+    expect(squash(s.querySelector('#integrations-title')!.textContent)).toBe('Integrations');
     expect(s.querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
     expect(s.textContent).not.toContain('We have no integrations for');
     expect(squash(s.textContent)).toContain('2 pairs reachable via connectors');

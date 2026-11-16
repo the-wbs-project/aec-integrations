@@ -871,6 +871,18 @@ button.aec-chip[aria-pressed]:not([data-tone]) {
   border-color: var(--border-strong);
 }
 
+/* A filter chip that would leave no rows (AECI-1783, ruled 2026-11-16). Native
+   disabled, so no hover and no pointer. The label stays in `--text-secondary`, which
+   keeps 4.5:1 on the raised fill, and the edge turns dashed, so the state is not
+   colour alone. */
+button.aec-chip:disabled,
+button.aec-chip:disabled:hover {
+  cursor: not-allowed;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
 a.aec-chip:focus-visible,
 button.aec-chip:focus-visible {
   outline: 3px solid var(--accent-primary);
@@ -882,6 +894,17 @@ button.aec-chip:focus-visible {
 @media (forced-colors: active) {
   button.aec-chip[aria-pressed='true'] {
     border-color: Highlight;
+    background-color: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
+/* The pressed view in the cards/table toggle (`listing-view-toggle.ts`, AECI-1793).
+   The Forest fill vanishes in forced-colours mode, so the pressed button takes the
+   system selection pair. The tick stays, so the state is still not colour alone. */
+@media (forced-colors: active) {
+  .aec-view-toggle-btn[aria-pressed='true'] {
     background-color: Highlight;
     color: HighlightText;
     forced-color-adjust: none;
@@ -957,6 +980,14 @@ button.aec-chip:focus-visible {
 
 .aec-on-brand-edge {
   border-color: var(--border-on-brand-strong);
+}
+
+/* The stronger hairline on a light ground: the rule that closes the home hero's
+   Bone band above the credibility row (AECI-1792). `--border-default` is about
+   1.1:1 on Bone and all but vanishes. Unlayered for the same reason as above.
+   Pair it with a width utility such as `border-t`. */
+.aec-rule-strong {
+  border-color: var(--border-strong);
 }
 
 /* The shortcut cap inside the header search pill (AECI-1772). A decorative hint,
@@ -1305,7 +1336,7 @@ textarea:-webkit-autofill:focus {
 }
 
 /* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
-   ADR 0056). It is never a global setting and is off under reduced motion.
+   ADR 0057). It is never a global setting and is off under reduced motion.
    `InPageSmoothScroll` (`app/core/in-page-smooth-scroll.ts`) adds this class to
    <html> for the span of one jump from an `<a data-smooth-scroll>` link, so the
    browser's own fragment scroll animates and honours `scroll-margin-top`.

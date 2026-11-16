@@ -12,7 +12,7 @@
  *   3. `sitemap.xml` leaves out every path it covers (`indexableDocsPaths`).
  *
  * It lives under `src/app/` and imports only the `.md`-free legal manifest and
- * Plans version list, so both the browser bundle and the server can import it
+ * versioned-docs registry, so both the browser bundle and the server can import it
  * without pulling server-only code or Markdown into either.
  */
 import {
@@ -25,7 +25,7 @@ import {
   type LegalUpcomingEntry,
   legalArchivePath,
 } from '../legal/legal-manifest';
-import { PLANS_ARCHIVE_PATHS } from './plans-versions';
+import { DOCS_ARCHIVE_PATHS } from './docs-page-versions';
 
 /**
  * Path prefixes held out of the index in every env. A prefix covers the path
@@ -53,10 +53,15 @@ import { PLANS_ARCHIVE_PATHS } from './plans-versions';
  * `/docs/vendors/plans`. Exact paths, so the live Plans page stays indexable.
  * The snapshot pages are not in the docs manifest, so the sitemap and the docs
  * search push never list them either.
+ *
+ * AECI-1621 does the same for every How ranking works version
+ * (`/docs/trust/how-ranking-works/v<version>`). Both come from one list,
+ * `DOCS_ARCHIVE_PATHS`, built from `DOCS_PAGE_VERSIONS`, so a page added to the
+ * registry is held out with no change here.
  */
 export const NOINDEX_PATH_PREFIXES: readonly string[] = [
   ...legalNoindexPaths(LEGAL_ARCHIVES, LEGAL_UPCOMING, LEGAL_CURRENT_VERSIONS),
-  ...PLANS_ARCHIVE_PATHS,
+  ...DOCS_ARCHIVE_PATHS,
 ];
 
 /**
