@@ -27,6 +27,11 @@ import { Component, computed, input, model } from '@angular/core';
  * `type="search"` earns the browser's native clear control, which is the whole
  * reason there is no bespoke clear button here.
  *
+ * The input takes the shared `.aec-field-control` recipe (AECI-1782): the field
+ * edge token at 3:1 or better and the 44px height. Its old `border-(--border-default)`
+ * never applied, because the unlayered `* { border-color }` rule wins, so the edge
+ * was the near-invisible default, below WCAG 1.4.11.
+ *
  * Labels and placeholder come in already localized. There are two callers with
  * two different nouns ("integrations", "connections"), and keeping the strings
  * with the sections keeps every `@@products.detail.*` id greppable from the copy
@@ -60,9 +65,8 @@ import { Component, computed, input, model } from '@angular/core';
         [value]="query()"
         [attr.placeholder]="placeholder()"
         (input)="onInput($event)"
-        class="w-full rounded-(--radius-sm) border border-(--border-default)
-          bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary)
-          focus-visible:outline-2 focus-visible:outline-offset-2
+        class="aec-field-control w-full rounded-control border bg-(--surface-base) px-3 py-1.5
+          text-sm text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3
           focus-visible:outline-(--accent-primary)"
       />
     </div>
@@ -84,8 +88,17 @@ export class IntegrationListFilter {
   /** Rows the section would render with no query. */
   readonly total = input.required<number>();
 
+  /**
+   * Whether ANY filter is on, when the caller has filters beside this box
+   * (AECI-1782: the product page's direction and category chips). `null`, the
+   * default, means the query alone decides, which is every other caller. The
+   * status then reports a chip filter too, and stays empty while nothing filters.
+   */
+  readonly active = input<boolean | null>(null);
+
   protected readonly status = computed(() => {
-    if (this.query().trim() === '') return '';
+    const active = this.active() ?? this.query().trim() !== '';
+    if (!active) return '';
     return $localize`:@@products.detail.filter.status:Showing ${this.shown()}:SHOWN: of ${this.total()}:TOTAL:`;
   });
 

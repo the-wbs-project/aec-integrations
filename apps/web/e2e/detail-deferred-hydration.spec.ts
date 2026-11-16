@@ -104,10 +104,11 @@ test.describe('detail pages — deferred grids SSR-render under incremental hydr
 
     const detail = await (await request.get(`/api/products/${slug}`)).json();
     // product-detail.ts composes the grid as source ++ target, then slices(20).
-    const combined: Array<{ name: string }> = [
-      ...(detail.integrations_as_source ?? []),
-      ...(detail.integrations_as_target ?? []),
-    ];
+    const combined: Array<{
+      name: string;
+      source: { slug: string };
+      target: { slug: string };
+    }> = [...(detail.integrations_as_source ?? []), ...(detail.integrations_as_target ?? [])];
     test.skip(
       combined.length <= DEFER_THRESHOLD,
       `product "${slug}" has ${combined.length} integrations (≤ ${DEFER_THRESHOLD}); ` +
@@ -116,9 +117,15 @@ test.describe('detail pages — deferred grids SSR-render under incremental hydr
 
     const deferred = combined[DEFER_THRESHOLD]; // the 21st integration → slice(20)[0]
     const html = await (await request.get(`/products/${slug}`)).text();
+    // The rendered markup only. The edge's own name is never rendered on a row or a
+    // card, and the TransferState <script> carries every name, so matching the whole
+    // page passed without any deferred row in the markup. The row's pair-page link is
+    // what a crawler follows, so look for that outside the scripts.
+    const markup = html.replace(/<script[\s\S]*?<\/script>/g, '');
+    const other = deferred.source.slug === slug ? deferred.target.slug : deferred.source.slug;
     expect(
-      html,
-      `deferred integration "${deferred.name}" must appear in raw SSR HTML for /products/${slug}`,
-    ).toContain(htmlEscapeText(deferred.name));
+      markup,
+      `deferred integration "${deferred.name}" must link its pair page in the SSR markup for /products/${slug}`,
+    ).toContain(`href="/products/${slug}/integrations/${other}"`);
   });
 });

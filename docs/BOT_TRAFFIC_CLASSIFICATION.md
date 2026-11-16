@@ -136,7 +136,7 @@ We ran each of these through the real classifier code.
 | **Top products and top sources** | Views with known or suspected bots removed, and views from the listed data center networks |
 | **Vendor performance report, not built yet (AECI-940)** | The spec calls for the same removal, plus the vendor's own visits. Vendors will never see the groups. |
 | **Public "trending" card on the home page** | The older, simpler filter. It does not use the four groups yet. See question 2. |
-| **Public "Popular:" row on the home page** | Views in Browser with human evidence or Unresolved. Known and suspected bots are out. |
+| **Public "Most viewed" row on the home page** | Views in Browser with human evidence or Unresolved. Known and suspected bots are out. |
 
 No page, visitor or vendor is ever blocked or penalized because of a group. Classification only affects reports.
 
@@ -323,7 +323,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Digest groups of Unresolved browser identities by main network (`readTopUnresolvedNetworkGroups`, AECI-1647) | The same population. Each identity's main network is its busiest non-NULL `cf_asn`, ties to the lower ASN. Identities that share one are grouped, and a group's views are its members' views on every network, NULL included. A group needs `NETWORK_GROUP_MIN_IDENTITIES` members. The main-network rule is `mainNetworkByIdentity` in `lib/coordinated-identities.ts`, shared with the AECI-1659 candidate so the two cannot disagree. An identity seen only with no network joins none. | Yes. Report-only. |
 | Vendor performance, not built (AECI-940, `docs/VENDOR_PERFORMANCE_SPEC.md` §2.2) | Specified as `HUMAN`, `NOT_INTERNAL`, `NOT_OWNER_VISIT`, minus automation classes | Filter only, as specified. No class counts or codes are shown to vendors. |
 | Public home trending (`lib/home-stats.ts`) | `HUMAN`, `NOT_INTERNAL` | **No** |
-| Public home "Popular:" row, `home.popular_products` (`lib/home-stats.ts`, AECI-1586) | `NOT_INTERNAL`, with a row at the current `TRAFFIC_CLASSIFIER_VERSION` in `browser_with_human_evidence` or `unresolved` | Filter only. A version bump empties it until the window is backfilled (`docs/runbooks/alerts.md`, "Backfill traffic classifications"). |
+| Public home "Most viewed" row, `home.popular_products` (`lib/home-stats.ts`, AECI-1586) | `NOT_INTERNAL`, with a row at the current `TRAFFIC_CLASSIFIER_VERSION` in `browser_with_human_evidence` or `unresolved` | Filter only. A version bump empties it until the window is backfilled (`docs/runbooks/alerts.md`, "Backfill traffic classifications"). |
 | `traffic.page_views_human` in `metrics_daily` | `HUMAN`, `NOT_INTERNAL` | No, raw by design |
 | `traffic.page_views_human_after_automation` | None | Frozen since AECI-1460. Stored rows stay readable. |
 

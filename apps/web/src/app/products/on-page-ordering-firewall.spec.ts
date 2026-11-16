@@ -68,7 +68,21 @@ import {
   routeIntegrationLane,
   splitIntegrationLanes,
 } from './connector-lane-grouping';
-import { filterIntegrationLanes, filterPoweredHubView } from './integration-filter';
+import {
+  ONE_LIST_PAGE_SIZE,
+  groupRowsByCategory,
+  isLongIntegrationList,
+  peekGroup,
+  stackPartners,
+} from './integration-category-groups';
+import {
+  NO_INTEGRATION_FILTER,
+  dataObjectOptions,
+  filterIntegrationLanes,
+  filterPoweredHubView,
+  partnerCategoryOptions,
+  rowsWithoutDataObjects,
+} from './integration-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
 // ─── The registry ─────────────────────────────────────────────────────────────
@@ -520,7 +534,9 @@ describe('on-page ordering firewall: product page integrations', () => {
       'utf8',
     );
     expect(src).toMatch(/splitIntegrationLanes\(this\.asSource\(\), this\.asTarget\(\)\)/);
-    expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.query\(\)\)/);
+    // AECI-1782 widened the filter to the reader's whole filter state. Still one call,
+    // still over the lane view as split.
+    expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.filterState\(\)\)/);
     expect(src).toMatch(/applyDeferCut\(view, limit\)/);
     expect(src).not.toMatch(/\.(sort|toSorted|reverse)\(|compareText|localeCompare/);
     // No row filter or cut of its own either. A filter the reader chooses belongs in
@@ -528,6 +544,235 @@ describe('on-page ordering firewall: product page integrations', () => {
     // the component half: no filter selected means every row renders.
     expect(src).not.toMatch(/\.(filter|slice|splice)\(/);
   });
+
+  // AECI-1782: the redesigned section's filter panel. A filter the reader chooses is
+  // allowed; it must remove rows only, keep the lane order, and read no paid input.
+  const PAID_ROW_FIELDS = [
+    'data_object_slugs',
+    'data_objects',
+    'agreement',
+    'caption',
+    'corrections',
+    'under_review',
+  ] as const;
+
+  const readerFilter = (view: ReturnType<typeof splitIntegrationLanes>) => {
+    const keys = (v: typeof view) => [
+      ...v.direct.map((r) => r.key),
+      ...v.via.flatMap((g) => g.rows.map((r) => r.key)),
+    ];
+    return {
+      none: keys(filterIntegrationLanes(view, NO_INTEGRATION_FILTER)),
+      outbound: keys(
+        filterIntegrationLanes(view, { ...NO_INTEGRATION_FILTER, directions: ['outbound'] }),
+      ),
+      category: keys(
+        filterIntegrationLanes(view, {
+          ...NO_INTEGRATION_FILTER,
+          partnerCategories: ['accounting'],
+        }),
+      ),
+      categoryChips: partnerCategoryOptions(view).map((t) => t.slug),
+    };
+  };
+
+  /** The base fixture with directions and categories the reader can filter on. */
+  const withFacets = (rows: ProductIntegrationItem[]) =>
+    rows.map((row, i) => ({
+      ...row,
+      context_direction: (['outbound', 'inbound', 'both', null] as const)[i % 4]!,
+      partner_categories:
+        i % 3 === 0
+          ? [{ slug: 'accounting', name: 'Accounting' }]
+          : i % 3 === 1
+            ? [
+                { slug: 'field-b', name: 'Field' },
+                { slug: 'field-a', name: 'Field' },
+              ]
+            : [],
+    }));
+
+  it('[surface:product-page-integrations-redesign] a reader filter keeps the lane order and reads no paid input', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const base = readerFilter(splitIntegrationLanes(withFacets(asSource), withFacets(asTarget)));
+    // No filter: every row, in the lane order.
+    expect(base.none).toEqual([...baseline.direct, ...baseline.via.flatMap((g) => g.rows)]);
+    // A filter removes and never reorders: each result is a subsequence of the whole.
+    for (const subset of [base.outbound, base.category]) {
+      expect(subset.length).toBeGreaterThan(0);
+      expect(base.none.filter((k) => subset.includes(k))).toEqual(subset);
+    }
+    for (const dir of ['rising', 'falling'] as const) {
+      const flipped = readerFilter(
+        splitIntegrationLanes(
+          withFacets(flipRows(asSource, PAID_ROW_FIELDS, dir)),
+          withFacets(flipRows(asTarget, PAID_ROW_FIELDS, dir)),
+        ),
+      );
+      expect(flipped, dir).toEqual(base);
+    }
+  });
+
+  it('[surface:product-page-integrations-redesign] chip options are A to Z by name, slug breaking a tie, never by count', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const view = splitIntegrationLanes(withFacets(asSource), withFacets(asTarget));
+    // "Field" is carried by more rows than "Accounting"; A to Z still puts Accounting first,
+    // and the two "Field" terms tie on name, so the slug decides.
+    expect(partnerCategoryOptions(view).map((t) => t.slug)).toEqual([
+      'accounting',
+      'field-a',
+      'field-b',
+    ]);
+    const objects = [
+      { slug: 'rfi', name: 'RFIs' },
+      { slug: 'invoice-b', name: 'invoices' },
+      { slug: 'invoice-a', name: 'Invoices' },
+    ];
+    const withObjects = asSource.map((row, i) => ({
+      ...row,
+      data_objects: i % 2 === 0 ? objects : [objects[0]!],
+      data_object_slugs: i % 2 === 0 ? objects.map((o) => o.slug) : ['rfi'],
+    }));
+    const options = dataObjectOptions(splitIntegrationLanes(withObjects, asTarget));
+    // compareText ignores case first, then breaks on it; the slug comes last.
+    expect(options.map((t) => t.name)).toEqual(['Invoices', 'invoices', 'RFIs'].sort(compareText));
+    expect(options.map((t) => t.slug)[2]).toBe('rfi');
+  });
+
+  it('[surface:product-page-integrations-redesign] a data-object filter leaves out rows with no data object on record', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const rows = asSource.map((row, i) => ({
+      ...row,
+      data_object_slugs: i % 2 === 0 ? ['invoice'] : [],
+      data_objects: i % 2 === 0 ? [{ slug: 'invoice', name: 'Invoices' }] : [],
+    }));
+    const view = splitIntegrationLanes(rows, asTarget);
+    const filtered = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      dataObjects: ['invoice'],
+    });
+    expect(filtered.rowCount).toBe(view.rowCount - rowsWithoutDataObjects(view));
+  });
+
+  // AECI-1783: the long list. Category membership is the partner's own categories
+  // (Free), so the categories are fixed here and only the paid inputs move.
+  const CATEGORY_SETS = [
+    [{ slug: 'scheduling', name: 'Scheduling' }],
+    [
+      { slug: 'accounting', name: 'Accounting' },
+      { slug: 'field-b', name: 'Field' },
+    ],
+    [],
+    [{ slug: 'field-a', name: 'Field' }],
+  ];
+
+  /** Thirty direct partners with real name ties, each given fixed categories. */
+  const longListRows = () =>
+    largeEndpointFixture()
+      .filter((row) => routeIntegrationLane(row).lane === 'direct')
+      .map((row, i) => ({ ...row, partner_categories: CATEGORY_SETS[i % CATEGORY_SETS.length]! }));
+
+  /** Everything about the long list's order, membership and cuts, and nothing else. */
+  const longListOrder = (rows: ProductIntegrationItem[]) => {
+    const view = splitIntegrationLanes(rows, []);
+    const groups = groupRowsByCategory(view.direct);
+    const keys = (list: readonly { key: string }[]) => list.map((r) => r.key);
+    return {
+      long: isLongIntegrationList(view),
+      groups: groups.map((g) => ({
+        group: g.key,
+        rows: keys(g.rows),
+        aboveShowMore: keys(peekGroup(g.rows).peek),
+        stack: keys(stackPartners(peekGroup(g.rows).hidden)),
+      })),
+      oneListFirstPage: keys(view.direct.slice(0, ONE_LIST_PAGE_SIZE)),
+      chosen: keys(groupRowsByCategory(view.direct, ['field-a', 'accounting'])),
+    };
+  };
+
+  it('[surface:product-page-integrations-long-list] groups A to Z, rows in lane order, every cut is the first rows', () => {
+    const rows = longListRows();
+    const view = splitIntegrationLanes(rows, []);
+    const order = longListOrder(rows);
+    expect(order.long).toBe(true);
+    // A to Z by name; the two "Field" categories tie, so the slug decides; none last.
+    expect(order.groups.map((g) => g.group)).toEqual([
+      'accounting',
+      'field-a',
+      'field-b',
+      'scheduling',
+      '',
+    ]);
+    const lane = view.direct.map((r) => r.key);
+    for (const group of order.groups) {
+      expect(
+        lane.filter((k) => group.rows.includes(k)),
+        group.group,
+      ).toEqual(group.rows);
+      expect(group.aboveShowMore).toEqual(group.rows.slice(0, 6));
+    }
+    expect(order.oneListFirstPage).toEqual(lane.slice(0, ONE_LIST_PAGE_SIZE));
+  });
+
+  it('[surface:product-page-integrations-long-list] sees a move when a category changes (the comparison is not vacuous)', () => {
+    const rows = longListRows();
+    const moved = rows.map((row, i) =>
+      i === 0 ? { ...row, partner_categories: [{ slug: 'aaa', name: 'Aardvark' }] } : row,
+    );
+    expect(longListOrder(moved)).not.toEqual(longListOrder(rows));
+  });
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it(`[surface:product-page-integrations-long-list] paid inputs move no group, row, member or cut (${dir})`, () => {
+      const rows = longListRows();
+      const base = longListOrder(rows);
+      expect(longListOrder(flipRows(rows, PAID_ROW_FIELDS, dir))).toEqual(base);
+    });
+  }
+
+  it('[surface:product-page-integrations-long-list] paid inputs loaded onto any one row move nothing', () => {
+    const rows = longListRows();
+    const base = longListOrder(rows);
+    for (let i = 0; i < rows.length; i++) {
+      expect(
+        longListOrder(loadOne(rows, PAID_ROW_FIELDS, (r) => r === rows[i])),
+        `row ${i}`,
+      ).toEqual(base);
+    }
+  });
+
+  it('[surface:product-page-integrations-long-list] the grouping modules hold no comparator but the shared A to Z', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/products/integration-category-groups.ts'),
+      'utf8',
+    );
+    // Group order comes from partnerCategoryOptions, the chips' own A to Z.
+    expect(src).toMatch(/partnerCategoryOptions\(/);
+    expect(src).not.toMatch(/\.(sort|toSorted|reverse)\(|compareText|localeCompare/);
+    // No row field but the partner categories: nothing a paid plan writes.
+    expect(src).not.toMatch(
+      /\.(agreement|data_objects|data_object_slugs|dataObjects|dataObjectSlugs|caption|corrections|under_review)\b/,
+    );
+  });
+
+  // The three components render the cuts. A re-sort or a filter in a template would
+  // move a cut without touching the module above, and the behavioural cases above
+  // would not see it, so they get the same structural check (AECI-1783 review).
+  for (const file of [
+    'product-integration-groups.ts',
+    'product-integration-category-group.ts',
+    'product-integration-one-list.ts',
+  ]) {
+    it(`[surface:product-page-integrations-long-list] ${file} renders rows and groups in the order it is given`, () => {
+      const src = readFileSync(join(process.cwd(), 'src/app/products', file), 'utf8');
+      expect(src).not.toMatch(
+        /\.(sort|toSorted|reverse|filter|slice|splice)\(|compareText|localeCompare/,
+      );
+      expect(src).not.toMatch(
+        /\.(agreement|data_objects|data_object_slugs|dataObjects|dataObjectSlugs|caption|corrections|under_review|integration_count)\b/,
+      );
+    });
+  }
 });
 
 // ─── The connector page's powered hubs ────────────────────────────────────────

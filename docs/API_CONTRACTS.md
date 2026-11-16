@@ -852,8 +852,10 @@ so none waits on another's result. The statements are the product (the relationa
 `productDetailConfig` shape), related products, the first review page, the published vendor replies
 for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
 every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
-empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
-products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the first 6
+products sharing a category, A to Z by name, case folded (`textAsc`), then `id ASC`, self excluded.
+The order changed from newest first in AECI-1785, which first renders the list ("Similar products").
+Ruling R1 (AECI-1732) makes a list new to a page A to Z.
 
 #### `GET /api/products/:slug/reviews`
 
@@ -1382,7 +1384,7 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+"Most viewed" row, AECI-1572). `trending_products`, `recently_added_products`,
 `most_integrated_product` and `most_active_category` are still computed and
 returned, but nothing on the home renders them (AECI-1573).
 
@@ -1414,7 +1416,7 @@ export type HomeStatsResponse = {
   } | null;                              // null when the cache key is absent
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
-  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Most viewed" row
 };
 ```
 
@@ -5934,7 +5936,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-five (AECI-1618)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-seven (AECI-1621)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -6006,6 +6008,7 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift',       // 0 9 * * *
   'request-reconcile',   // */15 * * * *
   'sitemap-rebuild',     // 7-59/15 * * * *   (AECI-1505)
+  'plan-snapshot',       // 11-59/15 * * * *  (AECI-1621)
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
@@ -6051,7 +6054,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-five since AECI-1618): omitting a job would read as "not configured", a
+Every row is always present (twenty-seven since AECI-1621): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps

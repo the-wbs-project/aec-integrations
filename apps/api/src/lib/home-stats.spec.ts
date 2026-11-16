@@ -566,7 +566,7 @@ describe('computeTrendingProducts', () => {
   });
 });
 
-// AECI-1572. The hero's "Popular:" row: the trending query over 30 days, top 5.
+// AECI-1572. The hero's "Most viewed" row: the trending query over 30 days, top 5.
 // Since AECI-1586 it counts classified views only, so every view seeded here
 // carries a `browser_with_human_evidence` row unless the test says otherwise.
 describe('computePopularProducts', () => {

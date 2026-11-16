@@ -15,11 +15,13 @@ import { BrowseGrid, type BrowseChipTerm } from './browse-grid';
  *   4. Audience: a curated role list in editorial order. Each role maps to an
  *      AECI-121 audience term and links to `/audiences/:slug`.
  *
- * Each row opens with a one-sentence lede. Every row uses the same `TaxonomyBadge` count-chip. Counts come from the live
+ * Each row opens with a one-sentence lede and states its order under "View all"
+ * (mock-up 9, question 5). Every row uses the same `TaxonomyBadge` count-chip. Counts come from the live
  * aggregate taxonomy (`GET /api/taxonomy`, resolved SSR-side by
  * `homeBrowseResolver`), so the block purges on the `taxonomy` Cache-Tag. It reads
  * no visitor state and renders identically for every visitor. The hero owns the
- * page `<h1>`, this block owns an `<h2>`, and each row label is an `<h3>`.
+ * page `<h1>`, this block owns an `<h2>`, and each row label is an `<h3>`. Heading
+ * sizes sit on inner spans (the Unlayered-Heading Rule).
  */
 
 /** One curated audience role: the label shown and the audience term it links to. */
@@ -34,12 +36,10 @@ interface AudienceRole {
   host: { class: 'block' },
   template: `
     <section aria-labelledby="home-browse-heading">
-      <h2
-        id="home-browse-heading"
-        class="font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-4xl"
-        i18n="@@home.browse.heading"
-      >
-        Browse the directory
+      <h2 id="home-browse-heading" class="text-(--text-primary)">
+        <span class="block text-t-36 leading-[1.1] tracking-[-0.02em]" i18n="@@home.browse.heading"
+          >Browse the directory</span
+        >
       </h2>
 
       <div class="mt-8">

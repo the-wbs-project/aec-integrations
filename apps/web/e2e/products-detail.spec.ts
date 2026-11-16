@@ -27,6 +27,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
+import { untilHydrated } from './hydration';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -212,13 +213,62 @@ test.describe('product detail — table names and section-nav location (AECI-831
 
   // A7: every integrations lane is its own table, named by its heading, so a
   // user moving by table can tell "Direct integrations" from "Via {connector}".
-  test('every integrations table has a non-empty accessible name (A7)', async ({ page }) => {
+  // AECI-1782: cards are the default, so the lane lists are checked first, then the
+  // tables after the reader picks "Table". The naming rule is the same for both.
+  test('every integrations lane list and table has a non-empty accessible name (A7)', async ({
+    page,
+  }) => {
     await page.goto(`/products/${SLUG}`);
+    const lists = page.locator(
+      'aec-product-integration-cards > ul[data-testid="integration-cards"]',
+    );
+    await expect(lists.first()).toBeAttached();
+    for (const list of await lists.all()) {
+      await expect(list).toHaveAccessibleName(/\S/);
+    }
+
+    const toggle = page.locator('#integrations aec-listing-view-toggle button', {
+      hasText: 'Table',
+    });
+    await untilHydrated(toggle);
+    await toggle.click();
     const tables = page.locator('aec-product-integrations-table table');
     await expect(tables.first()).toBeAttached();
     for (const table of await tables.all()) {
       await expect(table).toHaveAccessibleName(/\S/);
     }
+  });
+
+  // AECI-1782: every row is in the server HTML as a card, and the filter panel works
+  // in the browser without changing what the server sent.
+  test('every integration is a card in the raw SSR HTML, and the panel filters in the browser', async ({
+    page,
+    request,
+  }) => {
+    const api = await (await request.get(`/api/products/${SLUG}`)).json();
+    const rows = [...api.integrations_as_source, ...api.integrations_as_target] as {
+      source: { slug: string };
+      target: { slug: string };
+      context_direction: string | null;
+    }[];
+    const html = await (await request.get(`/products/${SLUG}`)).text();
+    for (const row of rows) {
+      const other = row.source.slug === SLUG ? row.target.slug : row.source.slug;
+      expect(html).toContain(`/products/${SLUG}/integrations/${other}`);
+    }
+    expect(html).toContain('data-testid="integrations-filter-panel"');
+
+    await page.goto(`/products/${SLUG}`);
+    const status = page.locator('#integrations [role="status"]');
+    await expect(status).toHaveText('');
+    const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();
+    test.skip((await chip.count()) === 0, 'no filter chips on this fixture');
+    await untilHydrated(chip);
+    await chip.click();
+    await expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await expect(status).toHaveText(/Showing \d+ of \d+/);
+    await page.locator('[data-testid="integrations-filter-clear"]').click();
+    await expect(status).toHaveText('');
   });
 
   // A8: the "On this page" nav always names exactly one current section.
@@ -231,10 +281,13 @@ test.describe('product detail — table names and section-nav location (AECI-831
   });
 });
 
-// AECI-1778 review: below md the two hero actions are equal columns, each on one line.
+// AECI-1778 review: below md every hero action is on one line and 44px tall. From 480px
+// to md they are equal columns. Below 480px they stack full width (AECI-1780), because two
+// columns at 390px wrapped "Sign in to review" to two lines.
 test.describe('product hero actions below md (AECI-1778)', () => {
-  for (const width of [390, 640]) {
-    test(`at ${width}px "Visit website" and "Write a review" are equal and on one line`, async ({
+  for (const width of [320, 390, 640]) {
+    const stacked = width < 480;
+    test(`at ${width}px "Visit website" and "Write a review" are ${stacked ? 'full width' : 'equal'} and on one line`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -283,10 +336,130 @@ test.describe('product hero actions below md (AECI-1778)', () => {
       ]);
       const [visit, review] = boxes;
       expect(Math.abs(visit!.width - review!.width), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
+      const row = await band
+        .locator('[data-testid="hero-band-actions"]')
+        .evaluate((el) => el.getBoundingClientRect().width);
+      if (stacked) {
+        // One column: each action spans the whole row, one under the other.
+        for (const b of boxes) {
+          expect(Math.abs(b.width - row), JSON.stringify(boxes)).toBeLessThanOrEqual(1);
+        }
+      } else {
+        // Two equal columns of one row: each is about half the row, less the 12px gap.
+        expect(Math.abs(visit!.width - (row - 12) / 2), JSON.stringify(boxes)).toBeLessThanOrEqual(
+          1,
+        );
+      }
       for (const b of boxes) {
         expect(b.lines, `${b.text} at ${width}px: ${JSON.stringify(boxes)}`).toBe(1);
         expect(b.height).toBe(44);
       }
+    });
+  }
+});
+
+/**
+ * AECI-1785: "Similar products" is in the server HTML, A to Z, and absent with its
+ * section-nav link when the list is empty. JavaScript is off, so this is what a
+ * crawler and a first paint see.
+ *
+ * The catalog seed (`apps/api/seed/catalog.sql`) gives Trimble Accubid Classic two
+ * products in its category, written with one timestamp. ConEst IntelliBid has the
+ * higher id, so the old newest-first order (`created_at DESC, id ASC`) put McCormick
+ * Estimating first and A to Z puts ConEst first. `fixture-acme-connector` has no
+ * category, so it has no similar products. Both self-skip when the seed is absent.
+ */
+test.describe('product detail — Similar products (AECI-1785)', () => {
+  test.use({ javaScriptEnabled: false });
+
+  const WITH = 'trimble-accubid-classic';
+  const WITHOUT = 'fixture-acme-connector';
+
+  async function relatedNames(slug: string): Promise<string[] | null> {
+    const api = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await api.get(`/api/products/${slug}`);
+      if (!res.ok()) return null;
+      const body = (await res.json()) as { related_products?: { name: string }[] };
+      return body.related_products?.map((p) => p.name) ?? null;
+    } finally {
+      await api.dispose();
+    }
+  }
+
+  test('renders in the server HTML, A to Z, with its nav link', async ({ page }) => {
+    const names = await relatedNames(WITH);
+    test.skip(names === null || names.length < 2, `seed missing: ${WITH} has ${names?.length}`);
+
+    await page.goto(`/products/${WITH}`);
+    const section = page.locator('section#similar');
+    await expect(
+      section.getByRole('heading', { level: 2, name: 'Similar products' }),
+    ).toBeVisible();
+    await expect(section.getByTestId('similar-products-order')).toHaveText('A to Z by name.');
+
+    const shown = await section.locator('li a').allTextContents();
+    const trimmed = shown.map((s) => s.trim());
+    expect(trimmed).toEqual(names);
+    expect(trimmed).toEqual(
+      [...trimmed].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+    );
+    expect(trimmed.slice(0, 2)).toEqual(['ConEst IntelliBid', 'McCormick Estimating']);
+
+    await expect(page.locator('a[data-section-id="similar"]')).toHaveAttribute(
+      'href',
+      new RegExp(`/products/${WITH}#similar$`),
+    );
+  });
+
+  test('is absent, with its nav link, when the list is empty', async ({ page }) => {
+    const names = await relatedNames(WITHOUT);
+    test.skip(names === null || names.length > 0, `seed missing: ${WITHOUT} has ${names?.length}`);
+
+    await page.goto(`/products/${WITHOUT}`);
+    await expect(page.locator('h1')).toHaveCount(1);
+    await expect(page.locator('#similar')).toHaveCount(0);
+    await expect(page.locator('a[data-section-id="similar"]')).toHaveCount(0);
+    await expect(page.locator('a[href$="#similar"]')).toHaveCount(0);
+  });
+});
+
+// AECI-1780: the About band holds the description and "Who it is for", on the Bone band.
+// fixture-procore carries a description and audience terms in the e2e seed.
+test.describe('product About band (AECI-1780)', () => {
+  for (const [width, sideBySide] of [
+    [1280, true],
+    [390, false],
+  ] as const) {
+    test(`at ${width}px "Who it is for" sits ${sideBySide ? 'beside' : 'under'} the description`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      const about = page.locator('#about');
+      const description = about.locator('[data-testid="product-description"]');
+      const panel = about.locator('[data-testid="product-who-it-is-for"]');
+      await expect(description).toBeVisible();
+      await expect(panel.getByRole('heading', { name: 'Who it is for' })).toBeVisible();
+      // The facts card no longer holds the facets.
+      await expect(page.locator('[data-testid="product-facts"] #audiences-label')).toHaveCount(0);
+      const d = (await description.boundingBox())!;
+      const p = (await panel.boundingBox())!;
+      if (sideBySide) {
+        expect(p.x).toBeGreaterThan(d.x + d.width - 1);
+      } else {
+        expect(p.y).toBeGreaterThanOrEqual(d.y + d.height);
+      }
+      // The band is the page's Bone band, and the panel is a white card on it.
+      const ground = await page
+        .locator('[data-testid="detail-lead-band"]')
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
+      const white = await page
+        .locator('[data-testid="detail-body-band"]')
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
+      const card = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(ground).not.toBe(card);
+      expect(card).toBe(white);
     });
   }
 });

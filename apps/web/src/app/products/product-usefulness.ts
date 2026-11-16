@@ -1,9 +1,11 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
 
+import { AecCard } from '../shared/card/card';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * AECI-170 — the "How teams use it" section on the product detail page
@@ -15,19 +17,14 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
  * `usefulness` is `null` for any product nobody has written one for, so the
  * parent only mounts this component via `@if (p.usefulness; as u)`. Two writers
  * fill it: promote, since AECI-172, and — since AECI-963 — the vendor, in the
- * portal. (This comment said the section "ships inert … until the data pipeline
- * lands (AECI-169)" long after that pipeline shipped.) The `host [hidden]`
- * binding handles the other empty case — a non-null `usefulness` whose facets carry no usable points
- * (e.g. every group has zero `points`). `[hidden]` (preflight
- * `display:none !important`) collapses the host box entirely, so the parent's
- * `space-y-12` rhythm is undisturbed: a `display:none` element generates no box
- * and its margin is moot, leaving no extra gap behind.
+ * portal. The `host [hidden]` binding handles the other empty case — a non-null
+ * `usefulness` whose facets carry no usable points (e.g. every group has zero
+ * `points`). `[hidden]` (preflight `display:none !important`) collapses the host
+ * box entirely, so the parent's `space-y-12` rhythm is undisturbed.
  *
  * The host carries `class: 'block'` because a custom-element host defaults to
  * `display:inline`, and Tailwind v4's `space-y-12` puts `margin-block-end` on
- * `& > :not(:last-child)` — a block margin that inline boxes ignore. Without a
- * block host the populated section would lose its 3rem gap above the following
- * Integrations section (matches the `aec-*` host pattern, cf. logo-or-initial).
+ * `& > :not(:last-child)` — a block margin that inline boxes ignore.
  *
  * **Group names are taxonomy labels, not free text**, whichever writer filled
  * them: both resolve the canonical `{ slug, name }` from the taxonomy row, and
@@ -35,81 +32,102 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
  * **Vendor-written copy is captioned (AECI-1614, replacing AECI-1316's "Written by").**
- * `caption` renders "Maintained by {vendor} · updated {date}" under the section, so a
- * reader never takes the vendor's own words for AECi's and can see how fresh they are.
- * The server sends it only for a real vendor write, so AECi's copy carries no line
- * (STAGE_2_5_SPEC.md §12.1, ADR 0033).
+ * `caption` renders "Maintained by {vendor} · updated {date}" at the foot of the section,
+ * so a reader never takes the vendor's own words for AECi's and can see how fresh they
+ * are. The server sends it only for a real vendor write, so AECi's copy carries no line
+ * (STAGE_2_5_SPEC.md §12.1, ADR 0033). Mock-up 6 draws it top right, beside the heading.
+ * It stays at the foot, where `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 mounts it.
  *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
  * component never re-sorts.
  *
- * Layout: two columns on `md+`; a single populated side goes full-width. Groups
- * with no points are dropped. Group names / points are data (interpolation, no
- * `innerHTML`); only the static labels are i18n-wrapped. Body text uses
- * `--text-secondary` (never `--text-tertiary` — fails WCAG AA, AECI-166/149).
- * Heading order is `h2` (section) → `h3` (column) → `<dl>` (group).
+ * **Layout (AECI-1780, mock-up 6 `.use-row`).** One row per facet: "By audience", then
+ * "By phase". Each group is a white card (`aecCard`) holding its name and its points,
+ * each point after a Forest tick. From `xl` the facet label is a 170px column beside its
+ * cards. Below `xl` it sits above them. Cards run three across from `lg`, two from `md`
+ * and one below, never more columns than the facet has cards, so one or two groups fill
+ * the row. A facet with no usable points is not rendered, and neither is a group
+ * with no points. Group names and points are data (interpolation, no `innerHTML`). Only
+ * the static labels are i18n-wrapped. Points use `--text-primary`. Heading order is `h2`
+ * (section), then `h3` (facet), then a `<dl>` per group.
  */
 @Component({
   selector: 'aec-product-usefulness',
-  imports: [FieldCaptionLine, NgTemplateOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AecCard, AecIcon, FieldCaptionLine, NgTemplateOutlet],
   host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
-      <section aria-labelledby="usefulness-title" class="space-y-4">
-        <h2
-          id="usefulness-title"
-          class="font-display text-2xl font-semibold text-(--text-primary)"
-          i18n="@@products.detail.body.usefulness"
-        >
-          How teams use it
+      <section aria-labelledby="usefulness-title" class="space-y-8">
+        <h2 id="usefulness-title">
+          <span
+            class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
+            i18n="@@products.detail.body.usefulness"
+            >How teams use it</span
+          >
         </h2>
 
         <ng-template #groupList let-groups>
-          @for (group of groups; track group.slug) {
-            <dl class="space-y-1">
-              <dt class="font-bold text-(--text-primary)">{{ group.name }}</dt>
-              <dd>
-                <ul class="list-disc space-y-1 ps-5">
-                  @for (point of group.points; track $index) {
-                    <li class="text-(--text-secondary) leading-relaxed">{{ point }}</li>
-                  }
-                </ul>
-              </dd>
-            </dl>
-          }
+          <div [class]="cardGridClass(groups.length)" data-testid="usefulness-cards">
+            @for (group of groups; track group.slug) {
+              <dl aecCard class="m-0 space-y-3 p-6" data-testid="usefulness-group">
+                <dt class="font-display text-t-20 font-semibold text-(--text-primary)">
+                  {{ group.name }}
+                </dt>
+                <dd class="m-0">
+                  <!-- role="list": Safari drops list semantics from a list-none list. -->
+                  <ul class="m-0 grid list-none gap-3 p-0" role="list">
+                    @for (point of group.points; track $index) {
+                      <li class="flex gap-2 text-t-16 leading-normal text-(--text-primary)">
+                        <aec-icon
+                          name="check"
+                          decorative
+                          [size]="4"
+                          class="mt-1 shrink-0 text-(--accent-primary)"
+                        />
+                        <span class="min-w-0">{{ point }}</span>
+                      </li>
+                    }
+                  </ul>
+                </dd>
+              </dl>
+            }
+          </div>
         </ng-template>
 
-        <div [class]="gridClass()">
-          @if (audienceGroups().length > 0) {
-            <div class="space-y-4">
-              <h3
-                class="aec-overline text-(--text-secondary)"
+        @if (audienceGroups().length > 0) {
+          <div [class]="rowClass" data-testid="usefulness-row">
+            <h3 [class]="labelClass">
+              <aec-icon name="users" decorative [size]="6" class="text-(--accent-primary)" />
+              <span
+                class="font-display text-t-24 font-semibold"
                 i18n="@@products.detail.usefulness.byAudience"
+                >By audience</span
               >
-                By audience
-              </h3>
-              <ng-container
-                [ngTemplateOutlet]="groupList"
-                [ngTemplateOutletContext]="{ $implicit: audienceGroups() }"
-              ></ng-container>
-            </div>
-          }
-          @if (phaseGroups().length > 0) {
-            <div class="space-y-4">
-              <h3
-                class="aec-overline text-(--text-secondary)"
+            </h3>
+            <ng-container
+              [ngTemplateOutlet]="groupList"
+              [ngTemplateOutletContext]="{ $implicit: audienceGroups() }"
+            ></ng-container>
+          </div>
+        }
+        @if (phaseGroups().length > 0) {
+          <div [class]="rowClass" data-testid="usefulness-row">
+            <h3 [class]="labelClass">
+              <aec-icon name="gantt" decorative [size]="6" class="text-(--accent-primary)" />
+              <span
+                class="font-display text-t-24 font-semibold"
                 i18n="@@products.detail.usefulness.byPhase"
+                >By phase</span
               >
-                By phase
-              </h3>
-              <ng-container
-                [ngTemplateOutlet]="groupList"
-                [ngTemplateOutletContext]="{ $implicit: phaseGroups() }"
-              ></ng-container>
-            </div>
-          }
-        </div>
+            </h3>
+            <ng-container
+              [ngTemplateOutlet]="groupList"
+              [ngTemplateOutletContext]="{ $implicit: phaseGroups() }"
+            ></ng-container>
+          </div>
+        }
         @if (caption(); as c) {
           <aec-field-caption [caption]="c" [page]="page()" />
         }
@@ -124,6 +142,25 @@ export class ProductUsefulnessSection {
   /** The product page, for the caption component. */
   readonly page = input.required<FieldCaptionPage>();
 
+  /** One facet's row: the label above its cards, beside them from `xl`. */
+  protected readonly rowClass =
+    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:gap-6';
+
+  /** The facet label: glyph and serif name in a row, stacked in the `xl` label column. */
+  protected readonly labelClass =
+    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:gap-2 xl:pt-6';
+
+  /**
+   * The card grid for one facet. Never more columns than cards, so one or two groups
+   * fill the row instead of leaving empty columns beside them.
+   */
+  protected cardGridClass(count: number): string {
+    const base = 'grid gap-4 md:gap-6';
+    if (count <= 1) return base;
+    if (count === 2) return `${base} md:grid-cols-2`;
+    return `${base} md:grid-cols-2 lg:grid-cols-3`;
+  }
+
   protected readonly audienceGroups = computed(() =>
     this.data().audiences.filter((g) => g.points.length > 0),
   );
@@ -132,13 +169,5 @@ export class ProductUsefulnessSection {
   );
   protected readonly hasContent = computed(
     () => this.audienceGroups().length > 0 || this.phaseGroups().length > 0,
-  );
-  protected readonly twoColumns = computed(
-    () => this.audienceGroups().length > 0 && this.phaseGroups().length > 0,
-  );
-
-  /** Single column unless both facets are populated. */
-  protected readonly gridClass = computed(() =>
-    this.twoColumns() ? 'grid gap-8 md:grid-cols-2' : 'grid gap-8',
   );
 }

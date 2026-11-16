@@ -4,7 +4,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
 
 /**
  * AECI-1766 - the Forest hero band of a detail page (DESIGN.md §2 "Forest
- * grounds", §4 "The detail page band shell", ADR 0056). A frame, not a page:
+ * grounds", §4 "The detail page band shell", ADR 0057). A frame, not a page:
  * AECI-1778 fills it on the product page. It owns the ground, the glow, the
  * page wrap and the vertical rhythm. The caller owns every word.
  *
@@ -28,10 +28,12 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  *
  * Spacing is mock-up 6's (`.namerow`, `.hacts`): 24px above the name row, 16px
  * under it (12px below `md`), 24px above the actions and a 12px gap. From `md` the
- * actions are a wrapping row at their own widths. Below `md` they are equal columns of
- * one row (`grid-flow-col auto-cols-fr`), so one, two or three actions always share the
- * width evenly, whatever their padding or label length (AECI-1778). A projected
- * wrapper, such as `aec-review-cta`, must let its button fill it.
+ * actions are a wrapping row at their own widths. From 480px to `md` they are equal
+ * columns of one row (`grid-flow-col auto-cols-fr`), so one, two or three actions always
+ * share the width evenly, whatever their padding or label length (AECI-1778). Below 480px
+ * they stack in one full-width column, so a longer label such as "Sign in to review" stays
+ * on one line and every action keeps the 44px height. A projected wrapper, such as
+ * `aec-review-cta`, must let its button fill it.
  *
  * The ground is `--accent-primary`, the same token the header paints, so the
  * seam between them is one ground with no edge. The glow is the one gradient the
@@ -81,7 +83,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
             </div>
             <ng-content />
             <div
-              class="mt-6 flex flex-wrap gap-3 empty:hidden max-md:grid max-md:auto-cols-fr max-md:grid-flow-col"
+              class="mt-6 flex flex-wrap gap-3 empty:hidden max-md:grid min-[480px]:max-md:auto-cols-fr min-[480px]:max-md:grid-flow-col"
               data-testid="hero-band-actions"
             >
               <ng-content select="[heroActions]" />

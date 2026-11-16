@@ -3891,6 +3891,60 @@ export const pageViewsArchiveDays = sqliteTable('page_views_archive_days', {
   archivedAt: text('archived_at').notNull(),
 });
 
+// ===========================================================================
+// Plan-change ranking evidence (AECI-1621, ADR 0056, DATABASE_SCHEMA.md §9.16)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: the
+// license write's own `audit_log` row records the event, and this row only schedules
+// the evidence snapshot. Inserted by `assemble()` in `lib/license.ts`, in the SAME
+// batch as the license change, so no plan start or end can miss its row. The sweep
+// (`lib/plan-snapshot-sweep.ts`) writes each snapshot to R2 under `evidence/` and
+// stamps `r2_key`. Rows are never deleted: the R2 objects sit under a 4-year bucket
+// lock, and this ledger is how an operator finds them.
+// ===========================================================================
+
+/**
+ * One scheduled ranking snapshot of one product, taken because a live license reached
+ * it (`kind = 'start'`) or left it (`kind = 'end'`). Each move inserts two rows: the
+ * `event` row, due at once, and the `followup` row, due 30 days later. No FK: a
+ * product can be retracted, and its evidence must outlive it.
+ *
+ * No CHECK on `kind` or `phase`: SQLite cannot ALTER a CHECK, so a new value would need
+ * a table recreate (`docs/migrations.md` §0). The TypeScript unions are the guard.
+ */
+export const planChangeSnapshots = sqliteTable(
+  'plan_change_snapshots',
+  {
+    id: uuidPk(),
+    /** A `products.id`, NO FK. */
+    productId: text('product_id').notNull(),
+    kind: text('kind').notNull().$type<'start' | 'end'>(),
+    /** The license that reached or left the product. A `licenses.id`, NO FK. */
+    licenseId: text('license_id').notNull(),
+    /** The license write's audit action, e.g. `license.lapsed`. */
+    cause: text('cause').notNull(),
+    /** ISO-8601. The license write's `now`. */
+    eventAt: text('event_at').notNull(),
+    phase: text('phase').notNull().$type<'event' | 'followup'>(),
+    /** ISO-8601. `event_at` for the event row, `event_at` + 30 days for the follow-up. */
+    dueAt: text('due_at').notNull(),
+    /** The snapshot's R2 key in `UPLOADS`. NULL until the sweep writes it. */
+    r2Key: text('r2_key'),
+    /** ISO-8601. When the sweep confirmed the object. */
+    writtenAt: text('written_at'),
+    /** Failed sweep attempts. */
+    attempts: integer('attempts').notNull().default(0),
+    /** The last failure's message, truncated. Cleared on success. */
+    lastError: text('last_error'),
+  },
+  (t) => [
+    // The sweep: `r2_key IS NULL AND due_at <= now ORDER BY due_at`.
+    index('plan_change_snapshots_r2_key_due_at_idx').on(t.r2Key, t.dueAt),
+    // The runbook read: one product's snapshots by date.
+    index('plan_change_snapshots_product_event_at_idx').on(t.productId, t.eventAt),
+  ],
+);
+
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).$type<unknown>().notNull(),

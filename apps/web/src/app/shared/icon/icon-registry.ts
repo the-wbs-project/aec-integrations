@@ -54,7 +54,7 @@
 /**
  * AECI-1753 - the `aec-icon` registry: the one place icon drawings live.
  *
- * Ruling 34 (ADR 0056) replaced "Lucide icons exclusively" with a custom icon
+ * Ruling 34 (ADR 0057) replaced "Lucide icons exclusively" with a custom icon
  * set drawn at 1.75 stroke in a 24 x 24 box. Every icon here is a list of
  * shapes, not an SVG string, so the component renders real elements and never
  * needs `innerHTML`.
