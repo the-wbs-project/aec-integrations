@@ -108,7 +108,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--border-underline`, `--border-empty` | `#B5B5B5`, `#C6C6CA` | Link underline and empty-count edge on white; never the only cue (AECI-1747) |
 | `--surface-on-brand-wash`, `-wash-hover`, `--border-on-brand-subtle`, `--border-on-brand`, `--border-on-brand-strong` | Bone at 10%, 16%, 14%, 32%, 50% | Fills, hairlines and edges on a Forest ground; only `-strong` is a 3:1 edge (4.01:1 on Forest) (AECI-1747) |
 | `--surface-hero-glow`, `--surface-hero-glow-soft` | Forest hover at 75%, 45% | Hero glow gradients (AECI-1747) |
-| `--surface-sticky` | White at 94% | Sticky section bar (AECI-1747) |
+| `--surface-sticky` | White at 94% | Unused. Clash 13 made the sticky section bar solid `--surface-base` (AECI-1768) |
 
 > The Stage 1 dark token set was removed in AECI-226 (preserved in git history). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9), so it is not roadmapped; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3 as reference should a later stage revisit dark.
 

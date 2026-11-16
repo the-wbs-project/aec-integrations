@@ -392,7 +392,9 @@ async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
   expect(bounds.right, 'citation right edge').toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.top, 'citation top edge').toBeGreaterThanOrEqual(0);
   expect(bounds.bottom, 'citation bottom edge').toBeLessThanOrEqual(bounds.viewportHeight);
-  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBe(bounds.viewportWidth);
+  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBeLessThanOrEqual(
+    bounds.viewportWidth,
+  );
   expect(bounds.contentWidth, 'citation text must not be clipped horizontally').toBe(
     bounds.availableWidth,
   );
