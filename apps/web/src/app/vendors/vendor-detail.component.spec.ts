@@ -262,16 +262,14 @@ describe('VendorDetailPage products order caption (AECI-1797)', () => {
   });
 });
 
-// AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
-// at `lg` and so leaves the body column 608px wide. At the old 44rem the
-// products table overflowed that by 96px and scrolled inside a narrow well.
-// 34rem keeps the table's floor under that 608px column.
-// Paired with the dock assertion in detail-layout.component.spec.ts and the
-// table assertion in product-integrations-section.component.spec.ts.
+// AECI-853 set the 34rem floor for the old sidebar's 608px body column. On the band
+// shell (AECI-1797) the body is the full content column, which is wider at every width
+// from md, so the floor still fits. The 38rem ceiling stays as a guard against the old
+// 44rem, which scrolled inside its wrapper.
 describe('VendorDetailPage products table width floor', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('keeps the products table at or under the 38rem the lg dock allows', () => {
+  it('keeps the products table floor at or under 38rem', () => {
     const { el } = setup(
       buildVendor({
         products: [
