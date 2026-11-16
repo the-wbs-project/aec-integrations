@@ -1,6 +1,6 @@
 /**
  * Resolver for the home page's stats-driven sections (AECI-186, Phase 4.11): the
- * credibility row in the hero band and the hero's "Popular:" product row
+ * credibility row in the hero band and the hero's "Most viewed" product row
  * (`popular_products`, AECI-1572). Supplies the whole `HomeStatsResponse` to the
  * home route under the `stats` data key.
  *

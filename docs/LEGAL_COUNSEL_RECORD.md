@@ -642,6 +642,8 @@ Questions: (a) Under Florida's Deceptive and Unfair Trade Practices Act, what re
 
 **What we did:** Terms link the ranking page; ranking snapshots on plan change and ranking-page versioning. Text branch 1; build AECI-1621.
 
+*Built 2026-11-16 (AECI-1621).* The Terms link and the "these terms control" sentence shipped earlier, in #1163. When a plan starts or ends on a product, we now record a ranking snapshot at the event and again 30 days later (Chris, 2026-11-16). Each snapshot holds the product's ranking inputs and its position in each public list, and no personal data. Snapshots are kept four years under a storage lock on the `evidence/` prefix (Chris, 2026-11-16). The lock is an operator step after deploy. `/docs/trust/how-ranking-works` is now versioned at 1.0, recorded November 16, 2026. Each version is archived at `/docs/trust/how-ranking-works/v<version>`, and any change to the page is a new version. No legal text changed.
+
 ### Q24. Are unclaimed vendors bound by anything?
 
 **Asked (sent as a Word attachment with the clause quoted inline):**

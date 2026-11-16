@@ -90,7 +90,8 @@ test.describe('/ — home browse block', () => {
       // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
       // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
       // global header flyout (AECI-155, outside #main), which the `#main ul`
-      // scope excludes. The hero "Popular:" row links to products, not facets.
+      // scope excludes. The hero "Largest categories" fallback links to
+      // `/categories/:slug` too, but it is a `<p>`, not a `ul`, so it is excluded.
       // The "View all" link is `/{segment}` (no slug) so it too is excluded.
       const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);
@@ -312,67 +313,54 @@ test.describe('/ — home assembly', () => {
   });
 });
 
-test.describe('/ — citation reflow (AECI-1846)', () => {
+test.describe('/ — printed citations (AECI-1846, AECI-1792)', () => {
   // Measure settled geometry: focus navigation otherwise starts the home's smooth scroll.
   test.use({ reducedMotion: 'reduce' });
 
   for (const width of [320, 639, 640, 768, 1024]) {
-    test(`keeps the page and every citation inside ${width}px`, async ({ page }) => {
+    test(`prints every citation inside ${width}px with no sideways scroll`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       const figures = page.getByTestId('home-why-figures');
-      const links = figures.locator('a[aria-describedby]');
-      const tooltips = figures.locator('[role="tooltip"]');
+      const citations = figures.getByTestId('home-why-citation');
+      const links = figures.locator('a[target="_blank"]');
+      await expect(citations).toHaveCount(3);
       await expect(links).toHaveCount(3);
       await page.evaluate(() => document.fonts.ready);
+      // Mock-up 9 prints the citation: no tooltip, nothing to hover.
+      await expect(figures.locator('[role="tooltip"]')).toHaveCount(0);
 
-      for (const tooltip of await tooltips.all()) {
-        await expect(tooltip).toHaveCSS('opacity', '0');
-      }
-      // Invisible, absolutely positioned citations must not enlarge the page either.
-      // clientWidth excludes classic scrollbar gutters; innerWidth includes them.
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
-      // Overflow means scrollWidth exceeds clientWidth. On Linux CI the root's
-      // scrollWidth excludes the 15px classic scrollbar and clientWidth does not,
-      // so equality fails with no overflow at all.
+      // On Linux CI the root's scrollWidth excludes the classic scrollbar and
+      // clientWidth does not, so compare with <=.
       expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
-      expect(await page.evaluate(() => window.innerWidth)).toBe(width);
 
       for (let i = 0; i < 3; i++) {
-        const link = links.nth(i);
-        const tooltip = tooltips.nth(i);
-        const citation = (await tooltip.textContent())?.replace(/\s+/g, ' ').trim() ?? '';
-        expect(citation).not.toBe('');
-        await expect(link).toHaveAccessibleDescription(citation);
-        await link.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await link.hover();
-        await expect(tooltip).toHaveCSS('opacity', '1');
-        await expectCitationInsideViewport(tooltip);
-        await page.mouse.move(0, 0);
-        await expect(tooltip).toHaveCSS('opacity', '0');
+        const citation = citations.nth(i);
+        await citation.evaluate((el) =>
+          el.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+        await expect(citation).toBeVisible();
+        await expect(citation).toHaveCSS('opacity', '1');
+        await expectCitationInsideViewport(citation);
       }
 
-      // Start immediately before the first source, then reach all three with real Tab presses.
+      // Reach all three Source links with real Tab presses.
       await links.first().focus();
       await page.keyboard.press('Shift+Tab');
       for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Tab');
         await expect(links.nth(i)).toBeFocused();
-        await links
-          .nth(i)
-          .evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await expect(tooltips.nth(i)).toHaveCSS('opacity', '1');
-        await expectCitationInsideViewport(tooltips.nth(i));
       }
     });
   }
 });
 
-async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
-  const bounds = await tooltip.evaluate((el) => {
+async function expectCitationInsideViewport(citation: Locator): Promise<void> {
+  const bounds = await citation.evaluate((el) => {
     const rect = el.getBoundingClientRect();
     return {
       left: rect.left,
@@ -381,27 +369,64 @@ async function expectCitationInsideViewport(tooltip: Locator): Promise<void> {
       bottom: rect.bottom,
       viewportWidth: document.documentElement.clientWidth,
       viewportHeight: window.innerHeight,
-      pageWidth: document.documentElement.scrollWidth,
       contentWidth: el.scrollWidth,
       availableWidth: el.clientWidth,
-      contentHeight: el.scrollHeight,
-      availableHeight: el.clientHeight,
     };
   });
   expect(bounds.left, 'citation left edge').toBeGreaterThanOrEqual(0);
   expect(bounds.right, 'citation right edge').toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.top, 'citation top edge').toBeGreaterThanOrEqual(0);
   expect(bounds.bottom, 'citation bottom edge').toBeLessThanOrEqual(bounds.viewportHeight);
-  expect(bounds.pageWidth, 'open citation must not enlarge the page').toBeLessThanOrEqual(
-    bounds.viewportWidth,
-  );
   expect(bounds.contentWidth, 'citation text must not be clipped horizontally').toBe(
     bounds.availableWidth,
   );
-  expect(bounds.contentHeight, 'citation text must not be clipped vertically').toBe(
-    bounds.availableHeight,
-  );
 }
+
+// AECI-1862, AECI-1792: the "Most viewed" row ships in the server HTML whichever
+// list fills it, and its height is reserved, so the page does not move after load.
+test.describe('/ — the "Most viewed" row holds its place (AECI-1862)', () => {
+  test('the server HTML carries the row with a label that states its order', async ({
+    request,
+  }) => {
+    const [html, stats, taxonomy] = await Promise.all([
+      request.get('/').then((r) => r.text()),
+      request
+        .get('/api/stats/home')
+        .then((r) => r.json() as Promise<{ popular_products?: unknown[] }>),
+      request.get('/api/taxonomy').then((r) => r.json() as Promise<{ categories?: unknown[] }>),
+    ]);
+    expect(html).toContain('data-testid="home-popular"');
+    expect(html, 'the old unlabelled order is gone').not.toContain('Popular:');
+    if ((stats.popular_products ?? []).length > 0) {
+      expect(html).toContain('Most viewed, last 30 days:');
+    } else if ((taxonomy.categories ?? []).length > 0) {
+      expect(html).toContain('Largest categories:');
+    }
+  });
+
+  for (const width of [1440, 390]) {
+    test(`layout shift after load stays under 0.1 at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.addInitScript(() => {
+        const w = window as unknown as { __cls: number };
+        w.__cls = 0;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as unknown as Array<{
+            value: number;
+            hadRecentInput: boolean;
+          }>) {
+            if (!entry.hadRecentInput) w.__cls += entry.value;
+          }
+        }).observe({ type: 'layout-shift', buffered: true });
+      });
+      await page.goto('/', { waitUntil: 'networkidle' });
+      await untilHydrated(page.locator('#hero-search'));
+      await page.waitForTimeout(1000);
+      const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+      expect(cls).toBeLessThan(0.1);
+    });
+  }
+});
 
 // AECI-830: a rotor or `NVDA+F7` list strips the surrounding card, so each name
 // must stand alone. axe's `identical-links-same-purpose` and `landmark-unique` are

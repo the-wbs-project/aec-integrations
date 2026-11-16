@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { NOINDEX_PATH_PREFIXES as APP_NOINDEX_PATH_PREFIXES } from '../app/docs/docs-indexing';
 import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
+import { RANKING_ARCHIVE_PATHS } from '../app/docs/ranking-page-versions';
 import {
   LEGAL_ARCHIVE_PATHS,
   LEGAL_CURRENT_VERSION_PATHS,
@@ -66,6 +67,12 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
     expect(pathForcesNoindex('/docs/vendors/plans')).toBe(false);
   });
 
+  it('holds every How ranking works version out, and the live page in (AECI-1621)', () => {
+    expect(pathForcesNoindex('/docs/trust/how-ranking-works/v1.0')).toBe(true);
+    for (const path of RANKING_ARCHIVE_PATHS) expect(pathForcesNoindex(path), path).toBe(true);
+    expect(pathForcesNoindex('/docs/trust/how-ranking-works')).toBe(false);
+  });
+
   it('keeps every current legal page indexable, including slugs that share a prefix', () => {
     for (const path of [
       '/legal/terms',
@@ -93,13 +100,15 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; le
   it('is one list, re-exported from the app module (STAGE_2_PRODUCT_DOCS_SPEC.md §3)', () => {
     expect(NOINDEX_PATH_PREFIXES).toBe(APP_NOINDEX_PATH_PREFIXES);
     // No docs section since AECI-1253. The legal archives, the upcoming legal
-    // versions and the current versions' own addresses (AECI-1610), and the Plans
-    // snapshot pages (AECI-1619) are the only entries.
+    // versions and the current versions' own addresses (AECI-1610), the Plans
+    // snapshot pages (AECI-1619) and the ranking page versions (AECI-1621) are the
+    // only entries.
     expect(NOINDEX_PATH_PREFIXES).toEqual([
       ...LEGAL_ARCHIVE_PATHS,
       ...LEGAL_UPCOMING_PATHS,
       ...LEGAL_CURRENT_VERSION_PATHS,
       ...PLANS_ARCHIVE_PATHS,
+      ...RANKING_ARCHIVE_PATHS,
     ]);
   });
 

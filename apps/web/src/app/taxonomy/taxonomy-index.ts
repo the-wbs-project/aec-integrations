@@ -358,10 +358,11 @@ export class TaxonomyIndexPage {
   /**
    * The option labels, composed in TS because the control takes localized
    * strings. "Name (A–Z)" reuses the product listings' message, because the
-   * order means the same thing. The other two are new with the shared control
-   * (mock-up 10, question 7): "Project order" was "Sequence", "Most products"
-   * was "Products". The text arrow left with the old labels, because the Arrow
-   * Rule keeps it for data-flow direction.
+   * order means the same thing. "Project order" is new with the shared control
+   * (mock-up 10, question 7; it was "Sequence", approved 2026-11-16). "Products"
+   * keeps the old button's word and message id. "Most products" is proposed
+   * for it and waits on the owner (DESIGN.md). The text arrow left with the old
+   * labels, because the Arrow Rule keeps it for data-flow direction.
    */
   private sortOptionLabel(mode: SortMode): string {
     switch (mode) {
@@ -370,7 +371,7 @@ export class TaxonomyIndexPage {
       case 'name':
         return $localize`:@@listing.sort.name:Name (A–Z)`;
       case 'products':
-        return $localize`:@@taxonomy.index.sort.mostProducts:Most products`;
+        return $localize`:@@taxonomy.index.sort.products:Products`;
     }
   }
 }

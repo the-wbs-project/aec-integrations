@@ -5,11 +5,11 @@ import { Injectable, PLATFORM_ID, computed, inject } from '@angular/core';
 import { type TaxonomyResponse } from '@aeci/shared';
 
 import { buildBrowseMenu } from './browse-menu-model';
-import { TOP_N, topByCount } from './taxonomy-rank';
 
 /**
- * Supplies the Browse menu (desktop panel + mobile overlay, `browse-menu-model.ts`)
- * and the home hero's category fallback (`categoriesTop10`).
+ * Supplies the Browse menu (desktop panel + mobile overlay, `browse-menu-model.ts`).
+ * The home hero's category fallback no longer reads it: since AECI-1792 that row
+ * comes from the home `browse` resolver, so it ships in the cached HTML.
  *
  * Browser-only by design: the request reactive returns `undefined` on the
  * server, so `httpResource` stays idle during SSR and never issues the
@@ -44,8 +44,6 @@ export class TaxonomyNavStore {
     this.resource.hasValue() ? this.resource.value() : null,
   );
 
-  /** Top 10 categories by count (or fewer), descending. The home hero's fallback row. */
-  readonly categoriesTop10 = computed(() => topByCount(this.value()?.categories, TOP_N));
   /**
    * The Browse menu's columns (AECI-1774): key categories, then categories, phases,
    * audiences and trades, each in its documented order. One model feeds the desktop

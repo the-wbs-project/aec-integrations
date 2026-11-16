@@ -196,14 +196,14 @@ for (const facet of FACETS) {
       // A retrying assertion: the listbox renders after the click. The active
       // option also carries a decorative tick, so match each label's start.
       const labels = isPhases
-        ? ['Project order', 'Name (A–Z)', 'Most products']
-        : ['Name (A–Z)', 'Most products'];
+        ? ['Project order', 'Name (A–Z)', 'Products']
+        : ['Name (A–Z)', 'Products'];
       await expect(page.getByRole('option')).toHaveText(
         labels.map((l) => new RegExp(`^${l.replace(/[()]/g, '\\$&')}`)),
       );
       await page.keyboard.press('Escape');
 
-      await choose('Most products');
+      await choose('Products');
       // Sorting must reorder, never add or drop a card, so the set is invariant.
       await expect.poll(async () => [...(await slugs())].sort()).toEqual([...apiOrder].sort());
       await expectOrder(byProducts, 'product count');

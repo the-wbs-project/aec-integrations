@@ -69,6 +69,17 @@
  * product. Neither statement moves `products.updated_at`: a plan event must not reach
  * the Algolia watermark or a "recently updated" sort (§13.4).
  *
+ * ── THE RANKING-EVIDENCE LEDGER (AECI-1621, ADR 0056) ──────────────────────────
+ * The same diff feeds `plan_change_snapshots`: {@link assemble} inserts two rows for
+ * every product whose live license appeared or disappeared, an `event` row and a
+ * `followup` row due 30 days later, just before the vendor reconcile. The sweep
+ * (`lib/plan-snapshot-sweep.ts`) turns each row into an R2 snapshot of the product's
+ * ranking inputs and positions. Because every license write comes through here, no
+ * plan start or end can commit without its rows. The diff reads the caller's pre-read,
+ * so a lost race can add rows for a move the guarded SQL then dropped. That costs one
+ * extra snapshot and is not guarded. The ops retraction lane writes none: it deletes
+ * the product, so nothing is left to rank.
+ *
  * ── GUARDED WRITES, AND WHAT A LOST RACE COSTS ─────────────────────────────────
  * Each license UPDATE is guarded on the state it expects (`ended_at IS NULL`, and
  * `assigned_product_id IS NULL` for an assign), so a concurrent write cannot be
@@ -112,6 +123,7 @@ import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, products, productVendors, vendors } from '../db/schema';
 import { auditInsert, type BatchStmt } from './audit';
+import { planChangeMoves, planChangeSnapshotInserts } from './plan-change-ledger';
 
 /** `audit_log.entity_type` for every row this module writes. `entity_id` is the
  *  BILLING ACCOUNT id, so an account's whole license trail shares one index key. */
@@ -520,6 +532,17 @@ function assemble(
     ...writes.map((w) => w.stmt),
     ...writes.map((w) => auditInsert(db, w.entry)),
     ...reconcileManagedMirror(db, managedMoves(ctx.vendorLicenses, after), now),
+    // AECI-1621: the ranking-evidence ledger rows, in the same batch, so no plan start
+    // or end can commit without them (`lib/plan-change-ledger.ts`, ADR 0056).
+    ...planChangeSnapshotInserts(
+      db,
+      planChangeMoves(
+        ctx.vendorLicenses,
+        after,
+        writes.map((w) => w.entry),
+      ),
+      now,
+    ),
     reconcileVerifiedMirror(db, ctx.vendorId, now),
   ];
   return { stmts, auditEntries: writes.map((w) => w.entry), verifiedFlipped };

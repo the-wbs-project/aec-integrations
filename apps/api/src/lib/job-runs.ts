@@ -373,6 +373,17 @@ export type JobRunDetail =
       truncated: boolean;
       cutoff: string;
     }
+  /** The 15-minute AECI-1621 plan-change snapshot sweep. `failed` rows stay due and the
+   *  next run retries them. `adopted` objects were written by an earlier run whose D1
+   *  stamp failed. A crash is a reason row. */
+  | {
+      job: 'plan-snapshot';
+      durationMs: number;
+      due: number;
+      written: number;
+      adopted: number;
+      failed: number;
+    }
   | {
       job: 'protest-reply-reminder';
       due: number;
