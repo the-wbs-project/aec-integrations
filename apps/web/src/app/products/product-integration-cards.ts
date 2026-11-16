@@ -1,5 +1,6 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
+import { sharedRowColumns } from './integration-category-groups';
 import { ProductIntegrationCard } from './product-integration-card';
 
 import type { IntegrationLaneRow } from './connector-lane-grouping';
@@ -19,7 +20,8 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
  * deferred cards are grid items of the same list.
  *
  * The grid is the shared `aec-card-grid`: one column, two from `md`, three from
- * `lg`, never more (clash 18). No wide lead card (ruling R3).
+ * `lg`, never more (clash 18). No wide lead card (ruling R3). One or two cards share
+ * the full row equally (`data-columns`, ruled 2026-11-16), so no third column sits blank.
  */
 @Component({
   selector: 'aec-product-integration-cards',
@@ -31,6 +33,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
       role="list"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-labelledby]="ariaLabelledby()"
+      [attr.data-columns]="columns()"
       data-testid="integration-cards"
     >
       @for (row of above(); track row.key) {
@@ -77,4 +80,9 @@ export class ProductIntegrationCards {
   readonly headingLevel = input<3 | 4>(3);
   /** Inside a lane card: nested card surfaces (tint, no shadow). */
   readonly nested = input(false);
+
+  /** One or two cards share the row equally; three or more keep the shared steps. */
+  protected readonly columns = computed(() =>
+    sharedRowColumns(this.above().length + this.deferred().length),
+  );
 }
