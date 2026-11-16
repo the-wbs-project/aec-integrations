@@ -22,6 +22,9 @@ import { RoleBadge } from './role-badge';
  * anti-reference (DESIGN.md), the grid is broken: the lead product gets a wide
  * featured card on a warm Bone band. The host only enables `featuredLead` on
  * page 1 at the newest sort, so the "Recently added" claim stays truthful.
+ * Ruling 2 of 2026-11-16 keeps the lead card (mock-up 10, AECI-1793): 32px
+ * padding, the name at 24px, and the count on one line like the table's.
+ * Below five reviews no card carries a rating line (ruling 4).
  *
  * The whole card is one link, so the role renders as a non-link chip
  * (`RoleBadge`) to avoid nested anchors. The tile carries no category: a
@@ -38,7 +41,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
     <ul role="list" [class]="gridClass" [attr.data-columns]="columns()">
       @if (featured(); as product) {
         <li class="group/card md:col-span-2">
-          <div aecCard interactive tone="warm" class="flex h-full flex-col gap-4 p-6 md:p-8">
+          <div aecCard interactive tone="warm" class="flex h-full w-full flex-col gap-4 p-8">
             <div class="flex items-start justify-between gap-4">
               <aec-logo-or-initial
                 [claimStatus]="'server-filtered'"
@@ -49,22 +52,20 @@ export type ProductCardGridColumns = 1 | 2 | 3;
               @switch (featuredEyebrow()) {
                 @case ('trending') {
                   <span
-                    class="text-xs tracking-wide text-(--text-secondary)"
+                    class="text-t-13 text-(--text-secondary)"
                     i18n="@@products.grid.featured.trending"
                     >Most viewed this week</span
                   >
                 }
                 @default {
-                  <span
-                    class="text-xs tracking-wide text-(--text-secondary)"
-                    i18n="@@products.grid.featured"
+                  <span class="text-t-13 text-(--text-secondary)" i18n="@@products.grid.featured"
                     >Recently added</span
                   >
                 }
               }
             </div>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-2xl leading-tight font-semibold md:text-3xl">
+              <p class="font-display text-t-24 leading-tight font-semibold">
                 <a
                   [routerLink]="['/products', product.slug]"
                   class="text-(--text-primary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
@@ -94,15 +95,15 @@ export type ProductCardGridColumns = 1 | 2 | 3;
               [ratingOverall]="product.rating_overall_avg"
               [reviewCount]="product.review_count"
             />
-            <aec-integration-stat [count]="product.integration_count" variant="headline" />
+            <aec-integration-stat [count]="product.integration_count" variant="inline" />
           </div>
         </li>
       }
 
       @for (product of rest(); track product.id) {
         <li class="group/card">
-          <div aecCard interactive class="flex h-full flex-col gap-4 p-6">
-            <div class="flex items-start justify-between gap-3">
+          <div aecCard interactive class="flex h-full w-full flex-col gap-4 p-6">
+            <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
               <aec-logo-or-initial
                 [claimStatus]="'server-filtered'"
                 [src]="product.logo_url"

@@ -1,0 +1,2676 @@
+{
+ "_source": "Read on 2026-11-16 from production: GET /api/products, /api/products/facets and /api/categories (public), and the public search-only Algolia key for /search?q=procore.",
+ "products": {
+  "total": 445,
+  "sort": "created",
+  "items": [
+   {
+    "name": "viAct Project Control Center (PCC)",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "viAct Digital Works Supervision System (DWSS)",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "viAct Smart Site Safety System (4S)",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "viAct Permit to Work",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "viGENT",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "viAct",
+    "vendor": "viAct",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Allplan",
+    "vendor": "Nemetschek Group",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CallBack HVAC",
+    "vendor": "CallBack HVAC",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Ailytics",
+    "vendor": "Ailytics",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Slide3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 3,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Slide2",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 3,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Settle3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RSWall",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RSSeismic",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RSPile",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 2,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RSLog",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 5,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RSData",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RS3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RS2",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RocTunnel3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RocSupport",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RocSlope3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RocSlope2",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "RocFall3",
+    "vendor": "Rocscience",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   }
+  ]
+ },
+ "products_facets": {
+  "categories": [
+   [
+    "Accounting & ERP",
+    92
+   ],
+   [
+    "AI",
+    69
+   ],
+   [
+    "Analytics & Reporting",
+    51
+   ],
+   [
+    "Asset Management",
+    18
+   ],
+   [
+    "Bid Management",
+    19
+   ],
+   [
+    "BIM Authoring",
+    15
+   ],
+   [
+    "BIM Coordination",
+    12
+   ],
+   [
+    "Civil Engineering",
+    36
+   ],
+   [
+    "Collaboration & Communication",
+    46
+   ],
+   [
+    "Construction Management",
+    51
+   ],
+   [
+    "CRM & Sales",
+    35
+   ],
+   [
+    "Design & Visualization",
+    17
+   ],
+   [
+    "Document Management",
+    55
+   ],
+   [
+    "Drone & Site Monitoring",
+    11
+   ],
+   [
+    "Energy & Sustainability",
+    4
+   ],
+   [
+    "Equipment Management",
+    11
+   ],
+   [
+    "Estimating & Takeoff",
+    30
+   ],
+   [
+    "Facilities Management",
+    8
+   ],
+   [
+    "Field Management",
+    54
+   ],
+   [
+    "MEP Design",
+    6
+   ],
+   [
+    "Payment Management",
+    21
+   ],
+   [
+    "Prefabrication & Modular",
+    3
+   ],
+   [
+    "Project Management",
+    62
+   ],
+   [
+    "Punch List & QA/QC",
+    11
+   ],
+   [
+    "Reality Capture",
+    13
+   ],
+   [
+    "RFI & Submittal Management",
+    12
+   ],
+   [
+    "Robotics",
+    0
+   ],
+   [
+    "Safety & Compliance",
+    39
+   ],
+   [
+    "Scheduling",
+    26
+   ],
+   [
+    "Structural Analysis",
+    3
+   ],
+   [
+    "Surveying & GIS",
+    20
+   ],
+   [
+    "Workforce Management",
+    44
+   ]
+  ],
+  "audiences": [
+   [
+    "Accounting & Finance",
+    139
+   ],
+   [
+    "Architecture",
+    84
+   ],
+   [
+    "BIM Coordinator",
+    12
+   ],
+   [
+    "BIM Manager",
+    18
+   ],
+   [
+    "Business Development",
+    36
+   ],
+   [
+    "Civil Engineering",
+    80
+   ],
+   [
+    "Construction Management",
+    128
+   ],
+   [
+    "Designer / Drafter",
+    18
+   ],
+   [
+    "Electrical Engineering",
+    0
+   ],
+   [
+    "Environmental Engineering",
+    9
+   ],
+   [
+    "Estimator",
+    34
+   ],
+   [
+    "Executive Leadership",
+    84
+   ],
+   [
+    "Facilities Management",
+    22
+   ],
+   [
+    "Foreman / Field Supervisor",
+    34
+   ],
+   [
+    "General Contracting",
+    195
+   ],
+   [
+    "Human Resources",
+    43
+   ],
+   [
+    "Interior Design",
+    9
+   ],
+   [
+    "IT & Systems Administration",
+    76
+   ],
+   [
+    "Landscape Architecture",
+    5
+   ],
+   [
+    "Legal & Risk Management",
+    14
+   ],
+   [
+    "Marketing & Communications",
+    15
+   ],
+   [
+    "Mechanical Engineering",
+    0
+   ],
+   [
+    "MEP Engineering",
+    42
+   ],
+   [
+    "Other Engineering",
+    23
+   ],
+   [
+    "Owner/Developer",
+    91
+   ],
+   [
+    "Planning",
+    4
+   ],
+   [
+    "Procurement & Purchasing",
+    45
+   ],
+   [
+    "Project Engineer",
+    17
+   ],
+   [
+    "Project Manager",
+    107
+   ],
+   [
+    "Safety Management",
+    39
+   ],
+   [
+    "Scheduler",
+    12
+   ],
+   [
+    "Sciences",
+    12
+   ],
+   [
+    "Specialty Contracting",
+    114
+   ],
+   [
+    "Structural Engineering",
+    35
+   ],
+   [
+    "Superintendent",
+    30
+   ],
+   [
+    "Surveying/Geomatics",
+    21
+   ]
+  ],
+  "phases": [
+   [
+    "Concept & Planning",
+    88
+   ],
+   [
+    "Design",
+    144
+   ],
+   [
+    "Pre-Construction",
+    214
+   ],
+   [
+    "Construction",
+    270
+   ],
+   [
+    "Closeout & Operations",
+    135
+   ]
+  ],
+  "trades": [
+   [
+    "Concrete",
+    1
+   ],
+   [
+    "Crane & Rigging",
+    1
+   ],
+   [
+    "Deep Foundations & Piling",
+    1
+   ],
+   [
+    "Demolition",
+    0
+   ],
+   [
+    "Doors, Frames & Hardware",
+    0
+   ],
+   [
+    "Drywall & Interior Framing",
+    0
+   ],
+   [
+    "Earthwork & Excavation",
+    3
+   ],
+   [
+    "Electrical",
+    3
+   ],
+   [
+    "Elevators & Conveying",
+    0
+   ],
+   [
+    "Environmental & Abatement",
+    0
+   ],
+   [
+    "Fire Protection",
+    1
+   ],
+   [
+    "Fireproofing & Firestopping",
+    0
+   ],
+   [
+    "Flooring",
+    0
+   ],
+   [
+    "Framing & Carpentry",
+    0
+   ],
+   [
+    "Glazing & Curtain Wall",
+    0
+   ],
+   [
+    "HVAC & Mechanical",
+    7
+   ],
+   [
+    "Insulation",
+    1
+   ],
+   [
+    "Landscaping & Irrigation",
+    1
+   ],
+   [
+    "Low Voltage & Security",
+    0
+   ],
+   [
+    "Masonry",
+    0
+   ],
+   [
+    "Millwork & Casework",
+    0
+   ],
+   [
+    "Painting & Coatings",
+    0
+   ],
+   [
+    "Paving & Asphalt",
+    0
+   ],
+   [
+    "Plumbing",
+    2
+   ],
+   [
+    "Precast Concrete",
+    0
+   ],
+   [
+    "Rebar & Reinforcing Steel",
+    0
+   ],
+   [
+    "Restoration & Waterproofing",
+    0
+   ],
+   [
+    "Roofing",
+    9
+   ],
+   [
+    "Scaffolding & Access",
+    0
+   ],
+   [
+    "Sheet Metal",
+    1
+   ],
+   [
+    "Sitework & Underground Utilities",
+    3
+   ],
+   [
+    "Solar & Renewables",
+    0
+   ],
+   [
+    "Structural Steel & Metals",
+    1
+   ],
+   [
+    "Tile & Stone",
+    0
+   ]
+  ]
+ },
+ "category": {
+  "slug": "accounting-erp",
+  "name": "Accounting & ERP",
+  "description": "General ledger, AP/AR, payroll, and job-cost accounting for construction businesses. Pay applications and lien waivers belong under Payment Management.",
+  "total": 92,
+  "items": [
+   {
+    "name": "CooperBuild AI",
+    "vendor": "CooperBuild AI",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne e-Invoicing",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne Receipting",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Causeway Project Accounting",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 4,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Microsoft Dynamics 365 Project Operations",
+    "vendor": "Microsoft",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Gusto Embedded Payroll",
+    "vendor": "Gusto",
+    "role": "application",
+    "integrations": 4,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Gusto",
+    "vendor": "Gusto",
+    "role": "application",
+    "integrations": 14,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Microsoft Dynamics 365 Finance",
+    "vendor": "Microsoft",
+    "role": "application",
+    "integrations": 7,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Amazon Business",
+    "vendor": "Amazon",
+    "role": "application",
+    "integrations": 8,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "BST11 ERP",
+    "vendor": "BST Global",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Precoro",
+    "vendor": "Precoro",
+    "role": "application",
+    "integrations": 9,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Vena",
+    "vendor": "Vena Solutions",
+    "role": "application",
+    "integrations": 9,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "ADP SmartCompliance",
+    "vendor": "ADP",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "FloQast",
+    "vendor": "FloQast",
+    "role": "application",
+    "integrations": 17,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "IFS Cloud",
+    "vendor": "IFS",
+    "role": "application",
+    "integrations": 4,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Paychex Flex",
+    "vendor": "Paychex",
+    "role": "application",
+    "integrations": 7,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "BQE CORE",
+    "vendor": "BQE Software",
+    "role": "application",
+    "integrations": 10,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Oracle JD Edwards EnterpriseOne",
+    "vendor": "Oracle",
+    "role": "application",
+    "integrations": 8,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Vergo",
+    "vendor": "Vergo",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Deltek Ajera",
+    "vendor": "Deltek",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "UKG Ready",
+    "vendor": "UKG",
+    "role": "application",
+    "integrations": 2,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "UKG Pro",
+    "vendor": "UKG",
+    "role": "application",
+    "integrations": 7,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Lumber",
+    "vendor": "Lumber",
+    "role": "application",
+    "integrations": 17,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Workday Financial Management",
+    "vendor": "Workday",
+    "role": "application",
+    "integrations": 3,
+    "reviews": 0,
+    "rating": null
+   }
+  ]
+ },
+ "category_facets": {
+  "audiences": [
+   [
+    "Accounting & Finance",
+    91
+   ],
+   [
+    "Architecture",
+    10
+   ],
+   [
+    "BIM Coordinator",
+    0
+   ],
+   [
+    "BIM Manager",
+    0
+   ],
+   [
+    "Business Development",
+    8
+   ],
+   [
+    "Civil Engineering",
+    7
+   ],
+   [
+    "Construction Management",
+    22
+   ],
+   [
+    "Designer / Drafter",
+    0
+   ],
+   [
+    "Electrical Engineering",
+    0
+   ],
+   [
+    "Environmental Engineering",
+    1
+   ],
+   [
+    "Estimator",
+    4
+   ],
+   [
+    "Executive Leadership",
+    33
+   ],
+   [
+    "Facilities Management",
+    3
+   ],
+   [
+    "Foreman / Field Supervisor",
+    5
+   ],
+   [
+    "General Contracting",
+    37
+   ],
+   [
+    "Human Resources",
+    21
+   ],
+   [
+    "Interior Design",
+    0
+   ],
+   [
+    "IT & Systems Administration",
+    20
+   ],
+   [
+    "Landscape Architecture",
+    0
+   ],
+   [
+    "Legal & Risk Management",
+    1
+   ],
+   [
+    "Marketing & Communications",
+    1
+   ],
+   [
+    "Mechanical Engineering",
+    0
+   ],
+   [
+    "MEP Engineering",
+    3
+   ],
+   [
+    "Other Engineering",
+    0
+   ],
+   [
+    "Owner/Developer",
+    8
+   ],
+   [
+    "Planning",
+    0
+   ],
+   [
+    "Procurement & Purchasing",
+    21
+   ],
+   [
+    "Project Engineer",
+    2
+   ],
+   [
+    "Project Manager",
+    40
+   ],
+   [
+    "Safety Management",
+    2
+   ],
+   [
+    "Scheduler",
+    1
+   ],
+   [
+    "Sciences",
+    0
+   ],
+   [
+    "Specialty Contracting",
+    25
+   ],
+   [
+    "Structural Engineering",
+    3
+   ],
+   [
+    "Superintendent",
+    3
+   ],
+   [
+    "Surveying/Geomatics",
+    0
+   ]
+  ],
+  "phases": [
+   [
+    "Concept & Planning",
+    13
+   ],
+   [
+    "Design",
+    12
+   ],
+   [
+    "Pre-Construction",
+    41
+   ],
+   [
+    "Construction",
+    64
+   ],
+   [
+    "Closeout & Operations",
+    41
+   ]
+  ],
+  "trades": [
+   [
+    "Concrete",
+    0
+   ],
+   [
+    "Crane & Rigging",
+    0
+   ],
+   [
+    "Deep Foundations & Piling",
+    0
+   ],
+   [
+    "Demolition",
+    0
+   ],
+   [
+    "Doors, Frames & Hardware",
+    0
+   ],
+   [
+    "Drywall & Interior Framing",
+    0
+   ],
+   [
+    "Earthwork & Excavation",
+    0
+   ],
+   [
+    "Electrical",
+    0
+   ],
+   [
+    "Elevators & Conveying",
+    0
+   ],
+   [
+    "Environmental & Abatement",
+    0
+   ],
+   [
+    "Fire Protection",
+    0
+   ],
+   [
+    "Fireproofing & Firestopping",
+    0
+   ],
+   [
+    "Flooring",
+    0
+   ],
+   [
+    "Framing & Carpentry",
+    0
+   ],
+   [
+    "Glazing & Curtain Wall",
+    0
+   ],
+   [
+    "HVAC & Mechanical",
+    0
+   ],
+   [
+    "Insulation",
+    0
+   ],
+   [
+    "Landscaping & Irrigation",
+    0
+   ],
+   [
+    "Low Voltage & Security",
+    0
+   ],
+   [
+    "Masonry",
+    0
+   ],
+   [
+    "Millwork & Casework",
+    0
+   ],
+   [
+    "Painting & Coatings",
+    0
+   ],
+   [
+    "Paving & Asphalt",
+    0
+   ],
+   [
+    "Plumbing",
+    0
+   ],
+   [
+    "Precast Concrete",
+    0
+   ],
+   [
+    "Rebar & Reinforcing Steel",
+    0
+   ],
+   [
+    "Restoration & Waterproofing",
+    0
+   ],
+   [
+    "Roofing",
+    0
+   ],
+   [
+    "Scaffolding & Access",
+    0
+   ],
+   [
+    "Sheet Metal",
+    0
+   ],
+   [
+    "Sitework & Underground Utilities",
+    0
+   ],
+   [
+    "Solar & Renewables",
+    0
+   ],
+   [
+    "Structural Steel & Metals",
+    0
+   ],
+   [
+    "Tile & Stone",
+    0
+   ]
+  ]
+ },
+ "empty_filters": {
+  "category": "Accounting & ERP",
+  "trade": "Roofing",
+  "total": 0,
+  "facets": {
+   "categories": [
+    [
+     "Accounting & ERP",
+     0
+    ],
+    [
+     "AI",
+     1
+    ],
+    [
+     "Analytics & Reporting",
+     0
+    ],
+    [
+     "Asset Management",
+     0
+    ],
+    [
+     "Bid Management",
+     0
+    ],
+    [
+     "BIM Authoring",
+     0
+    ],
+    [
+     "BIM Coordination",
+     0
+    ],
+    [
+     "Civil Engineering",
+     0
+    ],
+    [
+     "Collaboration & Communication",
+     0
+    ],
+    [
+     "Construction Management",
+     4
+    ],
+    [
+     "CRM & Sales",
+     6
+    ],
+    [
+     "Design & Visualization",
+     1
+    ],
+    [
+     "Document Management",
+     0
+    ],
+    [
+     "Drone & Site Monitoring",
+     0
+    ],
+    [
+     "Energy & Sustainability",
+     0
+    ],
+    [
+     "Equipment Management",
+     0
+    ],
+    [
+     "Estimating & Takeoff",
+     7
+    ],
+    [
+     "Facilities Management",
+     0
+    ],
+    [
+     "Field Management",
+     1
+    ],
+    [
+     "MEP Design",
+     0
+    ],
+    [
+     "Payment Management",
+     2
+    ],
+    [
+     "Prefabrication & Modular",
+     0
+    ],
+    [
+     "Project Management",
+     1
+    ],
+    [
+     "Punch List & QA/QC",
+     0
+    ],
+    [
+     "Reality Capture",
+     1
+    ],
+    [
+     "RFI & Submittal Management",
+     0
+    ],
+    [
+     "Robotics",
+     0
+    ],
+    [
+     "Safety & Compliance",
+     0
+    ],
+    [
+     "Scheduling",
+     0
+    ],
+    [
+     "Structural Analysis",
+     0
+    ],
+    [
+     "Surveying & GIS",
+     0
+    ],
+    [
+     "Workforce Management",
+     0
+    ]
+   ],
+   "audiences": [
+    [
+     "Accounting & Finance",
+     0
+    ],
+    [
+     "Architecture",
+     0
+    ],
+    [
+     "BIM Coordinator",
+     0
+    ],
+    [
+     "BIM Manager",
+     0
+    ],
+    [
+     "Business Development",
+     0
+    ],
+    [
+     "Civil Engineering",
+     0
+    ],
+    [
+     "Construction Management",
+     0
+    ],
+    [
+     "Designer / Drafter",
+     0
+    ],
+    [
+     "Electrical Engineering",
+     0
+    ],
+    [
+     "Environmental Engineering",
+     0
+    ],
+    [
+     "Estimator",
+     0
+    ],
+    [
+     "Executive Leadership",
+     0
+    ],
+    [
+     "Facilities Management",
+     0
+    ],
+    [
+     "Foreman / Field Supervisor",
+     0
+    ],
+    [
+     "General Contracting",
+     0
+    ],
+    [
+     "Human Resources",
+     0
+    ],
+    [
+     "Interior Design",
+     0
+    ],
+    [
+     "IT & Systems Administration",
+     0
+    ],
+    [
+     "Landscape Architecture",
+     0
+    ],
+    [
+     "Legal & Risk Management",
+     0
+    ],
+    [
+     "Marketing & Communications",
+     0
+    ],
+    [
+     "Mechanical Engineering",
+     0
+    ],
+    [
+     "MEP Engineering",
+     0
+    ],
+    [
+     "Other Engineering",
+     0
+    ],
+    [
+     "Owner/Developer",
+     0
+    ],
+    [
+     "Planning",
+     0
+    ],
+    [
+     "Procurement & Purchasing",
+     0
+    ],
+    [
+     "Project Engineer",
+     0
+    ],
+    [
+     "Project Manager",
+     0
+    ],
+    [
+     "Safety Management",
+     0
+    ],
+    [
+     "Scheduler",
+     0
+    ],
+    [
+     "Sciences",
+     0
+    ],
+    [
+     "Specialty Contracting",
+     0
+    ],
+    [
+     "Structural Engineering",
+     0
+    ],
+    [
+     "Superintendent",
+     0
+    ],
+    [
+     "Surveying/Geomatics",
+     0
+    ]
+   ],
+   "phases": [
+    [
+     "Concept & Planning",
+     0
+    ],
+    [
+     "Design",
+     0
+    ],
+    [
+     "Pre-Construction",
+     0
+    ],
+    [
+     "Construction",
+     0
+    ],
+    [
+     "Closeout & Operations",
+     0
+    ]
+   ],
+   "trades": [
+    [
+     "Concrete",
+     0
+    ],
+    [
+     "Crane & Rigging",
+     0
+    ],
+    [
+     "Deep Foundations & Piling",
+     0
+    ],
+    [
+     "Demolition",
+     0
+    ],
+    [
+     "Doors, Frames & Hardware",
+     0
+    ],
+    [
+     "Drywall & Interior Framing",
+     0
+    ],
+    [
+     "Earthwork & Excavation",
+     0
+    ],
+    [
+     "Electrical",
+     0
+    ],
+    [
+     "Elevators & Conveying",
+     0
+    ],
+    [
+     "Environmental & Abatement",
+     0
+    ],
+    [
+     "Fire Protection",
+     0
+    ],
+    [
+     "Fireproofing & Firestopping",
+     0
+    ],
+    [
+     "Flooring",
+     0
+    ],
+    [
+     "Framing & Carpentry",
+     0
+    ],
+    [
+     "Glazing & Curtain Wall",
+     0
+    ],
+    [
+     "HVAC & Mechanical",
+     0
+    ],
+    [
+     "Insulation",
+     0
+    ],
+    [
+     "Landscaping & Irrigation",
+     0
+    ],
+    [
+     "Low Voltage & Security",
+     0
+    ],
+    [
+     "Masonry",
+     0
+    ],
+    [
+     "Millwork & Casework",
+     0
+    ],
+    [
+     "Painting & Coatings",
+     0
+    ],
+    [
+     "Paving & Asphalt",
+     0
+    ],
+    [
+     "Plumbing",
+     0
+    ],
+    [
+     "Precast Concrete",
+     0
+    ],
+    [
+     "Rebar & Reinforcing Steel",
+     0
+    ],
+    [
+     "Restoration & Waterproofing",
+     0
+    ],
+    [
+     "Roofing",
+     0
+    ],
+    [
+     "Scaffolding & Access",
+     0
+    ],
+    [
+     "Sheet Metal",
+     0
+    ],
+    [
+     "Sitework & Underground Utilities",
+     0
+    ],
+    [
+     "Solar & Renewables",
+     0
+    ],
+    [
+     "Structural Steel & Metals",
+     0
+    ],
+    [
+     "Tile & Stone",
+     0
+    ]
+   ]
+  }
+ },
+ "categories_index": [
+  {
+   "name": "Accounting & ERP",
+   "slug": "accounting-erp",
+   "description": "General ledger, AP/AR, payroll, and job-cost accounting for construction businesses. Pay applications and lien waivers belong under Payment Management.",
+   "products": 92,
+   "integrations": 608
+  },
+  {
+   "name": "AI",
+   "slug": "ai",
+   "description": "Products whose core function is machine learning or generative AI, rather than tools that merely include an AI feature.",
+   "products": 69,
+   "integrations": 298
+  },
+  {
+   "name": "Analytics & Reporting",
+   "slug": "analytics-reporting",
+   "description": "Dashboards, business intelligence, and cross-project reporting over data produced elsewhere. Tag AI only when models, not queries, do the work.",
+   "products": 51,
+   "integrations": 394
+  },
+  {
+   "name": "Asset Management",
+   "slug": "asset-management",
+   "description": "Lifecycle tracking of owned physical assets and infrastructure. Construction fleet is Equipment Management, buildings in use is Facilities Management.",
+   "products": 18,
+   "integrations": 70
+  },
+  {
+   "name": "Bid Management",
+   "slug": "bid-management",
+   "description": "Invitations to bid, bid packages, subcontractor solicitation, and bid-day leveling. Pricing the work itself is Estimating & Takeoff.",
+   "products": 19,
+   "integrations": 61
+  },
+  {
+   "name": "BIM Authoring",
+   "slug": "bim-authoring",
+   "description": "Tools that create and edit the model itself, discipline by discipline. Clash detection and federation belong under BIM Coordination.",
+   "products": 15,
+   "integrations": 57
+  },
+  {
+   "name": "BIM Coordination",
+   "slug": "bim-coordination",
+   "description": "Federating models from multiple disciplines, clash detection, and coordination review. The tools that produce those models are BIM Authoring.",
+   "products": 12,
+   "integrations": 77
+  },
+  {
+   "name": "Civil Engineering",
+   "slug": "civil-engineering",
+   "description": "Site, roadway, grading, drainage, and infrastructure design. Survey data capture and mapping belong under Surveying & GIS.",
+   "products": 36,
+   "integrations": 57
+  },
+  {
+   "name": "Collaboration & Communication",
+   "slug": "collaboration-communication",
+   "description": "Messaging, meetings, markup, and shared workspaces across project teams. The system of record for files belongs under Document Management.",
+   "products": 46,
+   "integrations": 450
+  },
+  {
+   "name": "Construction Management",
+   "slug": "construction-management",
+   "description": "Broad platforms running the build, combining field, cost, and document workflows in one system. Narrower planning tools belong under Project Management.",
+   "products": 51,
+   "integrations": 425
+  },
+  {
+   "name": "CRM & Sales",
+   "slug": "crm-sales",
+   "description": "Pursuing and winning work: pipeline, client relationships, proposals, and go/no-go tracking. Responding to a specific bid is Bid Management.",
+   "products": 35,
+   "integrations": 214
+  },
+  {
+   "name": "Design & Visualization",
+   "slug": "design-visualization",
+   "description": "Rendering, walkthroughs, VR, and presentation graphics. The modeling tools that feed them belong under BIM Authoring.",
+   "products": 17,
+   "integrations": 101
+  },
+  {
+   "name": "Document Management",
+   "slug": "document-management",
+   "description": "System of record for drawings, specs, and project files, with versioning and access control. Discussion and markup are Collaboration & Communication.",
+   "products": 55,
+   "integrations": 462
+  },
+  {
+   "name": "Drone & Site Monitoring",
+   "slug": "drone-site-monitoring",
+   "description": "Aerial imagery, site cameras, and progress capture over time. Point-cloud scanning for as-builts belongs under Reality Capture.",
+   "products": 11,
+   "integrations": 28
+  },
+  {
+   "name": "Energy & Sustainability",
+   "slug": "energy-sustainability",
+   "description": "Energy modeling, carbon and embodied-carbon accounting, certification tracking, and building performance analysis.",
+   "products": 4,
+   "integrations": 8
+  },
+  {
+   "name": "Equipment Management",
+   "slug": "equipment-management",
+   "description": "Construction fleet, heavy equipment, and small-tool tracking: utilization, maintenance, and dispatch. Owner-side assets belong under Asset Management.",
+   "products": 11,
+   "integrations": 20
+  },
+  {
+   "name": "Estimating & Takeoff",
+   "slug": "estimating-takeoff",
+   "description": "Quantity takeoff, unit pricing, assemblies, and cost databases. Soliciting and leveling subcontractor bids is Bid Management.",
+   "products": 30,
+   "integrations": 133
+  },
+  {
+   "name": "Facilities Management",
+   "slug": "facilities-management",
+   "description": "Operating a building after handover: work orders, maintenance, space management, and CMMS. Construction-phase gear belongs under Equipment Management.",
+   "products": 8,
+   "integrations": 32
+  },
+  {
+   "name": "Field Management",
+   "slug": "field-management",
+   "description": "What the crew does on site: daily logs, photos, timecards, and mobile field capture. Office-side program tools belong under Project Management.",
+   "products": 54,
+   "integrations": 387
+  },
+  {
+   "name": "MEP Design",
+   "slug": "mep-design",
+   "description": "Mechanical, electrical, and plumbing system design, sizing, and layout. General model authoring belongs under BIM Authoring.",
+   "products": 6,
+   "integrations": 4
+  },
+  {
+   "name": "Payment Management",
+   "slug": "payment-management",
+   "description": "Moving money on a project: pay applications, lien waivers, compliance, and subcontractor payments. The books themselves are Accounting & ERP.",
+   "products": 21,
+   "integrations": 163
+  },
+  {
+   "name": "Prefabrication & Modular",
+   "slug": "prefabrication-modular",
+   "description": "Offsite fabrication, shop drawings, panelization, and modular assembly workflows. Automated machinery on the line belongs under Robotics.",
+   "products": 3,
+   "integrations": 5
+  },
+  {
+   "name": "Project Management",
+   "slug": "project-management",
+   "description": "Planning, tracking, and coordinating project work across tasks, budgets, and team workflow. All-in-one build platforms are Construction Management.",
+   "products": 62,
+   "integrations": 493
+  },
+  {
+   "name": "Punch List & QA/QC",
+   "slug": "punch-list-qa-qc",
+   "description": "Quality inspections, observations, punch lists, and closeout verification. Worker safety programs belong under Safety & Compliance.",
+   "products": 11,
+   "integrations": 55
+  },
+  {
+   "name": "Reality Capture",
+   "slug": "reality-capture",
+   "description": "Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.",
+   "products": 13,
+   "integrations": 52
+  },
+  {
+   "name": "RFI & Submittal Management",
+   "slug": "rfi-submittal-management",
+   "description": "Formal construction-administration workflows: RFIs, submittals, transmittals, and their review cycles and logs.",
+   "products": 12,
+   "integrations": 68
+  },
+  {
+   "name": "Robotics",
+   "slug": "robotics",
+   "description": "Physical robots and automated machinery for layout, fabrication, inspection, or installation on site or in the shop.",
+   "products": 0,
+   "integrations": 0
+  },
+  {
+   "name": "Safety & Compliance",
+   "slug": "safety-compliance",
+   "description": "Toolbox talks, incident reporting, job hazard analyses, training records, and regulatory compliance. Quality defects belong under Punch List & QA/QC.",
+   "products": 39,
+   "integrations": 122
+  },
+  {
+   "name": "Scheduling",
+   "slug": "scheduling",
+   "description": "CPM, pull planning, look-aheads, and resource-loaded project schedules. Broader task and budget tracking belongs under Project Management.",
+   "products": 26,
+   "integrations": 140
+  },
+  {
+   "name": "Structural Analysis",
+   "slug": "structural-analysis",
+   "description": "Structural modeling, analysis, code checking, and member design. Detailing and model authoring belong under BIM Authoring.",
+   "products": 3,
+   "integrations": 3
+  },
+  {
+   "name": "Surveying & GIS",
+   "slug": "surveying-gis",
+   "description": "Field survey, geospatial data, mapping, and site layout. Scan-to-BIM conversion belongs under Reality Capture.",
+   "products": 20,
+   "integrations": 79
+  },
+  {
+   "name": "Workforce Management",
+   "slug": "workforce-management",
+   "description": "Labor planning, crew scheduling, certifications, and workforce forecasting. On-site time capture belongs under Field Management.",
+   "products": 44,
+   "integrations": 241
+  }
+ ],
+ "search": {
+  "query": "procore",
+  "products_total": 124,
+  "vendors_total": 26,
+  "sort": "created",
+  "items": [
+   {
+    "name": "CooperBuild AI",
+    "vendor": "CooperBuild AI",
+    "role": "application",
+    "integrations": 6,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Punch",
+    "vendor": "Punch Software",
+    "role": "application",
+    "integrations": 5,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne Carbon",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne e-Invoicing",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne Supplier Management",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "CausewayOne Receipting",
+    "vendor": "Causeway",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Amazon Business",
+    "vendor": "Amazon",
+    "role": "application",
+    "integrations": 8,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Google Sheets",
+    "vendor": "Google",
+    "role": "application",
+    "integrations": 14,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Versatile",
+    "vendor": "Versatile Inc.",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Precoro",
+    "vendor": "Precoro",
+    "role": "application",
+    "integrations": 9,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "IFS Cloud",
+    "vendor": "IFS",
+    "role": "application",
+    "integrations": 4,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Oracle JD Edwards EnterpriseOne",
+    "vendor": "Oracle",
+    "role": "application",
+    "integrations": 8,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Trunk Tools",
+    "vendor": "Trunk Tools",
+    "role": "application",
+    "integrations": 2,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "SignOnSite",
+    "vendor": "Breadcrumb",
+    "role": "application",
+    "integrations": 5,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Breadcrumb",
+    "vendor": "Breadcrumb",
+    "role": "application",
+    "integrations": 3,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Anyset Closeout",
+    "vendor": "Anyset AI",
+    "role": "application",
+    "integrations": 2,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Anyset Specs",
+    "vendor": "Anyset AI",
+    "role": "application",
+    "integrations": 3,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Roof Hub",
+    "vendor": "SRS Distribution",
+    "role": "application",
+    "integrations": 8,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "SmartBarrel",
+    "vendor": "SmartBarrel.io",
+    "role": "application",
+    "integrations": 9,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "QXO",
+    "vendor": "QXO",
+    "role": "application",
+    "integrations": 9,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Energy Incentives Assistant",
+    "vendor": "Wipfli Advisory LLC",
+    "role": "application",
+    "integrations": 0,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Zapier",
+    "vendor": "Zapier",
+    "role": "connector",
+    "integrations": 43,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "Aspire",
+    "vendor": "ServiceTitan",
+    "role": "application",
+    "integrations": 5,
+    "reviews": 0,
+    "rating": null
+   },
+   {
+    "name": "ProjectReady WorkBridge",
+    "vendor": "ProjectReady",
+    "role": "application",
+    "integrations": 1,
+    "reviews": 0,
+    "rating": null
+   }
+  ],
+  "facets": {
+   "phases": [
+    [
+     "Construction",
+     106
+    ],
+    [
+     "Pre-Construction",
+     77
+    ],
+    [
+     "Closeout & Operations",
+     49
+    ],
+    [
+     "Design",
+     18
+    ],
+    [
+     "Concept & Planning",
+     15
+    ]
+   ],
+   "trades": [
+    [
+     "Earthwork & Excavation",
+     2
+    ],
+    [
+     "Roofing",
+     2
+    ],
+    [
+     "Crane & Rigging",
+     1
+    ],
+    [
+     "Fire Protection",
+     1
+    ],
+    [
+     "HVAC & Mechanical",
+     1
+    ],
+    [
+     "Landscaping & Irrigation",
+     1
+    ],
+    [
+     "Structural Steel & Metals",
+     1
+    ]
+   ],
+   "audiences": [
+    [
+     "General Contracting",
+     88
+    ],
+    [
+     "Construction Management",
+     65
+    ],
+    [
+     "Accounting & Finance",
+     53
+    ],
+    [
+     "Procurement & Purchasing",
+     45
+    ],
+    [
+     "Specialty Contracting",
+     45
+    ],
+    [
+     "Project Manager",
+     44
+    ],
+    [
+     "Owner/Developer",
+     29
+    ],
+    [
+     "Executive Leadership",
+     26
+    ],
+    [
+     "IT & Systems Administration",
+     17
+    ],
+    [
+     "Human Resources",
+     12
+    ],
+    [
+     "Architecture",
+     11
+    ],
+    [
+     "Project Engineer",
+     11
+    ],
+    [
+     "Safety Management",
+     10
+    ],
+    [
+     "Superintendent",
+     10
+    ],
+    [
+     "Estimator",
+     9
+    ],
+    [
+     "Facilities Management",
+     9
+    ],
+    [
+     "Business Development",
+     7
+    ],
+    [
+     "Civil Engineering",
+     6
+    ],
+    [
+     "Legal & Risk Management",
+     6
+    ],
+    [
+     "Foreman / Field Supervisor",
+     5
+    ],
+    [
+     "MEP Engineering",
+     5
+    ],
+    [
+     "Scheduler",
+     5
+    ],
+    [
+     "Structural Engineering",
+     3
+    ],
+    [
+     "Surveying/Geomatics",
+     3
+    ],
+    [
+     "BIM Manager",
+     2
+    ],
+    [
+     "Marketing & Communications",
+     2
+    ],
+    [
+     "BIM Coordinator",
+     1
+    ]
+   ],
+   "categories": [
+    [
+     "Accounting & ERP",
+     38
+    ],
+    [
+     "Construction Management",
+     27
+    ],
+    [
+     "Document Management",
+     23
+    ],
+    [
+     "AI",
+     22
+    ],
+    [
+     "Field Management",
+     21
+    ],
+    [
+     "Project Management",
+     21
+    ],
+    [
+     "Analytics & Reporting",
+     14
+    ],
+    [
+     "Bid Management",
+     12
+    ],
+    [
+     "Workforce Management",
+     11
+    ],
+    [
+     "Collaboration & Communication",
+     10
+    ],
+    [
+     "Safety & Compliance",
+     10
+    ],
+    [
+     "Scheduling",
+     10
+    ],
+    [
+     "Payment Management",
+     9
+    ],
+    [
+     "Estimating & Takeoff",
+     8
+    ],
+    [
+     "RFI & Submittal Management",
+     7
+    ],
+    [
+     "Asset Management",
+     6
+    ],
+    [
+     "CRM & Sales",
+     5
+    ],
+    [
+     "Punch List & QA/QC",
+     5
+    ],
+    [
+     "Reality Capture",
+     5
+    ],
+    [
+     "Drone & Site Monitoring",
+     4
+    ],
+    [
+     "Facilities Management",
+     4
+    ],
+    [
+     "BIM Coordination",
+     3
+    ],
+    [
+     "Energy & Sustainability",
+     2
+    ],
+    [
+     "Equipment Management",
+     2
+    ],
+    [
+     "Surveying & GIS",
+     2
+    ],
+    [
+     "Civil Engineering",
+     1
+    ]
+   ],
+   "vendor_name": [
+    [
+     "Procore Technologies",
+     8
+    ],
+    [
+     "Oracle",
+     5
+    ],
+    [
+     "Causeway",
+     4
+    ],
+    [
+     "Agave",
+     3
+    ],
+    [
+     "Appficiency Inc",
+     3
+    ],
+    [
+     "Microsoft",
+     3
+    ],
+    [
+     "SyncEzy",
+     3
+    ],
+    [
+     "Anyset AI",
+     2
+    ],
+    [
+     "Breadcrumb",
+     2
+    ],
+    [
+     "Egnyte",
+     2
+    ],
+    [
+     "Flexspring",
+     2
+    ],
+    [
+     "Smoothx",
+     2
+    ],
+    [
+     "Acumatica",
+     1
+    ],
+    [
+     "AkitaBox",
+     1
+    ],
+    [
+     "Amazon",
+     1
+    ],
+    [
+     "AppFolio",
+     1
+    ],
+    [
+     "Aquifer, Inc",
+     1
+    ],
+    [
+     "Arcoro",
+     1
+    ],
+    [
+     "BIMLauncher",
+     1
+    ],
+    [
+     "Billy",
+     1
+    ],
+    [
+     "Bluebeam, Inc.",
+     1
+    ],
+    [
+     "Buildots",
+     1
+    ],
+    [
+     "ClearPlan Consulting",
+     1
+    ],
+    [
+     "CobbleStone Software",
+     1
+    ],
+    [
+     "ConCntric",
+     1
+    ],
+    [
+     "Construction Intelligence Solutions",
+     1
+    ],
+    [
+     "ConstructivIQ",
+     1
+    ],
+    [
+     "CooperBuild AI",
+     1
+    ],
+    [
+     "Corpay",
+     1
+    ],
+    [
+     "Coupa",
+     1
+    ],
+    [
+     "CrossCountry Consulting",
+     1
+    ],
+    [
+     "Cupix, Inc.",
+     1
+    ],
+    [
+     "Datagrid",
+     1
+    ],
+    [
+     "Datumate",
+     1
+    ],
+    [
+     "Deltek",
+     1
+    ],
+    [
+     "DigiBuild",
+     1
+    ],
+    [
+     "Document Crunch",
+     1
+    ],
+    [
+     "Docusign",
+     1
+    ],
+    [
+     "Domo",
+     1
+    ],
+    [
+     "DroneDeploy",
+     1
+    ],
+    [
+     "ELAS",
+     1
+    ],
+    [
+     "Ediphi",
+     1
+    ],
+    [
+     "Field Materials, Inc.",
+     1
+    ],
+    [
+     "Fieldwire",
+     1
+    ],
+    [
+     "FlowManual",
+     1
+    ],
+    [
+     "Followup CRM",
+     1
+    ],
+    [
+     "GCPay",
+     1
+    ],
+    [
+     "GoFormz",
+     1
+    ],
+    [
+     "Google",
+     1
+    ],
+    [
+     "Grux",
+     1
+    ],
+    [
+     "HSO",
+     1
+    ],
+    [
+     "IFS",
+     1
+    ],
+    [
+     "InspectMind",
+     1
+    ],
+    [
+     "Intuit",
+     1
+    ],
+    [
+     "Jonas",
+     1
+    ],
+    [
+     "Krane",
+     1
+    ],
+    [
+     "Matterport",
+     1
+    ],
+    [
+     "Miter",
+     1
+    ],
+    [
+     "OpenSpace",
+     1
+    ],
+    [
+     "Outbuild",
+     1
+    ],
+    [
+     "PROVIZUAL, Inc.",
+     1
+    ],
+    [
+     "Planera Inc",
+     1
+    ],
+    [
+     "PlusApps",
+     1
+    ],
+    [
+     "Precoro",
+     1
+    ],
+    [
+     "Primepoint Labs Inc.",
+     1
+    ],
+    [
+     "ProjectReady",
+     1
+    ],
+    [
+     "Propeller Aero",
+     1
+    ],
+    [
+     "Punch Software",
+     1
+    ],
+    [
+     "QXO",
+     1
+    ],
+    [
+     "Quickbase, Inc.",
+     1
+    ],
+    [
+     "Ramp",
+     1
+    ],
+    [
+     "Revizto",
+     1
+    ],
+    [
+     "SALUS",
+     1
+    ],
+    [
+     "SAP",
+     1
+    ],
+    [
+     "SRS Distribution",
+     1
+    ],
+    [
+     "Sage Group",
+     1
+    ],
+    [
+     "Sand Solutions",
+     1
+    ],
+    [
+     "ServiceNow",
+     1
+    ],
+    [
+     "ServiceTitan",
+     1
+    ],
+    [
+     "ServiceTrade",
+     1
+    ],
+    [
+     "Shake IT",
+     1
+    ],
+    [
+     "SmartBarrel.io",
+     1
+    ],
+    [
+     "SmartBid",
+     1
+    ],
+    [
+     "SmartPM Technologies",
+     1
+    ],
+    [
+     "Smartapp.com",
+     1
+    ],
+    [
+     "Smartsheet",
+     1
+    ],
+    [
+     "The Access Group",
+     1
+    ],
+    [
+     "TrebleHook",
+     1
+    ],
+    [
+     "Trunk Tools",
+     1
+    ],
+    [
+     "Utopia Digital",
+     1
+    ],
+    [
+     "VIATechnik",
+     1
+    ],
+    [
+     "Versatile Inc.",
+     1
+    ],
+    [
+     "Wipfli Advisory LLC",
+     1
+    ],
+    [
+     "Wyre AI",
+     1
+    ],
+    [
+     "Xero",
+     1
+    ],
+    [
+     "Zapier",
+     1
+    ],
+    [
+     "airSlate",
+     1
+    ]
+   ]
+  }
+ }
+}

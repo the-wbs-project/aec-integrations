@@ -22,9 +22,10 @@ import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
  * Two variants for the two empty-state needs:
  *   - `inline` (default, grid + search cards) — renders **nothing** when gated,
  *     so the card reflows with no orphaned label.
- *   - `cell` (dense table row) — renders an en-dash empty state when gated, the
- *     same `–` + `aria-label` pattern the vendor cell uses, so the
- *     `<td>` stays populated and the column doesn't collapse.
+ *   - `cell` (dense table row) — renders an en-dash empty state when gated, so
+ *     the `<td>` stays populated and the column doesn't collapse. The dash is
+ *     `aria-hidden` and "No ratings yet" is visually hidden text (AECI-1793):
+ *     an `aria-label` on a plain `<span>` is not reliably read.
  *
  * Accessibility mirrors `ReviewStars`: the star glyph is decorative
  * (`aria-hidden`) and the precise meaning is carried by the visible numeral +
@@ -55,7 +56,8 @@ export type RatingSummaryVariant = 'inline' | 'cell';
         <span class="text-xs text-(--text-secondary)">{{ countLabel() }}</span>
       </span>
     } @else if (variant() === 'cell') {
-      <span class="text-(--text-secondary)" [attr.aria-label]="noneLabel()">–</span>
+      <span class="text-t-13 text-(--text-secondary)" aria-hidden="true">–</span>
+      <span class="sr-only">{{ noneLabel() }}</span>
     }
   `,
 })

@@ -4,6 +4,8 @@ Status: **superseded 2026-10-31 by epic AECI-1554** for the section order, the b
 Spec anchor: `docs/STAGE_1_SPEC.md` §4.1. Page assembly: `apps/web/src/app/home/home.ts` (its doc comment holds the band order).
 Contracts: `DESIGN.md` (laws + Anchor-Site Rule → Faire), `PRODUCT.md` (voice / audiences / banned words), `packages/shared/src/api/{stats,taxonomy}.ts`.
 
+> **Grounds and treatments superseded by AECI-1792 (2026-11-16).** The band order is unchanged. The grounds and card treatments now follow mock-up 9 (`mockups/redesign-2026-11/mockups/9-home.html`): the hero is the page's one Bone band, the closing call to action is a white card on a white band, and "What we do instead" is the page's one Forest feature card. Where a ground or card rule below disagrees, `STAGE_1_SPEC.md` §4.1 and `DESIGN.md` §5 "Home" win.
+
 > **Relation to [`home-direction.md`](./home-direction.md) (AECI-181).** That doc owns the per-component treatments (hero, browse chips). This doc owns the page: band order, grounds, and the argument band. Where the two disagree, this doc wins.
 
 The dev-only **`/preview/unified-home`** route (`apps/web/src/app/preview/unified-home/`) is the 2026-06 concept review (concepts a, b, c; b was chosen 2026-06-25). It is kept for reference and is not the shipped home.
@@ -31,7 +33,7 @@ The hero **tagline** ("Find the integrations between your AEC tools.") is unchan
 Directory first, then the argument. The ready visitor meets search, the pair finder and browse before any persuasion. The cold visitor sees the directory working, then reads why it exists.
 
 ```
-1  Hero                 Bone   search, Popular row, pair finder; credibility row closes the band
+1  Hero                 Bone   search, "Most viewed" row, pair finder; credibility row closes the band
 2  Browse               white  one block: category, trade, project phase, audience rows
 3  The argument         white  home-why: problem, 3 cited figures, what we do instead
 4  Closing CTA          Bone   vendor call to action + suggest a tool
@@ -49,7 +51,7 @@ Directory first, then the argument. The ready visitor meets search, the pair fin
 All bands are **static, SSR-safe, edge-cache-neutral** unless noted, and obey the DESIGN.md laws: Forest is the only CTA and figure color, Clay is decorative only and under 5%, Bone is an accent band and never a page background, borders not shadows, Source Serif headlines and Atkinson body, sentence case, **no em dashes**, no hero-metric template, Lucide glyphs only.
 
 ### 1. Hero (`home-hero.ts`, AECI-1555)
-Two columns at `lg`, one below. Left: the small-caps eyebrow "The independent reference for AEC software", the `<h1>` tagline, the positioning lede, the search field, and the "Popular:" row: up to five product links, the most-viewed products over 30 days among views the traffic classifier judged a person or could not decide about (`popular_products`, recomputed nightly, AECI-1572, AECI-1586). It ships in the SSR HTML. When the list is empty, the row names the five largest categories instead, browser-only, so the fallback stays out of the cache. Right: the pair finder, a bordered white panel ("Do these two connect?") with two product pickers and a Forest "Show integrations" button. Two products route to the product-pair page, one product to its `#integrations` section, typed text to `/search`. Without JS the finder is a real `GET /search` form. The credibility row (`home-credibility-strip.ts`) is the band's last row: coverage counts, each suppressed at 0, the note "+{n} in the last 30 days" after the integrations count (`integrations_added_30d`, shown only above 0), and the line "Independent. Rankings are algorithmic." An all-zero cache renders "Indexing in progress". It is the home's only figure row.
+Two columns at `lg`, one below. Left: the small-caps eyebrow "The independent reference for AEC software", the `<h1>` tagline, the positioning lede, the search field, and the "Most viewed" row (the "Popular:" row until AECI-1792): up to five product links, the most-viewed products over 30 days among views the traffic classifier judged a person or could not decide about (`popular_products`, recomputed nightly, AECI-1572, AECI-1586). It ships in the SSR HTML. When the list is empty, the row names the five largest categories instead, labelled "Largest categories:". Since AECI-1792 that fallback comes from the `browse` resolver, so it ships in the SSR HTML too. Right: the pair finder, a bordered white panel ("Do these two connect?") with two product pickers and a Forest "Show integrations" button. Two products route to the product-pair page, one product to its `#integrations` section, typed text to `/search`. Without JS the finder is a real `GET /search` form. The credibility row (`home-credibility-strip.ts`) is the band's last row: coverage counts, each suppressed at 0, the note "+{n} in the last 30 days" after the integrations count (`integrations_added_30d`, shown only above 0), and the line "Independent. Rankings are algorithmic." An all-zero cache renders "Indexing in progress". It is the home's only figure row.
 
 ### 2. Browse (`home-browse-block.ts`)
 One `<h2>` "Browse the directory" over four `browse-grid.ts` rows, in this order: category (top N by `product_count`), trade (top N published trades by `product_count`, each linking to `/trades/:slug`; a trade below the publication floor is not listed, AECI-1573), project phase (all, `display_order`), audience (a curated role list, each role linking to `/audiences/:slug`). Each row opens with a one-sentence lede. One chip style everywhere: the `TaxonomyBadge` count-chip. Live `GET /api/taxonomy`.
@@ -68,12 +70,12 @@ A Bone band holding one bordered white panel in two columns. Left: "For vendors"
 - `home-audience.ts`: audience is a row in the browse block.
 - `home-differentiation.ts`, `home-how-it-works.ts`: merged into `home-why.ts`, without the reviews claims.
 - The Forest-soft (`--accent-primary-soft`) band grounds: two grounds only.
-- `recent-integrations-section.ts`, `trending-products-section.ts`, `integration-tile.ts` (AECI-1573): card grids made the page hard to read. The hero's "Popular:" row is the one live signal.
+- `recent-integrations-section.ts`, `trending-products-section.ts`, `integration-tile.ts` (AECI-1573): card grids made the page hard to read. The hero's "Most viewed" row is the one live signal.
 
 ## Empty / pre-launch state
 
 - **Credibility counts at 0:** drop the zero figure, never a bare "0". All zero renders "Indexing in progress". The independence line always renders.
-- **Popular row:** an empty `popular_products` swaps the products for the five largest categories, browser-only. The liveness note hides at 0.
+- **"Most viewed" row:** an empty `popular_products` swaps the products for the five largest categories, from the `browse` resolver, so both lists ship in the SSR HTML (AECI-1792). The liveness note hides at 0.
 - **Browse rows:** a count shows only above zero.
 
 ## Tokens

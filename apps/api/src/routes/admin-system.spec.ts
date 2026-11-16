@@ -102,10 +102,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all twenty-six crons as `unknown` on an empty database', async () => {
+  it('returns all twenty-seven crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(26);
+    expect(body.crons).toHaveLength(27);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'vendor-snapshot',
@@ -130,6 +130,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'acceptance-evidence-removal',
       'request-reconcile',
       'sitemap-rebuild',
+      'plan-snapshot',
       'waf-poll',
       'indexnow-drain',
       'claim-stale-check',
@@ -167,10 +168,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 26, total: 26 });
+    expect(note?.params).toEqual({ unknown: 27, total: 27 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty-four unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty-five unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -222,13 +223,14 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'acceptance-evidence-removal',
       'request-reconcile',
       'sitemap-rebuild',
+      'plan-snapshot',
       'waf-poll',
       'indexnow-drain',
       'claim-stale-check',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 24,
-      total: 26,
+      unknown: 25,
+      total: 27,
     });
   });
 
@@ -336,6 +338,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'legal_agreement_unpublished',
       // AECI-1689 review — a published agreement row whose date the entry no longer names.
       'legal_agreement_date_moved',
+      // AECI-1621 — a plan-change ranking snapshot unwritten 24 hours after it was due.
+      'plan_snapshot_overdue',
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live
       // record. Skipped here: the test env sets no ownership receiver.
       'review_mirror_drift',

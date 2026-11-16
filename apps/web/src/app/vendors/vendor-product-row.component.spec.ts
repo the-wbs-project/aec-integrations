@@ -105,7 +105,9 @@ describe('VendorProductRow', () => {
       product: signal({ ...baseProduct, review_count: 2, rating_overall_avg: null }),
     });
     // The cell variant stays populated with an en-dash rather than collapsing.
-    expect(el.querySelector('span[aria-label="No ratings yet"]')?.textContent?.trim()).toBe('–');
+    const rating = el.querySelector('aec-rating-summary')!;
+    expect(rating.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('–');
+    expect(rating.querySelector('span.sr-only')?.textContent?.trim()).toBe('No ratings yet');
   });
 
   it('renders the integration count', () => {

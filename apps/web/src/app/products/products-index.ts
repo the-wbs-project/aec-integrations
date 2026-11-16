@@ -15,8 +15,10 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 import { PRODUCTS_INDEX_REQUEST } from './products-index.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
-import { ProductCard } from './product-card';
+import { EmptyState } from '../shared/empty-state/empty-state';
+
 import { ProductCardGrid } from './product-card-grid';
+import { ProductTable } from './product-table';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
@@ -69,8 +71,9 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
     BrowseLayout,
     FacetSidebar,
     ListingToolbar,
-    ProductCard,
+    EmptyState,
     ProductCardGrid,
+    ProductTable,
     PaginationFooter,
     MailingListSignup,
   ],
@@ -119,51 +122,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
           @if (idx.items().length > 0) {
             @switch (listingView.view()) {
               @case ('table') {
-                <div class="overflow-x-auto">
-                  <table
-                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                    i18n-aria-label="@@products.index.table.aria"
-                    aria-label="Products"
-                  >
-                    <thead class="border-b border-(--border-default)">
-                      <tr>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.name"
-                        >
-                          Name
-                        </th>
-                        <th
-                          scope="col"
-                          class="hidden px-4 py-3 text-start text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
-                          i18n="@@products.index.col.vendor"
-                        >
-                          Vendor
-                        </th>
-                        <th
-                          scope="col"
-                          class="hidden px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary) md:table-cell"
-                          i18n="@@products.index.col.rating"
-                        >
-                          Rating
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-end text-xs font-semibold tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.integrations"
-                        >
-                          Integrations
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-(--border-default)">
-                      @for (product of idx.items(); track product.id) {
-                        <tr aec-product-card [product]="product"></tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
+                <aec-product-table [rows]="idx.items()" />
               }
               @default {
                 <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
@@ -192,13 +151,9 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
               Couldn't load products. Refresh to try again.
             </p>
           } @else {
-            <p
-              class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-              bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
-              i18n="@@products.index.empty"
-            >
-              No products match these filters.
-            </p>
+            <aec-empty-state>
+              <p i18n="@@products.index.empty">No products match these filters.</p>
+            </aec-empty-state>
           }
         </div>
       </div>

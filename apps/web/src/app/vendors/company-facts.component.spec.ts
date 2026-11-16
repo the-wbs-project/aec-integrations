@@ -50,6 +50,8 @@ describe('CompanyFacts', () => {
     expect(link.getAttribute('href')).toBe('https://acme.example/about');
     expect(link.getAttribute('rel')).toBe('noopener nofollow');
     expect(link.getAttribute('target')).toBe('_blank');
+    // "Source" and its icon wrap as one, so the font swap cannot re-wrap the row.
+    expect(link.classList).toContain('whitespace-nowrap');
   });
 
   it('shows a vendor fact with no link, and omits a missing date', () => {

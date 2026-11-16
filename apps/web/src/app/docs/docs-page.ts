@@ -30,7 +30,8 @@
  * (`docs-indexing.ts`), the same list the egress `X-Robots-Tag` stamp and the
  * sitemap read. It holds no docs page since AECI-1253, so every docs page is
  * indexable. Its entries are the archived legal versions (AECI-1361) and the
- * recorded Plans versions (AECI-1619, `plans-archive-page.ts`).
+ * recorded versions of the versioned docs pages (AECI-1619, AECI-1621,
+ * `docs-archive-page.ts`).
  *
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule, `src/content/README.md`). The chrome below is `i18n` /

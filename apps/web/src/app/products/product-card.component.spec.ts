@@ -74,10 +74,11 @@ describe('ProductCard', () => {
 
   it('renders an en-dash placeholder when vendor is null (AECI-115, no /vendors/unknown link)', () => {
     const fixture = setupFixture({ ...baseProduct, vendor: null });
-    const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
-      'span[aria-label="No vendor listed"]',
-    );
-    expect(placeholder?.textContent?.trim()).toBe('–');
+    const root = fixture.nativeElement as HTMLElement;
+    // AECI-1793: an aria-hidden dash plus visually hidden words.
+    const vendorCell = root.querySelectorAll('td')[1]!;
+    expect(vendorCell.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('–');
+    expect(vendorCell.querySelector('span.sr-only')?.textContent?.trim()).toBe('No vendor listed');
     // No vendor link should be rendered.
     expect((fixture.nativeElement as HTMLElement).querySelector('a[href^="/vendors/"]')).toBeNull();
   });

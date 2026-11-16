@@ -15,10 +15,11 @@
  * (AECI-64) and Phase 2.19 Lighthouse/axe harness (AECI-65) once those land
  * — they run against a seeded dev DB / staging where the
  * assertions have data to bite on. This file is intentionally seed-free so
- * it stays green on `pnpm dev:bound` against an empty local DB.
+ * it stays green on `pnpm dev:bound` against an empty local DB. The AECI-1797 band
+ * shell block at the end reads the seeded fixtures and skips when they are missing.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 
 test.describe('vendor detail — 404 path', () => {
   test('GET /vendors/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -111,5 +112,80 @@ test.describe('vendor detail — claim/correction request forms (AECI-128)', () 
   test('GET /vendors/<slug>/correction ships noindex robots meta', async ({ request }) => {
     const html = await (await request.get('/vendors/anything/correction')).text();
     expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+  });
+});
+
+/**
+ * AECI-1797: the vendor page on the band shell (mock-up 11, rulings of 2026-11-16). This
+ * block reads the seed: `fixture-procore-technologies` is claimed (`auth-fixtures.sql`
+ * stamps `owned_at`) and `autodesk` is unclaimed. Each test skips loudly without it.
+ */
+test.describe('vendor detail — band shell (AECI-1797)', () => {
+  const CLAIMED = 'fixture-procore-technologies';
+  const UNCLAIMED = 'autodesk';
+
+  interface Vendor {
+    claim_status?: string;
+    company_name: string;
+    products: { slug: string }[];
+  }
+
+  async function vendorOf(request: APIRequestContext, slug: string): Promise<Vendor | null> {
+    const res = await request.get(`/api/vendors/${slug}`);
+    return res.ok() ? ((await res.json()) as Vendor) : null;
+  }
+
+  test('a claimed vendor: Forest hero, facts card, ordered products, one h1', async ({
+    page,
+    request,
+  }) => {
+    const v = await vendorOf(request, CLAIMED);
+    test.skip(v?.claim_status !== 'claimed', `seed missing: ${CLAIMED}`);
+    await page.goto(`/vendors/${CLAIMED}`);
+
+    await expect(page.locator('[data-shell=bands]')).toBeVisible();
+    await expect(page.locator('h1')).toHaveCount(1);
+    await expect(page.locator('aec-hero-band h1')).toHaveText(v!.company_name);
+    await expect(page.getByTestId('vendor-hero-mark')).toBeVisible();
+    await expect(page.locator('aec-unclaimed-note')).toHaveCount(0);
+    await expect(page.locator('aec-section-nav')).toHaveCount(0);
+
+    const card = page.getByTestId('vendor-facts');
+    await expect(card.getByRole('heading', { name: 'At a glance' })).toBeVisible();
+    await expect(card.getByRole('heading', { name: 'Actions' })).toBeVisible();
+    await expect(card.getByRole('link', { name: `Claim ${v!.company_name}` })).toBeVisible();
+    await expect(card.locator('aec-company-facts-note')).toBeVisible();
+
+    // The caption states the API's order, and the rows follow it.
+    await expect(page.getByTestId('vendor-products-order')).toHaveText('A to Z by name.');
+    const hrefs = await page
+      .locator('table[aria-label=Products] tbody tr a[href^="/products/"]')
+      .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(v!.products.map((p) => `/products/${p.slug}`));
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test('an unclaimed vendor: no large mark, the note beside a 32px mark', async ({
+    page,
+    request,
+  }) => {
+    const v = await vendorOf(request, UNCLAIMED);
+    test.skip(v?.claim_status !== 'unclaimed', `seed missing: ${UNCLAIMED}`);
+    await page.goto(`/vendors/${UNCLAIMED}`);
+
+    await expect(page.getByTestId('vendor-hero-mark')).toHaveCount(0);
+    const note = page.locator('aec-hero-band aec-unclaimed-note');
+    await expect(note).toHaveCount(1);
+    const box = await note.locator('xpath=preceding-sibling::aec-logo-or-initial[1]').boundingBox();
+    expect(box?.width).toBeLessThanOrEqual(32);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
   });
 });
