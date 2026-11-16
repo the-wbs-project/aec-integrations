@@ -1,11 +1,27 @@
-import { httpResource } from '@angular/common/http';
-import { Component, computed, inject, input, linkedSignal } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { HttpParams, httpResource } from '@angular/common/http';
+import {
+  Component,
+  DestroyRef,
+  PLATFORM_ID,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  untracked,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import type { ProductFacetsResponse } from '@aeci/shared';
 
 import { SearchRefinementList } from '../../search/widgets/search-refinement-list';
+import {
+  FacetHistoryStore,
+  HistoryTraversal,
+  listingHistoryKey,
+  listingPath,
+} from '../paginated-index/listing-history-store';
 import type { TaxonomyKind } from '../taxonomy-badge/taxonomy-badge';
 
 import { FacetPanel } from './facet-panel';
@@ -123,13 +139,50 @@ export class FacetSidebar {
     { equal: shallowEqualParams },
   );
 
+  /** The counts request line, `null` while there is no request. Part of the store key. */
+  private readonly facetLine = computed<string | null>(() => {
+    const params = this.facetParams();
+    return params === null ? null : facetRequestLine(params);
+  });
+
+  // AECI-1900: on Back or Forward, the counts this panel showed when the reader
+  // left. Browser only: the server has no history and never touches the store.
+  private readonly history = isPlatformBrowser(inject(PLATFORM_ID))
+    ? inject(FacetHistoryStore)
+    : null;
+  // Whether this panel is built by a Back or Forward. Asked now, at creation:
+  // the store is read only for the panel's first counts request.
+  private readonly builtByTraversal =
+    this.history !== null && inject(HistoryTraversal).isTraversal();
+
+  /**
+   * The stored counts on a Back or Forward, so the panel renders at full height
+   * in its first frame and the router's restore can reach the saved position.
+   * Read on the first counts request only (the inputs that lock a term page are
+   * set by then). Any later change of filters ends it, and the resource fetches.
+   */
+  private readonly restored = linkedSignal<
+    string | null,
+    { line: string; body: ProductFacetsResponse } | null
+  >({
+    source: this.facetLine,
+    computation: (line, previous) => {
+      if (previous != null || !this.builtByTraversal || line === null) return null;
+      const body = untracked(() =>
+        this.history?.read<ProductFacetsResponse>(this.historyKey(line)),
+      );
+      return body ? { line, body } : null;
+    },
+  });
+
   /**
    * Scoped facet counts from `GET /api/products/facets`. Runs during SSR
    * (transfer-cache captured) and re-fetches only when `facetParams` changes.
+   * Asks for nothing while restored counts stand in for the request.
    */
   private readonly facets = httpResource<ProductFacetsResponse>(() => {
     const params = this.facetParams();
-    if (params === null) return undefined;
+    if (params === null || this.restored() !== null) return undefined;
     return { url: '/api/products/facets', params };
   });
 
@@ -144,9 +197,25 @@ export class FacetSidebar {
     ProductFacetsResponse | undefined,
     ProductFacetsResponse | null
   >({
-    source: () => (this.facets.hasValue() ? this.facets.value() : undefined),
+    source: () => (this.facets.hasValue() ? this.facets.value() : this.restored()?.body),
     computation: (current, previous) => current ?? previous?.value ?? null,
   });
+
+  constructor() {
+    // Keep the counts on screen for a later Back or Forward to this page.
+    if (this.history) inject(DestroyRef).onDestroy(() => this.saveForHistory());
+  }
+
+  private historyKey(line: string): string {
+    return listingHistoryKey(listingPath(this.route.snapshot), line);
+  }
+
+  private saveForHistory(): void {
+    const line = this.facetLine();
+    const counts = this.retainedFacets();
+    if (!this.history || line === null || counts === null) return;
+    this.history.write(this.historyKey(line), counts);
+  }
 
   /** One render group per non-locked dimension, terms mapped to refinement items. */
   protected readonly groups = computed<
@@ -290,6 +359,15 @@ export class FacetSidebar {
 /** Decode a (possibly null) `{kind}_id` CSV param into its set of selected ids. */
 function parseIds(raw: string | null): Set<string> {
   return new Set((raw ?? '').split(',').filter((id) => id.length > 0));
+}
+
+/**
+ * The counts request line, as `HttpRequest.urlWithParams` builds it for the
+ * resource: every filter and the locked term, in `facetParams` order.
+ */
+function facetRequestLine(params: Record<string, string>): string {
+  const query = new HttpParams({ fromObject: params }).toString();
+  return query.length === 0 ? '/api/products/facets' : `/api/products/facets?${query}`;
 }
 
 /** Shallow record equality — lets `facetParams` ignore `page`/`sort`-only navs. */

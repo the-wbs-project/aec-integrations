@@ -1,5 +1,10 @@
-import { Injectable } from '@angular/core';
-import type { ActivatedRouteSnapshot } from '@angular/router';
+import { Injectable, inject } from '@angular/core';
+import {
+  type ActivatedRouteSnapshot,
+  NavigationEnd,
+  NavigationStart,
+  Router,
+} from '@angular/router';
 
 /**
  * The rows a listing showed when the reader left it, for Back and Forward only
@@ -60,30 +65,28 @@ export function listingPath(snapshot: ActivatedRouteSnapshot): string {
   return `/${segments.join('/')}`;
 }
 
-@Injectable({ providedIn: 'root' })
-export class ListingHistoryStore {
+/**
+ * The bound and age rules both stores share: the last
+ * {@link LISTING_HISTORY_LIMIT} entries, least recently used first out, each
+ * usable for {@link LISTING_HISTORY_MAX_AGE_MS} after it was written.
+ */
+abstract class BoundedHistoryStore<V> {
   // Insertion order is recency order: a read or write moves the key to the end.
-  private readonly entries = new Map<string, { savedAt: number; pages: readonly unknown[] }>();
+  private readonly entries = new Map<string, { savedAt: number; value: V }>();
 
-  /**
-   * The pages stored under `key`, oldest page first, or `null`. An entry older
-   * than {@link LISTING_HISTORY_MAX_AGE_MS} is dropped and reads as `null`, so
-   * the listing fetches. `now` is for specs.
-   */
-  read<T>(key: string, now: number = Date.now()): readonly T[] | null {
+  /** The value under `key`, or `null`. An entry past its age is dropped. */
+  protected readValue(key: string, now: number): V | null {
     const entry = this.entries.get(key);
     if (entry === undefined) return null;
     this.entries.delete(key);
     if (now - entry.savedAt > LISTING_HISTORY_MAX_AGE_MS) return null;
     this.entries.set(key, entry);
-    return entry.pages as readonly T[];
+    return entry.value;
   }
 
-  /** Store the pages a listing rendered. An empty list stores nothing. `now` is for specs. */
-  write<T>(key: string, pages: readonly T[], now: number = Date.now()): void {
-    if (pages.length === 0) return;
+  protected writeValue(key: string, value: V, now: number): void {
     this.entries.delete(key);
-    this.entries.set(key, { savedAt: now, pages: [...pages] });
+    this.entries.set(key, { savedAt: now, value });
     while (this.entries.size > LISTING_HISTORY_LIMIT) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
@@ -91,8 +94,92 @@ export class ListingHistoryStore {
     }
   }
 
-  /** How many listings are held. For specs. */
+  /** How many entries are held. For specs. */
   get size(): number {
     return this.entries.size;
+  }
+}
+
+@Injectable({ providedIn: 'root' })
+export class ListingHistoryStore extends BoundedHistoryStore<readonly unknown[]> {
+  /**
+   * The pages stored under `key`, oldest page first, or `null`. An entry older
+   * than {@link LISTING_HISTORY_MAX_AGE_MS} is dropped and reads as `null`, so
+   * the listing fetches. `now` is for specs.
+   */
+  read<T>(key: string, now: number = Date.now()): readonly T[] | null {
+    return this.readValue(key, now) as readonly T[] | null;
+  }
+
+  /** Store the pages a listing rendered. An empty list stores nothing. `now` is for specs. */
+  write<T>(key: string, pages: readonly T[], now: number = Date.now()): void {
+    if (pages.length === 0) return;
+    this.writeValue(key, [...pages], now);
+  }
+}
+
+/**
+ * The filter panel's last counts response, for Back and Forward only (AECI-1900).
+ *
+ * Why it exists. On a filtered listing the rows are short and the filter panel
+ * sets the page height. On Back the panel fetched its counts again, so in the
+ * frame the router restored the position it was about 127px tall, not about
+ * 1,000. The page was too short, the position was clamped, and scroll anchoring
+ * moved the reader when the counts arrived. Measured on `/products` with one
+ * filter: left at 1,576, landed at 1,925.
+ *
+ * Same rules as {@link ListingHistoryStore}: in memory per tab, never persisted,
+ * the last {@link LISTING_HISTORY_LIMIT} entries, {@link LISTING_HISTORY_MAX_AGE_MS}
+ * old at most, read only when the panel is created by a Back or Forward. The key
+ * is {@link listingHistoryKey} over the counts request line, which carries every
+ * filter and the locked term. Its own instance, so counts never evict rows.
+ */
+@Injectable({ providedIn: 'root' })
+export class FacetHistoryStore extends BoundedHistoryStore<unknown> {
+  /** The counts stored under `key`, or `null`. `now` is for specs. */
+  read<T>(key: string, now: number = Date.now()): T | null {
+    return this.readValue(key, now) as T | null;
+  }
+
+  /** Store the counts the panel rendered. `now` is for specs. */
+  write<T>(key: string, counts: T, now: number = Date.now()): void {
+    this.writeValue(key, counts, now);
+  }
+}
+
+/**
+ * Whether the page being built is a Back or Forward (AECI-1900).
+ *
+ * `router.currentNavigation()` answers that only while the navigation runs. The
+ * listing's controller is built inside it, but the filter panel is a child built
+ * in the page's first render, which can come after `NavigationEnd`. This keeps the
+ * trigger of the latest `NavigationStart` and answers for the navigation in
+ * progress or the one that rendered the page on screen, and for nothing later.
+ *
+ * Browser only. It starts listening when a listing first injects it, which is
+ * before any listing could have been stored, so it has seen every navigation a
+ * restore depends on.
+ */
+@Injectable({ providedIn: 'root' })
+export class HistoryTraversal {
+  private readonly router = inject(Router);
+  private latest: { id: number; popstate: boolean } | null = null;
+  private onScreen: number | null = null;
+
+  constructor() {
+    this.router.events.subscribe((e) => {
+      if (e instanceof NavigationStart) {
+        this.latest = { id: e.id, popstate: e.navigationTrigger === 'popstate' };
+      } else if (e instanceof NavigationEnd) {
+        this.onScreen = e.id;
+      }
+    });
+  }
+
+  /** True when the navigation in progress, or the one that rendered the page on screen, is a Back or Forward. */
+  isTraversal(): boolean {
+    const latest = this.latest;
+    if (latest === null || !latest.popstate) return false;
+    return latest.id === this.router.currentNavigation()?.id || latest.id === this.onScreen;
   }
 }

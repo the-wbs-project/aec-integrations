@@ -393,6 +393,115 @@ test.describe('Back and Forward return the reader to their place in a listing (A
   }
 });
 
+// AECI-1900, filtered listings. With a filter on, the rows are few and the
+// filter panel sets the page height. On Back the panel fetched its counts again,
+// so in the frame the router restored the position it was about 127px tall,
+// not about 1,000: the page was too short, the position was clamped, and scroll
+// anchoring moved the reader when the counts arrived. Measured on the base: left
+// at 1,576, landed at 1,925. The panel now keeps its last counts in an
+// in-memory store for Back and Forward (`FacetHistoryStore`).
+//
+// The reader stops a little above the bottom of the page, deep in the panel,
+// and leaves through the site header. The filters are picked from the live
+// counts so the cases do not depend on seeded ids.
+type FacetTerm = { id: string; slug: string; product_count: number };
+type FacetCounts = Record<'categories' | 'audiences' | 'phases' | 'trades', FacetTerm[]>;
+
+async function facetCounts(page: Page, query = ''): Promise<FacetCounts> {
+  return (await (await page.request.get(`/api/products/facets${query}`)).json()) as FacetCounts;
+}
+
+/** The terms of one dimension with products, most products first, slug as the tie-break. */
+function busiest(terms: FacetTerm[]): FacetTerm[] {
+  return terms
+    .filter((t) => t.product_count > 0)
+    .sort((a, b) => b.product_count - a.product_count || (a.slug < b.slug ? -1 : 1));
+}
+
+type FilteredCase = { name: string; url: (page: Page) => Promise<string | null> };
+
+const FILTERED: FilteredCase[] = [
+  {
+    name: '/products with one filter',
+    url: async (page) => {
+      const [phase] = busiest((await facetCounts(page)).phases);
+      return phase ? `/products?phase_id=${phase.id}` : null;
+    },
+  },
+  {
+    name: '/products with two filters',
+    url: async (page) => {
+      const [first, second] = busiest((await facetCounts(page)).phases);
+      return first && second
+        ? `/products?phase_id=${[first.id, second.id].sort().join(',')}`
+        : null;
+    },
+  },
+  {
+    name: 'a term page with a filter',
+    url: async (page) => {
+      const [phase] = busiest((await facetCounts(page)).phases);
+      if (!phase) return null;
+      const [audience] = busiest((await facetCounts(page, `?phase_id=${phase.id}`)).audiences);
+      return audience ? `/phases/${phase.slug}?audience_id=${audience.id}` : null;
+    },
+  },
+];
+
+/** Loads a filtered listing and stops 200px above the bottom of the page. */
+async function openFilteredListing(page: Page, listing: FilteredCase): Promise<string> {
+  const url = await listing.url(page);
+  test.skip(url === null, 'no filter with products in this environment');
+  await page.goto(url!);
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator(LISTING_CARDS).first()).toBeVisible({ timeout: 15_000 });
+  const panelSetsHeight = await page.evaluate((selector) => {
+    const panel = document.querySelector('aec-facet-sidebar')!.getBoundingClientRect();
+    const cards = [...document.querySelectorAll(selector)].map((c) => c.getBoundingClientRect());
+    return panel.bottom > Math.max(...cards.map((c) => c.bottom));
+  }, LISTING_CARDS);
+  test.skip(!panelSetsHeight, 'the rows, not the filter panel, set the page height here');
+  return url!;
+}
+
+/** A matcher for a URL that ends with this path and query, taken literally. */
+function urlEndingWith(pathAndQuery: string): RegExp {
+  return new RegExp(`${pathAndQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+}
+
+/** Stops `up` px above the bottom, leaves through the site header, and returns the position. */
+async function stopNearBottomThenLeave(page: Page, up = 200): Promise<number> {
+  await page.evaluate(
+    (up) =>
+      window.scrollTo({
+        top: document.documentElement.scrollHeight - window.innerHeight - up,
+        behavior: 'instant' as ScrollBehavior,
+      }),
+    up,
+  );
+  const saved = await layoutSettled(page);
+  const link = page.locator('header a[href="/docs/trust/how-ranking-works"]').first();
+  await untilHydrated(link);
+  await markDocument(page);
+  // A DOM click, so Playwright does not scroll the header link into view.
+  await link.evaluate((a) => (a as HTMLAnchorElement).click());
+  await expect(page).toHaveURL(/\/docs\/trust\/how-ranking-works$/);
+  return saved;
+}
+
+test.describe('Back returns the reader to their place in a filtered listing (AECI-1900)', () => {
+  for (const listing of FILTERED) {
+    test(`${listing.name}: Back restores a position deep in the filter panel`, async ({ page }) => {
+      const url = await openFilteredListing(page, listing);
+      const saved = await stopNearBottomThenLeave(page);
+
+      await page.goBack();
+      await expect(page).toHaveURL(urlEndingWith(url), { timeout: 15_000 });
+      await expectRestored(page, saved, 'Back');
+    });
+  }
+});
+
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets
 // `history.scrollRestoration = 'manual'` (disabling the browser's native fragment
 // scroll) and the router's anchor scrolling does NOT fire on the initial hydration

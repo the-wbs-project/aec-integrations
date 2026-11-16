@@ -18,7 +18,12 @@ import type { PaginatedResponse } from '@aeci/shared';
 import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
 import { apiStateKey } from '../../core/server-api-interceptor';
 
-import { ListingHistoryStore, listingHistoryKey, listingPath } from './listing-history-store';
+import {
+  HistoryTraversal,
+  ListingHistoryStore,
+  listingHistoryKey,
+  listingPath,
+} from './listing-history-store';
 import {
   DEFAULT_PER_PAGE,
   type PaginatedIndexRequestConfig,
@@ -205,6 +210,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // AECI-1900: the rows a Back or Forward lands on. Browser and append mode only:
   // the server has no history, and replace mode has no "Load more" pages to lose.
   const history = isBrowser && mode === 'append' ? inject(ListingHistoryStore) : null;
+  const traversal = history ? inject(HistoryTraversal) : null;
   if (history) {
     // Registered before `toSignal` and `httpResource` so it runs before their own
     // teardown, while every signal below still reads its live value.
@@ -437,7 +443,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
 
   /** The store entry for this listing on a Back/Forward, or `null`. */
   function readRestored(): { line: string; pages: TResponse[] } | null {
-    if (!history || router.currentNavigation()?.trigger !== 'popstate') return null;
+    if (!history || !traversal?.isTraversal()) return null;
     const line = requestLine();
     if (line === null) return null;
     const pages = history.read<TResponse>(listingHistoryKey(listingPath(route.snapshot), line));
