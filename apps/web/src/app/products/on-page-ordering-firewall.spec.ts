@@ -11,6 +11,7 @@
  *    (`connector-lane-grouping.ts`), the reader's filter (`integration-filter.ts`) and
  *    the rows above the `@defer` cut, which are a featured subset;
  *  - the connector page's "Integrations it powers" hubs and their filter;
+ *  - the product hero's category hub (`category-hub.ts`, AECI-1787);
  *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception;
  *  - the header's Browse menu (`core/taxonomy/browse-menu-model.ts`, AECI-1774).
  *
@@ -62,6 +63,7 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import type { RefinementItem } from '../shared/facets/refinement-item';
 import { orderFacetItems } from '../search/search-facet-order';
 
+import { categoryHub } from './category-hub';
 import {
   INTEGRATIONS_ABOVE_FOLD,
   applyDeferCut,
@@ -527,6 +529,125 @@ describe('on-page ordering firewall: product page integrations', () => {
     // `integration-filter.ts`, where the cases above cover it. The rendered check is
     // the component half: no filter selected means every row renders.
     expect(src).not.toMatch(/\.(filter|slice|splice)\(/);
+  });
+});
+
+// ─── The product hero's category hub (AECI-1787) ──────────────────────────────
+
+/**
+ * The hub's inputs: each row's partner categories, and the lane fields that decide
+ * which rows the section lists. Its paid-plan flips are every other payload field.
+ */
+const HUB_PAID_FIELDS = ENDPOINT_PAYLOAD_FIELDS.filter((f) => f !== 'partner_categories');
+
+const hubTerm = (slug: string, name: string) => ({ slug, name });
+
+/**
+ * Rows whose partners carry categories with a tie at every comparator level:
+ *  - mixed case ("bim authoring" and "Accounting"), so A to Z must not be case-sensitive;
+ *  - two categories with the same name and different slugs, so the slug decides;
+ *  - a partner with three categories, a partner with none, and one category listed twice;
+ *  - a via group that collapses two edges to one partner into one row.
+ */
+function hubFixture(): { asSource: ProductIntegrationItem[]; asTarget: ProductIntegrationItem[] } {
+  seq = 200;
+  const acc = hubTerm('accounting', 'Accounting');
+  const bim = hubTerm('bim-authoring', 'bim authoring');
+  const docsA = hubTerm('docs-a', 'Documents');
+  const docsB = hubTerm('docs-b', 'Documents');
+  const field = hubTerm('field', 'Field');
+  const cats = (...t: ReturnType<typeof hubTerm>[]) => ({ partner_categories: t });
+  return {
+    asSource: [
+      endpointEdge(link('zeta', 'Zeta'), 'Zeta sync', cats(field, acc)),
+      endpointEdge(link('alpha', 'Alpha'), 'Alpha link', cats(bim, docsB, acc)),
+      endpointEdge(link('none', 'No Category'), 'Bare link', cats()),
+      endpointEdge(link('dup', 'Dup'), 'Dup link', cats(docsA, docsA)),
+      { ...viaEdge(link('xero', 'Xero'), kroo, 'Xero via Kroo'), ...cats(acc) },
+      { ...viaEdge(link('xero', 'Xero'), kroo, 'xero via kroo'), ...cats(acc) },
+    ],
+    asTarget: [
+      {
+        ...endpointEdge(page, 'Bluebeam to Procore', cats(docsB, field)),
+        source: link('bluebeam', 'Bluebeam'),
+      },
+    ],
+  };
+}
+
+describe('on-page ordering firewall: the product hero category hub', () => {
+  it('[surface:product-page-hero-visual] lists every category A to Z by name, slug breaking a tie, never by count', () => {
+    const { asSource, asTarget } = hubFixture();
+    expect(categoryHub(asSource, asTarget)).toEqual([
+      { slug: 'accounting', name: 'Accounting', count: 3 },
+      { slug: 'bim-authoring', name: 'bim authoring', count: 1 },
+      { slug: 'docs-a', name: 'Documents', count: 1 },
+      { slug: 'docs-b', name: 'Documents', count: 2 },
+      { slug: 'field', name: 'Field', count: 2 },
+    ]);
+  });
+
+  it('its one input is written on the Free plan', () => {
+    expect(PRODUCT_FIELD_CAPABILITIES.category_slugs).toBe('product.categories.edit');
+    expect(FREE.has('product.categories.edit')).toBe(true);
+  });
+
+  const { asSource: hubSource, asTarget: hubTarget } = hubFixture();
+  const hubBaseline = categoryHub(hubSource, hubTarget);
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it.each(HUB_PAID_FIELDS)(
+      `[surface:product-page-hero-visual] neither order nor membership moves when %s changes (${dir})`,
+      (f) => {
+        const { asSource, asTarget } = hubFixture();
+        expect(categoryHub(flipRows(asSource, [f], dir), flipRows(asTarget, [f], dir))).toEqual(
+          hubBaseline,
+        );
+      },
+    );
+
+    it(`[surface:product-page-hero-visual] neither order nor membership moves when every paid input changes at once (${dir})`, () => {
+      const { asSource, asTarget } = hubFixture();
+      expect(
+        categoryHub(
+          flipRows(asSource, HUB_PAID_FIELDS, dir),
+          flipRows(asTarget, HUB_PAID_FIELDS, dir),
+        ),
+      ).toEqual(hubBaseline);
+    });
+  }
+
+  it('[surface:product-page-hero-visual] does not move when every paid input is loaded onto one partner', () => {
+    const { asSource, asTarget } = hubFixture();
+    const partners = new Set([
+      ...asSource.map((r) => r.target.slug),
+      ...asTarget.map((r) => r.source.slug),
+    ]);
+    for (const slug of partners) {
+      const loaded = (row: ProductIntegrationItem) =>
+        row.target.slug === slug || row.source.slug === slug;
+      expect(
+        categoryHub(
+          loadOne(asSource, HUB_PAID_FIELDS, loaded),
+          loadOne(asTarget, HUB_PAID_FIELDS, loaded),
+        ),
+        slug,
+      ).toEqual(hubBaseline);
+    }
+  });
+
+  it('sees a move when a category name changes (the comparison is not vacuous)', () => {
+    const { asSource, asTarget } = hubFixture();
+    const rename = (rows: ProductIntegrationItem[]) =>
+      rows.map((row) => ({
+        ...row,
+        partner_categories: row.partner_categories.map((t) =>
+          t.slug === 'field' ? { ...t, name: 'Aardvark' } : t,
+        ),
+      }));
+    expect(categoryHub(rename(asSource), rename(asTarget)).map((e) => e.slug)).not.toEqual(
+      hubBaseline.map((e) => e.slug),
+    );
   });
 });
 

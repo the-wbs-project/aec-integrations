@@ -198,9 +198,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-hero-visual',
-    status: 'pending',
-    owner: 'AECI-1787',
-    order: 'Any featured subset reads no Managed-only input',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); the count never orders or cuts',
   },
   {
     key: 'product-page-similar-products',

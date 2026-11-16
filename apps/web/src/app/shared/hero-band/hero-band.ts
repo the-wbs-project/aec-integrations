@@ -23,8 +23,10 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  *  - `heroActions`: the buttons. The main one is `aecButton variant="on-brand"`,
  *    a second one is `variant="on-brand-secondary"`.
  *  - `heroPanel`: an optional panel on `--surface-hero-panel`. At `lg` it takes a
- *    right column. Below `lg` it stacks under the text. With nothing projected the
- *    column and its gap are not rendered.
+ *    400px right column, and 540px from `xl` (mock-up 6). Below `lg` it stacks under
+ *    the text. With nothing projected the column and its gap are not rendered. The
+ *    narrower `lg` column is AECI-1787's: at 1024px a 540px panel left the name about
+ *    230px beside the mark, and a long word in it broke mid-word.
  *
  * Spacing is mock-up 6's (`.namerow`, `.hacts`): 24px above the name row, 16px
  * under it (12px below `md`), 24px above the actions and a 12px gap. From `md` the
@@ -57,7 +59,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
       <div [class]="wrap">
         <div
-          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
+          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
           data-testid="hero-band-grid"
         >
           <div class="min-w-0">
