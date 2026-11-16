@@ -157,7 +157,12 @@
         -->
         <div class="flex min-w-0 items-center gap-4">
           <div class="relative shrink-0">
-            <aec-logo-or-initial [src]="v.logo_url" [name]="v.company_name" size="lg" />
+            <aec-logo-or-initial
+              [claimStatus]="'stored'"
+              [src]="v.logo_url"
+              [name]="v.company_name"
+              size="lg"
+            />
             <button
               type="button"
               (click)="openLogoDialog()"

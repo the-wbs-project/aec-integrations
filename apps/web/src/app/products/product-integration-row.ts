@@ -113,7 +113,12 @@ import { Chip } from '../shared/chip/chip';
   template: `
     <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
-        <aec-logo-or-initial [src]="other().logo_url" [name]="other().name" size="sm" />
+        <aec-logo-or-initial
+          [claimStatus]="'server-filtered'"
+          [src]="other().logo_url"
+          [name]="other().name"
+          size="sm"
+        />
         <span class="flex min-w-0 flex-col">
           <!-- Secondary link to the partner product page. The row click handler
                skips clicks on links, so this one keeps its own destination.

@@ -39,21 +39,37 @@ import {
  * listing shows the initial tile everywhere except the one place on its own page
  * where the "not affiliated" note sits beside it. This component decides it:
  *
- * - A list or link payload (`ProductListItem`, `ProductLink`, `VendorLink`, an
- *   Algolia record) carries no claim status. The API already returns `logo_url: null`
- *   for an unclaimed listing there (AECI-1618, ADR 0051 decision 4), so the caller
- *   passes `src` and nothing else.
- * - A page-subject payload (`ProductDetail`, `VendorDetail`, `ProductPairSubject`)
- *   keeps the real logo and says `claim_status`. The caller MUST pass `claimStatus`.
- *   An unclaimed subject then renders the initial tile, unless the caller also sets
- *   `ownPage`, which it may do only where `<aec-unclaimed-note>` sits beside the mark.
- *   `logo-or-initial.callers.spec.ts` fails on a new caller until it is classified.
+ * `claimStatus` is REQUIRED (AECI-1851), so the compiler makes every caller choose:
+ *
+ * - `'claimed'` or `'unclaimed'`: a page-subject payload (`ProductDetail`,
+ *   `VendorDetail`, `ProductPairSubject`) keeps the real logo and says `claim_status`.
+ *   The caller binds it. An unclaimed subject renders the initial tile, unless the
+ *   caller also sets `ownPage`, which it may do only where `<aec-unclaimed-note>` sits
+ *   beside the mark.
+ * - `'server-filtered'`: a public list, link or search payload (`ProductListItem`,
+ *   `ProductLink`, `VendorLink`, an Algolia record). It carries no claim status, because
+ *   the API already returns `logo_url: null` for an unclaimed listing there (AECI-1618,
+ *   ADR 0051 decision 4). The API mappers fail closed (AECI-1851).
+ * - `'stored'`: a portal or admin surface showing the stored value (ADR 0051 decision 4,
+ *   "Portal and admin reads keep the real value"), and the account avatar, which is a
+ *   person and not a listing. Never on a public listing surface.
+ *
+ * Any other value, including `undefined` from an API that predates `claim_status`,
+ * renders the tile. `logo-or-initial.callers.spec.ts` classifies every caller, checks
+ * which value each kind passes, and fails on a new caller until it is classified.
  *
  * The initial tile must not look lesser (`DESIGN.md` §5 "Logos and initial tiles"): a
  * rounded logo and its tile share the box, the border and the fill, and the tile takes
  * no muted styling.
  */
 export type LogoSize = 'lg' | 'sm';
+
+/**
+ * What the caller knows about the logo's claim state (AECI-1851). See the class comment:
+ * a subject's `ClaimStatus`, `'server-filtered'` for a public list or link payload, or
+ * `'stored'` for a portal, admin or person surface.
+ */
+export type LogoClaim = ClaimStatus | 'server-filtered' | 'stored';
 
 /** The one alt text for a logo that identifies a product or vendor (AECI-1569). */
 export function logoAlt(name: string): string {
@@ -114,10 +130,11 @@ export class LogoOrInitial {
    */
   readonly referrerPolicy = input<string | null>(null);
   /**
-   * The listing's claim status, when the payload carries one (a page subject). `null`
-   * for a list or link payload, whose `logo_url` the API already withholds.
+   * Required (AECI-1851). The subject's `claim_status`, or `'server-filtered'` for a
+   * public list or link payload whose `logo_url` the API already withholds, or
+   * `'stored'` for a portal, admin or person surface. See the class comment.
    */
-  readonly claimStatus = input<ClaimStatus | null>(null);
+  readonly claimStatus = input.required<LogoClaim>();
   /**
    * `true` only at the one slot on the subject's own page where `<aec-unclaimed-note>`
    * sits beside the mark (counsel's ruling 9). It lets an unclaimed subject keep its
@@ -138,13 +155,26 @@ export class LogoOrInitial {
     computation: () => false,
   });
 
-  /** The logo rule, in one place (AECI-1769). See the class comment. */
+  /** The logo rule, in one place (AECI-1769). It fails closed (AECI-1851): only a
+   *  value that proves the logo may show lets it through. See the class comment. */
   protected readonly showLogo = computed(
-    () =>
-      !!this.src() &&
-      !this.failed() &&
-      (this.claimStatus() !== 'unclaimed' || (this.ownPage() && this.size() === 'sm')),
+    () => !!this.src() && !this.failed() && this.claimAllowsLogo(),
   );
+
+  private claimAllowsLogo(): boolean {
+    switch (this.claimStatus()) {
+      case 'claimed':
+      case 'server-filtered':
+      case 'stored':
+        return true;
+      case 'unclaimed':
+        return this.ownPage() && this.size() === 'sm';
+      default:
+        // `undefined` from an API that predates `claim_status`, or any value the type
+        // does not know: show the tile.
+        return false;
+    }
+  }
 
   protected readonly initial = computed(() => {
     const name = this.name();

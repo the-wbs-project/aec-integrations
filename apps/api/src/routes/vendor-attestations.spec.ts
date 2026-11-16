@@ -435,6 +435,42 @@ describe('GET /api/vendor/integrations', () => {
     expect(integration.powered_by).toBeNull();
   });
 
+  // AECI-1851: the public `toProductLink` hides a logo unless the row says claimed. The
+  // portal keeps the stored value (ADR 0051 decision 4) through `toOwnedProductLink`. No
+  // vendor here is claimed, so a portal site moved back to the public mapper reads null.
+  it('keeps the stored product logos for unclaimed listings (AECI-1851)', async () => {
+    const LOGO = 'https://cdn.example/stored.png';
+    await t.db.update(products).set({ logoUrl: LOGO });
+    await makePowered('fk');
+    // Owned rows the attestable surface does not list: VENDOR_A holds neither endpoint.
+    await t.db
+      .update(integrations)
+      .set({ builtByVendorId: VENDOR_A, poweredByProductId: P_CONNECTOR })
+      .where(eq(integrations.id, I_FOREIGN));
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(70),
+      connectorProductId: P_CONNECTOR,
+      // Canonical order: A's id sorts first.
+      productAId: P_UNVERIFIED,
+      productBId: P_FOREIGN,
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR_A,
+    });
+
+    const { status, body } = await call('/api/vendor/integrations');
+    expect(status).toBe(200);
+    const [listed] = body.integrations;
+    expect(listed.context_product.logo_url).toBe(LOGO);
+    expect(listed.other_product.logo_url).toBe(LOGO);
+    expect(listed.powered_by.logo_url).toBe(LOGO);
+    expect(body.owned).toHaveLength(2);
+    for (const row of body.owned) {
+      expect(row.product_a.logo_url).toBe(LOGO);
+      expect(row.product_b.logo_url).toBe(LOGO);
+      expect(row.connector.logo_url).toBe(LOGO);
+    }
+  });
+
   it('orders claims by vocabulary, slug, direction, then id (AECI-1243)', async () => {
     await t.db.insert(claims).values([
       { id: uuid(44), integrationId: I_MAIN, dataObjectId: DO_SUBMITTALS, direction: 'a_to_b' },

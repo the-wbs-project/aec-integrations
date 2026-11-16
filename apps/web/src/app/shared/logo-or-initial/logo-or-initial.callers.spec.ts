@@ -8,27 +8,54 @@ import { describe, expect, it } from 'vitest';
  * show an unclaimed listing's logo off its own page by accident (ADR 0056 floor 3,
  * counsel's ruling 9).
  *
+ * `claimStatus` is a required input (AECI-1851), so every tag passes it. The kind decides
+ * the value:
+ *
  * - `subject`: the payload is a page subject (`ProductDetail`, `VendorDetail`,
- *   `ProductPairSubject`). It keeps the real logo, so the tag must pass `[claimStatus]`.
- * - `link`: a list, link or search payload. The API withholds an unclaimed listing's
- *   logo there (AECI-1618), so the tag passes `src` alone.
+ *   `ProductPairSubject`). It keeps the real logo, so the tag binds the payload's
+ *   `claim_status`.
+ * - `link`: a public list, link or search payload. The API withholds an unclaimed
+ *   listing's logo there (AECI-1618) and fails closed (AECI-1851), so the tag passes
+ *   `'server-filtered'`.
  * - `portal` and `admin`: ADR 0051 decision 4, "Portal and admin reads keep the real
- *   value." A vendor sees its own logo.
- * - `person`: the account avatar. Not a listing.
- * - `preview`: a dev-only fixture route.
+ *   value." A vendor sees its own logo. The tag passes `'stored'`.
+ * - `person`: the account avatar. Not a listing. The tag passes `'stored'`.
+ * - `preview`: a dev-only fixture route. The tag passes `'stored'`.
+ * - `group`: `integration-group-card` forwards the `claimStatus` its parent put in the
+ *   required `GroupCardLogo`. Its parents are classified as `link` below.
  *
  * A new caller, or a new tag in a listed file, fails here until it is classified.
  */
 const APP = join(process.cwd(), 'src/app');
 
-type Kind = 'subject' | 'link' | 'portal' | 'admin' | 'person' | 'preview';
+type Kind = 'subject' | 'link' | 'portal' | 'admin' | 'person' | 'preview' | 'group';
+
+/** The `claimStatus` binding each kind must carry. */
+const BINDING: Record<Kind, RegExp> = {
+  subject: /\[claimStatus\]="[\w.]+\.claim_status"/,
+  link: /\[claimStatus\]="'server-filtered'"/,
+  portal: /\[claimStatus\]="'stored'"/,
+  admin: /\[claimStatus\]="'stored'"/,
+  person: /\[claimStatus\]="'stored'"/,
+  preview: /\[claimStatus\]="'stored'"/,
+  group: /\[claimStatus\]="mark\.claimStatus"/,
+};
+
+/** Where `'stored'` may appear: portal, admin, the avatar and the preview fixtures. */
+const STORED_ALLOWED = /^(vendor|admin|preview)\/|^layout\/account-identity\.ts$/;
+
+/** The parents of `integration-group-card` and the `[logo]` bindings each makes. */
+const GROUP_PARENTS: Record<string, number> = {
+  'products/product-integrations-section.ts': 1,
+  'products/product-powered-hub.ts': 1,
+};
 
 const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'admin/requests/product-request-queue.ts': { admin: 1 },
   'admin/vendors/vendor-detail.html': { admin: 1 },
   'layout/account-identity.ts': { person: 1 },
   'preview/integration-pair/concept-flow-canvas.ts': { preview: 2 },
-  'products/integration-group-card.ts': { link: 1 },
+  'products/integration-group-card.ts': { group: 1 },
   'products/product-card-grid.ts': { link: 2 },
   'products/product-card.ts': { link: 1 },
   'products/product-detail.ts': { subject: 2, link: 1 },
@@ -88,9 +115,43 @@ describe('aec-logo-or-initial callers (AECI-1769)', () => {
     const found = tags(sources.get(file) ?? '');
     const total = Object.values(kinds).reduce((sum, n) => sum + n, 0);
     expect(found).toHaveLength(total);
-    // A subject tag is the only kind that passes the claim status.
-    const withStatus = found.filter((tag) => tag.text.includes('[claimStatus]'));
-    expect(withStatus).toHaveLength(kinds.subject ?? 0);
+    // Every tag binds `claimStatus` exactly once, with the value its kind allows. Kinds
+    // that share a value (portal, admin, person and preview all pass 'stored') are
+    // counted together.
+    for (const tag of found) {
+      expect(tag.text.match(/\[claimStatus\]=/g), `${file}: ${tag.text}`).toHaveLength(1);
+    }
+    const expected = new Map<string, number>();
+    for (const [kind, n] of Object.entries(kinds) as Array<[Kind, number]>) {
+      const key = BINDING[kind].source;
+      expected.set(key, (expected.get(key) ?? 0) + n);
+    }
+    for (const [source, n] of expected) {
+      const matching = found.filter((tag) => new RegExp(source).test(tag.text));
+      expect(matching, `${file}: ${source}`).toHaveLength(n);
+    }
+  });
+
+  it("passes 'stored' only on portal, admin, avatar and preview surfaces", () => {
+    for (const [file, source] of sources) {
+      if (STORED_ALLOWED.test(file)) continue;
+      for (const tag of tags(source)) expect(tag.text, file).not.toContain("'stored'");
+    }
+  });
+
+  it("integration-group-card's parents pass 'server-filtered' in the logo they hand over", () => {
+    const files = walk(APP)
+      .map((path) => [relative(APP, path), readFileSync(path, 'utf8')] as const)
+      .filter(
+        ([, text]) => /\[logo\]="/.test(text) && text.includes('<aec-integration-group-card'),
+      );
+    expect(files.map(([rel]) => rel).sort()).toEqual(Object.keys(GROUP_PARENTS).sort());
+    for (const [file, text] of files) {
+      const bindings = [...text.matchAll(/\[logo\]="([^"]*)"/g)].map((m) => m[1]!);
+      expect(bindings, file).toHaveLength(GROUP_PARENTS[file]!);
+      for (const binding of bindings)
+        expect(binding, file).toContain("claimStatus: 'server-filtered'");
+    }
   });
 
   it('sets ownPage only where the "not affiliated" note sits beside the mark', () => {

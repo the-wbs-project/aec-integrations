@@ -322,6 +322,7 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
                   lg:bg-(--surface-raised) lg:p-4"
               >
                 <aec-logo-or-initial
+                  [claimStatus]="'server-filtered'"
                   [src]="v.logo_url"
                   [name]="v.name"
                   [alt]="logoAlt(v.name)"

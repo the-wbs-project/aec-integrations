@@ -166,13 +166,14 @@ const vendorLinkColumns = {
   claimEndedAt: true,
 } as const;
 /** Exported for `routes/vendor-attestations.ts` (AECI-301), whose hydration
- *  embeds the same `ProductLink` shape. One column list, one mapper. These bare columns
- *  are the PORTAL and ADMIN read: with no `claimed` on the row, `toProductLink` keeps
- *  the stored logo (AECI-1618). */
+ *  embeds the same `ProductLink` shape. These bare columns are the PORTAL and ADMIN
+ *  read, mapped by {@link toOwnedProductLink}, which keeps the stored logo (AECI-1618).
+ *  `toProductLink` given a row without `claimed` hides the logo (AECI-1851). */
 export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 /**
- * A product link on a PUBLIC read (AECI-1618). `claimed` makes `toProductLink` hide the
- * logo of an unclaimed listing, server-side. Every public config uses this one.
+ * A product link on a PUBLIC read (AECI-1618). `toProductLink` shows the logo only when
+ * `claimed` is truthy, so without this config every logo is hidden (AECI-1851). Every
+ * public config uses this one.
  */
 export const publicProductLinkConfig = {
   columns: productLinkColumns,
@@ -183,7 +184,7 @@ const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
  * A connector product as the pair read hydrates it (AECI-933): the `ProductLink`
  * columns plus the vendor links `pickPrimaryVendor` reads, so the mapper can set
  * `ProductPairMechanism.connector_vendor_id`. Pair reads only. The list and detail
- * configs keep the bare `productLinkColumns` and do not pay for the join.
+ * configs keep the bare {@link publicProductLinkConfig} and do not pay for the join.
  */
 const pairConnectorProductConfig = {
   ...publicProductLinkConfig,
@@ -1344,12 +1345,16 @@ export function visibleBuilder<T extends { hiddenAt?: string | null }>(
   if (!builder) return null;
   return builder.hiddenAt == null ? builder : null;
 }
-interface RawProductLink {
+/** A product link row as a portal or admin read selects it (`productLinkColumns`). */
+export interface RawOwnedProductLink {
   id: string;
   name: string;
   slug: string;
   logoUrl: string | null;
-  /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). */
+}
+interface RawProductLink extends RawOwnedProductLink {
+  /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). Absent
+   *  reads as unclaimed, so `toProductLink` hides the logo (AECI-1851). */
   claimed?: number | boolean;
   /** AECI-1781: present on a product-detail endpoint row only
    *  ({@link partnerProductLinkConfig}). Never serialised on the link itself. */
@@ -1779,13 +1784,27 @@ export function toProductRole(raw: string, productId: string): ProductRole {
 }
 
 /**
- * A product link. On a public read the row carries `claimed`, and an unclaimed listing's
- * logo is withheld. A portal or admin read selects bare `productLinkColumns`, so `claimed`
- * is absent and the stored logo stays (AECI-1618).
+ * A product link on a PUBLIC read. The logo shows only when the row proves the listing
+ * is claimed: `claimed` from {@link publicProductLinkConfig} is truthy. A read that
+ * forgot to select `claimed` hides the logo rather than shows it, so the logo rule
+ * fails closed (AECI-1618, AECI-1851, ADR 0051 decision 4).
  */
 export function toProductLink(raw: RawProductLink): ProductLink {
-  const hidden = raw.claimed !== undefined && !raw.claimed;
-  return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: hidden ? null : raw.logoUrl };
+  return {
+    id: raw.id,
+    name: raw.name,
+    slug: raw.slug,
+    logo_url: raw.claimed ? raw.logoUrl : null,
+  };
+}
+/**
+ * A product link on a PORTAL or ADMIN read: the stored logo, claimed or not. ADR 0051
+ * decision 4: "Portal and admin reads keep the real value." Never call it on a public
+ * route. The choice is explicit so a public read cannot keep a logo by omission
+ * (AECI-1851).
+ */
+export function toOwnedProductLink(raw: RawOwnedProductLink): ProductLink {
+  return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {
   return {

@@ -107,6 +107,7 @@ describe('VendorDetailSchema', () => {
   it('parses a detail with empty products list', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
+      claim_status: 'claimed',
       company_facts: {
         headquarters: null,
         founded_year: null,
@@ -129,9 +130,39 @@ describe('VendorDetailSchema', () => {
     expect(parsed.products).toEqual([]);
   });
 
+  // AECI-1851: no `claimed` default papers over a missing claim status.
+  it('rejects a detail with no claim_status', () => {
+    const detail: Record<string, unknown> = {
+      ...validVendorListItem,
+      company_facts: {
+        headquarters: null,
+        founded_year: null,
+        company_size: null,
+        ownership_type: null,
+        parent_company: null,
+        funding_stage: null,
+      },
+      headquarters: null,
+      founded_year: null,
+      description: null,
+      website: null,
+      linkedin_url: null,
+      x_url: null,
+      facebook_url: null,
+      instagram_url: null,
+      youtube_url: null,
+      products: [],
+    };
+    expect(VendorDetailSchema.safeParse(detail).success).toBe(false);
+    expect(VendorDetailSchema.safeParse({ ...detail, claim_status: 'unclaimed' }).success).toBe(
+      true,
+    );
+  });
+
   it('parses a detail with hydrated products and social links', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
+      claim_status: 'claimed',
       company_facts: {
         headquarters: null,
         founded_year: null,

@@ -47,7 +47,7 @@ export type BrandLogoTone = 'default' | 'on-dark';
   // host's text baseline and the line-box strut would reserve ~7px of descent
   // *below* it, inflating the host box and floating the wordmark above its own
   // centre — which knocked it ~4px out of vertical alignment with the adjacent
-  // hamburger button in the `items-center` header row. Flex layout drops the
+  // menu toggle in the `items-center` header row. Flex layout drops the
   // strut so the host box hugs the wordmark exactly.
   host: { class: 'inline-flex items-center' },
   imports: [RouterLink, NgOptimizedImage],
