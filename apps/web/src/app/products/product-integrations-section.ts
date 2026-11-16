@@ -81,12 +81,12 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * One sentence, and every one of its constraints is a prohibition:
  *
  *   - it **names no connector**. A per-connector group is a list, renders a table
- *     row, and enters the `<h2>` count — three of §13.7's three prohibitions —
+ *     row, and enters the section's count — three of §13.7's three prohibitions —
  *     and a "Via {connector}" card that outlives its own delivered row asserts a
  *     delivery the I24 ruling has just said does not exist;
  *   - it is **not a table row** and not a card;
- *   - it **never touches `lanes().rowCount`**, so `Integrations (N)` cannot move.
- *     §13.5 is categorical: reachable never counts, anywhere;
+ *   - it **never touches `lanes().rowCount`**, so the "Showing n of m" total
+ *     cannot move. §13.5 is categorical: reachable never counts, anywhere;
  *   - it is **unlinked at v0**. §13.7 says it links "our filtered view" and no
  *     such route exists; the only lawful target would be the curated pair set,
  *     which would make this line inherit everything publication is gated on. The
@@ -636,20 +636,15 @@ export class ProductIntegrationsSection {
   }
 
   /**
-   * Section heading with the count inline — "Integrations (10)" — so the total
-   * reads next to the title instead of drifting to the far right where it's
-   * missed.
-   *
-   * Counts the rows the UNFILTERED section renders across both lanes, which
-   * after the Via lane's pair collapse is not the number of edges: §13.3's rule
-   * is that a reader counting rows must never find fewer than the heading
-   * promised. A filter never moves it — the heading is a fact about the product,
-   * and the filter's own "Showing 3 of 12" line reports the view.
+   * The section heading: the bare word "Integrations", with no count. Ruled by Chris
+   * on 2026-11-16: the facts card already shows the integration count, and on a
+   * connector product the two numbers differ. The same message id as the section nav
+   * link, so the heading and the link read alike. The filter's own "Showing 3 of 12"
+   * line still reports the view, and the group and chip counts are unchanged.
    */
-  protected readonly heading = computed(() => {
-    const count = this.lanes().rowCount;
-    return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
-  });
+  protected readonly heading = computed(
+    () => $localize`:@@products.detail.nav.integrations:Integrations`,
+  );
 
   /**
    * The filter renders whenever the section renders rows — there is no row

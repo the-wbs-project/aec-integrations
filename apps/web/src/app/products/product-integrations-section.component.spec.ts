@@ -216,11 +216,12 @@ describe('ProductIntegrationsSection filter box', () => {
     expect(el.querySelector('[role="status"]')!.textContent).toContain('Showing 1 of 10');
   });
 
-  it('leaves the section heading count alone, because that is a fact about the product', () => {
+  it('leaves the section heading alone under a filter', () => {
     const { fixture, el } = setup([...NINE, edge(link('sage-300-cre', 'Sage 300 CRE'))]);
     type(fixture, filterInput(el)!, 'sage');
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (10)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
   });
 
   it('shows a no-match state rather than an empty section', () => {
@@ -470,7 +471,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     pressChip(fixture, el, 'Outbound');
     expect(cardNames(el)).toEqual(['Sage']);
     expect(status.textContent).toContain('Showing 1 of 4');
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (4)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     const chip = [...el.querySelectorAll('aec-chip button[aria-pressed="true"]')];
     expect(chip).toHaveLength(1);
   });
@@ -534,8 +536,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
  * section could violate while still looking right, which is why they are
  * asserted rather than reviewed:
  *
- *  - it must not enter `Integrations (N)`. §13.5 is categorical that reachable
- *    never counts, and the heading is the one number a reader can check;
+ *  - it must not enter the section row count. §13.5 is categorical that reachable
+ *    never counts, and the row count is a number a reader can check;
  *  - it must not be a table row or a card. A "Via {connector}" group that
  *    outlives its own delivered row asserts a delivery the I24 ruling has just
  *    said does not exist;
@@ -747,9 +749,10 @@ describe('ProductIntegrationsSection reach line (§13.7)', () => {
     expect(reachText(setup([], 1).el)).toContain('1 pair reachable via connectors');
   });
 
-  it('never moves the section heading count', () => {
+  it('never moves the section heading', () => {
     const { el } = setup(NINE, 99);
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (9)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
   });
 
   it('is not a table row and not a card', () => {
