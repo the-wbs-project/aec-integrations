@@ -45,11 +45,13 @@ import {
   directionGlyph,
   directionHeading,
 } from './pair-direction-labels';
+import { PairEmptySections } from './pair-empty-sections';
 import { PairVersionSelect } from './pair-version-select';
 import { Chip } from '../shared/chip/chip';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecCard } from '../shared/card/card';
+import { integrationsZeroCaveat } from '../shared/figure/figure';
 import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 
@@ -595,6 +597,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     PairVersionSelect,
     RouterLink,
     Chip,
+    PairEmptySections,
   ],
   template: `
     @let v = view();
@@ -629,10 +632,30 @@ function writePairViewCookie(mode: PairViewMode): void {
 
         <!-- The h1 keeps its words (ruling 8). The names are Bone at 600, the rest of the
              statement at 400. The band puts the Statement size on its inner span. -->
-        <span heroTitle i18n="@@pair.heading"
-          >How <span class="font-semibold">{{ context.name }}</span> and
-          <span class="font-semibold">{{ other.name }}</span> exchange data</span
-        >
+        @if (v.mechanisms.length > 0) {
+          <span heroTitle i18n="@@pair.heading"
+            >How <span class="font-semibold">{{ context.name }}</span> and
+            <span class="font-semibold">{{ other.name }}</span> exchange data</span
+          >
+        } @else {
+          <!-- AECI-1827: the empty pair (STAGE_1_5_SPEC.md section 11.4). The statement is
+               the legal-reviewed string, used exactly, and the caveat always follows it. -->
+          <span heroTitle data-testid="pair-empty-statement" i18n="@@pair.empty.statement"
+            >We have no integration between
+            <span class="font-semibold">{{ context.name }}</span> and
+            <span class="font-semibold">{{ other.name }}</span> on record.</span
+          >
+        }
+        <!-- The caveat, in the band's default slot directly under the statement. Its own
+             block: content projection matches only a control-flow block with one root. -->
+        @if (caveatShown()) {
+          <p
+            class="max-w-prose text-t-16 leading-relaxed text-(--text-on-brand) md:text-t-20"
+            data-testid="pair-empty-caveat"
+          >
+            {{ caveat }}
+          </p>
+        }
 
         <!-- The diagram (ruling 8): the two products as white cards, context first, joined
              by a Clay ribbon. The ribbon draws no arrow and no direction glyph (DESIGN.md
@@ -661,7 +684,18 @@ function writePairViewCookie(mode: PairViewMode): void {
                   }
                 </div>
               } @else {
-                <div class="h-4" aria-hidden="true"></div>
+                <!-- AECI-1827: no ribbon (the pair has no integration). The status pill sits
+                     where the ribbon's badge would. It is read in order, between the two
+                     products, and the statement above says the same in full. -->
+                <div class="flex justify-center py-4">
+                  <span
+                    class="inline-flex items-center gap-2 rounded-pill bg-(--accent-primary) px-4 py-2 text-t-14 font-semibold whitespace-nowrap text-(--text-on-brand) ring-1 ring-(--border-on-brand-strong)"
+                    data-testid="pair-empty-status"
+                  >
+                    <aec-icon name="unlink" decorative [size]="4" />
+                    <span i18n="@@pair.empty.status">Not on record</span>
+                  </span>
+                </div>
               }
             }
             <div [class]="side.offsetClass">
@@ -749,132 +783,139 @@ function writePairViewCookie(mode: PairViewMode): void {
 
       <section class="bg-(--surface-base) text-(--text-primary)">
         <div [class]="bandWrap" data-testid="page-canvas">
-          <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-            <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
+          @if (v.mechanisms.length === 0) {
+            <!-- AECI-1827: the empty pair's body. Exactly when the pair has no integration
+                 and no connector-evidenced pair (the API returns both as mechanisms). -->
+            <aec-pair-empty-sections [context]="context" [other]="other" [page]="v.captionPage" />
+          } @else {
+            <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+              <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
                  2026-09-28 (Chris): the summary band and ratio line are replaced by
                  the per-card At a glance row. The count is a plain h2 for the cards
                  below; the per-row badges already say who confirmed what. The size is
                  on an inner span: the unlayered h2 rule beats a size utility. -->
-            <div class="min-w-0" data-testid="pair-data-heading">
-              @if (v.syncTotal > 0) {
-                <h2 class="m-0">
-                  <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
-                    v.syncHeadline
-                  }}</span>
-                </h2>
-              } @else {
-                <!-- AECI-919: two copies, picked by emptyCopy(). The directional one
+              <div class="min-w-0" data-testid="pair-data-heading">
+                @if (v.syncTotal > 0) {
+                  <h2 class="m-0">
+                    <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
+                      v.syncHeadline
+                    }}</span>
+                  </h2>
+                } @else {
+                  <!-- AECI-919: two copies, picked by emptyCopy(). The directional one
                      applies when a Layer-A arrow renders under this heading (Detailed
                      view only), so the page never denies a direction it documents. -->
-                <h2 class="m-0">
-                  <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
-                    emptyCopy().headline
-                  }}</span>
-                </h2>
-                <p class="mt-2 text-t-14 text-(--text-secondary)">{{ emptyCopy().subline }}</p>
-              }
+                  <h2 class="m-0">
+                    <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
+                      emptyCopy().headline
+                    }}</span>
+                  </h2>
+                  <p class="mt-2 text-t-14 text-(--text-secondary)">{{ emptyCopy().subline }}</p>
+                }
 
-              <!-- AECI-303 (§9.1): what the selected version pair changed. Lives
+                <!-- AECI-303 (§9.1): what the selected version pair changed. Lives
                    under the heading because the heading owns "what is shared"; the
                    per-row markers below say which types of data. Only rendered when
                    there IS a previous pair to compare against; the earliest pair is
                    a baseline, not a diff. -->
-              @if (versionView(); as vv) {
-                @if (vv.previousSummary) {
-                  <p class="mt-2 text-xs text-(--text-secondary)">
-                    <span>{{ vv.previousSummary }}</span>
-                    @if (vv.changeSummary) {
-                      <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
-                    }
-                  </p>
-                }
-                <!-- The reader's way home from a deep-linked historical URL. Without
+                @if (versionView(); as vv) {
+                  @if (vv.previousSummary) {
+                    <p class="mt-2 text-xs text-(--text-secondary)">
+                      <span>{{ vv.previousSummary }}</span>
+                      @if (vv.changeSummary) {
+                        <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
+                      }
+                    </p>
+                  }
+                  <!-- The reader's way home from a deep-linked historical URL. Without
                      it a shared non-default link is a dead end. -->
-                @if (!vv.isDefault) {
-                  <button
-                    type="button"
-                    (click)="showLatest()"
-                    class="mt-3 inline-flex min-h-6 items-center rounded-(--radius-sm) text-xs font-semibold
+                  @if (!vv.isDefault) {
+                    <button
+                      type="button"
+                      (click)="showLatest()"
+                      class="mt-3 inline-flex min-h-6 items-center rounded-(--radius-sm) text-xs font-semibold
                       text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3
                       focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
-                    i18n="@@pair.version.showLatest"
-                  >
-                    Show the latest versions
-                  </button>
+                      i18n="@@pair.version.showLatest"
+                    >
+                      Show the latest versions
+                    </button>
+                  }
                 }
-              }
-            </div>
+              </div>
 
-            <!-- Basic/Detailed disclosure toggle (§8), beside the heading it governs
+              <!-- Basic/Detailed disclosure toggle (§8), beside the heading it governs
                  (ruling 11). The pressed-toggle recipe of the cards/table toggle. Shown
                  only when a mechanism carries claim lanes or a direction arrow;
                  otherwise the two views are identical, so the control would be a no-op. -->
-            @if (v.hasDetail) {
-              <div
-                role="group"
-                class="aec-field-control inline-flex shrink-0 gap-0.5 border bg-(--surface-base) p-[3px]"
-                i18n-aria-label="@@pair.view.aria"
-                aria-label="Choose a view"
-              >
-                <button
-                  type="button"
-                  [class]="viewBtnClass('basic')"
-                  [attr.aria-pressed]="viewMode() === 'basic'"
-                  (click)="setView('basic')"
+              @if (v.hasDetail) {
+                <div
+                  role="group"
+                  class="aec-field-control inline-flex shrink-0 gap-0.5 border bg-(--surface-base) p-[3px]"
+                  i18n-aria-label="@@pair.view.aria"
+                  aria-label="Choose a view"
                 >
-                  @if (viewMode() === 'basic') {
-                    <aec-icon name="check" decorative [size]="4" />
-                  }
-                  <span i18n="@@pair.view.basic">Basic</span>
-                </button>
-                <button
-                  type="button"
-                  [class]="viewBtnClass('detailed')"
-                  [attr.aria-pressed]="viewMode() === 'detailed'"
-                  (click)="setView('detailed')"
-                >
-                  @if (viewMode() === 'detailed') {
-                    <aec-icon name="check" decorative [size]="4" />
-                  }
-                  <span i18n="@@pair.view.detailed">Detailed</span>
-                </button>
-              </div>
-            }
-          </div>
-          <!-- Per-mechanism cards with the context-relative direction arrow, in the
+                  <button
+                    type="button"
+                    [class]="viewBtnClass('basic')"
+                    [attr.aria-pressed]="viewMode() === 'basic'"
+                    (click)="setView('basic')"
+                  >
+                    @if (viewMode() === 'basic') {
+                      <aec-icon name="check" decorative [size]="4" />
+                    }
+                    <span i18n="@@pair.view.basic">Basic</span>
+                  </button>
+                  <button
+                    type="button"
+                    [class]="viewBtnClass('detailed')"
+                    [attr.aria-pressed]="viewMode() === 'detailed'"
+                    (click)="setView('detailed')"
+                  >
+                    @if (viewMode() === 'detailed') {
+                      <aec-icon name="check" decorative [size]="4" />
+                    }
+                    <span i18n="@@pair.view.detailed">Detailed</span>
+                  </button>
+                </div>
+              }
+            </div>
+            <!-- Per-mechanism cards with the context-relative direction arrow, in the
                API's order: integrations first, then evidenced pairs (ruling R1). Each is
                the shared card (ruling A7). Headings nest h2, h3, h4 (ruling 10). -->
-          <div class="grid gap-8">
-            @for (m of v.mechanisms; track m.id) {
-              <article aecCard class="space-y-4 p-6 md:p-8">
-                <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  @if (m.name) {
-                    <!-- AECI-1142: the kind lives in "How you get it" when a name
+            <div class="grid gap-8">
+              @for (m of v.mechanisms; track m.id) {
+                <article aecCard class="space-y-4 p-6 md:p-8">
+                  <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    @if (m.name) {
+                      <!-- AECI-1142: the kind lives in "How you get it" when a name
                          heads the card, so it is not stated twice. -->
-                    @if (m.kindLabel && !m.glance?.how?.kind) {
-                      <aec-chip tone="quiet">{{ m.kindLabel }}</aec-chip>
-                    }
-                    <h3 class="m-0">
-                      <span class="font-display text-t-24 leading-tight text-(--text-primary)">{{
-                        m.name
-                      }}</span>
-                    </h3>
-                  } @else {
-                    <!-- No mechanism name: promote the kind label to the card
+                      @if (m.kindLabel && !m.glance?.how?.kind) {
+                        <aec-chip tone="quiet">{{ m.kindLabel }}</aec-chip>
+                      }
+                      <h3 class="m-0">
+                        <span class="font-display text-t-24 leading-tight text-(--text-primary)">{{
+                          m.name
+                        }}</span>
+                      </h3>
+                    } @else {
+                      <!-- No mechanism name: promote the kind label to the card
                          heading so the Layer-B lane h4s below never skip from the
                          data h2 straight to h4. Falls back to a generic title when
                          the kind enum is also absent/unknown (kindLabel === ''). -->
-                    <h3 class="m-0 inline-flex">
-                      <aec-chip tone="quiet">
-                        @if (m.kindLabel) {
-                          {{ m.kindLabel }}
-                        } @else {
-                          <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
-                        }
-                      </aec-chip>
-                    </h3>
-                  }
-                  <!-- AECI-711 depth axis: direction and object coverage at the
+                      <h3 class="m-0 inline-flex">
+                        <aec-chip tone="quiet">
+                          @if (m.kindLabel) {
+                            {{ m.kindLabel }}
+                          } @else {
+                            <ng-container i18n="@@pair.mechanism.untitled"
+                              >Integration</ng-container
+                            >
+                          }
+                        </aec-chip>
+                      </h3>
+                    }
+                    <!-- AECI-711 depth axis: direction and object coverage at the
                        mechanism badge's weight, in Basic and Detailed alike. Depth
                        is orthogonal to mechanism: a one-way read of one object and
                        a two-way sync of twelve used to render identically here.
@@ -883,86 +924,88 @@ function writePairViewCookie(mode: PairViewMode): void {
                        before (depth-axis-null.component.spec.ts). The glyph comes
                        from contextDirectionLabel, one of the Arrow Rule's three
                        emitters, and is aria-hidden behind an sr-only prefix. -->
-                  <!-- Not where the Layer-A line below already states the same
+                    <!-- Not where the Layer-A line below already states the same
                        direction (Detailed, no claims): one card, one statement. -->
-                  @if (m.depthDirection.token && !(viewMode() === 'detailed' && !m.hasClaims)) {
-                    <aec-chip tone="quiet" data-testid="pair-depth-direction">
-                      <span class="sr-only" i18n="@@pair.depth.direction.srLabel">Direction:</span>
-                      <span
-                        class="leading-none text-(--accent-primary) rtl:-scale-x-100"
-                        aria-hidden="true"
-                        >{{ m.depthDirection.glyph }}</span
-                      >
-                      <span>{{ m.depthDirection.label }}</span>
-                    </aec-chip>
-                  }
-                  <!-- Ruled 2026-09-23: with one mechanism the section heading
+                    @if (m.depthDirection.token && !(viewMode() === 'detailed' && !m.hasClaims)) {
+                      <aec-chip tone="quiet" data-testid="pair-depth-direction">
+                        <span class="sr-only" i18n="@@pair.depth.direction.srLabel"
+                          >Direction:</span
+                        >
+                        <span
+                          class="leading-none text-(--accent-primary) rtl:-scale-x-100"
+                          aria-hidden="true"
+                          >{{ m.depthDirection.glyph }}</span
+                        >
+                        <span>{{ m.depthDirection.label }}</span>
+                      </aec-chip>
+                    }
+                    <!-- Ruled 2026-09-23: with one mechanism the section heading
                        already says "N types of data shared", so the card chip
                        would only repeat it. -->
-                  @if (m.dataObjectLabel && !(v.mechanisms.length === 1 && v.syncTotal > 0)) {
-                    <aec-chip tone="quiet" data-testid="pair-depth-objects">{{
-                      m.dataObjectLabel
-                    }}</aec-chip>
-                  }
-                </header>
-                @if (m.headerCorrections.length > 0) {
-                  <div class="space-y-1" data-testid="pair-header-corrections">
-                    @for (entry of m.headerCorrections; track entry.correction.field) {
-                      <aec-field-caption
-                        [correction]="entry.correction"
-                        [label]="entry.label"
-                        [page]="v.captionPage"
-                      />
+                    @if (m.dataObjectLabel && !(v.mechanisms.length === 1 && v.syncTotal > 0)) {
+                      <aec-chip tone="quiet" data-testid="pair-depth-objects">{{
+                        m.dataObjectLabel
+                      }}</aec-chip>
                     }
-                  </div>
-                }
+                  </header>
+                  @if (m.headerCorrections.length > 0) {
+                    <div class="space-y-1" data-testid="pair-header-corrections">
+                      @for (entry of m.headerCorrections; track entry.correction.field) {
+                        <aec-field-caption
+                          [correction]="entry.correction"
+                          [label]="entry.label"
+                          [page]="v.captionPage"
+                        />
+                      }
+                    </div>
+                  }
 
-                <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
+                  <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
                      At a glance strip's "How you get it" since AECI-1142, so the
                      card states delivery once. -->
 
-                <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
+                  <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
                      this mechanism has no claims. When claims exist the per-lane
                      arrows below carry the direction, so the standalone arrow would
                      be redundant (§8). Hidden in Basic (Overview). -->
-                @if (viewMode() === 'detailed' && !m.hasClaims && m.direction) {
-                  <p class="flex items-center gap-2 text-sm text-(--text-secondary)">
-                    <span
-                      class="font-display text-xl text-(--accent-primary)"
-                      [attr.aria-label]="m.directionAria"
-                      >{{ m.glyph }}</span
-                    >
-                    <span>{{ m.directionLabel }}</span>
-                  </p>
-                }
-
-                @if (m.description) {
-                  <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-                    {{ m.description }}
-                  </p>
-                  @if (m.descriptionCorrection; as c) {
-                    <aec-field-caption [correction]="c" [page]="v.captionPage" />
+                  @if (viewMode() === 'detailed' && !m.hasClaims && m.direction) {
+                    <p class="flex items-center gap-2 text-sm text-(--text-secondary)">
+                      <span
+                        class="font-display text-xl text-(--accent-primary)"
+                        [attr.aria-label]="m.directionAria"
+                        >{{ m.glyph }}</span
+                      >
+                      <span>{{ m.directionLabel }}</span>
+                    </p>
                   }
-                } @else if (m.descriptionUnderReview) {
-                  <aec-under-review data-testid="mechanism-description-under-review" />
-                } @else if (m.descriptionCorrection; as c) {
-                  <aec-field-caption
-                    [correction]="c"
-                    [label]="correctionLabel('description')"
-                    [page]="v.captionPage"
-                  />
-                }
-                <!-- AECI-1238 (§11d.7): the card's other values AECi hid while it checks
-                     them. Their slots render nothing, so each line names its field. -->
-                @if (m.underReview.length > 0) {
-                  <div class="space-y-1" data-testid="mechanism-under-review">
-                    @for (entry of m.underReview; track entry.field) {
-                      <aec-under-review [label]="entry.label" />
-                    }
-                  </div>
-                }
 
-                <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
+                  @if (m.description) {
+                    <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+                      {{ m.description }}
+                    </p>
+                    @if (m.descriptionCorrection; as c) {
+                      <aec-field-caption [correction]="c" [page]="v.captionPage" />
+                    }
+                  } @else if (m.descriptionUnderReview) {
+                    <aec-under-review data-testid="mechanism-description-under-review" />
+                  } @else if (m.descriptionCorrection; as c) {
+                    <aec-field-caption
+                      [correction]="c"
+                      [label]="correctionLabel('description')"
+                      [page]="v.captionPage"
+                    />
+                  }
+                  <!-- AECI-1238 (§11d.7): the card's other values AECi hid while it checks
+                     them. Their slots render nothing, so each line names its field. -->
+                  @if (m.underReview.length > 0) {
+                    <div class="space-y-1" data-testid="mechanism-under-review">
+                      @for (entry of m.underReview; track entry.field) {
+                        <aec-under-review [label]="entry.label" />
+                      }
+                    </div>
+                  }
+
+                  <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
                      one integration row. A fact with no value is left out, and the
                      whole strip is left out when none has a value. Identity rather
                      than detail, so it renders in Basic view too.
@@ -971,230 +1014,234 @@ function writePairViewCookie(mode: PairViewMode): void {
                      replaced (ruled 2026-09-28). A nested fill, not a band (mock-up 12):
                      the panel radius, no border, no shadow. Labels stay text-secondary:
                      tertiary fails AA on Bone. -->
-                @if (m.glance; as g) {
-                  <div class="rounded-panel bg-(--accent-warm) px-5 py-4" data-testid="pair-glance">
-                    <h4 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
-                      At a glance
-                    </h4>
-                    <!-- auto-fit, not a fixed 4 columns: a card with one or two facts
-                         gives them the full width instead of a quarter. -->
-                    <dl
-                      class="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                  @if (m.glance; as g) {
+                    <div
+                      class="rounded-panel bg-(--accent-warm) px-5 py-4"
+                      data-testid="pair-glance"
                     >
-                      @if (g.price || g.priceUrl || g.priceCorrections.length > 0) {
-                        <div>
-                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
-                            Price
-                          </dt>
-                          <dd class="mt-0.5 text-sm text-(--text-primary)">
-                            <!-- AECI-1158 (§6.17.11): the owner's pricing page links the
+                      <h4 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
+                        At a glance
+                      </h4>
+                      <!-- auto-fit, not a fixed 4 columns: a card with one or two facts
+                         gives them the full width instead of a quarter. -->
+                      <dl
+                        class="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                      >
+                        @if (g.price || g.priceUrl || g.priceCorrections.length > 0) {
+                          <div>
+                            <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
+                              Price
+                            </dt>
+                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                              <!-- AECI-1158 (§6.17.11): the owner's pricing page links the
                                  price, or reads "See pricing" when there is no price. A
                                  vendor-controlled destination, so the card links' rel. -->
-                            @if (g.priceUrl; as href) {
-                              <a
-                                [href]="href"
-                                target="_blank"
-                                rel="noopener nofollow"
-                                aecTrackExternalLink="pair_detail"
-                                [aecLinkContext]="g.priceLinkContext!"
-                                class="inline-flex items-center gap-1 text-(--accent-primary) underline underline-offset-2"
-                                data-testid="pair-glance-price-link"
-                              >
-                                @if (g.price) {
-                                  <span>{{ g.price }}</span>
-                                } @else {
-                                  <span i18n="@@pair.glance.seePricing">See pricing</span>
-                                }
-                                <aec-new-tab-icon />
-                              </a>
-                            } @else {
-                              {{ g.price }}
-                            }
-                            @for (correction of g.priceCorrections; track correction.field) {
-                              <aec-field-caption
-                                class="mt-1"
-                                [correction]="correction"
-                                [label]="
-                                  g.priceCorrections.length > 1 || correction.cleared
-                                    ? correctionLabel(correction.field)
-                                    : null
-                                "
-                                [page]="v.captionPage"
-                              />
-                            }
-                          </dd>
-                        </div>
-                      }
-                      @if (g.stage || g.stageCorrection) {
-                        <div>
-                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
-                            Release stage
-                          </dt>
-                          <dd class="mt-0.5 text-sm text-(--text-primary)">
-                            {{ g.stage }}
-                            @if (g.stageCorrection; as c) {
-                              <aec-field-caption
-                                class="mt-1"
-                                [correction]="c"
-                                [page]="v.captionPage"
-                              />
-                            }
-                          </dd>
-                        </div>
-                      }
-                      @if (g.how; as how) {
-                        <div>
-                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.how">
-                            How you get it
-                          </dt>
-                          <dd class="mt-0.5 text-sm text-(--text-primary)">
-                            @if (how.kind) {
-                              <span class="block">{{ how.kind }}</span>
-                            }
-                            @if (how.offeredBy || how.through) {
-                              <span class="block text-(--text-secondary)">
-                                @if (how.offeredBy; as bv) {
-                                  <ng-container i18n="@@pair.mechanism.builtBy"
-                                    >Offered by</ng-container
-                                  >&ngsp;<a
-                                    [routerLink]="['/vendors', bv.slug]"
-                                    class="text-(--accent-primary) underline underline-offset-2"
-                                    >{{ bv.name }}</a
-                                  >
-                                }
-                                <!-- The link sits inside each branch, right after
-                                     &ngsp;: a space placed after the control-flow
-                                     block is stripped as inter-block whitespace. -->
-                                @if (how.through; as pb) {
-                                  @if (how.offeredBy) {
-                                    <ng-container i18n="@@pair.glance.throughJoin"
-                                      >, through</ng-container
-                                    >&ngsp;<a
-                                      [routerLink]="['/products', pb.slug]"
-                                      class="text-(--accent-primary) underline underline-offset-2"
-                                      >{{ pb.name }}</a
-                                    >
+                              @if (g.priceUrl; as href) {
+                                <a
+                                  [href]="href"
+                                  target="_blank"
+                                  rel="noopener nofollow"
+                                  aecTrackExternalLink="pair_detail"
+                                  [aecLinkContext]="g.priceLinkContext!"
+                                  class="inline-flex items-center gap-1 text-(--accent-primary) underline underline-offset-2"
+                                  data-testid="pair-glance-price-link"
+                                >
+                                  @if (g.price) {
+                                    <span>{{ g.price }}</span>
                                   } @else {
-                                    <ng-container i18n="@@pair.glance.through">Through</ng-container
+                                    <span i18n="@@pair.glance.seePricing">See pricing</span>
+                                  }
+                                  <aec-new-tab-icon />
+                                </a>
+                              } @else {
+                                {{ g.price }}
+                              }
+                              @for (correction of g.priceCorrections; track correction.field) {
+                                <aec-field-caption
+                                  class="mt-1"
+                                  [correction]="correction"
+                                  [label]="
+                                    g.priceCorrections.length > 1 || correction.cleared
+                                      ? correctionLabel(correction.field)
+                                      : null
+                                  "
+                                  [page]="v.captionPage"
+                                />
+                              }
+                            </dd>
+                          </div>
+                        }
+                        @if (g.stage || g.stageCorrection) {
+                          <div>
+                            <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
+                              Release stage
+                            </dt>
+                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                              {{ g.stage }}
+                              @if (g.stageCorrection; as c) {
+                                <aec-field-caption
+                                  class="mt-1"
+                                  [correction]="c"
+                                  [page]="v.captionPage"
+                                />
+                              }
+                            </dd>
+                          </div>
+                        }
+                        @if (g.how; as how) {
+                          <div>
+                            <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.how">
+                              How you get it
+                            </dt>
+                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                              @if (how.kind) {
+                                <span class="block">{{ how.kind }}</span>
+                              }
+                              @if (how.offeredBy || how.through) {
+                                <span class="block text-(--text-secondary)">
+                                  @if (how.offeredBy; as bv) {
+                                    <ng-container i18n="@@pair.mechanism.builtBy"
+                                      >Offered by</ng-container
                                     >&ngsp;<a
-                                      [routerLink]="['/products', pb.slug]"
+                                      [routerLink]="['/vendors', bv.slug]"
                                       class="text-(--accent-primary) underline underline-offset-2"
-                                      >{{ pb.name }}</a
+                                      >{{ bv.name }}</a
                                     >
                                   }
-                                }
-                              </span>
-                            }
-                            <!-- AECI-1011: a vendor-created row says so. Name-free on
+                                  <!-- The link sits inside each branch, right after
+                                     &ngsp;: a space placed after the control-flow
+                                     block is stripped as inter-block whitespace. -->
+                                  @if (how.through; as pb) {
+                                    @if (how.offeredBy) {
+                                      <ng-container i18n="@@pair.glance.throughJoin"
+                                        >, through</ng-container
+                                      >&ngsp;<a
+                                        [routerLink]="['/products', pb.slug]"
+                                        class="text-(--accent-primary) underline underline-offset-2"
+                                        >{{ pb.name }}</a
+                                      >
+                                    } @else {
+                                      <ng-container i18n="@@pair.glance.through"
+                                        >Through</ng-container
+                                      >&ngsp;<a
+                                        [routerLink]="['/products', pb.slug]"
+                                        class="text-(--accent-primary) underline underline-offset-2"
+                                        >{{ pb.name }}</a
+                                      >
+                                    }
+                                  }
+                                </span>
+                              }
+                              <!-- AECI-1011: a vendor-created row says so. Name-free on
                                  purpose: an AECi owner reassignment can change "Offered
                                  by" after the create, so naming the owner could be false. -->
-                            @if (how.vendorAdded) {
-                              <span
-                                class="block text-xs text-(--text-secondary)"
-                                data-testid="pair-vendor-added"
-                                i18n="@@pair.mechanism.vendorAdded"
-                                >Added by the vendor</span
-                              >
-                            }
-                          </dd>
-                        </div>
-                      }
-                      @if (g.lastChecked) {
-                        <div>
-                          <dt
-                            class="text-xs text-(--text-secondary)"
-                            i18n="@@pair.glance.lastChecked"
-                          >
-                            Last checked
-                          </dt>
-                          <dd class="mt-0.5 text-sm tabular-nums text-(--text-primary)">
-                            {{ g.lastChecked }}
-                          </dd>
-                        </div>
-                      }
-                    </dl>
-                  </div>
-                }
+                              @if (how.vendorAdded) {
+                                <span
+                                  class="block text-xs text-(--text-secondary)"
+                                  data-testid="pair-vendor-added"
+                                  i18n="@@pair.mechanism.vendorAdded"
+                                  >Added by the vendor</span
+                                >
+                              }
+                            </dd>
+                          </div>
+                        }
+                        @if (g.lastChecked) {
+                          <div>
+                            <dt
+                              class="text-xs text-(--text-secondary)"
+                              i18n="@@pair.glance.lastChecked"
+                            >
+                              Last checked
+                            </dt>
+                            <dd class="mt-0.5 text-sm tabular-nums text-(--text-primary)">
+                              {{ g.lastChecked }}
+                            </dd>
+                          </div>
+                        }
+                      </dl>
+                    </div>
+                  }
 
-                <!-- Layer B (§8): data_object claim rows, grouped into direction
+                  <!-- Layer B (§8): data_object claim rows, grouped into direction
                      lanes, each with a neutral agreement badge + AECi provenance.
                      The "data transfers back and forth", shown in Detailed only;
                      Basic (Overview) collapses to the description + sync headline. -->
-                @if (viewMode() === 'detailed' && m.claimGroups.length > 0) {
-                  <!-- Lanes in DIRECTION_ORDER. Nested Forest-soft panels; two or more sit
+                  @if (viewMode() === 'detailed' && m.claimGroups.length > 0) {
+                    <!-- Lanes in DIRECTION_ORDER. Nested Forest-soft panels; two or more sit
                        side by side from lg, in the same reading order (mock-up 12). -->
-                  <div
-                    class="grid items-start gap-4"
-                    [class.lg:grid-cols-2]="m.claimGroups.length > 1"
-                    data-testid="pair-lanes"
-                  >
-                    @for (g of m.claimGroups; track g.direction) {
-                      <div aecCard nested class="p-4">
-                        <div class="flex items-center gap-3">
-                          <span
-                            class="font-display text-t-24 leading-none text-(--accent-primary)"
-                            [attr.aria-label]="g.aria"
-                            >{{ g.glyph }}</span
+                    <div
+                      class="grid items-start gap-4"
+                      [class.lg:grid-cols-2]="m.claimGroups.length > 1"
+                      data-testid="pair-lanes"
+                    >
+                      @for (g of m.claimGroups; track g.direction) {
+                        <div aecCard nested class="p-4">
+                          <div class="flex items-center gap-3">
+                            <span
+                              class="font-display text-t-24 leading-none text-(--accent-primary)"
+                              [attr.aria-label]="g.aria"
+                              >{{ g.glyph }}</span
+                            >
+                            <h4 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h4>
+                          </div>
+                          <ul
+                            class="mt-3 grid gap-2"
+                            [class.sm:grid-cols-2]="m.claimGroups.length === 1"
                           >
-                          <h4 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h4>
-                        </div>
-                        <ul
-                          class="mt-3 grid gap-2"
-                          [class.sm:grid-cols-2]="m.claimGroups.length === 1"
-                        >
-                          @for (
-                            r of g.rows;
-                            track r.claim.data_object_slug + '|' + r.claim.direction
-                          ) {
-                            <!-- AECI-303 (§9.1): the diff marker sits at the row START,
+                            @for (
+                              r of g.rows;
+                              track r.claim.data_object_slug + '|' + r.claim.direction
+                            ) {
+                              <!-- AECI-303 (§9.1): the diff marker sits at the row START,
                                never in the right-hand cluster. Separation by POSITION
                                is what keeps it from competing with the agreement
                                badge: left = what changed in this version, right = who
                                agrees about it. Two questions, two zones. -->
-                            <li
-                              class="flex min-h-13 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-control border bg-(--surface-base) py-1 ps-4 pe-1"
-                              [class]="r.rowClass"
-                            >
-                              <span class="flex min-w-0 flex-col gap-0.5">
-                                <span class="text-sm" [class]="r.nameClass">{{
-                                  r.claim.data_object_name
-                                }}</span>
-                                @if (r.diffLabel) {
-                                  <span class="flex items-center gap-1">
-                                    <!-- Glyph AND text AND (for removed) a decoration
+                              <li
+                                class="flex min-h-13 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-control border bg-(--surface-base) py-1 ps-4 pe-1"
+                                [class]="r.rowClass"
+                              >
+                                <span class="flex min-w-0 flex-col gap-0.5">
+                                  <span class="text-sm" [class]="r.nameClass">{{
+                                    r.claim.data_object_name
+                                  }}</span>
+                                  @if (r.diffLabel) {
+                                    <span class="flex items-center gap-1">
+                                      <!-- Glyph AND text AND (for removed) a decoration
                                        change: never colour-only (WCAG 1.4.1). -->
-                                    <span
-                                      aria-hidden="true"
-                                      class="text-xs text-(--text-secondary)"
-                                      >{{ r.diffGlyph }}</span
-                                    >
-                                    <span class="aec-overline text-(--text-secondary)">{{
-                                      r.diffLabel
-                                    }}</span>
-                                  </span>
-                                }
-                              </span>
-                              <span class="ms-auto flex items-center gap-1">
-                                <aec-agreement-badge
-                                  [agreement]="r.claim.agreement"
-                                  [attributedTo]="r.attributedTo"
-                                  [refuted]="r.claim.refuted ?? false"
-                                />
-                                <aec-claim-provenance
-                                  [claim]="r.claim"
-                                  [contextVendorName]="v.vendorNames.context"
-                                  [otherVendorName]="v.vendorNames.other"
-                                />
-                              </span>
-                            </li>
-                          }
-                        </ul>
-                      </div>
-                    }
-                  </div>
-                }
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-xs text-(--text-secondary)"
+                                        >{{ r.diffGlyph }}</span
+                                      >
+                                      <span class="aec-overline text-(--text-secondary)">{{
+                                        r.diffLabel
+                                      }}</span>
+                                    </span>
+                                  }
+                                </span>
+                                <span class="ms-auto flex items-center gap-1">
+                                  <aec-agreement-badge
+                                    [agreement]="r.claim.agreement"
+                                    [attributedTo]="r.attributedTo"
+                                    [refuted]="r.claim.refuted ?? false"
+                                  />
+                                  <aec-claim-provenance
+                                    [claim]="r.claim"
+                                    [contextVendorName]="v.vendorNames.context"
+                                    [otherVendorName]="v.vendorNames.other"
+                                  />
+                                </span>
+                              </li>
+                            }
+                          </ul>
+                        </div>
+                      }
+                    </div>
+                  }
 
-                <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule").
+                  <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule").
                      AECI-980 pulled these two off accent and off the arrow glyph.
                      Off accent because a second accent-coloured thing competes
                      with the one primary action on the page. Off the glyph
@@ -1203,67 +1250,68 @@ function writePairViewCookie(mode: PairViewMode): void {
                      (the Arrow Rule). The rel gained nofollow because these are
                      vendor-controlled destinations. AECI-1640 dropped noreferrer
                      so the vendor sees AECi as the referrer. -->
-                @if (m.links.length > 0) {
-                  <!-- AECI-1007: each endpoint vendor's own links carry its name, and
+                  @if (m.links.length > 0) {
+                    <!-- AECI-1007: each endpoint vendor's own links carry its name, and
                        AECi's curated link is the fallback per kind. -->
-                  <ul class="-mx-3 flex flex-wrap gap-1">
-                    @for (link of m.links; track $index) {
-                      <li>
-                        <a
-                          [href]="link.href"
-                          target="_blank"
-                          rel="noopener nofollow"
-                          aecTrackExternalLink="pair_detail"
-                          [aecLinkContext]="link.context"
-                          class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+                    <ul class="-mx-3 flex flex-wrap gap-1">
+                      @for (link of m.links; track $index) {
+                        <li>
+                          <a
+                            [href]="link.href"
+                            target="_blank"
+                            rel="noopener nofollow"
+                            aecTrackExternalLink="pair_detail"
+                            [aecLinkContext]="link.context"
+                            class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
                             text-xs font-semibold text-(--text-secondary) underline
                             decoration-(--border-strong) underline-offset-4 transition-colors
                             hover:text-(--text-primary) focus-visible:outline-2
                             focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                        >
-                          <span>{{ link.label }}</span>
-                          <aec-new-tab-icon />
-                        </a>
-                        @if (link.linkFrom; as from) {
-                          <span
-                            class="block px-3 text-xs leading-5 text-(--text-secondary)"
-                            data-testid="pair-link-from"
-                            >{{ from }}</span
                           >
-                        }
-                        @if (link.correction; as c) {
-                          <aec-field-caption class="px-3" [correction]="c" [page]="v.captionPage" />
-                        }
-                      </li>
-                    }
-                  </ul>
-                }
-                @if (m.removedLinks.length > 0) {
-                  <div class="space-y-1" data-testid="pair-removed-links">
-                    @for (entry of m.removedLinks; track entry.correction.field) {
-                      <aec-field-caption
-                        [correction]="entry.correction"
-                        [label]="entry.label"
-                        [page]="v.captionPage"
-                      />
-                    }
-                  </div>
-                }
+                            <span>{{ link.label }}</span>
+                            <aec-new-tab-icon />
+                          </a>
+                          @if (link.linkFrom; as from) {
+                            <span
+                              class="block px-3 text-xs leading-5 text-(--text-secondary)"
+                              data-testid="pair-link-from"
+                              >{{ from }}</span
+                            >
+                          }
+                          @if (link.correction; as c) {
+                            <aec-field-caption
+                              class="px-3"
+                              [correction]="c"
+                              [page]="v.captionPage"
+                            />
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
+                  @if (m.removedLinks.length > 0) {
+                    <div class="space-y-1" data-testid="pair-removed-links">
+                      @for (entry of m.removedLinks; track entry.correction.field) {
+                        <aec-field-caption
+                          [correction]="entry.correction"
+                          [label]="entry.label"
+                          [page]="v.captionPage"
+                        />
+                      }
+                    </div>
+                  }
 
-                <!-- AECI-1614: the row's own "Maintained by" caption, at the foot of the
+                  <!-- AECI-1614: the row's own "Maintained by" caption, at the foot of the
                      card because it speaks for the whole card. The same caption the row
                      carries on the product page, on a held, attested, via or evidenced
                      row alike. -->
-                @if (m.caption) {
-                  <aec-field-caption [caption]="m.caption" [page]="v.captionPage" />
-                }
-              </article>
-            } @empty {
-              <p class="text-sm text-(--text-secondary)" i18n="@@pair.mechanisms.empty">
-                We don’t have any integrations documented between these two products yet.
-              </p>
-            }
-          </div>
+                  @if (m.caption) {
+                    <aec-field-caption [caption]="m.caption" [page]="v.captionPage" />
+                  }
+                </article>
+              }
+            </div>
+          }
         </div>
       </section>
 
@@ -1301,6 +1349,11 @@ export class ProductsPairPage {
   });
   protected readonly logoAlt = logoAlt;
   protected readonly correctionLabel = fieldOverrideLabel;
+  /** AECI-1827: the legal caveat beside the empty pair's statement, the product page's
+   *  own string and message id (`PLAN.md` §5.2, `STAGE_1_5_SPEC.md` §11.4). */
+  protected readonly caveat = integrationsZeroCaveat();
+  /** Whether the caveat shows: exactly when the statement does (no mechanism). */
+  protected readonly caveatShown = computed(() => this.pair()?.mechanisms.length === 0);
 
   /** Resolved pair (or `null` on NOT_FOUND); SSR-hydrated from `TransferState`. */
   private readonly pair = toSignal<ProductPairResponse | null, ProductPairResponse | null>(

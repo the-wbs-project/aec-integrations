@@ -311,10 +311,14 @@ describe('a hidden value renders on no public read (AECI-1238 §11d.7)', () => {
     for (const subject of one.held) {
       expect(subject.tool_integrations_url).toBeNull();
       expect(subject.api_docs_url).toBe('https://held.example/api');
+      // AECI-1827: the empty pair page shows "Under review" in the link's slot. The
+      // product's other hide (its description) is named too, as on the product page.
+      expect(subject.under_review).toEqual(['description', 'tool_integrations_url']);
     }
     for (const subject of one.partner) {
       expect(subject.api_docs_url).toBeNull();
       expect(subject.tool_integrations_url).toBe('https://partner.example/marketplace');
+      expect(subject.under_review).toEqual(['api_docs_url']);
     }
     // Both links hidden on both sides.
     await t.db

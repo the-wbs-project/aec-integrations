@@ -69,6 +69,7 @@ import {
   evidencedPairCorrectionsQuery,
   groupCorrections,
   integrationCorrectionsQuery,
+  productCorrectionsQuery,
 } from '../lib/field-corrections';
 import { maskIntegrationListItem, maskPairResponse } from '../lib/field-hide-mask';
 import {
@@ -567,6 +568,7 @@ export function createProductPairHandler(
       integrationHideRows,
       evidencedHideRows,
       productHideRows,
+      productCorrections,
     ] = await db.batch([
       db.query.products.findMany({
         ...productPairSubjectConfig,
@@ -680,6 +682,9 @@ export function createProductPairHandler(
       // AECI-1822: the two subjects now carry `tool_integrations_url` and `api_docs_url`,
       // both hideable on a product. Keyed on the same slug subselects, so still one trip.
       productHidesQuery(db, or(eq(products.id, contextId), eq(products.id, otherId))),
+      // AECI-1827: AECi's corrections on the two products, so the empty pair page captions a
+      // corrected or removed link or term as the product page does. Same keys, same trip.
+      productCorrectionsQuery(db, or(eq(products.id, contextId), eq(products.id, otherId))),
     ]);
     const [contextProduct] = contextRows;
     const [otherProduct] = otherRows;
@@ -729,7 +734,7 @@ export function createProductPairHandler(
         rows,
         evidencedRows,
         versions ?? undefined,
-        groupCorrections(integrationCorrections, evidencedCorrections),
+        groupCorrections(integrationCorrections, evidencedCorrections, productCorrections),
       ),
       groupHides(integrationHideRows, evidencedHideRows, productHideRows),
     );

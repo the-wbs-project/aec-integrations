@@ -739,7 +739,9 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 - **Shipping (R7).** The captures ship separately from the empty pair page. They do not ship before the Privacy Policy text is live (AECI-1825). Cached HTML is the same for every visitor. A visitor's own click or watch state is reconciled in the browser after hydration.
 - **Unclaimed products (R7).** They get no brand colours. An unclaimed product shows an initial tile.
 
-**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822, not merged yet). A corrected link must show AECi's "Corrected by" caption, or the row links to the product page instead (see the comment on AECI-1827). The "Corrected by" caption data is not in the pair payload, so AECI-1827 must add it or link to the product page. Never write that an API means a connection could be built.
+**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822). AECI-1827 added each side's corrections, its Managed "Maintained by" caption and its `under_review` list to the pair payload (`docs/API_CONTRACTS.md`). A link shows exactly as on the product page's facts card: a corrected link with "Corrected by", a hidden link as "Under review", a removed link as "Removed by" with no link. Never write that an API means a connection could be built.
+
+**Title and description (AECI-1827, provisional wording).** The `<title>` is "{A} and {B} integration: " followed by the caveat, word for word. It runs past the 60-character title budget on purpose: truncation cuts from the end, so a cut title still reads "{A} and {B} integration: Not on record…". The description is the statement and the caveat while both fit 155 characters, then the title's wording, then the caveat alone. No rung is ever cut, so the statement never shows without the caveat. `og:` and Twitter tags copy both.
 
 **States.**
 

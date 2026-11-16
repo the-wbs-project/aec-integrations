@@ -56,6 +56,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'layout/account-identity.ts': { person: 1 },
   'preview/integration-pair/concept-flow-canvas.ts': { preview: 2 },
   'products/integration-group-card.ts': { group: 1 },
+  // AECI-1827: the empty pair page's two subjects, at 32px, by their own claim_status.
+  'products/pair-empty-sections.ts': { subject: 2 },
   'products/product-card-grid.ts': { link: 2 },
   'products/product-card.ts': { link: 1 },
   'products/product-facts-card.ts': { link: 1 },

@@ -142,7 +142,9 @@ import {
   rewriteRetiredPairSlugs,
 } from '../core/api/slug-redirects';
 import { canonicalUrl } from '../core/canonical';
+import { META_DESCRIPTION_MAX } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
+import { integrationsZeroCaveat } from '../shared/figure/figure';
 
 /**
  * `Cache-Control` for the moved-pair 301 (AECI-953).
@@ -228,6 +230,38 @@ function pairMetaDescription(pair: ProductPairResponse): string {
   return $localize`:@@pair.meta.description:How ${context}:context: and ${other}:other: exchange data across their integrations.`;
 }
 
+/**
+ * AECI-1827: the empty pair's `<title>` (legal review item 1, `STAGE_1_5_SPEC.md` §11.4:
+ * the caveat goes wherever the statement appears, the title included). It leads with the
+ * two names and "integration", then the caveat word for word. Truncation only ever cuts
+ * from the end, so a cut title still reads "{A} and {B} integration: Not on record…" and
+ * never a bare "no integration". It is longer than the 60-character budget on purpose:
+ * `fitTitle` emits its last rung whole, the page is `noindex`, and a link preview cuts it
+ * safely. No brand suffix, because the caveat must come before anything else.
+ */
+export function emptyPairMetaTitle(pair: ProductPairResponse): string {
+  const context = pair.context_product.name;
+  const other = pair.other_product.name;
+  const caveat = integrationsZeroCaveat();
+  return $localize`:@@pair.empty.meta.title:${context}:context: and ${other}:other: integration: ${caveat}:caveat:`;
+}
+
+/**
+ * AECI-1827: the empty pair's meta description, which `og:description` and
+ * `twitter:description` copy. The statement and the caveat, word for word, while both
+ * fit the 155-character budget. When long names push past it, the title's form (names,
+ * then the caveat), and as a last rung the caveat alone. Each rung fits whole, so
+ * `truncateAtWordBoundary` never cuts it and the statement never shows without the caveat.
+ */
+export function emptyPairMetaDescription(pair: ProductPairResponse): string {
+  const context = pair.context_product.name;
+  const other = pair.other_product.name;
+  const caveat = integrationsZeroCaveat();
+  const statement = $localize`:@@pair.empty.statement.plain:We have no integration between ${context}:context: and ${other}:other: on record.`;
+  const rungs = [`${statement} ${caveat}`, emptyPairMetaTitle(pair), caveat];
+  return rungs.find((rung) => rung.length <= META_DESCRIPTION_MAX) ?? caveat;
+}
+
 export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async (route) => {
   const contextSlug = route.paramMap.get('contextSlug') ?? '';
   const otherSlug = route.paramMap.get('otherSlug') ?? '';
@@ -269,14 +303,17 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // genuinely `undefined` at runtime against an API Worker that predates it —
     // and `undefined?.is_default === false` is `false`, i.e. indexable, which is
     // the correct degradation.
-    const noindex = pair.mechanisms.length === 0 || pair.version_diff?.is_default === false;
-    const name = pairMetaName(pair);
-    const description = pairMetaDescription(pair);
+    const empty = pair.mechanisms.length === 0;
+    const noindex = empty || pair.version_diff?.is_default === false;
+    // AECI-1827: an empty pair's title and description carry the caveat. No fallbacks, so
+    // `fitTitle` emits the caveat title whole rather than a shorter rung without it.
+    const name = empty ? emptyPairMetaTitle(pair) : pairMetaName(pair);
+    const description = empty ? emptyPairMetaDescription(pair) : pairMetaDescription(pair);
 
     meta.setEntityMeta({
       entity: 'integration',
       name,
-      titleFallbacks: pairMetaTitleFallbacks(pair),
+      titleFallbacks: empty ? [] : pairMetaTitleFallbacks(pair),
       description,
       canonical,
       // Pairs have no own logo; OG falls back to the site default.

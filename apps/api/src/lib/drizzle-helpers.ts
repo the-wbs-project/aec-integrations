@@ -962,6 +962,10 @@ export const productPairSubjectConfig = {
     ...productListConfig.columns,
     toolIntegrationsUrl: true,
     apiDocsUrl: true,
+    // AECI-1827: the Managed group's "Maintained by" line. Stamps and a mirror, never a
+    // plan-table read, exactly as `productDetailConfig` selects them.
+    managedEditedAt: true,
+    managedEndedAt: true,
   },
   with: {
     ...productListConfig.with,
@@ -1590,6 +1594,9 @@ export interface RawProductListRow {
 export interface RawProductPairSubjectRow extends RawProductListRow {
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
+  /** AECI-1827. Optional so a hand-built fixture without them reads as no caption. */
+  managedEditedAt?: string | null;
+  managedEndedAt?: string | null;
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
@@ -2350,9 +2357,13 @@ export { toProductPairMechanismFromEvidencedPair };
  * one-sided assertion is never folded into the bilateral figure.
  */
 /** A pair page's subject keeps its logo and says whether it is claimed (AECI-1618). */
-function toPairSubject(raw: RawProductPairSubjectRow): ProductPairSubject {
+function toPairSubject(
+  raw: RawProductPairSubjectRow,
+  corrections: CorrectionsByEntity,
+): ProductPairSubject {
+  const base = toProductListItem(raw);
   return {
-    ...toProductListItem(raw),
+    ...base,
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
     // AECI-1822: the same four lists, in the same order, as `toProductDetail` (AECI-1242).
@@ -2373,6 +2384,28 @@ function toPairSubject(raw: RawProductPairSubjectRow): ProductPairSubject {
       .map(toTaxonomyLink),
     api_docs_url: raw.apiDocsUrl,
     tool_integrations_url: raw.toolIntegrationsUrl,
+    // AECI-1827: the same Managed caption and corrections the product page carries
+    // (`toProductDetail`), so a fact shown here keeps its caption. Only the Managed group:
+    // the pair page shows no description, website, categories or usefulness.
+    captions: {
+      managed: productGroupCaptions({
+        vendorName: base.vendor?.name ?? null,
+        hasDescription: false,
+        hasProfile: false,
+        hasUsefulness: false,
+        descriptionEditedAt: null,
+        profileEditedAt: null,
+        usefulnessEditedAt: null,
+        managedEditedAt: raw.managedEditedAt ?? null,
+        managedEndedAt: raw.managedEndedAt ?? null,
+      }).managed,
+      corrections: toFieldCorrections(corrections.get(raw.id) ?? [], {
+        category_slugs: raw.productCategories.map((r) => r.category.slug),
+        audience_slugs: raw.productAudiences.map((r) => r.audience.slug),
+        phase_slugs: raw.productPhases.map((r) => r.phase.slug),
+        trade_slugs: raw.productTrades.map((r) => r.trade.slug),
+      }),
+    },
   };
 }
 
@@ -2389,7 +2422,8 @@ export function toProductPairResponse(
    */
   evidencedPairs: RawConnectorEvidencedPairDetailRow[],
   versions?: PairVersionResolver,
-  /** AECI-1614: the corrections on these rows, by id (`lib/field-corrections.ts`). */
+  /** AECI-1614: the corrections on these rows, by id (`lib/field-corrections.ts`). Since
+   *  AECI-1827 also the two products' own corrections, keyed by product id. */
   corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductPairResponse {
   const mechanisms = [
@@ -2402,8 +2436,8 @@ export function toProductPairResponse(
   ];
   const claims = mechanisms.flatMap((m) => m.claims);
   return {
-    context_product: toPairSubject(contextProduct),
-    other_product: toPairSubject(otherProduct),
+    context_product: toPairSubject(contextProduct, corrections),
+    other_product: toPairSubject(otherProduct, corrections),
     mechanisms,
     // `removed` and refuted claims still render but must not be counted. "N types
     // of data shared" may not include a flow that has stopped (AECI-303 / §9.1) or

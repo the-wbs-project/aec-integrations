@@ -532,6 +532,89 @@ describe('GET /api/products/:slug/integrations/:otherSlug — field captions (AE
   });
 });
 
+describe('GET /api/products/:slug/integrations/:otherSlug — subject captions (AECI-1827)', () => {
+  const EDITED = '2026-06-01T00:00:00.000Z';
+  const LATER = '2026-07-01T00:00:00.000Z';
+
+  it('carries each side its Managed caption and its live corrections, a removal as cleared', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db
+      .update(products)
+      .set({ apiDocsUrl: 'https://developers.example/procore', managedEditedAt: EDITED })
+      .where(eq(products.id, u(1)));
+    await t.db.insert(fieldOverrides).values([
+      {
+        id: u(70),
+        entityType: 'product',
+        entityId: u(1),
+        field: 'api_docs_url',
+        value: 'https://developers.example/procore',
+        sourceUrl: 'https://source.example',
+        reason: 'SECRET-REASON',
+        setAt: EDITED,
+      },
+      {
+        id: u(71),
+        entityType: 'product',
+        entityId: u(2),
+        field: 'tool_integrations_url',
+        value: null,
+        sourceUrl: null,
+        reason: 'R',
+        setAt: LATER,
+      },
+    ]);
+    const res = await get('/api/products/procore/integrations/revit');
+    const text = await res.text();
+    expect(text).not.toContain('SECRET');
+    const body = JSON.parse(text) as ProductPairResponse;
+    expect(body.mechanisms).toEqual([]);
+    expect(body.context_product.captions).toEqual({
+      managed: { form: 'updated', vendor_names: ['Acme Software'], date: EDITED },
+      corrections: [
+        {
+          field: 'api_docs_url',
+          date: EDITED,
+          source_url: 'https://source.example',
+          cleared: false,
+        },
+      ],
+    });
+    expect(body.other_product.captions).toEqual({
+      managed: null,
+      corrections: [
+        { field: 'tool_integrations_url', date: LATER, source_url: null, cleared: true },
+      ],
+    });
+    // Nothing is hidden, so neither side names a field under review.
+    expect(body.context_product.under_review).toBeUndefined();
+  });
+
+  it('drops a correction the live value no longer matches', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db
+      .update(products)
+      .set({ apiDocsUrl: 'https://vendor-changed.example' })
+      .where(eq(products.id, u(1)));
+    await t.db.insert(fieldOverrides).values({
+      id: u(70),
+      entityType: 'product',
+      entityId: u(1),
+      field: 'api_docs_url',
+      value: 'https://developers.example/procore',
+      sourceUrl: null,
+      reason: 'R',
+      setAt: EDITED,
+    });
+    const body = (await (
+      await get('/api/products/procore/integrations/revit')
+    ).json()) as ProductPairResponse;
+    expect(body.context_product.captions?.corrections).toEqual([]);
+  });
+});
+
 describe('GET /api/products/:slug/integrations/:otherSlug — per-side vendor links (AECI-1007)', () => {
   async function seedLinks() {
     await seedProducts();
@@ -2113,7 +2196,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
       status: 200,
       batches: 1,
-      statements: 11,
+      statements: 12,
       outsideBatch: 0,
     });
   });
@@ -2132,7 +2215,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
       .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
 
     const trips = await roundTrips('/api/products/revit/integrations/procore');
-    expect(trips).toEqual({ status: 200, batches: 1, statements: 11, outsideBatch: 0 });
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 12, outsideBatch: 0 });
   });
 
   it('an unknown slug', async () => {
@@ -2140,7 +2223,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
       status: 404,
       batches: 1,
-      statements: 11,
+      statements: 12,
       outsideBatch: 0,
     });
   });
