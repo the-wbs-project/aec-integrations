@@ -754,6 +754,25 @@ describe('on-page ordering firewall: product page integrations', () => {
       /\.(agreement|data_objects|data_object_slugs|dataObjects|dataObjectSlugs|caption|corrections|under_review)\b/,
     );
   });
+
+  // The three components render the cuts. A re-sort or a filter in a template would
+  // move a cut without touching the module above, and the behavioural cases above
+  // would not see it, so they get the same structural check (AECI-1783 review).
+  for (const file of [
+    'product-integration-groups.ts',
+    'product-integration-category-group.ts',
+    'product-integration-one-list.ts',
+  ]) {
+    it(`[surface:product-page-integrations-long-list] ${file} renders rows and groups in the order it is given`, () => {
+      const src = readFileSync(join(process.cwd(), 'src/app/products', file), 'utf8');
+      expect(src).not.toMatch(
+        /\.(sort|toSorted|reverse|filter|slice|splice)\(|compareText|localeCompare/,
+      );
+      expect(src).not.toMatch(
+        /\.(agreement|data_objects|data_object_slugs|dataObjects|dataObjectSlugs|caption|corrections|under_review|integration_count)\b/,
+      );
+    });
+  }
 });
 
 // ─── The connector page's powered hubs ────────────────────────────────────────
