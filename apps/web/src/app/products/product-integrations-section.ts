@@ -1,14 +1,26 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, signal } from '@angular/core';
 
-import type { ContextDirection, ProductIntegrationItem, ProductListItem } from '@aeci/shared';
+import type {
+  ContextDirection,
+  ProductDetail,
+  ProductIntegrationItem,
+  ProductListItem,
+} from '@aeci/shared';
 
+import type { ExternalLinkContext } from '../analytics/analytics';
+import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { formatNameList } from '../core/meta.helpers';
 import { RequestTrigger } from '../requests/request-trigger';
 import { contextDirectionLabel } from '../search/mechanism-labels';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
+import { integrationsZeroCaveat, integrationsZeroHeading } from '../shared/figure/figure';
+import { AecIcon } from '../shared/icon/icon';
 import type { ListingView } from '../shared/listing-toolbar/listing-toolbar';
 import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import {
   applyDeferCut,
@@ -26,6 +38,7 @@ import {
 } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
+import { hasNoIntegrationsOnRecord, showsNoIntegrationsDirectory } from './integrations-on-record';
 import { ProductIntegrationCards } from './product-integration-cards';
 import { ProductIntegrationsTable } from './product-integrations-table';
 
@@ -122,19 +135,147 @@ import { ProductIntegrationsTable } from './product-integrations-table';
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-integrations-section]',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
     Chip,
+    ExternalLinkTracker,
     IntegrationGroupCard,
     IntegrationListFilter,
     ListingViewToggle,
+    NewTabIcon,
     NgTemplateOutlet,
     ProductIntegrationCards,
     ProductIntegrationsTable,
     RequestTrigger,
   ],
   template: `
-    <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
-      {{ heading() }}
-    </h2>
+    @if (zero(); as p) {
+      <!-- AECI-1786: no integrations on record (mock-up 8). The words are the legal-reviewed
+           strings of PLAN.md section 5.2, used exactly. Text only: no illustration (ruling
+           R5) and no category chart (ruling R3, decision 19). With no rows there is no
+           filter panel, no Cards or Table toggle and no scope note. -->
+      <h2 id="integrations-title" class="text-balance" data-testid="integrations-zero-heading">
+        <span
+          class="font-display text-t-24 font-semibold tracking-[-0.01em] text-(--text-primary) md:text-t-36"
+          >{{ zeroHeading() }}</span
+        >
+      </h2>
+
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-12">
+        <div class="min-w-0 space-y-6">
+          <p
+            class="max-w-prose text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
+            data-testid="integrations-zero-caveat"
+          >
+            {{ zeroCaveat }}
+          </p>
+          @if (builtWithinLine(); as line) {
+            <p class="max-w-prose text-t-16 text-(--text-secondary)">{{ line }}</p>
+          }
+          <!-- The existing correction request, the same trigger as every "suggest a
+               correction" link: the drawer in the browser, the routed form without
+               JavaScript or on a modified click. -->
+          <a
+            aecButton
+            aecRequestTrigger
+            [entity]="'product'"
+            [kind]="'correction'"
+            [slug]="p.slug"
+            [href]="'/products/' + p.slug + '/correction'"
+            data-testid="integrations-zero-correction"
+          >
+            <ng-container i18n="@@products.detail.body.integrations.zero.exists"
+              >It does exist</ng-container
+            >
+            <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
+          </a>
+        </div>
+
+        <!-- The vendor's own links, the same fields and labels as the facts card's
+             Resources group, with the two notes that keep an API from reading as an
+             integration. -->
+        <div aecCard class="min-w-0 space-y-4 p-6" data-testid="integrations-zero-vendor">
+          @if (p.tool_integrations_url || p.api_docs_url) {
+            <h3 id="integrations-zero-resources" class="aec-overline text-(--text-secondary)">
+              <span class="flex items-center gap-2">
+                <aec-icon name="book" decorative [size]="4" />
+                <span i18n="@@products.detail.metadata.resources">Resources</span>
+              </span>
+            </h3>
+            <ul
+              class="m-0 grid list-none gap-0.5 p-0"
+              aria-labelledby="integrations-zero-resources"
+            >
+              @if (p.tool_integrations_url) {
+                <li>
+                  <a
+                    [href]="p.tool_integrations_url"
+                    target="_blank"
+                    rel="noopener nofollow"
+                    aecTrackExternalLink="product_detail"
+                    [aecLinkContext]="docsLinkContext(p, 'listing')"
+                    [class]="resourceLinkClass"
+                  >
+                    <span [class]="resourceTileClass"
+                      ><aec-icon name="grid" decorative [size]="4"
+                    /></span>
+                    <span class="min-w-0 flex-1" i18n="@@products.detail.metadata.integrationsPage"
+                      >Integrations page</span
+                    >
+                    <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
+                  </a>
+                </li>
+              }
+              @if (p.api_docs_url) {
+                <li>
+                  <a
+                    [href]="p.api_docs_url"
+                    target="_blank"
+                    rel="noopener nofollow"
+                    aecTrackExternalLink="product_detail"
+                    [aecLinkContext]="docsLinkContext(p, 'docs')"
+                    [class]="resourceLinkClass"
+                  >
+                    <span [class]="resourceTileClass"
+                      ><aec-icon name="code" decorative [size]="4"
+                    /></span>
+                    <span class="min-w-0 flex-1" i18n="@@products.detail.metadata.apiDocs"
+                      >API documentation</span
+                    >
+                    <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+          <p
+            class="flex gap-2 rounded-panel bg-(--accent-warm) p-4 text-t-14 leading-normal text-(--text-primary)"
+            data-testid="integrations-zero-api-note"
+          >
+            <aec-icon name="info" class="mt-0.5 shrink-0" decorative [size]="4" />
+            <span i18n="@@products.detail.body.integrations.zero.apiNote"
+              >An API is not an integration. We list an integration only when we can show that one
+              exists.</span
+            >
+          </p>
+          @if (noDirectoryLine(); as line) {
+            <p
+              class="flex gap-2 rounded-panel bg-(--surface-sunken) p-4 text-t-14 leading-normal text-(--text-secondary)"
+              data-testid="integrations-zero-no-directory"
+            >
+              <aec-icon name="info" class="mt-0.5 shrink-0" decorative [size]="4" />
+              <span>{{ line }}</span>
+            </p>
+          }
+        </div>
+      </div>
+      <ng-container [ngTemplateOutlet]="reachLine" />
+    } @else {
+      <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
+        {{ heading() }}
+      </h2>
+    }
 
     <!-- The filter panel (AECI-1782). Ruling R5 kept "integration filters in their
          own panel": one panel of its own, not the shared facet panel. Every control
@@ -229,31 +370,36 @@ import { ProductIntegrationsTable } from './product-integrations-table';
     }
 
     @if (lanes().rowCount === 0) {
-      <div
-        class="space-y-2 rounded-(--radius-lg) border border-dashed border-(--border-default)
+      <!-- With the zero state above this branch is empty. It still serves a section with no
+           endpoint rows on a page that has integrations elsewhere, such as a connector
+           that only powers edges. -->
+      @if (!zero()) {
+        <div
+          class="space-y-2 rounded-(--radius-lg) border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-      >
-        <!-- §13.3b (AECI-710): an extension usually has no integrations with its
+        >
+          <!-- §13.3b (AECI-710): an extension usually has no integrations with its
              host, because it runs inside it. Say so where the reader is looking,
              in one sentence, and point at the sidebar card that carries the host.
              Only on the EMPTY branch: a populated section needs no excuse. -->
-        @if (builtWithinLine(); as line) {
-          <p>{{ line }}</p>
-        }
-        <p i18n="@@products.detail.body.integrations.empty">
-          No integrations recorded yet. Vendor data is curated; if you know of one,
-          <a
-            aecRequestTrigger
-            [entity]="'product'"
-            [kind]="'correction'"
-            [slug]="slug()"
-            [href]="'/products/' + slug() + '/correction'"
-            class="text-(--accent-primary) underline underline-offset-2"
-            >suggest a correction</a
-          >.
-        </p>
-      </div>
-      <ng-container [ngTemplateOutlet]="reachLine" />
+          @if (builtWithinLine(); as line) {
+            <p>{{ line }}</p>
+          }
+          <p i18n="@@products.detail.body.integrations.empty">
+            No integrations recorded yet. Vendor data is curated; if you know of one,
+            <a
+              aecRequestTrigger
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="slug()"
+              [href]="'/products/' + slug() + '/correction'"
+              class="text-(--accent-primary) underline underline-offset-2"
+              >suggest a correction</a
+            >.
+          </p>
+        </div>
+        <ng-container [ngTemplateOutlet]="reachLine" />
+      }
     } @else {
       <!-- A page with no connector edges renders exactly what it always did:
              one unheaded table, named by the section heading. The lane structure
@@ -424,6 +570,51 @@ export class ProductIntegrationsSection {
    * pointer to "Built within". Never a lane, never a row, never counted.
    */
   readonly hosts = input<readonly ProductListItem[]>([]);
+  /**
+   * AECI-1786: the whole product, read ONLY to decide and render the zero state (no
+   * integrations on record anywhere on the page) with the vendor's own links. Optional, so
+   * a caller without it keeps the existing empty state.
+   */
+  readonly product = input<ProductDetail | null>(null);
+
+  /** The product when the page has no integrations on record, else `null`. */
+  protected readonly zero = computed(() => {
+    const p = this.product();
+    return p && hasNoIntegrationsOnRecord(p) ? p : null;
+  });
+
+  /** "We have no integrations for {product} on record", the figure's own message. */
+  protected readonly zeroHeading = computed(() =>
+    integrationsZeroHeading(this.zero()?.name ?? this.productName()),
+  );
+
+  protected readonly zeroCaveat = integrationsZeroCaveat();
+
+  /** "We have not found an integrations page published by {vendor}.", or `null`. */
+  protected readonly noDirectoryLine = computed(() => {
+    const p = this.zero();
+    if (!p?.vendor || !showsNoIntegrationsDirectory(p)) return null;
+    const vendor = p.vendor.name;
+    return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
+  });
+
+  /** The facts card's Resources link classes, so the two read as one pattern. */
+  protected readonly resourceLinkClass =
+    '-ms-2 flex items-center gap-3 rounded-control py-2 ps-2 pe-3 text-t-16 font-semibold text-(--text-primary) no-underline transition-colors duration-fast ease-standard hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+
+  protected readonly resourceTileClass =
+    'grid size-8 shrink-0 place-items-center rounded-control bg-(--accent-primary-soft) text-(--accent-primary)';
+
+  /** The same click context as the facts card's Resources links (AECI-1309). */
+  protected docsLinkContext(p: ProductDetail, purpose: 'listing' | 'docs'): ExternalLinkContext {
+    return {
+      owner_vendor_id: p.vendor?.id ?? null,
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: p.id,
+      link_purpose: purpose,
+    };
+  }
 
   /** "Enscape runs inside Revit; see Built within." or `null` when there is no host. */
   protected readonly builtWithinLine = computed(() => {
