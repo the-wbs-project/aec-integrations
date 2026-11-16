@@ -23,6 +23,7 @@ import { ProductHero } from './product-hero';
 import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
+import { ProductSimilarProducts } from './product-similar-products';
 import { ProductUsefulnessSection } from './product-usefulness';
 import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
 
@@ -84,6 +85,7 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
     ProductIntegrationsSection,
     ProductPoweredHub,
     ProductReviews,
+    ProductSimilarProducts,
     ProductUsefulnessSection,
     ProductWhoItIsFor,
     RequestDrawer,
@@ -237,6 +239,17 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               [firstPage]="p.reviews"
             />
           </section>
+
+          <!-- AECI-1785: the last section, hidden with its nav link when the list is empty. -->
+          @if (p.related_products.length > 0) {
+            <section
+              aec-product-similar-products
+              id="similar"
+              aria-labelledby="similar-title"
+              [productName]="p.name"
+              [products]="p.related_products"
+            ></section>
+          }
         </div>
       </aec-detail-layout>
 
@@ -442,6 +455,13 @@ export class ProductDetailPage {
       label: $localize`:@@products.detail.nav.reviews:Reviews`,
       count: p.review_count,
     });
+    // AECI-1785: gated on the same condition as the section, which renders last.
+    if (p.related_products.length > 0) {
+      items.push({
+        id: 'similar',
+        label: $localize`:@@products.detail.nav.similar:Similar products`,
+      });
+    }
     return items;
   });
 }

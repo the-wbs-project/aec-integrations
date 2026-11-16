@@ -299,7 +299,7 @@ There is no separate marketing page: the app home **is** the marketing page. It 
 **Right rail:**
 - "Submit a review" CTA (auth-gated)
 - Quick stats: integration count, review count, last updated
-- Related products (same category, by integration overlap)
+- Related products (same category, by integration overlap) *(Since AECI-1785 (2026-11) the page renders them as "Similar products", the last body section: up to six products sharing a category, A to Z by name with id breaking a tie, per ruling R1 on AECI-1732. No integration overlap is read. `API_CONTRACTS.md` has the order.)*
 
 **Below the fold:**
 - "Report an error" link → correction request form

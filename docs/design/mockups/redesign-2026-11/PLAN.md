@@ -534,7 +534,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Partner category filter | Each partner's categories on the integration row | Yes, `partner_categories` since AECI-1781 | None |
 | Agreement state on cards | The agreement state per integration | Yes, `agreement` since AECI-1781. Chris ruled "A" on 2026-11-14: the weakest flow decides, and a `single_source` row reads "Confirmed by one company". | None |
 | Per-chip filter counts | Derived in the browser | Yes, from the rows | Browser only |
-| Similar products | `related_products` | Yes, but the live page does not render it | Render it |
+| Similar products | `related_products` | Yes, rendered since AECI-1785 | None |
 | Category chart on the empty page | Per category, how many products connect to each kind of product | No | New aggregate. Chris has not confirmed he wants it. |
 | Review excerpts | Role and years of use | Yes | See below |
 | Rating topic chips such as "Setup" and "Training" | None. Only overall and onboarding ratings exist. | No | Cut |
@@ -597,7 +597,7 @@ The existing firewall tests would not catch it. They cover search attributes, so
 | --- | --- | --- |
 | Product page integrations | Partner name, then edge name, then id, sorted in the browser | `apps/web/src/app/products/connector-lane-grouping.ts` |
 | Pair page mechanisms | Name, then id | `apps/api/src/routes/integrations.ts` |
-| Related products | Newest first, limit 6 | `apps/api/src/routes/products.ts` |
+| Related products | A to Z by name, then id, limit 6 (newest first until AECI-1785, R1) | `apps/api/src/routes/products.ts` |
 | Search | `listing_tier`, then review count | `docs/SEARCH_RANKING.md` |
 
 No plan can move these four. Two product-page groupings do sort by volume: via-lane groups by row count (`connector-lane-grouping.ts:274-281`) and powered-hub groups by partner count (`powered-hub-grouping.ts:352-353`). The pair list is integrations first, then evidenced pairs. The counts change only through promote and the seat-gated create, retire and restore, so no plan moves them (AECI-1814). Ruling R1 (AECI-1732) ruled on 2026-11-14 that existing orders stay. (Corrected 2026-11-14. This line first said "All four are clean.")
