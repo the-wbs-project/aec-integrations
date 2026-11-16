@@ -42,7 +42,6 @@ const RESPONSE: TaxonomyResponse = {
     term('roofing', TRADE_PUBLISH_MIN_PRODUCTS - 1, 20),
     term('hvac', 7, 30),
   ],
-  total_products: 42,
 };
 
 /**

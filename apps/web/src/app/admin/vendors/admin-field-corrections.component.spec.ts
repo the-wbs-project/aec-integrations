@@ -43,7 +43,6 @@ const TAXONOMY: TaxonomyResponse = {
   audiences: [term('architects', 'Architects', 11)],
   phases: [term('design', 'Design', 21)],
   trades: [term('electrical', 'Electrical', 31)],
-  total_products: 0,
 };
 
 function makeLock(over: Partial<AdminFieldOverride> = {}): AdminFieldOverride {
