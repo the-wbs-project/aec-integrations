@@ -86,6 +86,7 @@ import { SearchNumericMenu } from './widgets/search-numeric-menu';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
 import { isReplayedEvent } from '../core/event-replay';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -142,6 +143,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
 @Component({
   selector: 'app-search-page',
   imports: [
+    AecBreadcrumb,
     NgTemplateOutlet,
     RouterLink,
     AecCard,
@@ -163,26 +165,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   template: `
     <aec-browse-layout>
       <div slot="header" class="space-y-3">
-        <nav i18n-aria-label="@@search.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex items-center gap-2 text-sm text-(--text-secondary)">
-            <li>
-              <a
-                routerLink="/"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@search.breadcrumbs.home"
-                >Home</a
-              >
-            </li>
-            <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-            <li
-              class="text-(--text-primary)"
-              aria-current="page"
-              i18n="@@search.breadcrumbs.current"
-            >
-              Search
-            </li>
-          </ol>
-        </nav>
+        <aec-breadcrumb [items]="crumbs" />
         <h1
           class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
           i18n="@@search.title"
@@ -608,6 +591,11 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   `,
 })
 export class SearchPage implements OnDestroy {
+  protected readonly crumbs: BreadcrumbItem[] = [
+    homeCrumb(),
+    { label: $localize`:@@search.breadcrumbs.current:Search` },
+  ];
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly meta = inject(MetaService);

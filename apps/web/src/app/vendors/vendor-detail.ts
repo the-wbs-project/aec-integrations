@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
@@ -26,6 +26,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { CompanyFacts } from './company-facts';
 import { VendorProductRow } from './vendor-product-row';
 import { AecIcon } from '../shared/icon/icon';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
 type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
@@ -86,6 +87,7 @@ const HERO_LINK_FIELDS = [
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AecBreadcrumb,
     AecButton,
     AecIcon,
     CompanyFacts,
@@ -101,7 +103,6 @@ const HERO_LINK_FIELDS = [
     NotFound,
     RequestDrawer,
     RequestTrigger,
-    RouterLink,
     UnderReviewMarker,
     VendorProductRow,
   ],
@@ -111,24 +112,7 @@ const HERO_LINK_FIELDS = [
       <aec-not-found />
     } @else {
       <aec-detail-layout>
-        <ol
-          slot="breadcrumbs"
-          class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)"
-        >
-          <li>
-            <a
-              routerLink="/"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@vendors.detail.breadcrumbs.home"
-            >
-              Home
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-            {{ v.company_name }}
-          </li>
-        </ol>
+        <aec-breadcrumb slot="breadcrumbs" [items]="crumbs()" />
 
         <div slot="hero" class="space-y-5">
           <!-- items-center, not items-start. The logo is a 64px square and the
@@ -513,6 +497,11 @@ const HERO_LINK_FIELDS = [
   `,
 })
 export class VendorDetailPage {
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.vendor()?.company_name ?? '' },
+  ]);
+
   private readonly route = inject(ActivatedRoute);
 
   protected readonly logoAlt = logoAlt;

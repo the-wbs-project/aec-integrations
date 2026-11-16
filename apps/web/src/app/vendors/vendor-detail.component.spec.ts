@@ -27,6 +27,7 @@ import type { VendorDetail } from '@aeci/shared';
 import { Analytics } from '../analytics/analytics';
 
 import { VendorDetailPage } from './vendor-detail';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
   return {
@@ -425,5 +426,17 @@ describe('VendorDetailPage values under review (AECI-1238)', () => {
     expect(
       el.querySelector('[data-testid="company-fact-under-review-headquarters"]'),
     ).not.toBeNull();
+  });
+});
+
+describe('VendorDetailPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reads Home, then the company as the current page', () => {
+    const { el } = setup(buildVendor());
+    expect(trail(el)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Procore Technologies', href: null, current: true },
+    ]);
   });
 });

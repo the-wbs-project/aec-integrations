@@ -160,6 +160,18 @@ describe('the section nav', () => {
     }
   });
 
+  // AECI-1843: the hrefs carry the query, so a section click on a URL with one is a
+  // same-document jump, not a page load. They read Location, so the first render is right.
+  it('keeps the query string in every section href', async () => {
+    const { root } = await open(
+      `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}?utm_source=mail`,
+    );
+    const nav = root.querySelector('nav[aria-label="Integration sections"]')!;
+    expect(nav.querySelector('a')!.getAttribute('href')).toBe(
+      `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}?utm_source=mail#overview`,
+    );
+  });
+
   // AECI-1752: the portal keeps its smooth in-page jump (ruling R2, tokens only).
   it('opts every section link into the smooth in-page jump', async () => {
     const { root } = await open(

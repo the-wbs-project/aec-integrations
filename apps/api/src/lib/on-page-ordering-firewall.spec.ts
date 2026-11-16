@@ -1473,6 +1473,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: 'cache key normalisation of query params; not an on-page list',
   },
   {
+    file: 'apps/web/src/app/core/taxonomy/browse-menu-model.ts',
+    count: 1,
+    registered: ['browse-menu-term-order'],
+  },
+  {
     file: 'apps/web/src/app/core/taxonomy/taxonomy-rank.ts',
     count: 2,
     registered: ['taxonomy-term-product-count'],

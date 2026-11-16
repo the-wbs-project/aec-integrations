@@ -10,6 +10,7 @@ import type { ProductsListResponse } from '@aeci/shared';
 import { settle, sortControl } from '../core/testing/index-page.harness';
 
 import { TaxonomyBrowsePage } from './taxonomy-browse';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 /**
  * AECI-657 — the taxonomy browse page had NO component spec, which is part of
@@ -228,5 +229,38 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
     // "Recently added" over an alphabetical list.
     expect(el(fixture).textContent).not.toContain('Recently added');
     drainFacets(httpMock);
+  });
+});
+
+describe('TaxonomyBrowsePage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => {
+    document.cookie = 'aeci_listing_view=; path=/; max-age=0';
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([
+          {
+            path: 'categories/:slug',
+            component: TaxonomyBrowsePage,
+            data: { kind: 'category', term: TERM },
+          },
+        ]),
+      ],
+    });
+  });
+
+  it('reads Home, the facet index as a link, then the term as the current page', async () => {
+    const router = TestBed.inject(Router);
+    const fixture = TestBed.createComponent(OutletHost);
+    await router.navigateByUrl('/categories/project-management');
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(trail(el(fixture))).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Categories', href: '/categories', current: false },
+      { label: 'Project Management', href: null, current: true },
+    ]);
   });
 });
