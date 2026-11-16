@@ -193,13 +193,13 @@ for (const facet of FACETS) {
 
       await untilHydrated(trigger);
       await trigger.click();
-      const optionLabels = await page
-        .getByRole('option')
-        .evaluateAll((os) => os.map((o) => o.textContent?.trim() ?? ''));
-      expect(optionLabels).toEqual(
-        isPhases
-          ? ['Project order', 'Name (A–Z)', 'Most products']
-          : ['Name (A–Z)', 'Most products'],
+      // A retrying assertion: the listbox renders after the click. The active
+      // option also carries a decorative tick, so match each label's start.
+      const labels = isPhases
+        ? ['Project order', 'Name (A–Z)', 'Most products']
+        : ['Name (A–Z)', 'Most products'];
+      await expect(page.getByRole('option')).toHaveText(
+        labels.map((l) => new RegExp(`^${l.replace(/[()]/g, '\\$&')}`)),
       );
       await page.keyboard.press('Escape');
 
