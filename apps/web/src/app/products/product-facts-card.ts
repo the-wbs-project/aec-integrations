@@ -27,7 +27,9 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
+import { splitIntegrationLanes } from './connector-lane-grouping';
 import { integrationNoun } from './integration-stat';
+import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin } from './product-extensions';
 
 /**
@@ -55,7 +57,8 @@ const FOCUS_RING =
  *
  *   1. the Bone stat panel: `integration_count` through `aec-figure`. The label is the
  *      noun the product cards print. A zero takes the figure's legal-reviewed zero mode,
- *      so no caller writes its own words for it;
+ *      so no caller writes its own words for it. A stored zero over listed rows shows
+ *      the row count instead (`count`);
  *   2. Vendor, with its size and ownership line (the §6.23 display rule is applied by the
  *      API, which nulls a hidden fact), and "Built within" under it;
  *   3. Categories, with AECi's correction and the profile caption;
@@ -103,7 +106,7 @@ const FOCUS_RING =
           data-testid="product-facts-count"
         >
           <aec-figure
-            [value]="p.integration_count"
+            [value]="count()"
             [text]="countText()"
             [label]="countNoun()"
             zero="integrations-not-on-record"
@@ -477,13 +480,34 @@ export class ProductFactsCard {
         : 'xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,1.15fr)]'),
   );
 
+  /**
+   * The rows the page lists below the card: the Integrations heading's count plus the
+   * "Integrations it powers" heading's count. Both read the same functions as those
+   * headings, so the three numbers come from one definition.
+   */
+  private readonly pageRowCount = computed(() => {
+    const p = this.product();
+    return (
+      splitIntegrationLanes(p.integrations_as_source, p.integrations_as_target).rowCount +
+      groupPoweredIntegrations(p.integrations_as_connector, p.slug).pairCount
+    );
+  });
+
+  /**
+   * The card's count. Normally the stored `integration_count`. That column is recomputed
+   * after each write, so it can lag the rows. A stored zero never wins over listed rows:
+   * the card must not say "We have no integrations on record" above a list of them.
+   */
+  protected readonly count = computed(() => {
+    const stored = this.product().integration_count;
+    return stored === 0 ? this.pageRowCount() : stored;
+  });
+
   /** The printed count. `aec-figure` never formats. */
-  protected readonly countText = computed(() =>
-    formatNumber(this.product().integration_count, this.locale, '1.0-0'),
-  );
+  protected readonly countText = computed(() => formatNumber(this.count(), this.locale, '1.0-0'));
 
   /** The noun the product cards print with the same count. */
-  protected readonly countNoun = computed(() => integrationNoun(this.product().integration_count));
+  protected readonly countNoun = computed(() => integrationNoun(this.count()));
 
   /** The vendor's one line (AECI-1310). Sources stay on the vendor page. */
   protected readonly vendorFactsLine = computed<string | null>(() => {

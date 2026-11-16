@@ -14,7 +14,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductDetail } from '@aeci/shared';
+import type { PoweredIntegrationItem, ProductDetail, ProductIntegrationItem } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 
@@ -134,6 +134,55 @@ describe('ProductFactsCard (AECI-1779)', () => {
         'Not on record means we have not found one. It is not proof that none exists.',
       );
       expect(text(stat)).not.toContain('0 integrations');
+    });
+
+    it('shows the listed rows, never the zero words, when a stale stored zero sits over rows', () => {
+      // The fx-agave fixture: stored integration_count 0, one endpoint row, two powered pairs.
+      const page = { id: 'p0', slug: 'procore', name: 'Procore', logo_url: null };
+      const a = { id: 'p1', slug: 'sage', name: 'Sage', logo_url: null };
+      const b = { id: 'p2', slug: 'vista', name: 'Vista', logo_url: null };
+      const c = { id: 'p3', slug: 'quickbooks', name: 'QuickBooks', logo_url: null };
+      const base = {
+        mechanism_kind: 'native',
+        mechanism_name: null,
+        direction: 'a_to_b',
+        via: null,
+        data_object_slugs: [],
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      } satisfies Partial<PoweredIntegrationItem>;
+      const endpointRow: ProductIntegrationItem = {
+        ...base,
+        id: '00000000-0000-4000-8000-000000000101',
+        name: 'Sage to Procore',
+        context_direction: null,
+        source: a,
+        target: page,
+        powered_by_product: null,
+        data_objects: [],
+        partner_categories: [],
+        agreement: null,
+      };
+      const powered: PoweredIntegrationItem[] = [
+        { ...base, id: '00000000-0000-4000-8000-000000000102', name: 'A', source: a, target: b },
+        { ...base, id: '00000000-0000-4000-8000-000000000103', name: 'B', source: b, target: c },
+      ];
+      const { card } = setup(
+        buildProduct({
+          integration_count: 0,
+          integrations_as_target: [endpointRow],
+          integrations_as_connector: powered,
+        }),
+      );
+      const stat = card.querySelector('[data-testid=product-facts-count]')!;
+      expect(text(stat.querySelector('.aec-figure-value'))).toBe('3');
+      expect(text(stat.querySelector('p'))).toBe('integrations');
+      expect(text(stat)).not.toContain('on record');
+    });
+
+    it('keeps a non-zero stored count even when it differs from the listed rows', () => {
+      const { card } = setup(buildProduct({ integration_count: 12 }));
+      expect(text(card.querySelector('.aec-figure-value'))).toBe('12');
     });
 
     it('never carries the reach line: section 13.7 keeps it under the Integrations section', () => {
