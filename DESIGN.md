@@ -803,7 +803,7 @@ From top to bottom, a product page is:
 - **Vendor** is a borderless row link with a hover fill (`--surface-sunken`), the 32px mark, the name in Source Serif at `--t-20` and the size and ownership line at `--t-13`.
 - **Resources** are row links: a 32px Forest-soft tile with the glyph, the label at `--t-16` weight 600, and the new-tab cue at the end.
 - **Group headings** are the overline with a 16px glyph: building, tag, book, hand, users, hard hat and gantt.
-- **Audiences, Trades and Project phases stay in the card** in a lower row under a hairline, three columns from `md`, with the Managed caption closing the card. AECI-1780 moves them into the About band, as mock-up 6 draws them.
+- **Audiences, Trades and Project phases stay in the card** in a lower row under a hairline, one equal column per group from `md`, with the Managed caption closing the card. AECI-1780 moves them into the About band, as mock-up 6 draws them.
 
 #### Hero glow, no blur, no noise (clash 13)
 

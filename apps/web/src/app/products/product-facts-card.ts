@@ -364,7 +364,7 @@ const FOCUS_RING =
       @if (hasFacets() || managedCaption()) {
         <div class="space-y-6 border-t p-6" data-testid="product-facts-facets">
           @if (hasFacets()) {
-            <div class="grid gap-6 md:grid-cols-3">
+            <div class="grid gap-6 md:auto-cols-fr md:grid-flow-col">
               @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
                 <section aria-labelledby="audiences-label" class="min-w-0 space-y-3">
                   <h2 id="audiences-label" [class]="groupHeading">
