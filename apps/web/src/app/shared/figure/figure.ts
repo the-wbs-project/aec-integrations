@@ -11,6 +11,12 @@ import {
 export type FigureTone = 'forest' | 'on-brand';
 
 /**
+ * `fig` is the count figure at `--t-fig` (28 to 40px). `score` is the score figure
+ * at a fixed `--t-48` (ruling A3, 2026-11-16), for the reviews band.
+ */
+export type FigureSize = 'fig' | 'score';
+
+/**
  * The zero states the component owns. The words are fixed by legal review
  * (`PLAN.md` section 5.2, "Copy fixed by legal review") and live here, so no
  * caller passes its own.
@@ -22,8 +28,9 @@ export type FigureZeroMode = 'integrations-not-on-record';
  * Integration stat, clashes 8 and 25).
  *
  * One large number: Source Serif 600 at `--t-fig` (28 to 40px), with a label and
- * optional supporting text. One per band. Forest on a light ground, `on-brand`
- * on a Forest ground.
+ * optional supporting text. One per band, except the reviews band, which shows two
+ * (ruling A4). `size="score"` sets a score figure at `--t-48` (48px, ruling A3).
+ * Forest on a light ground, `on-brand` on a Forest ground.
  *
  * The component never rounds or formats. The caller passes the printed string as
  * `text` ("4.0", "12,345") and `suffix` (the small "/5"). `value` is read only to
@@ -75,6 +82,8 @@ export class AecFigure {
   /** Supporting text under the label, for a figure that is not zero. */
   readonly support = input<string | null>(null);
   readonly tone = input<FigureTone>('forest');
+  /** `score` for a score figure at 48px. The default is the count figure at `--t-fig`. */
+  readonly size = input<FigureSize>('fig');
   /** Opt in to the legal-reviewed zero state. */
   readonly zero = input<FigureZeroMode | null>(null);
   /** The product name for the zero heading. */
@@ -96,7 +105,8 @@ export class AecFigure {
 
   protected readonly numeralClass = computed(
     () =>
-      'font-display text-t-fig font-semibold tracking-[-0.01em] tabular-nums ' +
+      'font-display font-semibold tracking-[-0.01em] tabular-nums ' +
+      (this.size() === 'score' ? 'text-t-48 ' : 'text-t-fig ') +
       (this.tone() === 'on-brand' ? 'text-(--text-on-brand)' : 'text-(--accent-primary)'),
   );
   protected readonly labelClass = computed(() =>

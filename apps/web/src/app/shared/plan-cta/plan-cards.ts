@@ -6,8 +6,19 @@
  * size and line (2026-10-26).
  *
  * Anchor site: **Mintlify**'s billing page, Mobbin screen
- * `c74405c6-a307-4e35-b8eb-21a1129ce5f3`. Flat bordered plan cards, the paid
- * one marked by a heavier border rather than a shadow or a gradient.
+ * `c74405c6-a307-4e35-b8eb-21a1129ce5f3`. The paid card is marked by a heavier
+ * border, never a gradient, and by its own name and price.
+ *
+ * Frame (ruling A7, 2026-11-16): both cards are the shared card (`aecCard`): 24px
+ * radius, `shadow-card`, a transparent 1px edge. The Managed card keeps a 2px
+ * Forest border (the unlayered `.aec-plan-card-featured` rule, after `.aec-card`
+ * in `styles.css`) and drops 1px of padding to offset it, so both buttons are the
+ * same width. The border is not its only mark: its "Managed" name and price say
+ * which plan it is. Words, prices, buttons, links and order are unchanged.
+ *
+ * From `sm` each card is a six-row subgrid of the outer grid (name, summary,
+ * price, button, label, list), so the two buttons sit on one line even though
+ * the Managed price row is taller than the Free one.
  *
  * The price is the default list price (`MANAGED_LIST_PRICE_CENTS`,
  * `STAGE_2_PAID_TIERS_SPEC.md` §13.13), formatted by the same helper as the
@@ -22,13 +33,15 @@
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Every string is `$localize`d or
- * `i18n`. Light only. Styled by the unlayered `.aec-plan-*` classes in
- * `styles.css`, because a border-color utility loses to the unlayered `*` rule.
+ * `i18n`. Light only. The name, price and featured border are the unlayered
+ * `.aec-plan-*` classes in `styles.css`, because a border-color utility loses to
+ * the unlayered `*` rule.
  */
 import { Component, LOCALE_ID, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AecButton } from '../button/button';
+import { AecCard } from '../card/card';
 import { Analytics, type PlanCtaPage } from '../../analytics/analytics';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
@@ -38,11 +51,16 @@ import { AecIcon } from '../icon/icon';
 
 @Component({
   selector: 'aec-plan-cards',
-  imports: [AecButton, AecIcon, RouterLink, ClaimDialogTrigger],
+  imports: [AecButton, AecCard, AecIcon, RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2 sm:gap-y-0">
-      <section [class]="cardClass + ' p-5'" aria-labelledby="plan-card-free">
+      <section
+        aecCard
+        data-plan-card="free"
+        class="flex flex-col p-5 sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
+        aria-labelledby="plan-card-free"
+      >
         <h3 id="plan-card-free" class="aec-plan-card-name text-(--text-primary)">
           {{ copy.free.name }}
         </h3>
@@ -86,7 +104,9 @@ import { AecIcon } from '../icon/icon';
       </section>
 
       <section
-        [class]="cardClass + ' aec-plan-card-featured p-[19px]'"
+        aecCard
+        data-plan-card="managed"
+        class="aec-plan-card-featured flex flex-col p-[19px] sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
         aria-labelledby="plan-card-managed"
       >
         <h3 id="plan-card-managed" class="aec-plan-card-name text-(--text-primary)">
@@ -135,15 +155,6 @@ export class PlanCardsComponent {
   private readonly analytics = inject(Analytics);
   protected readonly claimHref = CLAIM_DIALOG_FALLBACK_HREF;
   protected readonly portalPath = PORTAL_PATH;
-  /**
-   * From `sm` each card is a six-row subgrid of the outer grid (name, summary,
-   * price, button, label, list), so the two buttons sit on one line even though
-   * the Managed price row is taller than the Free one. The featured card drops 1px
-   * of padding to offset its 2px border, so both buttons are the same width.
-   */
-  protected readonly cardClass =
-    'aec-plan-card flex flex-col sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0';
-
   /** Which page the cards sit on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();
   /** A signed-in vendor: the claim link becomes "Go to your portal" (spec §5). */

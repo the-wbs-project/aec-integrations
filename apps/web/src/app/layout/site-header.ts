@@ -60,6 +60,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { BrandLogo } from './brand-logo';
 import { BrowseMenu } from './browse-menu';
 import { HEADER_LINK, HEADER_LINK_ACTIVE, ON_FOREST_FOCUS_RING } from './header-link-classes';
@@ -96,20 +97,22 @@ import { UserMenu } from './user-menu';
         The gaps are load-bearing, not taste. AECI-1771 measured the row on Forest
         at 768, 1024 and 1280px, signed out. The signed-in widths are an
         estimate, not a measurement. DESIGN.md §Navigation has the table. Re-measure at 1024 before adding anything to this row.
+        The row sits on the page wrap (BAND_WRAP_CLASS, ruling A2): 1328px wide, 24, 32
+        and 48px gutters, so the wordmark lines up with the bands and the footer.
       -->
-      <div
-        class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-2.5 md:gap-8 md:py-4 lg:gap-4 xl:gap-8"
-      >
+      <div [class]="rowClass">
         <aec-brand-logo tone="on-dark" [responsive]="true" />
         <!--
           The search pill (AECI-1772, clash 29). It sits after the wordmark and
           takes the free width, up to 460px, so it is the one flexible part of the
           row. Below lg the mobile menu carries search. The pill needs the same
-          lg handover as the inline nav: if either moves, move both.
+          lg handover as the inline nav: if either moves, move both. The id is a
+          property binding, so only the input element carries "header-search". A
+          static inputId attribute would also stay on the host as a second copy.
         -->
         <aec-search-autocomplete
           class="hidden max-w-[460px] min-w-60 flex-1 lg:block"
-          inputId="header-search"
+          [inputId]="searchInputId"
           inputClass="w-full"
           inputHeightClass="h-11"
           [fieldClass]="pillField"
@@ -213,6 +216,10 @@ export class SiteHeader {
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
 
+  /** The bar's row: the shared page wrap (ruling A2), then the row's own gaps and height. */
+  protected readonly rowClass = `${BAND_WRAP_CLASS} flex items-center gap-3 py-2.5 md:gap-8 md:py-4 lg:gap-4 xl:gap-8`;
+  /** The pill's input id, and its label's `for`. Only the input carries it. */
+  protected readonly searchInputId = 'header-search';
   protected readonly linkClass = HEADER_LINK;
   protected readonly activeClass = HEADER_LINK_ACTIVE;
   /** The header search field's one ring set: Bone, 3px at 3px, on Forest. */

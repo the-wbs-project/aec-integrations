@@ -1,11 +1,12 @@
 /**
- * The page wrap of a band (AECI-1766, PLAN.md §4.3, DESIGN.md §4): 1328px wide,
- * with 24px gutters, 32px from `md` and 48px from `lg`. One constant, so the Forest
- * hero band and the Bone band cannot drift apart.
+ * The page wrap (AECI-1766, PLAN.md §4.3, DESIGN.md §4): 1328px wide, with 24px
+ * gutters, 32px from `md` and 48px from `lg`. One constant, so nothing that sits
+ * on it can drift apart.
  *
- * Only the two bands use it. The header, the footer and today's page containers
- * keep their own wrap. Whether they take this one is Chris's call (DESIGN.md §4
- * "Open values", "Page wrap for the shell and the bands"). Whole class names, so
- * Tailwind's scanner sees each one.
+ * It holds the Forest hero band, the Bone band, and since ruling A2 (2026-11-16)
+ * the site header, its Browse and mobile menu panels, and the footer. Page bodies
+ * not yet rebuilt keep the 7xl canvas until their own issue moves them, so they
+ * sit 8 to 16px off this edge for now (DESIGN.md §4 "Open values"). Whole class
+ * names, so Tailwind's scanner sees each one.
  */
 export const BAND_WRAP_CLASS = 'mx-auto w-full max-w-[1328px] px-6 md:px-8 lg:px-12';
