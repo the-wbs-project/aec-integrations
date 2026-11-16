@@ -90,7 +90,8 @@ test.describe('/ — home browse block', () => {
       // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
       // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
       // global header flyout (AECI-155, outside #main), which the `#main ul`
-      // scope excludes. The hero "Popular:" row links to products, not facets.
+      // scope excludes. The hero "Largest categories" fallback links to
+      // `/categories/:slug` too, but it is a `<p>`, not a `ul`, so it is excluded.
       // The "View all" link is `/{segment}` (no slug) so it too is excluded.
       const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);

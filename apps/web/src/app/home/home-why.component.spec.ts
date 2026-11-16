@@ -132,7 +132,7 @@ describe('HomeWhy', () => {
     expect(h.innerHTML).not.toContain('--surface-raised');
   });
 
-  it('is a static, cache-neutral band with no controls', () => {
+  it('is a static, cache-neutral band with no buttons (the one action is a link)', () => {
     expect(setup().querySelectorAll('button')).toHaveLength(0);
   });
 });
