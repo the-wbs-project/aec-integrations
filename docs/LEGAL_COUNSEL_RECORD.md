@@ -56,6 +56,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q46 | Terms of Service | Section 230 when the vendor pays and our staff approve the content first | Alexander Coffin | 2026-11-16 |
 | Q47 | Privacy Policy | Privacy notice owed to a person named in a vendor's customer quote | Alexander Coffin | 2026-11-16 |
 | Q48 | Vendor Terms | Right of publicity when a vendor's testimonial names a person | Alexander Coffin | 2026-11-16 |
+| Q49 | Vendor Terms | A vendor lists its customers by name on our site: false endorsement exposure | Alexander Coffin | 2026-11-17 |
 | Q50 | Vendor Terms | Do our vendor warranty and indemnity cover third-party material in screenshots and quotes | Travis Russell | 2026-11-15 |
 | Q51 | Privacy Policy | A click-to-play YouTube or Vimeo video for visitors in the EEA, the UK and Switzerland | Alexander Coffin | 2026-11-16 |
 | Q52 | Privacy Policy | An embedded third-party video player: Video Privacy Protection Act and Florida wiretap exposure | Alexander Coffin | 2026-11-16 |
@@ -67,6 +68,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q58 | Terms of Service | A public "used by N accounts" count on a product page | Alexander Coffin | 2026-11-16 |
 | Q59 | Terms of Service | An employee records their employer's software and office names on our site without authority | Alexander Coffin | 2026-11-16 |
 | Q60 | Privacy Policy | Adding new sections to a legal page before its first effective date: is the 30-day notice owed | Travis Russell | 2026-11-15 |
+| Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Alexander Coffin | 2026-11-17 |
 
 ## Questions and answers
 
@@ -1087,7 +1089,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 
 **What we did:** Nothing built yet. The Ray ID is fine and the sentence is probably enough. The visit record for a visitor who sends no privacy signal is not aggregate: it holds a user-agent hash and network details, and links to the request log's keyed IP hash. So the Phase 1 sentence attaches to 'our record of the visit', not to 'the tally'. No change to the live Privacy Policy.
 
-Q44 to Q60 are batch 4, asked on 2026-11-13 about two planned features: the Enhanced profile and the saved software list. Only the answered ones are recorded here. Q49 came back on 2026-11-16 with an answer to a different customer's tax question, so it is not recorded. Chris replied in that conversation on 2026-11-16 and it is waiting for a real answer. The attorney's opening and closing lines about live consultations are left out.
+Q44 to Q60 are batch 4, asked on 2026-11-13 about two planned features: the Enhanced profile and the saved software list. Only the answered ones are recorded here. Q49 came back on 2026-11-16 with an answer to a different customer's tax question, so it is not recorded. Chris replied in that conversation and the real answer arrived on 2026-11-17. The attorney's opening and closing lines about live consultations are left out.
 
 ### Q44. Is a paid, richer vendor profile advertising that needs a label
 
@@ -1208,6 +1210,28 @@ Question: is the vendor's recorded statement of consent enough to protect us aga
 No. The vendor's checkbox doesn't protect you. You need the person's own consent on record, or at least a way to check it with them. Section 540.08(1) bars publishing a person's name for trade or advertising purposes without express written or oral consent given by that person (or certain authorized others, such as a licensee or estate). What matters is whether the person actually consented. Your belief that they did isn't a defense. The statute has no good-faith reliance exception for publishers, and the exemptions in 540.08(4), like news and bona fide public-interest uses, don't fit a paid vendor testimonial. You publish it and you're paid for the plan, so you're a "person" who "publicly uses" the name. Common-law misappropriation points the same way. So if the customer never agreed, the vendor's tick doesn't cure anything. It's just the vendor's word, which is effectively hearsay on the one fact that decides the claim. The person can seek an injunction plus damages, including a reasonable royalty, and potentially punitive damages. The indemnity helps, but it moves the cost. It doesn't move the liability. You're still the defendant. It's also only worth what the vendor's balance sheet is worth, and the "IP or other rights" wording invites a fight over whether publicity claims are covered. Removal on request limits ongoing exposure but does nothing about the period before removal.
 
 **What we did:** Our view was wrong. Under Fla. Stat. 540.08 we need the named person's own consent on record. The vendor's tick is not a defence. Nothing built yet. No quote that names a person may be published on the vendor's word alone. The remark on "IP or other rights" confirms text item 14.3 from Q50. Ruling 30: customer quotes are left out of Enhanced 1.0.
+
+### Q49. A vendor lists its customers by name on our site: false endorsement exposure
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan to let a vendor on a paid plan show two things on its product page. One is a plain-text list of firms that use the product. The other is up to three short case studies, each naming a customer firm with a link to the full study on the vendor's site. We show firm names as text only. We show no customer logos.
+
+Your colleague advised us on November 4, 2026 that nominative fair use is a defense and not a license, and that a use suggesting sponsorship or endorsement is actionable under Lanham Act section 43(a). That answer was about a vendor's own name and logo. Here the names belong to third parties who never dealt with us.
+
+Our planned controls: the section is labelled as supplied by the vendor. For each name the vendor ticks a statement that the firm agreed to be named. One of our staff approves the list before it is published, checking the ticks only. We remove a name within two business days of a complaint from the named firm.
+
+Our view: plain-text names, a per-name statement of permission from the vendor, the vendor label and prompt removal keep our exposure to a false-endorsement claim low. We do not need written proof of each firm's permission.
+
+Question: are those controls enough to protect us against a false-endorsement claim by a named customer firm, or must we hold proof of each firm's permission?
+
+**Answer (Alexander Coffin, 2026-11-17):**
+
+Sorry about that. Mostly yes. You don't need written proof of each firm's permission on file. But a tick-box alone is weaker than it looks, and two small changes would close most of the gap. Section 43(a) doesn't require consent as such. The question is whether the use is likely to confuse people about whether a firm endorses or is affiliated with a product. The tricky part is that a true customer list usually isn't false at all. If the firm really uses the product, saying so is accurate. The risk is in the case studies. A named case study reads like a testimonial, and that's where "they never agreed to this" claims come from. On your exposure: the vendor makes the statement and you host it. So the realistic claim against you is contributory liability, which under the Inwood standard turns on what you knew or had reason to know. Your controls fit that well. You don't verify anything up front, but once a complaint arrives, you have actual knowledge and the clock starts. Two business days is fine for the plain name list. For a case study the firm says it never approved, I'd take it down the same day while you look into it. Don't count on Section 230. It excludes intellectual property claims, and some courts treat Lanham Act claims as IP. Also, a staff member who "approves" the list arguably makes you more of a co-publisher, even if all they check is the ticks. I'd describe that step as a completeness check, not an approval.
+
+**What we did:** Our view mostly holds. Nothing built yet. We do not need proof of each firm's permission. Two changes follow. A case study a named firm disputes comes down the same day while we look into it, and a plain name stays at two business days. The staff step on these two blocks is called a completeness check, never an approval, in the product, the content policy and the docs. Section 230 is not a defence to this claim. The first answer received on 2026-11-16 was to another customer's question and is not recorded.
 
 ### Q50. Do our vendor warranty and indemnity cover third-party material in screenshots and quotes
 
@@ -1425,7 +1449,15 @@ Question: is that right, or do we need a higher minimum count, or a promise from
 
 Mostly right, but I'd add the vendor promise. It costs you almost nothing and covers the weak spot. The count probably qualifies as "aggregate consumer information" under Cal. Civ. Code §1798.140(b). That means data about a group that isn't linked or reasonably linkable to any consumer or household. If it fits there, it isn't personal information. Handing it over isn't a "sale," even though vendors pay for it. "Sharing" isn't really in play either, because it's limited to cross-context behavioral advertising. So far, so good. The problem is your market size. When a product has a few dozen listers and the number updates live, a vendor can watch it change. Say it goes from 11 to 12 the week after a firm signs up, and the vendor already knows that firm is its customer. Now the number is about one firm, which is exactly the "reasonably linkable" problem. Raising the floor to 10 doesn't fix that. The leak comes from the changes over time, not the floor.
 
-**What we did:** Our view mostly holds. Nothing built yet. The Vendor Terms gain a promise that a vendor will not try to identify the accounts behind a total. A higher floor does not fix the real leak, which is a vendor watching the number change. The total must not update live. Ruling 32: it refreshes monthly. The answer gives no remedy for the change-over-time leak. A delayed or rounded total is our reading, not counsel's.
+**Follow-up asked:**
+
+Thank you. You said the leak is a vendor watching the total change, and that a higher floor does not fix it. One question: if we refresh each total once a month instead of live, keep the minimum of 5, and add the vendor's promise not to identify accounts, is the total then aggregate consumer information under Cal. Civ. Code 1798.140(b), or is something more needed, such as rounding?
+
+**Follow-up answer (Alexander Coffin, 2026-11-17):**
+
+Monthly refresh, a floor of 5, and the vendor promise get you closer. I don't think they get you all the way to "aggregate consumer information" under 1798.140(b). Something more is needed, and rounding or noise is the practical fix. The (b) test doesn't turn on whether the vendor promises to behave. It asks whether the count is "linked or reasonably linkable" to a consumer or household. A contractual promise not to re-identify is one of the elements of the deidentified definition in 1798.140(m), alongside a public commitment and technical measures. It doesn't make a linkable number unlinkable. So the promise helps if you rely on (m), but it doesn't fix (b) on its own.
+
+**What we did:** Our view mostly holds, with one addition. Nothing built yet. The Vendor Terms gain a promise that a vendor will not try to identify the accounts behind a total. Ruling 32 set a monthly refresh. The follow-up says that monthly refresh, a floor of 5 and the promise are still not enough to make the total aggregate information. The number itself must be rounded or have noise added. The promise counts toward the separate "deidentified" definition, together with a public commitment and technical measures. Chris's ruling on rounding is open, and it amends ruling 32.
 
 ### Q58. A public "used by N accounts" count on a product page
 
@@ -1509,6 +1541,33 @@ Don't apply new uses to data collected earlier without notice or consent.
 Even if not strictly required, give a short notice or email when the first version takes effect. It costs little and builds goodwill.
 
 **What we did:** Our view holds as contract: text added before the first effective date is part of the first version and owes no 30-day notice. Two limits follow. A new use of data we already hold needs notice or consent whenever its text lands, which reaches the screening job in Q53. The draft banner does not protect a live site that collects data, so the first effective date should not slip behind new features. Ruling 28: a short notice or email goes out when the first version takes effect.
+
+Q61 and Q62 are batch 5, asked on 2026-11-16 from AECI-1826, the product page redesign.
+
+### Q61. A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, an independent US directory of construction-industry software compiled from public information. Florida law governs. This is one question, with one decision at the end.
+
+Most listed vendors have never claimed their listing. Your colleague advised us on November 4 and 5, 2026 that using a product's name in text to identify it is nominative use and low risk when the listing is marked Unclaimed and carries a clear not-affiliated line, that a logo is riskier, and that the page must not look official. We followed that advice. On an unclaimed listing the logo is never larger than 32 pixels, we use none of the vendor's colours, and the top of the page carries this line beside the product name:
+
+"Unclaimed · not affiliated with or endorsed by this vendor"
+
+We are redesigning the product page. Two things are new, and both use the name as text only.
+
+1. At the top of the page, under our own site header, the product name is the page title in large type on our own dark green background. The line above sits beside it.
+2. When the reader scrolls down, a slim bar stays fixed at the top of the screen. It reads "AEC Integrations › Revit": our own wordmark first, then the product name in small plain text, then links to the page's sections. It shows no vendor logo and no vendor colour. The not-affiliated line is not repeated in this bar. By then it has scrolled out of view with the top of the page.
+
+Our view: both are nominative use of a word name. The bar leads with our own wordmark, so it reads as our page about the product, not the vendor's own site. The line does not need to be repeated in the bar.
+
+Question: on an unclaimed listing, may the fixed bar show the product name in text without the not-affiliated line beside it, or must the bar repeat that line or leave the name out?
+
+**Answer (Alexander Coffin, 2026-11-17):**
+
+The bar may show the name without repeating the line. Nominative fair use permits using a product’s name to identify it if you use only what is needed and nothing suggests sponsorship. Plain text, no logo, smaller than your own wordmark, which comes first and identifies you as the source, meets that standard. A disclaimer helps but is not required, and Lanham Act 43(a) does not require you to repeat it wherever the name appears. Courts in the Eleventh Circuit, which covers Florida, ask whether the overall page is likely to confuse users about affiliation, so keep the bar free of “official,” vendor colors or styling, and claim language. If you want extra margin at low cost, add a short “Unclaimed” tag beside the name in the bar.
+
+**What we did:** Our view holds. The sticky bar keeps the product name for every product, as built. The bar stays free of vendor colours, vendor styling, the word "official" and any claim language. Counsel offers an optional "Unclaimed" tag beside the name. Chris's ruling on that tag is open. Recorded on AECI-1826.
 
 ## Chris's rulings
 
