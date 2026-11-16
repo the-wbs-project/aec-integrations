@@ -68,7 +68,14 @@ import {
   routeIntegrationLane,
   splitIntegrationLanes,
 } from './connector-lane-grouping';
-import { filterIntegrationLanes, filterPoweredHubView } from './integration-filter';
+import {
+  NO_INTEGRATION_FILTER,
+  dataObjectOptions,
+  filterIntegrationLanes,
+  filterPoweredHubView,
+  partnerCategoryOptions,
+  rowsWithoutDataObjects,
+} from './integration-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
 // ─── The registry ─────────────────────────────────────────────────────────────
@@ -520,13 +527,124 @@ describe('on-page ordering firewall: product page integrations', () => {
       'utf8',
     );
     expect(src).toMatch(/splitIntegrationLanes\(this\.asSource\(\), this\.asTarget\(\)\)/);
-    expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.query\(\)\)/);
+    // AECI-1782 widened the filter to the reader's whole filter state. Still one call,
+    // still over the lane view as split.
+    expect(src).toMatch(/filterIntegrationLanes\(this\.lanes\(\), this\.filterState\(\)\)/);
     expect(src).toMatch(/applyDeferCut\(view, limit\)/);
     expect(src).not.toMatch(/\.(sort|toSorted|reverse)\(|compareText|localeCompare/);
     // No row filter or cut of its own either. A filter the reader chooses belongs in
     // `integration-filter.ts`, where the cases above cover it. The rendered check is
     // the component half: no filter selected means every row renders.
     expect(src).not.toMatch(/\.(filter|slice|splice)\(/);
+  });
+
+  // AECI-1782: the redesigned section's filter panel. A filter the reader chooses is
+  // allowed; it must remove rows only, keep the lane order, and read no paid input.
+  const PAID_ROW_FIELDS = [
+    'data_object_slugs',
+    'data_objects',
+    'agreement',
+    'caption',
+    'corrections',
+    'under_review',
+  ] as const;
+
+  const readerFilter = (view: ReturnType<typeof splitIntegrationLanes>) => {
+    const keys = (v: typeof view) => [
+      ...v.direct.map((r) => r.key),
+      ...v.via.flatMap((g) => g.rows.map((r) => r.key)),
+    ];
+    return {
+      none: keys(filterIntegrationLanes(view, NO_INTEGRATION_FILTER)),
+      outbound: keys(
+        filterIntegrationLanes(view, { ...NO_INTEGRATION_FILTER, directions: ['outbound'] }),
+      ),
+      category: keys(
+        filterIntegrationLanes(view, {
+          ...NO_INTEGRATION_FILTER,
+          partnerCategories: ['accounting'],
+        }),
+      ),
+      categoryChips: partnerCategoryOptions(view).map((t) => t.slug),
+    };
+  };
+
+  /** The base fixture with directions and categories the reader can filter on. */
+  const withFacets = (rows: ProductIntegrationItem[]) =>
+    rows.map((row, i) => ({
+      ...row,
+      context_direction: (['outbound', 'inbound', 'both', null] as const)[i % 4]!,
+      partner_categories:
+        i % 3 === 0
+          ? [{ slug: 'accounting', name: 'Accounting' }]
+          : i % 3 === 1
+            ? [
+                { slug: 'field-b', name: 'Field' },
+                { slug: 'field-a', name: 'Field' },
+              ]
+            : [],
+    }));
+
+  it('[surface:product-page-integrations-redesign] a reader filter keeps the lane order and reads no paid input', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const base = readerFilter(splitIntegrationLanes(withFacets(asSource), withFacets(asTarget)));
+    // No filter: every row, in the lane order.
+    expect(base.none).toEqual([...baseline.direct, ...baseline.via.flatMap((g) => g.rows)]);
+    // A filter removes and never reorders: each result is a subsequence of the whole.
+    for (const subset of [base.outbound, base.category]) {
+      expect(subset.length).toBeGreaterThan(0);
+      expect(base.none.filter((k) => subset.includes(k))).toEqual(subset);
+    }
+    for (const dir of ['rising', 'falling'] as const) {
+      const flipped = readerFilter(
+        splitIntegrationLanes(
+          withFacets(flipRows(asSource, PAID_ROW_FIELDS, dir)),
+          withFacets(flipRows(asTarget, PAID_ROW_FIELDS, dir)),
+        ),
+      );
+      expect(flipped, dir).toEqual(base);
+    }
+  });
+
+  it('[surface:product-page-integrations-redesign] chip options are A to Z by name, slug breaking a tie, never by count', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const view = splitIntegrationLanes(withFacets(asSource), withFacets(asTarget));
+    // "Field" is carried by more rows than "Accounting"; A to Z still puts Accounting first,
+    // and the two "Field" terms tie on name, so the slug decides.
+    expect(partnerCategoryOptions(view).map((t) => t.slug)).toEqual([
+      'accounting',
+      'field-a',
+      'field-b',
+    ]);
+    const objects = [
+      { slug: 'rfi', name: 'RFIs' },
+      { slug: 'invoice-b', name: 'invoices' },
+      { slug: 'invoice-a', name: 'Invoices' },
+    ];
+    const withObjects = asSource.map((row, i) => ({
+      ...row,
+      data_objects: i % 2 === 0 ? objects : [objects[0]!],
+      data_object_slugs: i % 2 === 0 ? objects.map((o) => o.slug) : ['rfi'],
+    }));
+    const options = dataObjectOptions(splitIntegrationLanes(withObjects, asTarget));
+    // compareText ignores case first, then breaks on it; the slug comes last.
+    expect(options.map((t) => t.name)).toEqual(['Invoices', 'invoices', 'RFIs'].sort(compareText));
+    expect(options.map((t) => t.slug)[2]).toBe('rfi');
+  });
+
+  it('[surface:product-page-integrations-redesign] a data-object filter leaves out rows with no data object on record', () => {
+    const { asSource, asTarget } = endpointFixture();
+    const rows = asSource.map((row, i) => ({
+      ...row,
+      data_object_slugs: i % 2 === 0 ? ['invoice'] : [],
+      data_objects: i % 2 === 0 ? [{ slug: 'invoice', name: 'Invoices' }] : [],
+    }));
+    const view = splitIntegrationLanes(rows, asTarget);
+    const filtered = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      dataObjects: ['invoice'],
+    });
+    expect(filtered.rowCount).toBe(view.rowCount - rowsWithoutDataObjects(view));
   });
 });
 

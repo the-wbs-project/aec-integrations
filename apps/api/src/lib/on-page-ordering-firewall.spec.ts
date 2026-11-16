@@ -175,7 +175,8 @@ const SURFACES: readonly Surface[] = [
     key: 'related-products',
     status: 'covered',
     spec: 'api',
-    order: 'Newest first, id breaking a tie, 6 shown; membership by shared category',
+    order:
+      'New list (R1, AECI-1785): A to Z by name, case folded, id breaking a tie, 6 shown; membership by shared category',
   },
   {
     key: 'pair-page-closest-matches',
@@ -192,9 +193,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-integrations-redesign',
-    status: 'pending',
-    owner: 'AECI-1782',
-    order: 'New list: A to Z by name, id tie-break (R1); long lists in AECI-1783',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Cards and table keep the lane orders above (R1 keeps existing orders); reader filters remove rows only; chip options A to Z by name, slug tie-break; long lists in AECI-1783',
   },
   {
     key: 'product-page-hero-visual',
@@ -204,9 +206,9 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-similar-products',
-    status: 'pending',
-    owner: 'AECI-1785',
-    order: 'Renders related_products in an order per R1',
+    status: 'covered',
+    spec: 'web',
+    order: 'Renders related_products in the API order (A to Z, R1); adds no sort, filter or cut',
   },
   {
     key: 'taxonomy-term-product-count',
@@ -406,9 +408,10 @@ describe('on-page ordering firewall: the Managed-only inputs', () => {
   });
 
   it('the inputs related_products reads are Free or not vendor-editable', () => {
-    // Category membership, and `created_at`, which no vendor writes.
+    // Category membership, and the name, which no vendor writes (a rename is a
+    // correction request).
     expect(FREE.has(PRODUCT_FIELD_CAPABILITIES.category_slugs)).toBe(true);
-    expect(Object.keys(PRODUCT_FIELD_CAPABILITIES)).not.toContain('created_at');
+    expect(Object.keys(PRODUCT_FIELD_CAPABILITIES)).not.toContain('name');
   });
 });
 
@@ -992,29 +995,30 @@ const detailRoute: Route = {
 };
 
 /**
- * The page product and nine candidates sharing its category. Four share one
- * `created_at` across the sixth-place boundary, as promote writes them in bulk: p4,
- * p5 and p6 show, p7 does not, on the id tie-break alone.
+ * The page product and nine candidates sharing its category. Four share one name
+ * under NOCASE across the sixth-place boundary, in four spellings: p4, p5 and p6
+ * show, p7 does not, on the id tie-break alone. `created_at` falls as the name
+ * rises, so a newest-first order would differ everywhere.
  */
-const CREATED_DAY: Readonly<Record<number, number>> = {
-  2: 2,
-  3: 3,
-  4: 6,
-  5: 6,
-  6: 6,
-  7: 6,
-  8: 8,
-  9: 9,
-  10: 10,
+const RELATED_NAME: Readonly<Record<number, string>> = {
+  2: 'Bravo',
+  3: 'charlie',
+  4: 'delta',
+  5: 'Delta',
+  6: 'DELTA',
+  7: 'dElTa',
+  8: 'Echo',
+  9: 'foxtrot',
+  10: 'Alpha',
 };
-const RELATED_ORDER = [10, 9, 8, 4, 5, 6].map(u);
+const RELATED_ORDER = [10, 2, 3, 4, 5, 6].map(u);
 /** `last` loads the products just outside the six (p7 inside the tie); `first` the ones inside. */
 const RELATED_LOADED: Readonly<Record<Exclude<World, 'free'>, number[]>> = {
-  last: [7, 3, 2],
+  last: [7, 8, 9],
   first: [10, 4, 5],
 };
 
-async function seedRelated(db: Db, world: World, bumpOldest = false) {
+async function seedRelated(db: Db, world: World, renameLast = false) {
   const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
   await db
     .insert(taxonomyCategories)
@@ -1022,12 +1026,12 @@ async function seedRelated(db: Db, world: World, bumpOldest = false) {
   await seedFacetTerms(db);
   await db.insert(products).values([
     { id: u(1), slug: 'page', name: 'Page', promotionStatus: 'promoted', createdAt: at(1) },
-    ...Object.entries(CREATED_DAY).map(([n, day]) => ({
+    ...Object.entries(RELATED_NAME).map(([n, name]) => ({
       id: u(Number(n)),
       slug: `p${n}`,
-      name: `P${n}`,
+      name: renameLast && n === '9' ? 'Aardvark' : name,
       promotionStatus: 'promoted' as const,
-      createdAt: bumpOldest && n === '2' ? at(28) : at(day),
+      createdAt: at(20 - Number(n)),
     })),
   ]);
   await db
@@ -1078,16 +1082,16 @@ async function seedRelated(db: Db, world: World, bumpOldest = false) {
   }
 }
 
-async function relatedOrder(world: World, bumpOldest = false) {
+async function relatedOrder(world: World, renameLast = false) {
   const body = ProductDetailSchema.parse(
-    await readWorld((db) => seedRelated(db, world, bumpOldest), detailRoute),
+    await readWorld((db) => seedRelated(db, world, renameLast), detailRoute),
   );
   return body.related_products.map((p) => p.id);
 }
 
 describe('on-page ordering firewall: related_products', () => {
   it(
-    '[surface:related-products] newest first, id breaking a tie across the sixth place, six shown',
+    '[surface:related-products] A to Z by name whatever the case, id breaking a tie across the sixth place, six shown',
     async () => {
       expect(await relatedOrder('free')).toEqual(RELATED_ORDER);
     },
@@ -1107,7 +1111,7 @@ describe('on-page ordering firewall: related_products', () => {
   it(
     'sees a move when an order input changes (the comparison is not vacuous)',
     async () => {
-      expect((await relatedOrder('free', true))[0]).toBe(u(2));
+      expect((await relatedOrder('free', true))[0]).toBe(u(9));
     },
     DB_TIMEOUT,
   );
@@ -1492,6 +1496,12 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',
     count: 3,
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
+  },
+  {
+    // AECI-1782: the filter panel's term chips, A to Z by name with the slug last.
+    file: 'apps/web/src/app/products/integration-filter.ts',
+    count: 1,
+    registered: ['product-page-integrations-redesign'],
   },
   {
     file: 'apps/web/src/app/products/powered-hub-grouping.ts',

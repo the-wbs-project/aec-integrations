@@ -1,38 +1,31 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, afterNextRender, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { ProductDetail } from '@aeci/shared';
 
-import { AecButton } from '../shared/button/button';
-import { Analytics, type ExternalLinkContext } from '../analytics/analytics';
-import { ExternalLinkTracker } from '../analytics/external-link-tracker';
+import { Analytics } from '../analytics/analytics';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
-import { RequestTrigger } from '../requests/request-trigger';
-import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
-import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
-import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { groupPoweredIntegrations } from './powered-hub-grouping';
-import { ProductBuiltWithin, ProductExtensionsSection } from './product-extensions';
+import { ProductExtensionsSection } from './product-extensions';
+import { ProductFactsCard } from './product-facts-card';
 import { ProductHero } from './product-hero';
 import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
+import { ProductSimilarProducts } from './product-similar-products';
 import { ProductUsefulnessSection } from './product-usefulness';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
-import { AecIcon } from '../shared/icon/icon';
-import { AecCard } from '../shared/card/card';
+import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -45,16 +38,16 @@ import { AecCard } from '../shared/card/card';
  *     the resolver already set `RESPONSE_INIT.status = 404` and
  *     `MetaService.setNotFoundMeta`. URL stays at /products/:slug so the
  *     visitor can correct a typo in place — no router redirect.
- *   - `product` set → render the hero (`aec-product-hero`), the facts card,
- *     the description and the integrations sections inside the shared
- *     `DetailLayout` on its band shell (AECI-1778, DESIGN.md §4).
+ *   - `product` set → render the hero (`aec-product-hero`), the facts card
+ *     (`aec-product-facts-card`), the description and the integrations sections
+ *     inside the shared `DetailLayout` on its band shell (AECI-1778, DESIGN.md §4).
  *
  * Integrations section: extracted to `aec-product-integrations-section`
  * (AECI-841), which owns the §13.2/§13.3 lane split, the `@defer` cut, the
  * collapsible lane cards and the name filter. Nothing else on this page needs
- * any of the four, so the page component keeps only the facts card, the
- * powered section's render gates and the jump nav. The hero is its own
- * component (`product-hero.ts`).
+ * any of the four, so the page component keeps only the powered section's
+ * render gates and the jump nav. The hero (`product-hero.ts`) and the facts
+ * card (`product-facts-card.ts`, AECI-1779) are their own components.
  *
  * Powered-integrations section (Stage 1.5 Addendum B): a *second*, distinct
  * integrations surface for connector-role products. The table above lists edges
@@ -80,30 +73,23 @@ import { AecCard } from '../shared/card/card';
 @Component({
   selector: 'aec-product-detail',
   imports: [
-    AecButton,
-    AecCard,
-    AecIcon,
     DetailLayout,
-    ExternalLinkTracker,
     FieldCaptionLine,
     UnderReviewMarker,
-    LogoOrInitial,
     MailingListSignup,
     NgTemplateOutlet,
-    NewTabIcon,
     NotFound,
-    ProductBuiltWithin,
     ProductExtensionsSection,
+    ProductFactsCard,
     ProductHero,
     ProductIntegrationsSection,
     ProductPoweredHub,
     ProductReviews,
+    ProductSimilarProducts,
     ProductUsefulnessSection,
+    ProductWhoItIsFor,
     RequestDrawer,
-    RequestTrigger,
-    RouterLink,
     SectionNav,
-    TaxonomyBadge,
   ],
   template: `
     @let p = product();
@@ -116,360 +102,9 @@ import { AecCard } from '../shared/card/card';
              here. It renders the page's only h1. -->
         <aec-product-hero slot="hero" [product]="p" />
 
-        <!--
-          The facts position on the band shell (AECI-1778): one elevated card that the
-          layout pulls up over the hero's lower edge. Its groups are the shipped sidebar's,
-          unchanged. Groups pair up into two columns from md and four from xl. AECI-1779
-          rebuilds what the card holds.
-        -->
-        <div
-          slot="metadata"
-          aecCard
-          class="grid gap-x-8 gap-y-6 p-6 md:grid-cols-2 md:p-8 xl:grid-cols-4"
-          data-testid="product-facts"
-        >
-          <section aria-labelledby="vendor-card-title" class="space-y-3 md:col-span-2">
-            <h2
-              id="vendor-card-title"
-              class="aec-overline text-(--text-secondary)"
-              i18n="@@products.detail.metadata.vendor"
-            >
-              Vendor
-            </h2>
-            @if (p.vendor; as v) {
-              <a
-                [routerLink]="['/vendors', v.slug]"
-                class="flex items-center gap-3 rounded-(--radius-lg) border
-                  border-(--border-default) bg-(--surface-base) p-3 no-underline
-                  transition-colors hover:border-(--border-strong)"
-              >
-                <aec-logo-or-initial
-                  [claimStatus]="'server-filtered'"
-                  [src]="v.logo_url"
-                  [name]="v.name"
-                  [alt]="logoAlt(v.name)"
-                  size="sm"
-                />
-                <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="min-w-0 break-words font-semibold text-(--text-primary)">{{
-                    v.name
-                  }}</span>
-                  @if (vendorFactsLine(); as line) {
-                    <span
-                      class="text-xs text-(--text-secondary)"
-                      data-testid="product-vendor-facts"
-                      >{{ line }}</span
-                    >
-                  }
-                </span>
-              </a>
-            } @else {
-              <p
-                class="rounded-(--radius-lg) border border-(--border-default)
-                  bg-(--surface-base) p-3 text-(--text-secondary)"
-                i18n="@@products.detail.vendor.none"
-              >
-                No vendor listed
-              </p>
-            }
-          </section>
-
-          <!-- §13.3b (AECI-710): the host(s) this product is built within. The
-               same card as Vendor because it is the same kind of fact: what the
-               product IS. Never an integration, never counted. -->
-          @if (p.extension_of.length > 0) {
-            <section
-              aec-product-built-within
-              aria-labelledby="built-within-title"
-              class="space-y-3 md:col-span-2"
-              [hosts]="p.extension_of"
-            ></section>
-          }
-
-          @if (p.categories.length > 0 || slotCorrection('category_slugs', false)) {
-            <section aria-labelledby="categories-label" class="space-y-3">
-              <h2
-                id="categories-label"
-                class="aec-overline text-(--text-secondary)"
-                i18n="@@products.detail.metadata.categories"
-              >
-                Categories
-              </h2>
-              @if (p.categories.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (c of p.categories; track c.slug) {
-                    <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
-                  }
-                </div>
-              }
-              <aec-field-caption
-                [correction]="slotCorrection('category_slugs', p.categories.length > 0)"
-                [page]="captionPage()"
-              />
-              @if (p.captions?.profile; as c) {
-                <aec-field-caption
-                  data-testid="profile-caption"
-                  [caption]="c"
-                  [page]="captionPage()"
-                />
-              }
-            </section>
-          }
-
-          @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
-            <section aria-labelledby="audiences-label" class="space-y-3">
-              <h2
-                id="audiences-label"
-                class="aec-overline text-(--text-secondary)"
-                i18n="@@products.detail.metadata.audiences"
-              >
-                Audiences
-              </h2>
-              @if (p.audiences.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (d of p.audiences; track d.slug) {
-                    <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
-                  }
-                </div>
-              }
-              <aec-field-caption
-                [correction]="slotCorrection('audience_slugs', p.audiences.length > 0)"
-                [page]="captionPage()"
-              />
-            </section>
-          }
-
-          <!--
-            Trades (AECI-544). Sparse by design: a product is tagged only when
-            it has trade-specific value, so horizontal platforms render nothing
-            here and the length guard is the common path. Never gated on the
-            publication floor, because the tag is true even when the trade page
-            isn't promoted yet (TRADES_VOCABULARY.md §6). Sits between Audiences
-            and Project phases to match the facet sidebar's dimension order.
-          -->
-          @if (p.trades.length > 0 || slotCorrection('trade_slugs', false)) {
-            <section aria-labelledby="trades-label" class="space-y-3">
-              <h2
-                id="trades-label"
-                class="aec-overline text-(--text-secondary)"
-                i18n="@@products.detail.metadata.trades"
-              >
-                Trades
-              </h2>
-              @if (p.trades.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (tr of p.trades; track tr.slug) {
-                    <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
-                  }
-                </div>
-              }
-              @if (slotCorrection('trade_slugs', p.trades.length > 0); as c) {
-                <aec-field-caption [correction]="c" [page]="captionPage()" />
-              }
-            </section>
-          }
-
-          @if (p.phases.length > 0 || slotCorrection('phase_slugs', false)) {
-            <section aria-labelledby="phases-label" class="space-y-3">
-              <h2
-                id="phases-label"
-                class="aec-overline text-(--text-secondary)"
-                i18n="@@products.detail.metadata.phases"
-              >
-                Project phases
-              </h2>
-              @if (p.phases.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (ph of p.phases; track ph.slug) {
-                    <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
-                  }
-                </div>
-              }
-              @if (slotCorrection('phase_slugs', p.phases.length > 0); as c) {
-                <aec-field-caption [correction]="c" [page]="captionPage()" />
-              }
-            </section>
-          }
-
-          <!-- AECI-1309: the two Managed doc links. Shown on every plan when the
-               product has a value; Managed is what lets the vendor edit them. -->
-          @if (
-            p.tool_integrations_url ||
-            p.api_docs_url ||
-            slotCorrection('tool_integrations_url', false) ||
-            slotCorrection('api_docs_url', false) ||
-            underReview('tool_integrations_url') ||
-            underReview('api_docs_url')
-          ) {
-            <section aria-labelledby="resources-label" class="space-y-3">
-              <h2
-                id="resources-label"
-                class="aec-overline text-(--text-secondary)"
-                i18n="@@products.detail.metadata.resources"
-              >
-                Resources
-              </h2>
-              <ul class="m-0 list-none space-y-2 p-0">
-                @if (p.tool_integrations_url) {
-                  <li>
-                    <a
-                      [href]="p.tool_integrations_url"
-                      target="_blank"
-                      rel="noopener nofollow"
-                      aecTrackExternalLink="product_detail"
-                      [aecLinkContext]="docsLinkContext('listing')!"
-                      [class]="resourceLinkClass"
-                    >
-                      <ng-container i18n="@@products.detail.metadata.integrationsPage"
-                        >Integrations page</ng-container
-                      >
-                      <aec-new-tab-icon />
-                    </a>
-                    @if (slotCorrection('tool_integrations_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
-                  </li>
-                } @else if (underReview('tool_integrations_url')) {
-                  <li>
-                    <aec-under-review
-                      data-testid="tool-integrations-under-review"
-                      [label]="correctionLabel('tool_integrations_url')"
-                    />
-                  </li>
-                } @else if (slotCorrection('tool_integrations_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('tool_integrations_url')"
-                      [page]="captionPage()"
-                    />
-                  </li>
-                }
-                @if (p.api_docs_url) {
-                  <li>
-                    <a
-                      [href]="p.api_docs_url"
-                      target="_blank"
-                      rel="noopener nofollow"
-                      aecTrackExternalLink="product_detail"
-                      [aecLinkContext]="docsLinkContext('docs')!"
-                      [class]="resourceLinkClass"
-                    >
-                      <ng-container i18n="@@products.detail.metadata.apiDocs"
-                        >API documentation</ng-container
-                      >
-                      <aec-new-tab-icon />
-                    </a>
-                    @if (slotCorrection('api_docs_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
-                  </li>
-                } @else if (underReview('api_docs_url')) {
-                  <li>
-                    <aec-under-review
-                      data-testid="api-docs-under-review"
-                      [label]="correctionLabel('api_docs_url')"
-                    />
-                  </li>
-                } @else if (slotCorrection('api_docs_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('api_docs_url')"
-                      [page]="captionPage()"
-                    />
-                  </li>
-                }
-              </ul>
-            </section>
-          }
-
-          <!-- AECI-1614: the Managed group's one caption (audiences, trades, phases and the
-               two Resources links). One line, after the last of them, not one per group:
-               the same sentence four times down a sidebar is noise that starts to read as
-               a badge. A sibling of Resources, not inside it, because the group can hold
-               facets alone and Resources then does not render. Below lg it spans the
-               card, since it speaks for every column. -->
-          @if (managedCaption(); as c) {
-            <aec-field-caption
-              class="md:col-span-2 xl:col-span-4"
-              data-testid="managed-caption"
-              [caption]="c"
-              [page]="captionPage()"
-            />
-          }
-
-          <section aria-labelledby="actions-label" class="space-y-3 md:col-span-2">
-            <h2
-              id="actions-label"
-              class="aec-overline text-(--text-secondary)"
-              i18n="@@products.detail.metadata.actions"
-            >
-              Actions
-            </h2>
-            <div class="flex flex-wrap gap-2">
-              <a
-                aecButton
-                variant="secondary"
-                aecRequestTrigger
-                [entity]="'product'"
-                [kind]="'claim'"
-                [slug]="p.slug"
-                [company]="p.vendor?.name ?? null"
-                [contextProduct]="p.name"
-                [href]="'/products/' + p.slug + '/claim'"
-              >
-                <aec-icon name="flag" decorative [size]="4" />
-                <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3),
-                     so the button names the product's vendor. -->
-                @if (p.vendor?.name; as company) {
-                  <ng-container i18n="@@products.detail.metadata.claimCompany"
-                    >Claim {{ company }}</ng-container
-                  >
-                } @else {
-                  <ng-container i18n="@@products.detail.metadata.claimYourCompany"
-                    >Claim your company</ng-container
-                  >
-                }
-              </a>
-              <a
-                aecButton
-                variant="secondary"
-                aecRequestTrigger
-                [entity]="'product'"
-                [kind]="'correction'"
-                [slug]="p.slug"
-                [href]="'/products/' + p.slug + '/correction'"
-              >
-                <aec-icon name="pen" decorative [size]="4" />
-                <ng-container i18n="@@products.detail.metadata.correction"
-                  >Suggest a correction</ng-container
-                >
-              </a>
-            </div>
-            <!-- AECI-1283: the vendor landing page, beside the claim button
-                 (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). Visitor-neutral, so it stays in
-                 the cached HTML. It explains claiming, so it must not read like a
-                 second claim button, and it opens a new tab so the visitor can come
-                 back here to claim. ?vendor= lets the page's claim dialog skip the
-                 search for this company. -->
-            <a
-              routerLink="/vendor-program"
-              [queryParams]="p.vendor ? { vendor: p.vendor.slug } : {}"
-              target="_blank"
-              rel="noopener"
-              data-testid="product-vendor-program-link"
-              class="inline-flex items-center gap-1 text-sm font-semibold text-(--accent-primary)
-                underline-offset-4 hover:text-(--accent-primary-hover) hover:underline
-                focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                focus-visible:ring-offset-(--surface-base)"
-              ><ng-container i18n="@@products.detail.metadata.vendorProgram"
-                >Learn more about claiming</ng-container
-              ><aec-new-tab-icon
-            /></a>
-          </section>
-        </div>
+        <!-- The facts card (AECI-1779): one elevated card that the layout pulls up over the
+             hero's lower edge. Its own component, like the hero. -->
+        <aec-product-facts-card slot="metadata" [product]="p" />
 
         <!--
           The nav takes its own slot rather than riding along in the body: the
@@ -483,34 +118,43 @@ import { AecCard } from '../shared/card/card';
         }
 
         <!--
-          About goes in the LEAD slot, not the body slot: below lg the layout
-          renders the metadata sidebar directly after this block, so the vendor /
-          taxonomy / actions facts read as part of About instead of being dumped
-          under Reviews at the foot of the page. At lg this is simply the top of
-          column 1, and nothing moves. See DetailLayout.
+          About is the page's one Bone band (AECI-1780, mock-up 6): the description on the
+          left and "Who it is for" on the right from lg, stacked below it. It goes in the
+          LEAD slot, which the band shell paints Bone. It renders when either column has
+          something to show, and the section nav applies the same test (hasAbout).
         -->
-        @if (p.description || underReview('description')) {
-          <div slot="body-lead" class="space-y-12">
-            <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
-              <h2
-                id="description-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-                i18n="@@products.detail.body.description"
-              >
-                About
-              </h2>
-              @if (p.description) {
-                <p
-                  class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)"
-                >
-                  {{ p.description }}
-                </p>
-                @if (p.captions?.description; as c) {
-                  <aec-field-caption [caption]="c" [page]="captionPage()" />
+        @if (hasAbout()) {
+          <div slot="body-lead">
+            <section
+              id="about"
+              aria-labelledby="description-title"
+              class="grid scroll-mt-20 items-start gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-12"
+            >
+              <div class="min-w-0 space-y-6">
+                <h2 id="description-title">
+                  <span
+                    class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
+                    i18n="@@products.detail.body.description"
+                    >About</span
+                  >
+                </h2>
+                @if (p.description) {
+                  <p
+                    class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
+                    data-testid="product-description"
+                  >
+                    {{ p.description }}
+                  </p>
+                  @if (p.captions?.description; as c) {
+                    <aec-field-caption [caption]="c" [page]="captionPage()" />
+                  }
+                } @else if (underReview('description')) {
+                  <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
+                  <aec-under-review data-testid="description-under-review" />
                 }
-              } @else {
-                <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
-                <aec-under-review data-testid="description-under-review" />
+              </div>
+              @if (hasWhoItIsFor()) {
+                <aec-product-who-it-is-for class="min-w-0" [product]="p" [page]="captionPage()" />
               }
             </section>
           </div>
@@ -594,6 +238,17 @@ import { AecCard } from '../shared/card/card';
               [firstPage]="p.reviews"
             />
           </section>
+
+          <!-- AECI-1785: the last section, hidden with its nav link when the list is empty. -->
+          @if (p.related_products.length > 0) {
+            <section
+              aec-product-similar-products
+              id="similar"
+              aria-labelledby="similar-title"
+              [productName]="p.name"
+              [products]="p.related_products"
+            ></section>
+          }
         </div>
       </aec-detail-layout>
 
@@ -609,8 +264,6 @@ import { AecCard } from '../shared/card/card';
 export class ProductDetailPage {
   private readonly route = inject(ActivatedRoute);
   private readonly analytics = inject(Analytics);
-
-  protected readonly logoAlt = logoAlt;
 
   /**
    * Resolved data. `productDetailResolver` runs server-side and on hydration
@@ -632,89 +285,32 @@ export class ProductDetailPage {
     });
   }
 
-  /** The vendor card's one line (AECI-1310). Sources stay on the vendor page. */
-  protected readonly vendorFactsLine = computed<string | null>(() => {
-    const facts = this.product()?.vendor_facts;
-    if (!facts) return null;
-    const parts: string[] = [];
-    if (facts.company_size) {
-      const size = companySizeLabel(facts.company_size);
-      parts.push($localize`:@@products.detail.vendor.employees:${size}:SIZE: employees`);
-    }
-    if (facts.ownership_type) parts.push(ownershipTypeLabel(facts.ownership_type));
-    return parts.length > 0 ? parts.join(' · ') : null;
-  });
-
-  /**
-   * Ownership facts for the "Resources" links. The owner is the product's primary vendor.
-   * The hero builds the same facts for "Visit website" (`product-hero.ts`).
-   */
-  protected readonly websiteLinkContext = computed<ExternalLinkContext | null>(() => {
-    const p = this.product();
-    if (!p) return null;
-    return {
-      owner_vendor_id: p.vendor?.id ?? null,
-      link_origin: 'vendor',
-      source_entity_type: 'product',
-      source_entity_id: p.id,
-      link_purpose: 'website',
-    };
-  });
-
-  /**
-   * The "Resources" links (AECI-1309): the integrations page is `listing`, the API
-   * docs are `docs`, with the same owner rule as the website click
-   * (`VENDOR_PERFORMANCE_SPEC.md` §3.2).
-   */
-  protected docsLinkContext(purpose: 'listing' | 'docs'): ExternalLinkContext | null {
-    const website = this.websiteLinkContext();
-    return website ? { ...website, link_purpose: purpose } : null;
-  }
-
-  protected readonly resourceLinkClass =
-    'inline-flex items-center gap-1.5 text-sm font-semibold text-(--accent-primary) ' +
-    'underline-offset-4 hover:text-(--accent-primary-hover) hover:underline ' +
-    'focus-visible:outline-none focus-visible:rounded-(--radius-sm) focus-visible:ring-2 ' +
-    'focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 ' +
-    'focus-visible:ring-offset-(--surface-base)';
-
-  /** The page, for each caption's source link click. */
+  /** The page, for the About caption's source link click. */
   protected readonly captionPage = computed<FieldCaptionPage>(() => ({
     surface: 'product_detail',
     entityType: 'product',
     entityId: this.product()?.id ?? '',
   }));
 
-  protected readonly correctionLabel = fieldOverrideLabel;
-
-  /**
-   * AECi's correction in one value's slot (AECI-1628): a value-setting one while the
-   * value shows, a removal while it does not.
-   */
-  protected slotCorrection(field: string, present: boolean) {
-    return correctionInSlot(this.product()?.captions?.corrections, field, present);
-  }
-
   /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
   protected underReview(field: string): boolean {
     return isUnderReview(this.product()?.under_review, field);
   }
 
-  /**
-   * The Managed group's caption, while the group shows anything. A vendor can clear every
-   * field in it, and a caption under nothing says nothing. Categories and the website are
-   * not in the group (`field-captions.ts`).
-   */
-  protected readonly managedCaption = computed(() => {
+  /** Whether the About band's "Who it is for" column renders (AECI-1780). */
+  protected readonly hasWhoItIsFor = computed(() => {
     const p = this.product();
-    if (!p) return null;
-    const hasValues =
-      p.audiences.length > 0 ||
-      p.trades.length > 0 ||
-      p.phases.length > 0 ||
-      !!p.tool_integrations_url ||
-      !!p.api_docs_url;
-    return hasValues ? (p.captions?.managed ?? null) : null;
+    return !!p && hasWhoItIsFor(p);
+  });
+
+  /**
+   * Whether the About band renders: the description, its under-review marker, or "Who it
+   * is for". An empty band does not render, and the section nav drops it (AECI-1780).
+   */
+  protected readonly hasAbout = computed(() => {
+    const p = this.product();
+    if (!p) return false;
+    return !!p.description || isUnderReview(p.under_review, 'description') || this.hasWhoItIsFor();
   });
 
   /**
@@ -806,7 +402,7 @@ export class ProductDetailPage {
     const p = this.product();
     if (!p) return [];
     const items: SectionNavItem[] = [];
-    if (p.description || isUnderReview(p.under_review, 'description')) {
+    if (this.hasAbout()) {
       items.push({ id: 'about', label: $localize`:@@products.detail.nav.about:About` });
     }
     if (this.hasUsefulness()) {
@@ -858,6 +454,13 @@ export class ProductDetailPage {
       label: $localize`:@@products.detail.nav.reviews:Reviews`,
       count: p.review_count,
     });
+    // AECI-1785: gated on the same condition as the section, which renders last.
+    if (p.related_products.length > 0) {
+      items.push({
+        id: 'similar',
+        label: $localize`:@@products.detail.nav.similar:Similar products`,
+      });
+    }
     return items;
   });
 }

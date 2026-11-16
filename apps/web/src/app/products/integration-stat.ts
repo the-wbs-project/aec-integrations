@@ -60,9 +60,15 @@ export class IntegrationStat {
   readonly count = input.required<number>();
   readonly variant = input<IntegrationStatVariant>('inline');
 
-  protected readonly noun = computed(() =>
-    this.count() === 1
-      ? $localize`:@@products.stat.noun.one:integration`
-      : $localize`:@@products.stat.noun.other:integrations`,
-  );
+  protected readonly noun = computed(() => integrationNoun(this.count()));
+}
+
+/**
+ * "integration" or "integrations" for a count. One definition, so the stat and the
+ * product facts card (AECI-1779) print the same words from the same message ids.
+ */
+export function integrationNoun(count: number): string {
+  return count === 1
+    ? $localize`:@@products.stat.noun.one:integration`
+    : $localize`:@@products.stat.noun.other:integrations`;
 }
