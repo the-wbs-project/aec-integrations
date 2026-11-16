@@ -1458,7 +1458,29 @@ describe('GET /api/products/:slug — related products', () => {
       8: 'Zeta',
       9: 'charlie',
     };
-    for (let n = 2; n <= 9; n++) await seedProduct(u(n), `p${n}`, names[n]!, { createdAt: at(n) });
+    // The other sortable fields are scrambled, so no order on one of them, either
+    // way, gives the expected six (a sort by integration count passed before).
+    const scrambled: Record<number, [number, number, number, number]> = {
+      // n: [integrationCount, reviewCount, ratingOverallAvg, updatedAt day]
+      2: [5, 2, 3, 7],
+      3: [1, 6, 1, 2],
+      4: [9, 1, 5, 9],
+      5: [3, 8, 2, 3],
+      6: [7, 4, 4, 5],
+      7: [2, 7, 2, 8],
+      8: [8, 3, 5, 4],
+      9: [4, 5, 4, 6],
+    };
+    for (let n = 2; n <= 9; n++) {
+      const [integrationCount, reviewCount, ratingOverallAvg, updated] = scrambled[n]!;
+      await seedProduct(u(n), `p${n}`, names[n]!, {
+        createdAt: at(n),
+        updatedAt: at(updated),
+        integrationCount,
+        reviewCount,
+        ratingOverallAvg,
+      });
+    }
     await seedProduct(u(10), 'elsewhere', 'Elsewhere', { createdAt: at(20) });
     await seedProduct(u(11), 'bare', 'Bare', { createdAt: at(21) });
     await t.db
