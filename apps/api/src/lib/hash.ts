@@ -2,7 +2,8 @@
  * Shared hashing helpers for the API Worker (Web Crypto, no dependencies).
  *
  * `sha256Hex` was private to `routes/page-views.ts`, and `lib/linear-webhook-auth.ts`
- * carried its own hex encoder. Both now import from here.
+ * carried its own hex encoder. Both now import from here. AECI-1680 moved the byte-level
+ * `sha256HexBytes` here from `plan-snapshot-sweep.ts` and `page-views-archive.ts`.
  */
 
 /** Hex-encode bytes, two lowercase hex digits per byte. */
@@ -16,6 +17,13 @@ export function bytesToHex(buffer: ArrayBuffer): string {
 export async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return bytesToHex(digest);
+}
+
+/** SHA-256 of raw bytes, as 64 lowercase hex chars. The R2 evidence writers hash the
+ *  exact bytes they `put` (`page-views-archive.ts`, `plan-snapshot-sweep.ts`,
+ *  `acceptance-chain-export.ts`). */
+export async function sha256HexBytes(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  return bytesToHex(await crypto.subtle.digest('SHA-256', bytes as BufferSource));
 }
 
 /**

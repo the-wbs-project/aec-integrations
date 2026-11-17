@@ -1,7 +1,7 @@
 /**
  * Smooth scrolling for in-page section links, and nothing else (AECI-1752).
  *
- * Clash 38 of the November 2026 redesign (ADR 0057, PLAN.md §4.6) rules smooth
+ * Clash 38 of the November 2026 redesign (ADR 0058, PLAN.md §4.6) rules smooth
  * scrolling "In-page section links only. Never a global setting. Off under
  * reduced motion." Until then `styles.css` carried `html { scroll-behavior:
  * smooth }`, which animated every scroll that did not opt out: the skip link,

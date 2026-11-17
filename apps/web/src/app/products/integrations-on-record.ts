@@ -41,3 +41,15 @@ export function showsNoIntegrationsDirectory(p: ProductDetail): boolean {
   if (isUnderReview(p.under_review, 'tool_integrations_url')) return false;
   return !correctionInSlot(p.captions?.corrections, 'tool_integrations_url', false);
 }
+
+/**
+ * A name with one trailing full stop removed, for a message that ends in its own
+ * ("…published by {vendor}."). "SiteLedger Inc." becomes "SiteLedger Inc", and the
+ * message's stop completes it, so the sentence ends "Inc." and never "Inc..". A name
+ * with no trailing stop is returned unchanged. Only a final "." is removed, never an
+ * ellipsis character or anything inside the name.
+ */
+export function withoutTrailingFullStop(name: string): string {
+  const trimmed = name.trimEnd();
+  return trimmed.endsWith('.') ? trimmed.slice(0, -1) : trimmed;
+}

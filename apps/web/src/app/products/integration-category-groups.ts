@@ -48,6 +48,16 @@ export const ONE_LIST_PAGE_SIZE = 12;
  */
 export const GROUP_PEEK_ROWS = 6;
 
+/**
+ * Rows a closed group shows below `md`, where the grid is one column (AECI-1720). The
+ * 6-card peek was ruled to avoid a lone card in a two- or three-column row, a reason
+ * that does not apply to one column, and 6 full-height cards a group made the phone
+ * list about 24,000px tall. Applied by CSS on rows that are already in the server HTML,
+ * so the server and the browser render the same DOM and nothing shifts on hydration.
+ * The cut is still the first rows in the group's order.
+ */
+export const GROUP_PEEK_ROWS_PHONE = 3;
+
 /** Logos in the "Show more" button's stack: the first hidden partners, in row order. */
 export const GROUP_STACK_LOGOS = 5;
 

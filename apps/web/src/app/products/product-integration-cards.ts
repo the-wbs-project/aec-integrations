@@ -76,8 +76,8 @@ export class ProductIntegrationCards {
   readonly ariaLabel = input<string | null>(null);
   /** …or the id of the lane card's `<h3>`. */
   readonly ariaLabelledby = input<string | null>(null);
-  /** 3 on a one-lane page, 4 inside a lane card. */
-  readonly headingLevel = input<3 | 4>(3);
+  /** 4 under a one-lane page's list heading (`h3`) or inside a lane card (AECI-1720). */
+  readonly headingLevel = input<3 | 4 | 5>(4);
   /** Inside a lane card: nested card surfaces (tint, no shadow). */
   readonly nested = input(false);
 

@@ -410,6 +410,14 @@ webhook and has neither. A signed-deal acceptance has neither, because the admin
 it. The Privacy Policy keeps the signer's name, title and company legal name, the email, time and version for the life of the vendor account plus six years, or five years after a granted subscription ends if later (item 13.5, ruling 17), and promises the IP and user agent are deleted 90 days after acceptance (ruling 11). *As built 2026-11-10 (AECI-1636):* the daily `acceptance-evidence-removal` job at 17:00 UTC nulls `ip` and `user_agent` on every acceptance more than 90 days old, claim and portal grant rows alike, and stamps `evidence_removed_at`. The signer fields, email, time and version stay. Each batch writes one `agreement.evidence_removed` audit row. The owner's Billing tab never showed either field. The admin Billing tab reads "Removed after 90 days" in the IP column (`DATABASE_SCHEMA.md` §8.6d). A one-hour lawyer read before the first
 paid subscription is recommended. This document is not legal advice.
 
+*As built 2026-11-17 (AECI-1680, ruling 15, ADR 0057).* The acceptance store is now tamper-evident.
+Each night at 18:00 UTC a job writes the fingerprint (a SHA-256 hash) of every new or changed
+acceptance and grant row to a hash-chained file in R2, under a bucket lock, and DigiCert timestamps
+each file. The file holds fingerprints, ids and fields that are not personal, never the rows. The IP
+address and browser are left out of the fingerprint, so the 90-day removal still holds.
+`ops:verify-acceptance-chain` shows whether any row was edited after it was exported
+(`docs/runbooks/legal.md` "Prove an acceptance was not edited", `DATABASE_SCHEMA.md` §9.17).
+
 *As built, AECI-1366 (2026-10-15).* The box linked `/legal/vendor-terms` (AECI-1617 below changed its words). It is required on every claim form, including a typed-in
 listing request, whose acceptance names the `listing_requests` row (`listing_request_id`, migration
 0078) because there is no claim. The server stamps the version, IP and user agent. The email receipt

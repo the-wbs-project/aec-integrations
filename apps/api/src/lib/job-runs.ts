@@ -384,6 +384,21 @@ export type JobRunDetail =
       adopted: number;
       failed: number;
     }
+  /** The daily AECI-1680 acceptance chain export. `seq` is the file written (or adopted
+   *  from an earlier attempt). `tsa` is this file's DigiCert outcome: `failed` never fails
+   *  the run, and a later run backfills it. `tsaFailed` counts every DigiCert failure this
+   *  run, backfill included. A crash is a reason row. */
+  | {
+      job: 'acceptance-chain';
+      durationMs: number;
+      seq: number;
+      entries: number;
+      rows: number;
+      adopted: boolean;
+      tsa: 'granted' | 'failed';
+      backfilled: number;
+      tsaFailed: number;
+    }
   | {
       job: 'protest-reply-reminder';
       due: number;
