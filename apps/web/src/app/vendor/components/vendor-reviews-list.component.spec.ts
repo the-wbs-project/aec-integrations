@@ -183,7 +183,7 @@ describe('VendorReviewsList — reading', () => {
     expect(update.querySelector('time')!.getAttribute('datetime')).toBe(
       withUpdate.review.updates[0]!.published_at,
     );
-    expect(update.querySelector('[aria-label="Overall rating 4 out of 5"]')).not.toBeNull();
+    expect(update.querySelector('[aria-label="Product quality 4 out of 5"]')).not.toBeNull();
     expect(update.querySelector('button')).toBeNull();
     // Below the review card, above any reply.
     const card = li.querySelector('article')!.firstElementChild as HTMLElement;

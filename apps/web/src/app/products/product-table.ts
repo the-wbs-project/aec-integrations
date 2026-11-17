@@ -53,7 +53,7 @@ const TH_CLASS = TABLE_HEADER_CELL_CLASS;
             [class]="thEnd + ' hidden md:table-cell'"
             i18n="@@products.detail.reviews.item.overall"
           >
-            Overall
+            Product quality
           </th>
           <th scope="col" [class]="thEnd" i18n="@@products.index.col.integrations">Integrations</th>
         </tr>

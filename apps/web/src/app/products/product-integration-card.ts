@@ -11,6 +11,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
+  mechanismDisplay,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 
@@ -203,9 +204,9 @@ import {
           >How it connects</span
         >
         <div class="flex flex-col items-start gap-1 text-t-14 text-(--text-secondary)">
-          @if (mechanismKindLabels().length > 0) {
+          @if (mechanism().labels.length > 0) {
             <span class="flex flex-wrap items-center gap-1">
-              @for (label of mechanismKindLabels(); track label) {
+              @for (label of mechanism().labels; track label) {
                 <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
               }
             </span>
@@ -217,7 +218,7 @@ import {
               >–</span
             >
           }
-          @if (mechanismName(); as name) {
+          @if (mechanism().name; as name) {
             <span class="text-t-13" data-testid="integration-card-mechanism-name">{{ name }}</span>
           }
         </div>
@@ -307,17 +308,12 @@ export class ProductIntegrationCard {
   );
 
   /**
-   * The mechanism's name, unless it only repeats a kind chip on this card ("Native"
-   * under a "Native" chip). The card never prints one fact twice.
+   * The kind chips and the mechanism's name, each fact once (`mechanismDisplay`): "REST
+   * API" replaces an "API" chip, and "Native" under a "Native" chip is not repeated.
    */
-  protected readonly mechanismName = computed(() => {
-    const name = this.row().integration.mechanism_name?.trim();
-    if (!name) return null;
-    const lower = name.toLocaleLowerCase();
-    return this.mechanismKindLabels().some((label) => label.toLocaleLowerCase() === lower)
-      ? null
-      : name;
-  });
+  protected readonly mechanism = computed(() =>
+    mechanismDisplay(this.mechanismKindLabels(), this.row().integration.mechanism_name),
+  );
 
   /** "by {vendor}" (mock-up 6), or `null` when the partner has no vendor on record. */
   protected readonly vendorLine = computed(() => {
@@ -331,7 +327,9 @@ export class ProductIntegrationCard {
     dataObjectCountLabel(this.row().dataObjectSlugs.length),
   );
 
-  protected readonly direction = computed(() => contextDirectionLabel(this.row().direction));
+  protected readonly direction = computed(() =>
+    contextDirectionLabel(this.row().direction, this.row().other.name),
+  );
 
   protected readonly isViaLane = computed(
     () => routeIntegrationLane(this.row().integration).lane === 'via',

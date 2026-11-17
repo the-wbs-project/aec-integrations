@@ -931,11 +931,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                      be redundant (§8). Hidden in Basic (Overview). -->
                 @if (viewMode() === 'detailed' && !m.hasClaims && m.direction) {
                   <p class="flex items-center gap-2 text-sm text-(--text-secondary)">
-                    <span
-                      class="font-display text-xl text-(--accent-primary)"
-                      [attr.aria-label]="m.directionAria"
-                      >{{ m.glyph }}</span
-                    >
+                    <span class="font-display text-xl text-(--accent-primary)" aria-hidden="true">{{
+                      m.glyph
+                    }}</span>
                     <span>{{ m.directionLabel }}</span>
                   </p>
                 }
@@ -1107,17 +1105,19 @@ function writePairViewCookie(mode: PairViewMode): void {
                     @for (g of m.claimGroups; track g.direction) {
                       <div aecCard nested class="p-4">
                         <div class="flex items-center gap-3">
+                          <!-- The lane heading beside it says the same words, so the glyph
+                               is decorative. An aria-label on a plain span is not reliably
+                               read (records/11 §8). -->
                           <span
                             class="font-display text-t-24 leading-none text-(--accent-primary)"
-                            [attr.aria-label]="g.aria"
+                            aria-hidden="true"
                             >{{ g.glyph }}</span
                           >
                           <h4 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h4>
                         </div>
-                        <ul
-                          class="mt-3 grid gap-2"
-                          [class.sm:grid-cols-2]="m.claimGroups.length === 1"
-                        >
+                        <!-- One row per line, the full lane wide (mock-up 12, .rows): the
+                             data type on the left, its agreement label on the right. -->
+                        <ul class="mt-3 grid gap-2" data-testid="pair-lane-rows">
                           @for (
                             r of g.rows;
                             track r.claim.data_object_slug + '|' + r.claim.direction
@@ -1463,7 +1463,7 @@ export class ProductsPairPage {
       // The claims-aware direction, never the stored one: the stored arrow is
       // exactly what this page hides once claims exist, and the product row reads
       // the claims-aware value, so a stored-direction chip would contradict both.
-      depthDirection: contextDirectionLabel(m.effective_direction),
+      depthDirection: contextDirectionLabel(m.effective_direction, otherName),
       // The headline's rule, scoped to one mechanism: distinct objects
       // (AECI-1042). A `removed` claim does not count: it still renders, struck
       // through, but "N data objects" may not include a flow that stopped. A

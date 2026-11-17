@@ -543,10 +543,10 @@ export class ProductPoweredHub {
   }
 
   /** Hub-relative direction presentation (arrow glyph + label), or null when unknown. */
-  protected hubDirection(partner: {
-    readonly hubDirection: Parameters<typeof contextDirectionLabel>[0];
-  }): { label: string; glyph: string } | null {
-    const framed = contextDirectionLabel(partner.hubDirection);
+  protected hubDirection(
+    partner: Pick<PoweredHubPartner, 'hubDirection' | 'partner'>,
+  ): { label: string; glyph: string } | null {
+    const framed = contextDirectionLabel(partner.hubDirection, partner.partner.name);
     return framed.token === null ? null : framed;
   }
 
@@ -577,7 +577,7 @@ export class ProductPoweredHub {
    * link. Before AECI-1117 only the object count (AECI-1080) made it in, and a
    * reader heard "View the Procore and Sage integration" with no direction.
    *
-   * Direction is the hub-relative word the row shows ("Outbound"), so the name
+   * Direction is the hub-relative words the row shows ("Sends to Procore"), so the name
    * contains the visible text (WCAG 2.5.3). The name opens with the hub, which is
    * what that word is relative to. An unknown direction is said in words, since
    * the row shows a dash for it.

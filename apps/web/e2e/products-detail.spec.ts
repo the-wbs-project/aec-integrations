@@ -265,8 +265,18 @@ test.describe('product detail — table names and section-nav location (AECI-831
     // can differ from the facts card's figure, which the 2026-11-16 ruling closed.
     const status = page.locator('#integrations [role="status"]');
     await expect(status).toHaveText('');
-    const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();
-    test.skip((await chip.count()) === 0, 'no filter chips on this fixture');
+    // The first chip not pressed and not disabled: "Any direction" opens the direction row
+    // pressed (AECI-1720 restore C), so pressing it again filters nothing.
+    const chips = page.locator('#integrations aec-chip button[aria-pressed]');
+    const free = page
+      .locator('#integrations aec-chip button[aria-pressed="false"]:not([disabled])')
+      .first();
+    test.skip((await free.count()) === 0, 'no filter chips on this fixture');
+    // Pin the chip by its index, so the locator does not move once it is pressed.
+    const index = await free.evaluate((b) =>
+      [...document.querySelectorAll('#integrations aec-chip button[aria-pressed]')].indexOf(b),
+    );
+    const chip = chips.nth(index);
     await untilHydrated(chip);
     await chip.click();
     await expect(chip).toHaveAttribute('aria-pressed', 'true');

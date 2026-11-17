@@ -161,28 +161,29 @@ describe('ProductIntegrationRow', () => {
   // under the partner name, which is the FIRST cell. The row is now two content
   // cells + the trailing nav chevron, so these assertions read cells[0] for
   // both the partner and the direction, and cells[1] for the connection.
-  it('renders "Outbound" in the partner cell meta line when data leaves this product', () => {
+  it('renders "Sends to {partner}" in the partner cell meta line when data leaves this product', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Outbound');
+    expect(cells[0]?.textContent).toContain('Sends to Autodesk BIM 360');
+    expect(cells[0]?.textContent).not.toContain('Outbound');
     expect(cells[0]?.textContent).toContain('→');
   });
 
-  it('renders "Inbound" when data arrives from the other product', () => {
+  it('renders "Receives from {partner}" when data arrives from the other product', () => {
     const { el } = setup({
       integration: signal({ ...baseIntegration, context_direction: 'inbound' }),
     });
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Inbound');
+    expect(cells[0]?.textContent).toContain('Receives from Autodesk BIM 360');
     expect(cells[0]?.textContent).toContain('←');
   });
 
-  it('renders "Both" with the ⇄ glyph for a bidirectional flow', () => {
+  it('renders "Syncs both ways" with the ⇄ glyph for a bidirectional flow', () => {
     const { el } = setup({
       integration: signal({ ...baseIntegration, context_direction: 'both' }),
     });
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Both');
+    expect(cells[0]?.textContent).toContain('Syncs both ways');
     expect(cells[0]?.textContent).toContain('⇄');
   });
 
@@ -252,11 +253,11 @@ describe('ProductIntegrationRow', () => {
     const { el } = setup();
     const partnerCell = el.querySelector('td')!;
     expect(partnerCell.querySelector('a[href="/products/autodesk-bim-360"]')).not.toBeNull();
-    expect(partnerCell.textContent).toContain('Outbound');
+    expect(partnerCell.textContent).toContain('Sends to Autodesk BIM 360');
   });
 
   // The <th> that named this value is gone, so the sr-only prefix is the only
-  // thing left telling a screen reader what "Outbound" is a property OF.
+  // thing left telling a screen reader what "Sends to …" is a property OF.
   it('labels the direction for assistive tech with an sr-only prefix', () => {
     const { el } = setup();
     const prefix = [...el.querySelectorAll('span.sr-only')].find((s) =>

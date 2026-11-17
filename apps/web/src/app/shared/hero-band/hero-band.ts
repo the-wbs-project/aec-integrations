@@ -17,7 +17,11 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  * page wrap and the vertical rhythm. The caller owns every word.
  *
  * Slots, each an attribute on the projected element:
- *  - `heroCrumbs`: the breadcrumb (`aec-breadcrumb`, AECI-1777), above the name.
+ *  - `heroCrumbs`: the breadcrumb (`aec-breadcrumb`, AECI-1777). It sits above the
+ *    two-column grid, full width, as mock-ups 6 and 12 draw it (`.crumbs` before
+ *    `.hero-grid`), so it stays at the top of the band however tall the panel is. With
+ *    no panel the grid is one column and the breadcrumb sits right above the kicker,
+ *    exactly where it sat inside the column before (AECI-1720 restore C).
  *  - `heroKicker`: the chip row above the name.
  *  - `heroMark`: a logo left of the name, in a 104px box (68px below `md`). The
  *    projected element fills the box. The caller draws its radius and ring.
@@ -78,17 +82,18 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   template: `
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
       <div [class]="wrap">
+        <ng-content select="[heroCrumbs]" />
         <div
           #grid
           class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
           data-testid="hero-band-grid"
         >
           <div
-            class="min-w-0 lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start"
+            [class]="textClass()"
             [attr.data-held]="held() ? '' : null"
             [style.--aec-hero-held]="held() ? held()!.text + 'px' : null"
+            data-testid="hero-band-text"
           >
-            <ng-content select="[heroCrumbs]" />
             <ng-content select="[heroKicker]" />
             <div
               class="mt-6 mb-3 flex items-start gap-4 md:mb-4 md:items-center md:gap-6"
@@ -142,6 +147,14 @@ export class HeroBand {
    * (mock-up 12, AECI-1798). The column, its width and its forced-colours edge are the same.
    */
   readonly panel = input<'surface' | 'bare'>('surface');
+  /**
+   * Where the text column sits beside a taller panel from `lg`. `center`, the default,
+   * centres it, as mock-up 12 does beside the pair page's two product cards. `start`
+   * pins it to the top of the grid, as mock-up 6 does on the product page: the kicker
+   * and the name sit just under the breadcrumb, whatever the panel's height (AECI-1720
+   * restore C). Without a panel there is one column, so both read the same.
+   */
+  readonly align = input<'center' | 'start'>('center');
 
   protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
 
@@ -159,6 +172,13 @@ export class HeroBand {
     this.titleSize() === 'statement'
       ? 'font-display text-t-statement font-normal tracking-[-0.02em]'
       : 'font-display text-t-display font-normal tracking-[-0.02em] max-md:text-t-statement max-[360px]:text-t-fig!',
+  );
+
+  protected readonly textClass = computed(
+    () =>
+      `min-w-0 lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start${
+        this.align() === 'start' ? ' lg:self-start' : ''
+      }`,
   );
 
   protected readonly panelClass = computed(
