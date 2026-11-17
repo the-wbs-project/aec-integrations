@@ -131,7 +131,9 @@ test.describe('product hero category hub (AECI-1787)', () => {
         document.documentElement.scrollWidth,
         document.documentElement.clientWidth,
       ]);
-      expect(scroll, reducedMotion).toBe(client);
+      // On Linux CI the root's scrollWidth excludes the classic scrollbar gutter and
+      // clientWidth does not, so scrollWidth can be smaller. Overflow is scroll > client.
+      expect(scroll, reducedMotion).toBeLessThanOrEqual(client);
       await ctx.close();
     }
   });
