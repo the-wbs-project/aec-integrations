@@ -1224,7 +1224,7 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
+Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
 telemetry tripwires —
 AECI-868's `arrival_cf_coverage`, AECI-876's `landing_cf_coverage` and AECI-1715's
 `browser_evidence_coverage`). *(The count is deliberately not
@@ -1268,6 +1268,15 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > is failing, the day's traffic figures, human/bot split, swarm ratios and visitor counts are all
 > unusable: say so in the health report rather than charting across the gap
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
+
+> **`algolia_unclaimed_logo` means search shows a logo counsel's ruling 9 keeps off it** (AECI-1867).
+> Each line names an index and the slug of an unclaimed product or vendor whose record still
+> carries a `logo_url`. The record builders already null the field, so the record is stale: the
+> nightly sync only re-pushes rows whose `updated_at` moved. Do not edit D1 to bump `updated_at`.
+> Reset that entity's watermark (`SEARCH_RANKING.md` §1.2) and let the next 08:00 UTC sync rebuild
+> the records without emptying the index. Check the repair with
+> `scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`. If it recurs after a sweep, a write
+> path changed a claim without stamping `updated_at` on the vendor and its products. Find that writer.
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
@@ -1583,7 +1592,8 @@ why the job verifies a `metrics_daily` row exists for *every* day inside its cut
 deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
 
 `metrics_daily`, `audit_log`, `workflow_instances` and `workflow_transitions` are never touched
-(§26.6 / §7.4 rule 3), asserted by test rather than by comment.
+by this prune (§26.6 / §7.4 rule 3), asserted by test rather than by comment. The separate legal
+prune below deletes old `audit_log` rows.
 
 Since AECI-1228 the job also copies each `page_views` day to the permanent R2 archive first, and
 refuses the whole run if a day in the cut window is not confirmed there (§7.4 rule 5). The gate is on
@@ -1670,6 +1680,54 @@ wrangler d1 execute aeci-app-production --env production --remote --command \
 ```
 
 If step 2 returns any rows, the prune will skip — backfill those days first (First checks 1).
+
+### The legal retention prune (AECI-1638)
+
+The same 03:00 tick enqueues a second job, `legal-retention-prune`, on `RECONCILE_QUEUE`
+(`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). It deletes `audit_log` rows older than four
+years, except the exempt actions (`retention.pruned`, `litigation_hold.*`, `agreement.*`, `terms.*`,
+`account.deleted`). It also deletes agreement acceptances and subscription grants six years after the
+vendor account ends, or five years after a grant ends if later. It writes one `retention.pruned` row
+per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
+Nothing falls due before about 2030.
+
+**Metrics:**
+- `aeci.legal_retention.prune{outcome:ok|skipped|failed}`: one heartbeat per run, the liveness
+  signal (`legal-retention-prune`, 26 h, in the CI sweep). On `ok`, `audit:paused` means an open
+  vendor hold kept the audit part from running, and `replanned:true` means the first plan lost a
+  race and the run replanned at once. On `skipped`, `reason:litigation_hold` means a global hold
+  is open, and `reason:concurrent_run` means the plan lost a race twice in a row: another run of
+  the job, or a hold, reclaim or license landing mid-run. Nothing was deleted, no failure email
+  went out, and the next night plans from scratch. `failed` is only ever a crash.
+- `aeci.legal_retention.rows_deleted{table}`: rows removed from `audit_log`,
+  `agreement_acceptances`, `license_grants` and `litigation_holds` (holds released four years
+  ago), every run, zeros included.
+- `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, 200
+  acceptances, 200 grants). The next night continues.
+
+**Skipped is expected while a global hold is open.** Check `/admin/legal` "Litigation holds". If no
+matter needs the hold any more, release it there (`docs/runbooks/legal.md` "Litigation hold
+notice"). If the hold is right, do nothing: the job keeps reporting `skipped`.
+
+**Two runs at once.** The queued run and an inline fallback can both run when `queue.send`
+was accepted but its answer failed. Every delete in the batch has a commit-time count sentinel,
+so the run that commits second aborts, replans, finds nothing due and writes no
+`retention.pruned` row. Only one run ever records the deletes. A `skipped` with
+`reason:concurrent_run` needs no action unless it repeats for several nights.
+
+**Failed.** The batch is atomic, so nothing was deleted. It is a D1 or code fault: read the
+`aeci.legal_retention.crashed` log line and the `job_runs` row on `/admin/system`. The queue
+retries it with a fresh plan.
+
+**The hold reminder.** Before it prunes, the job emails `litigation-hold-reminder` for each hold
+open more than 90 days, at most every 30 days per hold. `job_runs.detail.reminders` counts the
+holds due and each send's outcome. A `aeci.legal_retention.hold_reminder_failed` warning means the
+ledger read failed and nothing was sent; the next night tries again. What to do with the email is
+in `docs/runbooks/legal.md` "Litigation hold notice".
+
+**A deletion to check after the fact.** The run's audit row holds every acceptance and grant id it
+deleted. The acceptance chain export writes a tombstone for each, and the verify accepts it because
+that row names it (ADR 0057).
 
 ## WAF rate-limit / challenge spike
 
@@ -2002,8 +2060,9 @@ Two windows left orphans that no log or metric recorded. Before AECI-530 no depl
 had the key, so every erasure was skipped. Before AECI-531 a skip logged nothing. That set is
 found only by reconciliation:
 
-1. Read every production erasure. `audit_log` is never pruned
-   (`apps/api/src/lib/retention-prune.ts`), so this list is complete. Staging and demo
+1. Read every production erasure. The legal retention prune never deletes an
+   `account.deleted` row (AECI-1638, `apps/api/src/lib/legal-retention-prune.ts`), so this list
+   is complete. Staging and demo
    erasures are not orphans. Since AECI-1468 those tiers keep the shared login on purpose.
 
 ```bash

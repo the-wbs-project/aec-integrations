@@ -492,7 +492,7 @@ Actor scope is one statement with a **subquery**, not a resolved id list: `inArr
 
 Ordering is `created_at DESC, id DESC`. The tiebreak is not decoration: `created_at` is an ISO string stamped in JS, two rows from one `db.batch` routinely share a millisecond, and without a second key a page boundary is unstable.
 
-**The viewer renders tolerantly.** `before_state` / `after_state` are free-form JSON written by ~34 call sites across the life of the schema, with no shared contract, in a table nothing prunes — so today's reader is parsing rows written by code that no longer exists. The wire types are `z.unknown().nullable()` (which in Zod 4 still rejects a *missing* key, satisfying R10) and `action` / `entity_type` are plain strings. An enum would turn a new writer elsewhere into a 500 on this screen.
+**The viewer renders tolerantly.** `before_state` / `after_state` are free-form JSON written by ~34 call sites across the life of the schema, with no shared contract, in a table that keeps rows four years (AECI-1638) — so today's reader is parsing rows written by code that no longer exists. The wire types are `z.unknown().nullable()` (which in Zod 4 still rejects a *missing* key, satisfying R10) and `action` / `entity_type` are plain strings. An enum would turn a new writer elsewhere into a 500 on this screen.
 
 #### 5.6.3 Seats: add and revoke, but never ban
 

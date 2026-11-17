@@ -60,6 +60,7 @@ import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concur
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import type { AlgoliaLogoReader, LogoEntity } from './algolia-unclaimed-logo';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { businessWindowEnd } from './business-days';
 import { fieldHideDues } from './field-hide-dues';
@@ -228,6 +229,9 @@ export interface DataQualityDeps {
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
    *  `algolia_index_drift` is skipped (no Algolia creds — the local default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
+  /** The `algolia_unclaimed_logo` reader (AECI-1867, `createUnclaimedLogoReader`).
+   *  `undefined` → that check is skipped (no Algolia creds — the local default). */
+  unclaimedLogoReader?: AlgoliaLogoReader;
   /** The `review_mirror_drift` wiring (AECI-1455). `undefined` → that check is
    *  skipped. Production builds it in `review-mirror-drift-deps.ts`. */
   reviewMirror?: ReviewMirrorDriftDeps;
@@ -719,6 +723,67 @@ export async function checkAlgoliaDrift(
         `${r.indexName}: database ${r.database} vs algolia ${r.algolia} (${r.drift > 0 ? '+' : ''}${r.drift})`,
     ),
   };
+}
+
+/** The claimed test of `isVendorClaimed` (`claimed-vendors.ts`) as SQL on alias `cv`. */
+const CLAIMED_CV_SQL = sql`cv.owned_at IS NOT NULL AND cv.claim_ended_at IS NULL`;
+
+/**
+ * Unclaimed listings whose search record still carries a logo (AECI-1867). Search
+ * shows a logo only while claimed (AECI-1618, DESIGN.md §5 "Unclaimed note", counsel's
+ * ruling 9), and `/search` trusts the record. The builders already null the field, so
+ * a finding is a record the nightly sync has not rebuilt since the rule or the claim
+ * changed.
+ *
+ * Every unclaimed id is a candidate, not only those with a stored logo: a record can
+ * hold a logo D1 no longer has. An id with no record is not a finding. A vendor is
+ * claimed when `owned_at` is set and `claim_ended_at` is null; a product when any
+ * linked vendor is, which is `claimedProductExtra`. Severity `error`: a public page
+ * breaks a counsel ruling. The fix is the watermark reset for that entity
+ * (`docs/SEARCH_RANKING.md` §1.2).
+ */
+export async function checkAlgoliaUnclaimedLogo(
+  db: Db,
+  reader?: AlgoliaLogoReader,
+): Promise<CheckFinding> {
+  if (!reader) {
+    return { lines: [], skipped: true, note: 'skipped — Algolia credentials not configured' };
+  }
+  const unclaimedProducts = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(
+      sql`NOT EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id WHERE cpv.product_id = ${products.id} AND ${CLAIMED_CV_SQL})`,
+    )
+    .orderBy(asc(products.slug));
+  const unclaimedVendors = await db
+    .select({ id: vendors.id, slug: vendors.slug })
+    .from(vendors)
+    .where(or(isNull(vendors.ownedAt), isNotNull(vendors.claimEndedAt)))
+    .orderBy(asc(vendors.slug));
+
+  const lines: string[] = [];
+  const candidates: Array<[LogoEntity, Array<{ id: string; slug: string }>]> = [
+    ['products', unclaimedProducts],
+    ['vendors', unclaimedVendors],
+  ];
+  let checked = 0;
+  for (const [entity, rows] of candidates) {
+    if (rows.length === 0) continue;
+    const slugOf = new Map(rows.map((r) => [r.id, r.slug]));
+    const indexed = await reader.logos(
+      entity,
+      rows.map((r) => r.id),
+    );
+    checked += indexed.length;
+    for (const r of indexed) {
+      if (!r.logoUrl) continue;
+      lines.push(
+        `${reader.indexName(entity)}: ${slugOf.get(r.objectID) ?? r.objectID} carries a logo`,
+      );
+    }
+  }
+  return { lines, note: `read ${checked} unclaimed record(s)` };
 }
 
 /**
@@ -1622,6 +1687,14 @@ export const CHECKS: CheckSpec[] = [
     label: 'Algolia index drift (Supabase ≠ Algolia)',
     severity: 'warn',
     run: ({ runDrift }) => checkAlgoliaDrift(runDrift),
+  },
+  {
+    id: 'algolia_unclaimed_logo',
+    label: 'Unclaimed listings whose search record still carries a logo',
+    // `error`: search shows a logo counsel's ruling 9 keeps to the listing's own page
+    // (AECI-1867). Skipped without Algolia creds, so a seeded database is clean.
+    severity: 'error',
+    run: ({ db, unclaimedLogoReader }) => checkAlgoliaUnclaimedLogo(db, unclaimedLogoReader),
   },
   {
     id: 'license_mirror_drift',

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeTestDb, statementsForMigration } from './d1';
 
 /**
- * AECI-1713 — `0126_browser_evidence.sql` adds the nullable `page_views.browser_evidence`
+ * AECI-1713 — `0127_browser_evidence.sql` adds the nullable `page_views.browser_evidence`
  * and `page_views.browser_evidence_at` columns. This file is the tripwire on the body.
  *
  * It must stay two plain `ALTER TABLE … ADD`s. `page_views` is the hottest table in the
@@ -12,7 +12,7 @@ import { makeTestDb, statementsForMigration } from './d1';
  * `browser_evidence` was tried and produced exactly that recreate, so the column has
  * no CHECK. A regenerate that grows one, or an index, is caught here.
  */
-const MIGRATION = '0126_browser_evidence.sql';
+const MIGRATION = '0127_browser_evidence.sql';
 const NOW = '2026-11-13T00:00:00.000Z';
 
 const withoutComments = (s: string) =>

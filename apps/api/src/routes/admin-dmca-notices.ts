@@ -45,8 +45,8 @@
  *
  * ─── What the audit row holds ─────────────────────────────────────────────────
  *
- * `audit_log` is never pruned, so it must not hold the personal data this table keeps for
- * three years and nulls on account deletion. The states carry the dates, the action, the
+ * `audit_log` rows are kept four years (AECI-1638), so they must not hold the personal data
+ * this table keeps for three years and nulls on account deletion. The states carry the dates, the action, the
  * outcome and the ids of the notice and vendor. Names, contact details, the material, the
  * work, the notes and the account id are listed in `metadata.fields` when they change, and
  * their values stay on the row.

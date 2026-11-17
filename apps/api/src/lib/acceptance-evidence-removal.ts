@@ -7,8 +7,8 @@
  *
  * The Privacy Policy "Retention" and Vendor Terms "Accepting these terms" promise it:
  * "The IP address and browser ... are deleted 90 days after acceptance." Email, time and
- * version stay, because they prove the acceptance. The row itself is never deleted
- * (`NEVER_PRUNED` in `./retention-prune`).
+ * version stay, because they prove the acceptance. This sweep never deletes a row. Only the
+ * legal retention prune does (`./legal-retention-prune`, AECI-1638), years later.
  *
  * The daily job, in order:
  *

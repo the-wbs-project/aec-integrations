@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ec631f98-b1c7-4078-94ac-fcea7c5c5923",
+  "id": "d0f3684c-01b6-417f-989d-cdb7e6711f48",
   "prevId": "8b9dec62-3e00-4490-9522-8448180ac2f6",
   "tables": {
     "acceptance_chain_exports": {
@@ -5483,6 +5483,117 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "litigation_holds": {
+      "name": "litigation_holds",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "vendor_id": {
+          "name": "vendor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "matter_reference": {
+          "name": "matter_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "placed_by": {
+          "name": "placed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "placed_at": {
+          "name": "placed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "released_at": {
+          "name": "released_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "released_by": {
+          "name": "released_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "release_reason": {
+          "name": "release_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "litigation_holds_open_global_idx": {
+          "name": "litigation_holds_open_global_idx",
+          "columns": [
+            "scope"
+          ],
+          "isUnique": true,
+          "where": "\"released_at\" IS NULL AND \"scope\" = 'global'"
+        },
+        "litigation_holds_open_vendor_idx": {
+          "name": "litigation_holds_open_vendor_idx",
+          "columns": [
+            "vendor_id"
+          ],
+          "isUnique": true,
+          "where": "\"released_at\" IS NULL AND \"vendor_id\" IS NOT NULL"
+        },
+        "litigation_holds_placed_at_idx": {
+          "name": "litigation_holds_placed_at_idx",
+          "columns": [
+            "placed_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "mailing_list": {
       "name": "mailing_list",
       "columns": {
@@ -6585,20 +6696,6 @@
         },
         "turnstile_verdict": {
           "name": "turnstile_verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "browser_evidence": {
-          "name": "browser_evidence",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "browser_evidence_at": {
-          "name": "browser_evidence_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

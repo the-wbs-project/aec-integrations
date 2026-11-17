@@ -14,6 +14,7 @@ import { LEGAL_IN_FORCE_MAPS, type LegalInForceMaps } from '@aeci/shared';
 import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import type { AlgoliaLogoReader, IndexedLogo, LogoEntity } from './algolia-unclaimed-logo';
 import {
   billingAccounts,
   connectorEvidencedPairs,
@@ -46,6 +47,7 @@ import {
   browserEvidenceCaptureEnabled,
   CHECKS,
   checkAlgoliaDrift,
+  checkAlgoliaUnclaimedLogo,
   checkArrivalCfCoverage,
   checkBrowserEvidenceCoverage,
   checkDefaultMetaDescription,
@@ -621,6 +623,86 @@ describe('checkAlgoliaDrift', () => {
 
   it('skips when no drift closure is provided (no creds)', async () => {
     const finding = await checkAlgoliaDrift(undefined);
+    expect(finding.skipped).toBe(true);
+    expect(finding.lines).toEqual([]);
+  });
+});
+
+// ── algolia_unclaimed_logo (AECI-1867) ────────────────────────────────────────
+
+describe('checkAlgoliaUnclaimedLogo', () => {
+  /** A fake index: `records[entity][id]` is the stored `logo_url`; absent = no record. */
+  function fakeReader(records: Record<LogoEntity, Record<string, string | null>>) {
+    const asked: Record<LogoEntity, string[]> = { products: [], vendors: [] };
+    const reader: AlgoliaLogoReader = {
+      indexName: (entity) => `production_${entity}`,
+      async logos(entity, ids) {
+        asked[entity].push(...ids);
+        return ids
+          .filter((id) => id in records[entity])
+          .map((id): IndexedLogo => ({ objectID: id, logoUrl: records[entity][id] ?? null }));
+      },
+    };
+    return { reader, asked };
+  }
+
+  it('flags an unclaimed product and an unclaimed vendor whose record carries a logo', async () => {
+    await seedVendor({ id: 'v-open', slug: 'open-co' });
+    await seedProduct({ id: 'p-open', slug: 'open-tool' });
+    await linkProductVendor('p-open', 'v-open');
+    const { reader } = fakeReader({
+      products: { 'p-open': 'https://cdn.example/p.png' },
+      vendors: { 'v-open': 'https://cdn.example/v.png' },
+    });
+
+    const { lines, skipped } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(skipped).toBeFalsy();
+    expect(lines).toEqual([
+      'production_products: open-tool carries a logo',
+      'production_vendors: open-co carries a logo',
+    ]);
+  });
+
+  it('never reads a claimed listing, and treats a product claimed through a second vendor as claimed', async () => {
+    await seedVendor({ id: 'v-claimed', ownedAt: OLD });
+    await seedVendor({ id: 'v-open' });
+    await seedProduct({ id: 'p-shared' });
+    await linkProductVendor('p-shared', 'v-open');
+    await linkProductVendor('p-shared', 'v-claimed');
+    const { reader, asked } = fakeReader({
+      products: { 'p-shared': 'https://cdn.example/p.png' },
+      vendors: { 'v-claimed': 'https://cdn.example/c.png', 'v-open': null },
+    });
+
+    const { lines } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(lines).toEqual([]);
+    expect(asked.products).toEqual([]);
+    expect(asked.vendors).toEqual(['v-open']);
+  });
+
+  it('counts a vendor whose claim ended as unclaimed', async () => {
+    await seedVendor({ id: 'v-ended', slug: 'ended-co', ownedAt: OLD });
+    await t.db.update(vendors).set({ claimEndedAt: RECENT }).where(eq(vendors.id, 'v-ended'));
+    const { reader } = fakeReader({
+      products: {},
+      vendors: { 'v-ended': 'https://cdn.example/e.png' },
+    });
+
+    const { lines } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(lines).toEqual(['production_vendors: ended-co carries a logo']);
+  });
+
+  it('is clean when the records hold no logo or do not exist', async () => {
+    await seedVendor({ id: 'v-open', logoUrl: 'https://cdn.example/stored.png' });
+    await seedProduct({ id: 'p-unindexed' });
+    await linkProductVendor('p-unindexed', 'v-open');
+    const { reader } = fakeReader({ products: {}, vendors: { 'v-open': null } });
+
+    expect((await checkAlgoliaUnclaimedLogo(t.db, reader)).lines).toEqual([]);
+  });
+
+  it('skips when no reader is provided (no creds)', async () => {
+    const finding = await checkAlgoliaUnclaimedLogo(t.db, undefined);
     expect(finding.skipped).toBe(true);
     expect(finding.lines).toEqual([]);
   });

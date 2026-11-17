@@ -1955,7 +1955,9 @@ export const licenses = sqliteTable(
  * `items_json` holds the ban-term items (`LicenseGrantItem[]`), `[]` on a `grant`.
  *
  * Domain state: every write carries its `license_grant.*` audit row in the same
- * `db.batch` (ADR 0022). Never pruned (`NEVER_PRUNED` in `lib/retention-prune.ts`).
+ * `db.batch` (ADR 0022). Deleted only by the legal retention prune (AECI-1638,
+ * `lib/legal-retention-prune.ts`): five years after the grant ends and six after the vendor
+ * account ends, with its ids in the run's `retention.pruned` audit row.
  */
 export const licenseGrants = sqliteTable(
   'license_grants',
@@ -2289,7 +2291,10 @@ export const productProposals = sqliteTable(
  * replayed checkout webhook fail its batch instead of writing a second acceptance.
  *
  * Domain state: every insert carries its `agreement.accepted` audit row in the same
- * `db.batch`. Append-only: nothing updates or deletes a row. No `relations()` entry.
+ * `db.batch`. Append-only but for the 90-day evidence sweep (AECI-1636) and the legal
+ * retention prune (AECI-1638, `lib/legal-retention-prune.ts`), which deletes a row six
+ * years after the vendor account ends, or five after its grant ends if later. A row with a
+ * NULL `vendor_id` is never deleted. No `relations()` entry.
  */
 export const agreementAcceptances = sqliteTable(
   'agreement_acceptances',
@@ -2511,6 +2516,60 @@ export const dmcaNotices = sqliteTable(
       .where(sql`"account_id" IS NOT NULL`),
     index('dmca_notices_notice_id_idx').on(t.noticeId),
     index('dmca_notices_received_at_idx').on(t.receivedAt),
+  ],
+);
+
+/**
+ * Litigation holds (AECI-1638, counsel Q23a, `DATABASE_SCHEMA.md` §8.15, ADR 0058). One row
+ * is one hold an admin placed on `/admin/legal`. An open row (`released_at IS NULL`) stops
+ * the legal retention prune (`lib/legal-retention-prune.ts`):
+ *
+ *   - any open hold, global or vendor, pauses the whole four-year `audit_log` prune.
+ *   - a `vendor` hold also keeps that vendor's `agreement_acceptances` and `license_grants`.
+ *   - a `global` hold keeps everything: the run deletes nothing.
+ *
+ * `scope` is `global` or `vendor`, with no CHECK (the house rule for enum-like text, a CHECK
+ * change on D1 is a table recreate, `docs/migrations.md` §0). `vendor_id` is a `vendors.id`,
+ * NULL on a global hold, with NO FK, so a vendor retraction never cascades into a legal
+ * record. The partial unique indexes hold the table to one open global hold and one open
+ * hold per vendor. A release stamps the three `released_*` columns. The legal prune deletes a
+ * row four years after its release, with its audit rows, because `reason` can name a person.
+ *
+ * Domain state: the one writer is `routes/admin-litigation-holds.ts`, and each insert and
+ * release carries its `litigation_hold.*` audit row in the same `db.batch` (ADR 0022). Those
+ * audit rows go only with their hold, four years after release. Never public.
+ */
+export const litigationHolds = sqliteTable(
+  'litigation_holds',
+  {
+    id: uuidPk(),
+    /** `LITIGATION_HOLD_SCOPES`: `global` | `vendor`. No CHECK. */
+    scope: text('scope').notNull(),
+    /** A `vendors.id`, NO FK. NULL on a global hold. */
+    vendorId: text('vendor_id'),
+    /** Why the hold was placed. Internal, never sent. */
+    reason: text('reason').notNull(),
+    /** The matter it serves, e.g. a Linear issue id or a case number. */
+    matterReference: text('matter_reference'),
+    /** A `profiles.id`, NO FK. */
+    placedBy: text('placed_by').notNull(),
+    /** ISO-8601. */
+    placedAt: text('placed_at').notNull(),
+    /** ISO-8601. NULL while the hold is open. */
+    releasedAt: text('released_at'),
+    /** A `profiles.id`, NO FK. */
+    releasedBy: text('released_by'),
+    releaseReason: text('release_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('litigation_holds_open_global_idx')
+      .on(t.scope)
+      .where(sql`"released_at" IS NULL AND "scope" = 'global'`),
+    uniqueIndex('litigation_holds_open_vendor_idx')
+      .on(t.vendorId)
+      .where(sql`"released_at" IS NULL AND "vendor_id" IS NOT NULL`),
+    index('litigation_holds_placed_at_idx').on(t.placedAt),
   ],
 );
 
@@ -3800,7 +3859,7 @@ export const pageViews = sqliteTable(
     //
     // NULL = no report arrived, or none was collected: a privacy-signal row (the
     // column is in `PRIVACY_NULLED`), a held region, or any row written before
-    // migration 0126. Never backfilled.
+    // migration 0127. Never backfilled.
     //
     // No CHECK constraint and no index, for the reasons `client_verdict` above
     // records. A CHECK here made drizzle-kit emit a full `__new_page_views` recreate
@@ -6325,6 +6384,7 @@ export const schema = {
   agreementAcceptances,
   legalVersions,
   dmcaNotices,
+  litigationHolds,
   legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,
