@@ -61,6 +61,18 @@ describe('MethodologyPage', () => {
     ]);
   });
 
+  it('puts the hero on the one Bone band and the article on the page wrap (AECI-1800)', () => {
+    const { host } = setup();
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    const article = host.querySelector('article.aec-prose');
+    expect(article?.classList).toContain('max-w-[70ch]');
+    expect(article?.parentElement?.classList).toContain('max-w-[1328px]');
+    // The h1 is the Headline role: no size utility the unlayered h1 rule would kill.
+    expect(host.querySelector('h1')?.className).not.toMatch(/text-\d?xl/);
+  });
+
   it('describes all four agreement states using the labels the badge actually renders', () => {
     const { host } = setup();
     const text = host.textContent ?? '';

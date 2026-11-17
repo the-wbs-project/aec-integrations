@@ -48,6 +48,28 @@ describe('NotFound component', () => {
     expect(hrefs).not.toContain('/integrations');
   });
 
+  it('draws each recovery link as a shared card that is itself the link (AECI-1799)', () => {
+    const el = render().nativeElement as HTMLElement;
+    const list = el.querySelector('nav[aria-labelledby="not-found-recovery"] ul');
+    expect(list?.classList).toContain('aec-card-grid');
+    const links = Array.from(list!.querySelectorAll('li > a'));
+    // The order is the shipped one. It is not an ordering rule, so it never changes.
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/products',
+      '/categories',
+      '/audiences',
+      '/trades',
+      '/phases',
+    ]);
+    for (const a of links) {
+      expect(a.classList).toContain('aec-card');
+      expect(a.classList).toContain('rounded-card');
+      expect(a.parentElement?.classList).toContain('group/card');
+    }
+    // The eyebrow and the recovery heading are the overline role.
+    expect(el.querySelector('#not-found-recovery')?.classList).toContain('aec-overline');
+  });
+
   it('groups recovery links inside a labelled nav landmark', () => {
     const el = render().nativeElement as HTMLElement;
     const nav = el.querySelector('nav[aria-labelledby="not-found-recovery"]');
