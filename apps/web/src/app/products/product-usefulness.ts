@@ -60,9 +60,10 @@ import { AecIcon } from '../shared/icon/icon';
   template: `
     @if (hasContent()) {
       <section aria-labelledby="usefulness-title" class="space-y-8">
-        <!-- Mock-up 6 band head (AECI-1720 restore): the small label, "How teams use
-             {product}" and a one-line intro. The label repeats the heading, so it is hidden
-             from assistive technology. -->
+        <!-- Mock-up 6 band head (AECI-1720 restore): the small label and "How teams use
+             {product}". The mock-up's intro line is not built: it can read as a claim about
+             who wrote the section, which the caption contradicts. The label repeats the
+             heading, so it is hidden from assistive technology. -->
         <div>
           <p
             aria-hidden="true"
@@ -78,12 +79,6 @@ import { AecIcon } from '../shared/icon/icon';
               >How teams use {{ productName() }}</span
             >
           </h2>
-          <p
-            class="mt-4 max-w-[38em] text-t-16 leading-relaxed text-(--text-secondary)"
-            i18n="@@products.detail.usefulness.intro"
-          >
-            What it is used for, by the people who use it and the stage of the project they are in.
-          </p>
         </div>
 
         <ng-template #groupList let-groups>

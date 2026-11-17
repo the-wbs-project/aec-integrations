@@ -169,15 +169,15 @@ describe('ProductUsefulnessSection', () => {
     expect(tags.slice(1).every((t) => t === 'H3')).toBe(true);
   });
 
-  it('heads the section with the hidden label, "How teams use {product}" and the intro (AECI-1720)', () => {
+  it('heads the section with the hidden label and "How teams use {product}", and no intro line (AECI-1720)', () => {
     const el = setup(FULL).nativeElement as HTMLElement;
     const h2 = el.querySelector('h2#usefulness-title')!;
     expect(h2.textContent?.trim()).toBe('How teams use Bluebeam Revu');
     const kicker = h2.previousElementSibling!;
     expect(kicker.getAttribute('aria-hidden')).toBe('true');
     expect(kicker.textContent?.trim()).toBe('How teams use it');
-    expect(h2.nextElementSibling?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'What it is used for, by the people who use it and the stage of the project they are in.',
-    );
+    // The mock-up's intro can read as "written by users", which the caption contradicts.
+    expect(h2.nextElementSibling).toBeNull();
+    expect(el.textContent).not.toContain('by the people who use it');
   });
 });
