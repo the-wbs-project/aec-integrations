@@ -3945,6 +3945,75 @@ export const planChangeSnapshots = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// The acceptance chain (AECI-1680, ADR 0057, DATABASE_SCHEMA.md §9.17)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: they
+// record what the nightly export wrote to R2, and the acceptance and grant writes
+// carry their own `audit_log` rows. Written only by `lib/acceptance-chain-export.ts`,
+// after R2 confirmed the night's file. Never pruned. The R2 files are the evidence:
+// the verify command (`ops:verify-acceptance-chain`) walks R2 and never trusts these
+// tables, so editing them only causes a re-export.
+// ===========================================================================
+
+/**
+ * One row per nightly chain file under `evidence/acceptance-chain/` in `UPLOADS`. `seq`
+ * is the primary key, so a second run for the same file trips it.
+ *
+ * `tsa_status` is the DigiCert RFC 3161 timestamp's state: `granted` (the token is in R2
+ * at `tsa_key`), `failed` (the request failed, and a later run retries it) or `pending`
+ * (not asked yet). No CHECK: a CHECK change on D1 is a table recreate
+ * (`docs/migrations.md` §0). The TypeScript union is the guard.
+ */
+export const acceptanceChainExports = sqliteTable(
+  'acceptance_chain_exports',
+  {
+    /** 1, 2, 3, … The file's place in the chain. */
+    seq: integer('seq').primaryKey(),
+    /** `YYYY-MM-DD`, UTC. The night the file was written. */
+    day: text('day').notNull(),
+    /** The file's R2 key in `UPLOADS`. */
+    objectKey: text('object_key').notNull(),
+    /** Lowercase hex SHA-256 of the file bytes. The next file's `prev_sha256`. */
+    sha256: text('sha256').notNull(),
+    /** The previous file's SHA-256. NULL at seq 1. */
+    prevSha256: text('prev_sha256'),
+    /** SHA-256 over every live row's `table:id:fingerprint` line, sorted. */
+    stateSha256: text('state_sha256').notNull(),
+    /** Entries in the file: changed rows plus tombstones. 0 on a quiet night. */
+    entries: integer('entries').notNull(),
+    tsaStatus: text('tsa_status').notNull().$type<'pending' | 'granted' | 'failed'>(),
+    /** The timestamp token's R2 key. NULL until DigiCert granted one. */
+    tsaKey: text('tsa_key'),
+    /** ISO-8601. When R2 confirmed the file. */
+    exportedAt: text('exported_at').notNull(),
+  },
+  (t) => [
+    // The backfill read: the latest files whose timestamp is not granted.
+    index('acceptance_chain_exports_tsa_status_idx').on(t.tsaStatus, t.seq),
+  ],
+);
+
+/**
+ * The last fingerprint exported for each acceptance and grant row. It drives the
+ * nightly diff and nothing else: the verify command reads the fingerprints from R2.
+ * `deleted` is 1 once a tombstone was written for the row.
+ */
+export const acceptanceChainRows = sqliteTable(
+  'acceptance_chain_rows',
+  {
+    /** `agreement_acceptances` | `license_grants`. */
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    /** Lowercase hex SHA-256 of the row's hashed columns (`lib/acceptance-chain.ts`). */
+    fingerprint: text('fingerprint').notNull(),
+    /** The chain file that last carried this row. */
+    seq: integer('seq').notNull(),
+    deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.tableName, t.rowId] })],
+);
+
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).$type<unknown>().notNull(),

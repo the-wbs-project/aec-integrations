@@ -2558,6 +2558,14 @@ create unique index agreement_acceptances_stripe_session_key
   receipt. Nothing deletes a row. Two writes update one: the claim-approval link
   (`linkClaimAcceptanceStatements`, which fills the ids) and the 90-day evidence removal
   (AECI-1636, which nulls `ip` and `user_agent`). No `relations()` entry.
+- **Tamper-evident since AECI-1680 (2026-11-17, ADR 0057).** "Append-only" was a convention
+  until then. Each night at 18:00 UTC the acceptance chain export (§9.17) writes the SHA-256
+  fingerprint of every new or changed row to a hash-chained file in R2 under a bucket lock, and
+  DigiCert timestamps the file. `ip` and `user_agent` are left out of the fingerprint, so the
+  90-day removal above does not change it. `evidence_removed_at` is in it, so that removal shows
+  in the chain as one new fingerprint. `ops:verify-acceptance-chain` reports any row whose D1
+  value no longer matches its last fingerprint as `CHANGED`. R2 holds fingerprints, not rows, so
+  it shows an edit but cannot restore the row.
 
 ### 8.6e `license_release_requests` (AECI-1373, migration 0079)
 
@@ -2884,6 +2892,10 @@ create index license_grants_account_idx on license_grants(billing_account_id);
   (`grants[]`), the sweep, and the `entitlement` cursor of `/api/vendor/updates`
   (`max(updated_at)` per vendor, `STAGE_2_REALTIME_SPEC.md`).
 - **Never pruned** (§8.6d, `NEVER_PRUNED`).
+- **Fingerprinted nightly (AECI-1680, ADR 0057).** Grants are updated in place, so each night's
+  acceptance chain export (§9.17) writes a new fingerprint for every grant that changed since
+  the last file. The status, kind, dates, terms version and `updated_at` are copied into the
+  entry as plain fields. `notes`, `reference` and the actor ids are only in the hash.
 - **Grandfathered (ruling R3).** Grants live before AECI-1615 have no row here and stay live.
 
 ### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
@@ -6095,6 +6107,72 @@ sort, listing and home-stats module from naming this table.
 **Migration `0123`** is a plain `CREATE TABLE` and two `CREATE INDEX`es. It recreates nothing and cannot
 cascade (`apps/api/src/test/migration-0123.spec.ts`).
 
+### 9.17 `acceptance_chain_exports` and `acceptance_chain_rows`
+
+The ledger of the acceptance chain (AECI-1680, ADR 0057, migration `0124_silky_lila_cheney.sql`).
+Each night the `acceptance-chain` cron (`0 18 * * *`, on `RECONCILE_QUEUE`) writes one JSON file to
+the `UPLOADS` R2 bucket at `evidence/acceptance-chain/<seq, 6 digits>.json`
+(`ANALYTICS.md` §11e). The file holds the SHA-256 fingerprint of every `agreement_acceptances` (§8.6d)
+and `license_grants` (§8.6h) row that is new or changed since the last file, and a tombstone for every
+exported row now gone from D1. It names the SHA-256 of the previous file, so changing an old file breaks
+every later link. DigiCert's RFC 3161 token for the file sits beside it as `.tsr`.
+
+```sql
+create table acceptance_chain_exports (
+  seq integer primary key not null,  -- 1, 2, 3, ...; a second row for one file trips the PK
+  day text not null,                 -- YYYY-MM-DD, UTC
+  object_key text not null,          -- evidence/acceptance-chain/000001.json
+  sha256 text not null,              -- of the file bytes; the next file's prev_sha256
+  prev_sha256 text,                  -- NULL at seq 1
+  state_sha256 text not null,        -- over every live row's table:id:fingerprint line, sorted
+  entries integer not null,          -- changed rows plus tombstones; 0 on a quiet night
+  tsa_status text not null,          -- 'pending' | 'granted' | 'failed'. No CHECK
+  tsa_key text,                      -- the .tsr key once DigiCert granted a token
+  exported_at text not null
+);
+create index acceptance_chain_exports_tsa_status_idx on acceptance_chain_exports (tsa_status, seq);
+
+create table acceptance_chain_rows (
+  table_name text not null,          -- 'agreement_acceptances' | 'license_grants'
+  row_id text not null,
+  fingerprint text not null,         -- the last fingerprint exported for the row
+  seq integer not null,              -- the file that last carried it
+  deleted integer default false not null,  -- 1 once a tombstone was written
+  primary key (table_name, row_id)
+);
+```
+
+**The fingerprint.** `sha256(canonicalJson(the row's hashed columns))`, `rowFingerprint` in
+`lib/acceptance-chain.ts`. `COLUMN_MANIFEST` classifies every column of both tables, and a spec fails on
+an unclassified one. `ip` and `user_agent` are excluded from the hash input (Chris's ruling 1A), so
+nulling those fields alone never changes a fingerprint. The 90-day sweep also stamps
+`evidence_removed_at`, which does change it (§8.6d). A handful of columns that are not personal (ids, versions,
+dates, statuses, `text_sha256`) are also copied into the entry as plain fields. R2 never holds an
+email, a name, an IP address or a browser.
+
+**Written after R2.** The job reads both tables in full, diffs them against `acceptance_chain_rows`,
+`head`s the next key, `put`s the file and confirms it with `head`, then writes the export row and the
+row upserts in one `db.batch`, the export row first. An object already at the key was written by an
+earlier attempt and is adopted. Then it asks DigiCert for the timestamp and updates `tsa_status`. The
+Worker verifies the reply's signature and pinned issuer before it stores the `.tsr` (ADR 0057). A
+failed request or a reply that fails the check leaves `failed`, and each run retries up to 7
+earlier files.
+
+**R2 supplies the evidence.** `ops:verify-acceptance-chain` reconstructs fingerprints and links from
+the files in R2. It reads only `MAX(seq)` from `acceptance_chain_exports` as a minimum walk length,
+so a missing file below that seq cannot silently end verification. It never reads
+`acceptance_chain_rows`. Ledger damage can cause re-exports or verification failures; neither table
+should be edited to repair evidence.
+
+**Log-class, not domain state** (ADR 0022, 2026-11-17 amendment). The acceptance and grant writes carry
+their own `audit_log` rows. These writes carry none (`CODE_REVIEW_EXEMPTIONS.md` EX-002).
+
+**Retention: indefinite.** No delete path. The R2 files are under an indefinite bucket lock on
+`evidence/acceptance-chain/` that the operator applies (`docs/environments.md`).
+
+**Migration `0124`** is two plain `CREATE TABLE`s and one `CREATE INDEX`. It recreates nothing and cannot
+cascade (`apps/api/src/test/migration-0124.spec.ts`).
+
 ---
 
 ## 10. Future-ready tables
@@ -6326,6 +6404,7 @@ Backup policy is deferred to a dedicated operational document — `docs/runbooks
 - `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
 - Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
+- `agreement_acceptances` and `license_grants`: the acceptance chain in R2 (§9.17, ADR 0057) is **not a backup** of them. It holds fingerprints, not rows, so it proves a row was or was not edited but cannot restore one. Recovery of these rows is D1 Time Travel, within its window
 
 ---
 
