@@ -33,7 +33,7 @@ test.describe(`${PATH} (AECI-1801)`, () => {
       const [ground, base] = await signup.evaluate((el) => {
         const probe = document.createElement('div');
         probe.style.backgroundColor = 'var(--surface-base)';
-        document.body.append(probe);
+        document.body.appendChild(probe);
         const white = getComputedStyle(probe).backgroundColor;
         probe.remove();
         return [getComputedStyle(el).backgroundColor, white];

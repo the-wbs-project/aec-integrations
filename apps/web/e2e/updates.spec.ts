@@ -142,7 +142,7 @@ test.describe(`${PATH} — AECI-536`, () => {
       const fieldEdge = await page.evaluate(() => {
         const probe = document.createElement('div');
         probe.style.color = 'var(--border-field)';
-        document.body.append(probe);
+        document.body.appendChild(probe);
         const colour = getComputedStyle(probe).color;
         probe.remove();
         return colour;
