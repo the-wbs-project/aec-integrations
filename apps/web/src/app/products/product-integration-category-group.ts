@@ -15,6 +15,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 import {
   GROUP_PEEK_ROWS,
+  GROUP_PEEK_ROWS_PHONE,
   groupDomId,
   peekGroup,
   sharedRowColumns,
@@ -57,13 +58,14 @@ import { ProductIntegrationCard } from './product-integration-card';
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b pb-4">
       <!-- The size sits on the span: the unlayered heading rules beat a text-* utility
            on the heading itself. -->
-      <h3
+      <!-- An h4 under the list's h3 "All integrations on record" (AECI-1720). -->
+      <h4
         [id]="headingId()"
         tabindex="-1"
         class="rounded-sm text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       >
         <span class="font-display text-t-24 leading-tight font-semibold">{{ name() }}</span>
-      </h3>
+      </h4>
       <span
         class="relative rounded-pill bg-(--surface-sunken) px-3 py-0.5 text-t-13 font-semibold text-(--text-secondary) tabular-nums"
         data-testid="integration-category-group-count"
@@ -81,19 +83,24 @@ import { ProductIntegrationCard } from './product-integration-card';
       data-testid="integration-cards"
     >
       @for (row of group().rows; track row.key; let i = $index) {
+        <!-- data-phone-extra marks the rows past the phone peek (AECI-1720). The CSS
+             below hides them under md only, so the DOM is the same at every width. -->
         <li
           aec-product-integration-card
           [row]="row"
           [contextSlug]="contextSlug()"
-          [headingLevel]="4"
+          [headingLevel]="5"
           [attr.hidden]="!isOpen() && i >= peekSize ? 'until-found' : null"
+          [attr.data-phone-extra]="!isOpen() && i >= phonePeekSize && i < peekSize ? '' : null"
           (beforematch)="open.set(true)"
         ></li>
       }
     </ul>
 
-    @if (!forceOpen() && split().hidden.length > 0) {
-      <div class="mt-4">
+    @if (!forceOpen() && phoneSplit().hidden.length > 0) {
+      <!-- Below md the button shows from the fourth row, from md from the seventh. A
+           group of 4 to 6 has a button on a phone only. -->
+      <div [class]="split().hidden.length === 0 ? 'mt-4 md:hidden' : 'mt-4'">
         <button
           #toggleButton
           aecButton
@@ -109,7 +116,26 @@ import { ProductIntegrationCard } from './product-integration-card';
             <aec-icon name="chevron-up" decorative [size]="4" />
             <span i18n="@@facets.showFewer">Show fewer</span>
           } @else {
-            <span class="flex -space-x-2" aria-hidden="true" data-testid="integration-stack">
+            <span
+              class="flex -space-x-2 md:hidden"
+              aria-hidden="true"
+              data-testid="integration-stack-phone"
+            >
+              @for (row of phoneStack(); track row.key) {
+                <aec-logo-or-initial
+                  class="rounded-mark ring-2 ring-(--surface-raised)"
+                  [claimStatus]="'server-filtered'"
+                  [src]="row.other.logo_url"
+                  [name]="row.other.name"
+                  size="sm"
+                />
+              }
+            </span>
+            <span
+              class="hidden -space-x-2 md:flex"
+              aria-hidden="true"
+              data-testid="integration-stack"
+            >
               @for (row of stack(); track row.key) {
                 <aec-logo-or-initial
                   class="rounded-mark ring-2 ring-(--surface-raised)"
@@ -120,7 +146,14 @@ import { ProductIntegrationCard } from './product-integration-card';
                 />
               }
             </span>
-            <span>{{ showMoreLabel() }}</span>
+            <!-- Two labels, one per width, so each counts the cards it reveals there.
+                 The hidden one is display: none, so it is never read. -->
+            <span class="md:hidden" data-testid="integration-show-more-phone">{{
+              phoneShowMoreLabel()
+            }}</span>
+            <span class="max-md:hidden" data-testid="integration-show-more">{{
+              showMoreLabel()
+            }}</span>
             <aec-icon name="chevron-down" decorative [size]="4" />
           }
         </button>
@@ -167,6 +200,14 @@ import { ProductIntegrationCard } from './product-integration-card';
        without until-found reads plain hidden, which the card's own display utility
        would beat, so content-visibility is set here too: its links then leave the tab
        order and the accessibility tree, as under display: none. */
+    /* AECI-1720: below md, where the grid is one column, a closed group shows its
+       first GROUP_PEEK_ROWS_PHONE cards. The rows are in the server HTML at every
+       width, so only CSS decides, and nothing differs between server and browser. */
+    @media (max-width: 47.98rem) {
+      .aec-category-grid > li[data-phone-extra] {
+        display: none;
+      }
+    }
     .aec-category-grid > li[hidden] {
       content-visibility: hidden;
       position: absolute;
@@ -203,6 +244,15 @@ export class ProductIntegrationCategoryGroup {
 
   protected readonly stack = computed(() => stackPartners(this.split().hidden));
 
+  /** The phone cut (AECI-1720): the first {@link GROUP_PEEK_ROWS_PHONE} rows, and the rest. */
+  protected readonly phonePeekSize = GROUP_PEEK_ROWS_PHONE;
+
+  protected readonly phoneSplit = computed(() =>
+    peekGroup(this.group().rows, GROUP_PEEK_ROWS_PHONE),
+  );
+
+  protected readonly phoneStack = computed(() => stackPartners(this.phoneSplit().hidden));
+
   protected readonly domId = computed(() => groupDomId(this.group().key));
   protected readonly headingId = computed(() => `${this.domId()}-title`);
   protected readonly listId = computed(() => `${this.domId()}-list`);
@@ -221,13 +271,18 @@ export class ProductIntegrationCategoryGroup {
       : $localize`:@@products.detail.body.integrations.group.count:${total}:count: integrations`;
   });
 
-  protected readonly showMoreLabel = computed(() => {
-    const count = this.split().hidden.length;
+  protected readonly showMoreLabel = computed(() => this.moreLabel(this.split().hidden.length));
+
+  protected readonly phoneShowMoreLabel = computed(() =>
+    this.moreLabel(this.phoneSplit().hidden.length),
+  );
+
+  private moreLabel(count: number): string {
     const category = this.group().category;
     return category
       ? $localize`:@@products.detail.body.integrations.group.showMore:Show ${count}:COUNT: more in ${category.name}:CATEGORY:`
       : $localize`:@@products.detail.body.integrations.group.showMore.plain:Show ${count}:COUNT: more`;
-  });
+  }
 
   protected toggle(button: HTMLElement): void {
     const closing = this.open();
@@ -246,7 +301,12 @@ export class ProductIntegrationCategoryGroup {
         const links = this.host.nativeElement.querySelectorAll<HTMLElement>(
           ':scope > ul > li .aec-partner-link',
         );
-        links.item(this.peekSize)?.focus();
+        // The first revealed card is the seventh from md, the fourth below it.
+        const wide =
+          this.host.nativeElement.ownerDocument.defaultView?.matchMedia(
+            '(min-width: 48rem)',
+          ).matches;
+        links.item(wide === false ? this.phonePeekSize : this.peekSize)?.focus();
       },
       { injector: this.injector },
     );

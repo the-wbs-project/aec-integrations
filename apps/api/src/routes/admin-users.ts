@@ -107,6 +107,7 @@ import {
   type ListAllAuthRecords,
 } from '../lib/supabase-admin';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { accountCountStatements } from '../lib/dmca-notices';
 
 type AdminUserContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -411,7 +412,15 @@ export function createAdminUserDetailHandler(
     const userId = requiredParam(c, 'id');
     const { db } = dbFor(c.env);
 
-    const [profileRows, reviewRows, invitesSent, licensesGranted, audienceRows] = await db.batch([
+    const [
+      profileRows,
+      reviewRows,
+      invitesSent,
+      licensesGranted,
+      audienceRows,
+      dmcaTakedowns,
+      dmcaCounterNotices,
+    ] = await db.batch([
       db
         .select({
           id: profiles.id,
@@ -465,6 +474,8 @@ export function createAdminUserDetailHandler(
         .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, profileAudiences.audienceId))
         .where(eq(profileAudiences.profileId, userId))
         .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.id)),
+      // AECI-1665: the copyright counts, from the predicates `/admin/dmca?account=` uses.
+      ...accountCountStatements(db, userId),
     ]);
 
     const profile = profileRows[0];
@@ -563,6 +574,8 @@ export function createAdminUserDetailHandler(
         seat_invites_sent: invitesSent[0]?.value ?? 0,
         licenses_granted: licensesGranted[0]?.value ?? 0,
         requests_by_email: requestsByEmail,
+        dmca_takedowns: dmcaTakedowns[0]?.value ?? 0,
+        dmca_counter_notices: dmcaCounterNotices[0]?.value ?? 0,
       },
       // Server-computed from the same constant the moderation queue uses, so the
       // two surfaces cannot label the same person differently.
