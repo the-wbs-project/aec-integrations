@@ -55,16 +55,55 @@
  *     token means nothing is sent.
  *
  * Both are fire-and-forget with errors swallowed, like the beacon itself.
+ *
+ * AECI-1714 adds the browser report (`browser-evidence-config.ts`), behind three
+ * gates read once: the tier's injected flag, no DNT/GPC signal, and no `geo` stamp.
+ *
+ *   - **Landing view.** After the first NavigationEnd it posts `ran` with the
+ *     document's ray, then `interacted` on the first `INTERACTION_EVENTS` event.
+ *   - **In-app view.** The `browser-spa` insert already writes `ran` (AECI-1713), so
+ *     it posts only `interacted`, with the ray the gateway stamped on its own beacon
+ *     response. Each view re-arms the listeners. No ray means nothing is posted.
+ *
+ * At most one post per evidence word per view, so the shared `token` rate-limit
+ * bucket is never spent twice on one view. Nothing is stored in the browser.
  */
-import { isPlatformBrowser } from '@angular/common';
+import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Injectable, Injector, PLATFORM_ID, inject } from '@angular/core';
+import { DestroyRef, Injectable, Injector, PLATFORM_ID, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { isUntrackedRoute, type PageViewPayload } from '@aeci/shared';
 
+import {
+  browserEvidenceEnabled,
+  postBrowserEvidence,
+  postSpaBeaconRequest,
+  readLandingCfRay,
+} from './browser-evidence-config';
 import { turnstileSiteKey } from './turnstile-config';
+
+/**
+ * The events that count as a person touching the page (AECI-1714). Listened for on
+ * `document`, passive and in the capture phase, so a component that stops
+ * propagation cannot hide one. `click` is left out: a `pointerdown` precedes it.
+ */
+export const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+
+/**
+ * One view's browser report state (AECI-1714). `ray` names the view's `page_views`
+ * row: the document's ray for the landing view, the beacon response's ray for an
+ * in-app view, `null` until it is known or when there is none. `touched` records an
+ * interaction seen before the ray arrived, so it is posted once the ray does. The
+ * pending beacon holds its own view, so a ray that lands after the next navigation
+ * still posts an interaction this view already saw.
+ */
+interface EvidenceView {
+  ray: string | null;
+  touched: boolean;
+  sent: boolean;
+}
 
 /** The lazily imported Turnstile module (AECI-1457). */
 type TurnstileModule = typeof import('./turnstile.service');
@@ -80,7 +119,25 @@ export class PageViewTracker {
    * or an excluded region never imports the Turnstile chunk and never waits on it.
    */
   private readonly turnstileWanted = this.isBrowser && turnstileSiteKey() !== null;
+  /**
+   * AECI-1714. The browser report's three gates, read once: the tier flag, no DNT or
+   * GPC, and no held-region stamp. False on the server.
+   */
+  private readonly evidenceWanted = this.isBrowser && browserEvidenceEnabled();
+  private readonly document = inject(DOCUMENT);
+  /** The current view's report state, or `null` when this view reports nothing. */
+  private view: EvidenceView | null = null;
+  private listening = false;
+  private readonly onInteraction = (): void => {
+    const view = this.view;
+    if (!view || view.sent) return;
+    view.touched = true;
+    this.flushInteraction(view);
+  };
   private started = false;
+  /** Drop the document listeners with the injector (a test bed reset, an app teardown). */
+  private readonly unregisterDestroy = inject(DestroyRef).onDestroy(() => this.disarmView());
+
   /**
    * The last route this tracker actually posted (AECI-743). See `fire()` — it is
    * the memo that stops a query-string rewrite from being counted as a new view.
@@ -113,6 +170,15 @@ export class PageViewTracker {
           if (this.turnstileWanted && !isUntrackedRoute(this.lastFiredRoute)) {
             void this.turnstile().then((m) => m?.postLandingVerdict(this.injector));
           }
+          // AECI-1714. `ran` for the landing view's arrival row, then arm for
+          // `interacted`. An untracked route has no row, so it reports nothing.
+          if (this.evidenceWanted && !isUntrackedRoute(this.lastFiredRoute)) {
+            const ray = readLandingCfRay();
+            if (ray) {
+              postBrowserEvidence(ray, 'ran');
+              this.armView(ray);
+            }
+          }
           return;
         }
         this.fire(event.urlAfterRedirects);
@@ -123,7 +189,11 @@ export class PageViewTracker {
     const route = url.split(/[?#]/, 1)[0] || '/';
     // §9.6 — never record the operator's own navigation. Guarding here rather
     // than in the subscription means any future caller inherits the exclusion.
-    if (isUntrackedRoute(route)) return;
+    if (isUntrackedRoute(route)) {
+      // AECI-1714. A new view with no row: nothing more is reported until the next one.
+      this.disarmView();
+      return;
+    }
     // AECI-743 — a navigation that only rewrote the QUERY STRING is not a new view.
     // The line above strips `?` and `#`, so a `router.navigate([], { queryParams })`
     // produces a row byte-identical to the previous one: same route, same path, same
@@ -149,16 +219,76 @@ export class PageViewTracker {
     // true arrivals and in-app clicks. No `path` is sent: `route` is already the
     // concrete path here, and the API falls back to it.
     const payload: PageViewPayload = { route, navigation: 'spa' };
+    // AECI-1714. A new view: arm it now with no ray, so an interaction before the
+    // beacon answers is remembered and posted once the ray arrives.
+    const view = this.evidenceWanted ? this.armView(null) : null;
     // No Turnstile config (dark env, DNT/GPC, excluded region, server) posts at once, unchanged.
-    if (!this.turnstileWanted) {
-      this.post(payload);
+    const sent: Promise<string | null> = this.turnstileWanted
+      ? // AECI-1457. The lazy module adds the token and posts. A failed chunk load
+        // posts the payload unchanged, so the beacon always goes out.
+        this.turnstile().then((m) =>
+          m ? m.postSpaBeacon(this.injector, payload) : this.post(payload),
+        )
+      : this.post(payload);
+    if (view) void sent.then((ray) => this.setViewRay(view, ray));
+  }
+
+  /**
+   * Start a new view's report state and make sure the interaction listeners are on.
+   * Replaces the previous view, so a later interaction counts for this one. The
+   * previous view stays reachable through its own pending beacon, so an interaction
+   * it already saw is still posted when that beacon's ray arrives.
+   */
+  private armView(ray: string | null): EvidenceView {
+    const view: EvidenceView = { ray, touched: false, sent: false };
+    this.view = view;
+    this.listen(true);
+    return view;
+  }
+
+  /** The current view reports nothing more. */
+  private disarmView(): void {
+    this.view = null;
+    this.listen(false);
+  }
+
+  /**
+   * The beacon answered for `view`, which may no longer be current (AECI-1714 review).
+   * `null` (no `cfray` stamp, e.g. local dev, or a failed beacon) ends the report, and
+   * disarms only if `view` is still current, so the next view is left alone. A ray
+   * posts an interaction `view` already saw, current or not. An untouched view posts
+   * nothing.
+   */
+  private setViewRay(view: EvidenceView, ray: string | null): void {
+    if (!ray) {
+      if (this.view === view) this.disarmView();
       return;
     }
-    // AECI-1457. The lazy module adds the token and posts. A failed chunk load
-    // posts the payload unchanged, so the beacon always goes out.
-    void this.turnstile().then((m) =>
-      m ? m.postSpaBeacon(this.injector, payload) : this.post(payload),
-    );
+    view.ray = ray;
+    this.flushInteraction(view);
+  }
+
+  /**
+   * Post `interacted` once the view has both a ray and an interaction. Stops listening
+   * only for the current view: a late post for a past view leaves the next one armed.
+   */
+  private flushInteraction(view: EvidenceView): void {
+    if (view.sent || !view.touched || !view.ray) return;
+    view.sent = true;
+    postBrowserEvidence(view.ray, 'interacted');
+    if (this.view === view) this.listen(false);
+  }
+
+  private listen(on: boolean): void {
+    if (on === this.listening) return;
+    this.listening = on;
+    for (const type of INTERACTION_EVENTS) {
+      if (on) {
+        this.document.addEventListener(type, this.onInteraction, { capture: true, passive: true });
+      } else {
+        this.document.removeEventListener(type, this.onInteraction, { capture: true });
+      }
+    }
   }
 
   /**
@@ -171,8 +301,11 @@ export class PageViewTracker {
     return import('./turnstile.service').catch(() => null);
   }
 
-  private post(payload: PageViewPayload): void {
-    // Fire-and-forget: subscribe to issue the request, swallow any error.
-    this.http.post('/api/page-views', payload).subscribe({ error: () => undefined });
+  /**
+   * Send the beacon. Resolves the ray the gateway stamped on its response, or `null`
+   * (AECI-1714). Never rejects: analytics must never break navigation.
+   */
+  private post(payload: PageViewPayload): Promise<string | null> {
+    return postSpaBeaconRequest(this.http, '/api/page-views', payload);
   }
 }

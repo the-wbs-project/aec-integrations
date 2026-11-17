@@ -173,7 +173,7 @@ import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
-import { rateLimit } from './rate-limit-middleware';
+import { PAGE_VIEW_REPORTS_RATE_LIMIT_TAG, rateLimit } from './rate-limit-middleware';
 import {
   createAddAbuseCostEntryHandler,
   createLiftVendorSuspensionHandler,
@@ -197,7 +197,11 @@ import {
   createSubscribeHandler,
   createUnsubscribeHandler,
 } from './routes/landing-forms';
-import { createPageViewsHandler, createTurnstileVerdictHandler } from './routes/page-views';
+import {
+  createBrowserEvidenceHandler,
+  createPageViewsHandler,
+  createTurnstileVerdictHandler,
+} from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
@@ -405,12 +409,24 @@ app.post('/api/page-views', createPageViewsHandler());
 // AECI-1457 / AECI-1330: a landing view's Turnstile verdict, `{ cf_ray, token }`.
 // Anonymous, reached through the SSR `/api/*` passthrough like the beacon above.
 // Each accepted post spends one siteverify subrequest, so it takes the `token`
-// bucket keyed by IP (`cf-connecting-ip` crosses the service binding), the same
-// registration as `/api/unsubscribe`. A 429 costs one verdict, never a page view.
+// bucket keyed by IP (`cf-connecting-ip` crosses the service binding). It runs on
+// the `page-views` sub-budget, not the shared `token` counter that seat-invite
+// accept and `/api/unsubscribe` spend (`PAGE_VIEW_REPORTS_RATE_LIMIT_TAG`). A 429
+// costs one verdict, never a page view.
 app.post(
   '/api/page-views/turnstile',
-  rateLimit('token', { by: 'ip' }),
+  rateLimit('token', { by: 'ip', tag: PAGE_VIEW_REPORTS_RATE_LIMIT_TAG }),
   createTurnstileVerdictHandler(),
+);
+// AECI-1713 (epic AECI-1711): the browser's report about a page load,
+// `{ cf_ray, evidence }`. Anonymous, through the same SSR passthrough. One small
+// post per page load, like the verdict above, so it shares the verdict's
+// `page-views` sub-budget of the `token` bucket, keyed by IP. A 429 costs one
+// report, never a page view.
+app.post(
+  '/api/page-views/browser-evidence',
+  rateLimit('token', { by: 'ip', tag: PAGE_VIEW_REPORTS_RATE_LIMIT_TAG }),
+  createBrowserEvidenceHandler(),
 );
 
 // Phase 2.8 sub-router (AECI-54). `errorHandler()` converts thrown

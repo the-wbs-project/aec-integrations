@@ -49,6 +49,7 @@ import {
   type TurnstileVerdictPost,
 } from '@aeci/shared';
 
+import { postSpaBeaconRequest, readLandingCfRay } from './browser-evidence-config';
 import { turnstileSiteKey } from './turnstile-config';
 
 /** The explicit-render loader. Cloudflare requires this exact URL: proxying or
@@ -89,22 +90,14 @@ const SPA_BEACON_URL = '/api/page-views';
  *  `/api/*` passthrough like every other API call. */
 export const TURNSTILE_VERDICT_URL = '/api/page-views/turnstile';
 
-/** The `Server-Timing` entry name the gateway stamps (`server-runtime.ts`). */
-const CF_RAY_TIMING_NAME = 'cfray';
-
 /**
  * The page load's Ray ID from the gateway's `Server-Timing: cfray` entry
- * (AECI-1330), or `null` when it is absent (local dev, a browser without
- * `serverTiming`) or fails the shared schema's ray pattern, so no challenge is
- * spent on a ray the API would refuse.
+ * (AECI-1330), or `null` when it is absent or fails the API's ray pattern, so no
+ * challenge is spent on a ray the API would refuse. It lives in the eager
+ * `browser-evidence-config.ts` since AECI-1714, because the browser report reads
+ * the same ray without this chunk. Re-exported so existing callers keep the name.
  */
-export function readLandingCfRay(): string | null {
-  const entry = globalThis.performance?.getEntriesByType?.('navigation')[0] as
-    | PerformanceNavigationTiming
-    | undefined;
-  const ray = entry?.serverTiming?.find((t) => t.name === CF_RAY_TIMING_NAME)?.description;
-  return ray && TurnstileVerdictPostSchema.shape.cf_ray.safeParse(ray).success ? ray : null;
-}
+export { readLandingCfRay };
 
 /** The landing verdict body, or `null` when the shared schema (the API's own
  *  check) would reject it, so a malformed token is never spent on a 400. */
@@ -242,16 +235,22 @@ export class TurnstileService {
  * The SPA beacon with its token (AECI-1457). One token with no `cData`, because
  * the beacon itself is the row being written. An inactive service or a `null`
  * token sends the payload unchanged. `getToken` never rejects and is capped at
- * ~8 s, so the beacon always goes out, fire-and-forget like the tracker's own.
+ * ~8 s, so the beacon always goes out, like the tracker's own. Resolves the ray
+ * the gateway stamped on the beacon's response (`postSpaBeaconRequest`), or `null`,
+ * so the browser report can name this view's row (AECI-1714). Never rejects.
  * Called by `PageViewTracker` through its dynamic import.
  */
-export async function postSpaBeacon(injector: Injector, payload: PageViewPayload): Promise<void> {
+export async function postSpaBeacon(
+  injector: Injector,
+  payload: PageViewPayload,
+): Promise<string | null> {
   const service = injector.get(TurnstileService);
   const token = service.active ? await service.getToken() : null;
-  injector
-    .get(HttpClient)
-    .post(SPA_BEACON_URL, token ? { ...payload, turnstile_token: token } : payload)
-    .subscribe({ error: () => undefined });
+  return postSpaBeaconRequest(
+    injector.get(HttpClient),
+    SPA_BEACON_URL,
+    token ? { ...payload, turnstile_token: token } : payload,
+  );
 }
 
 /**

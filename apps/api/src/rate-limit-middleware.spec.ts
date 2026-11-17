@@ -21,6 +21,7 @@ import { errorHandler } from './errors';
 import { requireAuth, type AuthzVariables } from './lib/authz';
 import { fakeExecutionContext } from './test/helpers';
 import {
+  PAGE_VIEW_REPORTS_RATE_LIMIT_TAG,
   RATE_LIMIT_BUCKETS,
   RATE_LIMIT_METRIC,
   rateLimit,
@@ -227,6 +228,47 @@ describe('rateLimit middleware', () => {
 
     // Both land on the SAME counter — the degraded mode is a limit, not a hole.
     expect(limiter.keys).toEqual(['production:ip:unknown', 'production:ip:unknown']);
+  });
+
+  it('keeps the page-view reports off the token counter seat-invite accept spends, both ways', async () => {
+    // Counts per key, 10 per key, like the binding inside one window.
+    const counts = new Map<string, number>();
+    const limiter: RateLimit = {
+      limit: async ({ key }: { key: string }) => {
+        const used = counts.get(key) ?? 0;
+        counts.set(key, used + 1);
+        return { success: used < 10 };
+      },
+    };
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler());
+    const ok = (c: { json: (v: unknown) => Response }) => c.json({ ok: true });
+    // The `index.ts` shapes: the invite accept on the shared counter, a report on its tag.
+    app.post('/accept', rateLimit('token', { by: 'ip' }), ok as never);
+    app.post(
+      '/report',
+      rateLimit('token', { by: 'ip', tag: PAGE_VIEW_REPORTS_RATE_LIMIT_TAG }),
+      ok as never,
+    );
+    const env = { TOKEN_RATE_LIMIT: limiter, ENV: 'production' } satisfies Partial<Env>;
+    const hit = (path: string) =>
+      app.request(
+        path,
+        { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.7' } },
+        env,
+        fakeExecutionContext(),
+      );
+
+    for (let i = 0; i < 10; i++) expect((await hit('/report')).status).toBe(200);
+    expect((await hit('/report')).status).toBe(429);
+    expect((await hit('/accept')).status).toBe(200);
+
+    for (let i = 0; i < 9; i++) expect((await hit('/accept')).status).toBe(200);
+    expect((await hit('/accept')).status).toBe(429);
+    expect([...counts.keys()]).toEqual([
+      'production:ip:203.0.113.7:page-views',
+      'production:ip:203.0.113.7',
+    ]);
   });
 
   it('runs behind the real authz guard: an unauthenticated write never reaches limit()', async () => {

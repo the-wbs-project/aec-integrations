@@ -102,6 +102,7 @@ import {
   PRIVACY_SIGNAL_HEADERS,
   SITEMAP_FRAGMENT_HEADERS,
 } from '@aeci/shared';
+import { isHeldRegionCountry } from '@aeci/shared/api/held-region';
 import type { IntegrationDetailResponse, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { discardResponseBody } from '@aeci/shared/response-drain';
@@ -833,11 +834,16 @@ const STAMPABLE_RAY = /^[0-9A-Za-z-]{1,64}$/;
  * copy goes through `new Response(body, response)` because a response from the
  * cache loopback can carry immutable headers.
  *
- * AECI-1581 adds `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip
- * until counsel rules on AECI-1458 (`isTurnstileExcludedRegion`). It is stamped
- * here for the same reason as the ray: a cached body stays visitor-neutral. The
- * browser reads it in `turnstile-config.ts`. Unlike the ray it does not depend on
- * `cf-ray`, and its value is a fixed literal.
+ * AECI-1581 adds `Server-Timing: geo;desc="eu"` for a held-region visitor
+ * (`isTurnstileExcludedRegion`, ruling 21). It serves two holds: Turnstile's and the
+ * browser report's (AECI-1713). The browser reads it in `turnstile-config.ts`
+ * (`regionAllowsCollection`), which both gates call. The stamp is permanent while
+ * ruling 21 stands. AECI-1529 removes only the Turnstile uses, never this append:
+ * without it the browser would post the report from the EEA, and the server's
+ * refusal would come after the device access counsel called an Article 5(3) event.
+ * Lift list: `docs/environments.md`, "Lifting the exclusion after AECI-1458". It is
+ * stamped here for the same reason as the ray: a cached body stays visitor-neutral.
+ * Unlike the ray it does not depend on `cf-ray`, and its value is a fixed literal.
  */
 function withGatewayServerTiming(response: Response, request: Request): Response {
   const ray = request.headers.get('cf-ray');
@@ -851,37 +857,18 @@ function withGatewayServerTiming(response: Response, request: Request): Response
 }
 
 /**
- * Countries outside `cf.isEUCountry` that Turnstile skips until the AECI-1458
- * ruling: the UK, Switzerland and the non-EU EEA states; the codes that give no
- * location (`XX` unknown, `T1` Tor); and EU territory with its own ISO code, which
- * Cloudflare's docs do not say `isEUCountry` covers. AECI-1529 removes this.
- */
-const TURNSTILE_EXCLUDED_COUNTRIES: ReadonlySet<string> = new Set([
-  'GB',
-  'CH',
-  'IS',
-  'LI',
-  'NO',
-  'XX',
-  'T1',
-  'AX',
-  'GF',
-  'GP',
-  'MF',
-  'MQ',
-  'RE',
-  'YT',
-]);
-
-/**
- * Whether this visitor's region excludes Turnstile (AECI-1581). A `cf` with no
- * country fails closed, because the privacy policy says the check does not run in
- * these regions. No `cf` at all is a Node test, never a deployed request.
+ * Whether this visitor's region excludes Turnstile and the browser report
+ * (AECI-1581, ruling 21). `cf.isEUCountry` is trusted when Cloudflare sets it. The
+ * country list itself lives in `@aeci/shared` (`isHeldRegionCountry`,
+ * `HELD_REGION_COUNTRIES`) since AECI-1713, so the API applies the same hold to the
+ * rows it writes. A `cf` with no country fails closed, because the privacy policy
+ * says the check does not run in these regions. No `cf` at all is a Node test,
+ * never a deployed request.
  */
 function isTurnstileExcludedRegion(cf: CfLike | undefined): boolean {
   if (!cf) return false;
   if (cf.isEUCountry === '1') return true;
-  return !cf.country || TURNSTILE_EXCLUDED_COUNTRIES.has(cf.country);
+  return isHeldRegionCountry(cf.country);
 }
 
 /**
