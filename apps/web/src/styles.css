@@ -1561,6 +1561,18 @@ aec-section-nav
   scroll-margin-top: calc(var(--aec-sticky-offset) + 0.5rem);
 }
 
+/* The analytics consent banner (`analytics/consent-banner.ts`) is fixed to the bottom of
+   the viewport. While it shows, it sets `data-consent-reserve` and its measured height
+   on <html>. A control reached by Tab from below scrolls up only until its bottom edge
+   meets the viewport, which left it hidden under the banner on narrow screens (WCAG 2.4.11,
+   AECI-1818). This bottom margin makes that scroll stop above the banner. Only the bottom
+   edge changes: fragment jumps, `InitialFragmentScroller` and router scroll restoration all
+   align to the top, so they land where they did. Unlayered, like the rule above. */
+html[data-consent-reserve]
+  :is(a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]) {
+  scroll-margin-bottom: calc(var(--aec-consent-reserve) + 0.5rem);
+}
+
 /* The product page's metadata aside (`DetailLayout`, `.aec-detail-aside`) sticks 2rem under
    the bar from `lg`. A sticky box taller than the space below the bar has its foot cut off
    until the page ends. The tallest seeded aside measured 669px at 1280px wide (2026-11-14), so

@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   DestroyRef,
@@ -31,7 +32,9 @@ import { AecButton } from '../shared/button/button';
  * swallow a click on the page underneath. While the banner shows, an in-flow
  * spacer (the last child of the app shell's column, after the footer) is sized
  * to the banner's measured height, so the footer's bottom row can scroll clear
- * of it. No global scroll offset is involved.
+ * of it. No global scroll offset is involved. The same height also becomes a
+ * `scroll-margin-bottom` on every focusable element (AECI-1818, WCAG 2.4.11), so
+ * a Tab never leaves the focused control hidden under the banner.
  */
 @Component({
   selector: 'aec-consent-banner',
@@ -91,6 +94,7 @@ import { AecButton } from '../shared/button/button';
 export class ConsentBanner {
   private readonly consent = inject(ConsentService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
 
   /** SSR-neutral: hidden until reconciled in the browser. */
   protected readonly show = signal(false);
@@ -101,6 +105,26 @@ export class ConsentBanner {
   private readonly region = viewChild<ElementRef<HTMLElement>>('region');
 
   constructor() {
+    // WCAG 2.4.11 (AECI-1818): while the banner shows, publish its height on <html> so the
+    // unlayered `html[data-consent-reserve]` rule in styles.css gives every focusable
+    // element a matching `scroll-margin-bottom`. A control reached by Tab then scrolls
+    // clear of the banner instead of landing under it. Removed when the banner goes.
+    const root = this.document.documentElement;
+    effect(() => {
+      const height = this.show() ? this.reserve() : 0;
+      if (height > 0) {
+        root.setAttribute('data-consent-reserve', '');
+        root.style.setProperty('--aec-consent-reserve', `${height}px`);
+      } else {
+        root.removeAttribute('data-consent-reserve');
+        root.style.removeProperty('--aec-consent-reserve');
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      root.removeAttribute('data-consent-reserve');
+      root.style.removeProperty('--aec-consent-reserve');
+    });
+
     // Track the fixed region's rendered height (it changes at the sm breakpoint
     // and with text wrapping). The region only exists in the browser, after
     // reconciliation, so ResizeObserver is never touched during SSR.

@@ -10,6 +10,9 @@
  * published-page block below is skipped and the hidden-state block runs instead.
  * AECI-1687's last step flips the flag, removes the `.skip`, and deletes the
  * hidden-state block.
+ *
+ * It also holds the regression cases of the redesign accessibility gate (AECI-1818),
+ * which the issue asked to land here.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, test } from '@playwright/test';
@@ -19,6 +22,7 @@ import {
   expectConsoleClean,
   waitForHydrationSettle,
 } from './console-capture';
+import { routeFakeAlgolia } from './fake-algolia';
 import { untilHydrated } from './hydration';
 
 /**
@@ -44,6 +48,76 @@ test.describe('/accessibility hidden until AECI-1687', () => {
 
     const xml = await (await request.get('/sitemap.xml')).text();
     expect(xml).not.toMatch(/<loc>[^<]+\/accessibility<\/loc>/);
+  });
+});
+
+// AECI-1818: the two WCAG 2.2 AA defects the redesign accessibility gate found, guarded
+// on the rendered page because jsdom has no layout and no cascade.
+test.describe('redesign accessibility gate (AECI-1818)', () => {
+  // WCAG 2.4.11 Focus Not Obscured. On a first visit the fixed consent banner covered
+  // up to 27 focus stops at 320px: Tab scrolled each one only as far as the viewport's
+  // bottom edge, which is under the banner.
+  test('a Tab never leaves the focused control hidden under the consent banner at 320px', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto('/products/fixture-procore');
+    const banner = page.getByRole('region', { name: 'Analytics consent' });
+    await expect(banner).toBeVisible();
+    await waitForHydrationSettle(page);
+
+    const hidden: string[] = [];
+    for (let i = 0; i < 45; i++) {
+      await page.keyboard.press('Tab');
+      const covered = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        const card = document.querySelector('[aria-label="Analytics consent"] .aec-popover');
+        if (!el || !card || card.contains(el) || el === document.body) return null;
+        const r = el.getBoundingClientRect();
+        const b = card.getBoundingClientRect();
+        // Entirely under the banner card: the 2.4.11 failure.
+        const under = r.top >= b.top && r.bottom <= b.bottom + 1;
+        return under ? (el.innerText || el.getAttribute('aria-label') || el.tagName).trim() : null;
+      });
+      if (covered) hidden.push(covered);
+    }
+    expect(hidden, 'focused controls fully hidden under the consent banner').toEqual([]);
+  });
+
+  // WCAG 2.4.7 Focus Visible. The results panel is a Tab stop (`tabindex="0"`) and had
+  // `focus-visible:outline-none`, so focus landed on it with nothing drawn.
+  test('/search draws a focus ring on the results panel and names both search landmarks', async ({
+    page,
+  }) => {
+    await presetConsent(page);
+    await routeFakeAlgolia(page);
+    await page.goto('/search?q=fake');
+    const panel = page.locator('#search-tabpanel');
+    await expect(panel).toBeVisible();
+    await waitForHydrationSettle(page);
+
+    // A key press first, so the scripted focus counts as keyboard focus.
+    await page.keyboard.press('Shift');
+    await panel.focus();
+    await expect(panel).toBeFocused();
+    const ring = await panel.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { style: cs.outlineStyle, width: cs.outlineWidth };
+    });
+    expect(ring).toEqual({ style: 'solid', width: '3px' });
+
+    const names = await page.getByRole('search').evaluateAll((forms) =>
+      forms.map((f) => {
+        const by = f.getAttribute('aria-labelledby');
+        return (
+          f.getAttribute('aria-label') ??
+          document.getElementById(by ?? '')?.textContent ??
+          ''
+        ).trim();
+      }),
+    );
+    expect(names.every((n) => n.length > 0)).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 
