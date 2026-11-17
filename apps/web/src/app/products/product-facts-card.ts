@@ -29,6 +29,7 @@ import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import { integrationNoun } from './integration-stat';
+import { hasNoIntegrationsOnRecord } from './integrations-on-record';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin } from './product-extensions';
 
@@ -115,8 +116,9 @@ const FOCUS_RING =
           >
             <!-- Mock-up 8 .f-stat: at zero the figure's projected slot points to the
                  Integrations section's own "Know of one?" block, where the reader can
-                 suggest one. A plain link, no promise (AECI-1720 restore). -->
-            @if (count() === 0) {
+                 suggest one. A plain link, no promise (AECI-1720 restore). It shows on the
+                 same test as that block, so it never points at a section without one. -->
+            @if (showKnowOfOne()) {
               <a
                 [href]="'/products/' + p.slug + '#integrations'"
                 data-smooth-scroll
@@ -443,6 +445,17 @@ export class ProductFactsCard {
   protected readonly count = computed(() => {
     const stored = this.product().integration_count;
     return stored === 0 ? this.pageRowCount() : stored;
+  });
+
+  /**
+   * Whether the stat panel shows "Know of one?". The Integrations section shows its own
+   * "Know of one?" block only in the true zero state: no integrations on record and no
+   * §13.7 reach line (`ProductIntegrationsSection.zero`). The link takes the same test,
+   * so it never points at a section that lacks the block.
+   */
+  protected readonly showKnowOfOne = computed(() => {
+    const p = this.product();
+    return hasNoIntegrationsOnRecord(p) && (p.reachable_pair_count ?? 0) === 0;
   });
 
   /** The printed count. `aec-figure` never formats. */

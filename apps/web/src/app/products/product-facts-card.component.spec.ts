@@ -307,6 +307,13 @@ describe('ProductFactsCard (AECI-1779)', () => {
       const some = setup(buildProduct({ integration_count: 4 })).card;
       expect(some.querySelector('[data-testid=product-facts-know-of-one]')).toBeNull();
     });
+
+    it('drops "Know of one?" while the reach line reports pairs, as the Integrations section does', () => {
+      // At a stored zero with a §13.7 reach count, the Integrations section keeps its plain
+      // empty state and has no "Know of one?" block, so the link would point at nothing.
+      const reach = setup(buildProduct({ integration_count: 0, reachable_pair_count: 3 })).card;
+      expect(reach.querySelector('[data-testid=product-facts-know-of-one]')).toBeNull();
+    });
   });
 
   describe('the logo rule', () => {
