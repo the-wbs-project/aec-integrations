@@ -2139,6 +2139,24 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(el.textContent).not.toMatch(/does not integrate|not compatible|no integration exists/i);
   });
 
+  it('adds the mock-up continuation to the caveat only while the alternatives are on the page', () => {
+    const without = setup(emptyPair());
+    expect(without.el.querySelector('[data-testid="pair-empty-lede-more"]')).toBeNull();
+    TestBed.resetTestingModule();
+    const alternatives = {
+      moving: { context_only: [], both: [], other_only: [] },
+      lanes: { context: { anchors: [], matches: [] }, other: { anchors: [], matches: [] } },
+    };
+    const { el } = setup({ ...emptyPair(), alternatives } as ProductPairResponse);
+    expect(text(el.querySelector('[data-testid="pair-empty-caveat"]'))).toBe(
+      'Not on record means we have not found one. It is not proof that none exists.',
+    );
+    expect(text(el.querySelector('[data-testid="pair-empty-lede-more"]'))).toBe(
+      'Below are the closest pairs we do have, what you would be moving, and where to look yourself.',
+    );
+    expect(el.querySelector('h1 > span')!.className).toContain('text-t-statement-wide');
+  });
+
   it('draws the diagram with the medallion label and no arrow or data-type bead', () => {
     const { el } = setup(emptyPair());
     const stage = el.querySelector('[data-testid="pair-empty-stage"]')!;

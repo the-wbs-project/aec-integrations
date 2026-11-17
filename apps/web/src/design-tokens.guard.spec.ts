@@ -352,9 +352,10 @@ describe('design tokens', () => {
       't-fig',
       't-48',
       't-statement',
+      't-statement-wide',
       't-display',
     ];
-    const FLUID = new Set(['t-36', 't-fig', 't-statement', 't-display']);
+    const FLUID = new Set(['t-36', 't-fig', 't-statement', 't-statement-wide', 't-display']);
     const TAILWIND_STEPS = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl'];
 
     /** The value of a custom-property declaration, or undefined. */
@@ -362,7 +363,7 @@ describe('design tokens', () => {
       return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
     }
 
-    it('defines all eleven ramp tokens', () => {
+    it('defines all twelve ramp tokens', () => {
       for (const token of RAMP) {
         expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
       }

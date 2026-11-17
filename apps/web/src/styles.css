@@ -278,6 +278,9 @@
   --t-48: 3rem;
   /* 34 to 56px, 222 to 1440px wide (35.8px at 320). */
   --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
+  /* AECI-1835: mock-up 5's statement beside its 540px diagram, 37.6 to 56px (47.4px at
+     1180, 55.2 at 1440). The 37.6px floor, not the mock-up's 34, lets it double by 300% zoom. */
+  --t-statement-wide: clamp(2.35rem, 3vw + 0.75rem, 3.5rem);
   /* 40 to 72px, 83 to 1440px wide (45.7px at 320). */
   --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
 
@@ -584,6 +587,8 @@
   --text-t-48--line-height: 1;
   --text-t-statement: var(--t-statement);
   --text-t-statement--line-height: 1.1;
+  --text-t-statement-wide: var(--t-statement-wide);
+  --text-t-statement-wide--line-height: 1.1;
   --text-t-display: var(--t-display);
   --text-t-display--line-height: 1;
 

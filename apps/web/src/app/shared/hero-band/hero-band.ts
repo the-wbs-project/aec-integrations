@@ -77,7 +77,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   host: { class: 'block' },
   template: `
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
-      <div [class]="wrap">
+      <div [class]="wrap()">
         <div #grid [class]="gridClass()" data-testid="hero-band-grid">
           <div
             class="min-w-0 lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start"
@@ -128,9 +128,17 @@ export class HeroBand {
   /**
    * The title's size. `display` is the default: the product name, and the vendor name.
    * `statement` is the pair page's h1 (DESIGN.md §3, `--t-statement`, AECI-1798), the
-   * pair page's one display-scale line. The size sits on the inner span either way.
+   * pair page's one display-scale line. `statement-wide` is mock-up 5's statement on the
+   * empty pair page (AECI-1835), sized for a text column beside a 540px diagram. The size
+   * sits on the inner span either way.
    */
-  readonly titleSize = input<'display' | 'statement'>('display');
+  readonly titleSize = input<'display' | 'statement' | 'statement-wide'>('display');
+  /**
+   * The bottom padding. `overlap` is the default: 128px from `md`, room for a card that
+   * pulls up over the band. `band` is a plain band's 64px, 96px from `md`, for a hero
+   * that nothing overlaps (the empty pair page while its interest card is held, AECI-1835).
+   */
+  readonly bottom = input<'overlap' | 'band'>('overlap');
   /**
    * The right column's ground. `surface` is the default: the `--surface-hero-panel`
    * panel with its padding. `bare` draws no panel, for a caller whose projected content
@@ -155,13 +163,23 @@ export class HeroBand {
       : 'grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]',
   );
 
-  protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
-
-  protected readonly titleClass = computed(() =>
-    this.titleSize() === 'statement'
-      ? 'font-display text-t-statement font-normal tracking-[-0.02em]'
-      : 'font-display text-t-display font-normal tracking-[-0.02em]',
+  protected readonly wrap = computed(() =>
+    this.bottom() === 'band'
+      ? `${BAND_WRAP_CLASS} pt-4 pb-16 md:pt-6 md:pb-24`
+      : `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`,
   );
+
+  protected readonly titleClass = computed(() => {
+    switch (this.titleSize()) {
+      case 'statement':
+        return 'font-display text-t-statement font-normal tracking-[-0.02em]';
+      case 'statement-wide':
+        // Balanced, as mock-up 5's `.statement` is, so the lines break as it draws them.
+        return 'block font-display text-t-statement-wide font-normal tracking-[-0.02em] text-balance';
+      default:
+        return 'font-display text-t-display font-normal tracking-[-0.02em]';
+    }
+  });
 
   protected readonly panelClass = computed(
     () =>

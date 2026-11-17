@@ -267,3 +267,32 @@ describe('aec-hero-band, the wide panel from 1040px (AECI-1835)', () => {
     expect(pairGrid.classList).toContain('lg:items-center');
   });
 });
+
+// AECI-1835: mock-up 5's statement size and a hero that nothing overlaps.
+@Component({
+  selector: 'aec-hero-band-wide-statement-host',
+  imports: [HeroBand],
+  template: `
+    <aec-hero-band titleSize="statement-wide" bottom="band">
+      <span heroTitle>We have no integration between A and B on record.</span>
+    </aec-hero-band>
+  `,
+})
+class WideStatementHost {}
+
+describe('aec-hero-band, the wide statement and the band bottom (AECI-1835)', () => {
+  it('sizes the title with the wide statement token and ends with plain band padding', async () => {
+    await TestBed.configureTestingModule({
+      imports: [WideStatementHost],
+      providers: [provideZonelessChangeDetection()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(WideStatementHost);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const span = el.querySelector('h1 > span')!;
+    expect(span.className).toContain('text-t-statement-wide');
+    const wrap = el.querySelector('[data-testid="hero-band-grid"]')!.parentElement!;
+    expect(wrap.classList).toContain('md:pb-24');
+    expect(wrap.classList).not.toContain('md:pb-32');
+  });
+});

@@ -621,9 +621,10 @@ function writePairViewCookie(mode: PairViewMode): void {
            Bone band (ruling 12 of 2026-11-16). The pair page keeps its own shell: it is not
            on DetailLayout, which has a facts card the pair page does not. -->
       <aec-hero-band
-        titleSize="statement"
+        [titleSize]="v.mechanisms.length > 0 ? 'statement' : 'statement-wide'"
         panel="bare"
         [panelFrom]="v.mechanisms.length > 0 ? 'lg' : 'wide'"
+        [bottom]="v.mechanisms.length > 0 ? 'overlap' : 'band'"
       >
         <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
@@ -672,8 +673,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                the legal-reviewed string, used exactly, and the caveat always follows it. -->
           <span heroTitle data-testid="pair-empty-statement" i18n="@@pair.empty.statement"
             >We have no integration between
-            <span class="font-semibold">{{ context.name }}</span> and
-            <span class="font-semibold">{{ other.name }}</span> on record.</span
+            <span class="font-semibold md:whitespace-nowrap">{{ context.name }}</span> and
+            <span class="font-semibold md:whitespace-nowrap">{{ other.name }}</span> on
+            record.</span
           >
         }
         <!-- The caveat, in the band's default slot directly under the statement. Its own
@@ -683,13 +685,20 @@ function writePairViewCookie(mode: PairViewMode): void {
             <!-- The caveat, word for word. The first sentence is the mock-up's strong. -->
             <p
               class="max-w-[36em] text-t-16 leading-normal text-(--text-on-brand-secondary) md:text-t-20"
-              data-testid="pair-empty-caveat"
-              i18n="@@pair.empty.caveat"
             >
-              <strong class="font-semibold text-(--text-on-brand)"
-                >Not on record means we have not found one.</strong
+              <span data-testid="pair-empty-caveat" i18n="@@pair.empty.caveat"
+                ><strong class="font-semibold text-(--text-on-brand)"
+                  >Not on record means we have not found one.</strong
+                >
+                It is not proof that none exists.</span
               >
-              It is not proof that none exists.
+              <!-- Mock-up 5's continuation, only while the sections it names are on the page. -->
+              @if (alternatives()) {
+                &ngsp;<span data-testid="pair-empty-lede-more" i18n="@@pair.empty.ledeMore"
+                  >Below are the closest pairs we do have, what you would be moving, and where to
+                  look yourself.</span
+                >
+              }
             </p>
             <!-- AECI-1835: the correction entry (STAGE_1_5_SPEC.md 11.4, ruling R6), the
                  inline strip. The words are the product page zero state's, from the same
