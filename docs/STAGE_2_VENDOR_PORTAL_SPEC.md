@@ -3997,7 +3997,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 ### 11c.1 What a reply is
 
-A vendor that owns a product answers one approved review of that product in public. The reply sits under the review on the product page. It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
+A vendor that owns a product answers one approved review of that product in public. The reply appears after the review text on the product page, in its own panel (ruling 42). It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
 
 ### 11c.2 The rulings
 
@@ -4185,13 +4185,13 @@ Shapes and error codes are in `API_CONTRACTS.md` §6.6, §6.10 and §6.14.
 
 ### 11c.15 The public render (AECI-1178)
 
-- **Under its review, never inside it.** The reply is a separate block after the review body. It is never styled as part of the review.
+- **After the review text, in its own labelled panel, never mixed with the reviewer's words** (ruling 42, AECI-1872, 2026-11-17). The reply appears after the review text, in its own panel inside the review card (`DESIGN.md` §4, clash 14), labelled "Response from" the company's name, with its date. It is never mixed with the reviewer's words. This is the Review Guidelines "Vendor responses" promise, reworded in place on 2026-11-17 to say what the page does.
 - **The label is "Response from {vendor name}"**, then the publication date, from `published_at`. `{vendor name}` is `vendors.company_name`. Co-owner replies stack in the wire order.
 - **The reply is announced as belonging to its review.** The reply block is a labelled region tied to its review, for example `aria-labelledby` on the label. Each review stays an `article`.
 - **Visitor-state-neutral.** The page's SSR output is the same for every visitor. No "your reply is pending" state appears on the public page. The vendor sees that in the portal.
 - **i18n and light theme**, like every surface.
-- **As built (AECI-1178).** Each review in `apps/web/src/app/products/product-reviews.html` is an `article` named by its title (`aria-labelledby` on the `h3`). The article holds the review card, then each reply as a `section` below the card, outside its border. The section is labelled by its `h4`. The `h4` shows "Response from {vendor name}" and carries a screen-reader-only tail, "to the review “{title}”". That tail ties the reply to its review and keeps every reply region's name unique, which axe's `landmark-unique` needs. The date is a `time` element. The body is interpolated text with `whitespace-pre-line`, so line breaks show and nothing is parsed. The reply is indented, on `--surface-sunken`, with a full border and a Lucide corner-down-right glyph. A side stripe was not used, because `DESIGN.md` bans it.
-- **Reviewer updates come first (AECI-1613, 2026-11-06).** The review's approved updates render after the card and before any reply, each as a `section` labelled "Update from the reviewer", with its own date and the new stars when it re-rated (`STAGE_1_SPEC.md` §4.7a). The card itself never changes.
+- **As built (AECI-1178).** Each review in `apps/web/src/app/products/product-reviews.html` is an `article` named by its title (`aria-labelledby` on the `h3`). Since AECI-1784 the article is the review card. It holds the review as written, then each reply as a `section` nested inside the card, after the review text, on Forest soft with no shadow (`DESIGN.md` §4, clash 14). Before AECI-1784 the reply sat below the card, outside its border. The section is labelled by its `h4`. The `h4` shows "Response from {vendor name}" and carries a screen-reader-only tail, "to the review “{title}”". That tail ties the reply to its review and keeps every reply region's name unique, which axe's `landmark-unique` needs. The date is a `time` element. The body is interpolated text with `whitespace-pre-line`, so line breaks show and nothing is parsed. The reply carries a corner-down-right glyph. Before AECI-1784 it was indented, on `--surface-sunken`, with a full border.
+- **Reviewer updates come first (AECI-1613, 2026-11-06).** The review's approved updates render after the review as written and before any reply (inside the card since AECI-1784, on Bone), each as a `section` labelled "Update from the reviewer", with its own date and the new stars when it re-rated (`STAGE_1_SPEC.md` §4.7a). The card itself never changes.
 
 ### 11c.16 The portal screen (AECI-1179)
 

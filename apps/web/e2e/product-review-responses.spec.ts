@@ -1,5 +1,5 @@
 /**
- * AECI-1178: a published vendor reply renders under its review on the product
+ * AECI-1178: a published vendor reply renders after its review text on the product
  * page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.15).
  *
  * Runs against the local seed: `apps/api/seed/review-response-fixtures.sql` puts
@@ -101,5 +101,82 @@ test.describe('vendor reply under its review (AECI-1178)', () => {
       (v) => v.impact === 'critical' || v.impact === 'serious',
     );
     expect(blocking).toEqual([]);
+  });
+});
+
+/**
+ * AECI-1872 (ruling 42): the Review Guidelines say a response "appears after the
+ * review text, in its own panel labeled "Response from" the company's name, with
+ * the date it was published. It is never mixed with the reviewer's words." These
+ * hold the four build conditions that keep that sentence true in the browser.
+ */
+test.describe('the reply panel keeps the Review Guidelines promise (AECI-1872)', () => {
+  test('(a) the review text comes first and the reply is outside it', async ({ page }) => {
+    test.skip(!seeded, 'review-response fixtures not seeded');
+    await page.goto(PATH);
+    const article = page.getByRole('article', { name: PUBLISHED_REVIEW_TITLE });
+    const original = article.locator('[data-testid="review-original"]');
+    const reply = article.locator('[data-testid="vendor-response"]');
+    await expect(original).toBeVisible();
+    await expect(original).not.toContainText(PUBLISHED_REPLY);
+    const [o, r] = [await original.boundingBox(), await reply.boundingBox()];
+    expect(o && r && r.y >= o.y + o.height).toBe(true);
+  });
+
+  test('(b) the label and the date are visible whenever the reply is', async ({ page }) => {
+    test.skip(!seeded, 'review-response fixtures not seeded');
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(PATH);
+      const reply = page
+        .getByRole('article', { name: PUBLISHED_REVIEW_TITLE })
+        .locator('[data-testid="vendor-response"]');
+      await reply.scrollIntoViewIfNeeded();
+      await expect(reply.getByText('Response from Autodesk', { exact: true })).toBeVisible();
+      await expect(reply.locator('time')).toBeVisible();
+      await expect(reply.locator('time')).not.toBeEmpty();
+    }
+  });
+
+  test('(c) in forced-colors mode the panel keeps an edge and its label', async ({ browser }) => {
+    test.skip(!seeded, 'review-response fixtures not seeded');
+    const ctx = await browser.newContext({ forcedColors: 'active' });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(PATH);
+      const reply = page
+        .getByRole('article', { name: PUBLISHED_REVIEW_TITLE })
+        .locator('[data-testid="vendor-response"]');
+      await reply.scrollIntoViewIfNeeded();
+      const edge = await reply.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          forced: matchMedia('(forced-colors: active)').matches,
+          width: cs.borderTopWidth,
+          style: cs.borderTopStyle,
+          color: cs.borderTopColor,
+        };
+      });
+      expect(edge.forced).toBe(true);
+      expect(edge.width).toBe('1px');
+      expect(edge.style).toBe('solid');
+      // The system colours a transparent author border, so the edge shows.
+      expect(edge.color).not.toBe('rgba(0, 0, 0, 0)');
+      await expect(reply.getByText('Response from Autodesk', { exact: true })).toBeVisible();
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('(d) structured data carries no reply text and no review text', async ({ request }) => {
+    test.skip(!seeded, 'review-response fixtures not seeded');
+    const html = await (await request.get(PATH, { maxRedirects: 0 })).text();
+    const ld = [...html.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
+      .map((m) => m[1])
+      .join('\n');
+    expect(ld).not.toContain(PUBLISHED_REPLY);
+    expect(ld).not.toContain('Response from');
+    expect(ld).not.toContain(PUBLISHED_REVIEW_TITLE);
+    expect(ld).not.toMatch(/"@type":\s*"Review"|aggregateRating/);
   });
 });

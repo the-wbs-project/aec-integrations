@@ -147,6 +147,144 @@ describe('ProductReviews', () => {
     expect(el.textContent).not.toContain('Ratings shown once');
   });
 
+  describe('the score band (AECI-1784, rulings A3 and A4)', () => {
+    const summary = () =>
+      setup({
+        reviewCount: 7,
+        ratingOverallAvg: 4.3,
+        ratingOnboardingAvg: 3.8,
+        firstPage: makeReviews(7),
+      }).el;
+
+    it('prints two separate score figures at the 48px token, never one blended number', () => {
+      const el = summary();
+      const overall = el.querySelector('[data-testid="review-score-overall"]')!;
+      const onboarding = el.querySelector('[data-testid="review-score-onboarding"]')!;
+      const value = (card: Element) => card.querySelector('.aec-figure-value') as HTMLElement;
+
+      expect(value(overall).textContent?.trim()).toBe('4.3');
+      expect(value(onboarding).textContent?.trim()).toBe('3.8');
+      expect(value(overall).className).toContain('text-t-48');
+      expect(value(onboarding).className).toContain('text-t-48');
+      expect(overall.textContent).toContain('Overall');
+      expect(onboarding.textContent).toContain('Onboarding');
+      // Two figures in the band, and no average of the two anywhere (4.05).
+      expect(el.querySelectorAll('[data-testid="review-summary"] aec-figure')).toHaveLength(2);
+      expect(el.textContent).not.toContain('4.05');
+    });
+
+    it('puts each score on its own card with its own stripe, beside its name', () => {
+      const el = summary();
+      const overall = el.querySelector('[data-testid="review-score-overall"]')!;
+      const onboarding = el.querySelector('[data-testid="review-score-onboarding"]')!;
+      for (const card of [overall, onboarding]) {
+        expect(card.classList).toContain('shadow-card');
+        expect(card.classList).toContain('aec-card-stripe');
+      }
+      expect(overall.classList).not.toContain('aec-card-stripe-clay');
+      expect(onboarding.classList).toContain('aec-card-stripe-clay');
+    });
+
+    it('places both pins on one 1 to 5 axis, hidden from assistive tech', () => {
+      const el = summary();
+      const scale = el.querySelector('[data-testid="review-scale"]')!;
+      const axis = scale.querySelector('[aria-hidden="true"]')!;
+      const left = (id: string) =>
+        (axis.querySelector(`[data-testid="${id}"]`) as HTMLElement).style.left;
+
+      // (4.3 - 1) / 4 = 82.5%, (3.8 - 1) / 4 = 70%.
+      expect(left('review-scale-pin-overall')).toBe('82.5%');
+      expect(left('review-scale-pin-onboarding')).toBe('70%');
+      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Overall 4.3');
+      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Onboarding 3.8');
+      // The count line stays readable: it is not inside the hidden axis.
+      expect(axis.textContent).not.toContain('Based on');
+      expect(scale.textContent).toContain('Based on 7 reviews');
+    });
+
+    it('renders no score band below the threshold or with no reviews', () => {
+      const below = setup({ reviewCount: 4, firstPage: makeReviews(4) }).el;
+      expect(below.querySelector('[data-testid="review-summary"]')).toBeNull();
+      expect(below.querySelector('aec-figure')).toBeNull();
+      TestBed.resetTestingModule();
+      const none = setup({ reviewCount: 0, firstPage: [] }).el;
+      expect(none.querySelector('[data-testid="review-summary"]')).toBeNull();
+    });
+  });
+
+  it('makes each review article one card and keeps the API order', () => {
+    const { el } = setup({ reviewCount: 3, firstPage: makeReviews(3) });
+    const articles = [...el.querySelectorAll('ul > li > article')];
+    expect(articles).toHaveLength(3);
+    for (const a of articles) expect(a.classList).toContain('shadow-card');
+    expect(articles.map((a) => a.querySelector('h3')?.textContent?.trim())).toEqual([
+      'Review 1',
+      'Review 2',
+      'Review 3',
+    ]);
+  });
+
+  describe('row sharing (ruling 34, 2026-11-16)', () => {
+    const columns = (n: number) => {
+      TestBed.resetTestingModule();
+      const { el } = setup({ reviewCount: n, firstPage: makeReviews(n) });
+      const list = el.querySelector('[data-testid="review-list"]') as HTMLElement;
+      return {
+        md: list.classList.contains('md:grid-cols-2'),
+        xl: list.classList.contains('xl:grid-cols-3'),
+        base: list.classList.contains('grid-cols-1') && list.classList.contains('grid'),
+        titles: [...list.querySelectorAll('h3')].map((h) => h.textContent?.trim()),
+      };
+    };
+
+    it('gives one review the full row at every width', () => {
+      expect(columns(1)).toMatchObject({ md: false, xl: false, base: true });
+    });
+
+    it('splits two reviews into halves from md, never a three-column row', () => {
+      expect(columns(2)).toMatchObject({ md: true, xl: false, base: true });
+    });
+
+    it('keeps the grid at three or more, in the API order', () => {
+      for (const n of [3, 4, 11]) {
+        const c = columns(n);
+        expect(c).toMatchObject({ md: true, xl: true, base: true });
+        expect(c.titles).toEqual(makeReviews(n).map((r) => r.title));
+      }
+    });
+
+    it('caps the text measure inside the card, not the card', () => {
+      TestBed.resetTestingModule();
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [makeReview(1, { updates: [makeUpdate()], vendor_responses: [makeResponse()] })],
+      });
+      const article = el.querySelector('ul > li > article') as HTMLElement;
+      expect(article.classList).not.toContain('max-w-prose');
+      expect(article.querySelector('[data-testid="review-original"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+      expect(article.querySelector('[data-testid="review-update"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+      expect(article.querySelector('[data-testid="vendor-response"] > p')!.classList).toContain(
+        'max-w-prose',
+      );
+    });
+  });
+
+  it('shows no company or firm on a review', () => {
+    const { el } = setup({
+      reviewCount: 1,
+      firstPage: [
+        // A field the public type does not carry. The card must not print it even
+        // if a future API leaked it.
+        makeReview(1, { role_at_company: 'manager', reviewer_firm: 'Acme Builders' } as never),
+      ],
+    });
+    expect(el.textContent).not.toContain('Acme Builders');
+  });
+
   it('renders per-review meta: role, years, recommendation, and no verified badge', () => {
     const { el } = setup({
       reviewCount: 1,
@@ -219,7 +357,7 @@ describe('ProductReviews', () => {
       expect(el.querySelectorAll('[data-testid="vendor-response"]')).toHaveLength(0);
     });
 
-    it('renders one reply under its review, outside the review card, labelled and dated', () => {
+    it('renders one reply inside its review card, after the review text, labelled and dated', () => {
       const { el } = setup({
         reviewCount: 1,
         firstPage: [makeReview(1, { title: 'Saves hours', vendor_responses: [makeResponse()] })],
@@ -234,10 +372,16 @@ describe('ProductReviews', () => {
       const replies = article.querySelectorAll('[data-testid="vendor-response"]');
       expect(replies).toHaveLength(1);
       const reply = replies[0] as HTMLElement;
-      // A separate block after the review card, never inside it.
-      const card = article.firstElementChild as HTMLElement;
-      expect(card.contains(reply)).toBe(false);
-      expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Clash 14 (DESIGN.md section 4): a nested panel inside the review card,
+      // after the review as written and never part of it, with no shadow.
+      const original = article.firstElementChild as HTMLElement;
+      expect(original.dataset['testid']).toBe('review-original');
+      expect(original.contains(reply)).toBe(false);
+      expect(
+        original.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(reply.classList).toContain('rounded-panel');
+      expect(reply.classList).not.toContain('shadow-card');
 
       // Labelled by its heading, which names the vendor and ties it to the review.
       expect(reply.tagName).toBe('SECTION');
@@ -254,6 +398,66 @@ describe('ProductReviews', () => {
       const time = reply.querySelector('time')!;
       expect(time.getAttribute('datetime')).toBe('2026-09-11T10:00:00.000Z');
       expect(time.textContent?.trim()).toBe('Sep 11, 2026');
+    });
+
+    // AECI-1872 (ruling 42) build condition (a): the review text comes first, whole,
+    // and the reply never changes, shortens or reorders it.
+    it('renders the whole long review body before the reply, with no clamp or "Show more"', () => {
+      const longBody = Array.from(
+        { length: 40 },
+        (_, i) => `Sentence ${i + 1} of a long review about setup.`,
+      ).join(' ');
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [
+          makeReview(1, {
+            body: longBody,
+            vendor_responses: [makeResponse({ body: 'VENDOR REPLY TEXT' })],
+          }),
+        ],
+      });
+
+      const article = el.querySelector('ul > li > article') as HTMLElement;
+      const original = article.querySelector('[data-testid="review-original"]') as HTMLElement;
+      const body = original.querySelector(':scope > p') as HTMLElement;
+      const reply = article.querySelector('[data-testid="vendor-response"]') as HTMLElement;
+
+      expect(body.textContent?.trim()).toBe(longBody);
+      expect(body.className).not.toMatch(/line-clamp|truncate|max-h-|overflow-hidden/);
+      expect(original.textContent).not.toContain('VENDOR REPLY TEXT');
+      expect(
+        original.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // Nothing in the review card expands or collapses.
+      expect(article.querySelector('button, details, [aria-expanded]')).toBeNull();
+    });
+
+    // Condition (b): the label and the date are visible whenever the reply is. They
+    // are plain text in the panel heading, never behind a toggle, hover or tooltip.
+    it('shows the "Response from" label and the date as visible text in the panel', () => {
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [makeReview(1, { vendor_responses: [makeResponse()] })],
+      });
+      const reply = el.querySelector('[data-testid="vendor-response"]') as HTMLElement;
+      const h4 = reply.querySelector('h4') as HTMLElement;
+      const label = [...h4.querySelectorAll('span')].find((s) =>
+        s.textContent?.includes('Response from Autodesk'),
+      )!;
+      const time = reply.querySelector('time') as HTMLElement;
+
+      expect(label).toBeTruthy();
+      expect(label.classList).not.toContain('sr-only');
+      expect(time.classList).not.toContain('sr-only');
+      expect(time.textContent?.trim()).toBe('Sep 11, 2026');
+      for (const node of [reply, h4, label, time]) {
+        expect(node.hasAttribute('hidden')).toBe(false);
+        expect(node.getAttribute('aria-hidden')).toBeNull();
+        expect(node.closest('details, [aria-expanded="false"], [role="tooltip"]')).toBeNull();
+      }
+      // The heading and date come before the reply text in the panel.
+      const text = reply.querySelector(':scope > p') as HTMLElement;
+      expect(h4.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('renders the body as plain text with its line breaks, never as HTML', () => {
@@ -320,7 +524,7 @@ describe('ProductReviews', () => {
         });
         return {
           titles: [...el.querySelectorAll('ul > li h3')].map((h) => h.textContent?.trim()),
-          text: el.querySelector('.grid.gap-5')?.textContent,
+          text: el.querySelector('[data-testid="review-summary"]')?.textContent,
         };
       };
       expect(summary(withReply)).toEqual(summary(plain));
