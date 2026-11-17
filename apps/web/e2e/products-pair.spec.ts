@@ -384,10 +384,9 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     }
     // AECI-1835: mock-up 5's diagram and correction entry are in the server HTML.
     await expect(page.getByTestId('pair-empty-medallion')).toHaveText('No integration on record');
-    await expect(page.getByTestId('pair-empty-stage').locator('svg')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
+    await expect(
+      page.getByTestId('pair-empty-stage').locator('svg[viewBox="0 0 540 280"]'),
+    ).toHaveAttribute('aria-hidden', 'true');
     await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
     await context.close();
   });

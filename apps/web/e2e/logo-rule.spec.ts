@@ -255,17 +255,19 @@ test.describe('logo rule (AECI-1769)', () => {
 
     const body = page.locator('aec-pair-empty-sections');
     await expect(body.locator(`img[src="${LOGO}"]`)).toHaveCount(0);
-    await expect(body.locator(`img[src="${CLAIMED_LOGO}"]`)).toHaveCount(2);
+    // AECI-1835: the claimed side's logo shows in each mark the body draws for it (the
+    // ledger head, its vendor card head, and any "Who" chip). The unclaimed side shows none.
+    expect(await body.locator(`img[src="${CLAIMED_LOGO}"]`).count()).toBeGreaterThan(1);
     const unclaimed = page.locator(`img[src="${LOGO}"]`);
     await expect(unclaimed).toHaveCount(1);
     await expect(unclaimed).toHaveAttribute('width', '32');
-    const widths = await page
-      .locator('aec-logo-or-initial img')
-      .evaluateAll((imgs) =>
-        imgs
-          .filter((i) => (i as HTMLImageElement).src.endsWith('acme-connector.png'))
-          .map((i) => i.getBoundingClientRect().width),
-      );
+    const widths = await page.locator('aec-logo-or-initial img').evaluateAll((imgs) =>
+      imgs
+        .filter((i) => (i as HTMLImageElement).src.endsWith('acme-connector.png'))
+        // The layout width: the hero cards are tilted, and a rotated box's bounding
+        // rectangle is wider than the image itself (AECI-1835).
+        .map((i) => (i as HTMLElement).offsetWidth),
+    );
     for (const w of widths) expect(w).toBeLessThanOrEqual(32);
   });
 });
