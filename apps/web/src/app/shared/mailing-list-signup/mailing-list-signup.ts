@@ -272,28 +272,34 @@ export class MailingListSignup {
     event.preventDefault();
     this.status.set('idle');
     this.submitAttempted.set(true);
-    await submit(this.form, async (f) => {
-      try {
-        const result = await this.api.subscribe(this.buildSubscribe(f().value()));
-        // Keep the entered email in the field. Clearing it to '' would leave the
-        // still-touched field invalid, re-firing the "enter a valid email" error
-        // right next to the success message. The confirmed button + live region
-        // carry the result; onEmailEdit resets the state if the address changes.
-        this.status.set(result.created ? 'subscribed' : 'exists');
-        if (result.created) {
-          // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
-          // no-ops without consent and never throws into the submit. Only a genuine
-          // new signup counts — an already-listed email (created:false) is not.
-          this.analytics.mailingListSignup({
-            source: this.source(),
-            found_via: f().value().found_via || null,
-          });
+    await submit(this.form, {
+      // A submit with an empty or invalid email posts nothing. Focus moves to the field,
+      // so a screen reader hears its error through aria-describedby even on a second
+      // try, when the role="alert" line is already on the page and stays silent.
+      onInvalid: (f) => f.email().focusBoundControl(),
+      action: async (f) => {
+        try {
+          const result = await this.api.subscribe(this.buildSubscribe(f().value()));
+          // Keep the entered email in the field. Clearing it to '' would leave the
+          // still-touched field invalid, re-firing the "enter a valid email" error
+          // right next to the success message. The confirmed button + live region
+          // carry the result; onEmailEdit resets the state if the address changes.
+          this.status.set(result.created ? 'subscribed' : 'exists');
+          if (result.created) {
+            // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
+            // no-ops without consent and never throws into the submit. Only a genuine
+            // new signup counts — an already-listed email (created:false) is not.
+            this.analytics.mailingListSignup({
+              source: this.source(),
+              found_via: f().value().found_via || null,
+            });
+          }
+        } catch {
+          // Retryable notice, not a ValidationError (which would disable submit).
+          this.status.set('error');
         }
-      } catch {
-        // Retryable notice, not a ValidationError (which would disable submit).
-        this.status.set('error');
-      }
-      return undefined;
+        return undefined;
+      },
     });
   }
 

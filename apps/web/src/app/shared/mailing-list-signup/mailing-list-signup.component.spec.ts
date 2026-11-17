@@ -124,6 +124,25 @@ describe('MailingListSignup', () => {
     expect(el.querySelector('#mailing-list-email-error')).not.toBeNull();
   });
 
+  it('moves focus to the email field on an invalid submit, so its error is heard', async () => {
+    const { fixture, el, httpMock } = setup();
+    document.body.appendChild(el);
+    try {
+      const input = el.querySelector('#mailing-list-email') as HTMLInputElement;
+      const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+      button.focus();
+      await submitForm(fixture);
+      await settle();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(input);
+      expect(input.getAttribute('aria-describedby')).toBe('mailing-list-email-error');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      httpMock.expectNone('/api/subscribe');
+    } finally {
+      el.remove();
+    }
+  });
+
   it('splits the card into words and form from lg, so the right half is never blank', () => {
     const { el } = setup();
     const card = el.querySelector('[data-testid="mailing-list-card"]')!;
