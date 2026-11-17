@@ -1,13 +1,15 @@
 <!--
   A focused flow (DESIGN.md "The Page-Width Rule", AECI-1805): a narrow centred
   column on white, like the not-found page, with every state inside one shared card.
-  The page gutter is 16px below `sm`, so at 320px "Continue with Google" keeps one line.
+  Below `sm` the page gutter is 16px, the card padding 20px and the Google button's
+  padding 12px with a 6px gap, and its label never wraps: at 320px "Continue with
+  Google" and its G mark stay on one 44px line even in a wide fallback font.
 -->
 <section
   class="mx-auto w-full max-w-md px-4 py-16 text-(--text-primary) sm:px-6 md:py-24"
   aria-labelledby="login-title"
 >
-  <div aecCard class="p-6 sm:p-8">
+  <div aecCard class="p-5 sm:p-8">
     @if (resuming()) {
     <!-- ── Silent resume (AECI-954) ─────────────────────────────────────── -->
     <!--
@@ -145,7 +147,7 @@
         (click)="onGoogle()"
         [disabled]="unavailable() || googlePending()"
         [attr.aria-describedby]="lastMethod() === 'google' ? 'login-last-used' : null"
-        class="w-full"
+        class="w-full max-sm:gap-1.5 max-sm:px-3"
       >
         <!--
         Google's "G" mark, per the Sign in with Google branding guidelines: the
@@ -177,9 +179,11 @@
           />
         </svg>
         @if (googlePending()) {
-        <span i18n="@@auth.login.google.pending">Redirecting to Google…</span>
+        <span class="whitespace-nowrap" i18n="@@auth.login.google.pending"
+          >Redirecting to Google…</span
+        >
         } @else {
-        <span i18n="@@auth.login.google">Continue with Google</span>
+        <span class="whitespace-nowrap" i18n="@@auth.login.google">Continue with Google</span>
         }
       </button>
       @if (lastMethod() === 'google') {
