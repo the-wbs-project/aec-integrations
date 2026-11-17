@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
+import { FAKE_PRODUCTS, FAKE_VENDORS, routeFakeAlgolia } from './fake-algolia';
 import { untilHydrated } from './hydration';
 
 // Scroll restoration on navigation. A client-side (SPA) navigation is a
@@ -746,6 +747,199 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
     const restored = await hrefs();
     expect(restored.slice(0, pageTwo.length), 'the page 2 rows are back, first').toEqual(pageTwo);
   });
+});
+
+// /search gets its rows from Algolia only after the search code loads, after the
+// first render. So a Back used to render no rows in the frame the router restored
+// the position: left at 3,200, clamped to 1,341, landed at 3,457. The page now
+// renders what the reader left from a per-tab store on Back and Forward.
+//
+// Every answer comes from the fixed Algolia in `fake-algolia.ts`, held back by
+// 300ms, so the rows, counts and order cannot move and a restore that waits for
+// Algolia is caught. The only client-side way into /search from another page is
+// the header search box, which carries `?q=` alone. So a Forward lands on that
+// entry, and the tab and filter cases are checked on Back.
+
+/** Result cards on the active /search tab. */
+const SEARCH_CARDS = '#main aec-search-product-card, #main aec-search-vendor-card';
+
+/** Opens /search from /categories through the header search box. */
+async function openSearchFromHeader(page: Page): Promise<void> {
+  await page.goto('/categories');
+  await page.waitForLoadState('networkidle');
+  const box = page.locator('header form[role="search"] input[name="q"]').first();
+  test.skip((await box.count()) === 0, 'no header search box at this viewport');
+  await untilHydrated(box);
+  await box.fill('zz fake');
+  await box.press('Enter');
+  await expect(page).toHaveURL(/\/search\?q=zz(\+|%20)fake$/, { timeout: 15_000 });
+  await expect(page.locator(SEARCH_CARDS).first()).toBeVisible({ timeout: 15_000 });
+  await markDocument(page);
+}
+
+/** Loads `pages` pages and puts card `cardIndex` near the top. Returns `scrollY`. */
+async function placeReader(page: Page, pages: 1 | 2, cardIndex: number): Promise<number> {
+  const cards = page.locator(SEARCH_CARDS);
+  await page.waitForLoadState('networkidle');
+  await expect(cards).toHaveCount(24, { timeout: 15_000 });
+  if (pages === 2) {
+    await page.locator('aec-pagination-footer a, aec-pagination-footer button').first().click();
+    await expect.poll(() => cards.count()).toBeGreaterThan(cardIndex);
+    await page.waitForLoadState('networkidle');
+  }
+  await page.evaluate(
+    ({ selector, i }) => {
+      const r = document.querySelectorAll(selector)[i]!.getBoundingClientRect();
+      window.scrollTo({ top: r.top + window.scrollY - 120, behavior: 'instant' as ScrollBehavior });
+    },
+    { selector: SEARCH_CARDS, i: cardIndex },
+  );
+  // The footer may load the next page from here on its own; let it land, so
+  // the rows counted are the rows the reader leaves.
+  await page.waitForLoadState('networkidle');
+  return layoutSettled(page);
+}
+
+/** Leaves /search for /products through the header link, as a client navigation. */
+async function leaveForProducts(page: Page): Promise<number> {
+  const y = await page.evaluate(() => {
+    const link = document.querySelector<HTMLAnchorElement>('header a[href="/products"]');
+    const at = Math.round(window.scrollY);
+    link!.click();
+    return at;
+  });
+  await expect(page).toHaveURL(/\/products$/);
+  await expect(page.locator(LISTING_CARDS).first()).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+  return y;
+}
+
+/** The slug of every result card on screen, in order. */
+function searchRows(page: Page): Promise<string[]> {
+  return page.evaluate((selector) => {
+    return [...document.querySelectorAll(selector)].map((card) => {
+      const prefix = card.tagName === 'AEC-SEARCH-VENDOR-CARD' ? '/vendors/' : '/products/';
+      const link = card.querySelector<HTMLAnchorElement>(`a[href^="${prefix}"]`);
+      return link?.getAttribute('href')?.slice(prefix.length) ?? '';
+    });
+  }, SEARCH_CARDS);
+}
+
+/**
+ * The reader is back where they left, with exactly the rows they had, in the
+ * frame the router restored. Then Algolia's answer lands and must not move
+ * them. The footer may load the next page by itself from there, as it does on
+ * any visit, so later rows may follow: they must continue the fixed order with
+ * no row twice and none missing.
+ */
+async function expectSearchRestored(
+  page: Page,
+  saved: number,
+  rows: string[],
+  order: string[],
+  when: string,
+): Promise<string[]> {
+  await expectRestored(page, saved, when);
+  expect(await searchRows(page), `${when}: the rows the reader left`).toEqual(rows);
+  await page.waitForLoadState('networkidle');
+  await expectRestored(page, saved, `${when}, after Algolia answered,`);
+  const after = await searchRows(page);
+  expect(after.slice(0, rows.length), `${when}: the rows stay`).toEqual(rows);
+  expect(after, `${when}: no row twice, none missing`).toEqual(order.slice(0, after.length));
+  // The rows the reader leaves with next time.
+  return after;
+}
+
+const SEARCH_DEPTHS = [
+  { label: 'a position on page 1', pages: 1 as const, card: 9 },
+  { label: 'a position inside a page added by "Load more"', pages: 2 as const, card: 30 },
+];
+
+test.describe('Back and Forward return the reader to their place on /search', () => {
+  for (const where of SEARCH_DEPTHS) {
+    test(`/search?q=: Back and Forward restore ${where.label}`, async ({ page }) => {
+      await routeFakeAlgolia(page, { delayMs: 300 });
+      await openSearchFromHeader(page);
+      await placeReader(page, where.pages, where.card);
+      const rows = await searchRows(page);
+      const order = FAKE_PRODUCTS.map((p) => p.slug);
+      const saved = await leaveForProducts(page);
+
+      await page.goBack();
+      await expect(page).toHaveURL(/\/search\?q=/, { timeout: 15_000 });
+      const left = await expectSearchRestored(page, saved, rows, order, 'Back');
+
+      // Back once more to /categories, then Forward onto /search.
+      await page.goBack();
+      await expect(page).toHaveURL(/\/categories$/, { timeout: 15_000 });
+      await page.goForward();
+      await expect(page).toHaveURL(/\/search\?q=/, { timeout: 15_000 });
+      await expectSearchRestored(page, saved, left, order, 'Forward');
+    });
+  }
+
+  for (const tab of [
+    {
+      name: 'Products',
+      order: FAKE_PRODUCTS.filter((p) => p.categories.includes('Field Management')).map(
+        (p) => p.slug,
+      ),
+      filter: async (page: Page) => {
+        const box = page
+          .locator('aec-search-refinement-list fieldset')
+          .filter({ has: page.locator('legend', { hasText: 'Categories' }) })
+          .getByRole('checkbox', { name: 'Field Management' });
+        await untilHydrated(box);
+        await box.check();
+        await expect(page).toHaveURL(/categories=Field/);
+        // The filtered answer is on screen. "Load more" pressed while a filter
+        // search is in flight loses that answer's first page (seen here, not fixed).
+        await expect(page.locator('aec-pagination-footer')).toContainText('of 70');
+      },
+    },
+    {
+      name: 'Vendors',
+      order: FAKE_VENDORS.filter((v) => v.integration_count >= 1 && v.integration_count <= 10).map(
+        (v) => v.slug,
+      ),
+      filter: async (page: Page) => {
+        await page.getByRole('tab', { name: /Vendors/ }).click();
+        await expect(page).toHaveURL(/tab=vendors/);
+        await expect(page.locator('#main aec-search-vendor-card').first()).toBeVisible();
+        await page
+          .locator('aec-search-numeric-menu fieldset')
+          .filter({ has: page.locator('legend', { hasText: 'Integrations' }) })
+          .getByRole('radio', { name: '1–10' })
+          .check();
+        await expect(page).toHaveURL(/v_integration_count=1/);
+        await expect(page.locator('aec-pagination-footer')).toContainText('of 53');
+      },
+    },
+  ]) {
+    for (const where of SEARCH_DEPTHS) {
+      test(`${tab.name} tab with a filter: Back restores ${where.label}`, async ({ page }) => {
+        await routeFakeAlgolia(page, { delayMs: 300 });
+        await openSearchFromHeader(page);
+        await tab.filter(page);
+        await placeReader(page, where.pages, where.card);
+        const rows = await searchRows(page);
+        const url = page.url();
+        const saved = await leaveForProducts(page);
+
+        await page.goBack();
+        await expect(page).toHaveURL(url, { timeout: 15_000 });
+        const left = await expectSearchRestored(page, saved, rows, tab.order, 'Back');
+
+        // Forward to /products and Back again: the entry is restored a second
+        // time, under the id the first Back gave it.
+        await page.goForward();
+        await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
+        await page.goBack();
+        await expect(page).toHaveURL(url, { timeout: 15_000 });
+        await expectSearchRestored(page, saved, left, tab.order, 'Back again');
+      });
+    }
+  }
 });
 
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets

@@ -78,8 +78,11 @@ export function listingPath(snapshot: ActivatedRouteSnapshot): string {
  * with an id matches that id exactly. A read without an id, which happens only
  * when the entry being returned to carries no router id, falls back to the
  * newest entry for the key.
+ *
+ * Exported for the `/search` store (`search/search-history.ts`), which keeps
+ * the same rules for its own payload.
  */
-abstract class BoundedHistoryStore<V> {
+export abstract class BoundedHistoryStore<V> {
   // Insertion order is recency order: a read or write moves the entry to the end.
   private readonly entries = new Map<
     string,
