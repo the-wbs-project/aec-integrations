@@ -524,7 +524,12 @@ describe('SearchPage shell', () => {
       anyFilterCount: () => number;
       clearFilters(): void;
     };
-    page.controller.set({ products: view, vendors: vendorsView, dispose: () => {} });
+    page.controller.set({
+      products: view,
+      vendors: vendorsView,
+      dispose: () => {},
+      snapshot: () => null,
+    });
 
     // Active (products) tab: two checked values + one bucket + one range bound.
     expect(page.activeFilterCount()).toBe(4);
@@ -628,7 +633,7 @@ describe('SearchPage shell', () => {
       controller: WritableSignal<unknown>;
       activeFilterCount: () => number;
     };
-    page.controller.set({ products: view, vendors: view, dispose: () => {} });
+    page.controller.set({ products: view, vendors: view, dispose: () => {}, snapshot: () => null });
     expect(page.activeFilterCount()).toBe(0);
   });
 });

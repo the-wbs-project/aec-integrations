@@ -1538,9 +1538,10 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/web/src/app/search/search-facet-order.ts',
-    count: 1,
+    count: 2,
     registered: ['taxonomy-term-product-count'],
-    allowed: 'lifecycle order for phases on /search',
+    allowed:
+      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899)',
   },
   {
     file: 'apps/web/src/app/search/search-url-state.ts',
