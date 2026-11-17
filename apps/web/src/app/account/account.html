@@ -463,6 +463,15 @@
           for 6 years after you delete your account. It holds your email address, the time and the
           version.
         </p>
+        <!-- AECI-1665: copyright notices that name the account survive deletion. -->
+        <p
+          class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          data-testid="account-delete-copyright"
+          i18n="@@account.delete.copyright"
+        >
+          If we received a copyright notice or counter-notice that names your account, we keep it
+          for 3 years after we close the matter. It is no longer linked to your account.
+        </p>
         <button
           brnDialogTrigger
           [brnDialogTriggerFor]="deleteDialog"
@@ -513,6 +522,14 @@
               >
                 We keep the record that you accepted the Terms of Service when you signed in for 6
                 years after you delete your account.
+              </p>
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="account-delete-dialog-copyright"
+                i18n="@@account.delete.dialog.copyright"
+              >
+                We keep copyright notices and counter-notices that name your account for 3 years
+                after we close the matter.
               </p>
 
               @if (deleteFailed()) {

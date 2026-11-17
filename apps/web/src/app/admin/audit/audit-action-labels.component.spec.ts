@@ -110,6 +110,9 @@ const EMITTED_ACTIONS = [
   'profile.created',
   'profile.updated',
   'account.deleted',
+  // AECI-1665, routes/admin-dmca-notices.ts.
+  'dmca_notice.created',
+  'dmca_notice.updated',
   'notification.sent',
   'retention.pruned',
   // AECI-1636, lib/acceptance-evidence-removal.ts.

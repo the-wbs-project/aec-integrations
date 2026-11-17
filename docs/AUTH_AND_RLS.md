@@ -1166,6 +1166,12 @@ AECI-1373 adds two more of the same shape: `license_release_requests.requested_b
 AECI-1416 adds one more: `product_proposals.decided_by`, the owner seat that decided a product
 proposal. The batch nulls it with `updated_at` pinned, and the proposal and its frozen payload
 survive.
+AECI-1665 adds one more: `dmca_notices.account_id`, the account that posted the material a
+copyright notice names. The batch nulls it where it names the user. The notice and any
+counter-notice survive for three years after they close, because they are the record of a
+copyright matter (Privacy Policy "Retention", `DATABASE_SCHEMA.md` §8.14). A deleted and
+re-created account starts with a clean takedown count (Chris's ruling of 2026-11-17).
+`apps/api/src/routes/account.spec.ts` asserts it.
 
 **A billing email equal to the person's address is nulled (AECI-1389, ruling 2026-10-16).**
 `billing_accounts.billing_email` is an address an owner typed, not a profile link, so no FK
