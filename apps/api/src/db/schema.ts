@@ -4400,6 +4400,7 @@ export const notificationPreferences = sqliteTable(
 //
 // DOMAIN state: the person told us these facts, so every change writes its
 // `audit_log` row in the same `db.batch` (`routes/account.ts`, `profile.updated`).
+// That row names the touched answers and never holds their values (AECI-1869).
 // Side tables rather than columns on `profiles`, for the same reason as
 // `notification_preferences` above: a later change to `profiles` must not force
 // a drizzle-kit recreate (`docs/migrations.md` §0). The reverse hazard holds too.

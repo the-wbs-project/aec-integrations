@@ -28,6 +28,12 @@
  * writes them in the same `db.batch` as the `profiles` update and the one
  * `profile.updated` audit row. `ensureProfileRow` never writes them.
  *
+ * That audit row names the About-you answers a request touched
+ * (`metadata.about_you_fields`) and never holds their values (AECI-1869). Erasure
+ * keeps audit rows, and the Privacy Policy promises the answers go with the
+ * account. Rows written before the fix require the per-environment scrub in
+ * `scripts/ops/2026-11-about-you-audit-scrub/`; its README tracks completion.
+ *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
  * `profiles(id)` has seventeen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
  * so they must be nulled before the profile delete. Three (`notification_preferences`,
@@ -276,6 +282,22 @@ async function queueCountsForSession(
 
 // ─── PATCH /api/account ────────────────────────────────────────────────────────
 
+/**
+ * The "About you" answers (AECI-1296) whose VALUES never enter an audit row
+ * (AECI-1869). The `profile.updated` row lists which of them a request touched in
+ * `metadata.about_you_fields`. The ops scrub
+ * (`scripts/ops/2026-11-about-you-audit-scrub/apply.sql`) removes the same six keys
+ * from rows written before the fix, so the two lists must stay equal.
+ */
+export const ABOUT_YOU_AUDIT_KEYS = [
+  'company_type',
+  'company_size',
+  'primary_role',
+  'firm_name',
+  'linkedin_url',
+  'audience_ids',
+] as const;
+
 /** The `profile_details` columns a PATCH may carry, wire key → Drizzle key. */
 const DETAIL_FIELDS = [
   ['company_type', 'companyType'],
@@ -356,13 +378,15 @@ export function createUpdateAccountHandler(
     }
 
     // "About you" (AECI-1296): the `profile_details` upsert, same present-key rule.
+    // The audit names each touched answer but never holds its value (AECI-1869):
+    // erasure keeps audit rows, and the answers must go with the account.
     const detailUpdates: Partial<typeof profileDetails.$inferInsert> = {};
+    const aboutYouFields: (typeof ABOUT_YOU_AUDIT_KEYS)[number][] = [];
     for (const [wire, column] of DETAIL_FIELDS) {
       const value = payload[wire];
       if (value === undefined) continue;
       detailUpdates[column] = value;
-      beforeState[wire] = before.details[wire];
-      afterState[wire] = value;
+      aboutYouFields.push(wire);
     }
     if (payload.onboarding !== undefined) {
       if (payload.onboarding === 'completed') detailUpdates.onboardingCompletedAt = now;
@@ -370,20 +394,22 @@ export function createUpdateAccountHandler(
       beforeState.onboarding = before.onboarding;
       afterState.onboarding = payload.onboarding;
     }
-    if (audienceIds !== undefined) {
-      beforeState.audience_ids = before.details.audience_ids;
-      afterState.audience_ids = audienceIds;
-    }
+    if (audienceIds !== undefined) aboutYouFields.push('audience_ids');
 
+    const hasState = Object.keys(beforeState).length > 0;
     const auditEntry: AuditLogEntry = {
       actorId: userId,
       actorType: auditActorType(session),
       action: 'profile.updated',
       entityType: 'profile',
       entityId: userId,
-      beforeState,
-      afterState,
-      metadata: { source: 'account' },
+      // Only About-you answers touched: nothing to record but their names.
+      beforeState: hasState ? beforeState : undefined,
+      afterState: hasState ? afterState : undefined,
+      metadata:
+        aboutYouFields.length > 0
+          ? { source: 'account', about_you_fields: aboutYouFields }
+          : { source: 'account' },
     };
 
     const stmts: BatchStmt[] = [];
