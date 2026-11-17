@@ -78,13 +78,14 @@ import { forwardRowClick } from '../shared/row-link/row-link-click';
     </td>
     <td class="px-4 py-3 text-end align-middle">
       <!-- The row's product link. The <a> carries the accessible name, so the
-           glyph is aria-hidden. size-6 keeps the target at 24px (WCAG 2.2
-           SC 2.5.8). A click anywhere else on the row is forwarded here. -->
+           glyph is aria-hidden. A 44px square (mock-up 11, .go a), so the row is the
+           mock-up's 69px and the target is 44px (WCAG 2.2 SC 2.5.8). A click anywhere
+           else on the row is forwarded here. -->
       <a
         #rowLink
         [routerLink]="['/products', product().slug]"
         [attr.aria-label]="rowAriaLabel()"
-        class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="inline-flex size-11 items-center justify-center rounded-control align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
         <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true"
           >→</span

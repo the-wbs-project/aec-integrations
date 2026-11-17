@@ -35,7 +35,9 @@ import { AecIcon } from '../shared/icon/icon';
  *   disagreement and stops there.
  *
  * Colour is never the sole signal (WCAG 1.4.1): each state carries a distinct
- * visible label and `aria-label`, and the dot/glyph is `aria-hidden`. Light
+ * visible label and its full meaning as visually hidden text, and the dot/glyph is
+ * `aria-hidden`. The meaning used to be an `aria-label` on the chip's plain span, which
+ * assistive tech may ignore (AECI-1720 restore C). Light
  * theme only (Stage 1 / AECI-226).
  *
  * This claim-agreement chip was kept distinct from the account-status label
@@ -47,7 +49,10 @@ import { AecIcon } from '../shared/icon/icon';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Chip, AecIcon],
   template: `
-    <aec-chip label [tone]="tone()" [ariaLabel]="ariaLabel()">
+    <!-- AECI-1720 restore C (records/10 §2, records/11 §8, mock-up 12): the full meaning
+         is real text, visually hidden, and the visible label is aria-hidden so it is read
+         once. An aria-label on a plain span is not reliably read. -->
+    <aec-chip label [tone]="tone()">
       @if (agreement() === 'conflict') {
         <!-- A shape, not just a hue: the conflict state must survive both
              greyscale and a colour-vision deficiency. -->
@@ -55,7 +60,8 @@ import { AecIcon } from '../shared/icon/icon';
       } @else {
         <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full" [class]="dotClass()"></span>
       }
-      {{ label() }}
+      <span aria-hidden="true">{{ label() }}</span>
+      <span class="sr-only" data-testid="agreement-badge-meaning">{{ ariaLabel() }}</span>
     </aec-chip>
   `,
 })

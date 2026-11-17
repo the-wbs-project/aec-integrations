@@ -12,6 +12,7 @@ import type {
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
+  mechanismDisplay,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { correctionLabel } from '../shared/field-caption/correction-labels';
@@ -222,9 +223,9 @@ import { Chip } from '../shared/chip/chip';
              the connector, and a bare dash beside "2 data objects" read as a minus
              sign. A row with no kinds AND no objects takes the @else below,
              unchanged since before the depth axis (depth-axis-null.component.spec.ts). -->
-        @if (mechanismKindLabels().length > 0 || dataObjectLabel()) {
+        @if (mechanism().labels.length > 0 || dataObjectLabel()) {
           <span class="flex flex-wrap items-center gap-1">
-            @for (label of mechanismKindLabels(); track label) {
+            @for (label of mechanism().labels; track label) {
               <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
             } @empty {
               @if (!isViaLane()) {
@@ -252,7 +253,7 @@ import { Chip } from '../shared/chip/chip';
             >–</span
           >
         }
-        @if (integration().mechanism_name; as name) {
+        @if (mechanism().name; as name) {
           <span class="text-xs text-(--text-secondary)">{{ name }}</span>
         }
         <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1). -->
@@ -339,7 +340,12 @@ export class ProductIntegrationRow {
 
   /** Below `md` the Connection column is hidden, so the kinds join the meta
    *  line under the partner name, after the direction. */
-  protected readonly mechanismSublabel = computed(() => this.mechanismKindLabels().join(' · '));
+  protected readonly mechanismSublabel = computed(() => this.mechanism().labels.join(' · '));
+
+  /** The kind chips and the name, each fact once (`mechanismDisplay`, AECI-1720 restore C). */
+  protected readonly mechanism = computed(() =>
+    mechanismDisplay(this.mechanismKindLabels(), this.integration().mechanism_name),
+  );
 
   /** AECI-711 depth axis: "N data objects", or `''` (renders nothing). The slugs
    *  are already distinct — server-side per edge, unioned per collapsed row. */
@@ -367,6 +373,7 @@ export class ProductIntegrationRow {
     const merged = this.mergedDirection();
     return contextDirectionLabel(
       merged === undefined ? this.integration().context_direction : merged,
+      this.other().name,
     );
   });
 

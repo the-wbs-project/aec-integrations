@@ -264,13 +264,13 @@ describe('VendorDetailPage products order caption (AECI-1797)', () => {
     expect(links).toEqual(['/products/p-0', '/products/p-1', '/products/p-2', '/products/p-3']);
   });
 
-  // Ruling 5 of 2026-11-16: the rating column reads "Overall", as on the browse lists.
-  it('heads the columns Product, Overall, Integrations', () => {
+  // Ruling 5 of 2026-11-16: the rating column reads "Overall", as on the browse lists. AECI-1720 restore C names the score "Product quality" on every public page.
+  it('heads the columns Product, Product quality, Integrations', () => {
     const { el } = setup(buildVendor({ products: [product(0, 'Revit')] }));
     const heads = [...el.querySelectorAll('table[aria-label=Products] thead th')].map((th) =>
       th.textContent?.trim(),
     );
-    expect(heads).toEqual(['Product', 'Overall', 'Integrations', 'Details']);
+    expect(heads).toEqual(['Product', 'Product quality', 'Integrations', 'Details']);
   });
 
   it('shows no order caption over the empty state', () => {

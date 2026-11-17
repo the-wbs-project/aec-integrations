@@ -38,10 +38,10 @@ function setup() {
 }
 
 describe('ProductTable (AECI-1793)', () => {
-  it('heads the rating column "Overall", not "Rating" (ruling 4)', () => {
+  it('heads the rating column "Product quality", the product page\'s name for the score (ruling 4, AECI-1720 restore C)', () => {
     const { el } = setup();
     const heads = Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
-    expect(heads).toEqual(['Name', 'Vendor', 'Overall', 'Integrations']);
+    expect(heads).toEqual(['Name', 'Vendor', 'Product quality', 'Integrations']);
     for (const th of Array.from(el.querySelectorAll('thead th'))) {
       expect(th.getAttribute('scope')).toBe('col');
     }

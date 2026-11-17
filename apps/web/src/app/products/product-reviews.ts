@@ -145,8 +145,8 @@ export class ProductReviews {
 
   /** The score card names. The same ids and words the summary printed as overlines
    *  before AECI-1784; `aec-figure` takes its label as an input, so they moved here. */
-  protected readonly overallLabel = $localize`:@@products.detail.reviews.overall:Overall`;
-  protected readonly onboardingLabel = $localize`:@@products.detail.reviews.onboarding:Onboarding`;
+  protected readonly overallLabel = $localize`:@@products.detail.reviews.overall:Product quality`;
+  protected readonly onboardingLabel = $localize`:@@products.detail.reviews.onboarding:Onboarding experience`;
 
   /**
    * The range marker's pin positions on the shared 1 to 5 axis, in percent

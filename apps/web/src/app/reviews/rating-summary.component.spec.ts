@@ -45,7 +45,7 @@ describe('RatingSummary', () => {
     expect(el.textContent).toContain('4.3');
     expect(el.textContent).toContain('12 reviews');
     // The value/label is announced once, not as five separate stars.
-    expect(role?.getAttribute('aria-label')).toBe('Rated 4.3 out of 5, from 12 reviews');
+    expect(role?.getAttribute('aria-label')).toBe('Product quality 4.3 out of 5, from 12 reviews');
     // The gold star is decorative — meaning is carried by the numeral + label.
     const star = el.querySelector('span[aria-hidden="true"]');
     expect(star?.textContent).toContain('★');

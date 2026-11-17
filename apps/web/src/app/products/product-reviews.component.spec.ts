@@ -166,8 +166,8 @@ describe('ProductReviews', () => {
       expect(value(onboarding).textContent?.trim()).toBe('3.8');
       expect(value(overall).className).toContain('text-t-48');
       expect(value(onboarding).className).toContain('text-t-48');
-      expect(overall.textContent).toContain('Overall');
-      expect(onboarding.textContent).toContain('Onboarding');
+      expect(overall.textContent).toContain('Product quality');
+      expect(onboarding.textContent).toContain('Onboarding experience');
       // Two figures in the band, and no average of the two anywhere (4.05).
       expect(el.querySelectorAll('[data-testid="review-summary"] aec-figure')).toHaveLength(2);
       expect(el.textContent).not.toContain('4.05');
@@ -215,8 +215,8 @@ describe('ProductReviews', () => {
       // (4.3 - 1) / 4 = 82.5%, (3.8 - 1) / 4 = 70%.
       expect(left('review-scale-pin-overall')).toBe('82.5%');
       expect(left('review-scale-pin-onboarding')).toBe('70%');
-      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Overall 4.3');
-      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Onboarding 3.8');
+      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Product quality 4.3');
+      expect(axis.textContent?.replace(/\s+/g, ' ')).toContain('Onboarding experience 3.8');
       // The count line stays readable: it is not inside the hidden axis.
       expect(axis.textContent).not.toContain('Based on');
       expect(scale.textContent).toContain('Based on 7 reviews');
@@ -672,8 +672,8 @@ describe('ProductReviews', () => {
       const updates = el.querySelectorAll('[data-testid="review-update"]');
       expect(updates).toHaveLength(2);
       const rated = updates[0]!.querySelector('[data-testid="review-update-ratings"]')!;
-      expect(rated.querySelector('[aria-label="Overall rating 5 out of 5"]')).not.toBeNull();
-      expect(rated.querySelector('[aria-label="Onboarding rating 4 out of 5"]')).not.toBeNull();
+      expect(rated.querySelector('[aria-label="Product quality 5 out of 5"]')).not.toBeNull();
+      expect(rated.querySelector('[aria-label="Onboarding experience 4 out of 5"]')).not.toBeNull();
       expect(updates[1]!.querySelector('[data-testid="review-update-ratings"]')).toBeNull();
       expect(updates[1]!.querySelector('aec-review-stars')).toBeNull();
       // Each update region has its own accessible name.

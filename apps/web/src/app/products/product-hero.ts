@@ -20,6 +20,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 
 import { categoryHub } from './category-hub';
+import { descriptionParagraphs } from './product-about';
 import { connectedProductCount } from './powered-hub-grouping';
 import { ProductCategoryHub } from './product-category-hub';
 import { ProductPairFinder } from './product-pair-finder';
@@ -78,7 +79,7 @@ import { RoleBadge } from './role-badge';
   host: { class: 'block' },
   template: `
     @let p = product();
-    <aec-hero-band>
+    <aec-hero-band align="start">
       <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
       <!-- A connector or hybrid is flagged where the visitor first looks (Stage 1.5
@@ -143,6 +144,24 @@ import { RoleBadge } from './role-badge';
         }
       </div>
 
+      <!-- AECI-1720 restore C (mock-up 6, .lede): the start of the product's own
+           description under the name, at --t-20 / 1.5 in the secondary on-brand ink,
+           clamped to two lines. It is the description's first paragraph, its lines joined
+           by a space, never new text. The full
+           description is in the About band, so this copy is aria-hidden and a screen
+           reader hears it once. The clamp is CSS on server-rendered text, so nothing
+           shifts on hydration. No description, or one AECi hid while it checks it
+           (the payload nulls it), prints nothing. -->
+      @if (lede(); as text) {
+        <p
+          class="line-clamp-2 max-w-[32em] text-t-20 leading-normal text-(--text-on-brand-secondary)"
+          aria-hidden="true"
+          data-testid="product-hero-lede"
+        >
+          {{ text }}
+        </p>
+      }
+
       <!-- Connector reach line (Stage 1.5 Addendum C, §13.6). Shown whenever the product
            reaches at least one catalog product, with no role gate. "in the AEC
            Integrations catalog" carries §12.7's scope framing inline. -->
@@ -179,7 +198,7 @@ import { RoleBadge } from './role-badge';
               <span
                 class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                 i18n="@@products.detail.hero.rating.overall"
-                >Overall</span
+                >Product quality</span
               >
             </div>
             @if (p.rating_onboarding_avg !== null) {
@@ -197,7 +216,7 @@ import { RoleBadge } from './role-badge';
                 <span
                   class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                   i18n="@@products.detail.hero.rating.onboarding"
-                  >Onboarding</span
+                  >Onboarding experience</span
                 >
               </div>
             }
@@ -301,6 +320,16 @@ export class ProductHero {
   }
 
   /** The category hub's entries, A to Z (AECI-1787, `category-hub.ts`). */
+  /**
+   * The hero lede (AECI-1720 restore C, mock-up 6 `.lede`): the description's first
+   * paragraph, split the way the About band splits it, its lines joined by a space.
+   * `null` with no description, which includes one AECi hid while it checks it.
+   */
+  protected readonly lede = computed(() => {
+    const first = descriptionParagraphs(this.product().description)[0];
+    return first ? first.join(' ') : null;
+  });
+
   protected readonly hub = computed(() => {
     const p = this.product();
     return categoryHub(p.integrations_as_source, p.integrations_as_target);
