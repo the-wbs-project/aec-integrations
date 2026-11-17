@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { BAND_WRAP_CLASS } from '../band-wrap';
 
@@ -23,8 +23,10 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  *  - `heroActions`: the buttons. The main one is `aecButton variant="on-brand"`,
  *    a second one is `variant="on-brand-secondary"`.
  *  - `heroPanel`: an optional panel on `--surface-hero-panel`. At `lg` it takes a
- *    right column. Below `lg` it stacks under the text. With nothing projected the
- *    column and its gap are not rendered.
+ *    400px right column, and 540px from `xl` (mock-up 6). Below `lg` it stacks under
+ *    the text. With nothing projected the column and its gap are not rendered. The
+ *    narrower `lg` column is AECI-1787's: at 1024px a 540px panel left the name about
+ *    230px beside the mark, and a long word in it broke mid-word.
  *
  * Spacing is mock-up 6's (`.namerow`, `.hacts`): 24px above the name row, 16px
  * under it (12px below `md`), 24px above the actions and a 12px gap. From `md` the
@@ -57,7 +59,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
       <div [class]="wrap">
         <div
-          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
+          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
           data-testid="hero-band-grid"
         >
           <div class="min-w-0">
@@ -72,7 +74,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               </div>
               <div class="min-w-0">
                 <h1 class="m-0 break-words">
-                  <span class="font-display text-t-display font-normal tracking-[-0.02em]">
+                  <span [class]="titleClass()">
                     <ng-content select="[heroTitle]" />
                   </span>
                 </h1>
@@ -89,9 +91,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               <ng-content select="[heroActions]" />
             </div>
           </div>
-          <div
-            class="aec-hero-panel min-w-0 rounded-card bg-(--surface-hero-panel) p-6 empty:hidden md:p-8"
-          >
+          <div [class]="panelClass()">
             <ng-content select="[heroPanel]" />
           </div>
         </div>
@@ -100,5 +100,31 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   `,
 })
 export class HeroBand {
+  /**
+   * The title's size. `display` is the default: the product name, and the vendor name.
+   * `statement` is the pair page's h1 (DESIGN.md §3, `--t-statement`, AECI-1798), the
+   * pair page's one display-scale line. The size sits on the inner span either way.
+   */
+  readonly titleSize = input<'display' | 'statement'>('display');
+  /**
+   * The right column's ground. `surface` is the default: the `--surface-hero-panel`
+   * panel with its padding. `bare` draws no panel, for a caller whose projected content
+   * is already its own white cards on Forest, as the pair page's two products are
+   * (mock-up 12, AECI-1798). The column, its width and its forced-colours edge are the same.
+   */
+  readonly panel = input<'surface' | 'bare'>('surface');
+
   protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
+
+  protected readonly titleClass = computed(() =>
+    this.titleSize() === 'statement'
+      ? 'font-display text-t-statement font-normal tracking-[-0.02em]'
+      : 'font-display text-t-display font-normal tracking-[-0.02em]',
+  );
+
+  protected readonly panelClass = computed(() =>
+    this.panel() === 'bare'
+      ? 'aec-hero-panel min-w-0 empty:hidden'
+      : 'aec-hero-panel min-w-0 rounded-card bg-(--surface-hero-panel) p-6 empty:hidden md:p-8',
+  );
 }

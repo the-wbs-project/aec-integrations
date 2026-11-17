@@ -12,10 +12,8 @@ import { expect, test } from '@playwright/test';
 test.describe('aec-chip (AECI-1763)', () => {
   test('a static chip on a product card shows the link pointer', async ({ page }) => {
     await page.goto('/products');
-    // The page swaps its server-rendered card grid for a new one about 600ms
-    // after load. Reading the outgoing grid gives "not attached" or an empty
-    // computed style (AECI-1854), so wait for it to settle.
-    await page.waitForLoadState('networkidle');
+    // Hydration keeps the server-rendered card grid (AECI-1863), so the chip
+    // read here stays attached. No wait for the network to go idle.
     const chip = page.locator('.aec-card span.aec-chip').first();
     await expect(chip).toBeVisible();
     await chip.scrollIntoViewIfNeeded();
@@ -37,10 +35,8 @@ test.describe('aec-chip (AECI-1763)', () => {
 
   test('a chip is a pill with no shadow', async ({ page }) => {
     await page.goto('/products');
-    // The page swaps its server-rendered card grid for a new one about 600ms
-    // after load. Reading the outgoing grid gives "not attached" or an empty
-    // computed style (AECI-1854), so wait for it to settle.
-    await page.waitForLoadState('networkidle');
+    // Hydration keeps the server-rendered card grid (AECI-1863), so the chip
+    // read here stays attached. No wait for the network to go idle.
     const style = await page
       .locator('.aec-chip')
       .first()

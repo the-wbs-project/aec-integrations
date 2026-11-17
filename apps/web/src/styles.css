@@ -44,7 +44,8 @@
  * Typography: Source Serif 4 (display / headline / title) + Atkinson
  * Hyperlegible Next (body / label / overline; variable 400..700 — the classic
  * Atkinson cut only shipped 400/700, so the 500/600 roles could not render,
- * AECI-230). Loaded via Google Fonts in apps/web/src/index.html. The font
+ * AECI-230). Self-hosted from public/fonts/, declared in apps/web/src/index.html
+ * with size-matched fallback faces (AECI-1892). The font
  * pairing is the brand statement; see DESIGN.md §3 for the full type scale.
  *
  * Hex equivalents mirror docs/STAGE_1_SPEC.md §2a.2 byte-for-byte. Do not edit
@@ -220,8 +221,33 @@
   --surface-sticky: oklch(100% 0 0 / 94%); /* White at 94% */
 
   /* Typography (DESIGN.md §3 source of truth) */
-  --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
-  --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Each stack names its size-matched fallback face second (AECI-1892, index.html).
+     `--font-display` starts as the text stack, whose face is tuned for the 20 to 28px
+     roles. The larger roles swap in their own band below ("Fallback faces by role"). */
+  --font-display-text:
+    'Source Serif 4', 'Source Serif 4 Fallback 24', Georgia, 'Times New Roman', serif;
+  --font-display: var(--font-display-text);
+  --font-body:
+    'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible Next Fallback', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  /* The display stack per type role, by the size band the role renders at (AECI-1892).
+     Source Serif 4 narrows as it grows, so each band's fallback face is scaled for that
+     size. The bands follow the fluid ramp below: the media queries further down move a
+     role to the next band where its clamp() crosses into it. Only the fallback differs:
+     every stack starts with Source Serif 4, so nothing changes once the font has loaded. */
+  --font-display-fig:
+    'Source Serif 4', 'Source Serif 4 Fallback 32', Georgia, 'Times New Roman', serif;
+  --font-display-36:
+    'Source Serif 4', 'Source Serif 4 Fallback 32', Georgia, 'Times New Roman', serif;
+  --font-display-48:
+    'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
+  --font-display-statement:
+    'Source Serif 4', 'Source Serif 4 Fallback 40', Georgia, 'Times New Roman', serif;
+  --font-display-display:
+    'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
+  --font-body-caps:
+    'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible Next Caps Fallback', system-ui,
+    -apple-system, 'Segoe UI', sans-serif;
 
   /* The type ramp (AECI-1748; DESIGN.md §3 "The type ramp", PLAN.md §4.2). Eleven
      sizes since ruling A3 added `--t-48`, and no other size is allowed on a
@@ -643,12 +669,110 @@ h3 {
    point — it enforces the serif floor (Source Serif never below 18px) without
    giving up heading semantics. */
 .aec-overline {
-  font-family: var(--font-body);
+  /* The body stack with the uppercase fallback face (AECI-1892). */
+  font-family: var(--font-body-caps);
   font-size: var(--t-12);
   font-weight: 600;
   letter-spacing: 0.08em;
   line-height: 1.4;
   text-transform: uppercase;
+}
+
+/* Fallback faces by role (AECI-1892). Each serif role points `--font-display` at its
+   size band's stack, so the fallback face that paints before Source Serif 4 arrives is
+   the one scaled for that size (index.html). Only a custom property is set here, so
+   these rules override no other declaration: font-family still comes from the heading
+   rules and the `font-display` utility, which read `--font-display` on the element
+   itself. A child with no size of its own inherits its parent's band with its parent's
+   size. The size utilities are the ramp's (`--text-*` in the @theme block). Once the
+   web font loads, every stack renders Source Serif 4. */
+.text-t-20,
+.text-t-24,
+.text-lg,
+.text-xl,
+.text-2xl {
+  --font-display: var(--font-display-text);
+}
+
+.text-t-fig,
+.text-5xl {
+  --font-display: var(--font-display-fig);
+}
+
+.text-t-36,
+.text-3xl,
+.text-4xl {
+  --font-display: var(--font-display-36);
+}
+
+.text-t-48 {
+  --font-display: var(--font-display-48);
+}
+
+.text-t-statement {
+  --font-display: var(--font-display-statement);
+}
+
+.text-t-display,
+.text-6xl,
+.text-7xl,
+.text-8xl,
+.text-9xl {
+  --font-display: var(--font-display-display);
+}
+
+/* A heading's own size rule beats a size utility on it (the Unlayered-Heading Rule),
+   so its band must beat the class rules above too: `h2[class]` outranks `.text-3xl`. */
+h1,
+h1[class] {
+  --font-display: var(--font-display-fig);
+}
+
+h2,
+h2[class],
+h3,
+h3[class] {
+  --font-display: var(--font-display-text);
+}
+
+/* Unlayered classes further down that set a heading's size themselves. */
+.aec-docs-title,
+h1.aec-docs-title,
+.aec-plan-price {
+  --font-display: var(--font-display-36);
+}
+
+/* The bands move with the fluid steps. `--t-display` passes 53px at 640px wide and
+   60px (where the optical-size axis stops) at 900px; `--t-statement` passes 44px at
+   768px and 53px at 1280px; `--t-fig` passes 37px at 1024px. */
+@media (min-width: 640px) {
+  :root {
+    --font-display-display:
+      'Source Serif 4', 'Source Serif 4 Fallback 56', Georgia, 'Times New Roman', serif;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --font-display-statement:
+      'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --font-display-fig:
+      'Source Serif 4', 'Source Serif 4 Fallback 40', Georgia, 'Times New Roman', serif;
+    --font-display-display:
+      'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --font-display-statement:
+      'Source Serif 4', 'Source Serif 4 Fallback 56', Georgia, 'Times New Roman', serif;
+  }
 }
 
 *,
@@ -723,6 +847,17 @@ h3 {
 
 .aec-pill-attention {
   border-color: var(--border-strong);
+}
+
+/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Same trap as
+   `.aec-nav-tab`: a `border-s-(--accent-primary)` utility never beats the `*` rule, so
+   the added row's Forest edge rendered grey. Start edge only, so RTL keeps it. */
+.aec-diff-added {
+  border-inline-start-color: var(--accent-primary);
+}
+
+.aec-diff-removed {
+  border-inline-start-color: var(--border-strong);
 }
 
 /* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
@@ -1333,6 +1468,39 @@ textarea:-webkit-autofill:focus {
    slide. */
 .aeci-drawer-panel {
   animation: aeci-drawer-in var(--duration-slow) var(--ease-standard);
+}
+
+/* The product hero's category hub (AECI-1787, DESIGN.md §5 "The hero diagram").
+   Its one entrance: the list fades in and rises 4px over the slow step. Opacity
+   and transform only, so nothing moves in layout. It runs only when the visitor
+   has not asked for reduced motion, so under that setting the list is simply
+   there. Hydration reuses the server's nodes, so the entrance does not replay. */
+@keyframes aec-category-hub-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .aec-category-hub {
+    animation: aec-category-hub-in var(--duration-slow) var(--ease-standard) both;
+  }
+}
+
+/* The product hero's panel below lg (AECI-1787). There it stacks under the hero
+   text and holds the category hub alone: the pair finder shows from lg. A product
+   with no hub has nothing to show there, so the panel goes rather than leave an
+   empty box. Keyed on the caller's marker class, so the shared band
+   (`shared/hero-band/hero-band.ts`) is unchanged for every other page. */
+@media (width < 64rem) {
+  .aec-hero-panel:has(> .aec-hero-panel-lg-only) {
+    display: none;
+  }
 }
 
 /* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of

@@ -207,9 +207,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-hero-visual',
-    status: 'pending',
-    owner: 'AECI-1787',
-    order: 'Any featured subset reads no Managed-only input',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); from lg the first 8 of that order show and "Show all" reveals the rest (ruling 59); the count never orders or cuts',
   },
   {
     key: 'product-page-similar-products',
@@ -244,6 +245,16 @@ const SURFACES: readonly Surface[] = [
       { file: 'home/home.ts', kind: 'publish-floor', facet: 'trades' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'audiences' },
       { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'trades' },
+      // The `/search` refinement lists' own comparator (AECI-1796): checked first, then
+      // count, then `compareText`. It is the order Algolia's default gave before, made
+      // explicit so a count tie no longer falls to letter case. It serves every list
+      // above and in `FREE_COUNT_SITES`, so it sits under the exception.
+      {
+        file: 'search/search-facet-order.ts',
+        kind: 'count-compare',
+        facet: '*',
+        detail: 'b.count - a.count',
+      },
       // `topByCount` itself: its comparator reads `SORT_KEY`, which is `product_count`.
       {
         file: 'core/taxonomy/taxonomy-rank.ts',
@@ -1498,6 +1509,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/web/src/app/docs/docs-content.ts',
     count: 2,
     allowed: 'help center pages and sections in authored order; static content',
+  },
+  {
+    file: 'apps/web/src/app/products/category-hub.ts',
+    count: 1,
+    registered: ['product-page-hero-visual'],
   },
   {
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',

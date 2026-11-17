@@ -175,7 +175,11 @@ test.describe('hero band rendered (AECI-1766)', () => {
     await open(page);
     const [pWide, tWide] = [await style(panel), await style(title)];
     expect(pWide.left).toBeGreaterThanOrEqual(tWide.left + tWide.width);
-    expect(pWide.width).toBe(540);
+    // 400px at lg, so a long name keeps room beside the mark (AECI-1787); 540px from xl.
+    expect(pWide.width).toBe(400);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    expect((await style(panel)).width).toBe(540);
   });
 
   test('renders no panel and no gap when nothing is projected', async ({ page }) => {

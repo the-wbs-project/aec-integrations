@@ -48,6 +48,10 @@ import {
 import { PairVersionSelect } from './pair-version-select';
 import { Chip } from '../shared/chip/chip';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { AecCard } from '../shared/card/card';
+import { HeroBand } from '../shared/hero-band/hero-band';
+import { AecIcon } from '../shared/icon/icon';
 
 /** The two vendor names a pair page can attribute an attestation to, keyed by
  *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
@@ -96,10 +100,13 @@ interface ClaimRow {
  * `--text-secondary` only, never `--text-tertiary`: these rows sit on
  * `--surface-base` inside a `--surface-raised` lane, and the tertiary token's own
  * comment forbids it on sunken/muted surfaces. Logical `border-s-2` keeps the mark
- * on the correct edge under RTL.
+ * on the correct edge under RTL. The edge colour is an unlayered class in styles.css
+ * (`.aec-diff-added`, `.aec-diff-removed`): a `border-s-(--accent-primary)` utility is
+ * layered and loses to the unlayered `* { border-color }` rule, so the Forest edge never
+ * rendered (AECI-1798 review).
  */
-const DIFF_ADDED_ROW = 'border-s-2 border-s-(--accent-primary)';
-const DIFF_REMOVED_ROW = 'border-s-2 border-s-(--border-strong)';
+const DIFF_ADDED_ROW = 'border-s-2 aec-diff-added';
+const DIFF_REMOVED_ROW = 'border-s-2 aec-diff-removed';
 const DIFF_NAME_DEFAULT = 'text-(--text-primary)';
 const DIFF_NAME_REMOVED = 'text-(--text-secondary) line-through';
 
@@ -546,7 +553,11 @@ function writePairViewCookie(mode: PairViewMode): void {
  * AECI-1142). Each card carries an "At a glance" strip. A mechanism with no claims
  * yet (or a pair with none) falls back to the Layer-A arrow + the empty heading.
  *
- * A **Basic/Detailed** disclosure toggle sits in the header (URL `?view=`, default
+ * Since AECI-1798 (mock-up 12) the page opens on the shared Forest hero band: the
+ * statement h1 and the two products as its diagram. The data band below holds the h2,
+ * the toggle and the cards (h3), whose lanes and At a glance strips are h4.
+ *
+ * A **Basic/Detailed** disclosure toggle sits beside the data h2 (URL `?view=`, default
  * `detailed`). Basic (Overview) keeps the rail, sync headline, and each
  * mechanism's kind/name/description/links; it hides the Layer-B claim lanes and
  * the standalone Layer-A arrow (the granular data transfers). `view` is
@@ -567,6 +578,9 @@ function writePairViewCookie(mode: PairViewMode): void {
   selector: 'aec-products-pair',
   imports: [
     AecBreadcrumb,
+    AecCard,
+    AecIcon,
+    HeroBand,
     FieldCaptionLine,
     UnderReviewMarker,
     AgreementBadge,
@@ -589,49 +603,216 @@ function writePairViewCookie(mode: PairViewMode): void {
     } @else {
       @let context = v.pair.context_product;
       @let other = v.pair.other_product;
-      <div class="bg-(--surface-base) text-(--text-primary)">
-        <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12" data-testid="page-canvas">
-          <div class="mb-6"><aec-breadcrumb [items]="crumbs()" /></div>
+      <!-- AECI-1798: mock-up 12. The Forest hero carries the statement and the two products
+           as its diagram. The data band is white, and the mailing list is the page's one
+           Bone band (ruling 12 of 2026-11-16). The pair page keeps its own shell: it is not
+           on DetailLayout, which has a facts card the pair page does not. -->
+      <aec-hero-band titleSize="statement" panel="bare">
+        <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
-          <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div class="space-y-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <p
-                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                  i18n="@@pair.eyebrow"
+        <div heroKicker class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p class="aec-overline text-(--text-on-brand-secondary)" i18n="@@pair.eyebrow">
+            Integration
+          </p>
+          <!-- One header marker for the whole pair; computePairMaintenance folds the N
+               mechanisms server-side (AECI-616). Distinct from the per-claim agreement
+               badge on the mechanism cards below: this says who is on the hook for the
+               page, that says whether the two vendors agree about one data object.
+               Each card states its own "Last checked" date (AECI-1142), so the header
+               keeps only the attribution. No ownerName: the pair payload does not say
+               which company flipped a row, so no screen-reader suffix names one. -->
+          <aec-maintenance-marker
+            [maintainedBy]="v.pair.maintenance.maintained_by"
+            [reviewedAt]="null"
+          />
+        </div>
+
+        <!-- The h1 keeps its words (ruling 8). The names are Bone at 600, the rest of the
+             statement at 400. The band puts the Statement size on its inner span. -->
+        <span heroTitle i18n="@@pair.heading"
+          >How <span class="font-semibold">{{ context.name }}</span> and
+          <span class="font-semibold">{{ other.name }}</span> exchange data</span
+        >
+
+        <!-- The diagram (ruling 8): the two products as white cards, context first, joined
+             by a Clay ribbon. The ribbon draws no arrow and no direction glyph (DESIGN.md
+             "The Arrow Rule"): an arrow means data-flow direction, and the hero states
+             none. Its badge repeats the data heading's count under the h2's own
+             condition, a counted heading, and is aria-hidden so a screen reader hears it
+             once (ruling 9). A pair with no integration draws no ribbon. -->
+        <div heroPanel class="grid" data-testid="pair-rail">
+          @for (side of sides(); track side.key) {
+            @if (side.key === 'other') {
+              @if (v.mechanisms.length > 0) {
+                <div
+                  class="relative flex min-h-28 items-center justify-center"
+                  aria-hidden="true"
+                  data-testid="pair-ribbon"
                 >
-                  Integration
-                </p>
-                <!-- One header marker for the whole pair; computePairMaintenance
-                     folds the N mechanisms server-side (AECI-616). Distinct from the
-                     per-claim agreement badge on the mechanism cards below: this says
-                     who is on the hook for the page, that says whether the two vendors
-                     agree about one data object. -->
-                <!-- Each card states its own "Last checked" date (AECI-1142), so
-                     the header keeps only the attribution. No ownerName: the pair
-                     payload does not say which company flipped a row, so no
-                     screen-reader suffix names one. -->
-                <aec-maintenance-marker
-                  [maintainedBy]="v.pair.maintenance.maintained_by"
-                  [reviewedAt]="null"
-                />
-              </div>
-              <h1
-                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
-                i18n="@@pair.heading"
+                  <span
+                    class="absolute inset-y-0 start-1/2 w-1.5 -translate-x-1/2 rounded-pill bg-(--accent-secondary) rtl:translate-x-1/2"
+                  ></span>
+                  @if (v.syncTotal > 0) {
+                    <span
+                      class="relative rounded-pill bg-(--accent-primary) px-4 py-2 text-t-14 font-semibold whitespace-nowrap text-(--text-on-brand) ring-1 ring-(--border-on-brand-strong)"
+                      data-testid="pair-hero-badge"
+                      >{{ v.syncHeadline }}</span
+                    >
+                  }
+                </div>
+              } @else {
+                <div class="h-4" aria-hidden="true"></div>
+              }
+            }
+            <div [class]="side.offsetClass">
+              <div
+                aecCard
+                class="px-6 py-5 text-(--text-primary)"
+                [attr.data-testid]="'pair-side-' + side.key"
               >
-                How {{ context.name }} and {{ other.name }} exchange data
-              </h1>
+                <div class="flex min-w-0 items-center gap-4">
+                  <!-- The logo rule decides the mark (AECI-1769): a claimed product's
+                       logo, or the initial tile. At 64px an unclaimed product is the tile
+                       whatever the payload holds. -->
+                  <aec-logo-or-initial
+                    [name]="side.product.name"
+                    [src]="side.product.logo_url"
+                    [alt]="logoAlt(side.product.name)"
+                    [claimStatus]="side.product.claim_status"
+                    size="lg"
+                  />
+                  <div class="min-w-0">
+                    <p class="m-0 font-display text-t-24 leading-tight font-semibold break-words">
+                      <a
+                        [routerLink]="['/products', side.product.slug]"
+                        class="text-(--text-primary) no-underline underline-offset-3 hover:text-(--accent-primary) hover:underline focus-visible:outline-(--accent-primary)"
+                        >{{ side.product.name }}</a
+                      >
+                    </p>
+                    @if (side.product.vendor) {
+                      <p class="m-0 text-t-14 text-(--text-secondary)">
+                        {{ side.product.vendor.name }}
+                      </p>
+                    }
+                  </div>
+                </div>
+                <!-- AECI-1618: an unclaimed product keeps its small sourced logo with
+                     counsel's wording directly beside it, as on the product hero. -->
+                @if (side.product.claim_status === 'unclaimed') {
+                  <div class="mt-3 flex items-center gap-2">
+                    <aec-logo-or-initial
+                      [name]="side.product.name"
+                      [src]="side.product.logo_url"
+                      [alt]="logoAlt(side.product.name)"
+                      [claimStatus]="side.product.claim_status"
+                      [ownPage]="true"
+                      size="sm"
+                    />
+                    <aec-unclaimed-note />
+                  </div>
+                }
+                @if (side.product.rating_overall_avg !== null) {
+                  <!-- The same span and accessible name as before AECI-1798. -->
+                  <span
+                    class="mt-2 flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
+                    [attr.aria-label]="ratingAria(side.product)"
+                  >
+                    <span aria-hidden="true" class="text-(--accent-rating)">★</span>
+                    <span class="tabular-nums">{{
+                      side.product.rating_overall_avg.toFixed(1)
+                    }}</span>
+                    <span
+                      >· {{ side.product.review_count }}
+                      <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
+                    >
+                  </span>
+                }
+                <!-- AECI-303 (§9.1): the side's version selector, under its own product.
+                     Only the name is a link, so the combobox is not inside an anchor.
+                     Renders nothing when the diff does not apply (a null versionView),
+                     or when the side has fewer than two releases. -->
+                @if (side.version; as sv) {
+                  <aec-pair-version-select
+                    class="mt-4 block"
+                    [side]="side.key"
+                    [label]="versionLabelFor(side.product.name)"
+                    [options]="sv.options"
+                    [value]="sv.selected"
+                    (changed)="setVersion(side.key, $event)"
+                  />
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </aec-hero-band>
+
+      <section class="bg-(--surface-base) text-(--text-primary)">
+        <div [class]="bandWrap" data-testid="page-canvas">
+          <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+            <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
+                 2026-09-28 (Chris): the summary band and ratio line are replaced by
+                 the per-card At a glance row. The count is a plain h2 for the cards
+                 below; the per-row badges already say who confirmed what. The size is
+                 on an inner span: the unlayered h2 rule beats a size utility. -->
+            <div class="min-w-0" data-testid="pair-data-heading">
+              @if (v.syncTotal > 0) {
+                <h2 class="m-0">
+                  <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
+                    v.syncHeadline
+                  }}</span>
+                </h2>
+              } @else {
+                <!-- AECI-919: two copies, picked by emptyCopy(). The directional one
+                     applies when a Layer-A arrow renders under this heading (Detailed
+                     view only), so the page never denies a direction it documents. -->
+                <h2 class="m-0">
+                  <span class="font-display text-t-36 leading-[1.1] tracking-[-0.02em]">{{
+                    emptyCopy().headline
+                  }}</span>
+                </h2>
+                <p class="mt-2 text-t-14 text-(--text-secondary)">{{ emptyCopy().subline }}</p>
+              }
+
+              <!-- AECI-303 (§9.1): what the selected version pair changed. Lives
+                   under the heading because the heading owns "what is shared"; the
+                   per-row markers below say which types of data. Only rendered when
+                   there IS a previous pair to compare against; the earliest pair is
+                   a baseline, not a diff. -->
+              @if (versionView(); as vv) {
+                @if (vv.previousSummary) {
+                  <p class="mt-2 text-xs text-(--text-secondary)">
+                    <span>{{ vv.previousSummary }}</span>
+                    @if (vv.changeSummary) {
+                      <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
+                    }
+                  </p>
+                }
+                <!-- The reader's way home from a deep-linked historical URL. Without
+                     it a shared non-default link is a dead end. -->
+                @if (!vv.isDefault) {
+                  <button
+                    type="button"
+                    (click)="showLatest()"
+                    class="mt-3 inline-flex min-h-6 items-center rounded-(--radius-sm) text-xs font-semibold
+                      text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3
+                      focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+                    i18n="@@pair.version.showLatest"
+                  >
+                    Show the latest versions
+                  </button>
+                }
+              }
             </div>
 
-            <!-- Basic/Detailed disclosure toggle (§8). Shown only when a mechanism
-                 carries claim lanes or a direction arrow; otherwise the two views
-                 are identical, so the control would be a no-op. -->
+            <!-- Basic/Detailed disclosure toggle (§8), beside the heading it governs
+                 (ruling 11). The pressed-toggle recipe of the cards/table toggle. Shown
+                 only when a mechanism carries claim lanes or a direction arrow;
+                 otherwise the two views are identical, so the control would be a no-op. -->
             @if (v.hasDetail) {
               <div
                 role="group"
-                class="inline-flex shrink-0 gap-1 self-start rounded-(--radius-md) border
-                  border-(--border-default) bg-(--surface-raised) p-1"
+                class="aec-field-control inline-flex shrink-0 gap-0.5 border bg-(--surface-base) p-[3px]"
                 i18n-aria-label="@@pair.view.aria"
                 aria-label="Choose a view"
               >
@@ -641,6 +822,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                   [attr.aria-pressed]="viewMode() === 'basic'"
                   (click)="setView('basic')"
                 >
+                  @if (viewMode() === 'basic') {
+                    <aec-icon name="check" decorative [size]="4" />
+                  }
                   <span i18n="@@pair.view.basic">Basic</span>
                 </button>
                 <button
@@ -649,232 +833,38 @@ function writePairViewCookie(mode: PairViewMode): void {
                   [attr.aria-pressed]="viewMode() === 'detailed'"
                   (click)="setView('detailed')"
                 >
+                  @if (viewMode() === 'detailed') {
+                    <aec-icon name="check" decorative [size]="4" />
+                  }
                   <span i18n="@@pair.view.detailed">Detailed</span>
                 </button>
               </div>
             }
-          </header>
-
-          <!-- The rail: context (left) | other (right). Context is always left;
-               the per-mechanism arrows below carry direction.
-
-               The separator is a HAIRLINE RULE, never a glyph (AECI-919). It used
-               to be the bidirectional arrow, which is the same character
-               directionGlyph('both') emits, so one page carried that character
-               with two unrelated meanings, and the rail's was the louder of the
-               two at text-3xl. DESIGN.md's Arrow Rule now binds this: an arrow
-               means data-flow direction and nothing else. A plus sign was rejected
-               as the replacement because DESIGN.md already spends it on the
-               version-diff "added" marker; a rule carries no vocabulary at all
-               and so cannot collide. -->
-          <div
-            class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-raised) p-6 md:gap-8 md:p-8"
-          >
-            <a
-              [routerLink]="['/products', context.slug]"
-              class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
-            >
-              @if (context.claim_status === 'unclaimed') {
-                <span
-                  class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:text-start"
-                >
-                  <aec-logo-or-initial
-                    [name]="context.name"
-                    [src]="context.logo_url"
-                    [alt]="logoAlt(context.name)"
-                    [claimStatus]="context.claim_status"
-                    [ownPage]="true"
-                    size="sm"
-                  />
-                  <aec-unclaimed-note />
-                </span>
-              } @else {
-                <aec-logo-or-initial
-                  [name]="context.name"
-                  [src]="context.logo_url"
-                  [alt]="logoAlt(context.name)"
-                  [claimStatus]="context.claim_status"
-                  size="lg"
-                />
-              }
-              <span class="font-display text-lg text-(--text-primary)">{{ context.name }}</span>
-              @if (context.vendor) {
-                <span
-                  class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
-                >
-                  {{ context.vendor.name }}
-                </span>
-              }
-              @if (context.rating_overall_avg !== null) {
-                <span
-                  class="inline-flex items-center gap-1 text-xs text-(--text-secondary)"
-                  [attr.aria-label]="ratingAria(context)"
-                >
-                  <span aria-hidden="true" class="text-(--accent-rating)">★</span>
-                  <span class="tabular-nums">{{ context.rating_overall_avg.toFixed(1) }}</span>
-                  <span class="text-(--text-tertiary)"
-                    >· {{ context.review_count }}
-                    <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
-                  >
-                </span>
-              }
-            </a>
-            <span class="h-12 w-px bg-(--border-default) md:h-16" aria-hidden="true"></span>
-            <a
-              [routerLink]="['/products', other.slug]"
-              class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
-            >
-              @if (other.claim_status === 'unclaimed') {
-                <span
-                  class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:text-start"
-                >
-                  <aec-logo-or-initial
-                    [name]="other.name"
-                    [src]="other.logo_url"
-                    [alt]="logoAlt(other.name)"
-                    [claimStatus]="other.claim_status"
-                    [ownPage]="true"
-                    size="sm"
-                  />
-                  <aec-unclaimed-note />
-                </span>
-              } @else {
-                <aec-logo-or-initial
-                  [name]="other.name"
-                  [src]="other.logo_url"
-                  [alt]="logoAlt(other.name)"
-                  [claimStatus]="other.claim_status"
-                  size="lg"
-                />
-              }
-              <span class="font-display text-lg text-(--text-primary)">{{ other.name }}</span>
-              @if (other.vendor) {
-                <span
-                  class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
-                >
-                  {{ other.vendor.name }}
-                </span>
-              }
-              @if (other.rating_overall_avg !== null) {
-                <span
-                  class="inline-flex items-center gap-1 text-xs text-(--text-secondary)"
-                  [attr.aria-label]="ratingAria(other)"
-                >
-                  <span aria-hidden="true" class="text-(--accent-rating)">★</span>
-                  <span class="tabular-nums">{{ other.rating_overall_avg.toFixed(1) }}</span>
-                  <span class="text-(--text-tertiary)"
-                    >· {{ other.review_count }}
-                    <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
-                  >
-                </span>
-              }
-            </a>
-
-            <!-- AECI-303 (§9.1): the two version selectors, as a SECOND grid row so
-                 each sits under its own product column, which is what lets the
-                 label be the product's own name instead of disambiguating copy.
-                 A second row rather than nesting inside the cells above is
-                 required, not stylistic: those cells are anchors with routerLink,
-                 and an interactive combobox inside an anchor is invalid HTML that
-                 would navigate on click. It also keeps the two logos aligned when
-                 only one side has a selector. Renders nothing at all when the diff
-                 does not apply: the whole suppression rule is a null versionView. -->
-            @if (versionView(); as vv) {
-              <div class="flex justify-center">
-                @if (vv.contextOptions.length > 1) {
-                  <aec-pair-version-select
-                    side="context"
-                    [label]="versionLabelFor(context.name)"
-                    [options]="vv.contextOptions"
-                    [value]="vv.selectedContext"
-                    (changed)="setVersion('context', $event)"
-                  />
-                }
-              </div>
-              <span aria-hidden="true"></span>
-              <div class="flex justify-center">
-                @if (vv.otherOptions.length > 1) {
-                  <aec-pair-version-select
-                    side="other"
-                    [label]="versionLabelFor(other.name)"
-                    [options]="vv.otherOptions"
-                    [value]="vv.selectedOther"
-                    (changed)="setVersion('other', $event)"
-                  />
-                }
-              </div>
-            }
           </div>
-
-          <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
-               2026-09-28 (Chris): the summary band and ratio line are replaced by
-               the per-card At a glance row. The count is a plain h2 for the cards
-               below; the per-row badges already say who confirmed what. -->
-          <div class="mt-8" data-testid="pair-data-heading">
-            @if (v.syncTotal > 0) {
-              <h2 class="font-display text-2xl leading-tight text-(--text-primary)">
-                {{ v.syncHeadline }}
-              </h2>
-            } @else {
-              <!-- AECI-919: two copies, picked by emptyCopy(). The directional one
-                   applies when a Layer-A arrow renders under this heading (Detailed
-                   view only), so the page never denies a direction it documents. -->
-              <h2 class="font-display text-2xl leading-tight text-(--text-primary)">
-                {{ emptyCopy().headline }}
-              </h2>
-              <p class="mt-1 text-sm text-(--text-secondary)">{{ emptyCopy().subline }}</p>
-            }
-
-            <!-- AECI-303 (§9.1): what the selected version pair changed. Lives
-                 under the heading because the heading owns "what is shared"; the
-                 per-row markers below say which types of data. Only rendered when
-                 there IS a previous pair to compare against; the earliest pair is
-                 a baseline, not a diff. -->
-            @if (versionView(); as vv) {
-              @if (vv.previousSummary) {
-                <p class="mt-2 text-xs text-(--text-secondary)">
-                  <span>{{ vv.previousSummary }}</span>
-                  @if (vv.changeSummary) {
-                    <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
-                  }
-                </p>
-              }
-              <!-- The reader's way home from a deep-linked historical URL. Without
-                   it a shared non-default link is a dead end. -->
-              @if (!vv.isDefault) {
-                <button
-                  type="button"
-                  (click)="showLatest()"
-                  class="mt-3 rounded-(--radius-sm) text-xs font-semibold text-(--accent-primary)
-                    underline underline-offset-2 focus-visible:outline-2
-                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@pair.version.showLatest"
-                >
-                  Show the latest versions
-                </button>
-              }
-            }
-          </div>
-          <!-- Per-mechanism cards with the context-relative direction arrow. -->
-          <div class="mt-8 space-y-6">
+          <!-- Per-mechanism cards with the context-relative direction arrow, in the
+               API's order: integrations first, then evidenced pairs (ruling R1). Each is
+               the shared card (ruling A7). Headings nest h2, h3, h4 (ruling 10). -->
+          <div class="grid gap-8">
             @for (m of v.mechanisms; track m.id) {
-              <article
-                class="space-y-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-base) p-6"
-              >
-                <header class="flex flex-wrap items-center gap-3">
+              <article aecCard class="space-y-4 p-6 md:p-8">
+                <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
                   @if (m.name) {
                     <!-- AECI-1142: the kind lives in "How you get it" when a name
                          heads the card, so it is not stated twice. -->
                     @if (m.kindLabel && !m.glance?.how?.kind) {
                       <aec-chip tone="quiet">{{ m.kindLabel }}</aec-chip>
                     }
-                    <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>
+                    <h3 class="m-0">
+                      <span class="font-display text-t-24 leading-tight text-(--text-primary)">{{
+                        m.name
+                      }}</span>
+                    </h3>
                   } @else {
                     <!-- No mechanism name: promote the kind label to the card
-                         heading so the Layer-B lane h3s below never skip from the
-                         page h1 straight to h3. Falls back to a generic title when
+                         heading so the Layer-B lane h4s below never skip from the
+                         data h2 straight to h4. Falls back to a generic title when
                          the kind enum is also absent/unknown (kindLabel === ''). -->
-                    <h2 class="m-0 inline-flex">
+                    <h3 class="m-0 inline-flex">
                       <aec-chip tone="quiet">
                         @if (m.kindLabel) {
                           {{ m.kindLabel }}
@@ -882,7 +872,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                           <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
                         }
                       </aec-chip>
-                    </h2>
+                    </h3>
                   }
                   <!-- AECI-711 depth axis: direction and object coverage at the
                        mechanism badge's weight, in Basic and Detailed alike. Depth
@@ -978,17 +968,14 @@ function writePairViewCookie(mode: PairViewMode): void {
                      than detail, so it renders in Basic view too.
 
                      Tinted Bone (--accent-warm), the ground of the summary band it
-                     replaced (ruled 2026-09-28). The strip only, never the whole
-                     card: the claim lanes below are already tinted boxes. Border,
-                     no shadow. Labels stay text-secondary: tertiary fails AA on Bone. -->
+                     replaced (ruled 2026-09-28). A nested fill, not a band (mock-up 12):
+                     the panel radius, no border, no shadow. Labels stay text-secondary:
+                     tertiary fails AA on Bone. -->
                 @if (m.glance; as g) {
-                  <div
-                    class="rounded-(--radius-lg) border border-(--border-default) bg-(--accent-warm) px-4 py-3"
-                    data-testid="pair-glance"
-                  >
-                    <h3 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
+                  <div class="rounded-panel bg-(--accent-warm) px-5 py-4" data-testid="pair-glance">
+                    <h4 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
                       At a glance
-                    </h3>
+                    </h4>
                     <!-- auto-fit, not a fixed 4 columns: a card with one or two facts
                          gives them the full width instead of a quarter. -->
                     <dl
@@ -1133,69 +1120,78 @@ function writePairViewCookie(mode: PairViewMode): void {
                      lanes, each with a neutral agreement badge + AECi provenance.
                      The "data transfers back and forth", shown in Detailed only;
                      Basic (Overview) collapses to the description + sync headline. -->
-                @if (viewMode() === 'detailed') {
-                  @for (g of m.claimGroups; track g.direction) {
-                    <div
-                      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4"
-                    >
-                      <div class="flex items-center gap-3">
-                        <span
-                          class="font-display text-2xl text-(--accent-primary)"
-                          [attr.aria-label]="g.aria"
-                          >{{ g.glyph }}</span
+                @if (viewMode() === 'detailed' && m.claimGroups.length > 0) {
+                  <!-- Lanes in DIRECTION_ORDER. Nested Forest-soft panels; two or more sit
+                       side by side from lg, in the same reading order (mock-up 12). -->
+                  <div
+                    class="grid items-start gap-4"
+                    [class.lg:grid-cols-2]="m.claimGroups.length > 1"
+                    data-testid="pair-lanes"
+                  >
+                    @for (g of m.claimGroups; track g.direction) {
+                      <div aecCard nested class="p-4">
+                        <div class="flex items-center gap-3">
+                          <span
+                            class="font-display text-t-24 leading-none text-(--accent-primary)"
+                            [attr.aria-label]="g.aria"
+                            >{{ g.glyph }}</span
+                          >
+                          <h4 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h4>
+                        </div>
+                        <ul
+                          class="mt-3 grid gap-2"
+                          [class.sm:grid-cols-2]="m.claimGroups.length === 1"
                         >
-                        <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
-                      </div>
-                      <ul class="mt-3 grid gap-2 sm:grid-cols-2">
-                        @for (
-                          r of g.rows;
-                          track r.claim.data_object_slug + '|' + r.claim.direction
-                        ) {
-                          <!-- AECI-303 (§9.1): the diff marker sits at the row START,
+                          @for (
+                            r of g.rows;
+                            track r.claim.data_object_slug + '|' + r.claim.direction
+                          ) {
+                            <!-- AECI-303 (§9.1): the diff marker sits at the row START,
                                never in the right-hand cluster. Separation by POSITION
                                is what keeps it from competing with the agreement
                                badge: left = what changed in this version, right = who
                                agrees about it. Two questions, two zones. -->
-                          <li
-                            class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
-                            [class]="r.rowClass"
-                          >
-                            <span class="flex min-w-0 flex-col gap-0.5">
-                              <span class="text-sm" [class]="r.nameClass">{{
-                                r.claim.data_object_name
-                              }}</span>
-                              @if (r.diffLabel) {
-                                <span class="flex items-center gap-1">
-                                  <!-- Glyph AND text AND (for removed) a decoration
+                            <li
+                              class="flex min-h-13 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-control border bg-(--surface-base) py-1 ps-4 pe-1"
+                              [class]="r.rowClass"
+                            >
+                              <span class="flex min-w-0 flex-col gap-0.5">
+                                <span class="text-sm" [class]="r.nameClass">{{
+                                  r.claim.data_object_name
+                                }}</span>
+                                @if (r.diffLabel) {
+                                  <span class="flex items-center gap-1">
+                                    <!-- Glyph AND text AND (for removed) a decoration
                                        change: never colour-only (WCAG 1.4.1). -->
-                                  <span
-                                    aria-hidden="true"
-                                    class="text-xs text-(--text-secondary)"
-                                    >{{ r.diffGlyph }}</span
-                                  >
-                                  <span class="aec-overline text-(--text-secondary)">{{
-                                    r.diffLabel
-                                  }}</span>
-                                </span>
-                              }
-                            </span>
-                            <span class="flex items-center gap-2">
-                              <aec-agreement-badge
-                                [agreement]="r.claim.agreement"
-                                [attributedTo]="r.attributedTo"
-                                [refuted]="r.claim.refuted ?? false"
-                              />
-                              <aec-claim-provenance
-                                [claim]="r.claim"
-                                [contextVendorName]="v.vendorNames.context"
-                                [otherVendorName]="v.vendorNames.other"
-                              />
-                            </span>
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
+                                    <span
+                                      aria-hidden="true"
+                                      class="text-xs text-(--text-secondary)"
+                                      >{{ r.diffGlyph }}</span
+                                    >
+                                    <span class="aec-overline text-(--text-secondary)">{{
+                                      r.diffLabel
+                                    }}</span>
+                                  </span>
+                                }
+                              </span>
+                              <span class="ms-auto flex items-center gap-1">
+                                <aec-agreement-badge
+                                  [agreement]="r.claim.agreement"
+                                  [attributedTo]="r.attributedTo"
+                                  [refuted]="r.claim.refuted ?? false"
+                                />
+                                <aec-claim-provenance
+                                  [claim]="r.claim"
+                                  [contextVendorName]="v.vendorNames.context"
+                                  [otherVendorName]="v.vendorNames.other"
+                                />
+                              </span>
+                            </li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  </div>
                 }
 
                 <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule").
@@ -1269,8 +1265,9 @@ function writePairViewCookie(mode: PairViewMode): void {
             }
           </div>
         </div>
-      </div>
+      </section>
 
+      <!-- The page's one Bone band (ruling 12 of 2026-11-16). -->
       <aec-mailing-list-signup />
     }
   `,
@@ -1372,13 +1369,45 @@ export class ProductsPairPage {
     });
   }
 
+  /** The pressed-toggle recipe of the cards/table toggle (`listing-view-toggle.ts`): the
+   *  same class names, so `.aec-view-toggle-btn` gives the pressed one the system
+   *  selection pair in forced-colours mode. The pressed one also shows a tick, so the
+   *  state is never colour alone (clash 5). */
   protected viewBtnClass(mode: PairViewMode): string {
     const base =
-      'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+      'aec-view-toggle-btn inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-3.5 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
     return this.viewMode() === mode
       ? `${base} bg-(--accent-primary) text-(--surface-base)`
-      : `${base} text-(--text-secondary) hover:text-(--text-primary)`;
+      : `${base} text-(--text-primary) hover:bg-(--surface-sunken)`;
   }
+
+  /** The data band's wrap: the 1328px page wrap with mock-up 12's band padding. */
+  protected readonly bandWrap = `${BAND_WRAP_CLASS} py-16 md:py-24`;
+
+  /**
+   * The hero diagram's two sides, context first (AECI-1798). Each carries its own
+   * version selector, or `null` when the §9 diff does not apply or the side has fewer
+   * than two releases (the rule the second rail row applied before). From `lg` the
+   * cards step apart, context to the start, other to the end (mock-up 12).
+   */
+  protected readonly sides = computed(() => {
+    const pair = this.pair();
+    if (!pair) return [];
+    const vv = this.versionView();
+    const side = (key: 'context' | 'other') => {
+      const options = vv ? (key === 'context' ? vv.contextOptions : vv.otherOptions) : [];
+      return {
+        key,
+        product: key === 'context' ? pair.context_product : pair.other_product,
+        offsetClass: key === 'context' ? 'min-w-0 lg:me-16' : 'min-w-0 lg:ms-16',
+        version:
+          vv && options.length > 1
+            ? { options, selected: key === 'context' ? vv.selectedContext : vv.selectedOther }
+            : null,
+      };
+    };
+    return [side('context'), side('other')];
+  });
 
   /** View-model: mechanisms with their direction copy + claim lanes resolved once. */
   protected readonly view = computed<PairView | null>(() => {

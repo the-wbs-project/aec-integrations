@@ -255,6 +255,9 @@ describe('AECI-711 depth axis: the null case renders exactly as before', () => {
   // AECI-1142 re-baselined the three pair-card snapshots: the kind chip and the
   // "Powered by" byline moved into the card's At a glance strip ("How you get
   // it"). The depth-axis guarantee is unchanged: no direction or object chip.
+  // AECI-1798 re-baselined them again for mock-up 12: the shared card, the card
+  // title as an h3 with its size on an inner span, and At a glance as an h4 on a
+  // nested fill. Same words, same chips (none), same order.
   it('pair page mechanism card, integrations arm, Detailed view', () => {
     expect(renderPair(nullPair(null), 'detailed')).toMatchSnapshot();
   });
