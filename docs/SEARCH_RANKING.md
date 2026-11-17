@@ -103,6 +103,16 @@ counted in the D1 membership and were absent from the index, which is the drift 
 reported: `production_integrations`, 950 indexed against 972 promoted. The check was right and
 the index was short. See `scripts/ops/2026-09-algolia-integration-watermark-reset/README.md`.
 
+**The second worked case (AECI-1867, 2026-11-17).** The same path also repairs records that are
+present but **stale**. Since AECI-1618 both builders null `logo_url` for an unclaimed listing, but
+records built before that kept their logos, because their rows' `updated_at` never moved. `/search`
+trusts the record, so it showed unclaimed logos. The audit found 434 such records in production and
+421 in staging, and none in demo. A reset of the `products` and `vendors` fields swept them at the
+next 08:00 UTC run, with `updateObject` replacing each record whole, and the audit then read 0 on
+both tiers. The run record is in the watermark-reset README. The audit is
+`scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`, and the daily `algolia_unclaimed_logo`
+data-quality check now watches for a recurrence (`ADMIN_PANEL_SPEC.md` §14.1).
+
 ---
 
 ---

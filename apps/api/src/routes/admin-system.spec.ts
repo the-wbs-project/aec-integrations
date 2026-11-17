@@ -314,6 +314,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'default_meta_description',
       'logo_404',
       'algolia_index_drift',
+      // AECI-1867 — unclaimed search records that still carry a logo.
+      'algolia_unclaimed_logo',
       // AECI-1354 — the `verified` mirror against live licenses. The only mirror
       // check since AECI-1375 retired `entitlement_mirror_drift`.
       'license_mirror_drift',
