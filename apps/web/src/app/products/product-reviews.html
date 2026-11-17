@@ -1,4 +1,4 @@
-<div class="space-y-6">
+<div class="space-y-8">
   <div class="flex flex-wrap items-baseline justify-between gap-4">
     <h2
       id="reviews-title"
@@ -18,32 +18,84 @@
     No reviews yet — be the first to review this product.
   </p>
   } @else { @if (showSummary()) {
+  <!-- AECI-1784 (DESIGN.md section 5 Score Display, rulings A3 and A4): two score
+       cards, one per score, never blended into one number. Each prints its own
+       48px figure. The third card is the range marker: both scores as pins on
+       one 1 to 5 axis. It repeats numbers the cards already print, so it is
+       hidden from assistive tech. -->
   <div
-    class="grid gap-5 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 sm:grid-cols-2"
+    class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr]"
+    data-testid="review-summary"
   >
-    <div class="space-y-1">
-      <p class="aec-overline text-(--text-secondary)" i18n="@@products.detail.reviews.overall">
-        Overall
-      </p>
-      <div class="flex items-center gap-2">
-        <span class="font-display text-2xl font-semibold text-(--text-primary)"
-          >{{ overallDisplay() }}</span
-        >
-        <aec-review-stars [rating]="ratingOverallAvg()!" kind="overall" />
-      </div>
+    <div
+      aecCard
+      stripe="forest"
+      class="flex flex-col gap-4 py-6 pe-6 ps-8"
+      data-testid="review-score-overall"
+    >
+      <aec-figure
+        size="score"
+        [value]="ratingOverallAvg()!"
+        [text]="overallDisplay()"
+        [label]="overallLabel"
+      />
+      <aec-review-stars [rating]="ratingOverallAvg()!" kind="overall" />
     </div>
-    <div class="space-y-1">
-      <p class="aec-overline text-(--text-secondary)" i18n="@@products.detail.reviews.onboarding">
-        Onboarding
-      </p>
-      <div class="flex items-center gap-2">
-        <span class="font-display text-2xl font-semibold text-(--text-primary)"
-          >{{ onboardingDisplay() }}</span
-        >
-        <aec-review-stars [rating]="ratingOnboardingAvg()!" kind="onboarding" />
-      </div>
+    <div
+      aecCard
+      stripe="clay"
+      class="flex flex-col gap-4 py-6 pe-6 ps-8"
+      data-testid="review-score-onboarding"
+    >
+      <aec-figure
+        size="score"
+        [value]="ratingOnboardingAvg()!"
+        [text]="onboardingDisplay()"
+        [label]="onboardingLabel"
+      />
+      <aec-review-stars [rating]="ratingOnboardingAvg()!" kind="onboarding" />
     </div>
-    <p class="text-sm text-(--text-secondary) sm:col-span-2">{{ summaryCountLabel() }}</p>
+    <div
+      aecCard
+      class="flex flex-col justify-between gap-4 px-8 py-6 md:col-span-2 xl:col-span-1"
+      data-testid="review-scale"
+    >
+      <div class="relative mx-6 h-[108px]" aria-hidden="true">
+        <span class="absolute inset-x-0 top-11 h-px bg-(--border-strong)"></span>
+        <span
+          class="absolute top-2 flex w-0 flex-col items-center gap-1"
+          [style.left.%]="overallPin()"
+          data-testid="review-scale-pin-overall"
+        >
+          <span
+            class="whitespace-nowrap text-t-12 font-semibold tabular-nums text-(--accent-primary)"
+            [style.transform]="labelShift(overallPin())"
+            >{{ overallLabel }} {{ overallDisplay() }}</span
+          >
+          <span class="block h-7 w-0.5 bg-(--accent-primary)"></span>
+        </span>
+        <span
+          class="absolute top-[30px] flex w-0 flex-col items-center gap-1"
+          [style.left.%]="onboardingPin()"
+          data-testid="review-scale-pin-onboarding"
+        >
+          <span class="block h-7 w-0.5 bg-(--accent-secondary-deep)"></span>
+          <span
+            class="whitespace-nowrap text-t-12 font-semibold tabular-nums text-(--accent-secondary-deep)"
+            [style.transform]="labelShift(onboardingPin())"
+            >{{ onboardingLabel }} {{ onboardingDisplay() }}</span
+          >
+        </span>
+        <span
+          class="absolute inset-x-0 top-[92px] flex justify-between text-t-12 tabular-nums text-(--text-secondary)"
+        >
+          @for (t of axisTicks; track t) {
+          <span class="flex w-0 justify-center">{{ t }}</span>
+          }
+        </span>
+      </div>
+      <p class="text-t-14 text-(--text-secondary)">{{ summaryCountLabel() }}</p>
+    </div>
   </div>
   } @else if (showThresholdNote()) {
   <p class="text-sm text-(--text-secondary)" i18n="@@products.detail.body.reviews.threshold">
@@ -51,65 +103,110 @@
   </p>
   }
 
-  <ul class="grid gap-4">
+  <!-- Review cards (AECI-1784): three columns from xl, two from md, one below.
+       One or two reviews share the row equally (ruling 34, 2026-11-16): one is
+       full width, two are halves from md, so no blank column is left. Every
+       card is one cell (ruling A8). The order is the API's, newest first.
+       grid-cols-1 pins the single column to minmax(0, 1fr), so one long
+       unbroken word or URL wraps instead of widening the page. -->
+  <ul
+    class="grid grid-cols-1 items-start gap-6"
+    [class]="listColumnsClass()"
+    data-testid="review-list"
+  >
     @for (r of reviews(); track r.id) {
     <li>
-      <!-- AECI-1178 (STAGE_2_VENDOR_PORTAL_SPEC.md 11c.15): the article holds the
-           review card and its published vendor replies, so a reply is announced
-           inside the review it answers. The reply is a sibling block below the
-           card, never inside it, so it is never styled as part of the review. -->
-      <article class="space-y-3" [attr.aria-labelledby]="titleId(r)">
-        <div
-          class="space-y-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-        >
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <h3 [id]="titleId(r)" class="min-w-0 break-words font-semibold text-(--text-primary)">
-              {{ r.title }}
+      <!-- Each review is an article named by its title, and the article is the
+           card. The first block is the review as written. It never changes.
+           Approved reviewer updates (AECI-1613) and then published vendor
+           replies (AECI-1178) follow it as nested panels inside the card, under
+           the review text (DESIGN.md section 4, clash 14). Each is its own
+           labelled section with its own fill, so it is never read or styled
+           as part of the review. -->
+      <article aecCard class="flex flex-col gap-4 p-6" [attr.aria-labelledby]="titleId(r)">
+        <div class="flex flex-col gap-4" data-testid="review-original">
+          <div class="flex flex-col gap-1">
+            <h3 [id]="titleId(r)" class="min-w-0 break-words">
+              <span class="font-display text-t-20 leading-tight font-semibold text-(--text-primary)"
+                >{{ r.title }}</span
+              >
             </h3>
-            <span class="shrink-0 text-xs text-(--text-secondary)"
+            <span class="text-t-13 text-(--text-secondary)"
               >{{ r.created_at | date: 'mediumDate' }}</span
             >
           </div>
 
-          <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)">
-            <span class="flex items-center gap-1.5">
-              <span i18n="@@products.detail.reviews.item.overall">Overall</span>
-              <aec-review-stars [rating]="r.rating_overall" kind="overall" />
+          <div class="grid max-w-prose grid-cols-2 gap-2">
+            <span
+              class="relative flex flex-col gap-1 overflow-hidden rounded-control bg-(--surface-sunken) py-3 pe-3 ps-4 before:absolute before:inset-y-0 before:start-0 before:w-[3px] before:bg-(--accent-primary) before:content-['']"
+            >
+              <span
+                class="text-t-12 font-semibold text-(--text-secondary)"
+                i18n="@@products.detail.reviews.item.overall"
+                >Overall</span
+              >
+              <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <aec-review-stars [rating]="r.rating_overall" kind="overall" />
+                <span
+                  class="text-t-14 font-semibold tabular-nums text-(--text-primary)"
+                  aria-hidden="true"
+                  >{{ r.rating_overall }}</span
+                >
+              </span>
             </span>
-            <span class="flex items-center gap-1.5">
-              <span i18n="@@products.detail.reviews.item.onboarding">Onboarding</span>
-              <aec-review-stars [rating]="r.rating_onboarding" kind="onboarding" />
+            <span
+              class="relative flex flex-col gap-1 overflow-hidden rounded-control bg-(--surface-sunken) py-3 pe-3 ps-4 before:absolute before:inset-y-0 before:start-0 before:w-[3px] before:bg-(--accent-secondary-deep) before:content-['']"
+            >
+              <span
+                class="text-t-12 font-semibold text-(--text-secondary)"
+                i18n="@@products.detail.reviews.item.onboarding"
+                >Onboarding</span
+              >
+              <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <aec-review-stars [rating]="r.rating_onboarding" kind="onboarding" />
+                <span
+                  class="text-t-14 font-semibold tabular-nums text-(--text-primary)"
+                  aria-hidden="true"
+                  >{{ r.rating_onboarding }}</span
+                >
+              </span>
             </span>
           </div>
 
-          <p class="break-words text-sm leading-relaxed text-(--text-secondary)">{{ r.body }}</p>
+          <p class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary)">
+            {{ r.body }}
+          </p>
 
-          <div class="flex flex-wrap items-center gap-2 text-xs text-(--text-secondary)">
+          <div class="flex flex-wrap items-center gap-2">
             @if (r.role_at_company) {
             <span
-              class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
-              >{{ roleLabel(r.role_at_company) }}</span
+              class="inline-flex items-center gap-1 rounded-pill border bg-(--surface-raised) py-1 pe-3 ps-2 text-t-13 text-(--text-secondary)"
+              ><aec-icon name="users" decorative [size]="3.5" />{{ roleLabel(r.role_at_company)
+              }}</span
             >
             } @if (r.years_using !== null) {
             <span
-              class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
-              >{{ yearsLabel(r.years_using) }}</span
+              class="inline-flex items-center gap-1 rounded-pill border bg-(--surface-raised) py-1 pe-3 ps-2 text-t-13 text-(--text-secondary)"
+              ><aec-icon name="clock" decorative [size]="3.5" />{{ yearsLabel(r.years_using)
+              }}</span
             >
             } @if (r.would_recommend) {
             <span
-              class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
-              >{{ recommendLabel(r.would_recommend) }}</span
+              class="inline-flex items-center gap-1 rounded-pill border bg-(--surface-raised) py-1 pe-3 ps-2 text-t-13 text-(--text-secondary)"
+              ><aec-icon [name]="recommendIcon(r.would_recommend)" decorative [size]="3.5" />{{
+              recommendLabel(r.would_recommend) }}</span
             >
             }
           </div>
         </div>
 
         <!-- AECI-1613 (STAGE_1_SPEC.md 4.7a): the reviewer's approved updates, each
-             under the original card with its own date. The original card above never
-             changes. Updates come before vendor replies, oldest first. -->
+             after the original block with its own date. The original block above
+             never changes. Updates come before vendor replies, oldest first. A
+             Bone fill inside a card is a nested fill, not a band. -->
         @for (u of updatesOf(r); track $index; let i = $index) {
         <section
-          class="ms-6 space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4 sm:ms-10"
+          class="aec-card space-y-2 rounded-panel border bg-(--accent-warm) p-4"
           [attr.aria-labelledby]="updateLabelId(r, i)"
           data-testid="review-update"
         >
@@ -118,7 +215,7 @@
               [id]="updateLabelId(r, i)"
               class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
             >
-              <!-- The `aec-icon` history glyph.
+              <!-- The aec-icon history glyph.
                    Decorative: the label says what the block is. -->
               <aec-icon class="text-(--text-secondary)" name="history" decorative [size]="4" />
               <span class="break-words" i18n="@@products.detail.reviews.update.label"
@@ -150,14 +247,16 @@
           }
           <!-- Plain text by interpolation, never innerHTML: line breaks kept. -->
           <p
-            class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-prose whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)"
           >
             {{ u.body }}
           </p>
         </section>
         } @for (resp of repliesOf(r); track resp.vendor_slug; let i = $index) {
         <section
-          class="ms-6 space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-sunken) p-4 sm:ms-10"
+          aecCard
+          nested
+          class="space-y-2 p-4"
           [attr.aria-labelledby]="replyLabelId(r, i)"
           data-testid="vendor-response"
         >
@@ -166,7 +265,7 @@
               [id]="replyLabelId(r, i)"
               class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
             >
-              <!-- The `aec-icon` corner-down-right glyph.
+              <!-- The aec-icon corner-down-right glyph.
                    Decorative: the label says whose reply it is. -->
               <aec-icon
                 class="text-(--text-secondary)"
@@ -187,7 +286,7 @@
           <!-- Plain text by interpolation, never innerHTML: line breaks kept,
                URLs stay text (11c.5). -->
           <p
-            class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-prose whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)"
           >
             {{ resp.body }}
           </p>
