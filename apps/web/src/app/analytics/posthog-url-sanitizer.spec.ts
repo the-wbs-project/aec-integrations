@@ -73,6 +73,12 @@ describe('stripSecretParams on form answers (AECI-1919)', () => {
     ).toBe('/products?page=2&sort=name#reviews');
   });
 
+  it('matches the ng.form prefix in any case', () => {
+    expect(stripSecretParams('/roadmap?NG.FORM3.email=a&Ng.Form4.x=b&page=1')).toBe(
+      '/roadmap?page=1',
+    );
+  });
+
   it('strips token and form fields together', () => {
     expect(stripSecretParams('/unsubscribe?token=abc&ng.form1.email=x')).toBe('/unsubscribe');
   });

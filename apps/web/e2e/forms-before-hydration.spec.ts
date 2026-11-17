@@ -15,6 +15,8 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
+
 const ROUTES: readonly string[] = ['/vendor-program/list-your-product'];
 
 const TEXT_FIELD =
@@ -73,6 +75,71 @@ test.describe('forms before hydration (AECI-1919)', () => {
 
       expect(page.url(), 'the address is unchanged').toBe(address);
       expect(guard.sent, 'nothing left the page').toEqual([]);
+    });
+  }
+});
+
+/**
+ * With `method="dialog"` the page no longer unloads on an early press, so Angular
+ * replays the press into the submit handler once the app is stable. On a replay
+ * `preventDefault` throws, so the handler must drop the replay first: no error,
+ * and no request.
+ */
+test.describe('a press before hydration is dropped (AECI-1919)', () => {
+  for (const path of ROUTES) {
+    test(`${path}: an early Enter replays without an error or a request`, async ({
+      page,
+      baseURL,
+    }) => {
+      const origin = new URL(baseURL!).origin;
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      page.on('console', (m) => {
+        if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) {
+          errors.push(m.text());
+        }
+      });
+
+      // Hold the app's entry bundle until the press has been made.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const writes: string[] = [];
+      await page.route('**/*', async (route) => {
+        const req = route.request();
+        const url = new URL(req.url());
+        if (url.origin !== origin) return route.abort();
+        if (req.method() !== 'GET') {
+          if (url.pathname.startsWith('/api/')) writes.push(`${req.method()} ${url.pathname}`);
+          return route.fulfill({ status: 204, body: '' });
+        }
+        if (/\/main-[^/]+\.js$/.test(url.pathname)) await held;
+        return route.continue();
+      });
+
+      await page.goto(path, { waitUntil: 'commit' });
+      const form = page.locator('form[method="dialog"]').first();
+      await expect(form, 'the form is server-rendered').toBeVisible();
+      await expect(form, 'not hydrated yet').toHaveAttribute('jsaction', /submit/);
+      const address = page.url();
+
+      const fields = form.locator(TEXT_FIELD);
+      for (let i = 0; i < (await fields.count()); i++) {
+        const field = fields.nth(i);
+        if ((await field.isVisible()) && (await field.isEditable())) {
+          await field.fill('fake.tester@example.invalid');
+        }
+      }
+      await form.locator('input').filter({ visible: true }).first().press('Enter');
+      await page.waitForTimeout(300);
+      expect(page.url(), 'the early press did not navigate').toBe(address);
+
+      release();
+      await untilHydrated(form);
+      await page.waitForTimeout(1_000);
+
+      expect(page.url(), 'the address is unchanged after the replay').toBe(address);
+      expect(errors, 'no error from the replayed press').toEqual([]);
+      expect(writes, 'the replayed press sent nothing').toEqual([]);
     });
   }
 });
