@@ -2,6 +2,7 @@ import { Component, ElementRef, computed, input, viewChild } from '@angular/core
 import { RouterLink } from '@angular/router';
 
 import type {
+  AgreementState,
   ContextDirection,
   FieldCaption,
   FieldCorrection,
@@ -22,6 +23,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
+import { AgreementBadge } from './agreement-badge';
 import { routeIntegrationLane } from './connector-lane-grouping';
 import { AecIcon } from '../shared/icon/icon';
 import { Chip } from '../shared/chip/chip';
@@ -100,7 +102,15 @@ import { Chip } from '../shared/chip/chip';
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [AecIcon, FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker, Chip],
+  imports: [
+    AecIcon,
+    AgreementBadge,
+    FieldCaptionLine,
+    RouterLink,
+    LogoOrInitial,
+    UnderReviewMarker,
+    Chip,
+  ],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -132,6 +142,12 @@ import { Chip } from '../shared/chip/chip';
             class="-my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
+          <!-- AECI-1720: the partner's vendor, as the card prints it (mock-up 6). -->
+          @if (vendorLine(); as line) {
+            <span class="text-xs font-normal text-(--text-secondary)" data-testid="row-vendor">{{
+              line
+            }}</span>
+          }
           <!-- The meta line under the partner name. Direction lives here at
                every width (AECI-853); the mechanism joins it only below md,
                where the Connection <td> is hidden. Tertiary at rest (4.83:1 on
@@ -200,6 +216,24 @@ import { Chip } from '../shared/chip/chip';
         </span>
       </span>
     </td>
+    <!-- AECI-1720: the partner's categories, as on the card (mock-up 6's table). From lg
+         only, so the table's 34rem floor below lg is unchanged. -->
+    <td class="hidden px-4 py-3 lg:table-cell" data-testid="row-categories">
+      @if (integration().partner_categories.length > 0) {
+        <ul class="flex flex-wrap gap-1.5">
+          @for (category of integration().partner_categories; track category.slug) {
+            <li>
+              <aec-chip density="dense">{{ category.name }}</aec-chip>
+            </li>
+          }
+        </ul>
+      } @else {
+        <span class="text-(--text-secondary)" aria-hidden="true">–</span>
+        <span class="sr-only" i18n="@@products.detail.body.integrations.group.uncategorised"
+          >No category on record</span
+        >
+      }
+    </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
         <!-- The mechanism badge(s), then the AECI-711 object-coverage chip at the
@@ -242,6 +276,10 @@ import { Chip } from '../shared/chip/chip';
         }
         @if (integration().mechanism_name; as name) {
           <span class="text-xs text-(--text-secondary)">{{ name }}</span>
+        }
+        <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1). -->
+        @if (rowAgreement(); as agreement) {
+          <aec-agreement-badge class="mt-1" [agreement]="agreement" />
         }
       </span>
     </td>
@@ -297,6 +335,14 @@ export class ProductIntegrationRow {
    *  `undefined` sentinel: unset means "read `integration()`". */
   readonly mergedCaption = input<FieldCaption | null | undefined>(undefined);
   readonly mergedCorrections = input<readonly FieldCorrection[] | undefined>(undefined);
+  /** The collapsed edges' agreement (`IntegrationLaneRow.agreement`). Same sentinel. */
+  readonly mergedAgreement = input<AgreementState | null | undefined>(undefined);
+
+  /** The agreement label the card shows for the same row. */
+  protected readonly rowAgreement = computed(() => {
+    const merged = this.mergedAgreement();
+    return merged === undefined ? this.integration().agreement : merged;
+  });
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -385,6 +431,14 @@ export class ProductIntegrationRow {
   protected onRowClick(event: MouseEvent): void {
     forwardRowClick(event, this.rowLink()?.nativeElement);
   }
+
+  /** "by {vendor}", the card's own message, or `null` with no vendor on record. */
+  protected readonly vendorLine = computed(() => {
+    const vendor = this.integration().partner_vendor_name;
+    return vendor
+      ? $localize`:@@products.detail.integrations.card.byVendor:by ${vendor}:VENDOR:`
+      : null;
+  });
 
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
   // so the pair link has a real accessible name naming the partner.

@@ -35,14 +35,19 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
          608px body column when DetailLayout docks the metadata sidebar at
          lg, which is the whole point of the fold. Raising it back above 38rem
          re-breaks that dock into a horizontal scroll. -->
-    <div class="overflow-x-auto">
+    <!-- AECI-1720 (mock-up 6, .table-wrap): the table sits in a white card with a Bone
+         header row. -->
+    <div
+      class="overflow-x-auto rounded-card bg-(--surface-base) shadow-card"
+      data-testid="integrations-table-frame"
+    >
       <table
         class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
         [attr.aria-label]="ariaLabel()"
         [attr.aria-labelledby]="ariaLabelledby()"
       >
         <thead
-          class="border-b border-(--border-default) text-start text-xs
+          class="border-b border-(--border-default) bg-(--accent-warm) text-start text-xs
             font-semibold tracking-wide text-(--text-secondary)"
         >
           <tr>
@@ -52,6 +57,13 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               i18n="@@products.detail.body.integrations.col.product"
             >
               Integrates with
+            </th>
+            <th
+              scope="col"
+              class="hidden px-4 py-3 text-start font-semibold lg:table-cell"
+              i18n="@@search.facet.categories"
+            >
+              Categories
             </th>
             <th
               scope="col"
@@ -79,6 +91,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               [mergedDataObjectSlugs]="row.dataObjectSlugs"
               [mergedCaption]="row.caption"
               [mergedCorrections]="row.corrections"
+              [mergedAgreement]="row.agreement"
             ></tr>
           }
           @if (deferred().length > 0) {
@@ -94,11 +107,12 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
                   [mergedDataObjectSlugs]="row.dataObjectSlugs"
                   [mergedCaption]="row.caption"
                   [mergedCorrections]="row.corrections"
+                  [mergedAgreement]="row.agreement"
                 ></tr>
               }
             } @placeholder (minimum 100ms) {
               <tr aria-hidden="true">
-                <td colspan="3" class="px-4 py-3">
+                <td colspan="4" class="px-4 py-3">
                   <div
                     class="h-16 animate-pulse rounded-(--radius-lg)
                       border border-(--border-default) bg-(--surface-sunken)"

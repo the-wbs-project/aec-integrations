@@ -62,7 +62,8 @@ import {
  * rounded logo and its tile share the box, the border and the fill, and the tile takes
  * no muted styling.
  */
-export type LogoSize = 'hero' | 'lg' | 'sm';
+/** `md` (48px, AECI-1720) is the product page's integration card mark (mock-up 6). */
+export type LogoSize = 'hero' | 'lg' | 'md' | 'sm';
 
 /**
  * What the caller knows about the logo's claim state (AECI-1851). See the class comment:
@@ -190,13 +191,19 @@ export class LogoOrInitial {
   /** The intrinsic size `NgOptimizedImage` reserves. `hero` is the slot's largest box. */
   protected readonly dim = computed(() => {
     const size = this.size();
-    return size === 'hero' ? 104 : size === 'lg' ? 64 : 32;
+    return size === 'hero' ? 104 : size === 'lg' ? 64 : size === 'md' ? 48 : 32;
   });
 
   /** The box: fixed for `lg` and `sm`, the caller's box for `hero`. */
   private readonly boxClass = computed(() => {
     const size = this.size();
-    return size === 'hero' ? 'size-full' : size === 'lg' ? 'h-16 w-16' : 'h-8 w-8';
+    return size === 'hero'
+      ? 'size-full'
+      : size === 'lg'
+        ? 'h-16 w-16'
+        : size === 'md'
+          ? 'h-12 w-12'
+          : 'h-8 w-8';
   });
 
   /** `circle` overrides the per-size radius; a photo is cropped, not framed, so
@@ -226,7 +233,13 @@ export class LogoOrInitial {
   /** The initial steps with the box: `--t-36` in the hero tile, 24px at 64px, 14px at 32px. */
   private readonly initialClass = computed(() => {
     const size = this.size();
-    return size === 'hero' ? 'text-t-36' : size === 'lg' ? 'text-2xl' : 'text-sm';
+    return size === 'hero'
+      ? 'text-t-36'
+      : size === 'lg'
+        ? 'text-2xl'
+        : size === 'md'
+          ? 'text-t-20'
+          : 'text-sm';
   });
 
   protected readonly spanClass = computed(

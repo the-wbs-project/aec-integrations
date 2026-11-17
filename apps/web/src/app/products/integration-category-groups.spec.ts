@@ -6,6 +6,7 @@ import { splitIntegrationLanes } from './connector-lane-grouping';
 import {
   GROUPED_LIST_MIN_ROWS,
   GROUP_PEEK_ROWS,
+  GROUP_PEEK_ROWS_PHONE,
   GROUP_STACK_LOGOS,
   ONE_LIST_PAGE_SIZE,
   groupDomId,
@@ -230,6 +231,15 @@ describe('the cuts', () => {
     expect(peek).toEqual(group.rows.slice(0, GROUP_PEEK_ROWS));
     expect(hidden).toEqual(group.rows.slice(GROUP_PEEK_ROWS));
     expect(stackPartners(hidden)).toEqual(hidden.slice(0, GROUP_STACK_LOGOS));
+  });
+
+  it('the phone cut is the first rows of the same order, inside the wide cut (AECI-1720)', () => {
+    expect(GROUP_PEEK_ROWS_PHONE).toBe(3);
+    expect(GROUP_PEEK_ROWS_PHONE).toBeLessThan(GROUP_PEEK_ROWS);
+    const group = groupRowsByCategory(longView(58).direct)[0]!;
+    const phone = peekGroup(group.rows, GROUP_PEEK_ROWS_PHONE);
+    expect(phone.peek).toEqual(peekGroup(group.rows).peek.slice(0, GROUP_PEEK_ROWS_PHONE));
+    expect(phone.hidden).toEqual(group.rows.slice(GROUP_PEEK_ROWS_PHONE));
   });
 
   it('group ids never collide with the uncategorised group', () => {
