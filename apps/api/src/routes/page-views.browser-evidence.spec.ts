@@ -342,7 +342,7 @@ describe('POST /api/page-views/browser-evidence (AECI-1713)', () => {
     expect(evidenceTags()).toEqual([['evidence:ran', 'result:no_match']]);
   });
 
-  it('a replayed interacted changes nothing and does not retry', async () => {
+  it('a replayed interacted changes nothing, even on its one retry', async () => {
     const at = '2026-11-13T00:00:00.000Z';
     const id = await seedRow({ browserEvidence: 'interacted', browserEvidenceAt: at });
     const wait = vi.fn(async () => {});
@@ -352,7 +352,7 @@ describe('POST /api/page-views/browser-evidence (AECI-1713)', () => {
     const row = await rowOf(id);
     expect(row.browserEvidence).toBe('interacted');
     expect(row.browserEvidenceAt).toBe(at);
-    expect(wait).not.toHaveBeenCalled();
+    expect(wait).toHaveBeenCalledTimes(1);
     expect(evidenceTags()).toEqual([['evidence:interacted', 'result:no_match']]);
   });
 
@@ -423,12 +423,45 @@ describe('POST /api/page-views/browser-evidence (AECI-1713)', () => {
     expect(evidenceTags()).toEqual([['evidence:ran', 'result:updated']]);
   });
 
-  it('never retries an interacted report', async () => {
-    const wait = vi.fn(async () => {});
+  it('lands an interacted report on the retry when its row commits during the wait', async () => {
+    // A fast click on a landing view, or an in-app view whose beacon insert is still
+    // in flight: the report reaches the API before its row exists (AECI-1713 review).
+    let id = 0;
+    const wait = vi.fn(async () => {
+      id = await seedRow({ writerProvenance: 'browser-spa', browserEvidence: 'ran' });
+    });
+
     await evidencePost({ cf_ray: RAY, evidence: 'interacted' }, { wait });
-    expect(wait).not.toHaveBeenCalled();
-    expect(evidenceTags()).toEqual([['evidence:interacted', 'result:no_match']]);
+
+    expect(wait).toHaveBeenCalledTimes(1);
+    expect(wait).toHaveBeenCalledWith(BROWSER_EVIDENCE_RETRY_MS);
+    expect(await evidenceOf(id)).toBe('interacted');
+    expect(evidenceTags()).toEqual([['evidence:interacted', 'result:updated']]);
   });
+
+  it.each(['ran', 'interacted'] as const)(
+    'makes exactly two attempts on a %s report that never matches, then counts no_match',
+    async (evidence) => {
+      let attempts = 0;
+      const counting: Parameters<typeof createBrowserEvidenceHandler>[0] = (env, opts) => {
+        const ctx = t.factory(env, opts);
+        const db = new Proxy(ctx.db, {
+          get(target, prop, receiver) {
+            if (prop === 'update') attempts += 1;
+            return Reflect.get(target, prop, receiver);
+          },
+        });
+        return { ...ctx, db };
+      };
+      const wait = vi.fn(async () => {});
+
+      await evidencePost({ cf_ray: RAY, evidence }, { wait, dbFor: counting });
+
+      expect(attempts).toBe(2);
+      expect(wait).toHaveBeenCalledTimes(1);
+      expect(evidenceTags()).toEqual([[`evidence:${evidence}`, 'result:no_match']]);
+    },
+  );
 
   it('answers the same 204 whether or not a row matched', async () => {
     const miss = await evidencePost({ cf_ray: OTHER_RAY, evidence: 'interacted' });

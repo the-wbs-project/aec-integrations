@@ -994,7 +994,7 @@ export function createTurnstileVerdictHandler(
  */
 export const BROWSER_EVIDENCE_WINDOW_MS = TURNSTILE_VERDICT_WINDOW_MS;
 
-/** Wait before the one retry of a `ran` report, for an arrival write still in flight. */
+/** Wait before the one retry of a browser report, for its row's write still in flight. */
 export const BROWSER_EVIDENCE_RETRY_MS = TURNSTILE_VERDICT_RETRY_MS;
 
 /**
@@ -1077,11 +1077,13 @@ async function updateBrowserEvidence(
 /**
  * The deferred half of a browser report. Never throws.
  *
- * Only a `ran` report retries. It is posted as the page starts, so it can beat the
- * gateway's own arrival write, which runs in that request's `waitUntil`. Zero rows
- * changed earns one retry after 2 s. An `interacted` report follows a person's
- * action, so its row is long written. Zero rows there is a replay, a downgrade, a
- * privacy row or an old row, and a retry would only spend a second UPDATE.
+ * Either report can beat its own row. A landing view's row is the gateway's arrival
+ * write, which runs in that request's `waitUntil`. An in-app view's row is the
+ * `browser-spa` insert its beacon is still making. A `ran` post leaves as the page
+ * starts, and an `interacted` post can follow a fast click, or an in-app view whose
+ * beacon has only just answered. So zero rows changed earns one retry after 2 s,
+ * for either word. A second miss is a replay, a downgrade, a privacy row, an old row
+ * or a ray with no row, and it counts `result:no_match`.
  *
  * Log-class write: `page_views` is exempt from `audit_log` (ADR 0022), exactly as
  * the Turnstile UPDATE is. Nothing here renders on a cached page, so there is no
@@ -1098,7 +1100,7 @@ async function applyBrowserEvidence(
   try {
     const { db } = dbFor(c.env);
     let changed = await updateBrowserEvidence(db, body.cf_ray, body.evidence, Date.now());
-    if (changed === 0 && body.evidence === 'ran') {
+    if (changed === 0) {
       await wait(BROWSER_EVIDENCE_RETRY_MS);
       changed = await updateBrowserEvidence(db, body.cf_ray, body.evidence, Date.now());
     }
