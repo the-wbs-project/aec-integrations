@@ -68,7 +68,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q58 | Terms of Service | A public "used by N accounts" count on a product page | Alexander Coffin | 2026-11-16 |
 | Q59 | Terms of Service | An employee records their employer's software and office names on our site without authority | Alexander Coffin | 2026-11-16 |
 | Q60 | Privacy Policy | Adding new sections to a legal page before its first effective date: is the 30-day notice owed | Travis Russell | 2026-11-15 |
-| Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Alexander Coffin | 2026-11-17 |
+| Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Brian D. Lerner | 2026-11-17 |
 
 ## Questions and answers
 
@@ -1563,7 +1563,7 @@ Our view: both are nominative use of a word name. The bar leads with our own wor
 
 Question: on an unclaimed listing, may the fixed bar show the product name in text without the not-affiliated line beside it, or must the bar repeat that line or leave the name out?
 
-**Answer (Alexander Coffin, 2026-11-17):**
+**Answer (Brian D. Lerner, 2026-11-17):**
 
 The bar may show the name without repeating the line. Nominative fair use permits using a product’s name to identify it if you use only what is needed and nothing suggests sponsorship. Plain text, no logo, smaller than your own wordmark, which comes first and identifies you as the source, meets that standard. A disclaimer helps but is not required, and Lanham Act 43(a) does not require you to repeat it wherever the name appears. Courts in the Eleventh Circuit, which covers Florida, ask whether the overall page is likely to confuse users about affiliation, so keep the bar free of “official,” vendor colors or styling, and claim language. If you want extra margin at low cost, add a short “Unclaimed” tag beside the name in the bar.
 
