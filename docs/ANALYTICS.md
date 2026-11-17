@@ -59,7 +59,7 @@ eventually it will be.
 | Request / correction description text | `request_id`, `target_type`, `slug` | Same as review bodies. The description frequently names individuals at a vendor. |
 | Vendor contact names, phone numbers | `vendor_id` | Direct identifiers with no analytical use. |
 | Anything from a form the user typed | the outcome of the submission | If you find yourself wanting the input, what you actually want is a funnel step. |
-| A raw URL containing a token | the route pattern | Unsubscribe, digest-mute and magic-link URLs carry credentials. The SDK's own URL properties are scrubbed for you: a `before_send` hook (`apps/web/src/app/analytics/posthog-url-sanitizer.ts`) strips the `token` query parameter from `$current_url`, `$referrer`, `$pathname`, their `$initial_*` copies and the `$session_entry_*` copies the SDK puts on every event of a session. It does not scrub a URL you put in a property of your own. |
+| A raw URL containing a token | the route pattern | Unsubscribe, digest-mute and magic-link URLs carry credentials. The SDK's own URL properties are scrubbed for you: a `before_send` hook (`apps/web/src/app/analytics/posthog-url-sanitizer.ts`) strips the `token` query parameter from `$current_url`, `$referrer`, `$pathname`, their `$initial_*` copies and the `$session_entry_*` copies the SDK puts on every event of a session. It also strips every `ng.form*` parameter, the name Signal Forms gives a field, so a form answer that reached the address never reaches PostHog (AECI-1919). It does not scrub a URL you put in a property of your own. |
 
 **The "How did you find us?" follow-up is form input (AECI-1063).** The channel
 enum may ride an event as `found_via`. The free-text answer (`found_via_detail`)

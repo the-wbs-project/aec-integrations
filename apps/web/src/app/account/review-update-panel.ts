@@ -34,6 +34,7 @@ import {
 import { AccountApi } from './account-api';
 import { ReviewStatusBadge } from './review-status-badge';
 import { AecButton } from '../shared/button/button';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
 
 /** Why the last submit failed, mapped from the API's error code. */
 type SubmitError =
@@ -74,7 +75,7 @@ const NO_ERRORS: FieldErrors = { body: null, rating_overall: false, rating_onboa
 @Component({
   selector: 'aec-review-update-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AecButton, DatePipe, Listbox, Option, ReviewStatusBadge],
+  imports: [AecFormSubmit, AecButton, DatePipe, Listbox, Option, ReviewStatusBadge],
   templateUrl: './review-update-panel.html',
 })
 export class ReviewUpdatePanel {

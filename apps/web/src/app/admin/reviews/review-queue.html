@@ -381,8 +381,9 @@
         <!-- AECI-1643: remove form (required reason, then a deliberate confirm) -->
         @if (removingId() === r.id) {
         <form
+          method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirmRemove(r.id)"
+          (aecSubmit)="confirmRemove(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
           data-testid="remove-form"
         >
@@ -511,8 +512,9 @@
         <!-- Reject form (required reason) -->
         @if (rejectingId() === r.id) {
         <form
+          method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirmReject(r.id)"
+          (aecSubmit)="confirmReject(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
         >
           <label
@@ -614,7 +616,7 @@
           reviews. Their existing approved reviews stay visible. You can unban them later.
         </p>
 
-        <form novalidate (submit)="$event.preventDefault(); confirmBan()" class="mt-5 space-y-2">
+        <form method="dialog" novalidate (aecSubmit)="confirmBan()" class="mt-5 space-y-2">
           <label
             for="ban-reason"
             class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"

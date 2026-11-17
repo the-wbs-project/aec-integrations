@@ -30,6 +30,7 @@ import { isStatus } from '../http-status';
 import { AdminAuditApi, type AdminAuditListParams } from './admin-audit-api';
 import { knownAuditActions } from './audit-action-labels';
 import { AuditTrail } from './audit-trail';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Length of the default landing window, in days, today included. */
 export const AUDIT_DEFAULT_WINDOW_DAYS = 30;
@@ -632,6 +633,7 @@ export class AuditLog {
   }
 
   protected apply(event?: Event): void {
+    if (isReplayedEvent(event)) return;
     event?.preventDefault();
     this.submitted.set(true);
     if (this.hasErrors()) return;

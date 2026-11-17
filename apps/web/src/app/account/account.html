@@ -162,11 +162,7 @@
           </div>
 
           <!-- Display name (editable) -->
-          <form
-            class="mt-6 space-y-1.5"
-            novalidate
-            (submit)="$event.preventDefault(); onSaveName()"
-          >
+          <form method="dialog" class="mt-6 space-y-1.5" novalidate (aecSubmit)="onSaveName()">
             <label
               for="account-display-name"
               class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -222,10 +218,11 @@
 
           <!-- About you (AECI-1296) -->
           <form
+            method="dialog"
             id="about-you"
             class="mt-10 scroll-mt-8 space-y-6 border-t border-(--border-default) pt-8"
             novalidate
-            (submit)="$event.preventDefault(); onSaveAbout()"
+            (aecSubmit)="onSaveAbout()"
             data-testid="about-you"
           >
             <div>

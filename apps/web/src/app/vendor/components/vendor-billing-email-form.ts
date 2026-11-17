@@ -22,6 +22,7 @@ import {
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The billing email block on the vendor Billing tab, under the section's own
@@ -70,7 +71,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
     </div>
 
     @if (editing()) {
-      <form class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
+      <form method="dialog" class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label class="sr-only" for="billing-email-input" i18n="@@vendor.billing.email.inputLabel">
             Billing email address
@@ -155,6 +156,7 @@ export class VendorBillingEmailForm {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

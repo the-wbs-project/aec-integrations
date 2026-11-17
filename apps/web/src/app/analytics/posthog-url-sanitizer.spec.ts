@@ -1,59 +1,101 @@
 import type { CaptureResult } from 'posthog-js';
 import { describe, expect, it } from 'vitest';
 
-import { sanitizePostHogEvent, stripTokenParam } from './posthog-url-sanitizer';
+import { sanitizePostHogEvent, stripSecretParams } from './posthog-url-sanitizer';
 
 /**
  * Plain-Vitest (node) coverage for the PostHog `before_send` URL sanitizer.
  * The `?token=` on `/unsubscribe` and `/notifications/mute` is a bearer secret
- * and must never reach PostHog.
+ * and must never reach PostHog. Nor may a form answer in an `ng.form*`
+ * parameter (AECI-1919).
  */
 
 const ORIGIN = 'https://www.aecintegrations.com';
 
-describe('stripTokenParam', () => {
+describe('stripSecretParams', () => {
   it('drops the only parameter and the trailing ?', () => {
-    expect(stripTokenParam(`${ORIGIN}/unsubscribe?token=abc123`)).toBe(`${ORIGIN}/unsubscribe`);
+    expect(stripSecretParams(`${ORIGIN}/unsubscribe?token=abc123`)).toBe(`${ORIGIN}/unsubscribe`);
   });
 
   it('keeps every other parameter in its original order and spelling', () => {
     expect(
-      stripTokenParam(`${ORIGIN}/notifications/mute?utm_source=email&token=abc&b=1%202&flag`),
+      stripSecretParams(`${ORIGIN}/notifications/mute?utm_source=email&token=abc&b=1%202&flag`),
     ).toBe(`${ORIGIN}/notifications/mute?utm_source=email&b=1%202&flag`);
   });
 
   it('removes every token parameter, including repeats and an encoded key', () => {
-    expect(stripTokenParam('/x?token=a&q=1&%74oken=b&token')).toBe('/x?q=1');
+    expect(stripSecretParams('/x?token=a&q=1&%74oken=b&token')).toBe('/x?q=1');
   });
 
   it('keeps the fragment', () => {
-    expect(stripTokenParam(`${ORIGIN}/unsubscribe?token=abc#top`)).toBe(
+    expect(stripSecretParams(`${ORIGIN}/unsubscribe?token=abc#top`)).toBe(
       `${ORIGIN}/unsubscribe#top`,
     );
-    expect(stripTokenParam('/a?x=1&token=abc#frag?token=z')).toBe('/a?x=1#frag?token=z');
+    expect(stripSecretParams('/a?x=1&token=abc#frag?token=z')).toBe('/a?x=1#frag?token=z');
   });
 
   it('handles relative URLs', () => {
-    expect(stripTokenParam('/unsubscribe?token=abc')).toBe('/unsubscribe');
-    expect(stripTokenParam('?token=abc&a=1')).toBe('?a=1');
+    expect(stripSecretParams('/unsubscribe?token=abc')).toBe('/unsubscribe');
+    expect(stripSecretParams('?token=abc&a=1')).toBe('?a=1');
   });
 
   it('does not touch look-alike parameter names', () => {
     const url = `${ORIGIN}/p?tokens=1&my_token=2&token_type=3`;
-    expect(stripTokenParam(url)).toBe(url);
+    expect(stripSecretParams(url)).toBe(url);
   });
 
   it('returns URLs with no query or no token unchanged', () => {
-    expect(stripTokenParam(`${ORIGIN}/products/foo`)).toBe(`${ORIGIN}/products/foo`);
-    expect(stripTokenParam(`${ORIGIN}/search?q=revit`)).toBe(`${ORIGIN}/search?q=revit`);
-    expect(stripTokenParam('')).toBe('');
+    expect(stripSecretParams(`${ORIGIN}/products/foo`)).toBe(`${ORIGIN}/products/foo`);
+    expect(stripSecretParams(`${ORIGIN}/search?q=revit`)).toBe(`${ORIGIN}/search?q=revit`);
+    expect(stripSecretParams('')).toBe('');
   });
 
   it('does not throw on malformed input', () => {
-    expect(() => stripTokenParam('%E0%A4%A?token=x&%zz=1')).not.toThrow();
-    expect(stripTokenParam('%E0%A4%A?token=x&%zz=1')).toBe('%E0%A4%A?%zz=1');
-    expect(stripTokenParam('/a?%E0%A4%A=1&token=x')).toBe('/a?%E0%A4%A=1');
-    expect(stripTokenParam('::not a url::?token=1')).toBe('::not a url::');
+    expect(() => stripSecretParams('%E0%A4%A?token=x&%zz=1')).not.toThrow();
+    expect(stripSecretParams('%E0%A4%A?token=x&%zz=1')).toBe('%E0%A4%A?%zz=1');
+    expect(stripSecretParams('/a?%E0%A4%A=1&token=x')).toBe('/a?%E0%A4%A=1');
+    expect(stripSecretParams('::not a url::?token=1')).toBe('::not a url::');
+  });
+});
+
+describe('stripSecretParams on form answers (AECI-1919)', () => {
+  it('drops every ng.form* field a native pre-hydration submit put in the query', () => {
+    expect(
+      stripSecretParams(
+        `${ORIGIN}/vendor-program/list-your-product?ng.form28.listing_name=Acme&ng.form28.submitter_email=jane%40example.com`,
+      ),
+    ).toBe(`${ORIGIN}/vendor-program/list-your-product`);
+  });
+
+  it('keeps the other parameters in order, the fragment, and an encoded key', () => {
+    expect(
+      stripSecretParams('/products?page=2&ng.form2.email=a%40b.c&sort=name&ng%2Eform3.x=1#reviews'),
+    ).toBe('/products?page=2&sort=name#reviews');
+  });
+
+  it('matches the ng.form prefix in any case', () => {
+    expect(stripSecretParams('/roadmap?NG.FORM3.email=a&Ng.Form4.x=b&page=1')).toBe(
+      '/roadmap?page=1',
+    );
+  });
+
+  it('strips token and form fields together', () => {
+    expect(stripSecretParams('/unsubscribe?token=abc&ng.form1.email=x')).toBe('/unsubscribe');
+  });
+
+  it('leaves look-alike names and the search query alone', () => {
+    expect(stripSecretParams('/search?q=ng.form&form=1&ngform=2')).toBe(
+      '/search?q=ng.form&form=1&ngform=2',
+    );
+  });
+
+  it('scrubs the answers out of $current_url on an event', () => {
+    const out = sanitizePostHogEvent(
+      event({
+        properties: { $current_url: `${ORIGIN}/roadmap?ng.form30.email=jane%40example.com` },
+      }),
+    );
+    expect(out?.properties).toEqual({ $current_url: `${ORIGIN}/roadmap` });
   });
 });
 

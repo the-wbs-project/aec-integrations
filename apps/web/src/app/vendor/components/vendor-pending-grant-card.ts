@@ -32,6 +32,7 @@ import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorApi } from '../vendor-api';
 import { licenseActionErrorCode } from './vendor-license-action-errors';
 import { acceptanceHref } from './vendor-agreement-href';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The two fields the owner gives. The shared schema's own rules: `accepted` is
  *  `z.literal(true)`, so the form stays invalid until the box is ticked. */
@@ -221,7 +222,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
         </dd>
       </dl>
 
-      <form novalidate class="mt-4 space-y-4" (submit)="accept($event)">
+      <form method="dialog" novalidate class="mt-4 space-y-4" (submit)="accept($event)">
         <div class="space-y-1.5">
           <label
             [attr.for]="id('title')"
@@ -428,6 +429,7 @@ export class VendorPendingGrantCard {
   }
 
   protected async accept(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     this.failure.set(null);

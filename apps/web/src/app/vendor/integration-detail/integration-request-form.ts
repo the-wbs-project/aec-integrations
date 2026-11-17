@@ -46,6 +46,7 @@ import {
   ID_STYLES,
   LABEL,
 } from './integration-detail-styles';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
 const NO_OWNER = 'none';
@@ -95,6 +96,7 @@ interface FieldOption {
   styles: [ID_STYLES],
   template: `
     <form
+      method="dialog"
       id="change-requests-form"
       tabindex="-1"
       class="id-well mt-4 scroll-mt-20 space-y-4 p-4 text-sm focus:outline-none"
@@ -463,6 +465,7 @@ export class IntegrationRequestForm {
   }
 
   protected async send(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.sending()) return;
     this.attempted.set(true);

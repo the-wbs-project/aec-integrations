@@ -34,6 +34,7 @@ import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { fieldOverrideLabel } from '../../vendor/components/field-override-labels';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One record the form can correct: the company, a product, or a held integration. */
 export interface CorrectableRecord {
@@ -100,7 +101,7 @@ interface TermOption {
  */
 @Component({
   selector: 'aec-admin-field-corrections',
-  imports: [DatePipe, NewTabIcon],
+  imports: [AecFormSubmit, DatePipe, NewTabIcon],
   templateUrl: './admin-field-corrections.html',
 })
 export class AdminFieldCorrections {

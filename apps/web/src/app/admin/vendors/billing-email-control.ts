@@ -21,6 +21,7 @@ import {
   FIELD_INPUT_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AdminLicensesApi } from './admin-licenses-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The billing email on the admin Billing tab (AECI-1381; decision 16 of
@@ -74,7 +75,7 @@ import { AdminLicensesApi } from './admin-licenses-api';
         </button>
       </div>
     } @else {
-      <form class="space-y-3" (submit)="submit($event)" novalidate>
+      <form method="dialog" class="space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label
             class="sr-only"
@@ -169,6 +170,7 @@ export class BillingEmailControl {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

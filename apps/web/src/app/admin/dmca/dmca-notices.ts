@@ -26,6 +26,7 @@ import {
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminDmcaApi } from './admin-dmca-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The form's values. Dates are `YYYY-MM-DD` (UTC), and `''` means empty. */
 export interface DmcaDraft {
@@ -515,6 +516,7 @@ export class AdminDmcaNotices {
   }
 
   protected async save(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const editing = this.editing();
     if (!editing || !this.complete() || this.saving()) return;
