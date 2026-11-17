@@ -35,6 +35,8 @@ import {
 import { ReviewStatusBadge } from './review-status-badge';
 import { ReviewUpdatePanel } from './review-update-panel';
 import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
+import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -71,6 +73,7 @@ const REVIEWS_PER_PAGE = 24;
   selector: 'aec-account-page',
   imports: [
     AecButton,
+    AecCard,
     DatePipe,
     FormField,
     RouterLink,
@@ -136,6 +139,10 @@ export class AccountPage {
   protected readonly aboutStatus = signal('');
   private readonly aboutForm = viewChild(ProfileDetailsForm);
   /** Show the onboarding card while the server still reports `pending`. */
+  /** The display-name field and its error: the shared field recipe (AECI-1806). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+
   /** The `lg` section nav's links (AECI-987). Plain anchors with absolute hrefs. */
   protected readonly navLinkClass =
     'block rounded-sm py-1.5 ps-4 font-medium text-(--text-secondary) no-underline ' +

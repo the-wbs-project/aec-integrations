@@ -29,6 +29,7 @@ import {
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
 import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
@@ -71,7 +72,7 @@ export function welcomeNextPath(raw: string | null): string {
  */
 @Component({
   selector: 'aec-welcome-page',
-  imports: [AecButton, ProfileDetailsForm],
+  imports: [AecButton, AecCard, ProfileDetailsForm],
   template: `
     <!-- AECI-987: the 7xl canvas with the form + context rail. From lg the header
          and the form sit in columns 1 to 7 and the rail docks in 9 to 12. Below lg
@@ -83,23 +84,18 @@ export function welcomeNextPath(raw: string | null): string {
     >
       <div class="lg:grid lg:grid-cols-12 lg:gap-x-12">
         <div class="min-w-0 lg:col-span-7 lg:col-start-1 lg:row-start-1">
-          <p
-            class="text-xs tracking-[0.14em] text-(--text-secondary) uppercase"
-            i18n="@@welcome.eyebrow"
-          >
-            Welcome
-          </p>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@welcome.eyebrow">Welcome</p>
           <h1
             #title
             id="welcome-title"
             tabindex="-1"
-            class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
+            class="mt-3 focus:outline-none"
             i18n="@@welcome.title"
           >
             Tell us about yourself
           </h1>
           <p
-            class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-4 max-w-prose text-t-16 leading-relaxed text-(--text-secondary)"
             i18n="@@welcome.lede"
           >
             A few questions about where you work. Reviewers get their review forms filled in from
@@ -109,7 +105,7 @@ export function welcomeNextPath(raw: string | null): string {
 
         <!-- Static copy only. Sticky on the grid child, whose area spans both rows. -->
         <aside
-          class="mt-8 min-w-0 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          class="mt-8 min-w-0 rounded-panel border bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
           aria-labelledby="welcome-rail-heading"
           data-testid="context-rail"
         >
@@ -165,11 +161,7 @@ export function welcomeNextPath(raw: string | null): string {
               </button>
             </div>
           } @else {
-            <form
-              class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-              novalidate
-              (submit)="$event.preventDefault(); onSave()"
-            >
+            <form aecCard class="mt-10" novalidate (submit)="$event.preventDefault(); onSave()">
               <div class="space-y-6 p-6 sm:p-8">
                 <div class="space-y-1.5">
                   <label
@@ -213,7 +205,7 @@ export function welcomeNextPath(raw: string | null): string {
 
                 @if (saveFailed()) {
                   <p
-                    class="text-sm font-semibold text-(--text-primary)"
+                    class="text-t-14 font-semibold text-(--text-primary)"
                     role="alert"
                     i18n="@@welcome.saveFailed"
                   >
