@@ -437,9 +437,9 @@ export class RequestFormBody implements OnInit {
         this.analytics.correctionRequested(payload);
       }
     } catch (err) {
-      // Surface the failure as a notice, not a form error — returning a
-      // `ValidationError` here would mark the form invalid and disable the
-      // submit button, blocking the retry the message invites.
+      // Surface the failure as a notice, not a form error. A `ValidationError`
+      // here would mark the form invalid, so the next press would stop at the
+      // invalid check and never retry the send the message invites.
       if (this.kind() === 'claim' && isAcceptedTermsRejection(err)) {
         // AECI-1366: the box's own error, and focus on the box.
         this.termsRejected.set(true);
