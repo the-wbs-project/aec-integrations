@@ -2,9 +2,8 @@ import { Component, ElementRef, computed, input, viewChild } from '@angular/core
 import { RouterLink } from '@angular/router';
 
 import type {
+  AgreementState,
   ContextDirection,
-  FieldCaption,
-  FieldCorrection,
   IntegrationMechanismKind,
   ProductIntegrationItem,
   ProductLink,
@@ -15,14 +14,13 @@ import {
   dataObjectCountLabel,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { newestCorrection } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
-import { routeIntegrationLane } from './connector-lane-grouping';
+import { AgreementBadge } from './agreement-badge';
+import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-grouping';
 import { AecIcon } from '../shared/icon/icon';
 import { Chip } from '../shared/chip/chip';
 
@@ -84,11 +82,10 @@ import { Chip } from '../shared/chip/chip';
  * row is forwarded to it by `forwardRowClick`. A click on the partner-product
  * link keeps its own destination. Two sibling links, zero nesting.
  *
- * **The field caption (AECI-1614)** sits under the meta line in the partner cell, at every
- * width, so it adds no column and the 34rem table floor (§13.3a) is untouched: it wraps
- * inside the cell. The corrected field may not be visible on a row, so a correction here is
- * one generic line. The pair page shows each correction beside its value. A click on the
- * source link keeps its own destination, like the partner link.
+ * **No field caption on a row** (AECI-1666 ruling 2). The row's "Maintained by" and
+ * correction lines sat under the meta line from AECI-1614 until then. The pair page's
+ * "About this listing" panel carries them, and the product page's panel says so. The
+ * row's `caption` and `corrections` stay on the wire, unread here.
  *
  * **Not a stretched overlay link.** The row used to be an `absolute inset-0`
  * overlay against a `relative` `<tr>`. Safari before 27 ignores
@@ -100,7 +97,7 @@ import { Chip } from '../shared/chip/chip';
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [AecIcon, FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker, Chip],
+  imports: [AecIcon, AgreementBadge, RouterLink, LogoOrInitial, UnderReviewMarker, Chip],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -132,6 +129,12 @@ import { Chip } from '../shared/chip/chip';
             class="-my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
+          <!-- AECI-1720: the partner's vendor, as the card prints it (mock-up 6). -->
+          @if (vendorLine(); as line) {
+            <span class="text-xs font-normal text-(--text-secondary)" data-testid="row-vendor">{{
+              line
+            }}</span>
+          }
           <!-- The meta line under the partner name. Direction lives here at
                every width (AECI-853); the mechanism joins it only below md,
                where the Connection <td> is hidden. Tertiary at rest (4.83:1 on
@@ -183,15 +186,6 @@ import { Chip } from '../shared/chip/chip';
               <span class="md:hidden" data-testid="row-data-objects-sublabel">{{ objects }}</span>
             }
           </span>
-          @if (rowCaption() || rowCorrection()) {
-            <aec-field-caption
-              class="mt-1 font-normal"
-              [caption]="rowCaption()"
-              [correction]="rowCorrection()"
-              [label]="rowCorrectionLabel()"
-              [page]="captionPage()"
-            />
-          }
           <!-- AECI-1238 (§11d.7): a value AECi hid on this row while it checks it. The
                field may not render on a row, so each line names it. -->
           @for (entry of rowUnderReview(); track entry.field) {
@@ -199,6 +193,24 @@ import { Chip } from '../shared/chip/chip';
           }
         </span>
       </span>
+    </td>
+    <!-- AECI-1720: the partner's categories, as on the card (mock-up 6's table). From lg
+         only, so the table's 34rem floor below lg is unchanged. -->
+    <td class="hidden px-4 py-3 lg:table-cell" data-testid="row-categories">
+      @if (integration().partner_categories.length > 0) {
+        <ul class="flex flex-wrap gap-1.5">
+          @for (category of integration().partner_categories; track category.slug) {
+            <li>
+              <aec-chip density="dense">{{ category.name }}</aec-chip>
+            </li>
+          }
+        </ul>
+      } @else {
+        <span class="text-(--text-secondary)" aria-hidden="true">–</span>
+        <span class="sr-only" i18n="@@products.detail.body.integrations.group.uncategorised"
+          >No category on record</span
+        >
+      }
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
@@ -242,6 +254,10 @@ import { Chip } from '../shared/chip/chip';
         }
         @if (integration().mechanism_name; as name) {
           <span class="text-xs text-(--text-secondary)">{{ name }}</span>
+        }
+        <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1). -->
+        @if (rowAgreement(); as agreement) {
+          <aec-agreement-badge class="mt-1" [agreement]="agreement" />
         }
       </span>
     </td>
@@ -293,10 +309,14 @@ export class ProductIntegrationRow {
   /** The union of the collapsed edges' `data_object_slugs` (AECI-711). Same
    *  `undefined` sentinel: unset means "read `integration()`". */
   readonly mergedDataObjectSlugs = input<readonly string[] | undefined>(undefined);
-  /** The collapsed edges' newest caption and all their corrections (AECI-1614). Same
-   *  `undefined` sentinel: unset means "read `integration()`". */
-  readonly mergedCaption = input<FieldCaption | null | undefined>(undefined);
-  readonly mergedCorrections = input<readonly FieldCorrection[] | undefined>(undefined);
+  /** The collapsed edges' agreement (`IntegrationLaneRow.agreement`). Same sentinel. */
+  readonly mergedAgreement = input<AgreementState | null | undefined>(undefined);
+
+  /** The agreement label the card shows for the same row. */
+  protected readonly rowAgreement = computed(() => {
+    const merged = this.mergedAgreement();
+    return merged === undefined ? this.integration().agreement : merged;
+  });
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -329,42 +349,13 @@ export class ProductIntegrationRow {
     ),
   );
 
-  protected readonly rowCaption = computed(() => {
-    const merged = this.mergedCaption();
-    return merged === undefined ? (this.integration().caption ?? null) : merged;
-  });
-
-  protected readonly rowCorrection = computed(() =>
-    newestCorrection(this.mergedCorrections() ?? this.integration().corrections),
-  );
-
-  /**
-   * AECI-1628: a removal names its field. A bare "Removed by AEC Integrations" on a row
-   * would read as if the integration itself was removed. A value-setting correction
-   * stays the one generic, unlabelled line.
-   */
-  protected readonly rowCorrectionLabel = computed(() => {
-    const correction = this.rowCorrection();
-    return correction?.cleared ? fieldOverrideLabel(correction.field) : null;
-  });
-
   /** AECI-1238 (§11d.7): the fields AECi hid on this row, each with its label. */
   protected readonly rowUnderReview = computed(() =>
-    (this.integration().under_review ?? []).map((field) => ({
+    rowUnderReviewFields(this.integration()).map((field) => ({
       field,
-      label: fieldOverrideLabel(field),
+      label: correctionLabel(field),
     })),
   );
-
-  /** The page's product is whichever endpoint is not the partner. */
-  protected readonly captionPage = computed<FieldCaptionPage>(() => {
-    const { source, target } = this.integration();
-    return {
-      surface: 'product_detail',
-      entityType: 'product',
-      entityId: source.id === this.other().id ? target.id : source.id,
-    };
-  });
 
   /** The same router the section splits lanes with, so the row and its lane
    *  cannot disagree about which lane it is in. */
@@ -385,6 +376,14 @@ export class ProductIntegrationRow {
   protected onRowClick(event: MouseEvent): void {
     forwardRowClick(event, this.rowLink()?.nativeElement);
   }
+
+  /** "by {vendor}", the card's own message, or `null` with no vendor on record. */
+  protected readonly vendorLine = computed(() => {
+    const vendor = this.integration().partner_vendor_name;
+    return vendor
+      ? $localize`:@@products.detail.integrations.card.byVendor:by ${vendor}:VENDOR:`
+      : null;
+  });
 
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
   // so the pair link has a real accessible name naming the partner.

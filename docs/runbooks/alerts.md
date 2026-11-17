@@ -1224,9 +1224,10 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
+Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
 telemetry tripwires —
-AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
+AECI-868's `arrival_cf_coverage`, AECI-876's `landing_cf_coverage` and AECI-1715's
+`browser_evidence_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
 triage. The email digest to the support inbox (`support@aecintegrations.com`) carries the offending rows.
@@ -1268,8 +1269,20 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > unusable: say so in the health report rather than charting across the gap
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
 
+> **`algolia_unclaimed_logo` means search shows a logo counsel's ruling 9 keeps off it** (AECI-1867).
+> Each line names an index and the slug of an unclaimed product or vendor whose record still
+> carries a `logo_url`. The record builders already null the field, so the record is stale: the
+> nightly sync only re-pushes rows whose `updated_at` moved. Do not edit D1 to bump `updated_at`.
+> Reset that entity's watermark (`SEARCH_RANKING.md` §1.2) and let the next 08:00 UTC sync rebuild
+> the records without emptying the index. Check the repair with
+> `scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`. If it recurs after a sweep, a write
+> path changed a claim without stamping `updated_at` on the vendor and its products. Find that writer.
+
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
+
+> **`browser_evidence_coverage` means the browser report path is broken.** It has its own entry
+> below: [Browser evidence coverage](#browser-evidence-coverage).
 
 **First checks**
 
@@ -1304,8 +1317,61 @@ not the row — `promotion_status_invariant`, `arrival_cf_coverage` and `landing
 above. The third is `warn`, so it never reaches this alert at all; read it on `/admin/system` or in the
 digest. It means new `mailing_list` rows are losing their network metadata on the SSR `/api/*`
 passthrough — check `withForwardedLandingCf`, and note the path is a POST, so the AECI-868 cache-gateway
-`cf` override is not the cause. A no-data/liveness failure is a Worker scheduling issue — escalate to
+`cf` override is not the cause. `browser_evidence_coverage` is diagnosed at the report path too; see
+[Browser evidence coverage](#browser-evidence-coverage) below. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+### Browser evidence coverage
+
+**Check:** `browser_evidence_coverage`, severity `warn` (AECI-1715, epic AECI-1711). It never pages.
+Read it on `/admin/system` or in the digest.
+
+**What it measures.** The share of the previous UTC day's Turnstile-pass arrivals that carry a
+browser report (`page_views.browser_evidence` is `ran` or `interacted`). The population is
+`ssr-arrival` rows with `turnstile_verdict = 'pass'`, `privacy_signal = 0`, and a known country
+outside the held regions (`isHeldRegionCountry` in `@aeci/shared`). Privacy-signal and held-region
+rows are "not collected", so they are in neither number.
+
+**Why Turnstile pass is the denominator.** A pass proves our page script ran in that page load. So
+every row in the population should have sent its report. A gap there is the report path failing,
+not visitors declining. Raw arrivals would be the wrong base: crawlers that never run the script
+would read as a broken path.
+
+**Starting values, not rulings.** AECI-1715 records the first production reading, and these move
+to fit it.
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `BROWSER_EVIDENCE_COVERAGE_MIN` | `0.8` | Fires below this share |
+| `BROWSER_EVIDENCE_COVERAGE_MIN_ROWS` | `20` | Below this many rows, "nothing to measure" and a pass |
+
+**Not applicable.** On a tier whose API var `BROWSER_EVIDENCE_ENABLED` is not `"true"`, the check
+reports *Skipped*. Production reads *Skipped* until Privacy Policy 1.1 is in force and capture is
+switched on (`docs/environments.md` "Browser report check per tier").
+
+**What a firing means.** Pages loaded and Turnstile passed, but the report did not land on the row.
+Something on the report path is broken. Look at these first, in this order:
+
+1. **The flag.** The SSR Worker's `BROWSER_EVIDENCE_ENABLED` must match the API's on that tier. If
+   the web var is off, the browser never sends a report. Check `GET /_version` and
+   `GET /api/version` for the live builds.
+2. **The ray stamp.** The browser reads the page load's Ray ID from the gateway's
+   `Server-Timing: cfray` entry. Load a page with devtools open and read the response's
+   `Server-Timing`. The Turnstile verdict joins on the same ray, so a lost stamp empties both
+   numbers. The check then reads "nothing to measure", not a firing. A busy tier that reads
+   "nothing to measure" is a sign to start here.
+3. **The endpoint.** `POST /api/page-views/browser-evidence` answers 204 to any well-formed body,
+   matched or not, and runs the UPDATE in `waitUntil`. So a 204 does not prove the row moved. Read
+   Workers Logs for 400s and for errors from the deferred UPDATE.
+4. **The rate-limit bucket.** The endpoint shares the `token` bucket's `page-views` sub-budget,
+   keyed by IP, with the Turnstile verdict post. A 429 drops the report. A trip counts as
+   `bucket:token` like any other, so the warn log's `path` tells the two counters apart. `docs/waf-rate-limits.md` §6.4 says which layer
+   stopped it.
+5. **A client regression.** A web release that broke the tracker. Compare the firing day with the
+   web deploys, and check the browser console on a fresh page load.
+
+**Repair.** Nothing repairs the lost rows: a report that never arrived cannot be rebuilt. Fix the
+path, then say in the health report that the day's human floor is low by the gap.
 
 ## Cron runs missing or stuck in flight on `/admin/system`
 
@@ -1526,7 +1592,8 @@ why the job verifies a `metrics_daily` row exists for *every* day inside its cut
 deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
 
 `metrics_daily`, `audit_log`, `workflow_instances` and `workflow_transitions` are never touched
-(§26.6 / §7.4 rule 3), asserted by test rather than by comment.
+by this prune (§26.6 / §7.4 rule 3), asserted by test rather than by comment. The separate legal
+prune below deletes old `audit_log` rows.
 
 Since AECI-1228 the job also copies each `page_views` day to the permanent R2 archive first, and
 refuses the whole run if a day in the cut window is not confirmed there (§7.4 rule 5). The gate is on
@@ -1613,6 +1680,54 @@ wrangler d1 execute aeci-app-production --env production --remote --command \
 ```
 
 If step 2 returns any rows, the prune will skip — backfill those days first (First checks 1).
+
+### The legal retention prune (AECI-1638)
+
+The same 03:00 tick enqueues a second job, `legal-retention-prune`, on `RECONCILE_QUEUE`
+(`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). It deletes `audit_log` rows older than four
+years, except the exempt actions (`retention.pruned`, `litigation_hold.*`, `agreement.*`, `terms.*`,
+`account.deleted`). It also deletes agreement acceptances and subscription grants six years after the
+vendor account ends, or five years after a grant ends if later. It writes one `retention.pruned` row
+per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
+Nothing falls due before about 2030.
+
+**Metrics:**
+- `aeci.legal_retention.prune{outcome:ok|skipped|failed}`: one heartbeat per run, the liveness
+  signal (`legal-retention-prune`, 26 h, in the CI sweep). On `ok`, `audit:paused` means an open
+  vendor hold kept the audit part from running, and `replanned:true` means the first plan lost a
+  race and the run replanned at once. On `skipped`, `reason:litigation_hold` means a global hold
+  is open, and `reason:concurrent_run` means the plan lost a race twice in a row: another run of
+  the job, or a hold, reclaim or license landing mid-run. Nothing was deleted, no failure email
+  went out, and the next night plans from scratch. `failed` is only ever a crash.
+- `aeci.legal_retention.rows_deleted{table}`: rows removed from `audit_log`,
+  `agreement_acceptances`, `license_grants` and `litigation_holds` (holds released four years
+  ago), every run, zeros included.
+- `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, 200
+  acceptances, 200 grants). The next night continues.
+
+**Skipped is expected while a global hold is open.** Check `/admin/legal` "Litigation holds". If no
+matter needs the hold any more, release it there (`docs/runbooks/legal.md` "Litigation hold
+notice"). If the hold is right, do nothing: the job keeps reporting `skipped`.
+
+**Two runs at once.** The queued run and an inline fallback can both run when `queue.send`
+was accepted but its answer failed. Every delete in the batch has a commit-time count sentinel,
+so the run that commits second aborts, replans, finds nothing due and writes no
+`retention.pruned` row. Only one run ever records the deletes. A `skipped` with
+`reason:concurrent_run` needs no action unless it repeats for several nights.
+
+**Failed.** The batch is atomic, so nothing was deleted. It is a D1 or code fault: read the
+`aeci.legal_retention.crashed` log line and the `job_runs` row on `/admin/system`. The queue
+retries it with a fresh plan.
+
+**The hold reminder.** Before it prunes, the job emails `litigation-hold-reminder` for each hold
+open more than 90 days, at most every 30 days per hold. `job_runs.detail.reminders` counts the
+holds due and each send's outcome. A `aeci.legal_retention.hold_reminder_failed` warning means the
+ledger read failed and nothing was sent; the next night tries again. What to do with the email is
+in `docs/runbooks/legal.md` "Litigation hold notice".
+
+**A deletion to check after the fact.** The run's audit row holds every acceptance and grant id it
+deleted. The acceptance chain export writes a tombstone for each, and the verify accepts it because
+that row names it (ADR 0057).
 
 ## WAF rate-limit / challenge spike
 
@@ -1945,8 +2060,9 @@ Two windows left orphans that no log or metric recorded. Before AECI-530 no depl
 had the key, so every erasure was skipped. Before AECI-531 a skip logged nothing. That set is
 found only by reconciliation:
 
-1. Read every production erasure. `audit_log` is never pruned
-   (`apps/api/src/lib/retention-prune.ts`), so this list is complete. Staging and demo
+1. Read every production erasure. The legal retention prune never deletes an
+   `account.deleted` row (AECI-1638, `apps/api/src/lib/legal-retention-prune.ts`), so this list
+   is complete. Staging and demo
    erasures are not orphans. Since AECI-1468 those tiers keep the shared login on purpose.
 
 ```bash
@@ -2380,6 +2496,35 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 6. A new cron trigger takes about 15 minutes to propagate after a deploy.
 
 To read a snapshot, use `legal.md` "Pull the ranking evidence for a product".
+
+## Acceptance chain export (AECI-1680)
+
+Use this when `aeci.acceptance_chain.run` reports `outcome:failed`, the liveness sweep says `acceptance-chain` is missing, `aeci.acceptance_chain.timestamp_failed` appears in the logs two nights running, or `ops:verify-acceptance-chain` reports a failure.
+
+What the job does: once a day at 18:00 UTC it fingerprints every `agreement_acceptances` and `license_grants` row, writes the new and changed fingerprints and a tombstone per deleted row to the `UPLOADS` bucket as `evidence/acceptance-chain/<seq>.json`, checks it with `head`, and records it in `acceptance_chain_exports`. Then it asks DigiCert for an RFC 3161 timestamp, verifies the signed reply in the Worker, and stores the token beside the file as `.tsr`. A reply that fails verification is never stored, because the lock would make it permanent. A file is written every night, even with no changes. ADR 0057, `DATABASE_SCHEMA.md` §9.17.
+
+1. Check the last run. `/admin/system` shows the `acceptance-chain` row. A `failed` row names the reason. The queue retries a failed message three times. A retry is safe: a file already in R2 is adopted, never overwritten.
+2. A `timestamp_failed` log line does not fail the run. The file is written and `tsa_status` is `failed`. Each run retries the 7 newest files that lack a token. List the files still without one:
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT seq, day, tsa_status FROM acceptance_chain_exports WHERE tsa_status <> 'granted' ORDER BY seq DESC"
+```
+
+3. The limit is 7 outstanding files per run, newest first, with no age cutoff. A file more than 7 seqs back is still retried once it is among the 7 newest outstanding files. A late token proves the file existed at that later time, so tell Chris if a gap persists. The DigiCert endpoint is `http://timestamp.digicert.com`.
+4. Read the `reason` on the `timestamp_failed` line. `fetch:` and `http_` reasons are the network or DigiCert, and the backfill clears them. A reason starting `rejected pki_status=0 reason=` means DigiCert's reply failed the Worker's check, and no token was stored. `reason=unpinned_issuer` on every night means DigiCert rotated its timestamping intermediate. Fix it this way:
+   1. Fetch the new intermediate from the CA Issuers URL in the responder certificate of a fresh reply.
+   2. Append it to `apps/api/scripts/certs/digicert-tsa-chain.pem` with its subject, source and SHA-256 fingerprint. The file's header shows the format.
+   3. Add its base64 SPKI to `PINNED_TSA_ISSUERS` in `apps/api/src/lib/rfc3161.ts`. `rfc3161.spec.ts` fails until the two lists match.
+   4. Deploy. Each run's backfill then retries the files that lack a token.
+
+   Any other `reason=` value, such as `signature_invalid`, `nonce_mismatch` or `digest_mismatch`, on more than one night means a reply was altered or DigiCert broke. Tell Chris.
+5. `adopt_conflict` in a failed run means an object already sits at the next key and does not continue the chain. Stop. Do not delete it. Run the verify and tell Chris.
+6. `put_refused`, a thrown R2 error, or `head_mismatch` is the bucket. Fix the cause and let the queue retry.
+7. Never delete or edit a row in `acceptance_chain_exports` or `acceptance_chain_rows`. The verify reconstructs its evidence from R2, but reads the export ledger's `MAX(seq)` as a minimum walk length. Ledger damage can cause re-exports or verification failures. A lowered `seq` makes the next run find an existing file: it adopts one that continues the chain and stops with `adopt_conflict` otherwise. Tell Chris before attempting ledger recovery.
+8. The R2 lock is an operator step. If the verify reports `LOCK MISSING`, apply it from `docs/environments.md` "Acceptance chain lock".
+9. A new cron trigger takes about 15 minutes to propagate after a deploy.
+
+To prove one acceptance, use `legal.md` "Prove an acceptance was not edited".
 
 ## Runbooks kept in other files
 

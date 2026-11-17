@@ -410,6 +410,14 @@ webhook and has neither. A signed-deal acceptance has neither, because the admin
 it. The Privacy Policy keeps the signer's name, title and company legal name, the email, time and version for the life of the vendor account plus six years, or five years after a granted subscription ends if later (item 13.5, ruling 17), and promises the IP and user agent are deleted 90 days after acceptance (ruling 11). *As built 2026-11-10 (AECI-1636):* the daily `acceptance-evidence-removal` job at 17:00 UTC nulls `ip` and `user_agent` on every acceptance more than 90 days old, claim and portal grant rows alike, and stamps `evidence_removed_at`. The signer fields, email, time and version stay. Each batch writes one `agreement.evidence_removed` audit row. The owner's Billing tab never showed either field. The admin Billing tab reads "Removed after 90 days" in the IP column (`DATABASE_SCHEMA.md` §8.6d). A one-hour lawyer read before the first
 paid subscription is recommended. This document is not legal advice.
 
+*As built 2026-11-17 (AECI-1680, ruling 15, ADR 0057).* The acceptance store is now tamper-evident.
+Each night at 18:00 UTC a job writes the fingerprint (a SHA-256 hash) of every new or changed
+acceptance and grant row to a hash-chained file in R2, under a bucket lock, and DigiCert timestamps
+each file. The file holds fingerprints, ids and fields that are not personal, never the rows. The IP
+address and browser are left out of the fingerprint, so the 90-day removal still holds.
+`ops:verify-acceptance-chain` shows whether any row was edited after it was exported
+(`docs/runbooks/legal.md` "Prove an acceptance was not edited", `DATABASE_SCHEMA.md` §9.17).
+
 *As built, AECI-1366 (2026-10-15).* The box linked `/legal/vendor-terms` (AECI-1617 below changed its words). It is required on every claim form, including a typed-in
 listing request, whose acceptance names the `listing_requests` row (`listing_request_id`, migration
 0078) because there is no claim. The server stamps the version, IP and user agent. The email receipt
@@ -454,7 +462,7 @@ If the webhook missed it, the daily reconcile writes the same row through the sa
 - **Text hash.** `text_sha256` is the SHA-256 of that version's Markdown, from `LEGAL_AGREEMENT_TEXT_SHA256`. The API Worker cannot read the Markdown, so the constant carries it. `agreement-text-hash.spec.ts` recomputes every value from the files and fails on drift.
 - **Other fields.** `license_grant_id`, `grant_ends_at` and `seat_role` (`owner`, or NULL on a signed deal). A signed deal adds `deal_reference` and `deal_signed_at`, with the signer's name, role and the company legal name in the signer columns. The signer on a portal accept is `loadCheckoutSigner`, as at checkout.
 - **The checkbox shown (ruling 16, Chris 2026-11-10).** Every acceptance row stores `checkbox_label_sha256`, the SHA-256 of the exact box label, and `checkbox_default_unticked`. The labels are `AGREEMENT_CHECKBOX_LABELS` in `packages/shared`. A claim writes the vendor terms label, and checkout and the portal accept write the Managed plan sentence. All three write unticked = 1. A claim confirmed under an older vendor terms version writes NULL for both, because its submit may have shown an older label. A signed deal has no box and writes NULL for both (`DATABASE_SCHEMA.md` §8.6d).
-- **Retention.** No prune deletes an acceptance or a grant (`NEVER_PRUNED` in `lib/retention-prune.ts`). A grant acceptance is kept at least five years from the day the grant's last subscription ends, by lapse, revoke, release or Terminate, whichever comes first. The scheduled `ends_at` alone does not set it. A grant never accepted is kept five years from its withdraw or expiry (counsel Q5(c)).
+- **Retention.** Only the legal retention prune deletes an acceptance or a grant (AECI-1638, `lib/legal-retention-prune.ts`, ADR 0058). An acceptance is kept six years after the vendor account ends: `claim_ended_at` set and no live license, from the later of the two ends. A grant acceptance is also kept at least five years from the day the grant's last subscription ends, by lapse, revoke, release or Terminate, whichever comes first. The scheduled `ends_at` alone does not set it. A grant never accepted is kept five years from its withdraw or expiry (counsel Q5(c)). An open litigation hold on `/admin/legal` keeps them longer (`DATABASE_SCHEMA.md` §8.6d).
 - **Where it shows.** Both acceptance tables label the row "Grant". The owner's tab adds "accepted in the portal" or "by signed deal". The admin tab has Method and Grant columns.
 
 *As built 2026-11-11 (AECI-1619, counsel Q14, ruling 16).* Every acceptance row now records what the vendor was shown beside the box, in plain text (`DATABASE_SCHEMA.md` §8.6d, migration `0118`).

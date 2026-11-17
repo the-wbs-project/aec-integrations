@@ -25,6 +25,27 @@ describe('HomeTrustPillars', () => {
     ]);
   });
 
+  it('puts the three commitments in one Forest feature card (ruling 2026-11-17)', () => {
+    const h = setup();
+    const forest = h.querySelectorAll('[class*="bg-(--accent-primary)"]');
+    expect(forest).toHaveLength(1);
+    const card = forest[0];
+    expect(card.getAttribute('data-testid')).toBe('about-trust-card');
+    // The home "What we do instead" recipe: a card, never a band.
+    for (const c of ['aec-card', 'rounded-card', 'shadow-card', 'text-(--text-on-brand)']) {
+      expect(card.classList).toContain(c);
+    }
+    // All three points live inside the card, split by on-brand hairlines.
+    const points = Array.from(card.querySelectorAll('li'));
+    expect(points).toHaveLength(3);
+    for (const li of points) expect(li.classList).toContain('aec-on-brand-rule');
+    // No control on the card: the pillars have no link today.
+    expect(card.querySelectorAll('a, button')).toHaveLength(0);
+    // The head row and the closing line stay on white, outside the card.
+    expect(card.querySelector('h2')).toBeNull();
+    expect(card.textContent).not.toContain('We will earn revenue');
+  });
+
   it('is a static band — no rotation, no controls', () => {
     const h = setup();
     // All content present at once; no single-slide panel and no buttons to drive.

@@ -1,5 +1,6 @@
 /**
- * The twenty-seven cron expressions the API Worker is triggered on, in one place.
+ * The twenty-eight cron expressions the API Worker is triggered on, in one place. Since
+ * AECI-1638 they drive twenty-nine jobs: `RETENTION_CRON` starts two.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +12,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-seven, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-eight, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -82,7 +83,14 @@ export const SNAPSHOT_CRON = '15 0 * * *';
  *  landed rather than trusting the schedule), and it keeps the prune an hour
  *  clear of the 04:00 data-quality suite. Queue-less: a skipped or truncated run
  *  is simply re-attempted tomorrow, and automatic retries are the last thing a
- *  destructive job should have. */
+ *  destructive job should have.
+ *
+ *  **Two jobs, one expression (AECI-1638).** The same tick then enqueues the legal
+ *  retention prune (`legal-retention-prune`, `lib/legal-retention-prune.ts`) on
+ *  `RECONCILE_QUEUE`. `scheduled.ts` matches this string once and its case starts both
+ *  jobs, so they cannot drift apart. The legal prune is queued, unlike the 400-day one,
+ *  because each run is one atomic batch bounded by its cutoff and guarded by sentinels:
+ *  a retry re-plans against the current state and cannot over-delete (ADR 0058). */
 export const RETENTION_CRON = '0 3 * * *';
 
 /** Daily §23.1 data-quality suite (AECI-241 / Phase 7.6). 04:00 UTC — the §23.1
@@ -130,8 +138,8 @@ export const RECONCILE_CRON = '*/15 * * * *';
  *  then purges the `sitemap` edge tag once. A clean tick costs two KV reads.
  *
  *  **Why its own expression.** The issue asked for the existing `*` `/15` slot, but
- *  two jobs can never share an expression: `scheduled.ts` switches on the raw
- *  `controller.cron` string. The 7-minute offset also keeps it out of the minute-0
+ *  two switch cases can never share an expression: `scheduled.ts` switches on the raw
+ *  `controller.cron` string. (One case may start two jobs, as `RETENTION_CRON` does.) The 7-minute offset also keeps it out of the minute-0
  *  daily slots, so the 05:00 backstop that marks it dirty is rebuilt at 05:07.
  *  Queue-backed on `RECONCILE_QUEUE`, which already dispatches on `message.job`. */
 export const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
@@ -141,10 +149,10 @@ export const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
  *  `plan_change_snapshots` to R2 under `evidence/plan-snapshots/`, so a plan start or
  *  end is snapshotted within about 15 minutes, and its follow-up 30 days later.
  *
- *  **Why its own expression.** Two jobs can never share one (`scheduled.ts` switches on
- *  the raw `controller.cron`), and minute 11 is clear of the `*` `/15`, `7-59/15` and
+ *  **Why its own expression.** Two switch cases can never share one (`scheduled.ts`
+ *  switches on the raw `controller.cron`), and minute 11 is clear of the `*` `/15`, `7-59/15` and
  *  minute-0 slots. The account cap is 250 cron triggers on Workers Paid, and this Worker
- *  declares 27 per tier, 81 across its three tiers. Queue-backed on `RECONCILE_QUEUE`,
+ *  declares 28 per tier, 84 across its three tiers. Queue-backed on `RECONCILE_QUEUE`,
  *  which already dispatches on `message.job`. A retry is safe: a written row is no
  *  longer due, and an object already in R2 is adopted, never overwritten. */
 export const PLAN_SNAPSHOT_CRON = '11-59/15 * * * *';
@@ -422,6 +430,21 @@ export const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
 export const ACCEPTANCE_EVIDENCE_REMOVAL_CRON = '0 17 * * *';
 
 /**
+ * Daily acceptance chain export (AECI-1680, ADR 0057; `DATABASE_SCHEMA.md` §9.17).
+ * **18:00 UTC**, the next free daily slot after the 17:00 acceptance evidence removal, so
+ * a night's file already carries that day's removals. It writes the SHA-256 fingerprints
+ * of every `agreement_acceptances` and `license_grants` row that changed to the `UPLOADS`
+ * bucket under `evidence/acceptance-chain/`, hash-chained to the previous night's file,
+ * and asks DigiCert for an RFC 3161 timestamp of the file.
+ *
+ * Queue-backed on `RECONCILE_QUEUE`, the `plan_snapshot` precedent: the consumer
+ * dispatches on `message.job`, so nothing new is provisioned. A retry is safe: a file
+ * already in R2 is adopted, never overwritten, and the ledger's `seq` primary key refuses
+ * a second row for one night.
+ */
+export const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -454,6 +477,10 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'brand-asset-removal': BRAND_ASSET_REMOVAL_CRON,
   'acceptance-evidence-removal': ACCEPTANCE_EVIDENCE_REMOVAL_CRON,
   'plan-snapshot': PLAN_SNAPSHOT_CRON,
+  'acceptance-chain': ACCEPTANCE_CHAIN_CRON,
+  // AECI-1638: no trigger of its own. The 03:00 `RETENTION_CRON` case enqueues it after
+  // the 400-day prune, so it shares that expression (`scheduled.ts`).
+  'legal-retention-prune': RETENTION_CRON,
 };
 
 /**
@@ -494,6 +521,8 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   brand_asset_removal: 'brand-asset-removal',
   acceptance_evidence_removal: 'acceptance-evidence-removal',
   plan_snapshot: 'plan-snapshot',
+  acceptance_chain: 'acceptance-chain',
+  legal_retention: 'legal-retention-prune',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -512,6 +541,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'stripe-reconcile',
   'asn-registry',
   'retention-prune',
+  'legal-retention-prune',
   'data-quality',
   'analytics-digest',
   'moderation-snapshot',
@@ -527,6 +557,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'vendor-claim-nudge',
   'brand-asset-removal',
   'acceptance-evidence-removal',
+  'acceptance-chain',
   'request-reconcile',
   'sitemap-rebuild',
   'plan-snapshot',

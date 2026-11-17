@@ -1955,7 +1955,9 @@ export const licenses = sqliteTable(
  * `items_json` holds the ban-term items (`LicenseGrantItem[]`), `[]` on a `grant`.
  *
  * Domain state: every write carries its `license_grant.*` audit row in the same
- * `db.batch` (ADR 0022). Never pruned (`NEVER_PRUNED` in `lib/retention-prune.ts`).
+ * `db.batch` (ADR 0022). Deleted only by the legal retention prune (AECI-1638,
+ * `lib/legal-retention-prune.ts`): five years after the grant ends and six after the vendor
+ * account ends, with its ids in the run's `retention.pruned` audit row.
  */
 export const licenseGrants = sqliteTable(
   'license_grants',
@@ -2289,7 +2291,10 @@ export const productProposals = sqliteTable(
  * replayed checkout webhook fail its batch instead of writing a second acceptance.
  *
  * Domain state: every insert carries its `agreement.accepted` audit row in the same
- * `db.batch`. Append-only: nothing updates or deletes a row. No `relations()` entry.
+ * `db.batch`. Append-only but for the 90-day evidence sweep (AECI-1636) and the legal
+ * retention prune (AECI-1638, `lib/legal-retention-prune.ts`), which deletes a row six
+ * years after the vendor account ends, or five after its grant ends if later. A row with a
+ * NULL `vendor_id` is never deleted. No `relations()` entry.
  */
 export const agreementAcceptances = sqliteTable(
   'agreement_acceptances',
@@ -2436,6 +2441,136 @@ export const legalVersions = sqliteTable(
     noticeVendorCount: integer('notice_vendor_count'),
   },
   (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
+);
+
+/**
+ * The copyright notice log (AECI-1665, counsel Q38, `DATABASE_SCHEMA.md` §8.14,
+ * `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice we
+ * received. The Terms "Copyright complaints" section promises this log exists, and the
+ * repeat-infringer count on `/admin/users/:id` reads it (`lib/dmca-notices.ts`).
+ *
+ * `kind` is `notice` or `counter_notice`. A counter-notice names the notice it answers in
+ * `notice_id`. A notice has none. `action` is `pending`, `removed`, `disabled` or
+ * `no_action`. The restore clock of a counter-notice is computed by the API from
+ * `received_at`, never stored. `closed_at` starts the three-year retention, whose sweep is
+ * the named follow-up AECI-1905.
+ *
+ * No CHECK on `kind`, `action` or `restore_outcome`, the house rule for enum-like text
+ * (`legal_versions.document` above): Zod owns the vocabulary, and a CHECK change on D1 is a
+ * table recreate (`docs/migrations.md` §0). No FK. `account_id` is a `profiles.id` that the
+ * account-deletion batch nulls and the row stays (`AUTH_AND_RLS.md` §8, ruling 1A of
+ * 2026-11-17). `vendor_id`, `notice_id`, `created_by` and `updated_by` are plain ids too.
+ * The one writer is `routes/admin-dmca-notices.ts`: each insert and update carries its
+ * `dmca_notice.*` audit row in the same `db.batch`. Nothing deletes a row yet. Never public.
+ */
+export const dmcaNotices = sqliteTable(
+  'dmca_notices',
+  {
+    id: uuidPk(),
+    /** `DMCA_NOTICE_KINDS`: `notice` | `counter_notice`. No CHECK. */
+    kind: text('kind').notNull(),
+    /** On a counter-notice: the `dmca_notices.id` of the notice it answers. NULL on a notice. */
+    noticeId: text('notice_id'),
+    /** ISO-8601. The restore clock of a counter-notice counts from it. */
+    receivedAt: text('received_at').notNull(),
+    /** NULL when the notice did not give it: every notice is logged on receipt. */
+    submitterName: text('submitter_name'),
+    /** Email, postal address and phone, as given. NULL when the notice did not give it. */
+    submitterContact: text('submitter_contact'),
+    /** URLs or a description of the material. NULL when the notice did not identify it.
+     *  Required when `action` is `removed` or `disabled` (Zod and the route, no CHECK). */
+    contentIdentified: text('content_identified'),
+    /** On a notice: the copyrighted work claimed. */
+    workClaimed: text('work_claimed'),
+    /** A `profiles.id`, NO FK. Nulled by account deletion; the row stays. */
+    accountId: text('account_id'),
+    /** A `vendors.id`, NO FK. Set when the material is a vendor's logo or screenshot. */
+    vendorId: text('vendor_id'),
+    /** `DMCA_ACTIONS`: `pending` | `removed` | `disabled` | `no_action`. No CHECK. */
+    action: text('action').notNull().default('pending'),
+    /** ISO-8601. When the action was taken. */
+    actionAt: text('action_at'),
+    /** ISO-8601. Notice: the uploader was told. Counter-notice: sent on to the complainant. */
+    forwardedAt: text('forwarded_at'),
+    /** ISO-8601. Counter-notice: the complainant reported a court action. */
+    courtActionAt: text('court_action_at'),
+    /** `DMCA_RESTORE_OUTCOMES`: `restored` | `not_restored`. Counter-notice only. No CHECK. */
+    restoreOutcome: text('restore_outcome'),
+    /** ISO-8601. */
+    restoreOutcomeAt: text('restore_outcome_at'),
+    /** ISO-8601. Nothing more will happen. Retention counts three years from it. */
+    closedAt: text('closed_at'),
+    /** Operator notes. Never public. */
+    notes: text('notes'),
+    /** A `profiles.id`, NO FK. */
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    /** A `profiles.id`, NO FK. */
+    updatedBy: text('updated_by').notNull(),
+    /** The race sentinel of the PATCH (`expected_updated_at`). */
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('dmca_notices_account_kind_idx')
+      .on(t.accountId, t.kind)
+      .where(sql`"account_id" IS NOT NULL`),
+    index('dmca_notices_notice_id_idx').on(t.noticeId),
+    index('dmca_notices_received_at_idx').on(t.receivedAt),
+  ],
+);
+
+/**
+ * Litigation holds (AECI-1638, counsel Q23a, `DATABASE_SCHEMA.md` §8.15, ADR 0058). One row
+ * is one hold an admin placed on `/admin/legal`. An open row (`released_at IS NULL`) stops
+ * the legal retention prune (`lib/legal-retention-prune.ts`):
+ *
+ *   - any open hold, global or vendor, pauses the whole four-year `audit_log` prune.
+ *   - a `vendor` hold also keeps that vendor's `agreement_acceptances` and `license_grants`.
+ *   - a `global` hold keeps everything: the run deletes nothing.
+ *
+ * `scope` is `global` or `vendor`, with no CHECK (the house rule for enum-like text, a CHECK
+ * change on D1 is a table recreate, `docs/migrations.md` §0). `vendor_id` is a `vendors.id`,
+ * NULL on a global hold, with NO FK, so a vendor retraction never cascades into a legal
+ * record. The partial unique indexes hold the table to one open global hold and one open
+ * hold per vendor. A release stamps the three `released_*` columns. The legal prune deletes a
+ * row four years after its release, with its audit rows, because `reason` can name a person.
+ *
+ * Domain state: the one writer is `routes/admin-litigation-holds.ts`, and each insert and
+ * release carries its `litigation_hold.*` audit row in the same `db.batch` (ADR 0022). Those
+ * audit rows go only with their hold, four years after release. Never public.
+ */
+export const litigationHolds = sqliteTable(
+  'litigation_holds',
+  {
+    id: uuidPk(),
+    /** `LITIGATION_HOLD_SCOPES`: `global` | `vendor`. No CHECK. */
+    scope: text('scope').notNull(),
+    /** A `vendors.id`, NO FK. NULL on a global hold. */
+    vendorId: text('vendor_id'),
+    /** Why the hold was placed. Internal, never sent. */
+    reason: text('reason').notNull(),
+    /** The matter it serves, e.g. a Linear issue id or a case number. */
+    matterReference: text('matter_reference'),
+    /** A `profiles.id`, NO FK. */
+    placedBy: text('placed_by').notNull(),
+    /** ISO-8601. */
+    placedAt: text('placed_at').notNull(),
+    /** ISO-8601. NULL while the hold is open. */
+    releasedAt: text('released_at'),
+    /** A `profiles.id`, NO FK. */
+    releasedBy: text('released_by'),
+    releaseReason: text('release_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('litigation_holds_open_global_idx')
+      .on(t.scope)
+      .where(sql`"released_at" IS NULL AND "scope" = 'global'`),
+    uniqueIndex('litigation_holds_open_vendor_idx')
+      .on(t.vendorId)
+      .where(sql`"released_at" IS NULL AND "vendor_id" IS NOT NULL`),
+    index('litigation_holds_placed_at_idx').on(t.placedAt),
+  ],
 );
 
 /**
@@ -3713,6 +3848,29 @@ export const pageViews = sqliteTable(
     // arrival UPDATE narrows by `created_at` instead of indexing this column.
     turnstileVerdict: text('turnstile_verdict'),
 
+    // AECI-1713 (epic AECI-1711). What the browser reported about this page load:
+    // `ran` (our page script ran) or `interacted` (a person then touched the page),
+    // `BROWSER_EVIDENCE_VALUES` in `@aeci/shared`. Only `interacted` is the planned
+    // human floor. `ran` is not human evidence (AECI-1710 Phase 0: crawlers run our
+    // bundle). A `browser-spa` row is written with `ran`, because the insert is itself
+    // proof the script ran. An `ssr-arrival` row starts NULL and is upgraded by
+    // `POST /api/page-views/browser-evidence`, matched on `cf_ray`. Upgrade only:
+    // NULL -> `ran` -> `interacted`, never back.
+    //
+    // NULL = no report arrived, or none was collected: a privacy-signal row (the
+    // column is in `PRIVACY_NULLED`), a held region, or any row written before
+    // migration 0127. Never backfilled.
+    //
+    // No CHECK constraint and no index, for the reasons `client_verdict` above
+    // records. A CHECK here made drizzle-kit emit a full `__new_page_views` recreate
+    // (tried and discarded in AECI-1713), whose DROP fires ON DELETE CASCADE
+    // (`docs/migrations.md` §0). The two words are enforced by
+    // `BrowserEvidencePostSchema` and by the handler, which writes only them.
+    browserEvidence: text('browser_evidence'),
+    // ISO server time of the last accepted report: the insert time on a `browser-spa`
+    // row, the UPDATE time on an upgrade. Never the browser's clock.
+    browserEvidenceAt: text('browser_evidence_at'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session
@@ -3943,6 +4101,75 @@ export const planChangeSnapshots = sqliteTable(
     // The runbook read: one product's snapshots by date.
     index('plan_change_snapshots_product_event_at_idx').on(t.productId, t.eventAt),
   ],
+);
+
+// ===========================================================================
+// The acceptance chain (AECI-1680, ADR 0057, DATABASE_SCHEMA.md §9.17)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: they
+// record what the nightly export wrote to R2, and the acceptance and grant writes
+// carry their own `audit_log` rows. Written only by `lib/acceptance-chain-export.ts`,
+// after R2 confirmed the night's file. Never pruned. The R2 files are the evidence:
+// the verify command (`ops:verify-acceptance-chain`) walks R2 and never trusts these
+// tables, so editing them only causes a re-export.
+// ===========================================================================
+
+/**
+ * One row per nightly chain file under `evidence/acceptance-chain/` in `UPLOADS`. `seq`
+ * is the primary key, so a second run for the same file trips it.
+ *
+ * `tsa_status` is the DigiCert RFC 3161 timestamp's state: `granted` (the token is in R2
+ * at `tsa_key`), `failed` (the request failed, and a later run retries it) or `pending`
+ * (not asked yet). No CHECK: a CHECK change on D1 is a table recreate
+ * (`docs/migrations.md` §0). The TypeScript union is the guard.
+ */
+export const acceptanceChainExports = sqliteTable(
+  'acceptance_chain_exports',
+  {
+    /** 1, 2, 3, … The file's place in the chain. */
+    seq: integer('seq').primaryKey(),
+    /** `YYYY-MM-DD`, UTC. The night the file was written. */
+    day: text('day').notNull(),
+    /** The file's R2 key in `UPLOADS`. */
+    objectKey: text('object_key').notNull(),
+    /** Lowercase hex SHA-256 of the file bytes. The next file's `prev_sha256`. */
+    sha256: text('sha256').notNull(),
+    /** The previous file's SHA-256. NULL at seq 1. */
+    prevSha256: text('prev_sha256'),
+    /** SHA-256 over every live row's `table:id:fingerprint` line, sorted. */
+    stateSha256: text('state_sha256').notNull(),
+    /** Entries in the file: changed rows plus tombstones. 0 on a quiet night. */
+    entries: integer('entries').notNull(),
+    tsaStatus: text('tsa_status').notNull().$type<'pending' | 'granted' | 'failed'>(),
+    /** The timestamp token's R2 key. NULL until DigiCert granted one. */
+    tsaKey: text('tsa_key'),
+    /** ISO-8601. When R2 confirmed the file. */
+    exportedAt: text('exported_at').notNull(),
+  },
+  (t) => [
+    // The backfill read: the latest files whose timestamp is not granted.
+    index('acceptance_chain_exports_tsa_status_idx').on(t.tsaStatus, t.seq),
+  ],
+);
+
+/**
+ * The last fingerprint exported for each acceptance and grant row. It drives the
+ * nightly diff and nothing else: the verify command reads the fingerprints from R2.
+ * `deleted` is 1 once a tombstone was written for the row.
+ */
+export const acceptanceChainRows = sqliteTable(
+  'acceptance_chain_rows',
+  {
+    /** `agreement_acceptances` | `license_grants`. */
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    /** Lowercase hex SHA-256 of the row's hashed columns (`lib/acceptance-chain.ts`). */
+    fingerprint: text('fingerprint').notNull(),
+    /** The chain file that last carried this row. */
+    seq: integer('seq').notNull(),
+    deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.tableName, t.rowId] })],
 );
 
 export const statsCache = sqliteTable('stats_cache', {
@@ -4400,6 +4627,7 @@ export const notificationPreferences = sqliteTable(
 //
 // DOMAIN state: the person told us these facts, so every change writes its
 // `audit_log` row in the same `db.batch` (`routes/account.ts`, `profile.updated`).
+// That row names the touched answers and never holds their values (AECI-1869).
 // Side tables rather than columns on `profiles`, for the same reason as
 // `notification_preferences` above: a later change to `profiles` must not force
 // a drizzle-kit recreate (`docs/migrations.md` §0). The reverse hazard holds too.
@@ -6155,6 +6383,8 @@ export const schema = {
   licenseGrants,
   agreementAcceptances,
   legalVersions,
+  dmcaNotices,
+  litigationHolds,
   legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,

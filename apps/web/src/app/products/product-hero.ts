@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
@@ -10,17 +10,19 @@ import { ReviewStars } from '../reviews/review-stars';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 import { AecButton } from '../shared/button/button';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import { isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { HeroBand } from '../shared/hero-band/hero-band';
+import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
-import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
+import { categoryHub } from './category-hub';
 import { connectedProductCount } from './powered-hub-grouping';
+import { ProductCategoryHub } from './product-category-hub';
+import { ProductPairFinder } from './product-pair-finder';
 import { RoleBadge } from './role-badge';
 
 /**
@@ -32,22 +34,25 @@ import { RoleBadge } from './role-badge';
  * for every visitor:
  *
  *   - the breadcrumb, Bone on Forest;
- *   - the kicker row: the role chip and the maintenance chip with
- *     its "Reviewed" or "Updated" date (ruling R3, decision 12);
+ *   - the kicker row: the role chip, for a connector or hybrid only. The maintenance
+ *     chip is retired (AECI-1666). Its words open "About this listing";
  *   - the mark and the name. The band renders the page's only `h1`. An unclaimed product's
  *     104px mark is the initial tile (the logo rule, AECI-1769, until counsel answers
  *     AECI-1826), and its small sourced logo with the "not affiliated" note sits under the
  *     name, as on the shipped page;
- *   - the vendor line, the connector reach line and the logo correction caption;
+ *   - the vendor line and the connector reach line;
  *   - the ratings panel: the two averages kept apart, each shown only when the API sends
  *     it (it nulls them under five reviews), at one decimal, then the review count;
  *   - "Visit website" (the one filled button, `on-brand`) and "Write a review"
- *     (`on-brand-secondary`), with the website's correction and under-review lines.
+ *     (`on-brand-secondary`), with the website's under-review line. Every correction and
+ *     caption is in "About this listing" (AECI-1666).
  *
- * The `heroPanel` slot is left empty. Ruling R3 decision 1 settled the visual as a category
- * hub with a pair finder, and AECI-1787 builds it.
+ * The `heroPanel` slot holds the visual of ruling R3 decision 1 (AECI-1787): the category
+ * hub (`aec-product-category-hub`), when any integration's partner has a category, with
+ * the pair finder (`aec-product-pair-finder`) under it. With no hub the panel holds the
+ * finder alone. The hub orders A to Z by name (ruling R1).
  *
- * Nothing here orders anything. No paid-plan input is read.
+ * Nothing else here orders anything. No paid-plan input is read.
  */
 @Component({
   selector: 'aec-product-hero',
@@ -55,13 +60,14 @@ import { RoleBadge } from './role-badge';
   imports: [
     AecBreadcrumb,
     AecButton,
+    AecIcon,
     Chip,
     ExternalLinkTracker,
-    FieldCaptionLine,
     HeroBand,
     LogoOrInitial,
-    MaintenanceMarker,
     NewTabIcon,
+    ProductCategoryHub,
+    ProductPairFinder,
     ReviewCta,
     ReviewStars,
     RoleBadge,
@@ -75,24 +81,26 @@ import { RoleBadge } from './role-badge';
     <aec-hero-band>
       <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
-      <!-- The role chip renders nothing for the default "application" role, so most
-           products show the maintenance chip alone. A connector or hybrid is flagged where
-           the visitor first looks (Stage 1.5 Addendum B). No "Product" eyebrow: the
-           breadcrumb already says Products, and mock-up 6 drops it (AECI-1778). -->
-      <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
-        <aec-role-badge [role]="p.product_role" />
-        <aec-maintenance-marker
-          [maintainedBy]="p.maintenance.maintained_by"
-          [reviewedAt]="p.maintenance.last_reviewed_at"
-          [ownerName]="p.vendor?.name ?? null"
-        />
-      </div>
+      <!-- A connector or hybrid is flagged where the visitor first looks (Stage 1.5
+           Addendum B). The role chip renders nothing for the default "application" role,
+           so the row renders only for the other two. No "Product" eyebrow: the breadcrumb
+           already says Products, and mock-up 6 drops it (AECI-1778). The maintenance chip
+           that shared this row is retired (AECI-1666): its words open "About this
+           listing". -->
+      @if (p.product_role !== 'application') {
+        <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
+          <aec-role-badge [role]="p.product_role" />
+        </div>
+      }
 
       <!-- The logo rule decides the mark (AECI-1769): a claimed product's logo, or the
            initial tile. An unclaimed product is the tile at this size whatever the payload
            holds. -->
+      <!-- Mock-up 6 .hero-mark: a soft 4px Bone ring and the card shadow around the mark.
+           The radius stays the mark's own (AECI-1750 is still open). -->
       <aec-logo-or-initial
         heroMark
+        class="rounded-mark shadow-card ring-4 ring-(--border-on-brand-subtle)"
         data-testid="product-hero-mark"
         [src]="p.logo_url"
         [name]="p.name"
@@ -133,17 +141,6 @@ import { RoleBadge } from './role-badge';
             <aec-unclaimed-note tone="on-brand" />
           </div>
         }
-        <!-- AECI-1628: AECi replaced or removed the logo a vendor holds. The mark sits
-             beside this column, so the line names it. -->
-        @if (slotCorrection('logo_url', !!p.logo_url); as c) {
-          <aec-field-caption
-            data-testid="logo-correction"
-            tone="on-brand"
-            [correction]="c"
-            [label]="logoLabel"
-            [page]="captionPage()"
-          />
-        }
       </div>
 
       <!-- Connector reach line (Stage 1.5 Addendum C, §13.6). Shown whenever the product
@@ -158,56 +155,68 @@ import { RoleBadge } from './role-badge';
            averages it has, at one decimal, kept apart, then the count. With 1 to 4 reviews it
            shows "Not yet rated" and the count. At zero it is one plain line, not a panel:
            a lone bordered box read as a button. -->
+      <!-- Mock-up 6 .hrate: the two scores and the review count in three cells, the figure
+           at --t-fig. Below sm the two scores share the first row and the count takes its
+           own row under a rule (mock-up 6 at 760px), so it never floats beside a score. -->
       @if (p.review_count > 0) {
         <div
-          class="mt-8 inline-flex max-w-full flex-wrap items-stretch rounded-card border aec-on-brand-rule bg-(--surface-hero-panel)"
+          class="mt-8 grid max-w-full grid-cols-2 rounded-card border aec-on-brand-rule bg-(--surface-hero-panel) sm:inline-flex sm:items-stretch"
           data-testid="product-hero-ratings"
         >
           @if (p.rating_overall_avg !== null) {
-            <div class="flex flex-col justify-center gap-1 px-6 py-4">
-              <span class="flex items-center gap-3">
+            <div
+              class="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-6"
+              [class.col-span-2]="p.rating_onboarding_avg === null"
+              data-testid="product-hero-rating-cell"
+            >
+              <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span
-                  class="font-display text-t-24 font-semibold tabular-nums text-(--text-on-brand)"
+                  class="font-display text-t-fig font-semibold tabular-nums text-(--text-on-brand)"
                   >{{ decimal(p.rating_overall_avg) }}</span
                 >
                 <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
               </span>
               <span
-                class="text-t-14 font-semibold text-(--text-on-brand-secondary)"
+                class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                 i18n="@@products.detail.hero.rating.overall"
                 >Overall</span
               >
             </div>
             @if (p.rating_onboarding_avg !== null) {
               <div
-                class="flex flex-col justify-center gap-1 px-6 py-4 sm:border-s aec-on-brand-rule"
+                class="flex min-w-0 flex-col justify-center gap-1 border-s px-4 py-4 aec-on-brand-rule sm:px-6"
+                data-testid="product-hero-rating-cell"
               >
-                <span class="flex items-center gap-3">
+                <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span
-                    class="font-display text-t-24 font-semibold tabular-nums text-(--text-on-brand)"
+                    class="font-display text-t-fig font-semibold tabular-nums text-(--text-on-brand)"
                     >{{ decimal(p.rating_onboarding_avg) }}</span
                   >
                   <aec-review-stars [rating]="p.rating_onboarding_avg" kind="onboarding" />
                 </span>
                 <span
-                  class="text-t-14 font-semibold text-(--text-on-brand-secondary)"
+                  class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                   i18n="@@products.detail.hero.rating.onboarding"
                   >Onboarding</span
                 >
               </div>
             }
           } @else {
-            <div class="flex items-center px-6 py-4">
+            <div class="col-span-2 flex items-center px-4 py-4 sm:px-6">
               <aec-chip tone="quiet" i18n="@@products.detail.hero.notRated">Not yet rated</aec-chip>
             </div>
           }
-          <div class="flex items-center px-6 py-4 sm:border-s aec-on-brand-rule">
+          <div
+            class="col-span-2 flex items-center border-t px-2 py-2 aec-on-brand-rule sm:border-s sm:border-t-0 sm:px-3"
+            data-testid="product-hero-review-count"
+          >
             <a
               [href]="'/products/' + p.slug + '#reviews'"
               data-smooth-scroll
-              class="text-t-14 font-semibold text-(--text-on-brand) underline decoration-(--border-on-brand-strong) underline-offset-4 hover:decoration-(--text-on-brand)"
+              class="inline-flex min-h-11 items-center gap-2 rounded-control px-2 text-t-14 font-semibold text-(--text-on-brand) underline decoration-(--border-on-brand-strong) underline-offset-4 hover:decoration-(--text-on-brand) sm:px-3"
             >
               {{ reviewCountLabel(p.review_count) }}
+              <aec-icon name="arrow-down" decorative [size]="4" />
             </a>
           </div>
         </div>
@@ -220,18 +229,6 @@ import { RoleBadge } from './role-badge';
         </p>
       }
 
-      <!-- Below sm the line holds two lines' height: the fallback font wraps it to two and
-           the web font often to one, and the swap moved the actions and facts card up 20px
-           (layout shift 0.0675 on a corrected website at 390px, 0.0058 with the reserve). -->
-      @if (slotCorrection('website', !!p.website); as c) {
-        <aec-field-caption
-          class="mt-4 max-sm:min-h-10"
-          tone="on-brand"
-          [correction]="c"
-          [label]="websiteLabel"
-          [page]="captionPage()"
-        />
-      }
       <!-- AECI-1238 (§11d.7): AECi hid the website while it checks it. -->
       @if (underReview('website')) {
         <aec-under-review
@@ -239,17 +236,6 @@ import { RoleBadge } from './role-badge';
           tone="on-brand"
           data-testid="website-under-review"
           [label]="websiteLabel"
-        />
-      }
-      <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
-           With no categories, it sits here with the website. -->
-      @if (p.categories.length === 0 && p.captions?.profile; as c) {
-        <aec-field-caption
-          class="mt-4"
-          tone="on-brand"
-          data-testid="profile-caption"
-          [caption]="c"
-          [page]="captionPage()"
         />
       }
 
@@ -271,6 +257,28 @@ import { RoleBadge } from './role-badge';
         </a>
       }
       <aec-review-cta heroActions [slug]="p.slug" [productId]="p.id" variant="on-brand-secondary" />
+
+      <!-- AECI-1787: the category hub with the pair finder under it (ruling R3 decision 1).
+           Both are in the server HTML. The finder routes after hydration. Below lg the
+           panel stacks under the hero text, so it keeps the hub alone and the finder
+           waits for lg: the finder there added about 200px above the facts card. With no
+           hub the panel holds nothing below lg, so styles.css hides it
+           (.aec-hero-panel-lg-only). -->
+      <div
+        heroPanel
+        class="flex flex-col gap-6"
+        [class.aec-hero-panel-lg-only]="hub().length === 0"
+        data-testid="product-hero-visual"
+      >
+        @if (hub().length > 0) {
+          <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
+        }
+        <aec-product-pair-finder
+          class="max-lg:hidden"
+          [productSlug]="p.slug"
+          [productName]="p.name"
+        />
+      </div>
     </aec-hero-band>
   `,
 })
@@ -278,21 +286,32 @@ export class ProductHero {
   readonly product = input.required<ProductDetail>();
 
   protected readonly logoAlt = logoAlt;
-  protected readonly websiteLabel = fieldOverrideLabel('website');
-  protected readonly logoLabel = fieldOverrideLabel('logo_url');
+
+  private readonly band = viewChild.required(HeroBand);
+
+  /**
+   * Owner ruling 2026-11-17, item 82: "Show all" grows the panel in place, and the
+   * band centres its two columns, so the text column used to jump down (about 300px
+   * with 32 categories). The hub emits before it changes, so the band can pin both
+   * columns where they sit now. Collapsed, the layout is exactly as before.
+   */
+  protected onHubToggle(expanding: boolean): void {
+    if (expanding) this.band().holdColumns();
+    else this.band().releaseColumns();
+  }
+
+  /** The category hub's entries, A to Z (AECI-1787, `category-hub.ts`). */
+  protected readonly hub = computed(() => {
+    const p = this.product();
+    return categoryHub(p.integrations_as_source, p.integrations_as_target);
+  });
+  protected readonly websiteLabel = correctionLabel('website');
 
   protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
     homeCrumb(),
     { label: $localize`:@@products.detail.breadcrumbs.products:Products`, link: '/products' },
     { label: this.product().name },
   ]);
-
-  /** The page, for each caption's source link click. */
-  protected readonly captionPage = computed<FieldCaptionPage>(() => ({
-    surface: 'product_detail',
-    entityType: 'product',
-    entityId: this.product().id,
-  }));
 
   /**
    * Ownership facts for the "Visit website" click (AECI-933). The owner is the product's
@@ -308,11 +327,6 @@ export class ProductHero {
       link_purpose: 'website',
     };
   });
-
-  /** AECi's correction in one value's slot (AECI-1628). */
-  protected slotCorrection(field: string, present: boolean) {
-    return correctionInSlot(this.product().captions?.corrections, field, present);
-  }
 
   /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
   protected underReview(field: string): boolean {

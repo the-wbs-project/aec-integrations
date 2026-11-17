@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Guard (AECI-1769): every `<aec-logo-or-initial>` caller is classified, so no caller can
- * show an unclaimed listing's logo off its own page by accident (ADR 0057 floor 3,
+ * show an unclaimed listing's logo off its own page by accident (ADR 0059 floor 3,
  * counsel's ruling 9).
  *
  * `claimStatus` is a required input (AECI-1851), so every tag passes it. The kind decides
@@ -65,7 +65,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   // AECI-1782: the card view of the same row, the same server-filtered ProductLink.
   'products/product-integration-card.ts': { link: 1 },
   // AECI-1783: the "Show more" stack names hidden partners, the same ProductLinks.
-  'products/product-integration-category-group.ts': { link: 1 },
+  // AECI-1720: the "Show more" stack is drawn twice, once per width (phone and md up).
+  'products/product-integration-category-group.ts': { link: 2 },
   'products/product-powered-hub.ts': { link: 3 },
   // AECI-1798: one loop renders both sides, each with its 64px mark and its 32px mark.
   'products/products-pair.ts': { subject: 2 },

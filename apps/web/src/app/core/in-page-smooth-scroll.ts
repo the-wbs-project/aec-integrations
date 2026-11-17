@@ -1,7 +1,7 @@
 /**
  * Smooth scrolling for in-page section links, and nothing else (AECI-1752).
  *
- * Clash 38 of the November 2026 redesign (ADR 0057, PLAN.md §4.6) rules smooth
+ * Clash 38 of the November 2026 redesign (ADR 0059, PLAN.md §4.6) rules smooth
  * scrolling "In-page section links only. Never a global setting. Off under
  * reduced motion." Until then `styles.css` carried `html { scroll-behavior:
  * smooth }`, which animated every scroll that did not opt out: the skip link,
@@ -53,6 +53,19 @@
  * jump is armed still scrolls instantly, because `ScrollBehaviorManager` sets an
  * inline `scroll-behavior: auto`, which beats the class rule.
  *
+ * **A navigation to another page cancels the jump (AECI-1907).** The inline style
+ * does not stop a smooth scroll the browser has already started. That glide ran on
+ * into the new page: the router's reset either landed while it was still running
+ * and ended partway down (measured: 153px and 39px), or ran after the deferred
+ * restore had dropped the inline style while the class was still on, and glided.
+ * So at `NavigationStart` to a different path or query, this service takes the
+ * class off and makes one instant scroll to the current position, which aborts the
+ * browser's animation. The router's scroll for the new page is then the last
+ * write. A `NavigationStart` to a fragment of the same page is the jump's own
+ * `popstate` and is left alone, so a second section link still replaces the first
+ * glide smoothly. Nothing re-applies a position afterwards: no timer, no frame
+ * loop, no `setOffset`.
+ *
  * Browser-only (a no-op on the server) and started once from the root component.
  * The listener is added in code, not in a template, so Angular's event replay
  * never sees it (`ANGULAR_STYLE_GUIDE.md`, event replay). A click made before
@@ -60,6 +73,7 @@
  */
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import { DestroyRef, Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { NavigationStart, Router } from '@angular/router';
 
 /** The class on `<html>` that turns on `scroll-behavior: smooth` (`styles.css`). */
 export const SMOOTH_SCROLL_CLASS = 'aeci-smooth-scroll';
@@ -82,7 +96,10 @@ export class InPageSmoothScroll {
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly router = inject(Router);
   private started = false;
+  /** True while the class is on for a jump, so a glide may be in flight. */
+  private armed = false;
   private disarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly onScrollEnd = () => this.disarm();
@@ -104,10 +121,41 @@ export class InPageSmoothScroll {
     if (this.document.documentElement.classList.contains(SMOOTH_SCROLL_CLASS)) return;
 
     this.document.addEventListener('click', this.onClick);
+    // AECI-1907: a navigation to another page cancels a jump still in flight.
+    const navigations = this.router.events.subscribe((event) => {
+      if (event instanceof NavigationStart && this.armed && this.leavesPage(event.url)) {
+        this.cancel();
+      }
+    });
     this.destroyRef.onDestroy(() => {
       this.document.removeEventListener('click', this.onClick);
+      navigations.unsubscribe();
       this.disarm();
     });
+  }
+
+  /**
+   * True when the navigation goes to another page, not to a fragment of this one. The
+   * fragment click itself fires `popstate`, which the router turns into a navigation to
+   * the same path, and that one must leave the glide alone. Compared against the
+   * router's own URL, because on Back the address bar has already changed.
+   */
+  private leavesPage(url: string): boolean {
+    const page = (u: string) => u.split('#')[0];
+    return page(url) !== page(this.router.url);
+  }
+
+  /**
+   * Stops a jump that is still gliding (AECI-1907). The class comes off, so no later
+   * scroll animates, and one instant scroll to the current position aborts the
+   * browser's smooth scroll. The router's scroll for the new page is then the last
+   * write. Without it the glide ran on into the new page, and the reset either glided
+   * or ended partway down.
+   */
+  private cancel(): void {
+    this.disarm();
+    const view = this.document.defaultView;
+    view?.scrollTo({ left: view.scrollX, top: view.scrollY, behavior: 'instant' });
   }
 
   /** True for an unmodified primary click on an opted-in link to `#id` on this page. */
@@ -126,6 +174,7 @@ export class InPageSmoothScroll {
   }
 
   private arm(): void {
+    this.armed = true;
     this.clearTimer();
     this.document.documentElement.classList.add(SMOOTH_SCROLL_CLASS);
     this.document.addEventListener('scrollend', this.onScrollEnd, { once: true });
@@ -133,6 +182,7 @@ export class InPageSmoothScroll {
   }
 
   private disarm(): void {
+    this.armed = false;
     this.clearTimer();
     this.document.removeEventListener('scrollend', this.onScrollEnd);
     this.document.documentElement.classList.remove(SMOOTH_SCROLL_CLASS);

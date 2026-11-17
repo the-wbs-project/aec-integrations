@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // AECI-96 / AECI-159 / AECI-1774 / AECI-1775. The primary navigation (DESIGN.md
 // §5) is responsive. Below `lg` a toggle named "Menu" opens the mobile menu, a
@@ -121,10 +122,9 @@ for (const viewport of [
       expect(box.width).toBe(44);
       expect(box.height).toBe(44);
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow, 'document must not overflow horizontally').toBeLessThanOrEqual(1);
+      await expectNoSidewaysScroll(page, 'document must not overflow horizontally', {
+        tolerance: 1,
+      });
     });
 
     test('open: a named dialog, a white panel under the header, the page inert and not scrolling', async ({
@@ -1072,12 +1072,11 @@ for (const viewport of PILL_WIDTHS) {
         const header = document.querySelector('aec-site-header header > div') as HTMLElement;
         return {
           overflow: header.scrollWidth - header.clientWidth,
-          doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           height: header.getBoundingClientRect().height,
         };
       });
       expect(row.overflow).toBeLessThanOrEqual(0);
-      expect(row.doc).toBeLessThanOrEqual(0);
+      await expectNoSidewaysScroll(page);
       // One row: 76px at `md` and up. A wrap would add a whole row.
       expect(row.height).toBeLessThanOrEqual(76);
     });

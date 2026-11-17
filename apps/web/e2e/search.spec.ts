@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { routeFakeAlgolia } from './fake-algolia';
+import { untilHydrated } from './hydration';
+
 // AECI-142 / Phase 3.9 — the /search page. Search runs browser-side against
 // Algolia with the search-only key; CI / local-bound has no provisioned Algolia
 // key, so the page naturally exercises the GRACEFUL-DEGRADATION path (the
@@ -125,6 +128,55 @@ test.describe('/search — live results (requires Algolia; local only)', () => {
     await expect(page).toHaveURL(/\bsort=name\b/);
     await expect(sortTrigger).toContainText(/Name/);
   });
+});
+
+// AECI-1899: a checked filter's group used to vanish when the combination
+// matched nothing, because Algolia leaves an empty facet out of its answer. The
+// checked box could then not be unchecked. A fixed Algolia (`fake-algolia.ts`)
+// keeps it deterministic: its Accounting & ERP tools have no trades.
+test.describe('/search keeps every checked filter on screen (AECI-1899)', () => {
+  const EMPTY = '/search?trades=Roofing&categories=Accounting%20%26%20ERP';
+
+  /** The checkbox for `value` in the filter group named `group`. */
+  function filterBox(page: Page, group: string, value: string) {
+    return page
+      .locator('aec-search-refinement-list fieldset')
+      .filter({ has: page.locator('legend', { hasText: group }) })
+      .getByRole('checkbox', { name: value });
+  }
+
+  async function openEmpty(page: Page): Promise<void> {
+    await routeFakeAlgolia(page);
+    await page.goto(EMPTY);
+    await expect(page.locator('aec-empty-state')).toBeVisible({ timeout: 15_000 });
+  }
+
+  test('both checked filters stay visible and checked when nothing matches', async ({ page }) => {
+    await openEmpty(page);
+    await expect(filterBox(page, 'Trades', 'Roofing')).toBeChecked();
+    await expect(filterBox(page, 'Categories', 'Accounting & ERP')).toBeChecked();
+    await expect(page.locator('aec-search-product-card')).toHaveCount(0);
+  });
+
+  for (const { group, value, left, leftGroup } of [
+    { group: 'Trades', value: 'Roofing', left: 'Accounting & ERP', leftGroup: 'Categories' },
+    { group: 'Categories', value: 'Accounting & ERP', left: 'Roofing', leftGroup: 'Trades' },
+  ]) {
+    test(`unchecking ${value} brings the results back`, async ({ page }) => {
+      await openEmpty(page);
+      const box = filterBox(page, group, value);
+      await untilHydrated(box);
+      await box.uncheck();
+      await expect(page.locator('aec-search-product-card').first()).toBeVisible();
+      await expect(page.locator('aec-empty-state')).toHaveCount(0);
+      await expect(filterBox(page, leftGroup, left)).toBeChecked();
+      // Released. Its group may now have no values at all, and then it hides,
+      // as any unchecked group with no values does.
+      await expect(box.and(page.locator(':checked'))).toHaveCount(0);
+      const param = group === 'Trades' ? 'trades' : 'categories';
+      await expect.poll(() => new URL(page.url()).searchParams.getAll(param)).toEqual([]);
+    });
+  }
 });
 
 async function aaViolations(page: Page) {

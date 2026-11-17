@@ -413,6 +413,45 @@ describe('createPaginatedIndex history restore (AECI-1900)', () => {
     env.httpMock.verify();
   });
 
+  // AECI-1909. The same rule when the reader leaves by a second filter click on
+  // the same page. The component stays, so leaving is a `NavigationStart`, not a
+  // teardown. Logged in the e2e run: the second click came 190 to 270ms after
+  // the first, before its rows arrived. Nothing was stored for the first state,
+  // so Back to it fetched, and the second state's rows stood in meanwhile. That
+  // is correct, and the e2e now waits for each state's rows before leaving it.
+  it('a filter state left by another filter click before its rows arrived is not stored: Back fetches its own rows', async () => {
+    const env = await setup();
+    await env.harness.navigateByUrl('/list');
+    env.httpMock.expectOne((r) => r.params.get('page') === '1').flush(page(1, 'a'));
+    await settle();
+    env.harness.detectChanges();
+    const host = env.host();
+
+    // First click: its rows are still in flight when the second click lands.
+    await env.harness.navigateByUrl('/list?category_id=x');
+    env.harness.detectChanges();
+    const first = env.httpMock.expectOne((r) => r.params.get('category_id') === 'x');
+    await env.harness.navigateByUrl('/list?category_id=x,y');
+    env.harness.detectChanges();
+    expect(first.cancelled).toBe(true);
+    env.httpMock.expectOne((r) => r.params.get('category_id') === 'x,y').flush(page(1, 'b'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['b1']);
+
+    await back(env); // to the first filter state, same component
+    expect(env.location.path()).toBe('/list?category_id=x');
+    expect(env.host()).toBe(host);
+    // Not "a1" (on screen when the reader left) nor "b1" (on screen now): the
+    // listing fetches the rows for `x`.
+    expect(env.host().idx.reloading()).toBe(true);
+    env.httpMock.expectOne((r) => r.params.get('category_id') === 'x').flush(page(1, 'f'));
+    await settle();
+    env.harness.detectChanges();
+    expect(env.rows()).toEqual(['f1']);
+    env.httpMock.verify();
+  });
+
   // AECI-1902. The listing read `?page=` once, when it was built. A Back to
   // `?page=K` across an in-page filter change kept the component, restarted at
   // page 1, missed the store and fetched the wrong page.

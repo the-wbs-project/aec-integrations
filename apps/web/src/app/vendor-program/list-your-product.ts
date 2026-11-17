@@ -17,15 +17,17 @@
  * `Cache-Tag: route:index` on the `/vendor-program` TTLs, is indexable and is in
  * `sitemap.xml`.
  *
- * **Layout.** The standard canvas. From `lg` a 12-column grid: the explainer in
- * columns 1 to 5, sticky, and the form panel in 6 to 12. Under the explainer an `h2`
- * "What happens next" and a four-item ordered list, styled as `/vendor-program`'s
- * "How claiming works", so the left column is not blank beside the tall form. Below
- * `lg` they stack: explainer, list, then the form. The panel is the dialog's surface (`--surface-base`,
- * hairline, `rounded-lg`, no shadow) with an `h2`, so the flow's `h3` step headings
- * keep a correct outline. Mobbin anchor: the claim dialog's own (Mercor's "Complete
- * your profile" modal, screen `a39d82f4-c61a-44cb-be88-f81eec9320a8`), since this
- * is that form out of its dialog.
+ * **Layout (AECI-1802, the content-page language of `/about`).** The `h1` and the
+ * lede sit on `aec-bone-band`, the page's one Bone band; the `h1` is the Headline
+ * role (the global h1 size). Then one white band on the 1328px page wrap, split 5:7
+ * from `lg` like the home argument band: on the left the `h2` "What happens next"
+ * (the Section role on an inner span) over a four-item ordered list, styled as
+ * `/vendor-program`'s "How claiming works", sticky, so the left column is not blank
+ * beside the tall form; on the right the form on the shared card (`aecCard`) with an
+ * `h2`, so the flow's `h3` step headings keep a correct outline. Below `lg` they
+ * stack: the list, then the form. Mobbin anchor: the claim dialog's own (Mercor's
+ * "Complete your profile" modal, screen `a39d82f4-c61a-44cb-be88-f81eec9320a8`),
+ * since this is that form out of its dialog.
  *
  * Copy rules (§8): sentence case, no em dashes, every string i18n'd. Light only.
  */
@@ -34,6 +36,9 @@ import { Component, inject } from '@angular/core';
 import { canonicalUrl } from '../core/canonical';
 import { VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
+import { AecCard } from '../shared/card/card';
 import { ClaimDialogFlow } from '../shared/claim-dialog/claim-dialog-flow';
 import type { ClaimDialogOpening } from '../shared/claim-dialog/claim-dialog.service';
 
@@ -46,35 +51,40 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
 
 @Component({
   selector: 'aec-list-your-product',
-  imports: [ClaimDialogFlow],
+  imports: [AecCard, BoneBand, ClaimDialogFlow],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <div
-        class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-12"
-      >
-        <div class="lg:sticky lg:top-8 lg:col-span-5" data-testid="list-your-product-intro">
-          <h1
-            class="font-display text-3xl font-normal text-balance leading-[1.1] tracking-[-0.01em] text-(--text-primary) sm:text-4xl md:text-5xl"
-            i18n="@@listYourProduct.heading"
-          >
+      <!-- 1. Hero: the page's one Bone band. -->
+      <aec-bone-band>
+        <div class="max-w-[52ch]" data-testid="list-your-product-intro">
+          <h1 class="text-balance text-(--text-primary)" i18n="@@listYourProduct.heading">
             Ask us to list your product
           </h1>
           <p
-            class="mt-4 max-w-[52ch] text-base leading-relaxed text-(--text-secondary) md:mt-5 md:text-lg"
+            class="mt-6 text-t-20 leading-normal text-(--text-secondary)"
             i18n="@@listYourProduct.lede"
           >
             Listing is free. Tell us the product and its website, and we take it from there.
           </p>
+        </div>
+      </aec-bone-band>
 
-          <div class="mt-8 md:mt-10" data-testid="list-your-product-next">
-            <h2
-              id="list-your-product-next-heading"
-              class="font-semibold text-(--text-primary)"
-              i18n="@@listYourProduct.next.heading"
-            >
-              What happens next
+      <!-- 2. White: what happens next on the left, sticky from lg, and the form on the
+           right, the home argument band's 5:7 split. -->
+      <div class="py-16 md:py-24">
+        <div
+          [class]="
+            wrap +
+            ' grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-16'
+          "
+        >
+          <div class="lg:sticky lg:top-8" data-testid="list-your-product-next">
+            <h2 id="list-your-product-next-heading" class="text-(--text-primary)">
+              <span [class]="sectionTitle" i18n="@@listYourProduct.next.heading"
+                >What happens next</span
+              >
             </h2>
-            <ol class="mt-5 space-y-5" aria-labelledby="list-your-product-next-heading">
+            <ol class="mt-8 space-y-5" aria-labelledby="list-your-product-next-heading">
               <li class="flex gap-4">
                 <span [class]="stepNumber" aria-hidden="true">1</span>
                 <div>
@@ -105,7 +115,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                       href="/docs/trust/listing-submissions"
                       target="_blank"
                       rel="noopener"
-                      class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
                     >.
                   </p>
@@ -142,24 +152,25 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
               </li>
             </ol>
           </div>
-        </div>
 
-        <section
-          aria-labelledby="list-your-product-form-heading"
-          class="mt-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) lg:col-span-7 lg:mt-0"
-          data-testid="list-your-product-form"
-        >
-          <div class="px-6 pt-6 pb-3">
-            <h2
-              id="list-your-product-form-heading"
-              class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
-              i18n="@@listYourProduct.form.heading"
-            >
-              Request a listing
-            </h2>
-          </div>
-          <aec-claim-dialog-flow [opening]="opening" [embedded]="true" />
-        </section>
+          <!-- The form on the shared card. -->
+          <section
+            aecCard
+            aria-labelledby="list-your-product-form-heading"
+            data-testid="list-your-product-form"
+          >
+            <div class="px-6 pt-6 pb-3">
+              <h2
+                id="list-your-product-form-heading"
+                class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+                i18n="@@listYourProduct.form.heading"
+              >
+                Request a listing
+              </h2>
+            </div>
+            <aec-claim-dialog-flow [opening]="opening" [embedded]="true" />
+          </section>
+        </div>
       </div>
     </div>
   `,
@@ -168,6 +179,10 @@ export class ListYourProductPage {
   private readonly meta = inject(MetaService);
 
   protected readonly opening = LIST_YOUR_PRODUCT_OPENING;
+  /** The 1328px page wrap the header, footer and bands share. */
+  protected readonly wrap = BAND_WRAP_CLASS;
+  /** The Section role on an inner span, so the unlayered h2 rule cannot beat it. */
+  protected readonly sectionTitle = 'block text-t-36 leading-[1.1] tracking-[-0.02em]';
   /** The numbered badge of `/vendor-program`'s "How claiming works" list. */
   protected readonly stepNumber =
     'flex size-7 shrink-0 items-center justify-center rounded-full bg-(--accent-primary) text-sm font-semibold text-(--surface-base)';

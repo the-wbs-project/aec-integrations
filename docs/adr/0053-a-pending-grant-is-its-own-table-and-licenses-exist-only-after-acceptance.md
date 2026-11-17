@@ -19,11 +19,11 @@ A `pending` state on `licenses` would have needed a new clause in every one of t
 2. **`licenses` rows exist only after acceptance.** The only path that writes a grant's licenses is `activateLicenseGrantStatements` in `lib/license-grants.ts`. One `db.batch` holds the guarded grant UPDATE, the `agreement_acceptances` row, the licenses and the audit rows. No live reader changed, so "nothing is live before acceptance" holds by construction.
 3. **Two ways to activate.** The owner accept route (`POST /api/vendor/license-grants/:id/accept`), or a signed deal recorded at create that names the pinned version (R5). The deal activates at once, and that grant gets no click prompt.
 4. **The grant id stays the form-minted id.** License ids stay `uuidv5('license:{grant_id}:{i}')`, so a replayed grant writes nothing twice.
-5. **The record is append-only and never pruned.** It is kept at least five years after the grant's last subscription ends. Each acceptance records a hash of the agreement text and of the checkbox label shown, plus a flag that the box started unticked (ruling 16).
+5. **The record is append-only and never pruned.** *(Amended 2026-11-17, AECI-1638, ADR 0058: the legal retention prune now deletes it six years after the vendor account ends, and never before five years after the grant ends.)* It is kept at least five years after the grant's last subscription ends. Each acceptance records a hash of the agreement text and of the checkbox label shown, plus a flag that the box started unticked (ruling 16).
 6. **Grants live before AECI-1615 stay live** with no acceptance (R3).
 
 ## Consequences
 
 - Readers of `licenses` need no change. A new reader must not read `license_grants` as live.
 - An admin who expects a grant to show at once now sees it waiting until an owner accepts. The 11:00 job expires a grant nobody accepted at its end date, and sends one reminder after 7 days.
-- The store is append-only in D1, not tamper-evident against AECi itself. A nightly export to a versioned R2 bucket with a running hash is a separate Platform issue (ruling 15).
+- The store is append-only in D1. *Amended 2026-11-17 (AECI-1680):* it is now tamper-evident against AECi itself through a nightly hash chain of row fingerprints in locked R2 with a DigiCert timestamp (ruling 15, ADR 0057). R2 has no object versioning, so a bucket lock holds the files.

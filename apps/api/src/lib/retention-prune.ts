@@ -35,8 +35,12 @@
  *      to do nothing and alert. Deferring a day of `job_runs` pruning costs ~120
  *      rows.
  *   3. **Hard exclusions.** `audit_log`, `workflow_instances` and
- *      `workflow_transitions` are governed by `STAGE_1_SPEC.md` §26.6
- *      (indefinite — and this cron is not the vehicle for changing that);
+ *      `workflow_transitions` are governed by `STAGE_1_SPEC.md` §26.6, and this
+ *      cron is not the vehicle for changing that. Since AECI-1638 the separate legal
+ *      prune (`./legal-retention-prune`, ADR 0058) deletes `audit_log` rows older than
+ *      four years, and the acceptance and grant records past their retention. It is
+ *      the one vehicle for those tables; this module still never names them. The two
+ *      workflow tables stay indefinite;
  *      `metrics_daily` is the long memory §7.1 exists to keep.
  *      `recrawl_submissions` (AECI-1183) is the search-engine submission log, and
  *      `recrawl_submission_causes` (AECI-1184) is why each row was sent. Both are
@@ -187,24 +191,20 @@ export const PRUNABLE = [
 export type PrunableTable = (typeof PRUNABLE)[number];
 
 /**
- * Tables no prune may ever delete from (AECI-1615, counsel Q5(c)). An
- * `agreement_acceptances` row is the evidence that a vendor accepted an agreement, and a
- * `license_grants` row records the grant it activated. A grant acceptance is kept at
- * least five years from the day the grant's last subscription ends (lapse, revoke, release
- * or Terminate, not the scheduled `ends_at`), or from its withdraw or expiry when never
- * accepted (`DATABASE_SCHEMA.md` §8.6d). That sits inside the Privacy
- * Policy's "life of the vendor account plus six years". A `terms_acceptances` row
- * (AECI-1637) is the record that an account holder accepted a Terms of Service version,
- * kept for the life of the account plus six years, past its deletion (ruling 1 of
- * 2026-11-13). No table here may join
- * {@link PRUNABLE}; `retention-prune.spec.ts` asserts it. A later sweep may NULL the IP
- * and user agent on old rows (AECI-1636): that is an UPDATE, never a row delete.
+ * Tables no prune may delete from yet. A `terms_acceptances` row (AECI-1637) is the record
+ * that an account holder accepted a Terms of Service version, kept for the life of the
+ * account plus six years, past its deletion (ruling 1 of 2026-11-13). Its prune is a named
+ * follow-up of AECI-1638. No table here may join {@link PRUNABLE};
+ * `retention-prune.spec.ts` asserts it. The 90-day sweep NULLs the IP and user agent on
+ * old rows (AECI-1636): that is an UPDATE, never a row delete.
+ *
+ * `agreement_acceptances` and `license_grants` left this list with AECI-1638. They are
+ * still never {@link PRUNABLE} here: the legal prune (`./legal-retention-prune`, ADR 0058)
+ * deletes them six years after the vendor account ends and five years after a grant ends
+ * (`DATABASE_SCHEMA.md` §8.6d), and `retention-prune.spec.ts` asserts this module never
+ * names either table.
  */
-export const NEVER_PRUNED = [
-  'agreement_acceptances',
-  'license_grants',
-  'terms_acceptances',
-] as const;
+export const NEVER_PRUNED = ['terms_acceptances'] as const;
 
 /** The tables with a retention window of their own. A child table inherits its
  *  parent's window and cutoff. */

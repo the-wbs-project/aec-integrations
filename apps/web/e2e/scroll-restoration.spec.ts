@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Response } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
+import { FAKE_PRODUCTS, FAKE_VENDORS, routeFakeAlgolia } from './fake-algolia';
 import { untilHydrated } from './hydration';
 
 // Scroll restoration on navigation. A client-side (SPA) navigation is a
@@ -52,19 +53,30 @@ const RESTORE_TOLERANCE_PX = 50;
  * Waits in the page until `scrollY` and the document height both hold still for
  * ten frames, and returns `scrollY`. A restore that lands before the rows render
  * and then drifts as they arrive does not count as settled until the drift ends.
+ *
+ * Nor does a page the footer is loading (AECI-1909). A scroll can bring the
+ * footer's sentinel within its 600px margin, and the footer then loads the next
+ * page by itself. The page holds still while that runs, and on `/search` the
+ * fake Algolia answers 300ms later, so ten still frames passed first. The test
+ * recorded the rows without the new page, left, and on Back the store rightly
+ * restored the page the reader really left with. The footer's control carries
+ * `aria-busy` while it loads, so a settle also waits for that to clear.
  */
 function layoutSettled(page: Page): Promise<number> {
   return page.evaluate(
     () =>
       new Promise<number>((resolve) => {
-        const read = () => `${Math.round(window.scrollY)}:${document.documentElement.scrollHeight}`;
+        const busy = () =>
+          document.querySelectorAll('aec-pagination-footer [aria-busy="true"]').length;
+        const read = () =>
+          `${Math.round(window.scrollY)}:${document.documentElement.scrollHeight}:${busy()}`;
         let last = read();
         let still = 0;
         const tick = () => {
           const now = read();
           still = now === last ? still + 1 : 0;
           last = now;
-          if (still >= 10) resolve(Math.round(window.scrollY));
+          if (still >= 10 && busy() === 0) resolve(Math.round(window.scrollY));
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -620,10 +632,30 @@ const FILTER_PLANS: { name: string; plan: (page: Page) => Promise<FilterPlan | n
   },
 ];
 
+/** The listing's own requests: its rows and its filter panel's counts. */
+const LISTING_REQUESTS = ['/api/products', '/api/products/facets'];
+
+/** Whether a response URL answers the filter state in `pageUrl` (every `*_id` param matches). */
+function answersFilterState(responseUrl: string, path: string, pageUrl: string): boolean {
+  const response = new URL(responseUrl);
+  if (response.pathname !== path) return false;
+  const filters = [...new URL(pageUrl).searchParams].filter(([key]) => key.endsWith('_id'));
+  return filters.every(([key, value]) => response.searchParams.get(key) === value);
+}
+
 /**
  * Brings one filter checkbox to the middle of the viewport and clicks it with a
  * DOM click, as a reader ticking a filter. Returns the position at the click:
  * what the router saves for a later Back to the state being left.
+ *
+ * Then waits until the new filter state's rows and counts have both arrived
+ * (AECI-1909). A filter click is a client navigation, so `waitForLoadState`
+ * returns at once: the document reached `networkidle` long before. And the
+ * page holds still while the request runs, because the previous state's rows
+ * stay on screen, dimmed. So a settle alone let the test count, scroll and
+ * leave a state whose rows had not arrived. The listing stores nothing for
+ * such a state, on purpose, so the Back that followed fetched and landed short.
+ * Measured: the rows took 190 to 560ms on the local stack.
  */
 async function clickFilter(page: Page, click: FilterClick): Promise<number> {
   const group = page.locator('aec-facet-sidebar fieldset', {
@@ -634,12 +666,35 @@ async function clickFilter(page: Page, click: FilterClick): Promise<number> {
   });
   if ((await box.count()) === 0) await group.getByRole('button').first().click();
   await untilHydrated(page.locator('aec-facet-sidebar'));
-  return box.evaluate((input) => {
-    input.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
-    const y = Math.round(window.scrollY);
-    (input as HTMLInputElement).click();
+
+  const answered: string[] = [];
+  const onResponse = (response: Response) => {
+    if (response.ok()) answered.push(response.url());
+  };
+  page.on('response', onResponse);
+  try {
+    const before = page.url();
+    const y = await box.evaluate((input) => {
+      input.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+      const y = Math.round(window.scrollY);
+      (input as HTMLInputElement).click();
+      return y;
+    });
+    await expect.poll(() => page.url()).not.toBe(before);
+    const after = page.url();
+    await expect
+      .poll(
+        () =>
+          LISTING_REQUESTS.every((path) =>
+            answered.some((url) => answersFilterState(url, path, after)),
+          ),
+        { message: `the rows and counts for ${after} arrive`, timeout: 15_000 },
+      )
+      .toBe(true);
     return y;
-  });
+  } finally {
+    page.off('response', onResponse);
+  }
 }
 
 test.describe('Back and Forward between filter states on one page (AECI-1900)', () => {
@@ -655,7 +710,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
       for (const click of steps!.clicks) {
         clickedAt = await clickFilter(page, click);
         await expect(page).toHaveURL(new RegExp(click.group === 'Phases' ? 'phase_id=' : '_id='));
-        await page.waitForLoadState('networkidle');
         await layoutSettled(page);
       }
       await expect(page).toHaveURL(urlEndingWith(steps!.end));
@@ -698,7 +752,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
 
     const clickedAt = await clickFilter(page, { group: 'Phases', name: phase!.name });
     await expect(page).toHaveURL(/phase_id=/);
-    await page.waitForLoadState('networkidle');
     const filteredAt = await layoutSettled(page);
     const filteredCards = await cards.count();
 
@@ -735,7 +788,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
     await expect(page).toHaveURL(/phase_id=/);
     // The filter starts at its own page 1: the panel drops `?page=`.
     await expect(page).not.toHaveURL(/[?&]page=/);
-    await page.waitForLoadState('networkidle');
     await layoutSettled(page);
 
     await page.goBack();
@@ -746,6 +798,199 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
     const restored = await hrefs();
     expect(restored.slice(0, pageTwo.length), 'the page 2 rows are back, first').toEqual(pageTwo);
   });
+});
+
+// /search gets its rows from Algolia only after the search code loads, after the
+// first render. So a Back used to render no rows in the frame the router restored
+// the position: left at 3,200, clamped to 1,341, landed at 3,457. The page now
+// renders what the reader left from a per-tab store on Back and Forward.
+//
+// Every answer comes from the fixed Algolia in `fake-algolia.ts`, held back by
+// 300ms, so the rows, counts and order cannot move and a restore that waits for
+// Algolia is caught. The only client-side way into /search from another page is
+// the header search box, which carries `?q=` alone. So a Forward lands on that
+// entry, and the tab and filter cases are checked on Back.
+
+/** Result cards on the active /search tab. */
+const SEARCH_CARDS = '#main aec-search-product-card, #main aec-search-vendor-card';
+
+/** Opens /search from /categories through the header search box. */
+async function openSearchFromHeader(page: Page): Promise<void> {
+  await page.goto('/categories');
+  await page.waitForLoadState('networkidle');
+  const box = page.locator('header form[role="search"] input[name="q"]').first();
+  test.skip((await box.count()) === 0, 'no header search box at this viewport');
+  await untilHydrated(box);
+  await box.fill('zz fake');
+  await box.press('Enter');
+  await expect(page).toHaveURL(/\/search\?q=zz(\+|%20)fake$/, { timeout: 15_000 });
+  await expect(page.locator(SEARCH_CARDS).first()).toBeVisible({ timeout: 15_000 });
+  await markDocument(page);
+}
+
+/** Loads `pages` pages and puts card `cardIndex` near the top. Returns `scrollY`. */
+async function placeReader(page: Page, pages: 1 | 2, cardIndex: number): Promise<number> {
+  const cards = page.locator(SEARCH_CARDS);
+  await page.waitForLoadState('networkidle');
+  await expect(cards).toHaveCount(24, { timeout: 15_000 });
+  if (pages === 2) {
+    await page.locator('aec-pagination-footer a, aec-pagination-footer button').first().click();
+    await expect.poll(() => cards.count()).toBeGreaterThan(cardIndex);
+    await page.waitForLoadState('networkidle');
+  }
+  await page.evaluate(
+    ({ selector, i }) => {
+      const r = document.querySelectorAll(selector)[i]!.getBoundingClientRect();
+      window.scrollTo({ top: r.top + window.scrollY - 120, behavior: 'instant' as ScrollBehavior });
+    },
+    { selector: SEARCH_CARDS, i: cardIndex },
+  );
+  // The footer may load the next page from here on its own; let it land, so
+  // the rows counted are the rows the reader leaves.
+  await page.waitForLoadState('networkidle');
+  return layoutSettled(page);
+}
+
+/** Leaves /search for /products through the header link, as a client navigation. */
+async function leaveForProducts(page: Page): Promise<number> {
+  const y = await page.evaluate(() => {
+    const link = document.querySelector<HTMLAnchorElement>('header a[href="/products"]');
+    const at = Math.round(window.scrollY);
+    link!.click();
+    return at;
+  });
+  await expect(page).toHaveURL(/\/products$/);
+  await expect(page.locator(LISTING_CARDS).first()).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+  return y;
+}
+
+/** The slug of every result card on screen, in order. */
+function searchRows(page: Page): Promise<string[]> {
+  return page.evaluate((selector) => {
+    return [...document.querySelectorAll(selector)].map((card) => {
+      const prefix = card.tagName === 'AEC-SEARCH-VENDOR-CARD' ? '/vendors/' : '/products/';
+      const link = card.querySelector<HTMLAnchorElement>(`a[href^="${prefix}"]`);
+      return link?.getAttribute('href')?.slice(prefix.length) ?? '';
+    });
+  }, SEARCH_CARDS);
+}
+
+/**
+ * The reader is back where they left, with exactly the rows they had, in the
+ * frame the router restored. Then Algolia's answer lands and must not move
+ * them. The footer may load the next page by itself from there, as it does on
+ * any visit, so later rows may follow: they must continue the fixed order with
+ * no row twice and none missing.
+ */
+async function expectSearchRestored(
+  page: Page,
+  saved: number,
+  rows: string[],
+  order: string[],
+  when: string,
+): Promise<string[]> {
+  await expectRestored(page, saved, when);
+  expect(await searchRows(page), `${when}: the rows the reader left`).toEqual(rows);
+  await page.waitForLoadState('networkidle');
+  await expectRestored(page, saved, `${when}, after Algolia answered,`);
+  const after = await searchRows(page);
+  expect(after.slice(0, rows.length), `${when}: the rows stay`).toEqual(rows);
+  expect(after, `${when}: no row twice, none missing`).toEqual(order.slice(0, after.length));
+  // The rows the reader leaves with next time.
+  return after;
+}
+
+const SEARCH_DEPTHS = [
+  { label: 'a position on page 1', pages: 1 as const, card: 9 },
+  { label: 'a position inside a page added by "Load more"', pages: 2 as const, card: 30 },
+];
+
+test.describe('Back and Forward return the reader to their place on /search', () => {
+  for (const where of SEARCH_DEPTHS) {
+    test(`/search?q=: Back and Forward restore ${where.label}`, async ({ page }) => {
+      await routeFakeAlgolia(page, { delayMs: 300 });
+      await openSearchFromHeader(page);
+      await placeReader(page, where.pages, where.card);
+      const rows = await searchRows(page);
+      const order = FAKE_PRODUCTS.map((p) => p.slug);
+      const saved = await leaveForProducts(page);
+
+      await page.goBack();
+      await expect(page).toHaveURL(/\/search\?q=/, { timeout: 15_000 });
+      const left = await expectSearchRestored(page, saved, rows, order, 'Back');
+
+      // Back once more to /categories, then Forward onto /search.
+      await page.goBack();
+      await expect(page).toHaveURL(/\/categories$/, { timeout: 15_000 });
+      await page.goForward();
+      await expect(page).toHaveURL(/\/search\?q=/, { timeout: 15_000 });
+      await expectSearchRestored(page, saved, left, order, 'Forward');
+    });
+  }
+
+  for (const tab of [
+    {
+      name: 'Products',
+      order: FAKE_PRODUCTS.filter((p) => p.categories.includes('Field Management')).map(
+        (p) => p.slug,
+      ),
+      filter: async (page: Page) => {
+        const box = page
+          .locator('aec-search-refinement-list fieldset')
+          .filter({ has: page.locator('legend', { hasText: 'Categories' }) })
+          .getByRole('checkbox', { name: 'Field Management' });
+        await untilHydrated(box);
+        await box.check();
+        await expect(page).toHaveURL(/categories=Field/);
+        // The filtered answer is on screen. "Load more" pressed while a filter
+        // search is in flight loses that answer's first page (seen here, not fixed).
+        await expect(page.locator('aec-pagination-footer')).toContainText('of 70');
+      },
+    },
+    {
+      name: 'Vendors',
+      order: FAKE_VENDORS.filter((v) => v.integration_count >= 1 && v.integration_count <= 10).map(
+        (v) => v.slug,
+      ),
+      filter: async (page: Page) => {
+        await page.getByRole('tab', { name: /Vendors/ }).click();
+        await expect(page).toHaveURL(/tab=vendors/);
+        await expect(page.locator('#main aec-search-vendor-card').first()).toBeVisible();
+        await page
+          .locator('aec-search-numeric-menu fieldset')
+          .filter({ has: page.locator('legend', { hasText: 'Integrations' }) })
+          .getByRole('radio', { name: '1–10' })
+          .check();
+        await expect(page).toHaveURL(/v_integration_count=1/);
+        await expect(page.locator('aec-pagination-footer')).toContainText('of 53');
+      },
+    },
+  ]) {
+    for (const where of SEARCH_DEPTHS) {
+      test(`${tab.name} tab with a filter: Back restores ${where.label}`, async ({ page }) => {
+        await routeFakeAlgolia(page, { delayMs: 300 });
+        await openSearchFromHeader(page);
+        await tab.filter(page);
+        await placeReader(page, where.pages, where.card);
+        const rows = await searchRows(page);
+        const url = page.url();
+        const saved = await leaveForProducts(page);
+
+        await page.goBack();
+        await expect(page).toHaveURL(url, { timeout: 15_000 });
+        const left = await expectSearchRestored(page, saved, rows, tab.order, 'Back');
+
+        // Forward to /products and Back again: the entry is restored a second
+        // time, under the id the first Back gave it.
+        await page.goForward();
+        await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
+        await page.goBack();
+        await expect(page).toHaveURL(url, { timeout: 15_000 });
+        await expectSearchRestored(page, saved, left, tab.order, 'Back again');
+      });
+    }
+  }
 });
 
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets
@@ -884,7 +1129,7 @@ test.describe('section-nav jumps clear the sticky nav', () => {
 });
 
 // AECI-1752. Smooth scrolling is scoped to in-page section links (clash 38 of
-// ADR 0057): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
+// ADR 0059): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
 // (core/in-page-smooth-scroll.ts) puts `html.aeci-smooth-scroll` on for the span
 // of a jump from an `<a data-smooth-scroll>` link. These tests sample `scrollY`
 // on every animation frame. A smooth scroll passes through intermediate
@@ -986,26 +1231,80 @@ async function flipTheSwitch(page: Page): Promise<void> {
 }
 
 /**
- * Clicks an in-page section link and, `gapMs` later, does `then` in the page:
- * the race where a router scroll starts while the smooth-scroll class is on.
- * Both happen inside the page so the gap does not depend on the test's round
- * trip.
+ * Clicks an in-page section link and, `gapMs` later, the header's Products link,
+ * both inside the page so the gap does not depend on the test's round trip. Used
+ * under reduced motion, where there is no glide to wait for (see `glideThen`).
  */
-async function sectionClickThen(
+async function sectionClickThenProducts(
   page: Page,
   sectionLink: string,
-  then: 'click-products' | 'back-two',
   gapMs = 50,
 ): Promise<void> {
   await page.evaluate(
-    ({ sectionLink, then, gapMs }) => {
+    ({ sectionLink, gapMs }) => {
       document.querySelector<HTMLAnchorElement>(sectionLink)!.click();
-      setTimeout(() => {
-        if (then === 'back-two') history.go(-2);
-        else document.querySelector<HTMLAnchorElement>('header a[href="/products"]')!.click();
-      }, gapMs);
+      setTimeout(
+        () => document.querySelector<HTMLAnchorElement>('header a[href="/products"]')!.click(),
+        gapMs,
+      );
     },
-    { sectionLink, then, gapMs },
+    { sectionLink, gapMs },
+  );
+}
+
+/**
+ * AECI-1907: starts a section jump, waits in the page until the glide is in flight
+ * (`scrollY` strictly between 1 and the target), then does `then`: clicks the link
+ * that selector names, presses Enter in the field it names, or goes back two entries. Returns where the glide was when
+ * `then` ran, or `at: -1` when no glide started within three seconds. Waiting on the
+ * glide, not on a fixed gap, makes the race happen on every run.
+ */
+async function glideThen(
+  page: Page,
+  sectionLink: string,
+  then: { click: string } | { enterIn: string } | 'back-two',
+): Promise<{ at: number; goal: number }> {
+  // A request still loading can hold the page's height, and the glide's target with it.
+  await page.waitForLoadState('networkidle');
+  return page.evaluate(
+    ({ sectionLink, then }) =>
+      new Promise<{ at: number; goal: number }>((resolve) => {
+        const link = document.querySelector<HTMLAnchorElement>(sectionLink)!;
+        const target = document.getElementById(decodeURIComponent(link.hash.slice(1)))!;
+        const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const goal = Math.round(
+          Math.min(max, target.getBoundingClientRect().top + window.scrollY - margin),
+        );
+        const act = () => {
+          if (then === 'back-two') history.go(-2);
+          else if ('click' in then) document.querySelector<HTMLAnchorElement>(then.click)!.click();
+          else
+            document
+              .querySelector(then.enterIn)!
+              .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        };
+        const started = performance.now();
+        const wait = () => {
+          const y = window.scrollY;
+          if (y > 1 && y < goal - 1) {
+            act();
+            resolve({ at: Math.round(y), goal });
+          } else if (performance.now() - started > 3000) {
+            resolve({ at: -1 - Math.round(y), goal });
+          } else {
+            requestAnimationFrame(wait);
+          }
+        };
+        // Two frames first, so the test's own instant scroll to the top has landed.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            link.click();
+            requestAnimationFrame(wait);
+          }),
+        );
+      }),
+    { sectionLink, then },
   );
 }
 
@@ -1239,6 +1538,9 @@ test.describe('the docs "On this page" rail', () => {
 //   `RouterScroller` itself, so the second test passes with or without the
 //   guard. It pins the outcome, not the guard.
 test.describe('a router scroll during a smooth in-page jump stays instant', () => {
+  // AECI-1907: the click lands while the glide is in flight, on every run. Before the
+  // fix the glide ran on into /products and the page ended partway down (seen: 24,
+  // 39, 153) or the reset itself glided to the top.
   test('a route change clicked mid-jump opens the new page at the top', async ({ page }) => {
     await openProductWithIntegrationsJump(page);
     await untilHydrated(page.locator('aec-section-nav'));
@@ -1247,7 +1549,10 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
 
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await startScrollSampler(page);
-    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'click-products');
+    const { at, goal } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', {
+      click: 'header a[href="/products"]',
+    });
+    expect(at, `the click must land mid-glide (target ${goal})`).toBeGreaterThan(1);
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await scrollSettled(page)).toBe(0);
 
@@ -1255,6 +1560,87 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
     expect(before.length, `the reset must not glide, saw ${before.join(', ')}`).toBeLessThanOrEqual(
       2,
     );
+  });
+
+  test('a second section link clicked mid-glide lands on the second section', async ({ page }) => {
+    await openProductWithIntegrationsJump(page);
+    const nav = page.locator('aec-section-nav');
+    await untilHydrated(nav);
+    test.skip(
+      (await nav.locator('a[href$="#reviews"]').count()) === 0,
+      'no Reviews link in this section nav',
+    );
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await markDocument(page);
+
+    const { at, goal } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', {
+      click: 'aec-section-nav a[href$="#reviews"]',
+    });
+    expect(at, `the second click must land mid-glide (target ${goal})`).toBeGreaterThan(1);
+    await expect(page).toHaveURL(/#reviews$/);
+    await scrollSettled(page);
+    expect(await documentMarked(page), 'a section jump stays in the document').toBe(true);
+    await expect(page.locator('#reviews-title')).toBeInViewport();
+    const gap = await page.evaluate(
+      () =>
+        document.getElementById('reviews-title')!.getBoundingClientRect().top -
+        document.querySelector('aec-section-nav')!.getBoundingClientRect().bottom,
+    );
+    expect(gap, 'the second section lands below the bar').toBeGreaterThanOrEqual(0);
+  });
+
+  test('under reduced motion a route change right after a section click opens at the top', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openProductWithIntegrationsJump(page);
+    await untilHydrated(page.locator('aec-section-nav'));
+    await untilHydrated(page.locator('header a[href="/products"]').first());
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await startScrollSampler(page);
+    await sectionClickThenProducts(page, 'aec-section-nav a[href$="#integrations"]');
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
+    expect(await scrollSettled(page)).toBe(0);
+    const before = await offsetsBeforeRestingOn(page, '/products');
+    expect(before.length, `the reset must not glide, saw ${before.join(', ')}`).toBeLessThanOrEqual(
+      2,
+    );
+  });
+
+  // The docs search routes with `router.navigate([path], { fragment })`, a client
+  // navigation to another page with a fragment. Enter in the field picks the first hit.
+  test('a route to another page with a fragment, taken mid-glide, lands on that fragment', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/docs/vendors/plans');
+    await waitForHydrationSettle(page);
+    await untilHydrated(page.locator('app-docs-toc').first());
+    const search = page.locator('aec-docs-search input[type="search"]').first();
+    test.skip((await search.count()) === 0, 'docs search is not available in this environment');
+    await search.fill('paying by card');
+    await expect(page.getByRole('option').first()).toContainText('Paying by card');
+    const railHref = (await page
+      .getByRole('navigation', { name: 'On this page' })
+      .getByRole('link')
+      .last()
+      .getAttribute('href'))!;
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await markDocument(page);
+
+    const { at, goal } = await glideThen(page, `a[href="${railHref}"][data-smooth-scroll]`, {
+      enterIn: 'aec-docs-search input[type="search"]',
+    });
+    expect(at, `Enter must land mid-glide (target ${goal})`).toBeGreaterThan(1);
+    await expect(page).toHaveURL(/\/docs\/vendors\/billing#paying-by-card$/, { timeout: 15_000 });
+    expect(await documentMarked(page), 'the search must route in the same document').toBe(true);
+    await scrollSettled(page);
+    const top = await page.evaluate(() =>
+      Math.round(document.getElementById('paying-by-card')!.getBoundingClientRect().top),
+    );
+    expect(top, 'the heading sits at its scroll margin').toBeGreaterThanOrEqual(0);
+    expect(top).toBeLessThan(48);
   });
 
   test('Back pressed mid-jump restores the previous page without a glide', async ({ page }) => {
@@ -1282,7 +1668,9 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
     await untilHydrated(page.locator('aec-section-nav'));
 
     await startScrollSampler(page);
-    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'back-two');
+    // AECI-1907: Back is pressed while the glide is in flight, on every run.
+    const { at } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', 'back-two');
+    expect(at, 'Back must land mid-glide').toBeGreaterThan(1);
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);

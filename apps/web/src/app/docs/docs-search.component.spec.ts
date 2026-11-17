@@ -122,6 +122,18 @@ describe('DocsSearchComponent', () => {
     expect(host.querySelector('label')?.textContent?.trim()).toBe('Search For vendors');
   });
 
+  // AECI-1803: the box is the shared field recipe (44px, the 3:1 field edge),
+  // with its text moved past the leading glyph, as on /search.
+  it('draws the input on the shared field recipe', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { host } = await render('help');
+    const input = host.querySelector('input')!;
+    expect(input.classList).toContain('aec-field-control');
+    expect(input.classList).toContain('ps-12');
+    expect(input.classList).toContain('text-t-16');
+    expect(input.className).not.toMatch(/\bh-9\b|border-\(--border-default\)/);
+  });
+
   it('sends the guide filter of the shell it sits in', async () => {
     (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
     const general = await render('help');

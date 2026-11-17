@@ -249,8 +249,8 @@ Clashes 9 and 17 decided this section.
 | Zero | A large "0" is allowed with honest supporting text. | 25 |
 | Icons | A custom icon set at 1.75 stroke. Arrows may mean "go here". | 33, 34 |
 | Agreement states | Only "Confirmed by both companies" is green. A one-company confirmation looks neutral. | 41 |
-| Maintenance chip | Exactly two labels, "Vendor maintained" and "AEC Integrations maintained". No company name, no icon. | 40 |
-| Field captions | "Maintained by {Vendor} · updated {date}", always with the date, no icon. | 40 |
+| Maintenance chip | Exactly two labels, "Vendor maintained" and "AEC Integrations maintained". No company name, no icon. *Superseded 2026-11-17 by AECI-1666: the chip is retired, and its wording opens the "About this listing" panel as plain text.* | 40 |
+| Field captions | "Maintained by {Vendor} · updated {date}", always with the date, no icon. *Superseded 2026-11-17 by AECI-1666: the wording stands, but every caption sits in the "About this listing" panel, not under its group.* | 40 |
 | "Claimed" | No public label says "Claimed". | 39 |
 | Breadcrumb | The separator is ›. | 31 |
 | Wordmark | The shipped wordmark. | 42 |
@@ -666,7 +666,7 @@ The legal agent suggested "Listing claimed by {vendor}" was acceptable wording w
 - "Maintained by {Vendor} · updated {date}" is approved for field captions only.
 - The page-level chip keeps two fixed labels with no company name and no icon.
 
-The mock-ups now follow this. Clashes 39 and 40 record it.
+The mock-ups now follow this. *Superseded 2026-11-17 by AECI-1666:* the page-level chip is retired. Its two labels open the "About this listing" panel as plain text, and the field captions sit in that panel too. The mock-ups' inline captions and header pill do not ship. `DESIGN.md` "Listing provenance panel" is the current treatment. Clashes 39 and 40 record it.
 
 ### 8.3 Legal text to write before a feature ships
 

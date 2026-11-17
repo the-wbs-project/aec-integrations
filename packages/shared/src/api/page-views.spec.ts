@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { BrowserEvidencePostSchema } from './page-view-browser-evidence';
 import {
+  BROWSER_EVIDENCE_URL,
+  BROWSER_EVIDENCE_VALUES,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
   SPECULATIVE_REQUEST_HEADERS,
   UNTRACKED_ROUTE_PREFIXES,
@@ -136,6 +139,60 @@ describe('TurnstileVerdictPostSchema (AECI-1457)', () => {
   ])('rejects a %s token', (_label, token) => {
     expect(
       TurnstileVerdictPostSchema.safeParse({ cf_ray: '8c1a2b3c4d5e6f70', token }).success,
+    ).toBe(false);
+  });
+});
+
+describe('BROWSER_EVIDENCE_VALUES (AECI-1713)', () => {
+  it('is exactly ran, interacted', () => {
+    expect(BROWSER_EVIDENCE_VALUES).toEqual(['ran', 'interacted']);
+  });
+
+  it('names the endpoint the browser posts to', () => {
+    expect(BROWSER_EVIDENCE_URL).toBe('/api/page-views/browser-evidence');
+  });
+});
+
+describe('BrowserEvidencePostSchema (AECI-1713)', () => {
+  const RAY = '8c1a2b3c4d5e6f70-IAD';
+
+  it.each(['ran', 'interacted'] as const)('accepts evidence %s', (evidence) => {
+    expect(BrowserEvidencePostSchema.parse({ cf_ray: RAY, evidence })).toEqual({
+      cf_ray: RAY,
+      evidence,
+    });
+  });
+
+  it.each(['8c1a2b3c4d5e6f70', '8C1A2B3C4D5E6F70-SJC', '8c1a2b3c4d5e6f70-ABCD'])(
+    'accepts the Ray ID %s, the Turnstile pattern',
+    (cf_ray) => {
+      expect(BrowserEvidencePostSchema.safeParse({ cf_ray, evidence: 'ran' }).success).toBe(true);
+    },
+  );
+
+  it.each([
+    ['too short', '8c1a2b3c4d5e6f7'],
+    ['non-hex', '8c1a2b3c4d5e6fzz'],
+    ['trailing junk', '8c1a2b3c4d5e6f70-IAD;x'],
+    ['empty', ''],
+    ['missing', undefined],
+  ])('rejects a %s cf_ray', (_label, cf_ray) => {
+    expect(BrowserEvidencePostSchema.safeParse({ cf_ray, evidence: 'ran' }).success).toBe(false);
+  });
+
+  it.each([
+    ['another word', 'human'],
+    ['the wrong case', 'Ran'],
+    ['empty', ''],
+    ['missing', undefined],
+    ['a number', 1],
+  ])('rejects %s as evidence', (_label, evidence) => {
+    expect(BrowserEvidencePostSchema.safeParse({ cf_ray: RAY, evidence }).success).toBe(false);
+  });
+
+  it('rejects an unknown key, so the body carries only the one word', () => {
+    expect(
+      BrowserEvidencePostSchema.safeParse({ cf_ray: RAY, evidence: 'ran', path: '/' }).success,
     ).toBe(false);
   });
 });

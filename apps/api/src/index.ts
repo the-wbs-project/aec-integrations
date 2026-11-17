@@ -134,6 +134,16 @@ import {
   createAdminThreadsListHandler,
 } from './routes/admin-threads';
 import {
+  createAdminDmcaNoticesHandler,
+  createCreateDmcaNoticeHandler,
+  createUpdateDmcaNoticeHandler,
+} from './routes/admin-dmca-notices';
+import {
+  createAdminLitigationHoldsHandler,
+  createPlaceLitigationHoldHandler,
+  createReleaseLitigationHoldHandler,
+} from './routes/admin-litigation-holds';
+import {
   createAdminEmailSearchHandler,
   createAdminEmailSendsHandler,
   createAdminEmailSummaryHandler,
@@ -163,7 +173,7 @@ import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
-import { rateLimit } from './rate-limit-middleware';
+import { PAGE_VIEW_REPORTS_RATE_LIMIT_TAG, rateLimit } from './rate-limit-middleware';
 import {
   createAddAbuseCostEntryHandler,
   createLiftVendorSuspensionHandler,
@@ -187,7 +197,11 @@ import {
   createSubscribeHandler,
   createUnsubscribeHandler,
 } from './routes/landing-forms';
-import { createPageViewsHandler, createTurnstileVerdictHandler } from './routes/page-views';
+import {
+  createBrowserEvidenceHandler,
+  createPageViewsHandler,
+  createTurnstileVerdictHandler,
+} from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
@@ -395,12 +409,24 @@ app.post('/api/page-views', createPageViewsHandler());
 // AECI-1457 / AECI-1330: a landing view's Turnstile verdict, `{ cf_ray, token }`.
 // Anonymous, reached through the SSR `/api/*` passthrough like the beacon above.
 // Each accepted post spends one siteverify subrequest, so it takes the `token`
-// bucket keyed by IP (`cf-connecting-ip` crosses the service binding), the same
-// registration as `/api/unsubscribe`. A 429 costs one verdict, never a page view.
+// bucket keyed by IP (`cf-connecting-ip` crosses the service binding). It runs on
+// the `page-views` sub-budget, not the shared `token` counter that seat-invite
+// accept and `/api/unsubscribe` spend (`PAGE_VIEW_REPORTS_RATE_LIMIT_TAG`). A 429
+// costs one verdict, never a page view.
 app.post(
   '/api/page-views/turnstile',
-  rateLimit('token', { by: 'ip' }),
+  rateLimit('token', { by: 'ip', tag: PAGE_VIEW_REPORTS_RATE_LIMIT_TAG }),
   createTurnstileVerdictHandler(),
+);
+// AECI-1713 (epic AECI-1711): the browser's report about a page load,
+// `{ cf_ray, evidence }`. Anonymous, through the same SSR passthrough. One small
+// post per page load, like the verdict above, so it shares the verdict's
+// `page-views` sub-budget of the `token` bucket, keyed by IP. A 429 costs one
+// report, never a page view.
+app.post(
+  '/api/page-views/browser-evidence',
+  rateLimit('token', { by: 'ip', tag: PAGE_VIEW_REPORTS_RATE_LIMIT_TAG }),
+  createBrowserEvidenceHandler(),
 );
 
 // Phase 2.8 sub-router (AECI-54). `errorHandler()` converts thrown
@@ -1302,6 +1328,39 @@ authAdmin.post(
 // §5.22a / AECI-1677 — who has accepted each final agreement version, and who has not.
 // A read: no audit, no limiter.
 authAdmin.get('/api/admin/legal-acceptances', requireAdmin(), createAdminLegalAcceptancesHandler());
+// §5.23 / AECI-1665 — the copyright notice log (counsel Q38). The GET is a read (no
+// audit, no limiter). The POST logs a notice or counter-notice and the PATCH edits one:
+// writes that audit in their own batch and carry `rateLimit('write')` after the guard.
+// No delete route, and no purge: the log is never public.
+authAdmin.get('/api/admin/dmca-notices', requireAdmin(), createAdminDmcaNoticesHandler());
+authAdmin.post(
+  '/api/admin/dmca-notices',
+  requireAdmin(),
+  rateLimit('write'),
+  createCreateDmcaNoticeHandler(),
+);
+authAdmin.patch(
+  '/api/admin/dmca-notices/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateDmcaNoticeHandler(),
+);
+// §5.22b / AECI-1638 — litigation holds, the switch that stops the legal retention prune.
+// The GET is a read (no audit, no limiter). Place and release are writes that audit in
+// their own batch and carry `rateLimit('write')` after the guard. No purge: never public.
+authAdmin.get('/api/admin/litigation-holds', requireAdmin(), createAdminLitigationHoldsHandler());
+authAdmin.post(
+  '/api/admin/litigation-holds',
+  requireAdmin(),
+  rateLimit('write'),
+  createPlaceLitigationHoldHandler(),
+);
+authAdmin.post(
+  '/api/admin/litigation-holds/:id/release',
+  requireAdmin(),
+  rateLimit('write'),
+  createReleaseLitigationHoldHandler(),
+);
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

@@ -4,12 +4,10 @@ import { RouterLink } from '@angular/router';
 
 import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { newestCorrection } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
@@ -17,19 +15,26 @@ import {
 } from '../search/mechanism-labels';
 
 import { AgreementBadge } from './agreement-badge';
-import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-grouping';
+import {
+  routeIntegrationLane,
+  rowUnderReviewFields,
+  type IntegrationLaneRow,
+} from './connector-lane-grouping';
 
 /**
  * AECI-1782: one integration as a card, the default view of the product page's
- * Integrations section (PLAN.md §5.2, clash 24 "blend").
+ * Integrations section (PLAN.md §5.2, clash 24 "blend"). AECI-1720 restored mock-up
+ * 6's card body (`.card`): a 48px mark, the partner's vendor under its name, a
+ * "What moves" block (the direction, then the types of data), a "How it connects"
+ * block (the mechanism), and the pair-page link at the foot.
  *
  * The card says what the table row says, and a little more the row has no room
  * for. Content parity with `ProductIntegrationRow` is the rule: the partner and its
  * link, the direction with its "Direction:" prefix, the mechanism kinds and name,
- * the field caption, the corrections and the "Under review" markers, and the
- * pair-page link with the same accessible name. What the card adds is data the API
- * already sends (AECI-1781): the partner's categories, the names of the data objects
- * the integration moves, and the agreement state.
+ * the "Under review" markers, and the
+ * pair-page link with the same words. What the card adds is data the API
+ * already sends (AECI-1781, AECI-1720): the partner's vendor and categories, the
+ * names of the data objects the integration moves, and the agreement state.
  *
  * **The agreement state is a label only** (ruling R1, PLAN.md §7.7). It renders
  * through the shared `aec-agreement-badge`, unattributed, so a `single_source` row
@@ -37,10 +42,11 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
  * filters, counts or features by it.
  *
  * **Two links, no nesting.** The partner name links to the partner's own page, as
- * on the row. The trailing chevron links to the pair page and is stretched over
- * the whole card (`after:absolute after:inset-0`), so a click anywhere on the card
- * opens the pair page. Every other interactive element sits above the stretched
- * layer with `relative z-10`, so it keeps its own destination.
+ * on the row. The pair-page link at the foot reads "View the {partner} integration",
+ * the row chevron's accessible name, now visible, and is stretched over the whole
+ * card (`after:absolute after:inset-0`), so a click anywhere on the card opens the
+ * pair page. Every other interactive element sits above the stretched layer with
+ * `relative z-10`, so it keeps its own destination.
  *
  * Attribute selector on `<li>`: the lane renders its cards as one named list, the
  * card view's version of §13.3's one table per lane.
@@ -53,7 +59,6 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
     AecIcon,
     AgreementBadge,
     Chip,
-    FieldCaptionLine,
     LogoOrInitial,
     NgTemplateOutlet,
     RouterLink,
@@ -68,47 +73,56 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
       class="flex h-full flex-col gap-4 p-6 text-(--text-primary) has-[.aec-partner-link:focus-visible]:outline-0"
       data-testid="integration-card"
     >
-      <div class="flex items-start gap-3">
+      <!-- Mock-up 6, .card .top: a 48px mark beside the partner name, with the
+           partner's vendor under it. -->
+      <div class="flex items-center gap-4">
         <aec-logo-or-initial
+          class="shrink-0"
           [claimStatus]="'server-filtered'"
           [src]="row().other.logo_url"
           [name]="row().other.name"
-          size="sm"
+          size="md"
         />
-        <!-- The heading level follows the section: h3 under the section h2 on a
-             one-lane page, h4 under a lane card's h3. The size sits on the link,
-             not on the heading, because the unlayered heading rules beat a text-*
-             utility on the heading itself (the Unlayered-Heading Rule). -->
-        <div class="min-w-0 flex-1 self-center">
-          @if (headingLevel() === 4) {
-            <h4 class="break-words">
-              <ng-container [ngTemplateOutlet]="partnerLink" />
-            </h4>
-          } @else {
-            <h3 class="break-words">
-              <ng-container [ngTemplateOutlet]="partnerLink" />
-            </h3>
+        <!-- The heading level follows the section: h4 under a one-lane page's list
+             heading or a lane card's h3, h5 under a category group's h4. The size sits
+             on the link, not on the heading, because the unlayered heading rules beat
+             a text-* utility on the heading itself (the Unlayered-Heading Rule). -->
+        <div class="min-w-0 flex-1">
+          @switch (headingLevel()) {
+            @case (3) {
+              <h3 class="break-words">
+                <ng-container [ngTemplateOutlet]="partnerLink" />
+              </h3>
+            }
+            @case (5) {
+              <h5 class="break-words">
+                <ng-container [ngTemplateOutlet]="partnerLink" />
+              </h5>
+            }
+            @default {
+              <h4 class="break-words">
+                <ng-container [ngTemplateOutlet]="partnerLink" />
+              </h4>
+            }
+          }
+          @if (vendorLine(); as line) {
+            <p
+              class="mt-0.5 break-words text-t-13 text-(--text-secondary)"
+              data-testid="integration-card-vendor"
+            >
+              {{ line }}
+            </p>
           }
         </div>
-        <!-- The pair-page link: the same accessible name as the row's chevron, and
-             stretched over the card. size-6 keeps the target at 24px. -->
-        <a
-          [routerLink]="pairLink()"
-          [attr.aria-label]="pairAriaLabel()"
-          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-(--text-tertiary) transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-secondary) focus-visible:outline-0"
-          data-testid="integration-card-pair-link"
-        >
-          <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
-        </a>
       </div>
 
       <!-- Each chip row carries a small visible label (approved 2026-11-16). The list
            takes the same words as its accessible name, so a screen reader hears it as
            the name of the chip group; the visible label is aria-hidden to say it once. -->
       @if (row().integration.partner_categories.length > 0) {
-        <div class="space-y-1">
+        <div>
           <span
-            class="block text-xs text-(--text-secondary)"
+            class="aec-overline mb-2 block text-(--text-secondary)"
             aria-hidden="true"
             data-testid="integration-card-categories-label"
             >{{ categoriesLabel }}</span
@@ -127,35 +141,38 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
         </div>
       }
 
-      <p class="flex flex-wrap items-center gap-x-1.5 text-sm text-(--text-secondary)">
-        <span class="sr-only" i18n="@@products.detail.integrations.direction.srLabel"
-          >Direction:</span
+      <!-- Mock-up 6's "What moves": the direction, then the types of data. The data
+           list keeps "Types of data" as its accessible name, the filter's words. -->
+      <div class="space-y-2" data-testid="integration-card-moves">
+        <span
+          class="aec-overline block text-(--text-secondary)"
+          data-testid="integration-card-moves-label"
+          i18n="@@products.detail.integrations.card.whatMoves"
+          >What moves</span
         >
-        @if (direction().token) {
-          <span
-            class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
-            aria-hidden="true"
-            >{{ direction().glyph }}</span
+        <p class="flex flex-wrap items-center gap-x-1.5 text-t-14 font-semibold">
+          <span class="sr-only" i18n="@@products.detail.integrations.direction.srLabel"
+            >Direction:</span
           >
-          <span>{{ direction().label }}</span>
-        } @else {
-          <span
-            i18n="@@products.detail.integrations.direction.none"
-            i18n-aria-label="@@products.detail.integrations.direction.none.aria"
-            aria-label="Direction not listed"
-            >–</span
-          >
-        }
-      </p>
+          @if (direction().token) {
+            <span
+              class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
+              aria-hidden="true"
+              >{{ direction().glyph }}</span
+            >
+            <span>{{ direction().label }}</span>
+          } @else {
+            <span
+              class="font-normal text-(--text-secondary)"
+              i18n="@@products.detail.integrations.direction.none"
+              i18n-aria-label="@@products.detail.integrations.direction.none.aria"
+              aria-label="Direction not listed"
+              >–</span
+            >
+          }
+        </p>
 
-      @if (row().dataObjects.length > 0) {
-        <div class="space-y-1">
-          <span
-            class="block text-xs text-(--text-secondary)"
-            aria-hidden="true"
-            data-testid="integration-card-data-objects-label"
-            >{{ dataTypesLabel }}</span
-          >
+        @if (row().dataObjects.length > 0) {
           <ul
             class="flex flex-wrap gap-1.5"
             [attr.aria-label]="dataTypesLabel"
@@ -167,34 +184,43 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
               </li>
             }
           </ul>
-        </div>
-      } @else if (dataObjectLabel(); as objects) {
-        <!-- Slugs with no names on the wire: the row's count label, never nothing. -->
-        <p>
-          <aec-chip density="dense" tone="neutral" data-testid="row-data-objects">{{
-            objects
-          }}</aec-chip>
-        </p>
-      }
+        } @else if (dataObjectLabel(); as objects) {
+          <!-- Slugs with no names on the wire: the row's count label, never nothing. -->
+          <p>
+            <aec-chip density="dense" tone="neutral" data-testid="row-data-objects">{{
+              objects
+            }}</aec-chip>
+          </p>
+        }
+      </div>
 
-      <div class="flex flex-col items-start gap-1 text-sm text-(--text-secondary)">
-        @if (mechanismKindLabels().length > 0) {
-          <span class="flex flex-wrap items-center gap-1">
-            @for (label of mechanismKindLabels(); track label) {
-              <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
-            }
-          </span>
-        } @else if (!isViaLane()) {
-          <span
-            i18n="@@products.detail.integrations.mechanism.none"
-            i18n-aria-label="@@products.detail.integrations.mechanism.none.aria"
-            aria-label="Mechanism not listed"
-            >–</span
-          >
-        }
-        @if (row().integration.mechanism_name; as name) {
-          <span class="text-xs">{{ name }}</span>
-        }
+      <!-- Mock-up 6's "How it connects": the mechanism kinds, then its name. -->
+      <div class="space-y-2" data-testid="integration-card-connects">
+        <span
+          class="aec-overline block text-(--text-secondary)"
+          data-testid="integration-card-connects-label"
+          i18n="@@products.detail.integrations.card.howItConnects"
+          >How it connects</span
+        >
+        <div class="flex flex-col items-start gap-1 text-t-14 text-(--text-secondary)">
+          @if (mechanismKindLabels().length > 0) {
+            <span class="flex flex-wrap items-center gap-1">
+              @for (label of mechanismKindLabels(); track label) {
+                <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
+              }
+            </span>
+          } @else if (!isViaLane()) {
+            <span
+              i18n="@@products.detail.integrations.mechanism.none"
+              i18n-aria-label="@@products.detail.integrations.mechanism.none.aria"
+              aria-label="Mechanism not listed"
+              >–</span
+            >
+          }
+          @if (mechanismName(); as name) {
+            <span class="text-t-13" data-testid="integration-card-mechanism-name">{{ name }}</span>
+          }
+        </div>
       </div>
 
       @if (row().agreement; as agreement) {
@@ -203,21 +229,35 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
         </div>
       }
 
-      @if (rowCaption() || rowCorrection() || rowUnderReview().length > 0) {
-        <div class="relative z-10 mt-auto flex flex-col gap-1">
-          @if (rowCaption() || rowCorrection()) {
-            <aec-field-caption
-              [caption]="rowCaption()"
-              [correction]="rowCorrection()"
-              [label]="rowCorrectionLabel()"
-              [page]="captionPage()"
-            />
-          }
+      <!-- AECI-1666 ruling 2: no "Maintained by" or correction line on an integration.
+           The pair page's "About this listing" panel carries them, and this page's panel
+           says so. The "Under review" markers stay in the card. -->
+      @if (rowUnderReview().length > 0) {
+        <div class="relative z-10 flex flex-col gap-1">
           @for (entry of rowUnderReview(); track entry.field) {
             <aec-under-review [label]="entry.label" />
           }
         </div>
       }
+
+      <!-- The pair-page link at the foot (mock-up 6, .card .go). Its words are the row
+           chevron's accessible name, "View the {partner} integration", now visible, so
+           the name and the label match (WCAG 2.5.3). Stretched over the card, so a click
+           anywhere on it opens the pair page. The glyph is a chevron, never an arrow:
+           an arrow on this page means data-flow direction (the Arrow Rule). -->
+      <a
+        [routerLink]="pairLink()"
+        class="mt-auto flex min-h-11 items-center justify-between gap-3 text-t-14 font-semibold text-(--text-secondary) transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary) focus-visible:outline-0"
+        data-testid="integration-card-pair-link"
+      >
+        <span class="min-w-0 break-words">{{ pairLabel() }}</span>
+        <span
+          class="grid size-9 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)"
+          aria-hidden="true"
+        >
+          <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
+        </span>
+      </a>
     </article>
 
     <ng-template #partnerLink>
@@ -228,7 +268,7 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
            showing both drew two rings around two different destinations. -->
       <a
         [routerLink]="['/products', row().other.slug]"
-        class="aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 text-t-20 leading-tight font-semibold transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        class="aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 font-display text-t-20 leading-tight font-semibold transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >{{ row().other.name }}</a
       >
     </ng-template>
@@ -239,8 +279,11 @@ export class ProductIntegrationCard {
   readonly row = input.required<IntegrationLaneRow>();
   /** This page's product slug; the pair-page context. */
   readonly contextSlug = input.required<string>();
-  /** 3 on a one-lane page, 4 inside a lane card. */
-  readonly headingLevel = input<3 | 4>(3);
+  /**
+   * 4 under a one-lane page's list heading (`h3`) or inside a lane card, 5 under a
+   * category group's `h4`. 3 is kept for a caller with no heading above the list.
+   */
+  readonly headingLevel = input<3 | 4 | 5>(4);
   /** Inside a lane card: the nested card surface (tint, no shadow). */
   readonly nested = input(false);
 
@@ -263,6 +306,27 @@ export class ProductIntegrationCard {
       .filter((label) => label !== ''),
   );
 
+  /**
+   * The mechanism's name, unless it only repeats a kind chip on this card ("Native"
+   * under a "Native" chip). The card never prints one fact twice.
+   */
+  protected readonly mechanismName = computed(() => {
+    const name = this.row().integration.mechanism_name?.trim();
+    if (!name) return null;
+    const lower = name.toLocaleLowerCase();
+    return this.mechanismKindLabels().some((label) => label.toLocaleLowerCase() === lower)
+      ? null
+      : name;
+  });
+
+  /** "by {vendor}" (mock-up 6), or `null` when the partner has no vendor on record. */
+  protected readonly vendorLine = computed(() => {
+    const vendor = this.row().integration.partner_vendor_name;
+    return vendor
+      ? $localize`:@@products.detail.integrations.card.byVendor:by ${vendor}:VENDOR:`
+      : null;
+  });
+
   protected readonly dataObjectLabel = computed(() =>
     dataObjectCountLabel(this.row().dataObjectSlugs.length),
   );
@@ -273,34 +337,16 @@ export class ProductIntegrationCard {
     () => routeIntegrationLane(this.row().integration).lane === 'via',
   );
 
-  protected readonly rowCaption = computed(() => this.row().caption);
-
-  protected readonly rowCorrection = computed(() => newestCorrection(this.row().corrections));
-
-  protected readonly rowCorrectionLabel = computed(() => {
-    const correction = this.rowCorrection();
-    return correction?.cleared ? fieldOverrideLabel(correction.field) : null;
-  });
-
   protected readonly rowUnderReview = computed(() =>
-    (this.row().integration.under_review ?? []).map((field) => ({
+    rowUnderReviewFields(this.row().integration).map((field) => ({
       field,
-      label: fieldOverrideLabel(field),
+      label: correctionLabel(field),
     })),
   );
 
-  protected readonly captionPage = computed<FieldCaptionPage>(() => {
-    const { source, target } = this.row().integration;
-    return {
-      surface: 'product_detail',
-      entityType: 'product',
-      entityId: source.id === this.row().other.id ? target.id : source.id,
-    };
-  });
-
-  // Built in TS, as on the row: an interpolated i18n attribute emits no attribute.
-  // The same message id as the row, so the two links read alike.
-  protected readonly pairAriaLabel = computed(
+  // Built in TS, as on the row. The same message id as the row's chevron name, so the
+  // two links read alike. On the card it is the link's visible text.
+  protected readonly pairLabel = computed(
     () =>
       $localize`:@@products.detail.integrations.row.aria:View the ${this.row().other.name}:PARTNER: integration`,
   );

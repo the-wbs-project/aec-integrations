@@ -1,11 +1,11 @@
 # Legal runbooks
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
-report or demand letter, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
+report or demand letter, a copyright notice or counter-notice, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
 change notice, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
 [`alerts.md`](./alerts.md). Subscription and billing procedures are in
 [`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
-`docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q40, Q41). Where counsel did not say something, these steps say
+`docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q38, Q40, Q41). Where counsel did not say something, these steps say
 "retain an attorney", not a guess.
 
 **Insurance.** The WBS Project has no general liability or cyber policy today (Chris, 2026-11-11).
@@ -155,6 +155,44 @@ Circuit, but a plaintiff can sue where any reader lives. Treat every letter as r
    depends on the letter. Do not reply without one, and do not promise a fix date or a standard in
    writing without the attorney.
 6. **Reply by the deadline.** Record the reply and its date on the issue.
+
+## Copyright notice or counter-notice (AECI-1665)
+
+Use this when a notice of claimed copyright infringement, or a counter-notice, reaches our designated agent. The address and the email `copyright@thewbsproject.com` are printed in the Terms' "Copyright complaints" section. The registration and its renewal date are in `apps/web/src/content/legal/README.md` "DMCA designated agent". A copyright notice sent to the support inbox counts too, so move it to the same handling.
+
+The Terms promise four things here. We promptly notify the person who posted the material. We forward a counter-notice to the person who sent the notice. We restore the material between 10 and 14 business days after we receive the counter-notice, unless they tell us they have filed a court action. We keep a log of every notice and counter-notice, and terminate repeat infringers in appropriate circumstances. Counsel set these in Q38 (`docs/LEGAL_COUNSEL_RECORD.md`).
+
+**The log is `/admin/dmca`.** Every notice and every counter-notice gets a row there, the same day it arrives, complete or not. A counter-notice is logged against the notice it answers. The page shows each counter-notice's restore window and whether it is overdue. Business days are Monday to Friday, excluding US federal holidays, in New York time (`apps/api/src/lib/business-days.ts`). The table is `dmca_notices` (`docs/DATABASE_SCHEMA.md` §8.14). It is never public.
+
+**A notice**
+
+1. **Check the notice.** A valid notice has the six elements of 17 U.S.C. 512(c)(3): a physical or electronic signature, the copyrighted work, the material that infringes it and where it is on the service, the sender's contact details, a statement of good-faith belief that the use is not authorized, and a statement that the notice is accurate and, under penalty of perjury, that the sender is the owner or may act for the owner. If it names the work, the material and how to reach the sender, but lacks another element, write back promptly and say what is missing. Log the row as it is. Leave blank what the notice did not give: the name, the contact details or the material. The page shows a missing name as "Not given". An incomplete notice is logged with `no_action` (step 2). The page will not save a `removed` or `disabled` row until the material is identified.
+2. **Remove or disable the material, then log it.** Use the tool for the kind of material:
+
+   | Material | Tool | Can it be put back? |
+   |---|---|---|
+   | A published review | **Remove** on `/admin/reviews` (`docs/ADMIN_PANEL_SPEC.md` §5.21) | Not from the panel. Remove is final there. The row stays in D1 with status `removed`. |
+   | A logo | **Remove on objection** in the logo editor (`listing-submissions.md` §6a) | Only by uploading it again. The action deletes the stored file, so save a copy to the hold folder first. |
+   | One text value on a vendor-held record | The value hide (`catalog.md` "Hide a value") | Yes. Restoring the hide puts the value back. The daily `field_hide_decision_overdue` check warns after five business days, so expect it. |
+   | Anything else | No tool. Tell Chris the same day. | |
+
+   Set `action` to `removed` or `disabled`, with `action_at`. Set `account_id` to the account that posted the material, and `vendor_id` when it is a vendor's logo, screenshot or text. An incomplete notice, or one about material that is not on our service, is `no_action`. A `no_action` notice never counts against an account.
+3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
+
+**A counter-notice**
+
+4. **Check the counter-notice.** A valid counter-notice has the elements of 17 U.S.C. 512(g)(3): a signature, the removed material and where it was, a statement under penalty of perjury of good-faith belief that it was removed by mistake or misidentification, the sender's name, address and phone number, consent to the federal district court for their address (the Southern District of Florida if they are outside the United States, as the Terms say), and a statement that they will accept service from the person who sent the notice. If one is missing, write back and say what. The clock does not start until a complete counter-notice arrives.
+5. **Log it against the notice.** Create a counter-notice row with "Counter-notice to…" set to the notice, and `received_at` set to the day it arrived. The restore window counts from that day.
+6. **Forward it to the person who sent the notice, promptly.** Send them a copy. Say we will restore the material in 10 business days unless they tell us they have filed a court action seeking to restrain the poster. Stamp `forwarded_at` on the counter-notice.
+7. **Watch the clock.** Before business day 10 the page shows "Restore window opens" with the day-10 date. From day 10 it shows "Restore by" with the day-14 date. A forwarded counter-notice past day 14 with no outcome shows "Overdue". Until you stamp `forwarded_at`, it shows as waiting to be forwarded, whatever the day. If the sender of the notice tells us they have filed a court action before we restore, stamp `court_action_at`, keep the material down, and record `not_restored`.
+8. **Restore, or record why not.** With no court action, put the material back between business day 10 and business day 14, never before day 10. Then set `restore_outcome` to `restored` with its date. A takedown restored this way no longer counts against the account. A removed review has no restore route in the panel. Tell Chris by business day 10, because putting it back needs an ops script.
+9. **Close the notice.** Stamp `closed_at` on each row when nothing more will happen: a `no_action` notice once you have replied, a counter-notice once its outcome is recorded, a notice once its counter-notice is closed. A takedown with no counter-notice can still draw one, so close it when you judge nothing more will come, and say why in `notes`. The three-year retention counts from `closed_at`. The job that deletes rows after three years is AECI-1905, not built yet. No row can fall due before late 2029.
+
+**Repeat infringers**
+
+10. **Review the account after every takedown.** Open `/admin/users/:id`. "Copyright takedowns" counts that account's notices that led to a removal or a disabling. A `no_action` notice and a takedown restored after a counter-notice do not count. The counter-notices the account filed show beside it. There is no fixed threshold. The Terms say "in appropriate circumstances". Counsel said no threshold is required, but the policy must be applied. Decide each time. Write the decision and its reason in the notice's `notes`, and in a Linear issue assigned to Chris. A reader account is banned on `/admin/users/:id` (`docs/ADMIN_PANEL_SPEC.md` §5.8). A vendor's access ends only through Suspend, then Terminate, on `/admin/vendors/:id`.
+
+A deleted account loses its link to its notices, and a re-created account starts at zero (Chris's ruling of 2026-11-17). The rows themselves stay.
 
 ## Subpoena or legal process for a reviewer's identity
 
@@ -310,6 +348,39 @@ production Cloudflare, Supabase, GitHub or PostHog access.
 >
 > The Linear issue for this matter is [AECI-N].
 
+**Place the hold in the app the same day (AECI-1638).** The legal retention prune deletes audit
+records four years after the action and acceptance records six years after a vendor account ends
+(ADR 0058). A litigation hold is its off switch, and the only one any job has.
+
+1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
+2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
+   `/admin/vendors`. **Everything (global)** when the matter is wider, or you do not yet know its
+   scope.
+3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
+4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
+   released four years ago. A vendor hold also keeps that
+   vendor's agreement acceptances and subscription grants. A global hold keeps everything: the
+   nightly run records `skipped`. Check the next morning: `/admin/system` shows the
+   `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
+5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose
+   **Release hold**, give the reason, and the prune resumes on its next run.
+
+The hold stops this one job. It does not stop the jobs in the next table.
+
+**When the "Litigation hold open for N days" email arrives.** The legal retention job sends
+`litigation-hold-reminder` to the support inbox for every hold open more than 90 days, and
+again every 30 days while it stays open (AECI-1638). A hold nobody remembers keeps personal
+data past the Privacy Policy period, so answer every one.
+
+1. Open the Linear issue named as the matter, or ask the attorney, whether the matter is still
+   open.
+2. **Closed:** release the hold on `/admin/legal` with the reason, and follow "Ending a hold"
+   below. The prune resumes on its next run.
+3. **Still open:** keep the hold. Add a dated comment to the matter's Linear issue saying who
+   confirmed it is still needed. The reminder comes back in 30 days.
+4. **Unsure of the scope:** a global hold that only needs one vendor can be replaced. Place the
+   vendor hold first, then release the global one, so no night runs unprotected.
+
 **Routine deletes the hold must work around.** None of these has an off switch. Export the affected
 records before they run, rather than stopping the job:
 
@@ -326,9 +397,15 @@ records before they run, rather than stopping the job:
 **Records no job deletes.** The plan-change ranking snapshots under `evidence/` in each `UPLOADS`
 bucket are under a 4-year R2 bucket lock (ADR 0056). Nobody can delete or overwrite them, so the hold
 needs no step for them. Their ledger, `plan_change_snapshots` in D1, has no delete path either.
+The acceptance chain files under `evidence/acceptance-chain/` (ADR 0057) are under their own
+indefinite lock, and their ledger tables have no delete path. They hold fingerprints, not rows, so
+they prove an acceptance row was not edited but cannot restore it. Export the acceptance rows
+themselves for the hold.
 
-**Ending a hold.** Only when the attorney says the matter is closed. Record the end date on the Linear
-issue and tell everyone who got the notice.
+**Ending a hold.** Only when the attorney says the matter is closed. Release the hold on
+`/admin/legal`, record the end date on the Linear issue and tell everyone who got the notice.
+Four years after the release, the legal retention prune deletes the hold record and its audit
+rows, because the reason can name a person. Copy anything the matter file needs before then.
 
 ## Pull the ranking evidence for a product
 
@@ -374,6 +451,81 @@ cd /tmp && npx wrangler r2 object get "aeci-uploads-production/$KEY" --remote --
    present the saved D1 rank as a search position (`SEARCH_RANKING.md` §7a).
 7. A row with `r2_key` NULL was not written yet, or is failing. See `alerts.md`
    "Plan-change snapshot sweep". Say so in the reply rather than leave the date out.
+8. Move the files out of `/tmp` into the hold folder.
+
+## Prove an acceptance was not edited
+
+Use this when a demand letter, a court or counsel asks us to show that an agreement acceptance or a
+license grant is what was recorded at the time. Counsel asked for a tamper-evident record (Q5(c)),
+and Chris ruled yes (ruling 15).
+
+Each night at 18:00 UTC a job writes the SHA-256 fingerprint of every new or changed
+`agreement_acceptances` and `license_grants` row to a file in the production `UPLOADS` bucket under
+`evidence/acceptance-chain/`. Each file names the hash of the file before it, and DigiCert signs a
+timestamp of each file's hash. The files hold fingerprints, ids and fields that are not personal.
+The IP address and browser are not in the fingerprint. ADR 0057.
+
+1. Open a Linear issue for the matter, as for every legal event above.
+2. Run the verify after 18:15 UTC, so the night's export has run. It is read-only. It needs
+   `openssl` on your PATH and a wrangler login with R2 and D1 read on the account.
+
+```
+pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production
+```
+
+3. Read the result. The verify ends with three separate lines: `LOCK:`, `CHAIN:` and `ROWS:`. A
+   missing lock and a broken chain are different events with different remedies, so neither is
+   folded into the other. `PASS` means `LOCKED`, `CHAIN INTACT` and `ROWS MATCH`. Each finding
+   means:
+
+| Finding | What it means | What to do |
+|---|---|---|
+| `LOCK MISSING` | No R2 lock rule covers the chain. Anyone with R2 write access could change it | Apply the lock in `docs/environments.md` "Acceptance chain lock", then re-run |
+| `LOCK NOT INDEFINITE` (fail) | Only the 4-year `evidence/` rule covers it. Those files become deletable when it lapses | Apply the indefinite rule |
+| `CHAIN BROKEN` | A file in R2 was changed, replaced, deleted or malformed. The seq named is the first file that no longer proves the ones before it | Stop. Tell Chris and counsel. Do not touch R2 |
+| `CHAIN STALE` | Every link holds, but the newest file is more than 50 hours old. The export stopped, or the newest files were deleted | Check `job_runs` and `alerts.md` "Acceptance chain export". If the export ran, treat it as `CHAIN BROKEN` |
+| `TIMESTAMP MISSING` | DigiCert was unreachable that night, or its reply failed the Worker's signature check and was not stored. Each run retries up to 7 outstanding earlier files, newest first, with no age cutoff | Check `alerts.md` "Acceptance chain export" if it persists |
+| `TIMESTAMP INVALID` | `openssl ts -verify` failed. Usually DigiCert rotated its intermediate | See the header of `apps/api/scripts/certs/digicert-tsa-chain.pem` |
+| `CHANGED` | The D1 row differs from its last fingerprint | Find its audit row. A write after the last export with an audit row is legitimate and shows in tomorrow's file. One with no audit row is an edit outside the app |
+| `UNEXPORTED` (fail) | A row older than the last export is missing from the chain | Treat it as `CHANGED` |
+| `ABSENT` | A row in the chain is missing from D1 | Restore it from D1 Time Travel if within 30 days, and tell Chris |
+| `TOMBSTONE WITHOUT PRUNE AUDIT` | A row was deleted with no prune audit row naming it | Treat it as `ABSENT` |
+
+4. To give the evidence for one acceptance, set `ID` to the acceptance id. Find the files that
+   carry it. Each night's file only lists the rows that changed, so the latest file that names it
+   holds its current fingerprint.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT seq, fingerprint, deleted FROM acceptance_chain_rows WHERE row_id = '$ID'"
+```
+
+5. Set `SEQ` to the six-digit seq, for example `000042`. Download that file and its timestamp token
+   into the matter's hold folder. Then download every earlier file too, because each link proves the
+   one before it. The verify in step 2 already walked them all.
+
+```
+cd /tmp && npx wrangler r2 object get "aeci-uploads-production/evidence/acceptance-chain/$SEQ.json" --remote --file "$SEQ.json"
+```
+
+```
+cd /tmp && npx wrangler r2 object get "aeci-uploads-production/evidence/acceptance-chain/$SEQ.tsr" --remote --file "$SEQ.tsr"
+```
+
+6. Anyone can check the token. Run these two from the repo root. Set `SHA` to the file's SHA-256
+   from the first, then run the check against the pinned DigiCert chain. It prints
+   `Verification: OK`.
+
+```
+shasum -a 256 "/tmp/$SEQ.json"
+```
+
+```
+openssl ts -verify -digest "$SHA" -in "/tmp/$SEQ.tsr" -CAfile apps/api/scripts/certs/digicert-tsa-chain.pem
+```
+
+7. The row's fingerprint is `sha256(canonicalJson(...))` over the columns in `COLUMN_MANIFEST`
+   (`apps/api/src/lib/acceptance-chain.ts`). That code at the commit that wrote the file says
+   exactly how to recompute it from the D1 row.
 8. Move the files out of `/tmp` into the hold folder.
 
 ## A legal change notice did not go out

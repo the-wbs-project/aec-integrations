@@ -10,6 +10,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const FOREST = 'rgb(30, 58, 47)';
 const BONE = 'rgb(245, 242, 234)';
@@ -135,9 +136,14 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect(band.backgroundImage).not.toMatch(/linear-gradient|blur/);
   });
 
-  test('puts Display on the inner span, 45.7px at 320 and 72px at 1440', async ({ page }) => {
+  // AECI-1720 restore: below md the title steps to --t-statement, and below 360px to
+  // --t-fig, so a long word fits beside the 68px mark.
+  test('puts the title on the inner span: 28px at 320, 37px at 390, 72px at 1440', async ({
+    page,
+  }) => {
     for (const [width, size] of [
-      [320, 45.68],
+      [320, 28],
+      [390, 37.02],
       [1440, 72],
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
@@ -146,8 +152,8 @@ test.describe('hero band rendered (AECI-1766)', () => {
       const span = await style(h1.locator('span').first());
       expect(span.fontSize).toBeCloseTo(size, 0);
       expect(span.fontWeight).toBe('400');
-      // The unlayered h1 rule keeps the heading size: Display is not on the h1.
-      expect((await style(h1)).fontSize).toBeLessThan(span.fontSize);
+      // The unlayered h1 rule keeps the heading size: the title size is not on the h1.
+      expect((await style(h1)).fontSize).toBeLessThanOrEqual(span.fontSize);
     }
   });
 
@@ -175,7 +181,11 @@ test.describe('hero band rendered (AECI-1766)', () => {
     await open(page);
     const [pWide, tWide] = [await style(panel), await style(title)];
     expect(pWide.left).toBeGreaterThanOrEqual(tWide.left + tWide.width);
-    expect(pWide.width).toBe(540);
+    // 400px at lg, so a long name keeps room beside the mark (AECI-1787); 540px from xl.
+    expect(pWide.width).toBe(400);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await open(page);
+    expect((await style(panel)).width).toBe(540);
   });
 
   test('renders no panel and no gap when nothing is projected', async ({ page }) => {
@@ -376,10 +386,7 @@ test.describe('hero band rendered (AECI-1766)', () => {
   test('has no horizontal overflow at 320px and the actions stack full width', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page);
     // Below 480px the actions stack in one full-width column (AECI-1780), so a long label
     // such as "Sign in to review" stays on one line.
     const actions = withPanel(page).getByTestId('hero-main-action').locator('..');
@@ -428,10 +435,7 @@ test.describe('200% zoom (AECI-1766)', () => {
 
   test('the title wraps, the actions fit and nothing scrolls sideways', async ({ page }) => {
     await open(page);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page);
     const h1 = await style(withPanel(page).locator('h1'));
     const span = await style(withPanel(page).locator('h1 span').first());
     expect(h1.height).toBeGreaterThan(span.fontSize * 1.5);
@@ -526,10 +530,7 @@ test.describe('bone band rendered (AECI-1766)', () => {
   test('is axe clean and has no horizontal overflow at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page);
     const results = await new AxeBuilder({ page })
       .include('[data-testid="bone-band-specimen"]')
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice'])

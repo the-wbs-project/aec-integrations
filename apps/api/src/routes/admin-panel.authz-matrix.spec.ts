@@ -19,8 +19,8 @@
  * AECI-1188 with `GET /api/admin/reindex/submissions`, by AECI-1362 with
  * `GET /api/admin/vendors/:id/acceptances`, by AECI-1372 with
  * `GET /api/admin/vendors/:id/billing`, by AECI-1373 with
- * `GET /api/admin/license-release-requests`, and by AECI-653 with
- * `GET /api/admin/audit`.
+ * `GET /api/admin/license-release-requests`, by AECI-653 with
+ * `GET /api/admin/audit`, and by AECI-1638 with `GET /api/admin/litigation-holds`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -79,6 +79,7 @@ import { createAdminUserDetailHandler, createAdminUsersListHandler } from './adm
 import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances';
 import { createAdminVendorBillingHandler } from './admin-vendors-billing';
 import { createAdminLicenseReleaseRequestsListHandler } from './admin-license-release-requests';
+import { createAdminLitigationHoldsHandler } from './admin-litigation-holds';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
@@ -218,6 +219,9 @@ const ROUTES = [
   // same deny matrix against it.
   { name: 'GET /api/admin/email/summary', url: '/api/admin/email/summary' },
   { name: 'GET /api/admin/email/sends', url: '/api/admin/email/sends' },
+  // AECI-1638 — the §5.22b litigation holds. ONE read; place and release are covered by
+  // `admin-litigation-holds.registration.spec.ts` with the rest of their write semantics.
+  { name: 'GET /api/admin/litigation-holds', url: '/api/admin/litigation-holds' },
 ] as const;
 
 let jwks: TestJwks;
@@ -417,6 +421,11 @@ function makeApp() {
     '/api/admin/email/sends',
     requireAdmin(guard),
     createAdminEmailSendsHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/litigation-holds',
+    requireAdmin(guard),
+    createAdminLitigationHoldsHandler(t.factory, clock),
   );
   return app;
 }

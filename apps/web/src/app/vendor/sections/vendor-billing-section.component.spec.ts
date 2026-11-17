@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorBillingResponse, VendorMeResponse } from '@aeci/shared';
+import { PLANS_PAGE_CURRENT_VERSION } from '@aeci/shared/api/agreements';
 
 import { expectVendorDocsLink } from '../components/vendor-docs-link.testing';
 import { VendorApi } from '../vendor-api';
@@ -127,8 +128,9 @@ describe('VendorBillingSection', () => {
     const [checkout, claim, legacy] = [...el.querySelectorAll('[data-testid="acceptance-row"]')];
 
     const plans = checkout!.querySelector('a[data-testid="acceptance-plans-page"]');
-    expect(plans?.textContent?.trim()).toBe('Plans page 1.0');
-    expect(plans?.getAttribute('href')).toBe('/docs/vendors/plans/v1.0');
+    // The checkout fixture records the current Plans version, so a bump moves both.
+    expect(plans?.textContent?.trim()).toBe(`Plans page ${PLANS_PAGE_CURRENT_VERSION}`);
+    expect(plans?.getAttribute('href')).toBe(`/docs/vendors/plans/v${PLANS_PAGE_CURRENT_VERSION}`);
     expect(checkout!.querySelector('[data-testid="acceptance-policies"]')).toBeNull();
 
     expect(claim!.querySelector('[data-testid="acceptance-policies"]')?.textContent?.trim()).toBe(

@@ -15,6 +15,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
+
 import {
   attachConsoleCapture,
   expectConsoleClean,
@@ -337,4 +339,71 @@ test.describe('/docs shell — AECI-1248', () => {
       expectConsoleClean(capture, `GET ${path}`);
     });
   }
+});
+
+// AECI-1803, AECI-1804: the help center and the legal pages in the new language.
+// Every docs control is a 44px target, no page scrolls sideways from 320 to
+// 1440px, the prose sits on the type ramp, and the headings never skip a level.
+test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', () => {
+  const PATHS = [
+    '/docs',
+    '/docs/reviewers',
+    '/docs/vendors',
+    '/docs/trust/how-ranking-works',
+    '/docs/vendors/plans',
+    '/legal/terms',
+  ];
+
+  for (const width of [320, 390, 768, 1024, 1280, 1440]) {
+    test(`no page scrolls sideways at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of PATHS) {
+        await page.goto(path);
+        await expect(page.locator('h1')).toBeVisible();
+        await expectNoSidewaysScroll(page, `${path} at ${width}px`);
+      }
+    });
+  }
+
+  test('every sidebar, guide and index link is at least 44px tall at 1280px', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const path of ['/docs', '/docs/reviewers']) {
+      await page.goto(path);
+      const links = page.locator(
+        '#docs-nav-panel nav a, [data-testid="docs-audiences"] a, [data-testid="docs-all-sections"] a, [data-testid="docs-section-pages"] a',
+      );
+      const heights = await links.evaluateAll((els) =>
+        els.map((el) => [el.textContent?.trim(), el.getBoundingClientRect().height] as const),
+      );
+      expect(heights.length, path).toBeGreaterThan(5);
+      for (const [label, height] of heights) {
+        expect(height, `${path}: ${label}`).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  test('sets the prose body at 16px and its h2 on the ramp', async ({ page }) => {
+    await page.goto('/docs/trust/how-ranking-works');
+    await expect(page.locator('article .aec-prose p').first()).toHaveCSS('font-size', '16px');
+    await expect(page.locator('article .aec-prose h2').first()).toHaveCSS('font-size', '24px');
+    await page.goto('/legal/terms');
+    await expect(page.locator('article.aec-prose p').first()).toHaveCSS('font-size', '16px');
+    await expect(page.locator('article.aec-prose h2').first()).toHaveCSS('font-size', '24px');
+  });
+
+  test('never skips a heading level', async ({ page }) => {
+    for (const path of PATHS) {
+      await page.goto(path);
+      const levels = await page
+        .locator('main :is(h1, h2, h3, h4, h5, h6)')
+        .evaluateAll((els) => els.map((el) => Number(el.tagName[1])));
+      expect(levels[0], path).toBe(1);
+      for (let i = 1; i < levels.length; i++) {
+        expect(
+          levels[i] - levels[i - 1],
+          `${path}: h${levels[i - 1]} then h${levels[i]}`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+  });
 });

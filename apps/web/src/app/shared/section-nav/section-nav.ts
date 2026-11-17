@@ -46,7 +46,7 @@ const FADE_PX = 40;
  * monogram in a home link of its own, and no name. Never a vendor logo, a product mark or a vendor colour, on any listing:
  * a vendor logo there would read as the vendor's own site, which on an unclaimed listing
  * contradicts "not affiliated with or endorsed by this vendor" (PLAN.md §8.5, counsel's ruling
- * 9, ADR 0057). There is no input that could put one there. The brand link renders only while
+ * 9, ADR 0059). There is no input that could put one there. The brand link renders only while
  * the bar is stuck, so it never sits beside the header's own home link, and the server HTML
  * (never stuck) carries neither it nor the name.
  *

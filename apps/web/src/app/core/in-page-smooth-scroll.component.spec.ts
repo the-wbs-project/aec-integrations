@@ -11,6 +11,8 @@
 import { DOCUMENT } from '@angular/common';
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { NavigationStart, Router, type Event as RouterEvent } from '@angular/router';
+import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,12 +25,17 @@ import {
 const root = () => document.documentElement;
 const armed = () => root().classList.contains(SMOOTH_SCROLL_CLASS);
 
+/** A stand-in router: the service reads only `events` and `url`. */
+const routerEvents = new Subject<RouterEvent>();
+const fakeRouter = { events: routerEvents, url: '/products/acme' };
+
 function configure(platform: 'browser' | 'server' = 'browser'): InPageSmoothScroll {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       { provide: PLATFORM_ID, useValue: platform },
       { provide: DOCUMENT, useValue: document },
+      { provide: Router, useValue: fakeRouter },
     ],
   });
   return TestBed.inject(InPageSmoothScroll);
@@ -175,5 +182,51 @@ describe('InPageSmoothScroll', () => {
     TestBed.resetTestingModule();
     click(link());
     expect(armed()).toBe(false);
+  });
+
+  // AECI-1907: a navigation to another page that starts while a jump is gliding
+  // cancels the glide, so the router's scroll for the new page is the last write.
+  describe('a navigation that starts mid-jump', () => {
+    const start = (url: string) => routerEvents.next(new NavigationStart(2, url));
+
+    it('to another page: takes the class off and stops the glide with one instant scroll', () => {
+      configure().start();
+      const scrollTo = vi.spyOn(view, 'scrollTo').mockImplementation(() => undefined);
+      click(link());
+      expect(armed()).toBe(true);
+
+      start('/products');
+
+      expect(armed()).toBe(false);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledWith({
+        left: view.scrollX,
+        top: view.scrollY,
+        behavior: 'instant',
+      });
+      scrollTo.mockRestore();
+    });
+
+    it("to a fragment of this page (the jump's own popstate): leaves the glide alone", () => {
+      configure().start();
+      const scrollTo = vi.spyOn(view, 'scrollTo').mockImplementation(() => undefined);
+      click(link());
+
+      start('/products/acme#integrations');
+
+      expect(armed()).toBe(true);
+      expect(scrollTo).not.toHaveBeenCalled();
+      scrollTo.mockRestore();
+    });
+
+    it('with no jump armed: does nothing', () => {
+      configure().start();
+      const scrollTo = vi.spyOn(view, 'scrollTo').mockImplementation(() => undefined);
+
+      start('/products');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      scrollTo.mockRestore();
+    });
   });
 });

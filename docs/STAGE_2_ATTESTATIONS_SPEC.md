@@ -2605,6 +2605,11 @@ audit row (§26.1):
 > maintained`, each with an optional ` · Reviewed <date>` / ` · Updated <date>` clause. The
 > company name appears only in an sr-only suffix, and only on product and vendor pages. The pair
 > page shows neither a name nor a date. `STAGE_1_5_SPEC.md` §3.5 carries the full note.
+>
+> **Since AECI-1666 (2026-11-17) the marker is not a header chip.** Its wording is the record line
+> that opens each page's "About this listing" panel (`aec-listing-provenance`), as plain text. An
+> unclaimed listing always reads the AECi form. The wire shape and the fold below are unchanged.
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 holds the panel's contract.
 
 `MaintenanceSchema` (`packages/shared/src/api/common.ts`) is `{ maintained_by, last_reviewed_at }`,
 carried as a `maintenance` object on `ProductDetail`, `VendorDetail`, and `ProductPairResponse`.
@@ -2626,8 +2631,8 @@ The pair page is the interesting one — N mechanisms, one header marker. `compu
 They answer different questions at different grains and both render: the marker is a **page-header**
 attribution ("who is on the hook for this page"), the `unverified` ("Listed by AEC Integrations") pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
-keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
-chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
+keeps their wording and tones distinct. The marker and agreement state were both `rounded.sm`
+chips until AECI-1666 made the marker the panel's plain-text record line. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
 2026-09-24):** `aec-vendor-account-badge` no longer renders on the pair page at all — a reader
 comparing products gains nothing from a vendor's plan state — so the badge is no longer a third
 signal to keep distinct here. AECI-1264 deleted the component on 2026-10-09.

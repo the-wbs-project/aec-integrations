@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 import { untilHydrated } from './hydration';
 
@@ -166,8 +167,13 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     const path = await openProduct(page);
     await hydrated(page, path);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    // At 720px the hero can push the bar just below the fold (AECI-1720's taller ratings
+    // panel), and Playwright's own scroll to the link would then read as a first step.
+    // Bring the link into view before sampling, so only the jump itself is measured.
+    const link = page.locator('aec-section-nav a[data-section-id="integrations"]');
+    await link.scrollIntoViewIfNeeded();
     await startSampler(page);
-    await page.locator('aec-section-nav a[data-section-id="integrations"]').click();
+    await link.click();
     const offsets = await settledOffsets(page);
     expect(offsets).toHaveLength(2);
     expect(offsets[1]).toBeGreaterThan(0);
@@ -440,10 +446,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       /monogram-light\.svg/,
     );
 
-    const page_overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
-    );
-    expect(page_overflow, 'the page itself never scrolls sideways').toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page, 'the page itself never scrolls sideways');
 
     const dims = await row.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
     test.skip(dims.sw <= dims.cw, 'this product has too few sections to overflow at 390px');
@@ -470,9 +473,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       await page.setViewportSize({ width, height: 720 });
       const path = await openProduct(page);
       await hydrated(page, path);
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-      ).toBeLessThanOrEqual(0);
+      await expectNoSidewaysScroll(page);
       const last = page.locator('aec-section-nav nav li:last-child a');
       await last.focus();
       await expect(last).toBeInViewport();

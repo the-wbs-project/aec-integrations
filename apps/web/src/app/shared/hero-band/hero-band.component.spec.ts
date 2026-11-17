@@ -157,11 +157,40 @@ describe('aec-hero-band (AECI-1766)', () => {
   });
 
   it('defaults to the Display title and the panel surface, so existing callers are unchanged', () => {
-    expect(q('h1 > span')!.className).toContain('text-t-display');
-    expect(q('h1 > span')!.className).not.toContain('text-t-statement');
+    const title = q('h1 > span')!;
+    expect(title.className).toContain('text-t-display');
+    // Below md the display title steps to the statement size, and below 360px to the
+    // figure size, so a long word fits beside the mark (AECI-1720 restore).
+    expect(title.classList).toContain('max-md:text-t-statement');
+    expect(title.classList).toContain('max-[360px]:text-t-fig!');
+    expect([...title.classList].filter((c) => c === 'text-t-statement')).toHaveLength(0);
     const panel = q('.aec-hero-panel')!;
     expect(panel.classList.contains('bg-(--surface-hero-panel)')).toBe(true);
     expect(panel.classList.contains('p-6')).toBe(true);
+    // Item 82: a caller that never holds the columns gets them centred, as before.
+    const grid = q('[data-testid="hero-band-grid"]')!;
+    expect(grid.classList).toContain('lg:items-center');
+    expect(grid.querySelectorAll('[data-held]')).toHaveLength(0);
+    expect(grid.innerHTML).not.toContain('--aec-hero-held:');
+  });
+
+  it('holds both columns at their measured offsets, then releases them (item 82)', async () => {
+    const band = fixture.debugElement.query((d) => d.componentInstance instanceof HeroBand)
+      .componentInstance as HeroBand;
+    const grid = q('[data-testid="hero-band-grid"]')!;
+    const [text, panel] = Array.from(grid.children) as HTMLElement[];
+    grid.getBoundingClientRect = () => ({ top: 40 }) as DOMRect;
+    text.getBoundingClientRect = () => ({ top: 190 }) as DOMRect;
+    panel.getBoundingClientRect = () => ({ top: 40 }) as DOMRect;
+    band.holdColumns();
+    await fixture.whenStable();
+    expect(text.getAttribute('data-held')).toBe('');
+    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('150px');
+    expect(panel.style.getPropertyValue('--aec-hero-held')).toBe('0px');
+    band.releaseColumns();
+    await fixture.whenStable();
+    expect(grid.querySelectorAll('[data-held]')).toHaveLength(0);
+    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('');
   });
 });
 

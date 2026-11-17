@@ -4,8 +4,8 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-version: 1.0
-last_updated: November 11, 2026
+version: 1.1
+last_updated: November 17, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -61,7 +61,7 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 
 - Each product whose subscription ends moves to Free. Your seats, sign-in and portal stay.
 - Nothing you entered is removed. Your listings stay published.
-- When a product's subscription ends, the public line under its Managed fields and "How teams use it" changes to "Maintained by" your company "until" the end date. [Editing your profile and products](/docs/vendors/editing-profile-and-products) explains the line.
+- When a product's subscription ends, the "About this listing" panel on its public page changes the lines for its Managed fields and "How teams use it" to "Maintained by" your company "until" the end date. [Editing your profile and products](/docs/vendors/editing-profile-and-products) explains the panel.
 - For 30 days after a product's subscription ends, an owner seat can remove the text your company wrote on it: the description, "How teams use it" and the two documentation links. Tags and reviews stay. The option is on the product's plan panel. It cannot be undone, and a termination ends it.
 - When a product's subscription ends, its pages show a banner with the end date. When your last subscription ends, one banner covers the whole portal. Owners see a **Go to Billing** button.
 - Everything in "What every plan includes" keeps working, the checklists included.
@@ -92,7 +92,8 @@ Cancel monthly billing in **Manage billing in Stripe** on the Billing tab, or by
 
 We record this page as a dated version. A checkout or a granted subscription records the version current when you accepted.
 
-- [Version 1.0](/docs/vendors/plans/v1.0) (this version): recorded November 11, 2026.
+- [Version 1.1](/docs/vendors/plans/v1.1) (this version): recorded November 17, 2026. The line about a plan's end now names the page's "About this listing" panel.
+- [Version 1.0](/docs/vendors/plans/v1.0): recorded November 11, 2026.
 
 ## Related
 

@@ -22,6 +22,9 @@ import {
   pageViews,
   pageViewsArchiveDays,
   planChangeSnapshots,
+  acceptanceChainExports,
+  agreementAcceptances,
+  litigationHolds,
   products,
   profileDetails,
   profiles,
@@ -198,6 +201,7 @@ const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
 const ACCEPTANCE_EVIDENCE_REMOVAL_CRON = '0 17 * * *';
 const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 const PLAN_SNAPSHOT_CRON = '11-59/15 * * * *';
+const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
 const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
@@ -1647,6 +1651,222 @@ describe('plan-change snapshot sweep (AECI-1621): cron → reconcile queue → c
   });
 });
 
+describe('legal retention prune (AECI-1638): 03:00 tick → reconcile queue → consumer', () => {
+  /** An `audit_log` row five years old, past the four-year cutoff. */
+  async function seedOldAuditRow(): Promise<string> {
+    const id = crypto.randomUUID();
+    const createdAt = new Date(Date.now() - 5 * 366 * 24 * 60 * 60 * 1000).toISOString();
+    await t.db
+      .insert(auditLog)
+      .values({ id, actorType: 'system', action: 'vendor.updated', createdAt });
+    return id;
+  }
+
+  it('the 03:00 tick enqueues legal_retention on the reconcile queue and still runs the 400-day prune inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(RETENTION_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'legal_retention', trigger: 'cron' }),
+    );
+    // The 400-day prune is queue-less and unchanged: one inline row, and no legal row
+    // until the consumer runs.
+    expect((await jobRunRows()).map((r) => r.job)).toEqual(['retention-prune']);
+  });
+
+  it('the consumer prunes a four-year-old audit row, records the run, forwards the audit row and ack()s', async () => {
+    const old = await seedOldAuditRow();
+    const { batch, ack, retry } = makeBatch('legal_retention', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((r) => r.id)).not.toContain(old);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ action: 'retention.pruned', actorType: 'system' });
+    expect(audits[0]?.metadata).toMatchObject({
+      source: 'legal-retention-prune',
+      rowsDeleted: 1,
+      tables: [{ table: 'audit_log', rowsDeleted: 1 }],
+    });
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'legal-retention-prune', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'legal-retention-prune',
+      rowsDeleted: 1,
+      // The hold reminder ran first and found no hold.
+      reminders: { due: 0, outcomes: {} },
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.legal_retention.prune',
+      1,
+      ['trigger:cron', 'outcome:ok', 'audit:run'],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ message: 'audit retention.pruned', source: 'audit_log' }),
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('a global hold makes the run skipped and deletes nothing', async () => {
+    const old = await seedOldAuditRow();
+    await t.db.insert(litigationHolds).values({
+      scope: 'global',
+      reason: 'Subpoena',
+      placedBy: 'admin-1',
+      placedAt: new Date().toISOString(),
+    });
+    const { batch, ack } = makeBatch('legal_retention', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect((await t.db.select().from(auditLog)).map((r) => r.id)).toEqual([old]);
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'legal-retention-prune',
+      outcome: 'skipped',
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.legal_retention.prune',
+      1,
+      ['trigger:cron', 'outcome:skipped', 'reason:litigation_hold'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('acceptance chain export (AECI-1680): cron → reconcile queue → consumer', () => {
+  it('the 0 18 cron enqueues one message on the reconcile queue and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(ACCEPTANCE_CHAIN_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'acceptance_chain', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('the consumer writes the chain file to UPLOADS, records the run and ack()s', async () => {
+    await t.db.insert(agreementAcceptances).values({
+      id: 'acc-1',
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email: 'a@example.com',
+      acceptedAt: '2026-11-01T00:00:00.000Z',
+    });
+    // DigiCert is unreachable here: the run must still be ok.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const bucket = makeFakeR2Bucket();
+    const { batch, ack, retry } = makeBatch('acceptance_chain', 'aeci-reconcile-staging');
+
+    try {
+      await queue(batch, makeEnv({ UPLOADS: bucket as never }), ctx);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(bucket.keys()).toEqual(['evidence/acceptance-chain/000001.json']);
+    const [ledger] = await t.db.select().from(acceptanceChainExports);
+    expect(ledger).toMatchObject({ seq: 1, entries: 1, tsaStatus: 'failed' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.acceptance_chain.run',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        level: 'warn',
+        message: 'aeci.acceptance_chain.timestamp_failed',
+        source: 'acceptance-chain-export',
+      }),
+    );
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'acceptance-chain', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'acceptance-chain',
+      seq: 1,
+      entries: 1,
+      adopted: false,
+      tsa: 'failed',
+      tsaFailed: 1,
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('logs ONE timestamp warning per run, however many seqs failed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const bucket = makeFakeR2Bucket();
+    const env = makeEnv({ UPLOADS: bucket as never });
+    try {
+      // Night 1 fails its token. Night 2 fails its own token AND the seq 1 backfill.
+      await queue(makeBatch('acceptance_chain', 'aeci-reconcile-staging').batch, env, ctx);
+      vi.mocked(logToPosthog).mockClear();
+      await queue(makeBatch('acceptance_chain', 'aeci-reconcile-staging').batch, env, ctx);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const warns = vi
+      .mocked(logToPosthog)
+      .mock.calls.filter(
+        ([, , , entry]) => entry.message === 'aeci.acceptance_chain.timestamp_failed',
+      );
+    expect(warns).toHaveLength(1);
+    expect(warns[0]![3].reason).toMatch(/seq=2 .*; seq=1 |seq=1 .*; seq=2 /);
+  });
+
+  it('no UPLOADS binding is a skipped run, not a failure', async () => {
+    const { batch, ack } = makeBatch('acceptance_chain', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'acceptance-chain', outcome: 'skipped' });
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a crash emits the failed heartbeat and retry()s', async () => {
+    const bucket = makeFakeR2Bucket();
+    bucket.failPut(/acceptance-chain/);
+    const { batch, ack, retry } = makeBatch('acceptance_chain', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv({ UPLOADS: bucket as never }), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.acceptance_chain.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'acceptance-chain', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
 describe('brand asset removal (AECI-1618): cron → queue → consumer', () => {
   it('the 0 16 cron enqueues one message and does not run inline', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
@@ -2325,6 +2545,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-1621. Log-class (ADR 0022): its only writes are its own ledger's bookkeeping,
     // so it runs the exempt assertion. No `UPLOADS` here, so the run is `skipped`.
     [PLAN_SNAPSHOT_CRON, 'plan-snapshot'],
+    // AECI-1680. Log-class (ADR 0022): its only writes are its own ledger, so it runs
+    // the exempt assertion. No `UPLOADS` here, so the run is `skipped`.
+    [ACCEPTANCE_CHAIN_CRON, 'acceptance-chain'],
   ];
 
   /**
@@ -2397,12 +2620,16 @@ describe('job_runs bookkeeping (§7.2)', () => {
   it.each(ALL_CRONS)('%s writes exactly one completed row for %s', async (cron, job) => {
     await scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
 
+    // AECI-1638: the 03:00 tick also starts the legal prune. With no RECONCILE_QUEUE
+    // binding here it runs inline, so it writes its own row after the 400-day prune's.
+    const expected = cron === RETENTION_CRON ? [job, 'legal-retention-prune'] : [job];
     const rows = await jobRunRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ job });
-    // Completed on exit: both fields set, whatever the outcome was.
-    expect(rows[0]?.finishedAt).toEqual(expect.any(String));
-    expect(rows[0]?.outcome).toEqual(expect.any(String));
+    expect(rows.map((r) => r.job)).toEqual(expected);
+    for (const row of rows) {
+      // Completed on exit: both fields set, whatever the outcome was.
+      expect(row.finishedAt).toEqual(expect.any(String));
+      expect(row.outcome).toEqual(expect.any(String));
+    }
   });
 
   it('the 00:15 snapshot records BOTH of its passes in one job_runs row', async () => {
@@ -2597,10 +2824,13 @@ describe('job_runs bookkeeping (§7.2)', () => {
     });
     expect((audits[0]?.metadata as { rowsDeleted: number }).rowsDeleted).toBe(1);
     // The prune's own entry row was written moments ago, so it survives its own
-    // cutoff and is the only `job_runs` row left.
+    // cutoff. The legal prune ran after it inline (no RECONCILE_QUEUE here), found
+    // nothing four years old, and wrote no audit row.
     const rows = await jobRunRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+    expect(rows.map((r) => [r.job, r.outcome])).toEqual([
+      ['retention-prune', 'ok'],
+      ['legal-retention-prune', 'ok'],
+    ]);
   });
 
   it('a retention run that deletes nothing writes no audit row', async () => {

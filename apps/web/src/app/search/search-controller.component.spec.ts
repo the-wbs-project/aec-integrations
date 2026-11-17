@@ -4,6 +4,7 @@ import {
   type InstantSearchLib,
   type IsWidget,
   SearchController,
+  type SearchSnapshot,
   type UiState,
 } from './search-controller';
 import { compareFacetValues } from './search-facet-order';
@@ -455,6 +456,56 @@ describe('SearchController render-state → signal mapping', () => {
     expect(refine).toHaveBeenCalledWith('PM');
   });
 
+  it('keeps a checked value the response left out, checked at 0 (AECI-1899)', () => {
+    const filters: SearchFilters = {
+      ...emptyFilters(),
+      products: { refinementList: { trades: ['Roofing'] }, numericMenu: {}, range: {} },
+    };
+    const { calls, controller } = build('', {}, filters);
+    const refine = vi.fn();
+    const trades = controller.products.refinementLists.find((rl) => rl.attribute === 'trades')!;
+    const tradesRender = calls.refinementList[controller.products.refinementLists.indexOf(trades)];
+    // The facet is missing from the response: the connector has no items.
+    tradesRender.renderFn({ items: [], canRefine: false, refine }, false);
+    expect(trades.items()).toEqual([
+      { value: 'Roofing', label: 'Roofing', count: 0, isRefined: true },
+    ]);
+    expect(trades.canRefine()).toBe(true);
+    trades.refine('Roofing');
+    expect(refine).toHaveBeenCalledWith('Roofing');
+    // An unchecked group with no values stays empty.
+    const audiences = controller.products.refinementLists.find(
+      (rl) => rl.attribute === 'audiences',
+    )!;
+    calls.refinementList[controller.products.refinementLists.indexOf(audiences)].renderFn(
+      { items: [], canRefine: false, refine },
+      false,
+    );
+    expect(audiences.items()).toEqual([]);
+  });
+
+  it('places an added checked value by compareFacetValues and never duplicates one', () => {
+    const filters: SearchFilters = {
+      ...emptyFilters(),
+      products: {
+        refinementList: { categories: ['AI', 'Zeta'] },
+        numericMenu: {},
+        range: {},
+      },
+    };
+    const { calls, controller } = build('', {}, filters);
+    const items = [
+      { value: 'AI', label: 'AI', count: 4, isRefined: true },
+      { value: 'Scheduling', label: 'Scheduling', count: 9, isRefined: false },
+    ];
+    calls.refinementList[0].renderFn({ items, canRefine: true, refine: vi.fn() }, false);
+    expect(controller.products.refinementLists[0].items().map((i) => i.value)).toEqual([
+      'AI',
+      'Zeta',
+      'Scheduling',
+    ]);
+  });
+
   it('maps range bounds/start and forwards refine (vendors founded_year)', () => {
     const { calls, controller } = build();
     const refine = vi.fn();
@@ -466,6 +517,107 @@ describe('SearchController render-state → signal mapping', () => {
     expect(controller.vendors.ranges[0].start()).toEqual([2000, 2010]);
     controller.vendors.ranges[0].refine([1995, 2005]);
     expect(refine).toHaveBeenCalledWith([1995, 2005]);
+  });
+});
+
+describe('SearchController restored from a history entry (AECI-1900 for /search)', () => {
+  const page0 = [{ objectID: 'a' }, { objectID: 'b' }];
+  const page1 = [{ objectID: 'c' }];
+  const snap: SearchSnapshot = {
+    query: 'zz',
+    products: {
+      pages: { 0: page0, 1: page1 },
+      nbHits: 9,
+      hasMore: true,
+      sortBy: 'p_idx_name_asc',
+      sortOptions: [],
+      refinementLists: { categories: [{ value: 'AI', label: 'AI', count: 3, isRefined: false }] },
+      numericMenus: {},
+      ranges: {},
+    },
+    vendors: {
+      pages: { 0: [] },
+      nbHits: 0,
+      hasMore: false,
+      sortBy: 'v_idx_name_asc',
+      sortOptions: [],
+      refinementLists: {},
+      numericMenus: {},
+      ranges: { founded_year: { bounds: { min: 1990, max: 2020 }, start: [undefined, undefined] } },
+    },
+  };
+
+  function restore(query = 'zz') {
+    const fake = makeFakeLib();
+    const controller = new SearchController(
+      fake.lib,
+      {},
+      CONFIG,
+      query,
+      { products: 'p_idx_name_asc', vendors: 'v_idx_name_asc' },
+      vi.fn(),
+      { initialFilters: emptyFilters() },
+      snap,
+    );
+    return { ...fake, controller };
+  }
+
+  it('starts every signal from the snapshot and is ready at once', () => {
+    const { controller } = restore();
+    expect(controller.ready()).toBe(true);
+    expect(controller.products.hits()).toEqual([...page0, ...page1]);
+    expect(controller.products.nbHits()).toBe(9);
+    expect(controller.products.hasMore()).toBe(true);
+    expect(controller.products.refinementLists[0].items()).toHaveLength(1);
+    expect(controller.vendors.ranges[0].bounds()).toEqual({ min: 1990, max: 2020 });
+  });
+
+  it('puts the query in the first search and does not seed it a second time', () => {
+    const { calls, controller } = restore();
+    expect(calls.instantsearch[0].initialUiState?.['']).toEqual({ query: 'zz' });
+    controller.start();
+    // A fresh visit refines the search box after start; a restore must not.
+    const refine = vi.fn();
+    calls.searchBox[0].renderFn({ query: 'zz', refine, isSearchStalled: false }, true);
+    expect(refine).not.toHaveBeenCalled();
+  });
+
+  it('ignores the init renders, which carry no answer yet', () => {
+    const { calls, controller } = restore();
+    calls.hits[0].renderFn({ items: [], isLastPage: true, showMore: vi.fn() }, true);
+    calls.stats[0].renderFn({ nbHits: 0 }, true);
+    calls.refinementList[0].renderFn({ items: [], canRefine: false, refine: vi.fn() }, true);
+    expect(controller.products.hits()).toHaveLength(3);
+    expect(controller.products.nbHits()).toBe(9);
+    expect(controller.products.hasMore()).toBe(true);
+    expect(controller.products.refinementLists[0].items()).toHaveLength(1);
+  });
+
+  it('hands its pages to the infinite-hits cache, bound by the first answer', () => {
+    const { calls, controller } = restore();
+    const cache = calls.hits[0].params['cache'] as {
+      read(p: { state: unknown }): Record<number, unknown[]> | null;
+    };
+    // The init render reads the index's own state; the answer reads the merged one.
+    expect(cache.read({ state: { index: 'p', page: 0 } })).toEqual({ 0: page0, 1: page1 });
+    const answered = { index: 'p', query: 'zz', page: 0 };
+    expect(cache.read({ state: answered })).not.toBeNull();
+    calls.hits[0].renderFn(
+      { items: [...page0, ...page1], isLastPage: false, showMore: vi.fn(), results: {} },
+      false,
+    );
+    // Bound to the answered search: the same search on another page still hits,
+    // and any other search misses.
+    expect(cache.read({ state: { ...answered, page: 2 } })).not.toBeNull();
+    expect(cache.read({ state: { index: 'p', query: 'other', page: 0 } })).toBeNull();
+    expect(controller.snapshot()?.products.pages).toEqual({ 0: page0, 1: page1 });
+  });
+
+  it('ignores a snapshot for another query', () => {
+    const { controller, calls } = restore('other');
+    expect(controller.ready()).toBe(false);
+    expect(controller.products.hits()).toEqual([]);
+    expect(calls.instantsearch[0].initialUiState?.['']).toBeUndefined();
   });
 });
 

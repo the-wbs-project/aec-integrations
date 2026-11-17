@@ -34,7 +34,7 @@ Three further facts constrained the answer:
 - **Domain state** is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows — anything a person changed, or that changes what a visitor sees. These continue to emit an `audit_log` row via `auditInsert()` in the **same** `db.batch([...])` as the mutation; failure to log still rolls the batch back.
 - **The exemption test is three-part and conjunctive.** A write is exempt when it is *all three* of: (a) computed entirely from data already in the database, **or** an append-only event / lead-capture log; (b) invisible on every public surface; and (c) reproducible by re-running the job that wrote it. Exempt today: `page_views`, `mailing_list`, `feedback`, `stats_cache` (home-stats + Algolia watermark), the denormalized product counters, and — once they ship — `metrics_daily` and `job_runs`.
 - **The test is entity class, not actor class.** A system or cron actor writing *domain* state still audits. `actorType: 'system'` exists for precisely that case and is already in production use.
-- **Exception: any scheduled `DELETE` emits exactly one summary `audit_log` row per run**, in the same batch as the delete — `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted.
+- **Exception: any scheduled `DELETE` emits exactly one summary `audit_log` row per run**, in the same batch as the delete — `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. *(Since AECI-1638, 2026-11-17, the legal retention prune deletes from `audit_log` itself. It follows this rule: one `retention.pruned` row per run, in its batch, never deleted itself. See the amendment of that date below.)*
 - **Observability for exempt writes is `job_runs` plus the emitted metrics**, not the audit log. *(Vendor note, ADR 0024: those metrics forward to **Datadog** today and are migrating to **PostHog**, dual-run, Datadog deleted at AECI-651. The exemption itself is vendor-independent — this bullet's decision does not change with the transport.)* That is not a downgrade: `job_runs` (`ADMIN_PANEL_SPEC.md` §7.2) is a richer record for this class of write than an `audit_log` row would be, because it carries duration, outcome, and a per-job payload.
 
 The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out documented only in a downstream spec is a contradiction waiting to be found in review — which is exactly how the `page_views` exemption ended up stranded in `API_CONTRACTS.md`.
@@ -207,7 +207,7 @@ re-made. It is not invisible, because a vendor will read it (AECI-1187). Calling
 without a rule would leave §26.1 contradicting itself.
 
 Per-URL audit rows were the other answer, and Chris declined them on 2026-10-04. A full drain day
-is 10,000 URLs, and `audit_log` is never pruned (§26.6). Ten thousand audit rows a day would each
+is 10,000 URLs, and `audit_log` was never pruned then (§26.6; it keeps rows four years since AECI-1638). Ten thousand audit rows a day would each
 say only "we sent this URL", which the log row already says.
 
 **The class.** An **append-only evidence log** is a table that meets all four of these rules:
@@ -413,7 +413,7 @@ never exempt.
 
 Exempt (derived, log-class, ledger and service-log writes):
 
-`claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`acceptance_chain_exports` · `acceptance_chain_rows` · `claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
 `notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` · `plan_change_snapshots` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
@@ -580,3 +580,50 @@ and is never exempt. There is no delete path: the R2 objects are under a 4-year 
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writers, and the consolidated list above carries it.
+
+## Amendment 2026-11-17: the acceptance chain ledger (AECI-1680)
+
+Nothing above is reversed, and no new class is added. `acceptance_chain_exports` and
+`acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17) are a ledger of evidence files, like
+`page_views_archive_days` is a ledger of archive copies. Both join the consolidated exemption list
+above.
+
+**The tables.** One `acceptance_chain_exports` row per nightly chain file the export wrote to R2,
+and one `acceptance_chain_rows` row per acceptance or grant row, holding the last fingerprint
+exported for it. The daily job in `apps/api/src/lib/acceptance-chain-export.ts` writes both in one
+`db.batch` after R2 confirmed the file, then updates `tsa_status` and `tsa_key` after the DigiCert
+request (ADR 0057).
+
+**Why it is exempt.** They record what was copied to R2, not a decision. Every write to
+`agreement_acceptances` and `license_grants` already carries its own `audit_log` row in its own
+batch. These tables change no domain state and are invisible on every public surface. The verify
+command reconstructs its evidence from R2 and reads only `MAX(seq)` from `acceptance_chain_exports`
+as a minimum walk length. It never reads `acceptance_chain_rows`. Ledger damage can cause re-exports
+or verification failures.
+
+**What would end the exemption.** If any code ever reads these tables to decide which agreement
+binds an account, a person's access or a vendor's standing, or an operator action edits a row
+through the app, that is domain state and audits in the same `db.batch`. A delete would be a
+scheduled or operator `DELETE` and is never exempt. There is no delete path.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the tables, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names their writer, and the consolidated list above carries them.
+
+## Amendment 2026-11-17: the legal retention prune deletes from `audit_log` (AECI-1638)
+
+Nothing above is reversed, and no new class is added. The scheduled-deletion exception now covers a
+second job. The legal retention prune (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058)
+deletes `audit_log` rows older than four years, and `agreement_acceptances` and `license_grants`
+rows past their retention. It writes one `retention.pruned` row per run in the same `db.batch` as
+every delete, with `metadata.source = 'legal-retention-prune'` and the acceptance and grant ids in
+`metadata.tables[].ids`.
+
+**The audit table deleting its own rows.** The rule above still holds, because the run's own row is
+written in the batch and the prune never deletes a `retention.pruned` row. The fact of each
+deletion therefore survives the deletion. So do the `litigation_hold.*` rows that record why a
+prune was paused.
+
+**`litigation_holds` is domain state.** It is a legal record an operator writes on `/admin/legal`,
+so each place and release audits in its own batch. It is not on the exemption list.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.6 and `DATABASE_SCHEMA.md` §8.4 and §8.15.

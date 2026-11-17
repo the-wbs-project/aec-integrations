@@ -1,10 +1,9 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
+import type { ProductUsefulness } from '@aeci/shared';
 
 import { AecCard } from '../shared/card/card';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { AecIcon } from '../shared/icon/icon';
 
 /**
@@ -31,12 +30,10 @@ import { AecIcon } from '../shared/icon/icon';
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
- * **Vendor-written copy is captioned (AECI-1614, replacing AECI-1316's "Written by").**
- * `caption` renders "Maintained by {vendor} · updated {date}" at the foot of the section,
- * so a reader never takes the vendor's own words for AECi's and can see how fresh they
- * are. The server sends it only for a real vendor write, so AECi's copy carries no line
- * (STAGE_2_5_SPEC.md §12.1, ADR 0033). Mock-up 6 draws it top right, beside the heading.
- * It stays at the foot, where `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 mounts it.
+ * **Vendor-written copy is attributed in the page's provenance panel** (AECI-1666; it sat
+ * under this section from AECI-1614 until then). "How teams use it: Maintained by
+ * {vendor} · updated {date}" is in "About this listing", so a reader never takes the
+ * vendor's own words for AECi's (STAGE_2_5_SPEC.md §12.1, ADR 0033).
  *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
@@ -55,18 +52,31 @@ import { AecIcon } from '../shared/icon/icon';
 @Component({
   selector: 'aec-product-usefulness',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AecCard, AecIcon, FieldCaptionLine, NgTemplateOutlet],
+  imports: [AecCard, AecIcon, NgTemplateOutlet],
   host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
       <section aria-labelledby="usefulness-title" class="space-y-8">
-        <h2 id="usefulness-title">
-          <span
-            class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
-            i18n="@@products.detail.body.usefulness"
-            >How teams use it</span
+        <!-- Mock-up 6 band head (AECI-1720 restore): the small label and "How teams use
+             {product}". The mock-up's intro line is not built: it can read as a claim about
+             who wrote the section, which "About this listing" contradicts. The label repeats the
+             heading, so it is hidden from assistive technology. -->
+        <div>
+          <p
+            aria-hidden="true"
+            class="aec-overline mb-3 text-(--text-secondary)"
+            i18n="@@products.detail.usefulness.kicker"
           >
-        </h2>
+            How teams use it
+          </p>
+          <h2 id="usefulness-title">
+            <span
+              class="font-display text-t-36 leading-[1.1] font-semibold tracking-[-0.02em] text-(--text-primary)"
+              i18n="@@products.detail.usefulness.heading"
+              >How teams use {{ productName() }}</span
+            >
+          </h2>
+        </div>
 
         <ng-template #groupList let-groups>
           <div [class]="cardGridClass(groups.length)" data-testid="usefulness-cards">
@@ -128,27 +138,25 @@ import { AecIcon } from '../shared/icon/icon';
             ></ng-container>
           </div>
         }
-        @if (caption(); as c) {
-          <aec-field-caption [caption]="c" [page]="page()" />
-        }
       </section>
     }
   `,
 })
 export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
-  /** `ProductDetail.captions.usefulness`: `null` when no vendor wrote the section. */
-  readonly caption = input<FieldCaption | null | undefined>(null);
-  /** The product page, for the caption component. */
-  readonly page = input.required<FieldCaptionPage>();
+  /** The page product's name, for the heading "How teams use {product}" (AECI-1720). */
+  readonly productName = input.required<string>();
 
   /** One facet's row: the label above its cards, beside them from `xl`. */
   protected readonly rowClass =
-    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:gap-6';
+    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:items-stretch xl:gap-6';
 
-  /** The facet label: glyph and serif name in a row, stacked in the `xl` label column. */
+  /**
+   * The facet label: glyph and serif name in a row, stacked in the `xl` label column and
+   * centred against its cards there (mock-up 6 `.use-lab`, AECI-1720 restore).
+   */
   protected readonly labelClass =
-    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:gap-2 xl:pt-6';
+    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:justify-center xl:gap-2';
 
   /**
    * The card grid for one facet. Never more columns than cards, so one or two groups

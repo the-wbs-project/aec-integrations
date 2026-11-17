@@ -14,7 +14,7 @@ const SIZE_CLASS: Record<AecIconSize, string> = {
 };
 
 /**
- * `AecIcon` (AECI-1753) - the one icon component. Ruling 34 (ADR 0057): a custom
+ * `AecIcon` (AECI-1753) - the one icon component. Ruling 34 (ADR 0059): a custom
  * set at 1.75 stroke. The drawings live in `icon-registry.ts`.
  *
  * Every use states its intent, and the compiler checks it. The selector is

@@ -322,6 +322,17 @@ describe('VendorProgramPage', () => {
       expect(text(after)).toMatch(/^Vendor maintained · Updated [A-Z][a-z]+ \d{1,2}, \d{4}$/);
     });
 
+    // AECI-1666: the listing's record line is plain text now, not a chip, and this page
+    // draws it through the same component, so it shows what a listing shows.
+    it('draws the record line as plain text, the way a listing does', async () => {
+      const { host } = await setup({ plan: stub() });
+      for (const id of ['vp-before', 'vp-after']) {
+        const line = host.querySelector(`[data-testid="${id}"] [data-testid="maintenance-marker"]`);
+        expect(line, id).not.toBeNull();
+        expect(line!.className, id).not.toMatch(/\bborder\b|\bbg-|rounded/);
+      }
+    });
+
     // Ruling 2026-10-12: every docs link opens in a new tab
     // with the drawn cue and the sr-only note. Conversion links stay in the tab.
     it('opens every docs link in a new tab with the new-tab cue', async () => {
@@ -480,6 +491,44 @@ describe('VendorProgramPage', () => {
       expect(host.innerHTML).not.toContain('13rem');
       const panel = host.querySelector('aec-plan-cta-panel section')!;
       expect(panel.classList).toContain('lg:grid-cols-12');
+    });
+
+    // AECI-1802: the content-page language of /about. One Bone band (the hero), one
+    // Forest feature card (the closing panel), every section row split 5:7, section
+    // headings at the Section role on an inner span.
+    it('keeps one Bone band, one Forest card, and the 5:7 rows', async () => {
+      const { host } = await setup({ plan: stub() });
+      const bands = host.querySelectorAll('aec-bone-band');
+      expect(bands).toHaveLength(1);
+      expect(bands[0].querySelector('h1')).not.toBeNull();
+      expect(bands[0].querySelector('[data-testid="vp-how"]')!.classList).toContain('aec-card');
+      // No other Bone ground on the page: the sorting panel is the shared white card.
+      // The Bone main button on the Forest card is a control, not a ground.
+      const bone = [...host.querySelectorAll('[class*="bg-(--accent-warm)"]')].filter(
+        (el) => !el.classList.contains('aec-bone-band') && !el.hasAttribute('data-variant'),
+      );
+      expect(bone).toEqual([]);
+      const sorting = host.querySelector('#vp-sorting')!;
+      expect(sorting.classList).toContain('aec-card');
+      expect(sorting.classList).toContain('bg-(--surface-base)');
+      const forest = host.querySelectorAll('[class*="bg-(--accent-primary)"].aec-card');
+      expect(forest).toHaveLength(1);
+      expect(forest[0].closest('aec-plan-cta-panel')).not.toBeNull();
+      // Spec section 11: What changes and the FAQ split 5:7, Free and Managed 4:8.
+      const splits: Record<string, string> = {
+        'vp-what-changes': 'lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]',
+        'vp-free': 'lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]',
+        'vp-managed': 'lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]',
+        'vp-faq': 'lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]',
+      };
+      for (const [id, split] of Object.entries(splits)) {
+        expect(host.querySelector(`#${id}`)!.className).toContain(split);
+        const span = host.querySelector(`#${id}-heading > span`)!;
+        expect(span.classList).toContain('text-t-36');
+      }
+      for (const id of ['vp-before', 'vp-after']) {
+        expect(host.querySelector(`[data-testid="${id}"]`)!.classList).toContain('aec-card');
+      }
     });
 
     it('shows how claiming works beside the hero copy from lg', async () => {

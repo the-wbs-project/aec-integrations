@@ -202,7 +202,7 @@ const RULES = [
   {
     id: 'no-smooth-scroll',
     // AECI-1752 — smooth scrolling is scoped to in-page section links through ONE
-    // mechanism with ONE switch (clash 38 of ADR 0057). Any other way to turn it
+    // mechanism with ONE switch (clash 38 of ADR 0059). Any other way to turn it
     // on is a second mechanism. The pattern's alternatives, in order:
     //   1. a smooth `scroll-behavior` set by CSS, by `scrollBehavior =` or `:`,
     //      or by `style.setProperty('scroll-behavior', …)`;

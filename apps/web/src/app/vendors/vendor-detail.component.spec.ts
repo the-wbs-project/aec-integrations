@@ -322,50 +322,60 @@ describe('VendorDetailPage products table width floor', () => {
   });
 });
 
-// ── Maintenance marker (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───────
+// ── Record line (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9; AECI-1666) ──────
 //
-// The rendered half of the defect. `aec-maintenance-marker` and its four branches
-// have shipped since AECI-616 and have their own component spec, but until now
-// NOTHING bound the API's `maintenance` object to the vendor page's mount site — so a
-// dropped input or a wrong field name would have rendered AECi attribution
-// forever and no test would have noticed. That is exactly the shape of the bug
-// this issue reports, one layer down.
-describe('VendorDetailPage maintenance marker', () => {
+// The rendered half of the AECI-981 defect: nothing bound the API's `maintenance` object
+// to the vendor page's mount site. Since AECI-1666 the line opens "About this listing"
+// instead of sitting in the header as a chip.
+describe('VendorDetailPage record line', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders AECi attribution with no date for an unreviewed record', () => {
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]')!;
+
+  // Ruling 2026-11-17: every listing shows the panel, including one AECi maintains alone.
+  it('retires the header chip and shows the panel for a bare AECi listing', () => {
     const { el } = setup(buildVendor());
-    const marker = el.querySelector('aec-maintenance-marker');
-    expect(marker).toBeTruthy();
-    expect(marker!.textContent).toContain('AEC Integrations maintained');
-    expect(marker!.textContent).not.toMatch(/\d{4}/);
+    expect(el.querySelector('[slot="hero"] aec-maintenance-marker')).toBeNull();
+    expect(panel(el).hasAttribute('hidden')).toBe(false);
+    expect(panel(el).querySelector('aec-maintenance-marker')?.textContent?.trim()).toBe(
+      'AEC Integrations maintained',
+    );
   });
 
-  it('renders the vendor branch when the record has been taken over', () => {
+  it('adds the review date to the AECi record line when there is one', () => {
+    const { el } = setup(
+      buildVendor({
+        maintenance: { maintained_by: 'aeci', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
+      }),
+    );
+    expect(panel(el).querySelector('aec-maintenance-marker')?.textContent?.trim()).toBe(
+      'AEC Integrations maintained · Reviewed September 16, 2026',
+    );
+  });
+
+  it('opens the panel with the vendor line when the record has been taken over', () => {
     const { el } = setup(
       buildVendor({
         maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
       }),
     );
-    const marker = el.querySelector('aec-maintenance-marker');
+    const marker = panel(el).querySelector('aec-maintenance-marker');
     // The verb differs by branch off the SAME column: "Updated" for a vendor,
     // "Reviewed" for AECi. Asserting the whole string is what catches a mis-bind
     // that passes the right date into the wrong branch.
     expect(marker!.textContent).toContain(
       'Vendor maintained: Procore Technologies keeps this up to date · Updated September 16, 2026',
     );
-    expect(marker!.textContent).not.toContain('AEC Integrations maintained');
   });
 
-  it('carries the date through to the AECi branch too', () => {
+  it('reads the AECi form on an unclaimed listing whatever is stored (ruling 3)', () => {
     const { el } = setup(
       buildVendor({
-        maintenance: { maintained_by: 'aeci', last_reviewed_at: '2026-03-04T00:00:00.000Z' },
+        claim_status: 'unclaimed',
+        maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
       }),
     );
-    expect(el.querySelector('aec-maintenance-marker')!.textContent).toContain(
-      'AEC Integrations maintained · Reviewed March 4, 2026',
-    );
+    expect(el.textContent).not.toContain('Vendor maintained');
   });
 });
 
@@ -454,24 +464,52 @@ describe('VendorDetailPage unclaimed wording (AECI-1618)', () => {
   });
 });
 
-// AECI-1614: the vendor page takes Corrected only (ruling 2026-11-05).
-describe('VendorDetailPage corrections (AECI-1614)', () => {
+// AECI-1666: the vendor page's corrections moved into "About this listing". Corrected
+// only: this page takes no Maintained caption (ruling 2026-11-05).
+describe('VendorDetailPage provenance panel (AECI-1666)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
   const correction = (field: string, source_url: string | null = null, cleared = false) => ({
     field,
     date: '2026-09-15T00:00:00.000Z',
     source_url,
     cleared,
   });
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]')!;
   const lines = (el: HTMLElement) =>
-    Array.from(el.querySelectorAll('[data-testid="field-correction"]')).map((n) =>
+    Array.from(panel(el).querySelectorAll('[data-testid="field-correction"]')).map((n) =>
       n.textContent?.replace(/\s+/g, ' ').trim(),
     );
 
-  it('renders nothing with no corrections, and never a Maintained caption', () => {
+  // Ruling 2026-11-17: every listing shows the panel, including one AECi maintains alone.
+  it('shows only the record line with no corrections, and never a Maintained caption', () => {
     const { el } = setup(buildVendor());
     expect(lines(el)).toEqual([]);
+    expect(panel(el).hasAttribute('hidden')).toBe(false);
+    expect(panel(el).querySelector('aec-maintenance-marker')?.textContent?.trim()).toBe(
+      'AEC Integrations maintained',
+    );
     expect(el.querySelector('[data-testid="field-caption"]')).toBeNull();
     expect(el.querySelector('[data-testid="vendor-corrections"]')).toBeNull();
+  });
+
+  it('puts every line in the panel and none in the hero', () => {
+    const { el } = setup(
+      buildVendor({
+        website: 'https://www.example.com',
+        corrections: [correction('website', 'https://www.example.com/register')],
+      }),
+    );
+    expect(el.querySelector('[slot="hero"] aec-field-caption')).toBeNull();
+    expect(el.querySelector('[data-testid="logo-correction"]')).toBeNull();
+    expect(el.querySelectorAll('aec-listing-provenance')).toHaveLength(2);
+    expect(el.querySelectorAll('[data-testid="listing-provenance"]')).toHaveLength(1);
+    // The band shell has no sidebar (AECI-1797): both copies sit in the last body band,
+    // after Products, and neither is in the facts card.
+    const band = el.querySelector('[data-testid="listing-provenance-band"]')!;
+    expect(panel(el).closest('[data-testid="listing-provenance-band"]')).toBe(band);
+    expect(band.parentElement?.lastElementChild).toBe(band);
+    expect(panel(el).closest('aside')).toBeNull();
   });
 
   it('names each corrected fact the page shows', () => {
@@ -495,7 +533,7 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
       `Website: ${words}`,
       `LinkedIn: ${words}`,
     ]);
-    expect(el.querySelectorAll('[data-testid="field-correction-source"]')).toHaveLength(1);
+    expect(panel(el).querySelectorAll('[data-testid="field-correction-source"]')).toHaveLength(1);
   });
 
   it('skips a correction on a field the page never shows, or a cleared value', () => {
@@ -508,7 +546,7 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
     expect(lines(el)).toEqual([]);
   });
 
-  // AECI-1628: a removal reads "Removed by" where the value was, the logo included.
+  // AECI-1628: a removal reads "Removed by", the logo included.
   it('names each removal, headquarters and founded year included', () => {
     const { el } = setup(
       buildVendor({
@@ -526,16 +564,12 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
       }),
     );
     const removed = 'Removed by AEC Integrations on September 15, 2026';
-    // The logo line sits under the name, above the fact row.
     expect(lines(el)).toEqual([
-      `Logo: ${removed}`,
       `Website: ${removed}`,
       `Headquarters: ${removed}`,
-      `Founded year: ${removed}`,
-    ]);
-    expect(el.querySelector('[data-testid="logo-correction"]')?.textContent).toContain(
+      `Founded: ${removed}`,
       `Logo: ${removed}`,
-    );
+    ]);
   });
 
   it('drops a removal once the slot holds a value again', () => {
@@ -547,6 +581,34 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
       }),
     );
     expect(lines(el)).toEqual([]);
+  });
+
+  it('counts the values under review', () => {
+    const { el } = setup(buildVendor({ description: null, under_review: ['description'] }));
+    expect(
+      panel(el).querySelector('[data-testid="provenance-under-review"]')?.textContent?.trim(),
+    ).toBe('1 value on this page is under review.');
+  });
+
+  // §4.5.8: the count names only values the page marks in their slot. The phone number
+  // and contact email never render, so a hide on them has no marker to count.
+  it('counts only the hidden values the page marks', () => {
+    const { el } = setup(
+      buildVendor({
+        linkedin_url: null,
+        headquarters: null,
+        under_review: ['linkedin_url', 'headquarters', 'phone_number', 'contact_email'],
+      }),
+    );
+    expect(el.querySelectorAll('aec-under-review')).toHaveLength(2);
+    expect(
+      panel(el).querySelector('[data-testid="provenance-under-review"]')?.textContent?.trim(),
+    ).toBe('2 values on this page are under review.');
+  });
+
+  it('shows no count when every hidden value is one the page never renders', () => {
+    const { el } = setup(buildVendor({ under_review: ['phone_number', 'github_org'] }));
+    expect(panel(el).querySelector('[data-testid="provenance-under-review"]')).toBeNull();
   });
 });
 

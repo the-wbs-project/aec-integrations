@@ -345,6 +345,8 @@ In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so t
 >   `maintenance-marker.ts`. The company is never in the visible label. Where the page can
 >   prove who wrote (product and vendor pages), an sr-only suffix names it: "Vendor maintained:
 >   Procore Technologies keeps this up to date". The pair page passes no name and no date.
+>   *Since AECI-1666 (2026-11-17) the chip is retired. Its wording is the record line that opens
+>   the page's "About this listing" panel, as plain text (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8).*
 ---
 
 ## 4. Review app (bamako) — authoring & re-curation
@@ -1528,6 +1530,9 @@ powered hub's `PoweredIntegrationItem` does not: its rows have no single partner
 - **`partner_categories`**: the categories of the endpoint that is not the page product, in the
   order a product's own categories take (AECI-1242): curated `display_order`, then name, then slug.
   `[]` for a partner with none.
+- **`partner_vendor_name`** (AECI-1720): the partner's primary vendor, the company the partner's
+  own product card names. The card prints it as "by {vendor}". `null` with no vendor on record.
+  `partner_vendor_slug` is that vendor's slug, read only for the page's `vendor:{slug}` Cache-Tag.
 - **`data_objects`**: the objects in `data_object_slugs`, each with its name, in the order the pair
   page's claim lanes use: curated `display_order`, then name, then slug. Same claims, same set. The
   names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.

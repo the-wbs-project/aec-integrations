@@ -98,6 +98,16 @@ export type TurnstilePublicConfig = {
   siteKey: string;
 };
 
+/**
+ * Public browser-report switch rendered into the SSR HTML
+ * (`window.__AECI_BROWSER_EVIDENCE__`, AECI-1714) by
+ * `browser-evidence-bootstrap-inject.ts`. Present only on a tier whose
+ * `BROWSER_EVIDENCE_ENABLED` is `"true"`. Read by `app/core/browser-evidence-config.ts`.
+ */
+export type BrowserEvidencePublicConfig = {
+  enabled: true;
+};
+
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
@@ -217,4 +227,13 @@ export type WebEnv = {
    * only on the API Worker, pushed by CI and deploy-required on every tier.
    */
   TURNSTILE_SITE_KEY?: string;
+  /**
+   * The browser report's per-tier switch (AECI-1714, epic AECI-1711). `"true"` injects
+   * `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }`, and the tracker then posts
+   * `ran` and `interacted` to `POST /api/page-views/browser-evidence`. Anything else is
+   * off. A committed var in every `apps/web/wrangler.jsonc` block: `"true"` for local,
+   * staging and demo, `"false"` for production until Privacy Policy 1.1 is in force
+   * (AECI-1715). `src/browser-evidence-enabled.spec.ts` pins the values.
+   */
+  BROWSER_EVIDENCE_ENABLED?: string;
 };

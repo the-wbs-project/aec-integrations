@@ -59,6 +59,8 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
       seat_invites_sent: 0,
       licenses_granted: 0,
       requests_by_email: 2,
+      dmca_takedowns: 0,
+      dmca_counter_notices: 0,
     },
     repeat_offender: false,
     about: {
@@ -155,6 +157,21 @@ describe('UserDetail', () => {
     expect(el.textContent).toContain('Rita Reviewer');
     expect(el.textContent).toContain('rita@acme.com');
     expect(el.textContent).toContain('This account holds no vendor seat');
+  });
+
+  it('shows the copyright takedown count, linked to the account on the log (AECI-1665)', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeUser({ counts: { ...makeUser().counts, dmca_takedowns: 2, dmca_counter_notices: 1 } }),
+      ),
+    );
+    const block = el.querySelector('[data-testid="user-dmca-count"]')!;
+    const text = block.textContent?.replace(/\s+/g, ' ');
+    expect(text).toContain('Copyright takedowns');
+    expect(text).toContain('2 takedowns. Open the copyright notice log.');
+    expect(text).toContain('(1 counter-notice)');
+    const link = block.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe(`/admin/dmca?account=${USER_ID}`);
   });
 
   it('404s into a "we couldn\'t find that account" message, not a generic error', async () => {

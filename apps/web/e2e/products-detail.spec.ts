@@ -28,6 +28,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -174,8 +175,9 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
     // The section is a `region` landmark named by its <h2> — scope label
     // assertions to it so the audience facet chip (same "General Contracting"
     // text) elsewhere on the page doesn't double-match.
-    const section = page.getByRole('region', { name: 'How teams use it' });
-    await expect(section.getByRole('heading', { name: 'How teams use it' })).toBeVisible();
+    // AECI-1720: the heading names the product ("How teams use {product}").
+    const section = page.getByRole('region', { name: /^How teams use / });
+    await expect(section.getByRole('heading', { level: 2, name: /^How teams use / })).toBeVisible();
     await expect(section.getByRole('heading', { name: 'By audience' })).toBeVisible();
     await expect(section.getByRole('heading', { name: 'By phase' })).toBeVisible();
     await expect(section.getByText('General Contracting')).toBeVisible();
@@ -189,7 +191,7 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
 
     await page.goto(`/products/${NULL_SLUG}`);
     await expect(page.locator('app-root')).toBeAttached();
-    await expect(page.getByRole('heading', { name: 'How teams use it' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /^How teams use / })).toHaveCount(0);
   });
 });
 
@@ -259,6 +261,8 @@ test.describe('product detail — table names and section-nav location (AECI-831
     expect(html).toContain('data-testid="integrations-filter-panel"');
 
     await page.goto(`/products/${SLUG}`);
+    // Idle, the status is empty (AECI-1720 kept it so): a row count beside the heading
+    // can differ from the facts card's figure, which the 2026-11-16 ruling closed.
     const status = page.locator('#integrations [role="status"]');
     await expect(status).toHaveText('');
     const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();
@@ -305,30 +309,34 @@ test.describe('product hero actions below md (AECI-1778)', () => {
           ),
         )
         .toBe(0);
-      const boxes = await band.locator('[data-variant^="on-brand"]').evaluateAll((els) =>
-        els.map((el) => {
-          const r = el.getBoundingClientRect();
-          // One line of label text: every visible text box of the label shares one row.
-          // The sr-only new-tab note is a clipped 1px box, so text in it is skipped.
-          const tops: number[] = [];
-          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-            const parent = n.parentElement!;
-            if (!n.textContent!.trim() || parent.getBoundingClientRect().width <= 2) continue;
-            const range = document.createRange();
-            range.selectNodeContents(n);
-            for (const q of range.getClientRects()) if (q.width > 0) tops.push(q.top);
-          }
-          tops.sort((x, y) => x - y);
-          const lines = tops.filter((t, i) => i === 0 || t - tops[i - 1]! > 6).length;
-          return {
-            text: el.textContent!.trim(),
-            width: r.width,
-            height: r.height,
-            lines,
-          };
-        }),
-      );
+      // The hero's actions row only: the pair finder's button (AECI-1787) is not an action.
+      const boxes = await band
+        .getByTestId('hero-band-actions')
+        .locator('[data-variant^="on-brand"]')
+        .evaluateAll((els) =>
+          els.map((el) => {
+            const r = el.getBoundingClientRect();
+            // One line of label text: every visible text box of the label shares one row.
+            // The sr-only new-tab note is a clipped 1px box, so text in it is skipped.
+            const tops: number[] = [];
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const parent = n.parentElement!;
+              if (!n.textContent!.trim() || parent.getBoundingClientRect().width <= 2) continue;
+              const range = document.createRange();
+              range.selectNodeContents(n);
+              for (const q of range.getClientRects()) if (q.width > 0) tops.push(q.top);
+            }
+            tops.sort((x, y) => x - y);
+            const lines = tops.filter((t, i) => i === 0 || t - tops[i - 1]! > 6).length;
+            return {
+              text: el.textContent!.trim(),
+              width: r.width,
+              height: r.height,
+              lines,
+            };
+          }),
+        );
       expect(boxes.map((b) => b.text)).toEqual([
         expect.stringContaining('Visit website'),
         // Signed-out visitors see either label, depending on the auth config of the stack.
@@ -460,6 +468,36 @@ test.describe('product About band (AECI-1780)', () => {
       const card = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
       expect(ground).not.toBe(card);
       expect(card).toBe(white);
+    });
+  }
+});
+
+// AECI-1720 restore: a long product name wraps at word boundaries beside the mark, at
+// every width from 320px. The e2e seed has no long name, so the test sets one in place
+// on the rendered page and reads where each word's letters land.
+test.describe('product hero name wraps at word boundaries (AECI-1720)', () => {
+  for (const width of [320, 360, 390, 768, 1024, 1440]) {
+    test(`no word of a long name breaks mid-word at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      await page.evaluate(() => document.fonts.ready);
+      const broken = await page.locator('h1 > span').evaluate((span) => {
+        span.textContent = 'Construction Management Platform Enterprise';
+        const text = span.firstChild!;
+        const out: string[] = [];
+        for (const m of text.textContent!.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(text, m.index!);
+          range.setEnd(text, m.index! + m[0].length);
+          const tops = new Set(
+            [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
+          );
+          if (tops.size > 1) out.push(m[0]);
+        }
+        return out;
+      });
+      expect(broken).toEqual([]);
+      await expectNoSidewaysScroll(page);
     });
   }
 });

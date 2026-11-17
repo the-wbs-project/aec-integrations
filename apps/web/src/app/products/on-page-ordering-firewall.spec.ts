@@ -11,6 +11,7 @@
  *    (`connector-lane-grouping.ts`), the reader's filter (`integration-filter.ts`) and
  *    the rows above the `@defer` cut, which are a featured subset;
  *  - the connector page's "Integrations it powers" hubs and their filter;
+ *  - the product hero's category hub (`category-hub.ts`, AECI-1787);
  *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception;
  *  - the header's Browse menu (`core/taxonomy/browse-menu-model.ts`, AECI-1774).
  *
@@ -62,6 +63,7 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import type { RefinementItem } from '../shared/facets/refinement-item';
 import { orderFacetItems } from '../search/search-facet-order';
 
+import { HUB_COLLAPSED_COUNT, categoryHub, hubCut } from './category-hub';
 import {
   INTEGRATIONS_ABOVE_FOLD,
   applyDeferCut,
@@ -133,6 +135,11 @@ const ENDPOINT_PAYLOAD_FIELDS = [
   // keeps a row label only.
   'data_objects',
   'partner_categories',
+  // AECI-1720: the partner's vendor name, the card's "by {vendor}" line. A vendor
+  // renames its company, so no order may read it.
+  'partner_vendor_name',
+  // Its slug, for the page's vendor Cache-Tag only. Never rendered or ordered by.
+  'partner_vendor_slug',
   'agreement',
   // "Maintained by" and corrections: edit stamps a Managed vendor moves.
   'caption',
@@ -201,6 +208,10 @@ function paidValue(field: string, level: number): unknown {
       return level === 0 ? null : level % 2 === 0 ? 'both' : 'outbound';
     case 'mechanism_kind':
       return level % 2 === 0 ? 'api' : 'webhook';
+    case 'partner_vendor_name':
+      return level === 0 ? null : `${String.fromCharCode(65 + (level % 26))} Vendor ${level}`;
+    case 'partner_vendor_slug':
+      return level === 0 ? null : `${String.fromCharCode(97 + (level % 26))}-vendor-${level}`;
     case 'mechanism_name':
     case 'name':
       return `${String.fromCharCode(90 - (level % 26))} label ${level}`;
@@ -773,6 +784,208 @@ describe('on-page ordering firewall: product page integrations', () => {
       );
     });
   }
+});
+
+// ─── The product hero's category hub (AECI-1787) ──────────────────────────────
+
+/**
+ * The hub's inputs: each row's partner categories, and the lane fields that decide
+ * which rows the section lists. Its paid-plan flips are every other payload field.
+ */
+const HUB_PAID_FIELDS = ENDPOINT_PAYLOAD_FIELDS.filter((f) => f !== 'partner_categories');
+
+const hubTerm = (slug: string, name: string) => ({ slug, name });
+
+/**
+ * Rows whose partners carry categories with a tie at every comparator level:
+ *  - mixed case ("bim authoring" and "Accounting"), so A to Z must not be case-sensitive;
+ *  - two categories with the same name and different slugs, so the slug decides;
+ *  - a partner with three categories, a partner with none, and one category listed twice;
+ *  - a via group that collapses two edges to one partner into one row.
+ */
+function hubFixture(): { asSource: ProductIntegrationItem[]; asTarget: ProductIntegrationItem[] } {
+  seq = 200;
+  const acc = hubTerm('accounting', 'Accounting');
+  const bim = hubTerm('bim-authoring', 'bim authoring');
+  const docsA = hubTerm('docs-a', 'Documents');
+  const docsB = hubTerm('docs-b', 'Documents');
+  const field = hubTerm('field', 'Field');
+  const cats = (...t: ReturnType<typeof hubTerm>[]) => ({ partner_categories: t });
+  return {
+    asSource: [
+      endpointEdge(link('zeta', 'Zeta'), 'Zeta sync', cats(field, acc)),
+      endpointEdge(link('alpha', 'Alpha'), 'Alpha link', cats(bim, docsB, acc)),
+      endpointEdge(link('none', 'No Category'), 'Bare link', cats()),
+      endpointEdge(link('dup', 'Dup'), 'Dup link', cats(docsA, docsA)),
+      { ...viaEdge(link('xero', 'Xero'), kroo, 'Xero via Kroo'), ...cats(acc) },
+      { ...viaEdge(link('xero', 'Xero'), kroo, 'xero via kroo'), ...cats(acc) },
+    ],
+    asTarget: [
+      {
+        ...endpointEdge(page, 'Bluebeam to Procore', cats(docsB, field)),
+        source: link('bluebeam', 'Bluebeam'),
+      },
+    ],
+  };
+}
+
+describe('on-page ordering firewall: the product hero category hub', () => {
+  it('[surface:product-page-hero-visual] lists every category A to Z by name, slug breaking a tie, never by count', () => {
+    const { asSource, asTarget } = hubFixture();
+    expect(categoryHub(asSource, asTarget)).toEqual([
+      { slug: 'accounting', name: 'Accounting', count: 3 },
+      { slug: 'bim-authoring', name: 'bim authoring', count: 1 },
+      { slug: 'docs-a', name: 'Documents', count: 1 },
+      { slug: 'docs-b', name: 'Documents', count: 2 },
+      { slug: 'field', name: 'Field', count: 2 },
+    ]);
+  });
+
+  it('its one input is written on the Free plan', () => {
+    expect(PRODUCT_FIELD_CAPABILITIES.category_slugs).toBe('product.categories.edit');
+    expect(FREE.has('product.categories.edit')).toBe(true);
+  });
+
+  const { asSource: hubSource, asTarget: hubTarget } = hubFixture();
+  const hubBaseline = categoryHub(hubSource, hubTarget);
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it.each(HUB_PAID_FIELDS)(
+      `[surface:product-page-hero-visual] neither order nor membership moves when %s changes (${dir})`,
+      (f) => {
+        const { asSource, asTarget } = hubFixture();
+        expect(categoryHub(flipRows(asSource, [f], dir), flipRows(asTarget, [f], dir))).toEqual(
+          hubBaseline,
+        );
+      },
+    );
+
+    it(`[surface:product-page-hero-visual] neither order nor membership moves when every paid input changes at once (${dir})`, () => {
+      const { asSource, asTarget } = hubFixture();
+      expect(
+        categoryHub(
+          flipRows(asSource, HUB_PAID_FIELDS, dir),
+          flipRows(asTarget, HUB_PAID_FIELDS, dir),
+        ),
+      ).toEqual(hubBaseline);
+    });
+  }
+
+  it('[surface:product-page-hero-visual] does not move when every paid input is loaded onto one partner', () => {
+    const { asSource, asTarget } = hubFixture();
+    const partners = new Set([
+      ...asSource.map((r) => r.target.slug),
+      ...asTarget.map((r) => r.source.slug),
+    ]);
+    for (const slug of partners) {
+      const loaded = (row: ProductIntegrationItem) =>
+        row.target.slug === slug || row.source.slug === slug;
+      expect(
+        categoryHub(
+          loadOne(asSource, HUB_PAID_FIELDS, loaded),
+          loadOne(asTarget, HUB_PAID_FIELDS, loaded),
+        ),
+        slug,
+      ).toEqual(hubBaseline);
+    }
+  });
+
+  it('sees a move when a category name changes (the comparison is not vacuous)', () => {
+    const { asSource, asTarget } = hubFixture();
+    const rename = (rows: ProductIntegrationItem[]) =>
+      rows.map((row) => ({
+        ...row,
+        partner_categories: row.partner_categories.map((t) =>
+          t.slug === 'field' ? { ...t, name: 'Aardvark' } : t,
+        ),
+      }));
+    expect(categoryHub(rename(asSource), rename(asTarget)).map((e) => e.slug)).not.toEqual(
+      hubBaseline.map((e) => e.slug),
+    );
+  });
+});
+
+/**
+ * Twelve categories, so the hub's cut at eight (ruling 59) has entries on both sides.
+ * Partner `j` carries every category from `j` on, so a category later in A to Z has MORE
+ * integrations: the eight with the highest counts are the LAST eight by name, and a cut
+ * by count picks a different set from the A to Z cut. One extra partner carries the first
+ * two categories, so counts tie at 3. Names mix case.
+ */
+function manyCategoryFixture(): ProductIntegrationItem[] {
+  seq = 300;
+  const names = ['alpha', 'Bravo', 'charlie', 'Delta', 'echo', 'Foxtrot', 'golf', 'Hotel'];
+  names.push('india', 'Juliet', 'kilo', 'Lima');
+  const terms = names.map((name, i) => hubTerm(`cat-${String(i).padStart(2, '0')}`, name));
+  const rows = terms.map((_, j) =>
+    endpointEdge(link(`p-${j}`, `Partner ${j}`), `Link ${j}`, {
+      partner_categories: terms.slice(j),
+    }),
+  );
+  rows.push(
+    endpointEdge(link('p-extra', 'Partner extra'), 'Link extra', {
+      partner_categories: terms.slice(0, 2),
+    }),
+  );
+  return rows;
+}
+
+describe('on-page ordering firewall: the category hub cut at eight (ruling 59)', () => {
+  const byName = (rows: ProductIntegrationItem[]) => hubCut(categoryHub(rows, []));
+  const slugs = (entries: readonly { slug: string }[]) => entries.map((e) => e.slug);
+  const base = byName(manyCategoryFixture());
+
+  it('[surface:product-page-hero-visual] the first eight A to Z sit above the cut, the rest below', () => {
+    const all = categoryHub(manyCategoryFixture(), []);
+    expect(all).toHaveLength(12);
+    expect(HUB_COLLAPSED_COUNT).toBe(8);
+    expect(slugs(base.shown)).toEqual(slugs(all.slice(0, 8)));
+    expect(base.shown.map((e) => e.name)).toEqual([
+      'alpha',
+      'Bravo',
+      'charlie',
+      'Delta',
+      'echo',
+      'Foxtrot',
+      'golf',
+      'Hotel',
+    ]);
+    expect(slugs(base.rest)).toEqual(slugs(all.slice(8)));
+  });
+
+  it('[surface:product-page-hero-visual] a cut by count would pick a different eight, so it fails the case above', () => {
+    // The planted alternative: the eight highest counts, ties A to Z. If `hubCut` ever
+    // cut this way, the first case's expected names would not match.
+    const all = categoryHub(manyCategoryFixture(), []);
+    const byCount = [...all]
+      .sort((a, b) => b.count - a.count || compareText(a.name, b.name))
+      .slice(0, 8);
+    expect(new Set(slugs(byCount))).not.toEqual(new Set(slugs(base.shown)));
+    // And the fixture's counts really disagree with the name order.
+    expect(base.rest.every((r) => base.shown.every((s) => r.count >= s.count))).toBe(true);
+  });
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it(`[surface:product-page-hero-visual] the cut takes the same eight when every paid input changes (${dir})`, () => {
+      expect(byName(flipRows(manyCategoryFixture(), HUB_PAID_FIELDS, dir))).toEqual(base);
+    });
+  }
+
+  it('[surface:product-page-hero-visual] the cut takes the same eight when every paid input is loaded onto one partner', () => {
+    const rows = manyCategoryFixture();
+    for (const row of rows) {
+      expect(byName(loadOne(rows, HUB_PAID_FIELDS, (r) => r === row)), row.target.slug).toEqual(
+        base,
+      );
+    }
+  });
+
+  it('eight or fewer entries leave nothing below the cut', () => {
+    const eight = manyCategoryFixture().slice(4, 12);
+    const cut = byName(eight);
+    expect(cut.shown).toHaveLength(8);
+    expect(cut.rest).toEqual([]);
+  });
 });
 
 // ─── The connector page's powered hubs ────────────────────────────────────────

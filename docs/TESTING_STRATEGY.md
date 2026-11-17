@@ -391,6 +391,8 @@ The known case, found the hard way: **D1 sets `SQLITE_MAX_COMPOUND_SELECT` to 5*
 
 The second case is in the driver, not SQLite (AECI-1507). **drizzle 0.45's D1 batch throws on a `findFirst` that matches no row.** Its `mapGetResult` passes `[undefined]` to the relational mapper, which reads a property of `undefined`. better-sqlite3 returns `undefined` cleanly, so `GET /api/products/:slug` passed every spec and returned `500` for an unknown slug under `wrangler dev`. Inside `db.batch`, use `findMany({ …, limit: 1 })` and take `[0]`. The harness's `batch()` shim now throws on an empty `findFirst` too, so a spec catches it.
 
+The harness's synchronous work also starves the vitest worker's event loop (AECI-1916). `promote.spec.ts` ran 83 s without one macrotask, past birpc's 60 s `onTaskUpdate` timeout, and the lane exited 1 with every test green. `makeTestDb()` now yields one macrotask and clones a migrated image built once per file. The rule and its edge cases are in `UNIT_TESTING_GUIDE.md` under "Drizzle/D1 queries".
+
 Two habits follow:
 
 1. **Hand-built SQL is where this bites.** ORM-generated queries stay inside ordinary shapes; a hand-rolled `sql.raw(...)` that scales with table count, column count, or row count can cross a limit the harness will never enforce. `SQLITE_MAX_VARIABLE_NUMBER` and the 100 KB statement-length cap are the same class of hazard.
@@ -455,7 +457,7 @@ Critical user journeys:
 
 Anything that crosses multiple components or pages is a candidate for E2E.
 
-**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **A fixed Algolia (AECI-1899).** `apps/web/e2e/fake-algolia.ts` sets a stand-in config before the page loads and answers every multi-query from a small fixed catalogue on a Playwright route, so a `/search` spec runs the real InstantSearch code in CI with results that never move. It follows `facetFilters`, `numericFilters`, the query, `page` and `hitsPerPage`, and leaves an empty facet out as Algolia does. The checked-filter specs in `search.spec.ts` and the `/search` Back and Forward specs in `scroll-restoration.spec.ts` use it. No request reaches a live index. **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
 
 `cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
 
@@ -503,6 +505,15 @@ config's `baseURL`. A spec that needs an absolute origin outside a test, such as
 request context, a cookie domain or a session mint, imports `E2E_BASE_URL` from
 `apps/web/e2e/base-url.ts`. That module is also what `playwright.config.ts` reads. A
 `localhost:8788` literal passes in CI and fails on every `dev:agent` port pair (AECI-1449).
+
+**Check sideways scroll with `expectNoSidewaysScroll(page)`.** It lives in
+`apps/web/e2e/no-sideways-scroll.ts` and passes when the root's `scrollWidth` is at most its
+`clientWidth`. Never assert that the two are equal, or that their difference is exactly 0. On
+Linux CI the root's `scrollWidth` leaves out the classic scrollbar gutter and `clientWidth` keeps
+it, so `scrollWidth` can be the smaller one on a page that fits. Three specs failed in CI that
+way. The helper is for the page root only. A check that compares an element's width with its
+container, such as a header row or a scroll strip, stays as it is. Its `tolerance` option keeps
+an older 1px allowance at the same strength. Do not raise it to make a real overflow pass.
 
 ### 7.5 Test data
 
@@ -998,6 +1009,22 @@ IntelliBid").
   `httpResource`. The `/products` lede no longer carries a count (AECI-1794). Where a
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
+
+  **`waitForLoadState` does not wait for a client navigation (AECI-1909).** A
+  load state belongs to the document. Once the first load reached `networkidle`,
+  every later `waitForLoadState('networkidle')` returns at once, so after a
+  filter click it waits for nothing. A listing keeps the previous rows on screen,
+  dimmed, while it refetches, so a "layout held still" check passes then too.
+  The `e2e/scroll-restoration.spec.ts` filter tests counted, scrolled and left
+  filter states whose rows had not arrived (190 to 560ms on the local stack),
+  and failed 15 of 165 runs. `clickFilter` there now waits for the new state's
+  rows and counts responses, then the caller waits for the layout to settle.
+  The footer's auto-load is the same trap. A scroll that brings the sentinel
+  within its 600px margin loads the next page, and the page holds still until
+  it lands. On `/search` the fake Algolia answers 300ms later, so the `/search`
+  restore tests recorded the rows without that page and failed 6 of 72 runs.
+  `layoutSettled` in that spec now also waits until no footer control carries
+  `aria-busy`.
 
 **(c) A visible overlay is not yet listening (AECI-1672).** A Spartan popover or
 dialog (`BrnPopover`, `BrnDialog`) renders its panel inside the click handler
