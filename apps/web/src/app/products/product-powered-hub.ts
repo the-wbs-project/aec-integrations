@@ -1,4 +1,4 @@
-import { Component, computed, input, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
@@ -14,8 +14,17 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 import { sharedRowColumns } from './integration-category-groups';
 import { filterPoweredHubView, isFilterActive } from './integration-filter';
+import {
+  INTEGRATION_CLEAR_CLASS,
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_LIST_ROW_END_CLASS,
+  INTEGRATION_SEARCH_ICON_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+  INTEGRATION_STATUS_CLASS,
+} from './integration-filter-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
-import { IntegrationListFilter } from './integration-list-filter';
 import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
@@ -107,60 +116,70 @@ import { Chip } from '../shared/chip/chip';
     RouterLink,
     LogoOrInitial,
     IntegrationGroupCard,
-    IntegrationListFilter,
     RequestTrigger,
     Chip,
   ],
   template: `
-    <h2
-      id="powered-integrations-title"
-      class="font-display text-2xl font-semibold text-(--text-primary)"
-    >
-      {{ heading() }}
+    <h2 id="powered-integrations-title" class="text-balance">
+      <span [class]="headingClass">{{ heading() }}</span>
     </h2>
 
-    <!-- AECI-1788: the filter sits in a panel under the heading, laid out as the
-         Integrations section's panel is (AECI-1782): "Filters" and "Clear filters" on
-         the top row, the field under them. This list has no chips and no Cards or
-         Table choice, so the field is the panel's only control. "Clear filters" shows
-         while the search is on (ruled 2026-11-17, one behaviour per pattern). -->
+    <!-- The Integrations section's panel and list row (mock-up 6, AECI-1720), from the
+         same recipe (integration-filter-recipe.ts), ruled 2026-11-17: two filter panels
+         on one page look and behave alike. This list has no chips and no Cards or Table
+         choice, so the panel holds the search box alone. The panel's name "Filters" is
+         kept for assistive tech only. The list row has no heading of its own: each hub
+         card carries one, as each Via lane card does in the Integrations section. -->
     @if (showFilter()) {
       <div
         role="group"
         aria-labelledby="powers-filters-title"
-        class="space-y-4 rounded-panel bg-(--surface-sunken) p-4 md:p-6"
+        [class]="panelClass"
         data-testid="powers-filter-panel"
       >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <span
-            id="powers-filters-title"
-            class="aec-overline text-(--text-primary)"
-            i18n="@@listing.filters.title"
-            >Filters</span
+        <span id="powers-filters-title" class="sr-only" i18n="@@listing.filters.title"
+          >Filters</span
+        >
+        <div class="relative min-w-0" data-testid="powers-filter-search">
+          <label
+            for="powers-filter"
+            class="sr-only"
+            i18n="@@products.detail.body.powers.filter.label"
+            >Search these connections</label
           >
+          <span [class]="searchIconClass" aria-hidden="true">
+            <aec-icon name="search" decorative [size]="4" />
+          </span>
+          <input
+            #filterInput
+            id="powers-filter"
+            type="search"
+            autocomplete="off"
+            [value]="query()"
+            i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
+            placeholder="Filter by product or connection"
+            (input)="onQuery($event)"
+            [class]="searchInputClass"
+          />
+        </div>
+      </div>
+      <div [class]="listRowClass" data-testid="powers-list-row">
+        <div [class]="listRowEndClass">
+          <p role="status" [class]="statusClass" data-testid="powers-status">
+            {{ statusLabel() }}
+          </p>
           @if (filterActive()) {
             <button
               type="button"
-              class="inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="clearClass"
               (click)="clearFilters()"
               data-testid="powers-filter-clear"
-              i18n="@@listing.filters.clear"
             >
-              Clear filters
+              <aec-icon name="x" decorative [size]="3.5" />
+              <span i18n="@@listing.filters.clear">Clear filters</span>
             </button>
           }
         </div>
-
-        <aec-integration-list-filter
-          inputId="powers-filter"
-          i18n-label="@@products.detail.body.powers.filter.label"
-          label="Search these connections"
-          i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
-          placeholder="Filter by product or connection"
-          [(query)]="query"
-          [shown]="filteredView().pairCount"
-          [total]="view().pairCount"
-        />
       </div>
     }
 
@@ -431,7 +450,33 @@ export class ProductPoweredHub {
   protected readonly query = signal('');
 
   /** The panel's search field, so "Clear filters" can hand focus back to it. */
-  private readonly filter = viewChild(IntegrationListFilter);
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+
+  // The mock-up 6 recipe, shared with the Integrations section (AECI-1788).
+  protected readonly headingClass = INTEGRATION_LIST_HEADING_CLASS;
+  protected readonly panelClass = INTEGRATION_FILTER_PANEL_CLASS;
+  protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
+  protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
+  protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;
+  protected readonly listRowEndClass = INTEGRATION_LIST_ROW_END_CLASS;
+  protected readonly statusClass = INTEGRATION_STATUS_CLASS;
+  protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
+
+  /**
+   * "Showing 3 of 12" while the search is on, empty otherwise: the message id and rule
+   * of the Integrations section's list row. The region stays in the DOM so the first
+   * change is announced.
+   */
+  protected readonly statusLabel = computed(() => {
+    if (!this.filterActive()) return '';
+    const shown = this.filteredView().pairCount;
+    const total = this.view().pairCount;
+    return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;
+  });
+
+  protected onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
 
   /** The search is on: "Clear filters" shows, as on the Integrations panel. */
   protected readonly filterActive = computed(() => isFilterActive(this.query()));
@@ -444,7 +489,7 @@ export class ProductPoweredHub {
    */
   protected clearFilters(): void {
     this.query.set('');
-    this.filter()?.focusInput();
+    this.filterInput()?.nativeElement.focus();
   }
 
   /** Card keys the reader has closed. Hub slug, or `powers-other`. */

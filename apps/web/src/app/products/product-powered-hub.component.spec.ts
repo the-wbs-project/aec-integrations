@@ -16,6 +16,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PoweredIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
+import {
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+} from './integration-filter-recipe';
 import { ProductPoweredHub } from './product-powered-hub';
 
 const link = (slug: string, name: string): ProductLink => ({
@@ -280,9 +286,13 @@ describe('ProductPoweredHub', () => {
       expect(status()).toBe('Showing 1 of 10');
       const button = clear()!;
       expect(button.textContent!.trim()).toBe('Clear filters');
-      // The Integrations panel's place: the panel's top row, beside "Filters".
-      expect(button.parentElement!.querySelector('#powers-filters-title')).not.toBeNull();
-      expect(panel.contains(button)).toBe(true);
+      // The Integrations section's place (mock-up 6): the list row under the panel,
+      // after the status, not inside the panel.
+      const row = el.querySelector('[data-testid="powers-list-row"]')!;
+      expect(row.contains(button)).toBe(true);
+      expect(panel.contains(button)).toBe(false);
+      expect(panel.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.querySelector('aec-icon[name="x"]')).not.toBeNull();
 
       button.click();
       fixture.detectChanges();
@@ -291,6 +301,25 @@ describe('ProductPoweredHub', () => {
       expect(status()).toBe('');
       expect(clear()).toBeNull();
       expect(document.activeElement).toBe(filterInput(el));
+    });
+
+    it('takes the Integrations section recipe: heading size, Bone panel, field, list row', () => {
+      const { el } = setup(NINE);
+      // Angular may reorder a bound class list, so compare the classes as sets.
+      const classes = (node: Element) => [...node.classList].sort();
+      const recipe = (value: string) => value.split(/\s+/).sort();
+      const span = el.querySelector('h2 > span')!;
+      expect(classes(span)).toEqual(recipe(INTEGRATION_LIST_HEADING_CLASS));
+      const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;
+      expect(classes(panel)).toEqual(recipe(INTEGRATION_FILTER_PANEL_CLASS));
+      expect(panel.classList).toContain('bg-(--accent-warm)');
+      expect(classes(filterInput(el)!)).toEqual(recipe(INTEGRATION_SEARCH_INPUT_CLASS));
+      expect(panel.querySelector('aec-icon[name="search"]')).not.toBeNull();
+      expect(classes(el.querySelector('[data-testid="powers-list-row"]')!)).toEqual(
+        recipe(INTEGRATION_LIST_ROW_CLASS),
+      );
+      // "Filters" names the panel for assistive tech only, as on the Integrations panel.
+      expect(el.querySelector('#powers-filters-title')!.classList).toContain('sr-only');
     });
 
     it('puts the filter in a "Filters" panel under the heading', () => {
