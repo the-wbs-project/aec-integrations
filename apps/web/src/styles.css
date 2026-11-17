@@ -1600,22 +1600,36 @@ aec-section-nav
    body lives here, keyed off the `.aec-prose` wrapper.
 
    Named `.aec-prose` rather than `.legal-prose` since AECI-804: it is shared by
-   every build-time-Markdown page, not just the legal set. Three mounts today:
-   `legal/legal-page.ts` (`/legal/*`), `methodology/methodology.ts`
-   (`/methodology`) and `docs/docs-page.ts` (`/docs/*`, AECI-1104), which
-   generalizes the same pattern into a manifest.
+   every build-time-Markdown page, not just the legal set. The mounts:
+   `legal/legal-page.ts` (`/legal/*`), `accessibility/accessibility.ts`,
+   `methodology/methodology.ts` (`/methodology`) and the docs article, section
+   intro and recorded-version pages (`docs/docs-*.ts`, AECI-1104).
 
-   The global element rules above already give `h1–h3` Source Serif and body text
-   Atkinson; this block adds only what's missing. Logical properties keep it
-   RTL-ready (CLAUDE.md "i18n from day one"). The 70ch measure cap stays a
-   Tailwind utility on the wrapper (mirrors `/about`). The table rules below are
-   what the methodology page's agreement-state table renders through. */
+   One prose style since AECI-1804: the docs article no longer carries a denser
+   variant. Every size is a ramp token (DESIGN.md §3): body at the Body role
+   (`--t-16`, line height 1.6), `h2` at the Title role (`--t-24`, 1.25), `h3` at
+   the Card title step (`--t-20`, 1.35), both Source Serif 600 and so at or above
+   the Serif-Floor, and `h4` to `h6` in the body face at `--t-16`. The global
+   `h2`/`h3` rules are unlayered, and `.aec-prose h2` beats the element selector,
+   so the sizes are restated here on purpose. The measure stays a utility on the
+   wrapper, in rem (42rem, about 65ch of Atkinson), because a `ch` measure
+   re-wraps when the web font swaps in (DESIGN.md §3 "How the fonts load").
+   Logical properties keep it RTL-ready (CLAUDE.md "i18n from day one"). The
+   table rules below are what the methodology page's agreement-state table
+   renders through. */
 .aec-prose {
   color: var(--text-secondary);
-  line-height: 1.7;
+  font-size: var(--t-16);
+  line-height: 1.6;
 }
 
 .aec-prose > :first-child {
+  margin-block-start: 0;
+}
+
+/* The docs bodies are cut into `display: contents` blocks around each heading
+   (`docs-markdown.ts`), so their first element sits one level deeper. */
+.aec-prose > .contents:first-child > :first-child {
   margin-block-start: 0;
 }
 
@@ -1625,16 +1639,28 @@ aec-section-nav
 
 .aec-prose h2 {
   color: var(--text-primary);
+  font-size: var(--t-24);
+  line-height: 1.25;
   margin-block: 2.5rem 0;
 }
 
 .aec-prose h3 {
   color: var(--text-primary);
+  font-size: var(--t-20);
+  line-height: 1.35;
   margin-block: 2rem 0;
 }
 
+/* Fragment jumps (the docs rail, `/docs/...#id` and `/legal/...#id` links) land
+   with air above the heading. Nothing above the body is sticky: the site header
+   scrolls away, and so does the docs top bar. */
+.aec-prose h2,
+.aec-prose h3 {
+  scroll-margin-top: 1.5rem;
+}
+
 /* Serif-Floor Rule (DESIGN.md): sub-heading levels stay in the body face rather
-   than dropping Source Serif below its 18px floor. */
+   than dropping Source Serif below its floor. */
 .aec-prose h4,
 .aec-prose h5,
 .aec-prose h6 {
@@ -1668,9 +1694,11 @@ aec-section-nav
   color: var(--text-tertiary);
 }
 
+/* The in-text link recipe (DESIGN.md "The Link Treatment Rule"): the base
+   layer's Forest and hover colours, a permanent underline at a 2px offset. */
 .aec-prose a {
   text-decoration: underline;
-  text-underline-offset: 0.15em;
+  text-underline-offset: 2px;
 }
 
 .aec-prose strong {
@@ -1697,7 +1725,7 @@ aec-section-nav
 
 .aec-prose pre {
   background-color: var(--surface-muted);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-mark);
   margin-block: 1.5rem 0;
   overflow-x: auto;
   padding: 1rem;
@@ -1738,8 +1766,6 @@ aec-section-nav
    - The global `h1, h2, h3` rule is unlayered, so a `text-*` utility on a heading
      is dead (DESIGN.md "The Unlayered-Heading Rule"). A class beats the element
      selector, so the docs heading sizes live here.
-   - `.aec-docs-prose h2` ties `.aec-prose h2` on specificity, so it must come
-     later in the file to win.
    - The rail's open panel needs a border colour, which a layered utility cannot
      set past the unlayered `*` rule (the `.aec-nav-tab` note). */
 
@@ -1752,57 +1778,13 @@ aec-section-nav
 }
 
 /* Small headings in the home and section-index lists. Body face, because the
-   Serif-Floor Rule keeps Source Serif at 18px and up. */
+   Serif-Floor Rule keeps Source Serif at 20px and up. */
 .aec-docs-subhead {
   font-family: var(--font-body);
   font-size: var(--t-16);
   font-weight: 600;
   letter-spacing: normal;
   line-height: 1.4;
-}
-
-/* The article body: `.aec-prose` with DeepWiki's density (tighter leading and
-   block spacing, the body size unchanged). The body is cut into
-   `display: contents` blocks around each heading (`docs-markdown.ts`), so the
-   first paragraph sits one level deeper than `.aec-prose > :first-child`. */
-.aec-docs-prose {
-  line-height: 1.65;
-}
-
-.aec-docs-prose > :first-child > :first-child {
-  margin-block-start: 0;
-}
-
-.aec-docs-prose p,
-.aec-docs-prose ul,
-.aec-docs-prose ol {
-  margin-block-start: 0.875rem;
-}
-
-.aec-docs-prose li {
-  margin-block-start: 0.375rem;
-}
-
-/* Article h2 and h3 were 22px and 18px, both off the ramp. AECI-1748 snaps them
-   to --t-24 and --t-20, which also lifts the serif h3 to the ramp's 20px floor. */
-.aec-docs-prose h2 {
-  font-size: var(--t-24);
-  line-height: 1.3;
-  margin-block: 2.25rem 0;
-}
-
-.aec-docs-prose h3 {
-  font-size: var(--t-20);
-  line-height: 1.35;
-  margin-block: 1.75rem 0;
-}
-
-/* Fragment jumps (the rail, `/docs/...#id` links) land with air above the
-   heading. Nothing above the article is sticky: the site header scrolls away,
-   and so does the docs top bar. */
-.aec-docs-prose h2,
-.aec-docs-prose h3 {
-  scroll-margin-top: 1.5rem;
 }
 
 /* The Plans page's cards and comparison table (`docs-plans-comparison.ts`;
