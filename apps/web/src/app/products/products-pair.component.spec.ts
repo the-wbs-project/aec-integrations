@@ -2450,7 +2450,7 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     );
   });
 
-  it('names the two scores as the product page does, Overall and Onboarding', () => {
+  it('names the two scores as the product page does, Product quality and Onboarding experience', () => {
     const { el } = setup(
       emptyPair(
         { review_count: 7, rating_overall_avg: 4.2, rating_onboarding_avg: 3.5 },
@@ -2458,11 +2458,12 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
       ),
     );
     const head = (id: string) => text(el.querySelector(`[data-testid="${id}"] [role="rowheader"]`));
-    expect(head('pair-empty-facts-overall')).toBe('Overall');
-    expect(head('pair-empty-facts-onboarding')).toBe('Onboarding');
+    expect(head('pair-empty-facts-overall')).toBe('Product quality');
+    expect(head('pair-empty-facts-onboarding')).toBe('Onboarding experience');
     const facts = el.querySelector('[data-testid="pair-empty-facts"]')!.textContent!;
-    expect(facts).not.toContain('Product quality');
-    expect(facts).not.toContain('Onboarding experience');
+    // One name per score on every public page: the old short names are gone.
+    expect(facts).not.toMatch(/\bOverall\b/);
+    expect(facts).not.toMatch(/Onboarding(?! experience)/);
   });
 
   it('shows an unclaimed side as an initial tile with the Unclaimed note, never its logo above 32px', () => {

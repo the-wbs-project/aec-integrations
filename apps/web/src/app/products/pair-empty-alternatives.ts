@@ -658,14 +658,14 @@ function objectIcon(slug: string): AecIconName | null {
                     class="px-4 py-3 text-end font-semibold"
                     i18n="@@products.detail.hero.rating.overall"
                   >
-                    Overall
+                    Product quality
                   </th>
                   <th
                     scope="col"
                     class="px-4 py-3 text-end font-semibold"
                     i18n="@@products.detail.hero.rating.onboarding"
                   >
-                    Onboarding
+                    Onboarding experience
                   </th>
                   <th
                     scope="col"
@@ -994,8 +994,10 @@ export class PairEmptyAlternatives {
     return $localize`:@@pair.empty.card.pairLink:${kept}:KEPT: and ${match}:MATCH:`;
   }
 
+  /** The shared direction words (AECI-1720 restore C), from the kept product's side: the
+   *  match is the partner, so "Sends to {match}", "Receives from {match}", "Syncs both ways". */
   protected direction(m: PairAlternativeMatch) {
-    const d = contextDirectionLabel(m.direction);
+    const d = contextDirectionLabel(m.direction, m.product.name);
     return d.token ? d : null;
   }
 
@@ -1003,12 +1005,12 @@ export class PairEmptyAlternatives {
     return [
       {
         kind: 'overall' as const,
-        label: $localize`:@@products.detail.hero.rating.overall:Overall`,
+        label: $localize`:@@products.detail.hero.rating.overall:Product quality`,
         value: m.rating_overall_avg,
       },
       {
         kind: 'onboarding' as const,
-        label: $localize`:@@products.detail.hero.rating.onboarding:Onboarding`,
+        label: $localize`:@@products.detail.hero.rating.onboarding:Onboarding experience`,
         value: m.rating_onboarding_avg,
       },
     ];

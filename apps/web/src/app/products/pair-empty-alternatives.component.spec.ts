@@ -253,6 +253,34 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     );
   });
 
+  it('words direction and scores with the shared labels (AECI-1720 restore C)', () => {
+    const lanes = ALTERNATIVES.lanes;
+    const { el, click } = setup({
+      ...ALTERNATIVES,
+      lanes: {
+        ...lanes,
+        context: {
+          ...lanes.context,
+          matches: [
+            { ...lanes.context.matches[0]!, direction: 'outbound' },
+            { ...lanes.context.matches[1]!, direction: 'both' },
+          ],
+        },
+      },
+    });
+    const cards = el.querySelectorAll('[data-testid="pair-matches-cards"] article');
+    // The match is the partner: Revu sends to it.
+    expect(text(cards[0])).toContain('Sends to zeta Books');
+    expect(text(cards[1])).toContain('Syncs both ways');
+    expect(text(cards[0])).not.toMatch(/Outbound|Inbound/);
+    click('[data-testid="pair-matches-view-table"]');
+    const head = text(el.querySelector('[data-testid="pair-matches-table"] thead'));
+    expect(head).toContain('Product quality');
+    expect(head).toContain('Onboarding experience');
+    const firstRow = el.querySelector('[data-testid="pair-matches-table"] tbody tr');
+    expect(text(firstRow)).toContain('Sends to zeta Books');
+  });
+
   it('states the real order, not the mock-up text', () => {
     const { el } = setup();
     const order = text(el.querySelector('[data-testid="pair-matches-order"]'));

@@ -563,6 +563,14 @@ test.describe('product-PAIR page — the empty pair with match cards (AECI-1829)
       const toggle = page.getByTestId('pair-matches-keep-other');
       await expect(toggle).toHaveAttribute('aria-pressed', 'true');
       await expect(toggle).toBeFocused();
+      // AECI-1818 (WCAG 2.4.11): the moved focus is not hidden under the consent banner.
+      const banner = page
+        .locator('aec-consent-banner [role="region"], aec-consent-banner > *')
+        .first();
+      if (await banner.isVisible()) {
+        const [t, b] = await Promise.all([toggle.boundingBox(), banner.boundingBox()]);
+        expect(t!.y + t!.height).toBeLessThanOrEqual(b!.y + 1);
+      }
     }
     await expect(cards.first()).toBeVisible();
     const total = await cards.count();

@@ -84,7 +84,8 @@ function share(value: number, a: number, b: number): number {
  * Two white bands, each the mock-up's small label over its large heading:
  *
  *  - **"The two products, side by side" / "What we have on record for each".** The
- *    ledger (integrations on record, reviews, and the Overall and Onboarding scores),
+ *    ledger (integrations on record, reviews, and the Product quality and Onboarding
+ *    experience scores),
  *    each side its own value and meter, never blended. The integrations figure is the
  *    product's own facts card figure (`integrationsOnRecordCount`), "None on record yet"
  *    at zero. With no reviews on either side the three review rows are absent. Under five
@@ -294,13 +295,13 @@ function share(value: number, a: number, b: number): number {
                           <span
                             class="block text-t-14 font-semibold"
                             i18n="@@products.detail.hero.rating.overall"
-                            >Overall</span
+                            >Product quality</span
                           >
                         } @else {
                           <span
                             class="block text-t-14 font-semibold"
                             i18n="@@products.detail.hero.rating.onboarding"
-                            >Onboarding</span
+                            >Onboarding experience</span
                           >
                         }
                       </div>
