@@ -86,10 +86,27 @@ describe('ListYourProductPage', () => {
     expect(host.textContent).not.toContain('—');
   });
 
-  it('lists what happens next in order, in the explainer column above the form', async () => {
+  // AECI-1802: the h1 and lede on the page's one Bone band; the steps and the form
+  // share the white band below, the form on the shared card.
+  it('puts the hero on the one Bone band and the form on the shared card', async () => {
+    const { host } = await setup();
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    expect(bands[0].querySelector('[data-testid="list-your-product-next"]')).toBeNull();
+    expect(bands[0].querySelector('[data-testid="list-your-product-form"]')).toBeNull();
+    const form = host.querySelector('[data-testid="list-your-product-form"]')!;
+    expect(form.classList).toContain('aec-card');
+    expect(form.classList).toContain('shadow-card');
+    // The steps and the form are siblings in one 5:7 row.
+    const next = host.querySelector('[data-testid="list-your-product-next"]')!;
+    expect(next.parentElement).toBe(form.parentElement);
+    expect(next.parentElement!.className).toContain('lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]');
+  });
+
+  it('lists what happens next in order, in the column beside the form', async () => {
     const { host } = await setup();
     const next = host.querySelector('[data-testid="list-your-product-next"]')!;
-    expect(next.closest('[data-testid="list-your-product-intro"]')).not.toBeNull();
     const list = next.querySelector('ol')!;
     expect(list.getAttribute('aria-labelledby')).toBe('list-your-product-next-heading');
     const items = [...list.querySelectorAll(':scope > li')].map((li) =>
