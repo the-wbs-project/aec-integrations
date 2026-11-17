@@ -461,6 +461,39 @@ describe('SearchPage shell', () => {
     expect(form.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')).not.toBeNull();
   });
 
+  // AECI-1818: the page's search landmark is named by its own label, so a landmarks list
+  // tells it apart from the header's "Site search" (the A5 class in ACCESSIBILITY_AUDIT.md).
+  it('names its search landmark with the field label', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const form = el.querySelector('form[role="search"]') as HTMLElement;
+    const id = form.getAttribute('aria-labelledby');
+    expect(id).toBeTruthy();
+    expect(el.querySelector(`#${id}`)?.textContent?.trim()).toBe('Search the directory');
+  });
+
+  // AECI-1818 (WCAG 2.4.7): the results panel is a Tab stop, so it must draw the ring.
+  it('draws the focus ring on the results panel, which is a Tab stop', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[role="tabpanel"]',
+    ) as HTMLElement;
+    expect(panel.getAttribute('tabindex')).toBe('0');
+    expect(panel.classList.contains('focus-visible:outline-none')).toBe(false);
+    expect(panel.classList.contains('focus-visible:outline-3')).toBe(true);
+    expect(panel.classList.contains('focus-visible:outline-(--accent-primary)')).toBe(true);
+  });
+
   it('counts active refinements and clears them on BOTH tabs through each connector', () => {
     setConfigPresent();
     setup();
