@@ -11,6 +11,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const WITH_HUB = 'revit';
 const ZERO = 'autocad';
@@ -127,13 +128,7 @@ test.describe('product hero category hub (AECI-1787)', () => {
       const page = await ctx.newPage();
       await page.goto(`/products/${WITH_HUB}`, { waitUntil: 'networkidle' });
       await expect(page.getByTestId('product-category-hub')).toBeVisible();
-      const [scroll, client] = await page.evaluate(() => [
-        document.documentElement.scrollWidth,
-        document.documentElement.clientWidth,
-      ]);
-      // On Linux CI the root's scrollWidth excludes the classic scrollbar gutter and
-      // clientWidth does not, so scrollWidth can be smaller. Overflow is scroll > client.
-      expect(scroll, reducedMotion).toBeLessThanOrEqual(client);
+      await expectNoSidewaysScroll(page, reducedMotion);
       await ctx.close();
     }
   });

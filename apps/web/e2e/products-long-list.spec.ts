@@ -25,6 +25,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 /** The seeded fixture: its slug, its row count and its groups (heading → cards). */
 const FIXTURE = {
@@ -169,12 +170,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto(`/products/${target.slug}`);
     await page.getByTestId('integrations-rail').scrollIntoViewIfNeeded();
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    // On Linux CI the root's scrollWidth excludes the classic scrollbar gutter and
-    // clientWidth does not, so the difference can be negative. Overflow is above 0.
-    expect(overflow).toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page);
     const names = await text(page, '[data-testid="integrations-rail-link"]');
     expect(names.length).toBeGreaterThan(1);
   });
