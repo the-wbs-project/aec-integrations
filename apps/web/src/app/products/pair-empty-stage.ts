@@ -37,7 +37,12 @@ const CARD_CATEGORIES = 2;
   selector: 'aec-pair-empty-stage',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AecIcon, Chip, LogoOrInitial, RouterLink, UnclaimedNote],
-  host: { class: 'block xl:py-6', 'data-testid': 'pair-empty-stage' },
+  // Stacked between lg and xl, the 540px diagram sits at the end of the row, so the band's
+  // right half is not left blank under a full-width statement (it is beside it from xl).
+  host: {
+    class: 'block lg:ms-auto lg:w-fit xl:ms-0 xl:w-auto xl:py-6',
+    'data-testid': 'pair-empty-stage',
+  },
   styles: `
     .aec-ribbon-draw {
       stroke-dasharray: 400;

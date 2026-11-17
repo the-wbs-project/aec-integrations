@@ -250,6 +250,10 @@ describe('aec-hero-band, panel from xl (AECI-1835)', () => {
     )!;
     expect(grid.classList).toContain('xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]');
     expect([...grid.classList].some((c) => c.startsWith('lg:'))).toBe(false);
+    // Top-aligned from xl: a centred text column moved whole when a font swap re-wrapped
+    // a long name beside the taller diagram (layout shift 0.068 at 1280).
+    expect(grid.classList).toContain('xl:items-start');
+    expect(grid.classList).not.toContain('xl:items-center');
     const pair = TestBed.createComponent(PairHost);
     await pair.whenStable();
     const pairGrid = (pair.nativeElement as HTMLElement).querySelector(
@@ -258,5 +262,6 @@ describe('aec-hero-band, panel from xl (AECI-1835)', () => {
     expect(pairGrid.classList).toContain(
       'lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px]',
     );
+    expect(pairGrid.classList).toContain('lg:items-center');
   });
 });

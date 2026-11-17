@@ -143,13 +143,16 @@ export class HeroBand {
    * Where the right column starts. `lg` is the default: 400px from `lg`, 540px from `xl`.
    * `xl` keeps the panel stacked under the text until `xl` and then gives it 540px, for a
    * panel drawn at a fixed 540px, as the empty pair page's diagram is (mock-up 5,
-   * AECI-1835). Below its breakpoint the panel stacks under the text either way.
+   * AECI-1835). Below its breakpoint the panel stacks under the text either way. The `xl`
+   * columns are top-aligned, as the mock-up draws them: a centred text column beside a
+   * taller diagram moved whole when the web font swapped in and re-wrapped a long name
+   * (layout shift 0.068 at 1280).
    */
   readonly panelFrom = input<'lg' | 'xl'>('lg');
 
   protected readonly gridClass = computed(() =>
     this.panelFrom() === 'xl'
-      ? 'grid gap-8 xl:items-center xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]'
+      ? 'grid gap-8 xl:items-start xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]'
       : 'grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]',
   );
 
