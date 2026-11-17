@@ -10,13 +10,13 @@ import { Analytics } from '../analytics/analytics';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { isUnderReview } from '../shared/field-caption/field-caption-facts';
-import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 
 import { groupPoweredIntegrations } from './powered-hub-grouping';
+import { ProductAbout } from './product-about';
 import { ProductExtensionsSection } from './product-extensions';
 import { ProductFactsCard } from './product-facts-card';
 import { ProductHero } from './product-hero';
@@ -74,11 +74,10 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
   selector: 'aec-product-detail',
   imports: [
     DetailLayout,
-    FieldCaptionLine,
-    UnderReviewMarker,
     MailingListSignup,
     NgTemplateOutlet,
     NotFound,
+    ProductAbout,
     ProductExtensionsSection,
     ProductFactsCard,
     ProductHero,
@@ -131,29 +130,8 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               class="grid scroll-mt-20 items-start"
               [class]="aboutColumns()"
             >
-              <div class="min-w-0 space-y-6">
-                <h2 id="description-title">
-                  <span
-                    class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
-                    i18n="@@products.detail.body.description"
-                    >About</span
-                  >
-                </h2>
-                @if (p.description) {
-                  <p
-                    class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
-                    data-testid="product-description"
-                  >
-                    {{ p.description }}
-                  </p>
-                  @if (p.captions?.description; as c) {
-                    <aec-field-caption [caption]="c" [page]="captionPage()" />
-                  }
-                } @else if (underReview('description')) {
-                  <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
-                  <aec-under-review data-testid="description-under-review" />
-                }
-              </div>
+              <!-- The label, "About {product}" and the description (AECI-1720 restore). -->
+              <aec-product-about [product]="p" [page]="captionPage()" />
               @if (hasWhoItIsFor()) {
                 <aec-product-who-it-is-for class="min-w-0" [product]="p" [page]="captionPage()" />
               }
@@ -167,6 +145,7 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               id="how-teams-use-it"
               class="scroll-mt-20"
               [data]="u"
+              [productName]="p.name"
               [caption]="p.captions?.usefulness"
               [page]="captionPage()"
             />
@@ -293,11 +272,6 @@ export class ProductDetailPage {
     entityType: 'product',
     entityId: this.product()?.id ?? '',
   }));
-
-  /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
-  protected underReview(field: string): boolean {
-    return isUnderReview(this.product()?.under_review, field);
-  }
 
   /** Whether the About band's "Who it is for" column renders (AECI-1780). */
   protected readonly hasWhoItIsFor = computed(() => {

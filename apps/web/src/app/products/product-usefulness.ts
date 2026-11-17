@@ -60,13 +60,31 @@ import { AecIcon } from '../shared/icon/icon';
   template: `
     @if (hasContent()) {
       <section aria-labelledby="usefulness-title" class="space-y-8">
-        <h2 id="usefulness-title">
-          <span
-            class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
-            i18n="@@products.detail.body.usefulness"
-            >How teams use it</span
+        <!-- Mock-up 6 band head (AECI-1720 restore): the small label, "How teams use
+             {product}" and a one-line intro. The label repeats the heading, so it is hidden
+             from assistive technology. -->
+        <div>
+          <p
+            aria-hidden="true"
+            class="aec-overline mb-3 text-(--text-secondary)"
+            i18n="@@products.detail.usefulness.kicker"
           >
-        </h2>
+            How teams use it
+          </p>
+          <h2 id="usefulness-title">
+            <span
+              class="font-display text-t-36 leading-[1.1] font-semibold tracking-[-0.02em] text-(--text-primary)"
+              i18n="@@products.detail.usefulness.heading"
+              >How teams use {{ productName() }}</span
+            >
+          </h2>
+          <p
+            class="mt-4 max-w-[38em] text-t-16 leading-relaxed text-(--text-secondary)"
+            i18n="@@products.detail.usefulness.intro"
+          >
+            What it is used for, by the people who use it and the stage of the project they are in.
+          </p>
+        </div>
 
         <ng-template #groupList let-groups>
           <div [class]="cardGridClass(groups.length)" data-testid="usefulness-cards">
@@ -137,6 +155,8 @@ import { AecIcon } from '../shared/icon/icon';
 })
 export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
+  /** The page product's name, for the heading "How teams use {product}" (AECI-1720). */
+  readonly productName = input.required<string>();
   /** `ProductDetail.captions.usefulness`: `null` when no vendor wrote the section. */
   readonly caption = input<FieldCaption | null | undefined>(null);
   /** The product page, for the caption component. */
@@ -144,11 +164,14 @@ export class ProductUsefulnessSection {
 
   /** One facet's row: the label above its cards, beside them from `xl`. */
   protected readonly rowClass =
-    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:gap-6';
+    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:items-stretch xl:gap-6';
 
-  /** The facet label: glyph and serif name in a row, stacked in the `xl` label column. */
+  /**
+   * The facet label: glyph and serif name in a row, stacked in the `xl` label column and
+   * centred against its cards there (mock-up 6 `.use-lab`, AECI-1720 restore).
+   */
   protected readonly labelClass =
-    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:gap-2 xl:pt-6';
+    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:justify-center xl:gap-2';
 
   /**
    * The card grid for one facet. Never more columns than cards, so one or two groups
