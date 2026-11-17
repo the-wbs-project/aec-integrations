@@ -186,9 +186,37 @@ describe('ProductIntegrationRow', () => {
     expect(cells[0]?.textContent).toContain('⇄');
   });
 
-  it('renders exactly two content cells plus the trailing chevron (no Direction column)', () => {
+  it('renders three content cells plus the trailing chevron (no Direction column)', () => {
+    // AECI-1720 added the partner's categories (from lg) between the partner and the
+    // connection. Direction stays folded into the partner cell.
     const { el } = setup();
-    expect(el.querySelectorAll('td').length).toBe(3);
+    expect(el.querySelectorAll('td').length).toBe(4);
+  });
+
+  it('prints the partner vendor and the categories, and the agreement label in the connection cell (AECI-1720)', () => {
+    const { el } = setup({
+      integration: signal({
+        ...baseIntegration,
+        partner_vendor_name: 'Autodesk',
+        partner_categories: [{ slug: 'bim', name: 'BIM' }],
+        agreement: 'confirmed' as const,
+      }),
+    });
+    const cells = el.querySelectorAll('td');
+    expect(cells[0]!.querySelector('[data-testid="row-vendor"]')?.textContent?.trim()).toBe(
+      'by Autodesk',
+    );
+    expect(cells[1]!.textContent).toContain('BIM');
+    expect(cells[2]!.querySelector('aec-agreement-badge')?.textContent).toContain(
+      'Confirmed by both companies',
+    );
+  });
+
+  it('says a partner has no category in words for assistive tech, and drops a missing vendor line', () => {
+    const { el } = setup();
+    const cells = el.querySelectorAll('td');
+    expect(cells[1]!.querySelector('.sr-only')?.textContent).toContain('No category on record');
+    expect(el.querySelector('[data-testid="row-vendor"]')).toBeNull();
   });
 
   // AECI-919. The trailing cell used to render a literal "\u2192", the same character
@@ -197,7 +225,7 @@ describe('ProductIntegrationRow', () => {
   // Lucide chevron-right and carries no direction vocabulary at all.
   it('renders the nav affordance as a chevron, never a direction arrow', () => {
     const { el } = setup();
-    const nav = el.querySelectorAll('td')[2]!;
+    const nav = el.querySelectorAll('td')[3]!;
 
     expect(nav.textContent).not.toContain('\u2192');
     expect(nav.textContent).not.toContain('\u2190');
@@ -217,7 +245,7 @@ describe('ProductIntegrationRow', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
     expect(cells[0]?.textContent).toContain('\u2192');
-    expect(cells[2]?.textContent).not.toContain('\u2192');
+    expect(cells[3]?.textContent).not.toContain('\u2192');
   });
 
   it('keeps the direction in the same cell as the partner name', () => {
@@ -240,8 +268,8 @@ describe('ProductIntegrationRow', () => {
   it('renders the mechanism_kind badge and mechanism_name in the connection cell', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
-    expect(cells[1]?.textContent).toContain('API');
-    expect(cells[1]?.textContent).toContain('REST connector');
+    expect(cells[2]?.textContent).toContain('API');
+    expect(cells[2]?.textContent).toContain('REST connector');
   });
 
   it('renders an en-dash placeholder when the context direction is unknown', () => {
@@ -348,11 +376,11 @@ describe('ProductIntegrationRow field caption (AECI-1614)', () => {
     expect(el.querySelector('aec-field-caption')).toBeNull();
   });
 
-  it('renders the caption in the partner cell, keeping the three cells', () => {
+  it('renders the caption in the partner cell, keeping the four cells', () => {
     const { el } = setup({ integration: signal({ ...baseIntegration, caption: CAPTION }) });
     expect(caption(el)).toBe('Maintained by Autodesk · updated October 4, 2026');
     const cells = el.querySelectorAll('td');
-    expect(cells).toHaveLength(3);
+    expect(cells).toHaveLength(4);
     expect(cells[0]!.querySelector('aec-field-caption')).not.toBeNull();
   });
 

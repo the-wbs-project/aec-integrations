@@ -173,6 +173,26 @@ describe('ProductReviews', () => {
       expect(el.textContent).not.toContain('4.05');
     });
 
+    // AECI-1720 (mock-up 6): "/5" after each figure, and each card's one-line description
+    // pinned to its foot, so a card as tall as the scale card is not half empty.
+    it('prints "/5" after each score and a description at the foot of each card', () => {
+      const el = summary();
+      const overall = el.querySelector('[data-testid="review-score-overall"]')!;
+      const onboarding = el.querySelector('[data-testid="review-score-onboarding"]')!;
+      expect(overall.querySelector('.aec-figure-suffix')!.textContent!.trim()).toBe('/5');
+      expect(onboarding.querySelector('.aec-figure-suffix')!.textContent!.trim()).toBe('/5');
+      const note = (card: Element, id: string) => card.querySelector(`[data-testid="${id}"]`)!;
+      expect(note(overall, 'review-score-overall-note').textContent!.trim()).toBe(
+        'The score for the product itself.',
+      );
+      expect(note(onboarding, 'review-score-onboarding-note').textContent!.trim()).toBe(
+        'The score for getting set up and started.',
+      );
+      // The note is the card's last child and takes the free space above it.
+      expect(overall.lastElementChild).toBe(note(overall, 'review-score-overall-note'));
+      expect(note(overall, 'review-score-overall-note').classList).toContain('mt-auto');
+    });
+
     it('puts each score on its own card with its own stripe, beside its name', () => {
       const el = summary();
       const overall = el.querySelector('[data-testid="review-score-overall"]')!;
@@ -217,7 +237,7 @@ describe('ProductReviews', () => {
     const articles = [...el.querySelectorAll('ul > li > article')];
     expect(articles).toHaveLength(3);
     for (const a of articles) expect(a.classList).toContain('shadow-card');
-    expect(articles.map((a) => a.querySelector('h3')?.textContent?.trim())).toEqual([
+    expect(articles.map((a) => a.querySelector('h4')?.textContent?.trim())).toEqual([
       'Review 1',
       'Review 2',
       'Review 3',
@@ -233,7 +253,7 @@ describe('ProductReviews', () => {
         md: list.classList.contains('md:grid-cols-2'),
         xl: list.classList.contains('xl:grid-cols-3'),
         base: list.classList.contains('grid-cols-1') && list.classList.contains('grid'),
-        titles: [...list.querySelectorAll('h3')].map((h) => h.textContent?.trim()),
+        titles: [...list.querySelectorAll('h4')].map((h) => h.textContent?.trim()),
       };
     };
 
@@ -246,9 +266,19 @@ describe('ProductReviews', () => {
     });
 
     it('keeps the grid at three or more, in the API order', () => {
-      for (const n of [3, 4, 11]) {
+      for (const n of [3, 5, 7, 11]) {
         const c = columns(n);
         expect(c).toMatchObject({ md: true, xl: true, base: true });
+        expect(c.titles).toEqual(makeReviews(n).map((r) => r.title));
+      }
+    });
+
+    // AECI-1720: 4, 10 or 16 reviews in three columns leave one card alone on the last
+    // row, and two columns fill exactly. The cards keep one width, so none is featured.
+    it('keeps two columns from xl when three would leave one card alone and two would not', () => {
+      for (const n of [4, 10, 16]) {
+        const c = columns(n);
+        expect(c).toMatchObject({ md: true, xl: false, base: true });
         expect(c.titles).toEqual(makeReviews(n).map((r) => r.title));
       }
     });
@@ -301,8 +331,49 @@ describe('ProductReviews', () => {
     // AECI-1258: nothing verifies a reviewer, so the badge was removed.
     expect(text).not.toContain('Verified reviewer');
     expect(text).toContain('Manager');
-    expect(text).toContain('3 yrs using');
+    expect(text).toContain('Using it 3 years');
     expect(text).toContain('Would recommend');
+  });
+
+  // AECI-1720: "1 yrs using" read wrong. One year is singular, every other count plural.
+  it('words years of use in the singular for one year and the plural otherwise', () => {
+    const { el } = setup({
+      reviewCount: 3,
+      firstPage: [
+        makeReview(1, { years_using: 1 }),
+        makeReview(2, { years_using: 0 }),
+        makeReview(3, { years_using: 12 }),
+      ],
+    });
+    const text = (el.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toMatch(/Using it 1 year(?!s)/);
+    expect(text).not.toContain('Using it 1 years');
+    expect(text).toContain('Using it 0 years');
+    expect(text).toContain('Using it 12 years');
+    expect(text).not.toContain('yrs');
+  });
+
+  it('opens with the kicker, the heading and the intro once there are reviews (AECI-1720)', () => {
+    const { el } = setup({ reviewCount: 2, firstPage: makeReviews(2) });
+    const kicker = el.querySelector('[data-testid="reviews-kicker"]')!;
+    expect(kicker.tagName).toBe('P');
+    expect(kicker.textContent!.trim()).toBe('Reviews');
+    expect(el.querySelector('#reviews-title')!.textContent!.trim()).toBe('Two ratings, kept apart');
+    expect(el.querySelector('[data-testid="reviews-intro"]')).not.toBeNull();
+    const row = el.querySelector('[data-testid="reviews-list-row"]')!;
+    expect(row.querySelector('h3')!.textContent!.trim()).toBe('Newest first');
+    expect(row.querySelector('[data-testid="reviews-shown"]')!.textContent!.trim()).toBe(
+      'Showing 2 of 2',
+    );
+    // The moderation and five-review lines wait for Chris: they are not on the page.
+    expect(el.textContent).not.toContain('checked before they appear');
+    expect(el.textContent).not.toContain('Ratings show once');
+  });
+
+  it('keeps the plain "Reviews" heading and no intro with no reviews', () => {
+    const { el } = setup({ reviewCount: 0, firstPage: [] });
+    expect(el.querySelector('#reviews-title')!.textContent!.trim()).toBe('Reviews');
+    expect(el.querySelector('[data-testid="reviews-intro"]')).toBeNull();
   });
 
   it('appends the next page on "Load more" and hides the button at the end', async () => {
@@ -366,7 +437,7 @@ describe('ProductReviews', () => {
       const article = el.querySelector('ul > li > article') as HTMLElement;
       const titleId = article.getAttribute('aria-labelledby')!;
       const title = el.querySelector(`[id="${titleId}"]`) as HTMLElement;
-      expect(title.tagName).toBe('H3');
+      expect(title.tagName).toBe('H4');
       expect(title.textContent?.trim()).toBe('Saves hours');
 
       const replies = article.querySelectorAll('[data-testid="vendor-response"]');
@@ -386,7 +457,7 @@ describe('ProductReviews', () => {
       // Labelled by its heading, which names the vendor and ties it to the review.
       expect(reply.tagName).toBe('SECTION');
       const label = el.querySelector(`[id="${reply.getAttribute('aria-labelledby')}"]`)!;
-      expect(label.tagName).toBe('H4');
+      expect(label.tagName).toBe('H5');
       expect(reply.contains(label)).toBe(true);
       expect(label.textContent).toContain('Response from Autodesk');
       expect(label.querySelector('.sr-only')?.textContent).toContain('to the review “Saves hours”');
@@ -440,7 +511,7 @@ describe('ProductReviews', () => {
         firstPage: [makeReview(1, { vendor_responses: [makeResponse()] })],
       });
       const reply = el.querySelector('[data-testid="vendor-response"]') as HTMLElement;
-      const h4 = reply.querySelector('h4') as HTMLElement;
+      const h4 = reply.querySelector('h5') as HTMLElement;
       const label = [...h4.querySelectorAll('span')].find((s) =>
         s.textContent?.includes('Response from Autodesk'),
       )!;
@@ -500,7 +571,7 @@ describe('ProductReviews', () => {
 
       const items = el.querySelectorAll('ul > li');
       const first = items[0]!.querySelectorAll('[data-testid="vendor-response"]');
-      expect([...first].map((r) => r.querySelector('h4 > span')?.textContent?.trim())).toEqual([
+      expect([...first].map((r) => r.querySelector('h5 > span')?.textContent?.trim())).toEqual([
         'Response from Autodesk',
         'Response from Bentley',
       ]);
@@ -523,7 +594,7 @@ describe('ProductReviews', () => {
           firstPage: reviews,
         });
         return {
-          titles: [...el.querySelectorAll('ul > li h3')].map((h) => h.textContent?.trim()),
+          titles: [...el.querySelectorAll('ul > li h4')].map((h) => h.textContent?.trim()),
           text: el.querySelector('[data-testid="review-summary"]')?.textContent,
         };
       };
@@ -572,7 +643,7 @@ describe('ProductReviews', () => {
 
       expect(update.tagName).toBe('SECTION');
       const label = el.querySelector(`[id="${update.getAttribute('aria-labelledby')}"]`)!;
-      expect(label.tagName).toBe('H4');
+      expect(label.tagName).toBe('H5');
       expect(label.textContent?.replace(/\s+/g, ' ').trim()).toBe(
         'Update from the reviewer to the review “Saves hours”, added Oct 5, 2026',
       );

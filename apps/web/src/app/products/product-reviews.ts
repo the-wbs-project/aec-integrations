@@ -117,8 +117,24 @@ export class ProductReviews {
     const shown = this.reviews().length;
     if (shown <= 1) return '';
     if (shown === 2) return 'md:grid-cols-2';
+    // AECI-1720: a count that would leave one card alone on the last row of three
+    // columns, but fills two exactly (4, 10, 16, 22), keeps two columns from xl too.
+    // Every card is still the same width, so no review is featured. A count that
+    // leaves one card alone in both (7, 13, 19) keeps three: no equal-width grid
+    // avoids it there.
+    if (shown % 3 === 1 && shown % 2 === 0) return 'md:grid-cols-2';
     return 'md:grid-cols-2 xl:grid-cols-3';
   });
+
+  /** "Showing 6 of 7", the list row's count (mock-up 6, #rvShown). */
+  protected readonly shownLabel = computed(() => {
+    const shown = this.reviews().length;
+    const total = this.reviewCount();
+    return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;
+  });
+
+  /** The small "/5" after each score (mock-up 6, .score .bn small). */
+  protected readonly outOfFive = $localize`:@@products.detail.reviews.outOfFive:/5`;
 
   protected readonly hasMore = computed(() => this.reviews().length < this.reviewCount());
 
@@ -252,8 +268,15 @@ export class ProductReviews {
     }
   }
 
+  /**
+   * "Using it 1 year" or "Using it {n} years" (mock-up 6). Two message ids, one per
+   * plural form, the idiom this app uses for counts in TS. An ICU plural in the template
+   * printed its text twice on one card after hydration, so it is not used here.
+   */
   protected yearsLabel(years: number): string {
-    return $localize`:@@products.detail.reviews.years:${years}:COUNT: yrs using`;
+    return years === 1
+      ? $localize`:@@products.detail.reviews.yearsUsing.one:Using it 1 year`
+      : $localize`:@@products.detail.reviews.yearsUsing:Using it ${years}:COUNT: years`;
   }
 
   protected recommendLabel(recommend: 'yes' | 'no' | 'maybe'): string {
