@@ -287,8 +287,9 @@
     }
 
     <!-- Submit stays enabled while an answer is bad (DESIGN.md "Submit stays
-         enabled"): pressing it shows every error and focuses the first bad field. -->
-    <button aecButton type="submit" [disabled]="form().submitting()">
+         enabled"): pressing it shows every error and focuses the first bad field.
+         It waits for hydration, as sign-in does (see `hydrated`). -->
+    <button aecButton type="submit" [disabled]="!hydrated() || form().submitting()">
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>
       } @else {
@@ -378,7 +379,7 @@
     <button
       aecButton
       type="submit"
-      [disabled]="form().submitting() || !form.accepted_terms().value()"
+      [disabled]="!hydrated() || form().submitting() || !form.accepted_terms().value()"
     >
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>

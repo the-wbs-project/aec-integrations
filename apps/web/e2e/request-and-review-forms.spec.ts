@@ -218,6 +218,28 @@ test.describe('request forms (AECI-1807)', () => {
   }
 });
 
+/**
+ * The SSR form has no action, and event replay never cancels a native submit. If the
+ * submit were enabled before hydration, an early press or Enter would GET the page
+ * with every answer, the email included, in the query string. With JavaScript off
+ * the SSR HTML is all there is, so this pins that the submit waits for hydration.
+ */
+test.describe('request forms before hydration (AECI-1807)', () => {
+  test.use({ javaScriptEnabled: false });
+  for (const r of REQUEST_PAGES) {
+    test(`${r.name}: the SSR submit is disabled and Enter does not submit`, async ({ page }) => {
+      await page.goto(r.path);
+      const submit = page.locator('[data-testid="page-canvas"] form button[type="submit"]');
+      await expect(submit).toBeDisabled();
+      const email = r.kind === 'claim' ? '#claim-email' : '#correction-email';
+      await page.locator(email).fill('jane@procore.com');
+      await page.locator(email).press('Enter');
+      await page.waitForTimeout(500);
+      expect(new URL(page.url()).search).toBe('');
+    });
+  }
+});
+
 test.describe('review form (AECI-1807)', () => {
   test.beforeEach(async ({ context, baseURL, request }) => {
     const probe = await request.get(`/products/${PRODUCT_SLUG}`, { maxRedirects: 0 });

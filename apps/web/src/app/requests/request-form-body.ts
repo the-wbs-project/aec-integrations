@@ -220,6 +220,14 @@ export class RequestFormBody implements OnInit {
     'underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 ' +
     'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
+  /**
+   * False until the browser has hydrated, as on sign-in. The submit stays disabled
+   * until then. Event replay never cancels a native submit, and the SSR form has no
+   * action, so an early press or Enter would GET this page with every answer, the
+   * email included, in the query string (AECI-1807 review).
+   */
+  protected readonly hydrated = signal(false);
+
   /** The submitted email, for the routed page's confirmation line. */
   protected readonly sentTo = signal('');
 
@@ -285,6 +293,7 @@ export class RequestFormBody implements OnInit {
   private prefilledEmail = false;
 
   constructor() {
+    afterNextRender(() => this.hydrated.set(true));
     // Don't make a signed-in visitor retype an address we already have.
     // `SessionStatus.email()` is `null` during SSR and until the post-hydration
     // probe resolves (the cache-neutral default, §8), so this only ever fires in
@@ -384,9 +393,20 @@ export class RequestFormBody implements OnInit {
             f.accepted_terms,
           ]
         : [f.body, f.source_url, f.submitter_email];
-    order
-      .find((field) => field().invalid())?.()
-      .focusBoundControl();
+    const first = order.find((field) => field().invalid());
+    if (!first) return;
+    first().focusBoundControl();
+    // The error renders on the next pass, below its field. Bring it into view too:
+    // in the drawer the pinned submit bar would cover it (the port's scroll padding
+    // keeps it above the bar).
+    afterNextRender(
+      () => {
+        const ids = this.document.activeElement?.getAttribute('aria-describedby')?.split(' ');
+        const error = ids?.length ? this.document.getElementById(ids[ids.length - 1]) : null;
+        error?.scrollIntoView?.({ block: 'nearest' });
+      },
+      { injector: this.injector },
+    );
   }
 
   private async send(v: RequestModel): Promise<undefined> {
