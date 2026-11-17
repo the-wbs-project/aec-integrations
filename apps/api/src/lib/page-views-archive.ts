@@ -45,6 +45,7 @@ import { and, asc, count, gte, inArray, lt, lte, min, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { pageViewClassifications, pageViews, pageViewsArchiveDays } from '../db/schema';
 import { shiftDay } from './admin-analytics';
+import { sha256HexBytes } from './hash';
 import { daysBetween } from './retention-prune';
 
 // ---------------------------------------------------------------------------
@@ -228,11 +229,9 @@ export async function gzip(text: string): Promise<ArrayBuffer> {
   return new Response(stream).arrayBuffer();
 }
 
-/** Lowercase hex SHA-256. */
-export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-}
+/** Lowercase hex SHA-256 of raw bytes. Kept as an export for this file's callers; the
+ *  helper lives in `./hash`. */
+export const sha256Hex = (bytes: ArrayBuffer): Promise<string> => sha256HexBytes(bytes);
 
 // ---------------------------------------------------------------------------
 // One day

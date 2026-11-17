@@ -248,6 +248,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Email (AECI-1224) ─────────────────────────────────────────────────────
   'notification_settings.updated': $localize`:@@admin.audit.action.notificationSwitchUpdated:Sending switch changed`,
 
+  // ── Copyright notices (AECI-1665) ─────────────────────────────────────────
+  'dmca_notice.created': $localize`:@@admin.audit.action.dmcaNoticeCreated:Copyright notice logged`,
+  'dmca_notice.updated': $localize`:@@admin.audit.action.dmcaNoticeUpdated:Copyright notice edited`,
+
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,
   'retention.pruned': $localize`:@@admin.audit.action.retentionPruned:Old records pruned`,

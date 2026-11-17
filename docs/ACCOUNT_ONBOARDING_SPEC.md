@@ -252,8 +252,11 @@ At least one field must be present. Unknown audience ids are a 400 `VALIDATION_F
 `field: 'audience_ids'`. They are found by a read before the batch, so nothing is written.
 
 The write is one `db.batch`: the `profiles` update if needed, the `profile_details` upsert, the
-audience delete and insert, and one `profile.updated` audit row. The audit row's before and after
-state carry exactly the keys the request touched. `rateLimit('write')` already covers the route.
+audience delete and insert, and one `profile.updated` audit row. The audit row never holds an
+About-you value (AECI-1869). It names the answers the request touched in `metadata.about_you_fields`.
+Its before and after state carry only the other touched keys, `display_name`,
+`listing_view_preference` and `onboarding`. Erasure keeps audit rows, and the Privacy Policy says
+the answers go with the account (`AUTH_AND_RLS.md` §8). `rateLimit('write')` already covers the route.
 
 **Admin.** `GET /api/admin/users` rows carry `company_type` and `company_size`.
 `GET /api/admin/users/:id` carries `about`: every answer, LinkedIn included, the audience names A

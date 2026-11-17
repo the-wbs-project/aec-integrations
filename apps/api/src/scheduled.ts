@@ -118,6 +118,7 @@ import {
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
   PLAN_SNAPSHOT_CRON,
+  ACCEPTANCE_CHAIN_CRON,
   VENDOR_CLAIM_NUDGE_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
@@ -260,6 +261,12 @@ import {
   PLAN_SNAPSHOT_SOURCE,
   runPlanSnapshotSweep,
 } from './lib/plan-snapshot-sweep';
+import {
+  ACCEPTANCE_CHAIN_RUN_METRIC,
+  ACCEPTANCE_CHAIN_SOURCE,
+  ACCEPTANCE_CHAIN_TSA_FAILED,
+  runAcceptanceChainExport,
+} from './lib/acceptance-chain-export';
 import { auditVendorLogFields } from './lib/moderation-forward';
 import { enqueueOwnershipSync } from './lib/ownership-sync';
 import {
@@ -1483,6 +1490,72 @@ async function runPlanSnapshotJob(
     });
     // Rethrow so the queue consumer retries. Each row's stamp is guarded, so a retry
     // redoes only the rows still due.
+    throw error;
+  }
+}
+
+/**
+ * The nightly acceptance chain export (AECI-1680, ADR 0057). The logic lives in
+ * `./lib/acceptance-chain-export`; this shell supplies the DB, the `UPLOADS` bucket and
+ * the PostHog sink. `aeci.acceptance_chain.run` fires on every run, so it doubles as the
+ * liveness heartbeat. A failed DigiCert timestamp never fails the run (ruling 2A): each
+ * one is logged as `aeci.acceptance_chain.timestamp_failed` and the run stays `ok`. A
+ * crash rethrows so the queue retries; a retry adopts a file already in R2. No `UPLOADS`
+ * binding is `skipped`: every deployed tier binds it.
+ */
+async function runAcceptanceChainJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/acceptance-chain');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  if (!env.UPLOADS) {
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'acceptance-chain', reason: 'no_bucket' } };
+  }
+  try {
+    const { db } = cronDb(env);
+    const result = await runAcceptanceChainExport(db, env.UPLOADS, { now: new Date() });
+    // ONE warning per run, however many seqs failed. A DigiCert outage fails the night's
+    // file and every backfilled one together; a log per seq would fan out up to ten
+    // concurrent PostHog requests against the Worker's connection limit (CLAUDE.md
+    // "Release every fetch body… and batch fan-out").
+    if (result.tsaFailures.length > 0) {
+      logToPosthog(ctx, env, req, {
+        level: 'warn',
+        message: ACCEPTANCE_CHAIN_TSA_FAILED,
+        source: ACCEPTANCE_CHAIN_SOURCE,
+        reason: result.tsaFailures.map((f) => `seq=${f.seq} ${f.reason}`).join('; '),
+      });
+    }
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.acceptance_chain seq=${result.seq} entries=${result.entries} rows=${result.rows} adopted=${result.adopted} tsa=${result.tsa} backfilled=${result.backfilled}`,
+      source: ACCEPTANCE_CHAIN_SOURCE,
+    });
+    const { tsaFailures, ...counts } = result;
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'acceptance-chain',
+        durationMs: Date.now() - started,
+        ...counts,
+        tsaFailed: tsaFailures.length,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.acceptance_chain.crashed',
+      source: ACCEPTANCE_CHAIN_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. A file already in R2 is adopted, and the
+    // ledger's seq primary key refuses a second row for one file.
     throw error;
   }
 }
@@ -3059,6 +3132,10 @@ function queueForJob(
       // AECI-1621: rides the reconcile queue, the `sitemap_rebuild` precedent. A retry is
       // safe: a written row is no longer due, and an object already in R2 is adopted.
       return env.RECONCILE_QUEUE;
+    case 'acceptance_chain':
+      // AECI-1680: rides the reconcile queue, the `plan_snapshot` precedent. A retry is
+      // safe: a file already in R2 is adopted, never overwritten.
+      return env.RECONCILE_QUEUE;
     case 'vendor_claim_nudge':
       // AECI-1305: rides the attestation queue, the `sitemap_rebuild` precedent. The
       // consumer dispatches on `message.job`, and nothing new is provisioned.
@@ -3308,6 +3385,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: PLAN_SNAPSHOT_SOURCE,
     };
   }
+  if (job === 'acceptance_chain') {
+    return {
+      path: '/cron/acceptance-chain',
+      message: 'aeci.acceptance_chain.enqueue_failed',
+      source: ACCEPTANCE_CHAIN_SOURCE,
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3469,6 +3553,8 @@ async function dispatchScheduledJob(
       return runSitemapRebuildJob(env, ctx);
     case 'plan_snapshot':
       return runPlanSnapshotJob(env, ctx, message);
+    case 'acceptance_chain':
+      return runAcceptanceChainJob(env, ctx, message);
     case 'vendor_claim_nudge':
       return runVendorClaimNudgeJob(env, ctx);
   }
@@ -3594,6 +3680,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case PLAN_SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'plan_snapshot');
+      return;
+    case ACCEPTANCE_CHAIN_CRON:
+      await enqueueOrRun(env, ctx, 'acceptance_chain');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');

@@ -26,6 +26,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'claim_thread_message',
   'connector_catalog',
   'connector_evidenced_pair',
+  'dmca_notice',
   'gsc_recrawl_queue',
   'indexnow_queue',
   'integration',
