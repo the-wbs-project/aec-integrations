@@ -96,7 +96,7 @@ export interface GuideLink {
  */
 const TREE_LINK =
   'flex min-h-11 items-center rounded-mark px-3 py-2 text-t-14 leading-snug text-(--text-secondary) ' +
-  'transition-colors duration-fast ease-standard hover:bg-(--surface-sunken) hover:text-(--text-primary) ' +
+  'transition-colors duration-fast ease-standard hover:text-(--text-primary) ' +
   'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) ' +
   'aria-[current=page]:bg-(--surface-sunken) aria-[current=page]:font-semibold ' +
   'aria-[current=page]:text-(--text-primary)';

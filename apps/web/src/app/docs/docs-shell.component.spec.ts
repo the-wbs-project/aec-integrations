@@ -251,6 +251,10 @@ describe('DocsShellComponent', () => {
       expect(link.className).not.toMatch(/font-medium|rounded-md|outline-2/);
     }
     expect(tree(host).querySelector('a[aria-current="page"]')?.classList).toContain('rounded-mark');
+    // The fill marks the current page alone: a hover fill would match it.
+    for (const link of Array.from(tree(host).querySelectorAll('a'))) {
+      expect(link.className).not.toContain('hover:bg-');
+    }
     const button = host.querySelector('button[aria-controls="docs-nav-panel"]')!;
     expect(button.querySelector('aec-icon')?.getAttribute('name')).toBe('panel-left');
   });

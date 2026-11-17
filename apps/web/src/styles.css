@@ -1651,9 +1651,10 @@ aec-section-nav
   margin-block: 2rem 0;
 }
 
-/* Fragment jumps (the docs rail, `/docs/...#id` and `/legal/...#id` links) land
-   with air above the heading. Nothing above the body is sticky: the site header
-   scrolls away, and so does the docs top bar. */
+/* Fragment jumps (the docs rail, `/docs/...#id` links) land with air above the
+   heading. The legal and methodology headings carry no ids today, so this only
+   matters there if their renderer starts emitting them. Nothing above the body
+   is sticky: the site header scrolls away, and so does the docs top bar. */
 .aec-prose h2,
 .aec-prose h3 {
   scroll-margin-top: 1.5rem;
