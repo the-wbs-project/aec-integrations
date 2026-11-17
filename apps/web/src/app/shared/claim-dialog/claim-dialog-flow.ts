@@ -376,7 +376,15 @@ interface ClaimDialogModel {
           }
         }
         @default {
-          <form id="claim-dialog-form" novalidate (submit)="$event.preventDefault(); primary()">
+          <!-- AECI-1919: method="dialog" makes a native submit before hydration do
+               nothing. With no method, Enter on the server-rendered listing page
+               reloaded it with every answer in the address. -->
+          <form
+            id="claim-dialog-form"
+            method="dialog"
+            novalidate
+            (submit)="$event.preventDefault(); primary()"
+          >
             @switch (step()) {
               @case ('you') {
                 <h3
