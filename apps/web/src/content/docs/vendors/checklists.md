@@ -3,7 +3,7 @@ title: Your checklists
 description: The company and product checklists in your portal, how a product's checklist counts on each plan, and how "Looks right" records that you checked a listing.
 section: vendors
 order: 13
-last_updated: October 19, 2026
+last_updated: November 17, 2026
 ---
 
 Your portal keeps a checklist for your company and one for each product. Each shows what is left to check, so your listings stay accurate without anyone keeping a list by hand. The checklists work on every plan.
@@ -36,7 +36,7 @@ Sometimes you check a listing and nothing needs to change. An edit can only be s
 
 You can use it in three places:
 
-- **Company details.** Your company's listing becomes maintained by your company, as it does after an edit. Your public vendor page then reads "Vendor maintained · Updated" with that day's date.
+- **Company details.** Your company's listing becomes maintained by your company, as it does after an edit. The "About this listing" panel on your public vendor page then reads "Vendor maintained · Updated" with that day's date.
 - **A product.** The same happens on that product's public page.
 - **A product's integration list.** The date updates on each of that product's integrations that your company has already claimed. It never takes over an integration that AEC Integrations or another company maintains.
 

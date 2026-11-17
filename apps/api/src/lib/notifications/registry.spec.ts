@@ -52,8 +52,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1615 added `license-grant-pending` and `license-grant-pending-reminder`: 94.
  * AECI-1620 added `legal-terms-change`: 95.
  * AECI-1690 added `entitlement-expiring-operator-copy`: 96.
+ * AECI-1637 added `legal-account-change`: 97.
  */
-const EXPECTED_COUNT = 96;
+const EXPECTED_COUNT = 97;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -107,8 +108,8 @@ describe('notification registry shape', () => {
       // `portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`, then
       // `portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci`. AECI-1615
       // added `license-grant-pending` and `license-grant-pending-reminder`. AECI-1620 added
-      // `legal-terms-change`.
-      email: 57,
+      // `legal-terms-change`. AECI-1637 added `legal-account-change`.
+      email: 58,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 33,
@@ -239,6 +240,7 @@ const ALWAYS_ON = [
   'contest-protest-opened',
   'contest-protest-reply-reminder',
   'entitlement-expiring',
+  'legal-account-change',
   'legal-terms-change',
   // AECI-1705: the only record of a listing request.
   'listing-request-alert',

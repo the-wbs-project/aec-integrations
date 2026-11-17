@@ -318,72 +318,23 @@ describe('ProductIntegrationRow', () => {
   });
 });
 
-// AECI-1614: the row's caption sits in the partner cell, so it adds no column.
-describe('ProductIntegrationRow field caption (AECI-1614)', () => {
-  const caption = (el: HTMLElement) =>
-    el.querySelector('[data-testid="field-caption"]')?.textContent?.trim() ?? null;
-  const CAPTION = {
-    form: 'updated' as const,
-    vendor_names: ['Autodesk'],
-    date: '2026-10-04T00:00:00.000Z',
-  };
-
-  it('renders no caption element on a row with neither fact', () => {
-    const { el } = setup();
-    expect(el.querySelector('aec-field-caption')).toBeNull();
-  });
-
-  it('renders the caption in the partner cell, keeping the three cells', () => {
-    const { el } = setup({ integration: signal({ ...baseIntegration, caption: CAPTION }) });
-    expect(caption(el)).toBe('Maintained by Autodesk · updated October 4, 2026');
-    const cells = el.querySelectorAll('td');
-    expect(cells).toHaveLength(3);
-    expect(cells[0]!.querySelector('aec-field-caption')).not.toBeNull();
-  });
-
-  it('renders on a via row and an evidenced pair alike', () => {
-    const via = { id: 'c1', slug: 'zapier', name: 'Zapier', logo_url: null };
-    const { el } = setup({
-      integration: signal({ ...baseIntegration, via, mechanism_kind: null, caption: CAPTION }),
-    });
-    expect(caption(el)).toContain('Maintained by Autodesk');
-  });
-
-  it('shows one generic line for the newest correction, unlabelled', () => {
+// AECI-1666 ruling 2: a row carries no caption or correction line. The pair page's
+// "About this listing" panel holds them, and the product page's panel says so.
+describe('ProductIntegrationRow without field captions (AECI-1666)', () => {
+  it('renders no caption or correction on a row that carries both', () => {
     const { el } = setup({
       integration: signal({
         ...baseIntegration,
+        caption: { form: 'updated', vendor_names: ['Autodesk'], date: '2026-10-04T00:00:00.000Z' },
         corrections: [
-          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null, cleared: false },
-          {
-            field: 'docs_url',
-            date: '2026-03-01T00:00:00.000Z',
-            source_url: null,
-            cleared: false,
-          },
-        ],
-      }),
-    });
-    const lines = el.querySelectorAll('[data-testid="field-correction"]');
-    expect(lines).toHaveLength(1);
-    expect(lines[0]!.textContent?.trim()).toBe('Corrected by AEC Integrations on March 1, 2026');
-  });
-
-  it('names the field when the newest correction removed a value (AECI-1628)', () => {
-    const { el } = setup({
-      integration: signal({
-        ...baseIntegration,
-        corrections: [
-          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null, cleared: false },
           { field: 'docs_url', date: '2026-03-01T00:00:00.000Z', source_url: null, cleared: true },
         ],
       }),
     });
-    const lines = el.querySelectorAll('[data-testid="field-correction"]');
-    expect(lines).toHaveLength(1);
-    expect(lines[0]!.textContent?.trim()).toBe(
-      'Documentation link: Removed by AEC Integrations on March 1, 2026',
-    );
+    expect(el.querySelector('aec-field-caption')).toBeNull();
+    expect(el.textContent).not.toContain('Maintained by');
+    expect(el.textContent).not.toContain('Removed by');
+    expect(el.querySelectorAll('td')).toHaveLength(3);
   });
 });
 

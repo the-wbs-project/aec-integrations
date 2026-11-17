@@ -117,7 +117,7 @@ three workflows and the four wrangler var blocks in step.
 | --- | --- | --- | --- |
 | **Local** | aeci-staging sandbox | none: `.dev.vars`, webhook secret from `stripe listen` (`local-dev.md` §8) | `"true"` |
 | **Staging** | aeci-staging sandbox | `STRIPE_SECRET_KEY_STAGING`, `STRIPE_WEBHOOK_SECRET_STAGING` (`deploy.yml`) | `"true"` |
-| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"false"` while demo mirrors production (2026-10-31). `"true"` again before the switch-on rehearsal |
+| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"true"` for sandbox checkout |
 | **Production** | live account | `STRIPE_SECRET_KEY_PRODUCTION`, `STRIPE_WEBHOOK_SECRET_PRODUCTION` (`promote-to-prod.yml`) | `"false"` |
 
 The Customer Portal configuration ids are committed vars (`STRIPE_PORTAL_CONFIG_ANNUAL`,
@@ -1867,6 +1867,68 @@ Cross-references:
 The API Worker declares `UPLOADS` in root plus staging, demo and production. Root is the local-dev block and uses `aeci-uploads-preview` as a local-only bucket name since AECI-1268; the deployed tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision the three deployed private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. The remote `aeci-uploads-preview` bucket is deleted in the operator checklist.
 
 **The deploy token needs `Workers R2 Storage: Edit`, and that is the first thing that breaks.** `wrangler deploy` resolves every `r2_buckets` entry against the Cloudflare API before it uploads, so a token without R2 access fails the deploy rather than degrading. The symptom is `A request to the Cloudflare API (/accounts/…/r2/buckets/aeci-uploads-preview) failed` with `Authentication error [code: 10000]` — and **10000 is the token, not the bucket**: a bucket that does not exist reports a not-found error naming it, so creating the bucket will not clear a 10000. Full provisioning steps and the `wrangler r2 bucket create` lines are in `CICD_PLAN.md` "Logo storage deployment".
+
+**The `evidence/` prefix is locked for 4 years (AECI-1621, ADR 0056).** Since AECI-1621 the API Worker also writes the plan-change ranking snapshots into `UPLOADS`, under `evidence/plan-snapshots/` (`ANALYTICS.md` §11d). An R2 bucket lock on the `evidence/` prefix keeps them for 1461 days (4 years): R2 refuses any delete or overwrite of an object under it until then. The lock covers only that prefix. Logos and the legal PDFs under `legal/` stay deletable. One consequence: while any lock rule exists, the bucket cannot be emptied, so retiring a tier's bucket means removing the rule first, after its objects have aged out.
+
+**Operator step after the AECI-1621 deploy: add the lock, once per tier.** Chris runs these by hand from the repo root, logged in to the WBS Project account. An agent never runs them. Each asks for confirmation. Staging first, after the deploy that carries migration `0123`:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-staging --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Demo, after the promote to demo:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-demo --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Production, after the promote to production:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-production --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Check each with the next command. It should list one rule, `evidence-4y`, prefix `evidence/`, 1461 days.
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-production
+```
+
+The rule protects objects written before it too, so a snapshot written between the deploy and the lock is covered once the rule exists. Do not add a lifecycle rule on `evidence/`. A lock wins over a lifecycle rule anyway, and nothing should ever expire these objects.
+
+### Acceptance chain lock (AECI-1680, ADR 0057)
+
+Since AECI-1680 a nightly job (`acceptance-chain`, 18:00 UTC, on `RECONCILE_QUEUE`) writes the agreement acceptance chain into `UPLOADS` under `evidence/acceptance-chain/`: one hash-chained JSON file of row fingerprints a night, and DigiCert's RFC 3161 token beside it as `.tsr`. These files must never change. The 4-year `evidence/` rule above already covers them, but acceptance retention is the life of the account plus six years, which has no fixed end, so they get their own rule held indefinitely. When two rules cover a key, the longer one wins. The rule protects files written before it too. `ops:verify-acceptance-chain` reports `LOCK MISSING` as a failure when no rule covers the prefix, and `LOCK NOT INDEFINITE`, also a failure, when only the 4-year rule does (legal ruling 2026-11-17).
+
+**Operator step right after the AECI-1680 deploy reaches each tier: add the lock, then run the verify.** Do it before that tier's first 18:00 UTC export if you can. Until the rule exists, a chain file can be overwritten. The DigiCert token stays the backstop, because an account admin can remove a lock rule. Chris runs these by hand from the repo root, logged in to the WBS Project account. An agent never runs them. Each asks for confirmation. An indefinite rule cannot lapse, and a bucket with it can never be emptied while it exists. Legal ruled for the indefinite rule on 2026-11-17, so do not swap in a fixed term. Staging first, after the deploy that carries migration `0125`:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-staging --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Demo, after the promote to demo:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-demo --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Production, after the promote to production:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-production --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Check each with the next command. It should list `evidence-4y` and `acceptance-chain`, the second with prefix `evidence/acceptance-chain/` and condition `indefinitely`.
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-production
+```
+
+Then run the verify on that tier. It must print `LOCK:  LOCKED`. `LOCK MISSING` and `LOCK NOT INDEFINITE` are both failures.
+
+```
+pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production
+```
 
 Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.
 

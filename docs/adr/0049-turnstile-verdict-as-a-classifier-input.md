@@ -35,7 +35,7 @@ The gateway (`withGatewayServerTiming` in `apps/web/src/server-runtime.ts`) appe
 
 ## Consequences
 
-- **The classifier gains a vendor-maintained browser signal without Bot Management.** It does not read it yet. AECI-1528 adds the rule under a classifier version bump, after a `POST_LAUNCH_MONITORING.md` §3c shadow run on enabled data. Its 14-day clock starts at the production promote date (AECI-1581).
+- **The classifier gains a vendor-maintained browser signal without Bot Management.** It does not read it yet. AECI-1528 adds the rule under a classifier version bump, after a `POST_LAUNCH_MONITORING.md` §3c shadow run on enabled data. Its 14-day clock starts at the production promote date (AECI-1581). The 14 days were measured in AECI-1645 (2026-11-17). A crawler that does not run our page script gets no verdict, so AECI-1528 is narrowed to crawlers that run JavaScript.
 - **Every verdict costs one siteverify subrequest.** The landing endpoint takes the in-Worker `token` bucket by IP, because it is anonymous. A 429 costs one verdict, never a page. The beacon itself stays unlimited.
 - **Some verdicts are lost by design.** An in-app beacon waits for its token, up to about 8 s. A tab closed in that window loses the beacon. A never-cached landing route has no arrival row, so its verdict post spends a siteverify call and finds nothing (`outcome:no_row`, ruled accepted 2026-10-28).
 - **`unknown` is watched.** Metric `aeci.pageviews.turnstile`, alert `pageviews-turnstile-unknown` above 20% in an hour. A wrong secret reads as about 100% `unknown`, so the runbook checks the secret first. With a production site key, the alert can fire on production once it is applied.

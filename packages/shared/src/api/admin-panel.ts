@@ -1425,6 +1425,15 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `acceptance-evidence-removal` is the twenty-sixth (AECI-1636): daily at 17:00 UTC it
  * nulls the IP address and browser on agreement acceptances older than 90 days
  * (`DATABASE_SCHEMA.md` §8.6d). It is queue-backed, on the brand assets queue.
+ *
+ * `plan-snapshot` is the twenty-seventh (AECI-1621): every 15 minutes at minute 11 it
+ * writes the due plan-change ranking snapshots to R2 (ADR 0056). It is queue-backed, on
+ * the reconcile queue.
+ *
+ * `acceptance-chain` is the twenty-eighth (AECI-1680): daily at 18:00 UTC it writes the
+ * fingerprints of the agreement acceptance and license grant rows that changed to R2,
+ * hash-chained to the previous night, and asks DigiCert for an RFC 3161 timestamp
+ * (ADR 0057). It is queue-backed, on the reconcile queue.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1453,6 +1462,8 @@ export const AdminCronJobSchema = z.enum([
   'vendor-claim-nudge', // 0 15 * * *
   'brand-asset-removal', // 0 16 * * *
   'acceptance-evidence-removal', // 0 17 * * *
+  'plan-snapshot', // 11-59/15 * * * *
+  'acceptance-chain', // 0 18 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

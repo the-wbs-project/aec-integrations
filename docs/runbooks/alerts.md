@@ -1852,6 +1852,7 @@ routine. Five means something the API waits on has stalled. The web Worker only 
 | What you see | Meaning | Next step |
 |---|---|---|
 | D1 span is long, `sql_duration_ms` is small, `total_attempts` is above 1 | D1 routing or retries | Send the window and request ids to Cloudflare support |
+| D1 spans are long, `sql_duration_ms` is small, 1 attempt, and they all finish in the same millisecond | The request could not reach the database's Durable Object. Platform side, not our code | Record it in History. Send it to Cloudflare support only if it recurs more often or runs past a minute |
 | D1 spans are long and share one `served_by_region` | One replica is stuck | Consider pinning those reads to the primary |
 | D1 spans are short, another span is long | The cause is not D1 | The span names the call |
 | No span covers the wait | The Worker itself stalled | Check the platform and placement. The API is pinned to `aws:us-east-1` |
@@ -1871,6 +1872,27 @@ D1 call completed during the 37 s. API isolates in IAD and SIN both stalled, so 
 path, not one isolate. No deploy since 2026-11-09 and no matching status incident. Three web visitors
 gave up and cancelled. Closest to row 1 of the table, but with no retries. Sent to Cloudflare support
 (case 02428986, AECI-1686).
+
+Cloudflare's answer (2026-11-13). D1 runs on Durable Objects. A request must reach the database's active
+Durable Object before any SQL runs. The requests stalled at that step. When it cleared, the queued
+requests ran together, each in under 8 ms. The 2026-11-03 and 2026-10-28 windows show the same pattern,
+but Cloudflare could not name what started any of them. They found no sign that `withSession()`, the
+disabled read replication or the placement setting caused it or made it more likely. Their suggestions
+were to enable read replication and to retry idempotent work with backoff. D1 already retries read-only
+queries twice on a retryable error. Retries do not help this shape, because no call failed. Read
+replicas could, because a read sent to a replica does not wait on the primary's Durable Object.
+Replication was turned off when the prod API was placed in `aws:us-east-1` (AECI-839), because the
+Worker then sits next to the primary and replicas added no latency win.
+
+Cloudflare's follow-up (2026-11-16). The stall was in the connection path to the primary's Durable
+Object, not in SQL. D1 creates a replica in every region, including the primary's region, so a Worker
+in `aws:us-east-1` would read from an ENAM replica. The primary can also serve reads, so not every read
+avoids it. The D1 binding has no timeout or AbortSignal. A `Promise.race` bounds our wait but does not
+cancel the query, and a write that loses the race may still commit. D1 has no metric that shows this
+stall while it happens. Our slow-request alert is the only signal, and Cloudflare asks for a new ticket
+each time it fires. Read replication was turned back on for prod D1 on 2026-11-16, with the placement
+kept. After the next stall, check whether the read spans show `served_by_primary: false`. Writes still
+go to the primary and can still stall.
 
 **2026-11-03 03:31 to 03:34 UTC:** six API requests waited up to 102 s, and the five still open released
 within 300 ms. D1 analytics show zero queries for 03:32 and 03:33, and the slowest query in the window
@@ -2395,6 +2417,55 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 4. `truncated: true` means more than 800 rows were due. The rest go the next day. Two truncated days in a row means the claim rate outgrew the cap. File an issue to raise `EVIDENCE_REMOVAL_MAX_CHUNKS`.
 5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
+
+## Plan-change snapshot sweep (AECI-1621)
+
+Use this when `aeci.plan_snapshot.run` reports `outcome:failed`, the liveness sweep says `plan-snapshot` is missing, or the data-quality digest lists `plan_snapshot_overdue`.
+
+What the job does: every 15 minutes, at minute 11, it reads up to 25 due rows of `plan_change_snapshots`. Each row is one ranking snapshot of one product, scheduled by a plan start or end: one at the event and one 30 days later. The job builds the snapshot, writes it to the `UPLOADS` bucket under `evidence/plan-snapshots/`, checks it with `head`, and stamps `r2_key`. The objects sit under a 4-year bucket lock. These are the records the Terms' ranking promise relies on. ADR 0056, `ANALYTICS.md` §11d.
+
+1. Check the last run. `/admin/system` shows the `plan-snapshot` row. A `failed` row names the reason. The queue retries a failed message three times, and a retry is safe: a written row is no longer due.
+2. List the rows still unwritten with the next command. Rows due in the last 15 minutes are normal.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, product_id, kind, phase, due_at, attempts, last_error FROM plan_change_snapshots WHERE r2_key IS NULL AND due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at"
+```
+
+3. `last_error` names the step. `put_refused` or a thrown R2 error is the bucket. `head_mismatch` means the object did not read back as written. A D1 error means the snapshot read failed. Fix the cause and wait for the next run. The sweep retries every failed row on every run.
+4. Never delete a row, and never clear `r2_key` by hand. The bucket lock refuses an overwrite. A row whose object is already in R2 is adopted on the next run, without a write.
+5. A product that was retracted still gets its snapshot, with `product: null` and `reason: "product_missing"`. That is correct.
+6. A new cron trigger takes about 15 minutes to propagate after a deploy.
+
+To read a snapshot, use `legal.md` "Pull the ranking evidence for a product".
+
+## Acceptance chain export (AECI-1680)
+
+Use this when `aeci.acceptance_chain.run` reports `outcome:failed`, the liveness sweep says `acceptance-chain` is missing, `aeci.acceptance_chain.timestamp_failed` appears in the logs two nights running, or `ops:verify-acceptance-chain` reports a failure.
+
+What the job does: once a day at 18:00 UTC it fingerprints every `agreement_acceptances` and `license_grants` row, writes the new and changed fingerprints and a tombstone per deleted row to the `UPLOADS` bucket as `evidence/acceptance-chain/<seq>.json`, checks it with `head`, and records it in `acceptance_chain_exports`. Then it asks DigiCert for an RFC 3161 timestamp, verifies the signed reply in the Worker, and stores the token beside the file as `.tsr`. A reply that fails verification is never stored, because the lock would make it permanent. A file is written every night, even with no changes. ADR 0057, `DATABASE_SCHEMA.md` §9.17.
+
+1. Check the last run. `/admin/system` shows the `acceptance-chain` row. A `failed` row names the reason. The queue retries a failed message three times. A retry is safe: a file already in R2 is adopted, never overwritten.
+2. A `timestamp_failed` log line does not fail the run. The file is written and `tsa_status` is `failed`. Each run retries the 7 newest files that lack a token. List the files still without one:
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT seq, day, tsa_status FROM acceptance_chain_exports WHERE tsa_status <> 'granted' ORDER BY seq DESC"
+```
+
+3. The limit is 7 outstanding files per run, newest first, with no age cutoff. A file more than 7 seqs back is still retried once it is among the 7 newest outstanding files. A late token proves the file existed at that later time, so tell Chris if a gap persists. The DigiCert endpoint is `http://timestamp.digicert.com`.
+4. Read the `reason` on the `timestamp_failed` line. `fetch:` and `http_` reasons are the network or DigiCert, and the backfill clears them. A reason starting `rejected pki_status=0 reason=` means DigiCert's reply failed the Worker's check, and no token was stored. `reason=unpinned_issuer` on every night means DigiCert rotated its timestamping intermediate. Fix it this way:
+   1. Fetch the new intermediate from the CA Issuers URL in the responder certificate of a fresh reply.
+   2. Append it to `apps/api/scripts/certs/digicert-tsa-chain.pem` with its subject, source and SHA-256 fingerprint. The file's header shows the format.
+   3. Add its base64 SPKI to `PINNED_TSA_ISSUERS` in `apps/api/src/lib/rfc3161.ts`. `rfc3161.spec.ts` fails until the two lists match.
+   4. Deploy. Each run's backfill then retries the files that lack a token.
+
+   Any other `reason=` value, such as `signature_invalid`, `nonce_mismatch` or `digest_mismatch`, on more than one night means a reply was altered or DigiCert broke. Tell Chris.
+5. `adopt_conflict` in a failed run means an object already sits at the next key and does not continue the chain. Stop. Do not delete it. Run the verify and tell Chris.
+6. `put_refused`, a thrown R2 error, or `head_mismatch` is the bucket. Fix the cause and let the queue retry.
+7. Never delete or edit a row in `acceptance_chain_exports` or `acceptance_chain_rows`. The verify reconstructs its evidence from R2, but reads the export ledger's `MAX(seq)` as a minimum walk length. Ledger damage can cause re-exports or verification failures. A lowered `seq` makes the next run find an existing file: it adopts one that continues the chain and stops with `adopt_conflict` otherwise. Tell Chris before attempting ledger recovery.
+8. The R2 lock is an operator step. If the verify reports `LOCK MISSING`, apply it from `docs/environments.md` "Acceptance chain lock".
+9. A new cron trigger takes about 15 minutes to propagate after a deploy.
+
+To prove one acceptance, use `legal.md` "Prove an acceptance was not edited".
 
 ## Runbooks kept in other files
 

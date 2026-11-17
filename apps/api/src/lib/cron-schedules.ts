@@ -1,5 +1,5 @@
 /**
- * The twenty-five cron expressions the API Worker is triggered on, in one place.
+ * The twenty-eight cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-five, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-eight, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -135,6 +135,19 @@ export const RECONCILE_CRON = '*/15 * * * *';
  *  daily slots, so the 05:00 backstop that marks it dirty is rebuilt at 05:07.
  *  Queue-backed on `RECONCILE_QUEUE`, which already dispatches on `message.job`. */
 export const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
+
+/** The plan-change snapshot sweep (AECI-1621, ADR 0056). **Every 15 minutes, at
+ *  minute 11, 26, 41 and 56.** It writes the due ranking-evidence snapshots of
+ *  `plan_change_snapshots` to R2 under `evidence/plan-snapshots/`, so a plan start or
+ *  end is snapshotted within about 15 minutes, and its follow-up 30 days later.
+ *
+ *  **Why its own expression.** Two jobs can never share one (`scheduled.ts` switches on
+ *  the raw `controller.cron`), and minute 11 is clear of the `*` `/15`, `7-59/15` and
+ *  minute-0 slots. The account cap is 250 cron triggers on Workers Paid, and this Worker
+ *  declares 28 per tier, 84 across its three tiers. Queue-backed on `RECONCILE_QUEUE`,
+ *  which already dispatches on `message.job`. A retry is safe: a written row is no
+ *  longer due, and an object already in R2 is adopted, never overwritten. */
+export const PLAN_SNAPSHOT_CRON = '11-59/15 * * * *';
 
 /** WAF firewall-event poll (AECI-262 / §15.1). **Every hour** at minute 0 — it
  *  reads the *previous clock hour* of `firewallEventsAdaptiveGroups` from
@@ -409,6 +422,21 @@ export const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
 export const ACCEPTANCE_EVIDENCE_REMOVAL_CRON = '0 17 * * *';
 
 /**
+ * Daily acceptance chain export (AECI-1680, ADR 0057; `DATABASE_SCHEMA.md` §9.17).
+ * **18:00 UTC**, the next free daily slot after the 17:00 acceptance evidence removal, so
+ * a night's file already carries that day's removals. It writes the SHA-256 fingerprints
+ * of every `agreement_acceptances` and `license_grants` row that changed to the `UPLOADS`
+ * bucket under `evidence/acceptance-chain/`, hash-chained to the previous night's file,
+ * and asks DigiCert for an RFC 3161 timestamp of the file.
+ *
+ * Queue-backed on `RECONCILE_QUEUE`, the `plan_snapshot` precedent: the consumer
+ * dispatches on `message.job`, so nothing new is provisioned. A retry is safe: a file
+ * already in R2 is adopted, never overwritten, and the ledger's `seq` primary key refuses
+ * a second row for one night.
+ */
+export const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -440,6 +468,8 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'vendor-claim-nudge': VENDOR_CLAIM_NUDGE_CRON,
   'brand-asset-removal': BRAND_ASSET_REMOVAL_CRON,
   'acceptance-evidence-removal': ACCEPTANCE_EVIDENCE_REMOVAL_CRON,
+  'plan-snapshot': PLAN_SNAPSHOT_CRON,
+  'acceptance-chain': ACCEPTANCE_CHAIN_CRON,
 };
 
 /**
@@ -479,6 +509,8 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   vendor_claim_nudge: 'vendor-claim-nudge',
   brand_asset_removal: 'brand-asset-removal',
   acceptance_evidence_removal: 'acceptance-evidence-removal',
+  plan_snapshot: 'plan-snapshot',
+  acceptance_chain: 'acceptance-chain',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -512,8 +544,10 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'vendor-claim-nudge',
   'brand-asset-removal',
   'acceptance-evidence-removal',
+  'acceptance-chain',
   'request-reconcile',
   'sitemap-rebuild',
+  'plan-snapshot',
   'waf-poll',
   'indexnow-drain',
   'claim-stale-check',

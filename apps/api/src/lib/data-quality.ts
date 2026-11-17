@@ -44,9 +44,9 @@
 import {
   BROWSER_EVIDENCE_VALUES,
   isHeldRegionCountry,
-  LEGAL_AGREEMENT_DOCUMENTS,
   LEGAL_IN_FORCE_MAPS,
   legalEffectiveAtMs,
+  legalPublishableUpcoming,
   legalPublishedRowMismatched,
   type LegalInForceMaps,
   OWNERSHIP_VERSIONS_MAX_IDS,
@@ -97,6 +97,7 @@ import {
   mailingList,
   ownershipSyncDeliveries,
   pageViews,
+  planChangeSnapshots,
   products,
   productVendors,
   reviews,
@@ -856,6 +857,35 @@ export async function checkVendorSuspensionPastWindow(db: Db, now: Date): Promis
   };
 }
 
+/**
+ * A plan-change ranking snapshot still unwritten 24 hours after it was due (AECI-1621,
+ * ADR 0056). The 15-minute sweep retries a failed row on every run, so a row this late
+ * means the sweep keeps failing it or has stopped. The evidence the Terms rely on is
+ * then missing for that product, so it is `error`. No seed writes the table.
+ */
+export async function checkPlanSnapshotOverdue(db: Db, now: Date): Promise<CheckFinding> {
+  const cutoff = new Date(now.getTime() - DAY_MS).toISOString();
+  const rows = await db
+    .select({
+      productId: planChangeSnapshots.productId,
+      kind: planChangeSnapshots.kind,
+      phase: planChangeSnapshots.phase,
+      dueAt: planChangeSnapshots.dueAt,
+      attempts: planChangeSnapshots.attempts,
+      lastError: planChangeSnapshots.lastError,
+    })
+    .from(planChangeSnapshots)
+    .where(and(isNull(planChangeSnapshots.r2Key), lt(planChangeSnapshots.dueAt, cutoff)))
+    .orderBy(asc(planChangeSnapshots.dueAt), asc(planChangeSnapshots.id));
+  return {
+    lines: rows.map(
+      (r) =>
+        `${r.productId} ${r.kind}/${r.phase} due ${r.dueAt}, ${r.attempts} attempts` +
+        (r.lastError ? ` (${r.lastError.slice(0, 120)})` : ''),
+    ),
+  };
+}
+
 /** A termination refund not settled a day after it was written (AECI-1623). A `failed` or
  *  stranded `pending` row is money the vendor is owed. `manual` is the operator's to pay. */
 export async function checkTerminationRefundUnsettled(db: Db, now: Date): Promise<CheckFinding> {
@@ -1426,8 +1456,8 @@ function truncate(message: string): string {
 export const LEGAL_UNPUBLISHED_WARN_DAYS = 30;
 
 /**
- * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms or Managed plan
- * agreement version whose effective moment is 30 days away or less, or already past, and
+ * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms, Managed plan
+ * agreement or (AECI-1637) Terms of Service or Privacy Policy version whose effective moment is 30 days away or less, or already past, and
  * that has no `legal_versions` row. Unpublished, it never becomes the version in force
  * (`legalAgreementVersionInForce`), so the page keeps "takes effect on <date>" past the
  * date, and the 30-day notice can no longer be given in time. Publish it, or move the
@@ -1440,9 +1470,7 @@ export async function checkLegalAgreementUnpublished(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
   const horizon = now.getTime() + LEGAL_UNPUBLISHED_WARN_DAYS * DAY_MS;
-  const due = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    if (!upcoming) return [];
+  const due = legalPublishableUpcoming(maps).flatMap(({ document, upcoming }) => {
     const at = legalEffectiveAtMs(upcoming.effectiveOn);
     return Number.isFinite(at) && at <= horizon ? [{ document, upcoming, at }] : [];
   });
@@ -1471,8 +1499,9 @@ export async function checkLegalAgreementUnpublished(
 }
 
 /**
- * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms or Managed plan
- * agreement row for the upcoming version whose effective moment is not the upcoming
+ * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms, Managed plan
+ * agreement, Terms of Service or Privacy Policy row (the last two since AECI-1637) for the
+ * upcoming version whose effective moment is not the upcoming
  * entry's, because the date was moved after the publish. The row is in force nowhere
  * (`legalPublishedRowMismatched`): the page never switches, no stamp moves, the acceptance
  * screen asks nothing. Move the entry back to the published date, or make the new date a
@@ -1482,10 +1511,7 @@ export async function checkLegalAgreementDateMoved(
   db: Db,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
-  const entries = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    return upcoming ? [{ document, upcoming }] : [];
-  });
+  const entries = legalPublishableUpcoming(maps);
   if (entries.length === 0) return { lines: [] };
   const rows = await db
     .select({
@@ -1685,6 +1711,14 @@ export const CHECKS: CheckSpec[] = [
     // obligation: a seeded database has no upcoming entry.
     severity: 'warn',
     run: ({ db }) => checkLegalAgreementDateMoved(db),
+  },
+  {
+    id: 'plan_snapshot_overdue',
+    label: 'Plan-change ranking snapshots still unwritten 24 hours after they were due',
+    // `error`: evidence the Terms' ranking promise relies on is missing. Not a seed
+    // obligation: no seed writes the table.
+    severity: 'error',
+    run: ({ db, now }) => checkPlanSnapshotOverdue(db, now),
   },
   {
     id: 'review_mirror_drift',

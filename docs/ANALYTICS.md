@@ -875,6 +875,103 @@ classification objects with the same `read_json` call and their own path.
 **Health.** Metric `aeci.pageviews.archive`, alert `pageviews-archive-failed`, runbook "page_views
 archive failed" in `docs/runbooks/alerts.md`.
 
+## 11d. Plan-change ranking snapshots
+
+**Answer first.** Every time a plan starts or ends on a product, AECi writes two JSON snapshots of that
+product's ranking to R2: one at the event and one 30 days later. They are kept at least four years under
+an R2 bucket lock, so nobody can delete or overwrite them. They are the records behind the Terms' "never
+influenced by payment" (`SEARCH_RANKING.md` §7a, counsel Q23). Decision: ADR 0056.
+
+**What it is.** One JSON object per snapshot, written by the 15-minute `plan-snapshot` sweep
+(`apps/api/src/lib/plan-snapshot-sweep.ts`) into the existing `UPLOADS` bucket of each tier:
+`aeci-uploads-staging`, `aeci-uploads-demo` and `aeci-uploads-production`. Local dev writes the local
+emulated bucket. The ledger `plan_change_snapshots` (`DATABASE_SCHEMA.md` §9.16) lists every snapshot
+and its key.
+
+| Key | Holds |
+|---|---|
+| `evidence/plan-snapshots/product=<product id>/<event_at>-<start\|end>-<event\|followup>-<row id>.json` | One snapshot |
+
+Listing one product's prefix returns its snapshots in date order. Each object's `customMetadata` holds
+`schema`, `sha256`, `product_id`, `kind` and `phase`.
+
+**The snapshot.** `schema` (1), the ledger row (`snapshot_id`, `product_id`, `kind`, `phase`, `cause`,
+`license_id`, `event_at`), `taken_at`, `commit_sha`, and:
+
+- `plan_now`: whether a live license is on the product at `taken_at`. Context, not an input.
+- `product`: slug, name, hidden, promotion status. NULL with `reason: "product_missing"` for a
+  retracted product.
+- `inputs`: `listing_tier` and its inputs (`productListingTier`), review count, both rating averages,
+  `created_at`, integration count, and `algolia_record`, the record the sync would write now
+  (`toAlgoliaProduct`), or NULL when the sync would delete it. If the transform throws,
+  `algolia_record_error` says why and the rest of the snapshot is kept.
+- `positions`: one entry per list, `{ list, sort, rank, of }`. `/products` and each taxonomy page the
+  product is on, under the default `created` order through `buildProductsWhere` and
+  `resolveProductOrderBy`, and `home:most-integrated` under the home stat's own order. `rank` is
+  1-based, NULL when the product is not in the list.
+
+Positions are computed from live D1 at `taken_at`, not from cached pages or the Algolia index.
+Algolia's Newest replica uses whole-second timestamps and different tie breakers, and its sync can
+lag D1, so a saved D1 position is not a search position. `algolia_record` is the record the sync
+would write, not the stored index record. See `SEARCH_RANKING.md` §7a.
+
+No personal data: no actor, no email, no billing account. The vendor's company name rides in the
+search record, as on the public page.
+
+**The lock.** One rule per bucket on the prefix `evidence/`, retention 1461 days (4 years). Chris adds
+it by hand after the first deploy (`docs/environments.md` "Logo storage deployment"). R2 refuses an
+overwrite or a delete of a locked object, so the sweep checks for the key before it writes, and adopts
+an object an earlier run left behind. A lock rule on the bucket also stops anyone emptying the bucket.
+
+**Reading it.** No live request reads a snapshot. `runbooks/legal.md` "Pull the ranking evidence for a
+product" gives the D1 query and the `wrangler r2 object get` command.
+
+**Health.** Metric `aeci.plan_snapshot.run` (the liveness heartbeat), the `plan-snapshot` row on
+`/admin/system`, and the `plan_snapshot_overdue` data-quality check for a row still unwritten 24 hours
+after it was due. Runbook "Plan-change snapshot sweep" in `docs/runbooks/alerts.md`.
+
+## 11e. The acceptance chain
+
+**Answer first.** Each night AECi writes the SHA-256 fingerprints of the agreement acceptance and
+license grant rows that changed to one hash-chained JSON file in R2, and DigiCert timestamps it. The
+files are held by an indefinite R2 bucket lock. They prove an acceptance was not edited after the
+fact (counsel Q5(c), ruling 15). They are not a backup: they hold fingerprints, not rows. Decision:
+ADR 0057.
+
+**What it is.** One JSON file a night, written by the daily `acceptance-chain` job
+(`apps/api/src/lib/acceptance-chain-export.ts`, 18:00 UTC) into the existing `UPLOADS` bucket of each
+tier. Local dev writes the local emulated bucket. The ledger tables `acceptance_chain_exports` and
+`acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17) record each file and each row's last fingerprint.
+
+| Key | Holds |
+|---|---|
+| `evidence/acceptance-chain/<seq, 6 digits>.json` | One night's file |
+| `evidence/acceptance-chain/<seq, 6 digits>.tsr` | DigiCert's RFC 3161 reply for that file's SHA-256 |
+
+Each file's `customMetadata` holds `schema`, `seq`, `sha256` and `prev_sha256`.
+
+**The file.** Canonical JSON, keys sorted, one trailing newline: `schema`
+(`aeci.acceptance-chain/1`), `seq`, `day`, `created_at`, `prev_sha256` (NULL at seq 1),
+`fingerprint_version` (1), `entries` and `state_sha256`. Each entry is `{ table, id, op, fingerprint,
+fields }`, where `op` is `upsert` or `delete` and a `delete` has no `fields`. `fields` holds only
+columns that are not personal: ids, versions, dates, statuses and `text_sha256`. `state_sha256` is one
+hash over every live row's `table:id:fingerprint` line, sorted.
+
+**No personal data.** No email, name, title, IP address or browser. The fingerprint covers the email
+and the signer's name, so a fingerprint stays in R2 after the D1 row is deleted. Chris accepted that
+(ruling 1A). `ip` and `user_agent` are not in the fingerprint at all.
+
+**The lock.** One rule per bucket on the prefix `evidence/acceptance-chain/`, held indefinitely. Chris
+adds it by hand after the deploy (`docs/environments.md` "Acceptance chain lock"). The job checks for
+the key before it writes, and adopts a file an earlier attempt left behind.
+
+**Reading it.** No live request reads the chain. `ops:verify-acceptance-chain` checks it end to end,
+and `runbooks/legal.md` "Prove an acceptance was not edited" gives the steps for one acceptance.
+
+**Health.** Metric `aeci.acceptance_chain.run` (the liveness heartbeat), the log line
+`aeci.acceptance_chain.timestamp_failed`, and the `acceptance-chain` row on `/admin/system`. Runbook
+"Acceptance chain export" in `docs/runbooks/alerts.md`.
+
 ## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric

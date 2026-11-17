@@ -360,6 +360,8 @@ change and no `wrangler.jsonc` change.
   Read Replication) or the REST API (`read_replication: {"mode": "auto"}`). Enable
   it on the **staging + production** D1s; the code is inert-safe before that
   (`withSession` serves from primary when no replicas exist).
+- **Current state (2026-11-16):** on for production. It was off from the AECI-839 placement (2026-10-12) until then, and
+  was turned back on as a backup for primary stalls (AECI-1686, `docs/runbooks/alerts.md`). Staging is off.
 - **Local dev / tests are single-DB.** `wrangler dev`'s local SQLite and the
   in-memory test harness have no `withSession`, so `getDb` falls back to the plain
   binding (`getBookmark()` → `null`); read-your-writes is automatic there. The

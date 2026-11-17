@@ -220,6 +220,8 @@
   // The production D1 primary is in ENAM since 2026-10-05. Read replication is on,
   // but replicas go inactive between requests in sparse regions, so a Worker in
   // the visitor's colo still pays 2-3 serial rounds to ENAM per render.
+  // Placed here, reads come from the ENAM replica. Replication stays on as a backup:
+  // a stall in the path to the primary does not hold a replica read (AECI-1686).
   // Targeted placement to `aws:us-east-1` runs the Worker in the Cloudflare data
   // center nearest that region. Cloudflare does not publish the D1 primary's exact
   // colo, so Virginia is the best guess. A wrong guess within ENAM costs tens of ms
@@ -611,6 +613,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -620,6 +625,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -800,12 +808,10 @@
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
-        // "false" (2026-10-31) so demo shows the production vendor flow: Stripe wired,
-        // checkout off. Set back to "true" before the demo rehearsal in docs/runbooks/subscriptions.md
-        // "Turning on Stripe in production" step 4.
+        // Checkout is enabled for the demo sandbox and switch-on rehearsal.
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
-        "STRIPE_CHECKOUT_ENABLED": "false",
+        "STRIPE_CHECKOUT_ENABLED": "true",
         // AECI-1553: threads off for now (see the base-config note).
         "THREADS_ENABLED": "false",
         // AECI-1688: legal publish off while demo mirrors production.
@@ -900,6 +906,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -909,6 +918,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1211,6 +1223,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -1220,6 +1235,9 @@
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
+          // AECI-1621 plan-change snapshot sweep, every 15 minutes at :11/:26/:41/:56.
+          // Its own expression. Rides RECONCILE_QUEUE.
+          "11-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

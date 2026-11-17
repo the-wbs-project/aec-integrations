@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
 import { PLANS_ARCHIVE_PATHS } from '../app/docs/plans-versions';
+import { RANKING_ARCHIVE_PATHS } from '../app/docs/ranking-page-versions';
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from '../app/accessibility/accessibility-published';
 import {
   LEGAL_ARCHIVE_PATHS,
@@ -164,6 +165,18 @@ describe('staticSitemapEntries', () => {
       ).toBe(false);
     }
     expect(entries.some((e) => /\/docs\/vendors\/plans\/v\d/.test(e.loc))).toBe(false);
+  });
+
+  it('leaves out every How ranking works version (AECI-1621)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    expect(RANKING_ARCHIVE_PATHS.length).toBeGreaterThan(0);
+    for (const path of RANKING_ARCHIVE_PATHS) {
+      expect(
+        entries.some((e) => e.loc.endsWith(path)),
+        path,
+      ).toBe(false);
+    }
+    expect(entries.some((e) => /\/docs\/trust\/how-ranking-works\/v\d/.test(e.loc))).toBe(false);
   });
 
   it('includes /methodology (AECI-804), listed alongside the legal set and the docs', async () => {

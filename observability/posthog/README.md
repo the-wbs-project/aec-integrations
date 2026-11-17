@@ -126,11 +126,11 @@ Two deliberate widenings ride along:
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
    `vendor-snapshot`, AECI-1236 added `gsc-inspect`, AECI-1368 added `claim-owner-fallback`,
-   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty. AECI-1305 adds `vendor-claim-nudge`, making twenty-one. AECI-1618 adds `brand-asset-removal`, making twenty-two. AECI-1636 adds `acceptance-evidence-removal`, making twenty-three.
+   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty. AECI-1305 adds `vendor-claim-nudge`, making twenty-one. AECI-1618 adds `brand-asset-removal`, making twenty-two. AECI-1636 adds `acceptance-evidence-removal`, making twenty-three. AECI-1621 adds `plan-snapshot`, making twenty-four. AECI-1680 adds `acceptance-chain`, making twenty-five.
    A routine Google 429 on `gsc-inspect` is `outcome:quota`, not `failed`, so only a refused key
    or a broken chain pages. Their liveness rows are in the
    sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
-   Three of the twenty-six crons are absent from that query on purpose:
+   Three of the twenty-eight crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. A fourth, `sitemap-rebuild` (AECI-1505), is absent
    because it has not been added: its `aeci.sitemap.rebuild.run` carries `outcome:failed`, but no
@@ -506,6 +506,12 @@ production promote. Move it to the real promote plus a day, and delete it once
 `acceptance-evidence-removal` (AECI-1636) carries `2026-11-24T18:00:00Z`, a placeholder past the
 expected production promote. Move it to the real promote plus a day, and delete it once
 `aeci.agreement.evidence_removal.run` appears in production.
+`plan-snapshot` (AECI-1621) carries `2026-11-24T00:00:00Z`, a placeholder past the expected
+production promote. Move it to the real promote plus an hour, and delete it once
+`aeci.plan_snapshot.run` appears in production.
+`acceptance-chain` (AECI-1680) carries `2026-11-25T19:00:00Z`, a placeholder past the expected
+production promote. Move it to the real promote plus a day, and delete it once
+`aeci.acceptance_chain.run` appears in production.
 `stripe-reconcile` (AECI-1503) carries `2026-11-15T02:00:00Z`, a placeholder past the expected
 production promote of epic AECI-1339. Move it to the real promote plus a day, and delete it once
 `aeci.stripe.reconcile.run` appears in production.

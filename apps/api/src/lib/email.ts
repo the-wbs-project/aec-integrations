@@ -89,8 +89,8 @@ import {
   orderedPairSlugs,
   type AttestationDetector,
   type FoundVia,
-  type LegalAgreementDocument,
   type LegalExpeditedReason,
+  type LegalPublishableDocument,
   type RequestKind,
   type RequestTargetType,
 } from '@aeci/shared';
@@ -1689,17 +1689,34 @@ export function sendAttestationOpsDigestEmail(
  *   - `managed-monthly-accept`: a Managed plan version that needs acceptance, to a company
  *     with a live monthly card subscription. Adds the portal button. It says nothing about
  *     what happens without an acceptance: that sentence of the agreement is being rewritten.
+ *
+ * AECI-1637, to an account holder (`legal-account-change`), each restating the Terms of
+ * Service "Changes to these terms" or the Privacy Policy:
+ *
+ *   - `reader-terms`: a Terms version with no acceptance. Continued use binds.
+ *   - `reader-terms-accept`: a Terms version that reduces a reader's rights. It applies to
+ *     the account only from the next sign-in, which records the acceptance. Never on
+ *     continued use alone.
+ *   - `reader-privacy`: a Privacy Policy version. It applies from its date.
  */
 export type LegalTermsChangeClosing =
   | 'vendor-terms'
   | 'vendor-terms-accept'
   | 'managed-binds'
-  | 'managed-monthly-accept';
+  | 'managed-monthly-accept'
+  | 'reader-terms'
+  | 'reader-terms-accept'
+  | 'reader-privacy';
 
-/** What `legal-terms-change` needs for one recipient. */
+/** Whether a closing is one of an account notice (`legal-account-change`, AECI-1637). */
+export function isReaderLegalClosing(closing: LegalTermsChangeClosing): boolean {
+  return closing.startsWith('reader-');
+}
+
+/** What `legal-terms-change` (and `legal-account-change`) needs for one recipient. */
 export interface LegalTermsChangeSubject {
   to: string;
-  document: LegalAgreementDocument;
+  document: LegalPublishableDocument;
   version: string;
   /** `YYYY-MM-DD`, the day it takes effect (12:00 UTC). */
   effectiveDay: string;
@@ -1724,7 +1741,7 @@ export interface LegalTermsChangeSubject {
 
 /** `aeci-<slug>-v<version>.pdf`, the attachment's file name. */
 export function legalNoticeAttachmentName(
-  document: LegalAgreementDocument,
+  document: LegalPublishableDocument,
   version: string,
 ): string {
   return `aeci-${LEGAL_DOCUMENT_SLUGS[document]}-v${version}.pdf`;
@@ -1746,6 +1763,12 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
       return `For this change we ask an owner seat at your company to accept version ${version} in the vendor portal.`;
     case 'managed-binds':
       return 'It applies from your next renewal or your next purchase, whichever comes first.';
+    case 'reader-terms':
+      return `If you keep using the service after ${date}, the new version applies to you.`;
+    case 'reader-terms-accept':
+      return `Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before ${date}.`;
+    case 'reader-privacy':
+      return `The new version applies from ${date}.`;
   }
 }
 
@@ -1770,6 +1793,10 @@ function bulletBlock(items: readonly string[]): { text: string; html: string } {
  *
  * Not pausable and no unsubscribe: it is a legal notice. It passes no `operatorCopy`, so
  * the attachment-bearing send copies no one. Replies go to `SUPPORT_EMAIL`.
+ *
+ * AECI-1637: a `reader-*` closing is the account notice of a Terms of Service or Privacy
+ * Policy version, sent and ledgered as `legal-account-change`. It carries the same four
+ * things, an account holder's note, and no portal button.
  */
 export function sendLegalTermsChangeEmail(
   c: EmailContext,
@@ -1799,8 +1826,10 @@ export function sendLegalTermsChangeEmail(
   const closing = legalClosingLine(opts.closing, opts.version, date);
   const askToAccept =
     opts.closing === 'vendor-terms-accept' || opts.closing === 'managed-monthly-accept';
-  const note =
-    "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
+  const reader = isReaderLegalClosing(opts.closing);
+  const note = reader
+    ? 'You are receiving this notice because you have an account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.'
+    : "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
 
   const render = (link: LinkTagger): EmailContent => {
     const text = [lead, changes, bullets.text];
@@ -1833,7 +1862,7 @@ export function sendLegalTermsChangeEmail(
 
   return sendTransactionalEmail(c, {
     to: opts.to,
-    template: 'legal-terms-change',
+    template: reader ? 'legal-account-change' : 'legal-terms-change',
     subject,
     render,
     attachments: [

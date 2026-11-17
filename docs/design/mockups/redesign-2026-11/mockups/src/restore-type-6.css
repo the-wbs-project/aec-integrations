@@ -1,0 +1,270 @@
+/* Type and spacing: as first designed (Options). The original values, over the limited ramp. */
+html.r-type-orig { --gut: 56px; }
+html.r-type-orig body { margin: 0; font: 400 16px/1.55 var(--sans); }
+html.r-type-orig h1, html.r-type-orig h2, html.r-type-orig h3, html.r-type-orig h4 { margin: 0; font-family: var(--serif); font-weight: 600; letter-spacing: -.01em; }
+html.r-type-orig p { margin: 0; }
+html.r-type-orig button, html.r-type-orig input { font: inherit; }
+html.r-type-orig .wrap { margin: 0 auto; padding: 0 var(--gut); }
+html.r-type-orig .site-head .wrap { gap: 36px; }
+html.r-type-orig .wordmark { line-height: 0; }
+html.r-type-orig .search { gap: 10px; padding: 0 16px; font-size: 15px; }
+html.r-type-orig .search kbd { margin-left: auto; font: inherit; font-size: 12px; padding: 2px 8px; }
+html.r-type-orig .nav { gap: 6px; margin-left: auto; }
+html.r-type-orig .nav > a { font-weight: 500; font-size: 15px; padding: 10px 14px; }
+html.r-type-orig .nav > a.signin { margin-left: 8px; }
+html.r-type-orig .menu-btn { margin-left: auto; }
+html.r-type-orig .hero { padding: 28px 0 132px; }
+html.r-type-orig .crumbs { gap: 8px; font-size: 14px; margin-bottom: 8px; }
+html.r-type-orig .hero-grid { gap: 40px; }
+html.r-type-orig .status { gap: 10px; padding: 7px 16px 7px 8px; font-weight: 700; font-size: 14.5px; letter-spacing: .01em; }
+html.r-type-orig .status .dim { font-weight: 500; }
+html.r-type-orig .namerow { gap: 26px; margin: 26px 0 14px; }
+html.r-type-orig .pname { font-family: var(--serif); font-weight: 400; font-size: clamp(54px, 5.4vw, 80px); line-height: .98; letter-spacing: -.03em; }
+html.r-type-orig .byline { gap: 8px 14px; margin-top: 12px; font-size: 17px; }
+html.r-type-orig .byline a { font-weight: 700; }
+html.r-type-orig .unc { gap: 10px; margin-top: 12px; font-size: 14.5px; }
+html.r-type-orig .lede { font-size: 20px; line-height: 1.5; }
+html.r-type-orig .lede strong { font-weight: 600; }
+html.r-type-orig .hrate { margin-top: 30px; }
+html.r-type-orig .hrate > * { padding: 16px 24px; gap: 4px; }
+html.r-type-orig .hr-top { gap: 12px; }
+html.r-type-orig .hr-n { font-family: var(--serif); font-size: var(--t-fig); line-height: 1; letter-spacing: -.01em; font-weight: 600; }
+html.r-type-orig .hr-l { font-size: 14px; font-weight: 600; }
+html.r-type-orig .hr-rv { gap: 6px; }
+html.r-type-orig .hr-rv b { font-family: var(--sans); font-size: 16px; font-weight: 600; line-height: 1.4; }
+html.r-type-orig .hr-rv span { gap: 6px; font-size: 14px; font-weight: 700; }
+html.r-type-orig .hrate-empty { margin-top: 30px; gap: 18px; padding: 16px 22px; }
+html.r-type-orig .hrate-empty b { font-family: var(--serif); font-size: 21px; font-weight: 600; }
+html.r-type-orig .hrate-empty span { font-size: 15px; }
+html.r-type-orig .hacts { gap: 12px; margin-top: 26px; }
+html.r-type-orig .medal-label { font-size: 13.5px; font-weight: 700; padding: 6px 12px; }
+html.r-type-orig .facts-shell { margin-top: -96px; }
+html.r-type-orig .facts > div { padding: 26px 28px; gap: 12px; }
+html.r-type-orig .facts > .f-stat { gap: 14px; }
+html.r-type-orig .f-stat .big { font-family: var(--serif); font-weight: 600; font-size: var(--t-fig); line-height: 1; letter-spacing: -.01em; }
+html.r-type-orig .f-stat p { font-size: 16px; line-height: 1.35; }
+html.r-type-orig .f-stat p a { gap: 6px; font-size: 13.5px; margin-top: 8px; }
+html.r-type-orig .f-h { font-size: 12px; font-weight: 600; letter-spacing: .08em; gap: 8px; font-family: var(--sans); line-height: 1.4; }
+html.r-type-orig .vend { gap: 12px; padding: 8px 10px 8px 8px; margin: -4px 0 0 -8px; }
+html.r-type-orig .vend b { font-family: var(--serif); font-size: 19px; line-height: 1.15; }
+html.r-type-orig .vend span { font-size: 13.5px; }
+html.r-type-orig .tagrow { gap: 6px; }
+html.r-type-orig .tagchip { gap: 6px; padding: 4px 12px 4px 8px; font-size: 13px; font-weight: 500; }
+html.r-type-orig .f-caption { font-size: 12px; line-height: 20px; }
+html.r-type-orig .reslist { margin: 0; padding: 0; gap: 2px; }
+html.r-type-orig .reslist a { gap: 10px; padding: 7px 10px 7px 8px; margin-left: -8px; font-weight: 700; font-size: 15px; }
+html.r-type-orig .reslist .go { margin-left: auto; }
+html.r-type-orig .f-acts { gap: 8px; }
+html.r-type-orig .f-learn { font-size: 13.5px; }
+html.r-type-orig .f-learn a { font-weight: 400; }
+html.r-type-orig .secnav .wrap { gap: 18px; padding-top: 12px; padding-bottom: 12px; }
+html.r-type-orig .secnav .mini-id { gap: 10px; font-family: var(--serif); font-weight: 600; font-size: 18px; }
+html.r-type-orig .snl { gap: 4px; padding: 4px; }
+html.r-type-orig .snl a { gap: 8px; padding: 0 15px; font-weight: 700; font-size: 14.5px; }
+html.r-type-orig .snl a .c { font-size: 12.5px; padding: 1px 8px; }
+html.r-type-orig .secnav .end { margin-left: auto; gap: 8px; }
+html.r-type-orig .band { padding: 104px 0 96px; }
+html.r-type-orig .band.first { padding-top: 56px; }
+html.r-type-orig .kicker { font-size: 12px; font-weight: 600; letter-spacing: .08em; margin-bottom: 12px; font-family: var(--sans); line-height: 1.4; }
+html.r-type-orig .h2 { font-size: clamp(32px, 3.3vw, 48px); line-height: 1.06; letter-spacing: -.02em; }
+html.r-type-orig .intro { font-size: 17.5px; line-height: 1.55; margin-top: 14px; }
+html.r-type-orig .band-head { gap: 40px; margin-bottom: 40px; }
+html.r-type-orig .panel { padding: 34px 36px; }
+html.r-type-orig .about { gap: 56px; }
+html.r-type-orig .about-copy p { font-size: 19px; line-height: 1.62; }
+html.r-type-orig .about-copy p + p { margin-top: 16px; font-size: 17.5px; }
+html.r-type-orig .about-copy .first { font-family: var(--serif); font-size: 27px; line-height: 1.38; letter-spacing: -.01em; }
+html.r-type-orig .about-copy .f-caption { margin-top: 22px; }
+html.r-type-orig .who h3 { font-size: 26px; margin-bottom: 4px; }
+html.r-type-orig .who .sub { font-size: 14.5px; }
+html.r-type-orig .facet { margin-top: 22px; }
+html.r-type-orig .facet h4 { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: .08em; gap: 8px; margin-bottom: 10px; line-height: 1.4; }
+html.r-type-orig .aud { gap: 6px; padding: 4px 12px 4px 8px; font-size: 13px; font-weight: 500; margin: 0 6px 8px 0; }
+html.r-type-orig .use-row { gap: 22px; }
+html.r-type-orig .use-row + .use-row { margin-top: 22px; }
+html.r-type-orig .use-lab { gap: 8px; }
+html.r-type-orig .use-lab b { font-family: var(--serif); font-size: 22px; line-height: 1.15; }
+html.r-type-orig .use-card { padding: 24px 24px 22px; }
+html.r-type-orig .use-card h3 { font-size: 21px; line-height: 1.2; gap: 10px; margin-bottom: 12px; }
+html.r-type-orig .use-card ul { margin: 0; padding: 0; gap: 10px; }
+html.r-type-orig .use-card li { gap: 8px; font-size: 15.5px; line-height: 1.45; }
+html.r-type-orig .use-card li .ico { margin-top: 2px; }
+html.r-type-orig .count-badge .n { font-family: var(--sans); font-size: 14px; line-height: 1.4; letter-spacing: 0; font-weight: 600; }
+html.r-type-orig .count-badge .n small { font-size: inherit; }
+html.r-type-orig .count-badge .t { font-size: 14px; font-weight: 400; margin-left: 4px; }
+html.r-type-orig .deck { gap: 14px; padding: 16px; }
+html.r-type-orig .deck-row { gap: 8px; }
+html.r-type-orig .deck-top { gap: 14px; }
+html.r-type-orig .deck .lead { font-size: 12px; font-weight: 600; margin-right: 4px; font-family: var(--sans); line-height: 1.4; letter-spacing: .08em; }
+html.r-type-orig .field { padding: 0 16px 0 46px; font-size: 15.5px; }
+html.r-type-orig .field.plain { padding-left: 16px; }
+html.r-type-orig .seg button, html.r-type-orig .viewtog button { gap: 7px; }
+html.r-type-orig .obj { gap: 8px; padding: 0 12px 0 11px; font-weight: 600; font-size: 14.5px; }
+html.r-type-orig .obj .n { font-size: 12.5px; font-weight: 700; padding: 0 6px; }
+html.r-type-orig .cat { gap: 7px; padding: 0 15px 0 11px; font-weight: 700; font-size: 14.5px; }
+html.r-type-orig .linkbtn { gap: 6px; }
+html.r-type-orig .lane-row { gap: 24px; margin: 30px 0 6px; }
+html.r-type-orig .lane-row h3 { font-size: 26px; line-height: 1.2; letter-spacing: -.01em; }
+html.r-type-orig .must { font-size: 14.5px; gap: 8px; }
+html.r-type-orig .order { margin: 4px 0 26px; }
+html.r-type-orig .order summary { gap: 8px; font-size: 14.5px; font-weight: 700; padding: 6px 12px 6px 8px; margin-left: -8px; }
+html.r-type-orig .order .body { margin-top: 10px; padding: 18px 22px; font-size: 15px; gap: 22px; }
+html.r-type-orig .order .body b { font-family: var(--serif); font-size: 17px; margin-bottom: 4px; }
+html.r-type-orig .cards { gap: 22px; }
+html.r-type-orig .card { gap: 16px; padding: 22px; }
+html.r-type-orig .card .top { gap: 14px; }
+html.r-type-orig .card .nm { font-family: var(--serif); font-weight: 600; font-size: 20px; line-height: 1.15; }
+html.r-type-orig .card .vd { font-size: 13.5px; }
+html.r-type-orig .blk .lbl { font-size: 12px; font-weight: 600; letter-spacing: .08em; margin-bottom: 8px; font-family: var(--sans); line-height: 1.4; }
+html.r-type-orig .minis { gap: 6px; }
+html.r-type-orig .mini { gap: 5px; padding: 4px 10px 4px 7px; font-size: 13px; font-weight: 600; }
+html.r-type-orig body.compact .card .mini.ob { padding: 6px; }
+html.r-type-orig .dir { gap: 6px; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; }
+html.r-type-orig .mech { gap: 8px; font-size: 13.5px; }
+html.r-type-orig .mech b { font-weight: 700; }
+html.r-type-orig .card .go { margin-top: auto; gap: 10px; padding-top: 4px; font-weight: 600; font-size: 14px; }
+html.r-type-orig .empty { gap: 28px; padding: 34px 38px; }
+html.r-type-orig .empty strong { font-family: var(--serif); font-size: 24px; font-weight: 600; margin-bottom: 4px; line-height: 1.2; }
+html.r-type-orig .empty p { font-size: 15.5px; }
+html.r-type-orig table.cmp { font-size: 14.5px; }
+html.r-type-orig table.cmp thead th { padding: 16px 8px; font-size: 12.5px; font-weight: 700; }
+html.r-type-orig table.cmp thead th:first-child { padding-left: 24px; }
+html.r-type-orig table.cmp thead th:last-child { padding-right: 20px; }
+html.r-type-orig table.cmp thead th.objh .ico { margin: 0 auto 6px; }
+html.r-type-orig table.cmp td { padding: 13px 8px; }
+html.r-type-orig table.cmp td:first-child { padding-left: 24px; }
+html.r-type-orig .tprod { gap: 12px; }
+html.r-type-orig .tprod b { font-family: var(--serif); font-size: 16.5px; line-height: 1.15; }
+html.r-type-orig .tprod span { font-size: 12.5px; }
+html.r-type-orig .more-ints { margin-top: 22px; }
+html.r-type-orig .ifill { gap: 18px; padding: 28px 30px; }
+html.r-type-orig .int-foot { margin-top: 30px; gap: 18px 28px; }
+html.r-type-orig .reach { gap: 14px; padding: 12px 20px 12px 12px; }
+html.r-type-orig .reach b { font-family: var(--serif); font-size: 19px; line-height: 1.2; }
+html.r-type-orig .reach span { font-size: 13.5px; }
+html.r-type-orig .scope { font-size: 14.5px; }
+html.r-type-orig .scope a, html.r-type-orig .inline-link { font-weight: inherit; }
+html.r-type-orig .ext-grid { gap: 22px; }
+html.r-type-orig .xt { gap: 16px; padding: 22px; }
+html.r-type-orig .xt b { font-family: var(--serif); font-size: 19px; line-height: 1.15; }
+html.r-type-orig .xt .vd { font-size: 13.5px; }
+html.r-type-orig .xt .mt { gap: 10px; margin-top: 6px; font-size: 13px; }
+html.r-type-orig .xt .mt b { font-family: var(--sans); font-size: 13.5px; }
+html.r-type-orig .inside { gap: 6px; font-size: 12.5px; font-weight: 700; padding: 3px 10px 3px 7px; margin-top: 8px; }
+html.r-type-orig .stars { line-height: 0; }
+html.r-type-orig .stars .layer { gap: 1px; }
+html.r-type-orig .rv-sum { gap: 22px; }
+html.r-type-orig .score { padding: 28px 30px 26px; }
+html.r-type-orig .score .sh { gap: 10px; font-weight: 700; font-size: 15.5px; }
+html.r-type-orig .score .sh .tag { font-size: 12px; font-weight: 700; padding: 2px 9px; }
+html.r-type-orig .score .bn { gap: 8px; margin: 14px 0 10px; }
+html.r-type-orig .score .bn b { font-family: var(--serif); font-weight: 600; font-size: var(--t-fig); line-height: 1; letter-spacing: -.01em; }
+html.r-type-orig .score .bn small { font-size: 22px; }
+html.r-type-orig .covers { gap: 6px; margin-top: auto; padding-top: 22px; }
+html.r-type-orig .covers .mini { padding: 5px 11px; }
+html.r-type-orig .score p { font-size: 14.5px; padding-top: 14px; }
+html.r-type-orig .scale { padding: 28px 30px 24px; gap: 14px; }
+html.r-type-orig .scale h3 { font-size: 21px; line-height: 1.2; }
+html.r-type-orig .scale .axis { margin: 4px 34px 0 22px; }
+html.r-type-orig .scale .ticks { font-size: 12.5px; }
+html.r-type-orig .pin { gap: 4px; }
+html.r-type-orig .pin .pl { font-size: 12.5px; font-weight: 700; padding: 0; }
+html.r-type-orig .scale .note { font-size: 14px; }
+html.r-type-orig .scale .acts { gap: 10px; margin-top: auto; }
+html.r-type-orig .rv-meta-line { gap: 20px; margin: 42px 0 18px; }
+html.r-type-orig .rv-meta-line h3 { font-size: 26px; }
+html.r-type-orig .rv-meta-line span { font-size: 14.5px; }
+html.r-type-orig .rv-list { gap: 22px; }
+html.r-type-orig .rv { padding: 24px 24px 22px; gap: 14px; }
+html.r-type-orig .rv-scores { gap: 8px; }
+html.r-type-orig .rs { padding: 10px 12px; }
+html.r-type-orig .rs span { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+html.r-type-orig .rs .row { gap: 8px; }
+html.r-type-orig .rs b { font-size: 15px; }
+html.r-type-orig .rv h4 { font-size: 20px; line-height: 1.22; }
+html.r-type-orig .rv .when { font-size: 13px; margin-top: 3px; font-family: var(--sans); font-weight: 400; letter-spacing: 0; }
+html.r-type-orig .rv .body { font-size: 15.5px; line-height: 1.55; }
+html.r-type-orig .rv .who { gap: 6px; }
+html.r-type-orig .reply { padding: 14px 16px; }
+html.r-type-orig .reply .rh { gap: 8px; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
+html.r-type-orig .reply .rh time { font-weight: 400; margin-left: auto; }
+html.r-type-orig .reply p { font-size: 14.5px; }
+html.r-type-orig .upd { padding: 14px 16px; }
+html.r-type-orig .upd .rh { gap: 8px; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
+html.r-type-orig .upd .rh time { font-weight: 400; margin-left: auto; }
+html.r-type-orig .upd p { font-size: 14.5px; }
+html.r-type-orig .upd .nr { gap: 14px; font-size: 13px; margin-top: 8px; }
+html.r-type-orig .more { margin-top: 30px; gap: 16px; }
+html.r-type-orig .more .st { font-size: 14.5px; }
+html.r-type-orig .rv-empty { gap: 28px; padding: 38px 40px; }
+html.r-type-orig .rv-empty strong { font-family: var(--serif); font-size: 28px; font-weight: 600; line-height: 1.2; margin-bottom: 6px; }
+html.r-type-orig .rv-empty p { font-size: 16px; }
+html.r-type-orig .rv-empty .two { gap: 10px; }
+html.r-type-orig .rv-empty .two span { gap: 4px; padding: 12px 16px; font-size: 13px; font-weight: 700; }
+html.r-type-orig .rv-empty .two em { font-size: 14.5px; }
+html.r-type-orig .rel { gap: 22px; }
+html.r-type-orig .rates { gap: 7px; padding: 14px 16px; }
+html.r-type-orig .rate { gap: 10px; font-size: 13.5px; }
+html.r-type-orig .rate b { font-size: 15px; }
+html.r-type-orig .rates .rv2 { font-size: 13px; gap: 6px; padding-top: 2px; }
+html.r-type-orig .mail { gap: 40px; }
+html.r-type-orig .mail h2 { font-size: 32px; line-height: 1.12; }
+html.r-type-orig .mail p { margin-top: 8px; font-size: 16px; }
+html.r-type-orig .mail form { gap: 8px; }
+html.r-type-orig .mail .msg { font-size: 14px; margin-top: 8px; }
+html.r-type-orig .mail .msg.err { font-weight: 600; gap: 6px; }
+html.r-type-orig .mail .msg.ok { font-weight: 700; gap: 6px; }
+html.r-type-orig .foot { padding: 72px 0 40px; }
+html.r-type-orig .foot-grid { gap: 40px; }
+html.r-type-orig .foot .pitch { margin-top: 18px; font-family: var(--serif); font-size: 22px; line-height: 1.3; }
+html.r-type-orig .foot h4 { font-family: var(--sans); font-size: 12px; font-weight: 600; margin-bottom: 14px; letter-spacing: .08em; line-height: 1.4; }
+html.r-type-orig .foot ul { padding: 0; margin: 0; gap: 10px; }
+html.r-type-orig .foot ul a { font-size: 15px; }
+html.r-type-orig .foot-base { margin-top: 56px; padding-top: 24px; gap: 20px; font-size: 14px; }
+html.r-type-orig b, html.r-type-orig strong { font-weight: bolder; }
+html.r-type-orig .about-copy .h2 { margin-bottom: 22px; }
+html.r-type-orig .who .f-caption { margin-top: 18px; }
+html.r-type-orig .band.mail-band { padding: 64px 0; }
+html.r-type-orig .cards > .card.lead { gap: 16px 32px; }
+html.r-type-orig .rel > .card:first-child { gap: 24px; }
+html.r-type-orig .rel > .card:first-child .go { margin-top: 0; padding-top: 0; }
+@media (max-width: 1040px) {
+  html.r-type-orig { --gut: 32px; }
+  html.r-type-orig .about { gap: 32px; }
+  html.r-type-orig .mail { gap: 20px; }
+}
+@media (max-width: 760px) {
+  html.r-type-orig { --gut: 20px; }
+  html.r-type-orig .hero { padding: 18px 0 100px; }
+  html.r-type-orig .crumbs { font-size: 13px; margin-bottom: 18px; }
+  html.r-type-orig .namerow { gap: 16px; margin: 20px 0 10px; }
+  html.r-type-orig .pname { font-size: 46px; }
+  html.r-type-orig .byline { font-size: 15.5px; }
+  html.r-type-orig .lede { font-size: 17px; }
+  html.r-type-orig .hr-top { gap: 4px 10px; }
+  html.r-type-orig .hrate > * { padding: 14px 16px; }
+  html.r-type-orig .hr-l { font-size: 13px; }
+  html.r-type-orig .stage { margin-top: 12px; }
+  html.r-type-orig .medal-label { font-size: 12.5px; }
+  html.r-type-orig .facts > div { padding: 22px; }
+  html.r-type-orig .secnav .wrap { padding-top: 10px; padding-bottom: 10px; }
+  html.r-type-orig .band { padding: 64px 0; }
+  html.r-type-orig .band.first { padding-top: 40px; }
+  html.r-type-orig .band-head { gap: 20px; margin-bottom: 28px; }
+  html.r-type-orig .count-badge { gap: 12px; }
+  html.r-type-orig .panel { padding: 24px 20px; }
+  html.r-type-orig .about-copy .first { font-size: 22px; }
+  html.r-type-orig .about-copy p { font-size: 17px; }
+  html.r-type-orig .use-row { gap: 14px; }
+  html.r-type-orig .deck { padding: 12px; }
+  html.r-type-orig .deck-row { margin: 0 -12px; padding: 22px 12px 6px; }
+  html.r-type-orig .lane-row h3 { font-size: 21px; }
+  html.r-type-orig .order .body { gap: 12px; }
+  html.r-type-orig .ifill, html.r-type-orig .ifill.row { padding: 22px; }
+  html.r-type-orig .empty { padding: 26px; gap: 14px; }
+  html.r-type-orig .rv-empty { padding: 26px 22px; gap: 16px; }
+  html.r-type-orig .foot-grid { gap: 32px 20px; }
+  html.r-type-orig .hrate > .hr-rv { gap: 6px; }
+  html.r-type-orig .rel > .card:first-child { gap: 16px; }
+  html.r-type-orig .rel > .card:first-child .go { margin-top: auto; }
+}

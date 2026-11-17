@@ -146,6 +146,16 @@ that can be a **verifiable, dated citation** rather than an estimate.
 > **Implemented:** a per-figure **"Source"** link with an accessible hover/focus citation reveal (see
 > "Decisions taken"). The rationale below is retained as the record of why this beat the alternatives.
 
+**Responsive placement (AECI-1846, 2026-11-15).** The citation stays CSS-only and keeps its
+`aria-describedby` association. Below `sm` (640px), every tooltip opens above its Source link,
+aligned to the left edge. In the three-column row, the final figure's tooltip aligns its right
+edge to its Source link instead, opening toward the content. The first two remain left-aligned.
+Each tooltip prefers 16rem and is capped at `calc(100vw - 3rem)`, retaining the narrow layout's
+horizontal gutters while allowing the complete citation to wrap. Both hidden and open tooltips
+must fit horizontally; opacity alone does not remove a box from the page's scrollable overflow.
+`apps/web/e2e/home.spec.ts` checks page width, hover and keyboard focus at 320, 639, 640, 768 and
+1024px. No page-level overflow clipping is used.
+
 All three figures can now be tied to **datable sources** (one verifiable directory count, one primary study,
 one marketplace dataset). That makes the honest move a graduation from the blanket *"Figures are industry
 estimates"* to **lightweight per-figure attribution** — the small reusable "sources" pattern the issue

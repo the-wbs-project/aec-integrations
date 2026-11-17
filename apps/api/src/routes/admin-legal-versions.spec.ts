@@ -37,6 +37,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   legalNoticeDeliveries,
+  legalNoticeReaderDeliveries,
   legalVersions,
   notificationSends,
   profiles,
@@ -905,5 +906,148 @@ describe('GET /api/admin/legal-versions: notice counts', () => {
       delivered_to_check_companies: [],
       stale_companies: [],
     });
+  });
+});
+
+// ─── AECI-1637: the Terms of Service and the Privacy Policy ──────────────────────
+
+describe('the reader documents (AECI-1637)', () => {
+  const TERMS_KEY = 'legal/terms/v1.2.pdf';
+  const READER_UPCOMING = {
+    terms: { version: '1.2', effectiveOn: FAR_DAY },
+    privacy: { version: '1.2', effectiveOn: FAR_DAY },
+  } as unknown as Upcoming;
+  const READER = '00000000-0000-4000-8000-000000000901';
+  const BANNED = '00000000-0000-4000-8000-000000000902';
+  const seedReaders = () =>
+    t.db.insert(profiles).values([
+      { id: READER, role: 'reviewer' },
+      { id: BANNED, role: 'reviewer', bannedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+  const queuedProfileIds = (q: { sendBatch: { mock: { calls: unknown[][] } } }) =>
+    q.sendBatch.mock.calls.flatMap(([m]) =>
+      (m as { body: { kind: string; profileIds: string[] } }[]).flatMap((x) => {
+        expect(x.body.kind).toBe('reader');
+        return x.body.profileIds;
+      }),
+    );
+
+  it('publishes a material Terms version and queues every unbanned account', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    await seedReaders();
+    const res = await post(body({ document: 'terms', version: '1.2', requires_acceptance: true }), {
+      upcoming: READER_UPCOMING,
+    });
+    expect(res.status).toBe(201);
+    expect(queuedProfileIds(res.legalQueue)).toEqual([ADMIN, READER]);
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row).toMatchObject({
+      document: 'terms',
+      version: '1.2',
+      requiresAcceptance: true,
+      pdfKey: TERMS_KEY,
+      noticeEnqueuedAt: NOW.toISOString(),
+      noticeVendorCount: 2,
+    });
+    expect(await publishedAudits()).toHaveLength(1);
+  });
+
+  it('a non-material Terms version sends nothing', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    await seedReaders();
+    const res = await post(body({ document: 'terms', version: '1.2', material: false }), {
+      upcoming: READER_UPCOMING,
+    });
+    expect(res.status).toBe(201);
+    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: null });
+  });
+
+  it('refuses requires_acceptance on a Privacy version (400) and writes nothing', async () => {
+    await putPdf(PDF, 'legal/privacy/v1.2.pdf');
+    const res = await post(
+      body({ document: 'privacy', version: '1.2', requires_acceptance: true }),
+      { upcoming: READER_UPCOMING },
+    );
+    await expectRefused(res, 400, ApiErrorCode.VALIDATION_FAILED);
+  });
+
+  it('never expedites a reader version, and applies the 30-day window', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    const expedited = await post(
+      body({ document: 'terms', version: '1.2', expedited_reason: 'law' }),
+      { upcoming: READER_UPCOMING },
+    );
+    await expectRefused(expedited, 400, ApiErrorCode.VALIDATION_FAILED);
+    const near = await post(body({ document: 'terms', version: '1.2' }), {
+      upcoming: { terms: { version: '1.2', effectiveOn: NEAR_DAY } } as unknown as Upcoming,
+    });
+    await expectRefused(near, 422, ApiErrorCode.LEGAL_NOTICE_WINDOW);
+  });
+
+  it('refuses a reader version that is not upcoming (422)', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    const res = await post(body({ document: 'terms', version: '1.2' }), { upcoming: {} });
+    await expectRefused(res, 422, ApiErrorCode.LEGAL_VERSION_NOT_UPCOMING);
+  });
+
+  it('the re-send skips delivered accounts and says "accounts" when it fails', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    await seedReaders();
+    const res = await post(body({ document: 'terms', version: '1.2' }), {
+      upcoming: READER_UPCOMING,
+    });
+    const [row] = await t.db.select().from(legalVersions);
+    expect(res.status).toBe(201);
+    // The consumer delivered READER; ADMIN is still queued.
+    await t.db
+      .update(legalNoticeReaderDeliveries)
+      .set({ status: 'delivered' })
+      .where(eq(legalNoticeReaderDeliveries.profileId, READER));
+    const { env, legalQueue } = envWith();
+    const again = await app(READER_UPCOMING).request(
+      `/api/admin/legal-versions/${row!.id}/notice`,
+      { method: 'POST' },
+      env,
+      fakeExecutionContext(),
+    );
+    expect(again.status).toBe(200);
+    expect(queuedProfileIds(legalQueue)).toEqual([ADMIN]);
+
+    const down = envWith({ LEGAL_NOTICE_QUEUE: undefined }).env;
+    const failed = await app(READER_UPCOMING).request(
+      `/api/admin/legal-versions/${row!.id}/notice`,
+      { method: 'POST' },
+      down,
+      fakeExecutionContext(),
+    );
+    expect(failed.status).toBe(503);
+    expect(((await failed.json()) as { error: { message: string } }).error.message).toMatch(
+      /of 1 accounts\. Send it again\./,
+    );
+  });
+
+  it('GET lists the reader entries with their current version and per-account record', async () => {
+    await putPdf(PDF, TERMS_KEY);
+    await seedReaders();
+    await post(body({ document: 'terms', version: '1.2' }), { upcoming: READER_UPCOMING });
+    const { env } = envWith();
+    const res = await app(READER_UPCOMING).request('/api/admin/legal-versions', {}, env);
+    const parsed = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(parsed.upcoming.map((e) => [e.document, e.current_version])).toEqual([
+      ['terms', '1.1'],
+      ['privacy', '1.1'],
+    ]);
+    const terms = parsed.upcoming[0]!;
+    expect(terms.notice_deliveries).toMatchObject({ total: 2, pending: 2 });
+    expect(terms.notice_sends).toEqual({
+      sent: 0,
+      failed: 0,
+      unknown: 0,
+      suppressed: 0,
+      skipped: 0,
+    });
+    expect(parsed.upcoming[1]!.published).toBeNull();
   });
 });

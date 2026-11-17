@@ -1,7 +1,7 @@
 import type { CachePurgeMessage, OwnershipSyncMessage } from '@aeci/shared';
 import type { Pipeline } from 'cloudflare:pipelines';
 
-import type { LegalNoticeMessage } from './lib/legal-notice';
+import type { LegalNoticeQueueMessage } from './lib/legal-notice';
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
 /**
@@ -39,7 +39,9 @@ export type ScheduledJob =
   | 'sitemap_rebuild'
   | 'vendor_claim_nudge'
   | 'brand_asset_removal'
-  | 'acceptance_evidence_removal';
+  | 'acceptance_evidence_removal'
+  | 'plan_snapshot'
+  | 'acceptance_chain';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron
@@ -597,13 +599,14 @@ export type Env = {
   /**
    * Producer binding for the legal change notice (AECI-1620, `legal-terms-change`). A
    * material publish on `/admin/legal` and its re-send route each `sendBatch()` one
-   * {@link LegalNoticeMessage} per affected company here; the same Worker consumes
+   * {@link LegalNoticeQueueMessage} per affected company (or, for a Terms or Privacy
+   * version, per 25 accounts, AECI-1637) here; the same Worker consumes
    * `aeci-legal-notice-{env}` (`lib/legal-notice.ts`). Declared in all four
    * `wrangler.jsonc` blocks, local dev included. Absent (unit tests) → the fan-out
    * counts `aeci.legal_notice.enqueue{outcome:unbound}`, logs an error and leaves
    * `notice_enqueued_at` NULL.
    */
-  LEGAL_NOTICE_QUEUE?: Queue<LegalNoticeMessage>;
+  LEGAL_NOTICE_QUEUE?: Queue<LegalNoticeQueueMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per

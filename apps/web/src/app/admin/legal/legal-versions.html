@@ -1,5 +1,6 @@
 <!--
-  /admin/legal, spec section 5.22. AECI-1688.
+  /admin/legal, spec section 5.22. AECI-1688. AECI-1637 added the Terms of Service and
+  Privacy Policy cards: their notices go to accounts, and Privacy has no acceptance question.
 
   Same idiom as /admin/email: the page heading with Refresh, one polite live region,
   bordered cards, the console's button styles, and a Spartan dialog to confirm the one
@@ -16,10 +17,11 @@
         Legal versions
       </h2>
       <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.subheading">
-        Record a new version of the Vendor Terms or the Managed plan agreement before it takes
-        effect. Publishing stores your answers, the summary and the PDF fingerprint. A material
-        change is then emailed to every affected company with the PDF attached. The text itself is
-        changed in the repository, not here. All times are UTC.
+        Record a new version of the Vendor Terms, the Managed plan agreement, the Terms of Service
+        or the Privacy Policy before it takes effect. Publishing stores your answers, the summary
+        and the PDF fingerprint. A material change is then emailed with the PDF attached: an
+        agreement to every affected company, the Terms of Service or the Privacy Policy to every
+        account. The text itself is changed in the repository, not here. All times are UTC.
       </p>
     </div>
     <button
@@ -141,6 +143,8 @@
         <span i18n="@@admin.legal.answer.no">No</span>
         }
       </dd>
+      <!-- AECI-1637: the Privacy Policy never needs acceptance, so its card omits the row. -->
+      @if (asksAcceptance(entry.document)) {
       <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.acceptance">
         Needs acceptance
       </dt>
@@ -151,7 +155,7 @@
         <span i18n="@@admin.legal.answer.no">No</span>
         }
       </dd>
-      @if (p.expedited_reason) {
+      } @if (p.expedited_reason) {
       <dt class="font-bold text-(--text-secondary)" i18n="@@admin.legal.field.expedited">
         Expedited because
       </dt>
@@ -207,11 +211,20 @@
       </p>
       } @case ('queued') {
       <p class="text-sm text-(--text-primary)" i18n="@@admin.legal.notice.queued">
-        The last send queued {{ companyCount(p.notice_vendor_count ?? 0) }} on {{
+        The last send queued {{ audienceCount(entry.document, p.notice_vendor_count ?? 0) }} on {{
         p.notice_enqueued_at | date: 'longDate' : 'UTC' }} at {{ p.notice_enqueued_at | date:
         'HH:mm' : 'UTC' }} UTC.
       </p>
-      } @case ('incomplete') { @if (inEffect(entry)) {
+      } @case ('incomplete') { @if (inEffect(entry) && isReader(entry.document)) {
+      <p
+        data-testid="legal-notice-incomplete"
+        class="text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.legal.notice.incompleteInEffectAccounts"
+      >
+        The notice was not completed before this version took effect. Some accounts may not have
+        been notified. The counts below show what was sent.
+      </p>
+      } @else if (inEffect(entry)) {
       <p
         data-testid="legal-notice-incomplete"
         class="text-sm font-medium text-(--text-primary)"
@@ -226,8 +239,8 @@
         class="text-sm font-medium text-(--text-primary)"
         i18n="@@admin.legal.notice.incomplete"
       >
-        The notice did not finish queuing. It stopped after queuing {{
-        companyCount(p.notice_vendor_count ?? 0) }}. Send it again to reach the rest.
+        The notice did not finish queuing. It stopped after queuing {{ audienceCount(entry.document,
+        p.notice_vendor_count ?? 0) }}. Send it again to reach the rest.
       </p>
       } } @case ('unrecorded') {
       <p
@@ -242,9 +255,15 @@
         data-testid="legal-notice-companies"
         class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]"
       >
+        @if (isReader(entry.document)) {
+        <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.accountsQueued">
+          Accounts queued
+        </dt>
+        } @else {
         <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesQueued">
           Companies queued
         </dt>
+        }
         <dd class="text-(--text-primary)">{{ dl.total }}</dd>
         <dt class="text-(--text-secondary)" i18n="@@admin.legal.notice.companiesDelivered">
           Delivered
@@ -261,19 +280,29 @@
       </dl>
       @if (dl.not_reached_companies.length > 0) {
       <div class="space-y-1">
+        @if (isReader(entry.document)) {
+        <p
+          class="text-sm font-bold text-(--text-secondary)"
+          i18n="@@admin.legal.notice.accountsNotReachedHeading"
+        >
+          Accounts not reached
+        </p>
+        } @else {
         <p
           class="text-sm font-bold text-(--text-secondary)"
           i18n="@@admin.legal.notice.notReachedHeading"
         >
           Companies not reached
         </p>
+        }
         <ul
           data-testid="legal-notice-not-reached"
           class="list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
         >
           @for (co of dl.not_reached_companies; track co.vendor_id) {
           <li>
-            <span class="font-medium">{{ companyName(co) }}</span>: {{ notReachedReason(co) }}
+            <span class="font-medium">{{ companyName(co, entry.document) }}</span>: {{
+            notReachedReason(co, entry.document) }}
           </li>
           }
         </ul>
@@ -297,7 +326,7 @@
         >
           @for (co of dl.stale_companies; track co.vendor_id) {
           <li>
-            <span class="font-medium">{{ companyName(co) }}</span>:
+            <span class="font-medium">{{ companyName(co, entry.document) }}</span>:
             <span i18n="@@admin.legal.notice.staleItem"
               >Queued for more than two hours. Send the notice again.</span
             >
@@ -319,7 +348,8 @@
         >
           @for (co of dl.delivered_to_check_companies; track co.vendor_id) {
           <li>
-            <span class="font-medium">{{ companyName(co) }}</span>: {{ checkReason(co.reason) }}
+            <span class="font-medium">{{ companyName(co, entry.document) }}</span>: {{
+            checkReason(co.reason) }}
           </li>
           }
         </ul>
@@ -398,6 +428,16 @@
         >
           Is this a material change?
         </legend>
+        @if (isReader(entry.document)) {
+        <p
+          [id]="'admin-legal-' + entry.document + '-material-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.material.hintAccounts"
+        >
+          A material change is summarised for every account holder and emailed at least 30 days
+          before it takes effect.
+        </p>
+        } @else {
         <p
           [id]="'admin-legal-' + entry.document + '-material-hint'"
           class="max-w-[64ch] text-xs text-(--text-secondary)"
@@ -406,6 +446,7 @@
           A material change is summarised for every affected company and announced at least 30 days
           before it takes effect.
         </p>
+        }
         <div class="flex flex-wrap gap-5 pt-1">
           <label class="flex items-center gap-2 text-sm text-(--text-primary)">
             <input
@@ -436,14 +477,26 @@
         </div>
       </fieldset>
 
-      <fieldset class="space-y-1.5">
+      <!-- AECI-1637: no acceptance question for the Privacy Policy (the API refuses it). -->
+      @if (asksAcceptance(entry.document)) {
+      <fieldset class="space-y-1.5" data-testid="legal-acceptance-question">
         <legend
           class="text-sm font-bold text-(--text-primary)"
           i18n="@@admin.legal.acceptance.legend"
         >
           Does it need acceptance?
         </legend>
-        @if (entry.document === 'vendor_terms') {
+        @if (entry.document === 'terms') {
+        <p
+          [id]="'admin-legal-' + entry.document + '-acceptance-hint'"
+          class="max-w-[64ch] text-xs text-(--text-secondary)"
+          i18n="@@admin.legal.acceptance.hintTerms"
+        >
+          Answer Yes when the change reduces a reader's rights. It then applies to each account
+          holder only from their next sign-in, never on continued use. Until then the earlier
+          version applies to them.
+        </p>
+        } @else if (entry.document === 'vendor_terms') {
         <p
           [id]="'admin-legal-' + entry.document + '-acceptance-hint'"
           class="max-w-[64ch] text-xs text-(--text-secondary)"
@@ -503,6 +556,7 @@
           </label>
         </div>
       </fieldset>
+      }
 
       <div class="space-y-1.5">
         <label
@@ -595,11 +649,15 @@
           [id]="'admin-legal-' + entry.document + '-publish-hint'"
           class="text-xs text-(--text-secondary)"
         >
-          @if (publishEnabled()) {
+          @if (publishEnabled()) { @if (asksAcceptance(entry.document)) {
           <span i18n="@@admin.legal.publishHint"
             >Answer both questions and write the summary to publish.</span
           >
           } @else {
+          <span i18n="@@admin.legal.publishHintOne"
+            >Answer the question and write the summary to publish.</span
+          >
+          } } @else {
           <span i18n="@@admin.legal.publishHintOff">Publishing is turned off on this tier.</span>
           }
         </p>
@@ -642,6 +700,16 @@
           data-testid="legal-resend-dialog"
           class="mt-2 space-y-2 text-sm leading-relaxed text-(--text-secondary)"
         >
+          @if (isReader(p.document)) {
+          <p i18n="@@admin.legal.resendDialog.bodyAccounts">
+            This reads the list of accounts again and queues the notice for each one not yet
+            delivered.
+          </p>
+          <p i18n="@@admin.legal.resendDialog.dedupeAccounts">
+            An account that already got this notice is not emailed again. Only the accounts that
+            were missed or failed get it.
+          </p>
+          } @else {
           <p i18n="@@admin.legal.resendDialog.body">
             This reads the list of affected companies again and queues the notice for each one not
             yet delivered.
@@ -650,6 +718,7 @@
             An address that already got this notice for a company is not emailed again. Only the
             addresses that were missed or failed get it.
           </p>
+          }
         </div>
         } @else {
         <h2
@@ -667,16 +736,28 @@
             This records version {{ p.version }}, which takes effect on {{ p.effective_at | date:
             'longDate' : 'UTC' }} at 12:00 UTC, with your summary and the stored PDF.
           </p>
-          @if (draft(p.document).material === 'yes') {
+          @if (draft(p.document).material === 'yes' && isReader(p.document)) {
+          <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialYesAccounts">
+            You said this is a material change. Publishing emails every account holder your summary,
+            a link to this version and its PDF.
+          </p>
+          } @else if (draft(p.document).material === 'yes') {
           <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialYes">
             You said this is a material change. Publishing emails every affected company your
             summary, a link to this version and its PDF.
           </p>
           } @else {
           <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialNo">
-            You said this is not a material change. No company will be emailed about it.
+            You said this is not a material change. No one will be emailed about it.
           </p>
-          } @if (draft(p.document).acceptance === 'yes') { @if (p.document === 'vendor_terms') {
+          } @if (!asksAcceptance(p.document)) {
+          <!-- The Privacy Policy: no acceptance question, so no acceptance line. -->
+          } @else if (draft(p.document).acceptance === 'yes') { @if (p.document === 'terms') {
+          <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptTerms">
+            You said it needs acceptance. Version {{ p.version }} will apply to each account holder
+            only from their next sign-in.
+          </p>
+          } @else if (p.document === 'vendor_terms') {
           <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptVendorTerms">
             You said it needs acceptance. An owner of each company will have to accept version {{
             p.version }} before it applies to that company.

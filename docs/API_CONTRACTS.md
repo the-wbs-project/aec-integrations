@@ -363,6 +363,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
 | `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
+| `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -534,7 +535,8 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
   // 'vendor' = the product's vendor wrote it in the portal; the page labels the
-  // section's field caption (AECI-1614; `captions.usefulness`). null = AECi's copy, via promote. 'admin' is
+  // section's field caption (AECI-1614; `captions.usefulness`), shown in the
+  // "About this listing" panel since AECI-1666. null = AECi's copy, via promote. 'admin' is
   // reserved (ADR 0033). Defaulted to null so an older payload still parses.
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
@@ -684,7 +686,7 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
 
 ### 5.3a Field captions (AECI-1614)
 
-`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock.
+`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock. Since AECI-1666 the web renders every caption and correction in one "About this listing" panel per page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). The wire shapes below did not change.
 
 ```typescript
 export const FieldCaptionSchema = z.object({
@@ -712,15 +714,15 @@ export const ProductFieldCaptionsSchema = z.object({
 | Carrier | Added |
 |---|---|
 | `ProductDetail` | `captions: ProductFieldCaptions` |
-| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]`. Still sent, but since AECI-1666 the product page does not render them. The pair page's panel carries the row detail |
 | `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
-| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption. The vendor page's panel lists the corrections |
 
 **`under_review` (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** `VendorDetail`, `ProductDetail`, `ProductIntegrationItem` and `ProductPairMechanism` carry `under_review: string[]`, optional for deploy skew. It lists, sorted, the wire names of the fields AECi has hidden while it checks them. Each such field's value is `null` on the same payload: a hidden company fact is `null` in `company_facts`, and a hidden company size or ownership type is `null` in a product's `vendor_facts`, silently. A hidden field has no entry in `corrections`. Nothing else of the hide is public: no reason, note, source or date (`public-vendor-shapes.spec.ts`). The page renders "Under review. AEC Integrations is checking this detail." in the value's slot. The read is one extra statement per entity table in the page's existing batch, like the corrections. `VendorListItem` masks `headquarters` and `founded_year` the same way, with no marker, after it applies the company-facts display rule (§5.2). Search records mask too (`SEARCH_RANKING.md`).
 
 All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
 
-**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page then reads "Removed by AEC Integrations on {date}" in the value's slot instead of "Corrected by". Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
+**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page's panel then reads "{Field}: Removed by AEC Integrations on {date}" instead of "Corrected by". Until AECI-1666 the line sat in the value's slot. Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
 
 **The forms.** No vendor write means `null`.
 
@@ -1499,7 +1501,7 @@ export const PublicReviewUpdateSchema = z.object({
 - No reviewer data, no moderation field, and no JSON-LD.
 - **As built (AECI-1613).** `PublicReviewUpdateSchema` lives in `packages/shared/src/api/reviews.ts` beside `PublicVendorResponseSchema`, for the same import-cycle reason, and is re-exported from `review-updates.ts`. The predicate is `publishedReviewUpdatesQuery` in `apps/api/src/lib/review-updates.ts`. The reviews list reaches it through `withPublicReviewExtras`, which loads the replies and the updates for the page together. The product-detail embed runs the same query builder inside its one `db.batch` and maps through `attachReviewExtras`. `withPublicReviewExtras` replaces `withPublishedVendorResponses` on the list route.
 
-**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
+**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the record line of each page's "About this listing" panel (`aec-listing-provenance`). That was the `aec-maintenance-marker` header chip until AECI-1666 retired it. Every listing shows the panel (ruled 2026-11-17), so every product, vendor and pair page renders this line. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
 **Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Since AECI-1216 the company and product "Looks right" routes (`POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, §6.14) do the same with no content edit. Their responses echo the new `last_reviewed_at`, so the portal can show it without a refetch. Per row and never transitive: a product edit does not flip the vendor. Neither the edit endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
 
@@ -1794,7 +1796,8 @@ omitted field is left unchanged — so the listing pages' Cards/Table toggle
 PATCHes `listing_view_preference` alone without re-sending the display name, and
 an account-form save can't clobber the remembered view with a stale client copy
 it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
-keys.
+keys, except the About-you answers. Those are named in `metadata.about_you_fields` and
+their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8).
 
 `listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
 and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site
@@ -1858,6 +1861,8 @@ export interface DeleteAccountResponse {
   message: string;
 }
 ```
+
+The record that signing in accepted the Terms of Service is kept after deletion for 6 years (`DATABASE_SCHEMA.md` §8.6k, AECI-1637), and the account screen says so.
 
 Errors: `UNAUTHENTICATED`. `409 VENDOR_SEATS_CHANGED` only when a vendor seat's erasure
 lost the seat race on all three attempts. Nothing is written then (AECI-1106).
@@ -1971,6 +1976,19 @@ export type EnsureProfileResponse = {
 ```
 
 Errors: `UNAUTHENTICATED`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap keyed on the verified JWT `sub`, `Retry-After: 60`). This is the last hop of every sign-in and one sign-in spends exactly one unit of the loosest bucket in the set, so a legitimate visitor never meets it.
+
+**The sign-in Terms acceptance (AECI-1637).** Signing in is the acceptance of the Terms of
+Service (Chris's ruling of 2026-11-13, `AUTH_AND_RLS.md` §3.1b). After the profile exists, this
+endpoint records the acceptance of the Terms version in force: one `terms_acceptances` row
+(`DATABASE_SCHEMA.md` §8.6k) and its `terms.accepted` audit row in one `db.batch`. The row holds
+the session's user and email, the time, the version and its `legal_versions` id and PDF hash, the
+sign-in line (`SIGN_IN_TERMS_LINE`) and its SHA-256, the request's `CF-Connecting-IP`, and its
+`User-Agent` cut to 512. The callback forwards both headers from the browser's request. The
+audit row names no email, IP or user agent. Once per account per version: a second sign-in on
+the same version writes nothing. With no Terms version in force it reads and writes nothing,
+which is today. The write never changes the response and never fails the call: an error is
+logged and the endpoint still answers `{ created }`. No other endpoint writes an acceptance,
+and no route is blocked by a new Terms version.
 
 ### 6.9 Tracking
 
@@ -4601,6 +4619,8 @@ AdminUserDetail = {
     seat_invites_sent: number,
     licenses_granted: number,                             // licenses.granted_by = this user, any state (AECI-1358; was entitlements_granted)
     requests_by_email: number | null,                     // best effort — see below
+    dmca_takedowns: number,                               // AECI-1665: removed or disabled copyright notices, less any restored after a counter-notice
+    dmca_counter_notices: number,                         // AECI-1665: counter-notices this account filed
   },
   repeat_offender: boolean,
   about: {                             // AECI-1296, the onboarding answers
@@ -5929,7 +5949,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-five (AECI-1618)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-eight (AECI-1680)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -6001,6 +6021,8 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift',       // 0 9 * * *
   'request-reconcile',   // */15 * * * *
   'sitemap-rebuild',     // 7-59/15 * * * *   (AECI-1505)
+  'plan-snapshot',       // 11-59/15 * * * *  (AECI-1621)
+  'acceptance-chain',    // 0 18 * * *  (AECI-1680)
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
@@ -6046,7 +6068,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-five since AECI-1618): omitting a job would read as "not configured", a
+Every row is always present (twenty-eight since AECI-1680): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -7027,8 +7049,8 @@ Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or
 
 #### Legal versions: `GET /api/admin/legal-versions`, `POST /api/admin/legal-versions` (AECI-1688), `POST /api/admin/legal-versions/:id/notice` (AECI-1620)
 
-Record an upcoming version of the Vendor Terms or the Managed plan agreement before it takes
-effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
+Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service
+or the Privacy Policy before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
 (`DATABASE_SCHEMA.md` §8.6i). `requireAdmin()` on both; the POST adds `rateLimit('write')` after
 the guard. Contract in `packages/shared/src/api/legal-versions.ts`. **A material publish
 enqueues its change notice post-commit** (AECI-1620, below). A non-material one sends nothing.
@@ -7037,14 +7059,14 @@ enqueues its change notice post-commit** (AECI-1620, below). A non-material one 
 // GET /api/admin/legal-versions — no parameters. A read: no audit row, no limiter.
 export const AdminLegalVersionsResponseSchema = z.object({
   publish_enabled: z.boolean(),              // LEGAL_PUBLISH_ENABLED === "true" on this tier
-  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS
+  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS or LEGAL_READER_UPCOMING_VERSIONS
 });
 export const AdminLegalUpcomingEntrySchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
   version: z.string(),
   effective_on: z.string(),                  // YYYY-MM-DD, from the upcoming map
   effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
-  current_version: z.string(),               // LEGAL_AGREEMENT_CURRENT_VERSIONS[document]
+  current_version: z.string(),               // LEGAL_AGREEMENT_ or LEGAL_READER_CURRENT_VERSIONS[document]
   published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
   // AECI-1620: the notice's ADDRESSES, each counted once by the outcome of its latest
   // `legal-terms-change` ledger row for this version (`duplicate` rows ignored), so an
@@ -7079,10 +7101,10 @@ export const AdminLegalUpcomingEntrySchema = z.object({
 
 // POST /api/admin/legal-versions — strict body
 export const PublishLegalVersionRequestSchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
   version: z.string().trim().min(1).max(20),
   material: z.boolean(),                     // no default: the page asks Yes or No
-  requires_acceptance: z.boolean(),          // no default; true needs material: true
+  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy
   summary: z.array(z.string().trim().min(1).max(300) /* one line, no \p{Cc}, \p{Cf}, U+2028, U+2029 */).min(1).max(10),
   expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
 }).strict();
@@ -7105,7 +7127,7 @@ export const ResendLegalNoticeResponseSchema = z.object({ legal_version: LegalVe
 **Order of checks.** `LEGAL_PUBLISH_ENABLED` first: anything but `"true"` is `409
 LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body is `400
 MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
-without `material`, an expedited reason on a Managed plan version) is `400 VALIDATION_FAILED`.
+without `material`, `requires_acceptance` on a Privacy Policy version, an expedited reason on anything but the Vendor Terms) is `400 VALIDATION_FAILED`.
 Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
 `409 LEGAL_PDF_MISSING`, in that order. The window refusal carries `details.reason`: `passed` or
 `too_soon`, so the page gives the right advice. A bullet holding a control character (tab, CR,
@@ -7130,6 +7152,17 @@ The 201 has already gone, so its body shows both columns null. Each company gets
 `effective_at > now`, so a fan-out that ends after the effective moment never stamps
 `notice_enqueued_at` over the consumer's expiry; the audit row then says `outcome_written: false`.
 
+**Reader documents (AECI-1637).** A `terms` or `privacy` publish follows the same checks, the
+same 30-day window and the same single batch, with no expedite. A material one fans out
+through `fanOutReaderLegalNotice` instead: the audience is every unbanned account in the tier,
+one `{ kind: 'reader', legalVersionId, profileIds }` message per 25 accounts on the same
+`LEGAL_NOTICE_QUEUE`, `sendBatch()` in chunks of 100, and a `legal_notice_reader_deliveries`
+row per account (`DATABASE_SCHEMA.md` §8.6l). `notice_vendor_count` holds the count of
+accounts. In `notice_deliveries` each `not_reached_companies` entry is then one account:
+`vendor_id` holds the `profiles.id`, and `name` and `slug` are `null`. `notice_sends` reads the
+`legal-account-change` ledger (`docs/NOTIFICATIONS.md`). The re-send works for these rows,
+skips `delivered` accounts, and its error copy says "accounts".
+
 **`POST /api/admin/legal-versions/:id/notice`.** `requireAdmin()` then `rateLimit('write')`. No
 body. Checks in order: `409 LEGAL_PUBLISH_DISABLED`; `404 NOT_FOUND` for an unknown id;
 `409 LEGAL_NOTICE_NOT_MATERIAL`; `422 LEGAL_NOTICE_TOO_LATE` once `effective_at` has passed.
@@ -7151,15 +7184,126 @@ Public, no auth. A read: no audit row, never rate-limited. `Cache-Control: priva
 `LegalPublishedResponseSchema` in `packages/shared/src/api/legal-versions.ts`:
 `{ now, published: [{ document, version, effective_at }] }`. `now` is the API Worker's clock as
 an ISO timestamp. `published` lists a `legal_versions` row only when it names the version in
-`LEGAL_AGREEMENT_UPCOMING_VERSIONS` for its document, its `effective_at` equals that entry's
+`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
 moment (12:00 UTC of `effectiveOn`), and that moment has come. So it says nothing the legal page
-does not show from that moment. No query runs while no upcoming agreement's moment has come, so
+does not show from that moment. No query runs while no upcoming publishable document's moment has come, so
 with an empty map it never touches D1. Readers: the SSR Worker's legal resolver over the service
 binding, and the browser on an in-app navigation and in the claim box
 (`apps/web/src/app/legal/legal-in-force.resolver.ts`, `legal-in-force-client.ts`). Both decide
-with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`), the rule the API
+with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`; `legalReaderVersionInForce` for `terms` and `privacy`), the rule the API
 stamps by, using this `now`, never the browser's clock. Errors: none of its own; a D1 failure is
 the central `500`.
+
+#### Copyright notices: `GET /api/admin/dmca-notices`, `POST /api/admin/dmca-notices`, `PATCH /api/admin/dmca-notices/:id` (AECI-1665)
+
+The copyright notice log (counsel Q38, `ADMIN_PANEL_SPEC.md` §5.23). Table `dmca_notices`
+(`DATABASE_SCHEMA.md` §8.14). `requireAdmin()` on all three. The POST and the PATCH add
+`rateLimit('write')` after the guard. The GET is a read: no audit row, no limiter. Contract in
+`packages/shared/src/api/dmca-notices.ts`. There is no delete route. The log is never public,
+so no write purges a cache.
+
+```typescript
+// One row as every route returns it.
+export const DmcaNoticeSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['notice', 'counter_notice']),
+  notice_id: z.string().nullable(),          // a counter-notice's notice. Null on a notice
+  received_at: z.string(),                   // ISO
+  submitter_name: z.string().nullable(),     // null when the notice did not give it
+  submitter_contact: z.string().nullable(),  // null when the notice did not give it
+  content_identified: z.string().nullable(), // null when not identified. Never null on a takedown
+  work_claimed: z.string().nullable(),       // notice only
+  account_id: z.string().nullable(),         // a profiles.id. Nulled by account deletion
+  account_name: z.string().nullable(),       // profiles.display_name, joined
+  vendor_id: z.string().nullable(),
+  vendor_name: z.string().nullable(),        // vendors.company_name, joined
+  action: z.enum(['pending', 'removed', 'disabled', 'no_action']),
+  action_at, forwarded_at, court_action_at: z.string().nullable(),
+  restore_outcome: z.enum(['restored', 'not_restored']).nullable(), // counter-notice only
+  restore_outcome_at, closed_at, notes: z.string().nullable(),
+  created_by, created_at, updated_by, updated_at: z.string(),
+  // Counter-notice only, computed by the API (`lib/dmca-notices.ts` restoreClock). Null on a notice.
+  restore_clock: z.object({
+    earliest: z.string(),   // ISO, 05:00 UTC of business day 10 after received_at (never early)
+    latest: z.string(),     // ISO, businessWindowEnd(received_at, 14)
+    opens_on: z.string(),   // YYYY-MM-DD, the New York date of business day 10
+    due_on: z.string(),     // YYYY-MM-DD, the New York date of business day 14
+    state: z.enum(['awaiting_forward', 'waiting', 'restore_window_open', 'overdue',
+      'court_action', 'restored', 'not_restored']),
+  }).nullable(),
+});
+
+// GET /api/admin/dmca-notices?account_id=&kind=notice|counter_notice&open=true|false
+export const DmcaNoticesResponseSchema = z.object({
+  generated_at: z.string(),
+  // Every matching row, unpaginated: the log gets a handful of rows a year.
+  notices: z.array(DmcaNoticeSchema),  // most urgent clock, then received_at DESC, then id
+  // Only with ?account_id=. The same two statements GET /api/admin/users/:id runs.
+  account_counts: z.object({ dmca_takedowns: z.number(), dmca_counter_notices: z.number() }).nullable(),
+});
+
+// POST /api/admin/dmca-notices. Strict. 201 { notice }.
+export const CreateDmcaNoticeRequestSchema = z.object({
+  kind, notice_id?,                // notice_id required on a counter_notice, refused on a notice
+  received_at,                     // ISO
+  submitter_name?, submitter_contact?, content_identified?,  // trimmed, nullable, optional
+                                   // content_identified required when action is removed or disabled
+  work_claimed?,                   // notice only
+  account_id?, vendor_id?, action?, action_at?, forwarded_at?,
+  court_action_at?, restore_outcome?, restore_outcome_at?,  // counter-notice only
+  closed_at?, notes?,
+}).strict();
+
+// PATCH /api/admin/dmca-notices/:id. Strict. 200 { notice, changed }.
+export const UpdateDmcaNoticeRequestSchema = z.object({
+  expected_updated_at: z.string(), // the row's updated_at as the page read it
+  // every field of the POST but kind and notice_id, all optional. null clears a nullable one
+}).strict();
+```
+
+**The restore clock.** Business days are Monday to Friday, less observed US federal holidays,
+counted on New York dates (`apps/api/src/lib/business-days.ts`). The receipt day never counts.
+`state` is the outcome when one is recorded, else `court_action` when `court_action_at` is set,
+else `awaiting_forward` until `forwarded_at` is set, else `waiting` before `earliest`,
+`restore_window_open` before `latest`, and `overdue` after it.
+
+**The counts.** `dmca_takedowns` counts notices with this `account_id` whose `action` is
+`removed` or `disabled`, with no counter-notice to them whose `restore_outcome` is `restored`.
+`dmca_counter_notices` counts counter-notices with this `account_id`. Both are
+`AdminUserCounts` fields too (`GET /api/admin/users/:id`).
+
+**Refusals, in order.** The POST: `400 MALFORMED_REQUEST` for a body that is not JSON. `400
+VALIDATION_FAILED` for the shape, including a counter-notice without `notice_id`, a notice with
+one, a field the kind does not carry, and a `removed` or `disabled` action with no
+`content_identified` (the takedown rule). A notice missing its name, contact or material is
+still logged: every notice is logged on receipt, complete or not. `400 VALIDATION_FAILED` with `field` set to
+`notice_id` when it names no notice (a counter-notice cannot answer a counter-notice), to
+`account_id` when no profile has that id, or to `vendor_id` when no vendor does. The PATCH:
+the body, then `404 NOT_FOUND`, then `409 DMCA_NOTICE_CHANGED` for a stale
+`expected_updated_at`, then `400 VALIDATION_FAILED` for a field the row's kind does not carry, then `400
+VALIDATION_FAILED` with `field: 'content_identified'` when the row the edit would leave is
+`removed` or `disabled` with no material, then the same reference checks for a changed
+`account_id` or `vendor_id`. A body that changes
+nothing answers `200 { notice, changed: false }`. A refusal writes nothing.
+
+**The write.** One `db.batch`. The POST: an `INSERT … SELECT … WHERE (account_id IS NULL OR
+EXISTS (SELECT 1 FROM profiles WHERE id = account_id))` and its `dmca_notice.created` audit row,
+written by `auditInsertWhere` so it lands only when the row did. The PATCH: a sentinel that
+aborts when `updated_at` moved since the read, then the `dmca_notice.updated` audit row and the
+UPDATE under one predicate: `id` and `updated_at`, plus the same `EXISTS` when the edit sets a
+non-null `account_id`. A sentinel abort is the same 409. The reference check above is the early,
+friendly answer. The in-batch `EXISTS` is the one that counts: with no FK, it stops a write that
+lands after the account-deletion batch from keeping a dead `account_id`. D1 gives no reliable
+change count here, so the batch reads its own outcome: its last two statements select the row and
+this write's audit row by id. A D1 batch is one serialized transaction, so they see the state just
+after the write. A read after the batch could see a later edit or an account deletion and misjudge
+a write that committed. No audit row on the POST, or on a PATCH whose sentinel passed, is `400
+VALIDATION_FAILED` with `field: 'account_id'`, and nothing was written or forwarded. A write that
+landed answers 201 or 200 with the row as it wrote it, and is forwarded. The audit states carry `kind`, `notice_id`, `received_at`, `vendor_id`, `action` and the
+dates and outcome that changed. Names, contact details, the material, the work, the notes and
+the account id are named in `metadata.fields` and never copied, because `audit_log` is never
+pruned. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
+commit.
 
 #### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
 

@@ -413,8 +413,8 @@ never exempt.
 
 Exempt (derived, log-class, ledger and service-log writes):
 
-`claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
-`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
+`acceptance_chain_exports` · `acceptance_chain_rows` · `claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` · `plan_change_snapshots` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
 count columns · the Algolia sync watermark · the `sitemap:*` KV keys.
@@ -519,3 +519,92 @@ company, or an operator action edits a row, that is domain state and audits in t
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and the consolidated list above carries it.
+
+## Amendment 2026-11-13 — the reader legal change-notice delivery record (AECI-1637)
+
+Nothing above is reversed, and no new class is added. `legal_notice_reader_deliveries`
+(`DATABASE_SCHEMA.md` §8.6l) is the account twin of `legal_notice_deliveries`, and joins it in
+the consolidated exemption list above.
+
+**The table.** One row per published Terms of Service or Privacy Policy version and account
+(`profiles.id`, no FK), written by `apps/api/src/lib/legal-notice.ts` only: `queued` by
+`fanOutReaderLegalNotice` just before the account's chunk goes, then `delivered`,
+`no_recipients`, `dropped` (with a reason) or `expired` by the queue consumer, with the attempt
+count.
+
+**Why it is exempt.** The same reasons as the company record. The publish
+(`legal_version.published`), each fan-out outcome (`legal_version.notice_queued`,
+`legal_version.notice_resent`) and the expiry (`legal_version.notice_expired`) carry their own
+`audit_log` rows. This row records only how one account's send went. It is invisible on every
+public surface and nothing ranks on it. The re-send reads it to skip accounts already
+`delivered`, a transport choice and not a domain decision.
+
+**Not exempt: `terms_acceptances`.** The sign-in acceptance (`DATABASE_SCHEMA.md` §8.6k) is
+domain state. Its one writer, `lib/reader-legal-acceptance.ts` (called from
+`POST /api/auth/profile/ensure` at sign-in), inserts the row and a `terms.accepted` audit row
+in the same `db.batch`. The evidence sweep audits its own UPDATE
+(`terms.evidence_removed`).
+
+**Retention.** None for the delivery record. The notice is the proof that a legal notice went.
+
+**What would end the exemption.** If any code reads this table to decide which terms bind an
+account, or an operator action edits a row, that is domain state and audits in the same
+`db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and the consolidated list above carries it.
+
+## Amendment 2026-11-16 — the plan-change ranking evidence ledger (AECI-1621)
+
+Nothing above is reversed, and no new class is added. `plan_change_snapshots`
+(`DATABASE_SCHEMA.md` §9.16) is a ledger of evidence snapshots, like `page_views_archive_days` is a
+ledger of archive copies. It joins the consolidated exemption list above.
+
+**The table.** Two rows per product whose live license appeared or disappeared in a license write:
+an `event` row due at once and a `followup` row due 30 days later. `assemble()` in
+`apps/api/src/lib/license.ts` inserts them in the same `db.batch` as the license change, through
+`apps/api/src/lib/plan-change-ledger.ts`. The 15-minute sweep in
+`apps/api/src/lib/plan-snapshot-sweep.ts` writes each snapshot to R2 and stamps `r2_key`,
+`written_at`, `attempts` and `last_error` (ADR 0056).
+
+**Why it is exempt.** The license write already emits its `audit_log` row (`license.granted`,
+`license.lapsed` and the rest) in the same batch, with the actor and the reason. This row only
+schedules a copy of public catalog facts. It changes no domain state, it is invisible on every
+public surface, and `ranking-firewall.spec.ts` forbids every ranking module from reading it. The
+sweep's UPDATEs are bookkeeping on the same footing as `job_runs`.
+
+**What would end the exemption.** If any code ever reads this table to decide a ranking, a
+person's access or a vendor's standing, or an operator action edits a row through the app, that is
+domain state and audits in the same `db.batch`. A delete would be a scheduled or operator `DELETE`
+and is never exempt. There is no delete path: the R2 objects are under a 4-year bucket lock.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writers, and the consolidated list above carries it.
+
+## Amendment 2026-11-17: the acceptance chain ledger (AECI-1680)
+
+Nothing above is reversed, and no new class is added. `acceptance_chain_exports` and
+`acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17) are a ledger of evidence files, like
+`page_views_archive_days` is a ledger of archive copies. Both join the consolidated exemption list
+above.
+
+**The tables.** One `acceptance_chain_exports` row per nightly chain file the export wrote to R2,
+and one `acceptance_chain_rows` row per acceptance or grant row, holding the last fingerprint
+exported for it. The daily job in `apps/api/src/lib/acceptance-chain-export.ts` writes both in one
+`db.batch` after R2 confirmed the file, then updates `tsa_status` and `tsa_key` after the DigiCert
+request (ADR 0057).
+
+**Why it is exempt.** They record what was copied to R2, not a decision. Every write to
+`agreement_acceptances` and `license_grants` already carries its own `audit_log` row in its own
+batch. These tables change no domain state and are invisible on every public surface. The verify
+command reconstructs its evidence from R2 and reads only `MAX(seq)` from `acceptance_chain_exports`
+as a minimum walk length. It never reads `acceptance_chain_rows`. Ledger damage can cause re-exports
+or verification failures.
+
+**What would end the exemption.** If any code ever reads these tables to decide which agreement
+binds an account, a person's access or a vendor's standing, or an operator action edits a row
+through the app, that is domain state and audits in the same `db.batch`. A delete would be a
+scheduled or operator `DELETE` and is never exempt. There is no delete path.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the tables, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names their writer, and the consolidated list above carries them.

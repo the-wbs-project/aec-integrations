@@ -69,6 +69,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
 | Account onboarding ("About you", `/welcome`, review pre-fill) | `docs/ACCOUNT_ONBOARDING_SPEC.md` |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
+| Empty pair page, product page and site design-language redesign (plan and mock-ups, not a build contract; AECI-1571) | `docs/design/mockups/redesign-2026-11/PLAN.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement, versions, §13.9 maintenance, §15 row threads) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
@@ -81,7 +82,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Counsel questions and answers (November 2026 review), Chris's rulings on them | `docs/LEGAL_COUNSEL_RECORD.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
-| R2 page-view stores: raw, edge log, archive | ADR 0041/0045/0050; `docs/ANALYTICS.md` §11–§11c |
+| R2 stores: page-view raw, edge log, archive; plan-change ranking evidence (`evidence/`, 4-year lock); acceptance chain (fingerprints, DigiCert timestamp) | ADR 0041/0045/0050/0056/0057; `docs/ANALYTICS.md` §11–§11e |
 | Vendor claim, subscriptions, billing process; pricing, discounts, refunds; operator steps | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md`; `docs/runbooks/subscriptions.md` |
 | Stripe billing: card checkout, webhook-owned subscriptions, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/runbooks/listing-submissions.md`; `/docs/trust/listing-submissions` |

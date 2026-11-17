@@ -30,6 +30,7 @@ export * from './integration-vendor-links';
 export * from './https-url';
 export * from './indexnow-runner';
 export * from './landing';
+export * from './dmca-notices';
 export * from './legal-acceptance';
 export * from './legal-in-force';
 export * from './legal-versions';

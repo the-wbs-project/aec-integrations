@@ -1,11 +1,7 @@
 import { MECHANISM_ORDER, mergeContextDirections } from './powered-hub-grouping';
 
-import { newestCaption } from '../shared/field-caption/field-caption-facts';
-
 import type {
   ContextDirection,
-  FieldCaption,
-  FieldCorrection,
   IntegrationMechanismKind,
   ProductIntegrationItem,
   ProductLink,
@@ -61,10 +57,6 @@ export interface IntegrationLaneRow {
    * once, exactly as the pair page's headline counts it (AECI-1042).
    */
   readonly dataObjectSlugs: readonly string[];
-  /** The newest "Maintained by" caption across the collapsed edges (AECI-1614). */
-  readonly caption: FieldCaption | null;
-  /** Every AECi correction across the collapsed edges (AECI-1614). */
-  readonly corrections: readonly FieldCorrection[];
   /** Edges collapsed into this row. `> 1` means duplicates or several mechanisms. */
   readonly edgeCount: number;
 }
@@ -161,8 +153,6 @@ interface MutableRow {
   mechanismKinds: Set<IntegrationMechanismKind>;
   direction: ContextDirection | null;
   dataObjectSlugs: Set<string>;
-  caption: FieldCaption | null;
-  corrections: FieldCorrection[];
   edgeCount: number;
 }
 
@@ -174,8 +164,6 @@ function freeze(row: MutableRow): IntegrationLaneRow {
     mechanismKinds: MECHANISM_ORDER.filter((k) => row.mechanismKinds.has(k)),
     direction: row.direction,
     dataObjectSlugs: [...row.dataObjectSlugs],
-    caption: row.caption,
-    corrections: row.corrections,
     edgeCount: row.edgeCount,
   };
 }
@@ -202,8 +190,6 @@ function seed(
     mechanismKinds: new Set(integration.mechanism_kind ? [integration.mechanism_kind] : []),
     direction: integration.context_direction,
     dataObjectSlugs: new Set(integration.data_object_slugs),
-    caption: integration.caption ?? null,
-    corrections: [...(integration.corrections ?? [])],
     edgeCount: 1,
   };
 }
@@ -252,8 +238,6 @@ export function splitIntegrationLanes(
     existing.direction = mergeContextDirections(existing.direction, integration.context_direction);
     if (integration.mechanism_kind) existing.mechanismKinds.add(integration.mechanism_kind);
     for (const slug of integration.data_object_slugs) existing.dataObjectSlugs.add(slug);
-    existing.caption = newestCaption(existing.caption, integration.caption);
-    existing.corrections.push(...(integration.corrections ?? []));
     // Keep the representative deterministic rather than arrival-ordered: the
     // partner is identical by construction here, so name-then-id decides it.
     const isEarlier =
@@ -286,6 +270,26 @@ export function splitIntegrationLanes(
     via,
     rowCount: directRows.length + via.reduce((n, g) => n + g.rows.length, 0),
   };
+}
+
+/**
+ * The fields a row marks "Under review" (AECI-1238, §11d.7). `ProductIntegrationRow`
+ * mounts one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
+ * list. A collapsed Via row renders its representative edge only.
+ */
+export function rowUnderReviewFields(integration: ProductIntegrationItem): readonly string[] {
+  return integration.under_review ?? [];
+}
+
+/**
+ * How many under-review markers the Integrations section renders (AECI-1666). Counts the
+ * rows of the unfiltered view, as SSR renders them. The reader's filter and a closed
+ * lane card do not change it: a closed card keeps its rows in the DOM, and the filter is
+ * visitor state the cached page must not carry.
+ */
+export function countLaneUnderReview(view: IntegrationLaneView): number {
+  const rows = [...view.direct, ...view.via.flatMap((group) => group.rows)];
+  return rows.reduce((n, row) => n + rowUnderReviewFields(row.integration).length, 0);
 }
 
 /**

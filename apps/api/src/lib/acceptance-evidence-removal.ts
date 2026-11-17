@@ -1,6 +1,9 @@
 /**
  * Removing the IP address and browser from agreement acceptances 90 days after
- * acceptance (AECI-1636, ruling 11, counsel Q27b; `DATABASE_SCHEMA.md` §8.6d).
+ * acceptance (AECI-1636, ruling 11, counsel Q27b; `DATABASE_SCHEMA.md` §8.6d), and since
+ * AECI-1637 from the sign-in Terms of Service acceptances (`terms_acceptances`, §8.6k,
+ * ruling 1 of 2026-11-13), in its own chunks with its own `terms.evidence_removed` audit
+ * rows.
  *
  * The Privacy Policy "Retention" and Vendor Terms "Accepting these terms" promise it:
  * "The IP address and browser ... are deleted 90 days after acceptance." Email, time and
@@ -15,7 +18,7 @@
  *     and one `agreement.evidence_removed` audit row listing the ids. The UPDATE
  *     re-tests the cutoff and the not-null guard, so a replayed queue message changes
  *     nothing.
- *  3. Repeat up to {@link EVIDENCE_REMOVAL_MAX_CHUNKS} times. Any rest waits a day.
+ *  3. Repeat up to {@link EVIDENCE_REMOVAL_MAX_CHUNKS} times per table. Any rest waits a day.
  *
  * The sweep ignores `source`. Claim rows and portal grant rows carry both values.
  * Checkout and signed-deal rows never do, so the guard skips them and they keep a NULL
@@ -26,9 +29,10 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, inArray, isNotNull, lt, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { agreementAcceptances } from '../db/schema';
+import { agreementAcceptances, termsAcceptances } from '../db/schema';
 import { AGREEMENT_ACCEPTANCE_ENTITY_TYPE } from './agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
+import { TERMS_ACCEPTANCE_ENTITY_TYPE } from './reader-legal-acceptance';
 
 /** How long the IP address and browser are kept after `accepted_at`. */
 export const ACCEPTANCE_EVIDENCE_DAYS = 90;
@@ -39,6 +43,9 @@ export const EVIDENCE_REMOVAL_MAX_CHUNKS = 10;
 
 /** `audit_log.action`. Not a vendor receipt: the row names no vendor. */
 export const AGREEMENT_EVIDENCE_REMOVED_ACTION = 'agreement.evidence_removed';
+/** `audit_log.action` of the sign-in Terms acceptances' sweep (AECI-1637). */
+export const TERMS_EVIDENCE_REMOVED_ACTION = 'terms.evidence_removed';
+
 export const ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE = 'acceptance-evidence-removal';
 export const ACCEPTANCE_EVIDENCE_REMOVAL_RUN_METRIC = 'aeci.agreement.evidence_removal.run';
 
@@ -61,9 +68,52 @@ export interface AcceptanceEvidenceRemovalResult {
   auditEntries: AuditLogEntry[];
 }
 
+/** One table the sweep covers: how to read due ids, how to clear them, how to audit. */
+interface EvidenceSweep {
+  dueIds(limit: number): Promise<string[]>;
+  clear(ids: readonly string[]): BatchStmt;
+  action: string;
+  entityType: string;
+}
+
+/** Run one table's chunks into `out`. A failed batch rolls back whole and throws. */
+async function sweep(
+  db: Db,
+  table: EvidenceSweep,
+  cutoff: string,
+  out: { auditEntries: AuditLogEntry[]; removed: number; truncated: boolean },
+): Promise<void> {
+  for (let chunk = 0; chunk < EVIDENCE_REMOVAL_MAX_CHUNKS; chunk++) {
+    const ids = await table.dueIds(EVIDENCE_REMOVAL_CHUNK);
+    if (ids.length === 0) break;
+    const auditEntry: AuditLogEntry = {
+      actorId: null,
+      actorType: 'system',
+      action: table.action,
+      entityType: table.entityType,
+      // Ids only. No email, IP or user agent: this row is forwarded to PostHog.
+      metadata: {
+        source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+        cutoff,
+        count: ids.length,
+        acceptance_ids: ids,
+      },
+    };
+    await db.batch([table.clear(ids), auditInsert(db, auditEntry)] as BatchTuple);
+    out.auditEntries.push(auditEntry);
+    out.removed += ids.length;
+
+    if (ids.length < EVIDENCE_REMOVAL_CHUNK) break;
+    if (chunk === EVIDENCE_REMOVAL_MAX_CHUNKS - 1) {
+      out.truncated = out.truncated || (await table.dueIds(1)).length > 0;
+    }
+  }
+}
+
 /**
- * Null `ip` and `user_agent` on every acceptance older than 90 days. Throws only on a
- * D1 error. A failed batch rolls back whole, so its rows stay due.
+ * Null `ip` and `user_agent` on every acceptance older than 90 days: the agreement
+ * acceptances, then (AECI-1637) the sign-in Terms acceptances, each with its own audit
+ * rows. Throws only on a D1 error. A failed batch rolls back whole, so its rows stay due.
  */
 export async function runAcceptanceEvidenceRemoval(
   db: Db,
@@ -74,59 +124,60 @@ export async function runAcceptanceEvidenceRemoval(
   const removedAt = now.toISOString();
   // `accepted_at` is always written by `toISOString()`, so ISO TEXT compares lexically.
   // The boundary: an acceptance exactly 90 days old is kept until the next run.
-  const due = and(
+  const agreementDue = and(
     lt(agreementAcceptances.acceptedAt, cutoff),
     or(isNotNull(agreementAcceptances.ip), isNotNull(agreementAcceptances.userAgent)),
   );
-
-  const auditEntries: AuditLogEntry[] = [];
-  let removed = 0;
-  let truncated = false;
-
-  for (let chunk = 0; chunk < EVIDENCE_REMOVAL_MAX_CHUNKS; chunk++) {
-    const rows = await db
-      .select({ id: agreementAcceptances.id })
-      .from(agreementAcceptances)
-      .where(due)
-      .orderBy(asc(agreementAcceptances.acceptedAt), asc(agreementAcceptances.id))
-      .limit(EVIDENCE_REMOVAL_CHUNK);
-    if (rows.length === 0) break;
-
-    const ids = rows.map((r) => r.id);
-    const auditEntry: AuditLogEntry = {
-      actorId: null,
-      actorType: 'system',
-      action: AGREEMENT_EVIDENCE_REMOVED_ACTION,
-      entityType: AGREEMENT_ACCEPTANCE_ENTITY_TYPE,
-      // Ids only. No email, IP or user agent: this row is forwarded to PostHog.
-      metadata: {
-        source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
-        cutoff,
-        count: ids.length,
-        acceptance_ids: ids,
-      },
-    };
-    const stmts: BatchStmt[] = [
+  const termsDue = and(
+    lt(termsAcceptances.acceptedAt, cutoff),
+    or(isNotNull(termsAcceptances.ip), isNotNull(termsAcceptances.userAgent)),
+  );
+  const agreements: EvidenceSweep = {
+    action: AGREEMENT_EVIDENCE_REMOVED_ACTION,
+    entityType: AGREEMENT_ACCEPTANCE_ENTITY_TYPE,
+    dueIds: async (limit) =>
+      (
+        await db
+          .select({ id: agreementAcceptances.id })
+          .from(agreementAcceptances)
+          .where(agreementDue)
+          .orderBy(asc(agreementAcceptances.acceptedAt), asc(agreementAcceptances.id))
+          .limit(limit)
+      ).map((r) => r.id),
+    // The UPDATE re-tests the cutoff and the not-null guard, so a replay changes nothing.
+    clear: (ids) =>
       db
         .update(agreementAcceptances)
         .set({ ip: null, userAgent: null, evidenceRemovedAt: removedAt })
-        .where(and(inArray(agreementAcceptances.id, ids), due)),
-      auditInsert(db, auditEntry),
-    ];
-    await db.batch(stmts as BatchTuple);
-    auditEntries.push(auditEntry);
-    removed += ids.length;
+        .where(and(inArray(agreementAcceptances.id, [...ids]), agreementDue)),
+  };
+  const terms: EvidenceSweep = {
+    action: TERMS_EVIDENCE_REMOVED_ACTION,
+    entityType: TERMS_ACCEPTANCE_ENTITY_TYPE,
+    dueIds: async (limit) =>
+      (
+        await db
+          .select({ id: termsAcceptances.id })
+          .from(termsAcceptances)
+          .where(termsDue)
+          .orderBy(asc(termsAcceptances.acceptedAt), asc(termsAcceptances.id))
+          .limit(limit)
+      ).map((r) => r.id),
+    clear: (ids) =>
+      db
+        .update(termsAcceptances)
+        .set({ ip: null, userAgent: null, evidenceRemovedAt: removedAt })
+        .where(and(inArray(termsAcceptances.id, [...ids]), termsDue)),
+  };
 
-    if (rows.length < EVIDENCE_REMOVAL_CHUNK) break;
-    if (chunk === EVIDENCE_REMOVAL_MAX_CHUNKS - 1) {
-      const more = await db
-        .select({ id: agreementAcceptances.id })
-        .from(agreementAcceptances)
-        .where(due)
-        .limit(1);
-      truncated = more.length > 0;
-    }
-  }
-
-  return { removed, batches: auditEntries.length, truncated, cutoff, auditEntries };
+  const out = { auditEntries: [] as AuditLogEntry[], removed: 0, truncated: false };
+  await sweep(db, agreements, cutoff, out);
+  await sweep(db, terms, cutoff, out);
+  return {
+    removed: out.removed,
+    batches: out.auditEntries.length,
+    truncated: out.truncated,
+    cutoff,
+    auditEntries: out.auditEntries,
+  };
 }

@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { z } from 'zod';
 
@@ -73,6 +73,13 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
  * no Supabase config the page degrades to a "temporarily unavailable" notice
  * with disabled actions, mirroring the Algolia-absent search path.
  *
+ * ── THE TERMS LINE (AECI-1637) ──────────────────────────────────────────────
+ * Signing in is the acceptance (ruling of 2026-11-13). One line under the sign-in
+ * buttons says so and links the Terms of Service and the Privacy Policy. The
+ * sign-in itself is the act: `/auth/callback` calls the profile ensure, which
+ * records the Terms version in force with the line's text (`SIGN_IN_TERMS_LINE`).
+ * The line is static, so the page stays visitor-neutral.
+ *
  * ── SILENT RESUME (AECI-954) ────────────────────────────────────────────────
  * Arriving here with `?return=` and a session that is still good means the
  * visitor does NOT need to sign in — they need their access token refreshed. That
@@ -97,7 +104,7 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
  */
 @Component({
   selector: 'aec-login-page',
-  imports: [FormField, NgTemplateOutlet],
+  imports: [FormField, NgTemplateOutlet, RouterLink],
   templateUrl: './login.html',
 })
 export class LoginPage {

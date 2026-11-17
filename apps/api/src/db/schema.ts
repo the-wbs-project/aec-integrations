@@ -2381,8 +2381,9 @@ export const agreementAcceptances = sqliteTable(
 
 /**
  * Published legal versions (AECI-1688, `STAGE_1_SPEC.md` §27.5, `DATABASE_SCHEMA.md`
- * §8.6i, ADR 0054). One row is one version of the vendor terms or the Managed plan
- * agreement that an operator published on `/admin/legal` before it takes effect. The
+ * §8.6i, ADR 0054). One row is one version of the vendor terms, the Managed plan
+ * agreement or, since AECI-1637, the Terms of Service or the Privacy Policy, that an
+ * operator published on `/admin/legal` before it takes effect. The
  * publish sends nothing: the notice email (AECI-1620), the acceptance screen (AECI-1677)
  * and reader accounts (AECI-1637) read this row later.
  *
@@ -2407,7 +2408,8 @@ export const legalVersions = sqliteTable(
   'legal_versions',
   {
     id: uuidPk(),
-    /** `LEGAL_AGREEMENT_DOCUMENTS`: `vendor_terms` | `managed_plan`. No CHECK. */
+    /** `LEGAL_PUBLISHABLE_DOCUMENTS`: `vendor_terms` | `managed_plan` | `terms` |
+     *  `privacy` (the last two since AECI-1637). No CHECK. */
     document: text('document').notNull(),
     /** e.g. `'1.4'`. */
     version: text('version').notNull(),
@@ -2429,10 +2431,87 @@ export const legalVersions = sqliteTable(
     publishedAt: text('published_at').notNull(),
     /** ISO-8601. AECI-1620 fills it when the notice fan-out is queued. */
     noticeEnqueuedAt: text('notice_enqueued_at'),
-    /** AECI-1620 fills it with the number of vendors queued. */
+    /** AECI-1620 fills it with the number of vendors queued. For a `terms` or `privacy`
+     *  row (AECI-1637) it is the number of ACCOUNTS queued: the column keeps its name. */
     noticeVendorCount: integer('notice_vendor_count'),
   },
   (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
+);
+
+/**
+ * The copyright notice log (AECI-1665, counsel Q38, `DATABASE_SCHEMA.md` §8.14,
+ * `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice we
+ * received. The Terms "Copyright complaints" section promises this log exists, and the
+ * repeat-infringer count on `/admin/users/:id` reads it (`lib/dmca-notices.ts`).
+ *
+ * `kind` is `notice` or `counter_notice`. A counter-notice names the notice it answers in
+ * `notice_id`. A notice has none. `action` is `pending`, `removed`, `disabled` or
+ * `no_action`. The restore clock of a counter-notice is computed by the API from
+ * `received_at`, never stored. `closed_at` starts the three-year retention, whose sweep is
+ * the named follow-up AECI-1905.
+ *
+ * No CHECK on `kind`, `action` or `restore_outcome`, the house rule for enum-like text
+ * (`legal_versions.document` above): Zod owns the vocabulary, and a CHECK change on D1 is a
+ * table recreate (`docs/migrations.md` §0). No FK. `account_id` is a `profiles.id` that the
+ * account-deletion batch nulls and the row stays (`AUTH_AND_RLS.md` §8, ruling 1A of
+ * 2026-11-17). `vendor_id`, `notice_id`, `created_by` and `updated_by` are plain ids too.
+ * The one writer is `routes/admin-dmca-notices.ts`: each insert and update carries its
+ * `dmca_notice.*` audit row in the same `db.batch`. Nothing deletes a row yet. Never public.
+ */
+export const dmcaNotices = sqliteTable(
+  'dmca_notices',
+  {
+    id: uuidPk(),
+    /** `DMCA_NOTICE_KINDS`: `notice` | `counter_notice`. No CHECK. */
+    kind: text('kind').notNull(),
+    /** On a counter-notice: the `dmca_notices.id` of the notice it answers. NULL on a notice. */
+    noticeId: text('notice_id'),
+    /** ISO-8601. The restore clock of a counter-notice counts from it. */
+    receivedAt: text('received_at').notNull(),
+    /** NULL when the notice did not give it: every notice is logged on receipt. */
+    submitterName: text('submitter_name'),
+    /** Email, postal address and phone, as given. NULL when the notice did not give it. */
+    submitterContact: text('submitter_contact'),
+    /** URLs or a description of the material. NULL when the notice did not identify it.
+     *  Required when `action` is `removed` or `disabled` (Zod and the route, no CHECK). */
+    contentIdentified: text('content_identified'),
+    /** On a notice: the copyrighted work claimed. */
+    workClaimed: text('work_claimed'),
+    /** A `profiles.id`, NO FK. Nulled by account deletion; the row stays. */
+    accountId: text('account_id'),
+    /** A `vendors.id`, NO FK. Set when the material is a vendor's logo or screenshot. */
+    vendorId: text('vendor_id'),
+    /** `DMCA_ACTIONS`: `pending` | `removed` | `disabled` | `no_action`. No CHECK. */
+    action: text('action').notNull().default('pending'),
+    /** ISO-8601. When the action was taken. */
+    actionAt: text('action_at'),
+    /** ISO-8601. Notice: the uploader was told. Counter-notice: sent on to the complainant. */
+    forwardedAt: text('forwarded_at'),
+    /** ISO-8601. Counter-notice: the complainant reported a court action. */
+    courtActionAt: text('court_action_at'),
+    /** `DMCA_RESTORE_OUTCOMES`: `restored` | `not_restored`. Counter-notice only. No CHECK. */
+    restoreOutcome: text('restore_outcome'),
+    /** ISO-8601. */
+    restoreOutcomeAt: text('restore_outcome_at'),
+    /** ISO-8601. Nothing more will happen. Retention counts three years from it. */
+    closedAt: text('closed_at'),
+    /** Operator notes. Never public. */
+    notes: text('notes'),
+    /** A `profiles.id`, NO FK. */
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    /** A `profiles.id`, NO FK. */
+    updatedBy: text('updated_by').notNull(),
+    /** The race sentinel of the PATCH (`expected_updated_at`). */
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('dmca_notices_account_kind_idx')
+      .on(t.accountId, t.kind)
+      .where(sql`"account_id" IS NOT NULL`),
+    index('dmca_notices_notice_id_idx').on(t.noticeId),
+    index('dmca_notices_received_at_idx').on(t.receivedAt),
+  ],
 );
 
 /**
@@ -2467,6 +2546,110 @@ export const legalNoticeDeliveries = sqliteTable(
   },
   (t) => [
     uniqueIndex('legal_notice_deliveries_version_vendor_key').on(t.legalVersionId, t.vendorId),
+  ],
+);
+
+/**
+ * Where each ACCOUNT's change notice stands for a Terms of Service or Privacy Policy version
+ * (AECI-1637, `DATABASE_SCHEMA.md` §8.6l). The account twin of `legal_notice_deliveries`:
+ * one row per published version and `profiles.id`, written by `lib/legal-notice.ts` only,
+ * with the same statuses (`LEGAL_NOTICE_DELIVERY_STATUSES`) and reasons. A table of its own
+ * because making `legal_notice_deliveries.vendor_id` nullable would be a D1 table recreate
+ * (`docs/migrations.md` §0).
+ *
+ * LOG-CLASS (ADR 0022, as `legal_notice_deliveries`): the publish and the re-send carry
+ * their own `audit_log` rows. No CHECK, no FK (a log row outlives its subjects, and the
+ * account may be deleted), no prune.
+ */
+export const legalNoticeReaderDeliveries = sqliteTable(
+  'legal_notice_reader_deliveries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** A `legal_versions.id`. No FK. */
+    legalVersionId: text('legal_version_id').notNull(),
+    /** A `profiles.id`. No FK. */
+    profileId: text('profile_id').notNull(),
+    /** `LEGAL_NOTICE_DELIVERY_STATUSES`. No CHECK. */
+    status: text('status').notNull(),
+    /** `message.attempts` of the last consumer run for this account; 0 until one runs. */
+    attempts: integer('attempts').notNull().default(0),
+    /** `LEGAL_NOTICE_DELIVERY_REASONS`. NULL when the last attempt delivered. */
+    lastReason: text('last_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('legal_notice_reader_deliveries_version_profile_key').on(
+      t.legalVersionId,
+      t.profileId,
+    ),
+  ],
+);
+
+/**
+ * Sign-in acceptances of a Terms of Service version (AECI-1637, counsel Q34, ruling 12;
+ * `DATABASE_SCHEMA.md` §8.6k). Signing in is the acceptance (ruling of 2026-11-13): the
+ * login page shows one line beside the sign-in buttons, and one row is one account holder
+ * signing in while one Terms version was in force. Written for every Terms version in
+ * force, whatever its `requires_acceptance` flag. For a version published with the flag,
+ * this row is the moment it starts to apply to that account.
+ *
+ * EVIDENCE, NOT AN ACCOUNT LINK (ruling 1 of 2026-11-13, the vendor rule). `profile_id` has
+ * NO FK to `profiles`, so the row survives the account's deletion, and keeps the user, the
+ * email, the version and the time for the life of the account plus 6 years. `ip` and
+ * `user_agent` are nulled 90 days after `accepted_at` by the daily sweep
+ * (`lib/acceptance-evidence-removal.ts`), which stamps `evidence_removed_at`.
+ *
+ * `document` is `terms` only, and has no CHECK (Zod owns it, and a CHECK change on D1 is a
+ * table recreate). `legal_version_id` names the `legal_versions` row of the version, NO FK,
+ * and is NULL only for a version with no row. `pdf_sha256` is that row's PDF hash: the copy
+ * the account holder could read. The unique `(profile_id, document, version)` index keeps
+ * it once per account per version: a racing second sign-in fails its batch whole.
+ *
+ * Domain state: the one writer, `lib/reader-legal-acceptance.ts` (called from
+ * `POST /api/auth/profile/ensure`), inserts with its `terms.accepted` audit row in one
+ * `db.batch`. Append-only but for the evidence sweep. Never pruned (`NEVER_PRUNED`).
+ */
+export const termsAcceptances = sqliteTable(
+  'terms_acceptances',
+  {
+    id: uuidPk(),
+    /** `terms`. No CHECK. */
+    document: text('document').notNull(),
+    /** The version accepted, e.g. `'1.2'`. */
+    version: text('version').notNull(),
+    /** A `legal_versions.id`, NO FK. NULL for a version with no row. */
+    legalVersionId: text('legal_version_id'),
+    /** A `profiles.id`, NO FK: the row outlives the account. */
+    profileId: text('profile_id').notNull(),
+    /** The account's email at acceptance, from the verified session. */
+    email: text('email').notNull(),
+    /** ISO-8601. */
+    acceptedAt: text('accepted_at').notNull(),
+    /** `CF-Connecting-IP`. Nulled 90 days after `accepted_at`. */
+    ip: text('ip'),
+    /** Truncated to 512 characters. Nulled 90 days after `accepted_at`. */
+    userAgent: text('user_agent'),
+    /** The exact line shown beside the sign-in buttons (`SIGN_IN_TERMS_LINE`). The name
+     *  is the vendor table's: there is no box. */
+    checkboxLabel: text('checkbox_label').notNull(),
+    /** SHA-256 (lowercase hex, UTF-8) of `checkbox_label`. */
+    checkboxLabelSha256: text('checkbox_label_sha256').notNull(),
+    /** Always 0: there is no box (the sign-in is the act). 1 would mean an unticked box was
+     *  shown, kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34). */
+    checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }).notNull(),
+    /** The published version's `legal_versions.pdf_sha256`. NULL with `legal_version_id`. */
+    pdfSha256: text('pdf_sha256'),
+    /** When the daily sweep nulled `ip` and `user_agent`. NULL while they are kept. */
+    evidenceRemovedAt: text('evidence_removed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('terms_acceptances_profile_document_version_key').on(
+      t.profileId,
+      t.document,
+      t.version,
+    ),
   ],
 );
 
@@ -3617,7 +3800,7 @@ export const pageViews = sqliteTable(
     //
     // NULL = no report arrived, or none was collected: a privacy-signal row (the
     // column is in `PRIVACY_NULLED`), a held region, or any row written before
-    // migration 0122. Never backfilled.
+    // migration 0126. Never backfilled.
     //
     // No CHECK constraint and no index, for the reasons `client_verdict` above
     // records. A CHECK here made drizzle-kit emit a full `__new_page_views` recreate
@@ -3806,6 +3989,129 @@ export const pageViewsArchiveDays = sqliteTable('page_views_archive_days', {
   sha256: text('sha256').notNull(),
   archivedAt: text('archived_at').notNull(),
 });
+
+// ===========================================================================
+// Plan-change ranking evidence (AECI-1621, ADR 0056, DATABASE_SCHEMA.md §9.16)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: the
+// license write's own `audit_log` row records the event, and this row only schedules
+// the evidence snapshot. Inserted by `assemble()` in `lib/license.ts`, in the SAME
+// batch as the license change, so no plan start or end can miss its row. The sweep
+// (`lib/plan-snapshot-sweep.ts`) writes each snapshot to R2 under `evidence/` and
+// stamps `r2_key`. Rows are never deleted: the R2 objects sit under a 4-year bucket
+// lock, and this ledger is how an operator finds them.
+// ===========================================================================
+
+/**
+ * One scheduled ranking snapshot of one product, taken because a live license reached
+ * it (`kind = 'start'`) or left it (`kind = 'end'`). Each move inserts two rows: the
+ * `event` row, due at once, and the `followup` row, due 30 days later. No FK: a
+ * product can be retracted, and its evidence must outlive it.
+ *
+ * No CHECK on `kind` or `phase`: SQLite cannot ALTER a CHECK, so a new value would need
+ * a table recreate (`docs/migrations.md` §0). The TypeScript unions are the guard.
+ */
+export const planChangeSnapshots = sqliteTable(
+  'plan_change_snapshots',
+  {
+    id: uuidPk(),
+    /** A `products.id`, NO FK. */
+    productId: text('product_id').notNull(),
+    kind: text('kind').notNull().$type<'start' | 'end'>(),
+    /** The license that reached or left the product. A `licenses.id`, NO FK. */
+    licenseId: text('license_id').notNull(),
+    /** The license write's audit action, e.g. `license.lapsed`. */
+    cause: text('cause').notNull(),
+    /** ISO-8601. The license write's `now`. */
+    eventAt: text('event_at').notNull(),
+    phase: text('phase').notNull().$type<'event' | 'followup'>(),
+    /** ISO-8601. `event_at` for the event row, `event_at` + 30 days for the follow-up. */
+    dueAt: text('due_at').notNull(),
+    /** The snapshot's R2 key in `UPLOADS`. NULL until the sweep writes it. */
+    r2Key: text('r2_key'),
+    /** ISO-8601. When the sweep confirmed the object. */
+    writtenAt: text('written_at'),
+    /** Failed sweep attempts. */
+    attempts: integer('attempts').notNull().default(0),
+    /** The last failure's message, truncated. Cleared on success. */
+    lastError: text('last_error'),
+  },
+  (t) => [
+    // The sweep: `r2_key IS NULL AND due_at <= now ORDER BY due_at`.
+    index('plan_change_snapshots_r2_key_due_at_idx').on(t.r2Key, t.dueAt),
+    // The runbook read: one product's snapshots by date.
+    index('plan_change_snapshots_product_event_at_idx').on(t.productId, t.eventAt),
+  ],
+);
+
+// ===========================================================================
+// The acceptance chain (AECI-1680, ADR 0057, DATABASE_SCHEMA.md §9.17)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: they
+// record what the nightly export wrote to R2, and the acceptance and grant writes
+// carry their own `audit_log` rows. Written only by `lib/acceptance-chain-export.ts`,
+// after R2 confirmed the night's file. Never pruned. The R2 files are the evidence:
+// the verify command (`ops:verify-acceptance-chain`) walks R2 and never trusts these
+// tables, so editing them only causes a re-export.
+// ===========================================================================
+
+/**
+ * One row per nightly chain file under `evidence/acceptance-chain/` in `UPLOADS`. `seq`
+ * is the primary key, so a second run for the same file trips it.
+ *
+ * `tsa_status` is the DigiCert RFC 3161 timestamp's state: `granted` (the token is in R2
+ * at `tsa_key`), `failed` (the request failed, and a later run retries it) or `pending`
+ * (not asked yet). No CHECK: a CHECK change on D1 is a table recreate
+ * (`docs/migrations.md` §0). The TypeScript union is the guard.
+ */
+export const acceptanceChainExports = sqliteTable(
+  'acceptance_chain_exports',
+  {
+    /** 1, 2, 3, … The file's place in the chain. */
+    seq: integer('seq').primaryKey(),
+    /** `YYYY-MM-DD`, UTC. The night the file was written. */
+    day: text('day').notNull(),
+    /** The file's R2 key in `UPLOADS`. */
+    objectKey: text('object_key').notNull(),
+    /** Lowercase hex SHA-256 of the file bytes. The next file's `prev_sha256`. */
+    sha256: text('sha256').notNull(),
+    /** The previous file's SHA-256. NULL at seq 1. */
+    prevSha256: text('prev_sha256'),
+    /** SHA-256 over every live row's `table:id:fingerprint` line, sorted. */
+    stateSha256: text('state_sha256').notNull(),
+    /** Entries in the file: changed rows plus tombstones. 0 on a quiet night. */
+    entries: integer('entries').notNull(),
+    tsaStatus: text('tsa_status').notNull().$type<'pending' | 'granted' | 'failed'>(),
+    /** The timestamp token's R2 key. NULL until DigiCert granted one. */
+    tsaKey: text('tsa_key'),
+    /** ISO-8601. When R2 confirmed the file. */
+    exportedAt: text('exported_at').notNull(),
+  },
+  (t) => [
+    // The backfill read: the latest files whose timestamp is not granted.
+    index('acceptance_chain_exports_tsa_status_idx').on(t.tsaStatus, t.seq),
+  ],
+);
+
+/**
+ * The last fingerprint exported for each acceptance and grant row. It drives the
+ * nightly diff and nothing else: the verify command reads the fingerprints from R2.
+ * `deleted` is 1 once a tombstone was written for the row.
+ */
+export const acceptanceChainRows = sqliteTable(
+  'acceptance_chain_rows',
+  {
+    /** `agreement_acceptances` | `license_grants`. */
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    /** Lowercase hex SHA-256 of the row's hashed columns (`lib/acceptance-chain.ts`). */
+    fingerprint: text('fingerprint').notNull(),
+    /** The chain file that last carried this row. */
+    seq: integer('seq').notNull(),
+    deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.tableName, t.rowId] })],
+);
 
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
@@ -4262,6 +4568,7 @@ export const notificationPreferences = sqliteTable(
 //
 // DOMAIN state: the person told us these facts, so every change writes its
 // `audit_log` row in the same `db.batch` (`routes/account.ts`, `profile.updated`).
+// That row names the touched answers and never holds their values (AECI-1869).
 // Side tables rather than columns on `profiles`, for the same reason as
 // `notification_preferences` above: a later change to `profiles` must not force
 // a drizzle-kit recreate (`docs/migrations.md` §0). The reverse hazard holds too.
@@ -6017,6 +6324,7 @@ export const schema = {
   licenseGrants,
   agreementAcceptances,
   legalVersions,
+  dmcaNotices,
   legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,
