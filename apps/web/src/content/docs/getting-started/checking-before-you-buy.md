@@ -3,7 +3,7 @@ title: Checking an integration before you buy
 description: How to use the agreement labels on an integration page when you choose software, what to ask each vendor, and what "Listed by AEC Integrations" does and does not tell you.
 section: getting-started
 order: 3
-last_updated: October 27, 2026
+last_updated: November 17, 2026
 ---
 
 An integration page shows what we know about how two products connect, and which company stands behind each part of it. Use it to narrow your shortlist and to prepare your questions. It does not replace asking the vendors.
@@ -55,8 +55,8 @@ Ask both companies, not just the one you are buying from. Their answers can diff
 
 - **Offered by** names the company you get the integration from.
 - **Last checked** gives the date the integration was last checked, where there is one. Many integrations have no date yet.
-- **Vendor maintained** or **AEC Integrations maintained** says who keeps the page up to date. It does not say who offers the integration.
-- **Maintained by (company)** under a group of fields says that company wrote them, and when. We did not check them. **Corrected by AEC Integrations** sits beside a value we corrected, with a link to our source when we recorded one.
+- **About this listing**, after the cards, starts with **Vendor maintained** or **AEC Integrations maintained**. That says who keeps the page up to date. Every listing has this panel. It does not say who offers the integration.
+- In the same panel, **Maintained by (company)** says that company wrote a group of fields, and when. We did not check them. **Corrected by AEC Integrations** names a value we corrected, with a link to our source when we recorded one.
 
 ## If something is wrong
 

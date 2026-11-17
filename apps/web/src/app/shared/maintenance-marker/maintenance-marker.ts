@@ -1,36 +1,37 @@
 import { formatDate } from '@angular/common';
 import { Component, LOCALE_ID, computed, inject, input } from '@angular/core';
 
-import { Chip } from '../chip/chip';
-
 /** Who is on the hook for a record's accuracy. */
 export type MaintainedBy = 'aeci' | 'vendor';
 
 /**
- * The **maintenance marker** for a catalog record: who maintains it, and when it
- * was last actually reviewed. Rendered on the product detail, vendor detail, and
- * product-PAIR pages.
+ * The branch a record line reads (AECI-1666 ruling 3): an unclaimed listing always reads
+ * the AECi form, whatever is stored.
+ */
+export function effectiveMaintainedBy(maintainedBy: MaintainedBy, claimed: boolean): MaintainedBy {
+  return claimed ? maintainedBy : 'aeci';
+}
+
+/**
+ * The **record line** for a catalog record (the maintenance marker): who maintains it, and
+ * when it was last actually reviewed. Since AECI-1666 it is plain text, the opening line of
+ * `aec-listing-provenance` ("About this listing") on the product, vendor and pair pages.
+ * It was a header chip until then. `/vendor-program` draws its before and after examples
+ * through this same component, so that page never shows wording a listing does not.
  *
- * The point of this component is attribution WITHOUT a trust signal. It is
- * deliberately not a checkmark, shield, or tick: AECi verifies nothing today
- * (zero vendor attestations until the Stage 2 portal), so a badge that reads as
- * endorsement would be a lie. A name and a date are falsifiable claims a reader
- * can hold us to; a checkmark is not. Same neutral chip tokens as
- * `products/agreement-badge.ts` (`--border-default` / `--surface-raised` /
- * `--text-secondary`), no status hue.
+ * The point of this component is attribution WITHOUT a trust signal. It is deliberately
+ * not a checkmark, shield, tick, dot or chip: a name and a date are falsifiable claims a
+ * reader can hold us to, and a badge that reads as endorsement would be a lie.
  *
- * **No leading dot.** It shipped with a 6px `--text-tertiary` dot, purely
- * decorative and `aria-hidden`. It was removed because it read as a status light
- * on a chip that has exactly one state and whose entire purpose is attribution
- * WITHOUT a trust signal — the same reason there is no checkmark here. It also
- * made this chip visibly heavier than the `RoleBadge` sitting next to it. If a
- * dot ever comes back it has to mean something.
+ * **An unclaimed listing never reads "Vendor maintained"** (AECI-1666 ruling 3). Pass
+ * `claimed`. `false` forces the AECi form and drops the date, because that date was a
+ * vendor's write and must not be restated as an AECi review. The stored mismatch
+ * (`maintained_by = 'vendor'` with no claim) is a data-quality problem, not this line's.
  *
- * **The field caption is its group-level companion.** `shared/field-caption` (AECI-1614)
- * says who wrote one group of fields and when, under that group, from a per-group vendor
- * edit stamp. This marker is unchanged: one chip per page, for the whole record, off
- * `last_reviewed_at`. The two can show different dates, because they answer different
- * questions.
+ * **The field caption is its group-level companion.** `shared/field-caption` says who
+ * wrote one group of fields and when, from a per-group vendor edit stamp, in the same
+ * panel. This line speaks for the whole record, off `last_reviewed_at`. The two can show
+ * different dates, because they answer different questions.
  *
  * ## Where the date comes from — and what it must never come from
  *
@@ -67,27 +68,28 @@ export type MaintainedBy = 'aeci' | 'vendor';
  */
 @Component({
   selector: 'aec-maintenance-marker',
-  imports: [Chip],
   template: `
     <!-- Two visible labels everywhere (ruling 2026-09-28): "AEC Integrations
          maintained" and "Vendor maintained". Where the page can prove which
          company wrote, an sr-only suffix names it, so a screen reader hears
-         "Vendor maintained: Procore Technologies keeps this up to date". Plain
-         sr-only text, not an aria-label: a span has no role to label. No
-         control flow inside the chip: a block adds whitespace between parts.
-         The inner span keeps the parts one flex item, so the leading space of
-         " · Updated" is not trimmed as a flex boundary. -->
-    <aec-chip label tone="quiet"
-      ><span
-        >{{ lead() }}<span class="sr-only">{{ ownerSuffix() }}</span
-        >{{ dateClause() }}</span
-      ></aec-chip
+         "Vendor maintained: Procore Technologies keeps this up to date". No
+         control flow inside the line: a block adds whitespace between parts. -->
+    <span class="text-sm text-(--text-primary)" data-testid="maintenance-marker"
+      >{{ lead() }}<span class="sr-only">{{ ownerSuffix() }}</span
+      >{{ dateClause() }}</span
     >
   `,
 })
 export class MaintenanceMarker {
   /** Who maintains the record. `vendor` requires a live vendor attestation. */
   readonly maintainedBy = input<MaintainedBy>('aeci');
+
+  /**
+   * Whether a company holds the listing (AECI-1666). `false` forces the AECi form and
+   * drops the date. Defaults to `true`, so a caller that cannot tell keeps the stored
+   * value.
+   */
+  readonly claimed = input<boolean>(true);
 
   /**
    * ISO-8601 timestamp of the last REAL review of this record, or `null` when
@@ -110,6 +112,11 @@ export class MaintenanceMarker {
 
   private readonly locale = inject(LOCALE_ID);
 
+  /** The branch this line reads: the stored one, unless the listing is unclaimed. */
+  private readonly effective = computed<MaintainedBy>(() =>
+    effectiveMaintainedBy(this.maintainedBy(), this.claimed()),
+  );
+
   /**
    * Formatted in UTC, not the ambient zone: the SSR Worker runs in UTC and the
    * browser does not, so a zone-local format would render two different dates
@@ -118,6 +125,8 @@ export class MaintenanceMarker {
   private readonly formattedDate = computed<string | null>(() => {
     const at = this.reviewedAt();
     if (!at) return null;
+    // A forced AECi line drops the vendor's date: it was not an AECi review.
+    if (this.effective() !== this.maintainedBy()) return null;
     const parsed = new Date(at);
     if (Number.isNaN(parsed.getTime())) return null;
     return formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
@@ -125,7 +134,7 @@ export class MaintenanceMarker {
 
   /** The visible attribution: exactly one of two labels. */
   protected readonly lead = computed<string>(() =>
-    this.maintainedBy() === 'vendor'
+    this.effective() === 'vendor'
       ? $localize`:@@maintenance.vendor:Vendor maintained`
       : $localize`:@@maintenance.aeci:AEC Integrations maintained`,
   );
@@ -133,7 +142,7 @@ export class MaintenanceMarker {
   /** Screen-reader-only naming of the company, vendor branch only. */
   protected readonly ownerSuffix = computed<string>(() => {
     const owner = this.ownerName();
-    if (this.maintainedBy() !== 'vendor' || !owner) return '';
+    if (this.effective() !== 'vendor' || !owner) return '';
     return $localize`:@@maintenance.vendor.owner.sr:: ${owner}:OWNER: keeps this up to date`;
   });
 
@@ -143,7 +152,7 @@ export class MaintenanceMarker {
   protected readonly dateClause = computed<string>(() => {
     const date = this.formattedDate();
     if (date === null) return '';
-    return this.maintainedBy() === 'vendor'
+    return this.effective() === 'vendor'
       ? $localize`:@@maintenance.vendor.dated.clause: · Updated ${date}:DATE:`
       : $localize`:@@maintenance.aeci.dated.clause: · Reviewed ${date}:DATE:`;
   });

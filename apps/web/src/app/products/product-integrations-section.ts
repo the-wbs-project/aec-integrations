@@ -3,7 +3,6 @@ import { Component, computed, input, signal } from '@angular/core';
 
 import type {
   ContextDirection,
-  FieldCorrection,
   ProductDetail,
   ProductIntegrationItem,
   ProductListItem,
@@ -17,9 +16,8 @@ import { contextDirectionLabel } from '../search/mechanism-labels';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
 import { integrationsZeroCaveat, integrationsZeroHeading } from '../shared/figure/figure';
+import { correctionsInSlots } from '../shared/field-caption/field-caption-facts';
 import { AecIcon } from '../shared/icon/icon';
 import type { ListingView } from '../shared/listing-toolbar/listing-toolbar';
 import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
@@ -173,7 +171,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
     AecIcon,
     Chip,
     ExternalLinkTracker,
-    FieldCaptionLine,
     IntegrationArrangementToggle,
     IntegrationGroupCard,
     ListingViewToggle,
@@ -323,11 +320,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                     >
                     <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                   </a>
-                  <!-- The same "Corrected by" caption as the facts card's link: a value
-                       AECi corrected carries it wherever it shows. -->
-                  @if (linkCorrection(p, 'tool_integrations_url'); as c) {
-                    <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage(p)" />
-                  }
                 </li>
               }
               @if (p.api_docs_url) {
@@ -348,9 +340,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                     >
                     <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                   </a>
-                  @if (linkCorrection(p, 'api_docs_url'); as c) {
-                    <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage(p)" />
-                  }
                 </li>
               }
             </ul>
@@ -902,15 +891,17 @@ export class ProductIntegrationsSection {
   /**
    * Whether the zero state's link card may say the links come from the vendor
    * ("From {vendor}", "What the vendor publishes…"): the product has a vendor, and no
-   * link the card shows carries a correction. A corrected link is a value AECi set,
-   * and its own "Corrected by" caption says so, so the card must not call it the
-   * vendor's. A link AECi hid for checking or removed is not shown, so it does not count.
+   * link the card shows carries a correction. A corrected link is a value AECi set, and
+   * "About this listing" says so (AECI-1666), so the card must not call it the vendor's.
+   * A link AECi hid for checking or removed is not shown, so it does not count.
    */
   protected vendorSourced(p: ProductDetail): boolean {
     if (!p.vendor) return false;
-    if (p.tool_integrations_url && this.linkCorrection(p, 'tool_integrations_url')) return false;
-    if (p.api_docs_url && this.linkCorrection(p, 'api_docs_url')) return false;
-    return true;
+    const corrected = correctionsInSlots(p.captions?.corrections, {
+      tool_integrations_url: !!p.tool_integrations_url,
+      api_docs_url: !!p.api_docs_url,
+    }).some((correction) => !correction.cleared);
+    return !corrected;
   }
 
   /** "From {vendor}", the zero state's vendor card heading (mock-up 8). */
@@ -930,19 +921,6 @@ export class ProductIntegrationsSection {
 
   protected readonly resourceTileClass =
     'grid size-8 shrink-0 place-items-center rounded-control bg-(--accent-primary-soft) text-(--accent-primary)';
-
-  /** AECi's correction of a link that is on the page, as the facts card reads it. */
-  protected linkCorrection(
-    p: ProductDetail,
-    field: 'tool_integrations_url' | 'api_docs_url',
-  ): FieldCorrection | null {
-    return correctionInSlot(p.captions?.corrections, field, true);
-  }
-
-  /** The page, for the caption's source link click, as the facts card sets it. */
-  protected captionPage(p: ProductDetail): FieldCaptionPage {
-    return { surface: 'product_detail', entityType: 'product', entityId: p.id };
-  }
 
   /** The same click context as the facts card's Resources links (AECI-1309). */
   protected docsLinkContext(p: ProductDetail, purpose: 'listing' | 'docs'): ExternalLinkContext {

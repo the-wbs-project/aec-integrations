@@ -154,7 +154,7 @@ Owner per surface:
 | `pair_detail` | a side's own listing or docs link | that side's product's primary vendor, else `null` | `vendor` | `listing` or `docs` |
 | `pair_detail` | the curated `listing_url` or `docs_url` | `built_by_vendor`, else the connector's vendor, else `null` | `aeci` | `listing` or `docs` |
 | `pair_detail` | the price link (`pricing_url`) | `built_by_vendor`, else `null` | `vendor` | `pricing` |
-| `product_detail`, `vendor_detail`, `pair_detail` | the source link on a "Corrected by AEC Integrations" caption (AECI-1614) | `null`, because who runs a source site is unknown | `aeci` | `source` |
+| `product_detail`, `vendor_detail`, `pair_detail` | the source link on a "Corrected by AEC Integrations" caption (AECI-1614), in the page's "About this listing" panel since AECI-1666 | `null`, because who runs a source site is unknown | `aeci` | `source` |
 
 "The connector's vendor" is the primary vendor of `powered_by_product` on an `integrations` row, or of `via` on a connector-evidenced pair. The pair response carries it as `ProductPairMechanism.connector_vendor_id` (`API_CONTRACTS.md`).
 

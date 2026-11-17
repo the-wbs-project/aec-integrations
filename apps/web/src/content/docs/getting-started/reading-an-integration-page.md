@@ -14,7 +14,7 @@ If the two products connect in more than one way, each way has its own card on t
 
 **The two products.** They sit side by side, each with its vendor's name. A product shows its rating and review count once it has enough reviews to show a rating. Choose a product to open its page. Directions on this page are always told from the product on the left.
 
-**Who keeps the page up to date.** Beside the "Integration" label you see "AEC Integrations maintained" or "Vendor maintained". "Vendor maintained" means a company at one end has acted on the record, for example by claiming it or confirming its data. It does not tell you who offers the integration. The "Offered by" line on each card does that.
+**Who keeps the page up to date.** The "About this listing" panel, after the cards, says so in its first line. "Vendor maintained" means a company at one end has acted on the record, for example by claiming it or confirming its data. It does not tell you who offers the integration. The "Offered by" line on each card does that. Every integration page has this panel. "AEC Integrations maintained" means we keep the page up to date. On a narrow screen the panel is closed until you open it.
 
 **Basic and Detailed.** When a page has more detail to show, two buttons switch between views. Detailed is the default. It lists each type of data with its direction and agreement label. Basic hides those lists and keeps each card's summary. The page remembers your choice in this browser.
 
@@ -57,9 +57,18 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 **The i button** at the end of a row opens **Sources**. It lists everyone who has answered for that type of data, for example "(Company) confirms this" or "(Company) says this is not accurate". A closing line says what is missing, such as a company that has not answered yet. A company's reasons are never shown on the public page.
 
-**Who wrote it.** A small line at the foot of a card can read "Maintained by (company) · updated (date)". That company wrote the details on this card and last changed them on that date. They publish without review by us, and the line does not mean we checked them. "Corrected by AEC Integrations on (date)" sits beside a value we corrected, with a "Source" link when we recorded one. A card with no line has no company edit behind it.
+**The links** at the foot of a card go to listings and documentation outside AEC Integrations. A link named after a product, such as "(Product) documentation", was added by that product's company, and it reads "Link from (company)". "View listing" and "Documentation" are links we recorded.
 
-**The links** at the foot of a card go to listings and documentation outside AEC Integrations. A link named after a product, such as "(Product) documentation", was added by that product's company. "View listing" and "Documentation" are links we recorded.
+## About this listing
+
+After the cards, one panel says who wrote what on the page.
+
+- **"Maintained by (company) · updated (date)"** means that company wrote the details on a card and last changed them on that date. They publish without review by us, and the line does not mean we checked them. When the page has more than one card, the line names the card.
+- **"(Field): Corrected by AEC Integrations on (date)"** names a value we corrected, with a "Source" link when we recorded one.
+- **"(Field): Removed by AEC Integrations on (date)"** names a value we removed. The value no longer shows on the card.
+- A count says how many values on the page are under review. Each one reads "Under review" where its value would be.
+
+A card with no line in this panel has no company edit behind it.
 
 ## When there is nothing listed
 
@@ -69,7 +78,7 @@ If no integration is recorded between two products, the page says "We have no in
 
 A product's Integrations section lists its integrations in groups. Integrations delivered through a connector are grouped under "Via" and the connector's name, or "Via a connector". The rest sit under "Direct integrations".
 
-A row can carry the same "Maintained by" or "Corrected by AEC Integrations" line under the partner's name. The integration page shows which value a correction applies to.
+A row does not say who maintains it. Open the integration page: its "About this listing" panel does.
 
 Some products also show a line such as "3 more pairs reachable via connectors". That is a count only. Those pairs have no integration page yet.
 

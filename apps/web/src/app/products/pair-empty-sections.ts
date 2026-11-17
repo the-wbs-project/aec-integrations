@@ -10,7 +10,7 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { RATING_VISIBILITY_MIN_REVIEWS, canonicalPairIds } from '@aeci/shared';
-import type { FieldCorrection, LinkRef, ProductPairSubject } from '@aeci/shared';
+import type { LinkRef, ProductPairSubject } from '@aeci/shared';
 
 import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -18,15 +18,22 @@ import { ReviewStars } from '../reviews/review-stars';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import {
+  correctionsInSlots,
+  countUnderReview,
+  isUnderReview,
+} from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { AecIcon } from '../shared/icon/icon';
 import type { AecIconName } from '../shared/icon/icon-registry';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
+import type {
+  ProvenanceCorrection,
+  ProvenanceGroup,
+} from '../shared/listing-provenance/listing-provenance';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { integrationsOnRecordCount, withoutTrailingFullStop } from './integrations-on-record';
 
@@ -83,13 +90,17 @@ function share(value: number, a: number, b: number): number {
  *    at zero. With no reviews on either side the three review rows are absent. Under five
  *    reviews a side reads "Not yet rated". Beside it, "Who each product is for": each
  *    facet's terms, one chip each, a term both products carry once as "Both". Terms keep
- *    the product page's order. The Managed caption and AECi's corrections stay with them.
+ *    the product page's order.
  *  - **"Look it up yourself" / "Each vendor's own pages".** One card per product: its API
  *    documentation and its integrations directory as new-tab links, and its own page on
- *    AEC Integrations. A link shows exactly as on the product page's facts card: corrected
- *    with "Corrected by", hidden as "Under review", removed as "Removed by" with no link.
- *    The head says "Published by {vendor}" only while every link shown is the vendor's own
- *    value, and a corrected directory link keeps the neutral "Integrations page" label.
+ *    AEC Integrations. A link hidden for checking reads "Under review" in its slot, and a
+ *    link AECi removed is gone, as on the product page. The head says "Published by
+ *    {vendor}" only while every link shown is the vendor's own value, and a corrected
+ *    directory link keeps the neutral "Integrations page" label.
+ *
+ * No caption or correction renders here (AECI-1666, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §4.5.8). They are in the page's "About this listing" panel, which `ProductsPairPage`
+ * builds with {@link emptyPairProvenance} and projects at the end of the last band.
  *
  * The two products appear in URL order, context first. Nothing here orders, filters or
  * features by a paid-plan input. Every value is a static listing field, so the cached SSR
@@ -104,7 +115,6 @@ function share(value: number, a: number, b: number): number {
     AecIcon,
     Chip,
     ExternalLinkTracker,
-    FieldCaptionLine,
     LogoOrInitial,
     NewTabIcon,
     ReviewStars,
@@ -424,13 +434,6 @@ function share(value: number, a: number, b: number): number {
                       }
                     </div>
                   }
-                  @for (n of f.notes; track n.key) {
-                    <aec-field-caption
-                      [correction]="n.correction"
-                      [label]="n.label"
-                      [page]="page()"
-                    />
-                  }
                 </div>
               }
               @for (s of sides(); track s.key) {
@@ -442,15 +445,6 @@ function share(value: number, a: number, b: number): number {
                     <span class="font-semibold text-(--text-primary)">{{ s.product.name }}</span
                     >&ngsp;<span i18n="@@pair.empty.who.none">Nothing listed yet.</span>
                   </p>
-                }
-                <!-- The Managed group's line, while one of the three groups has a term, as on
-                     the product page's "Who it is for". It names its vendor. -->
-                @if (s.whoCaption; as c) {
-                  <aec-field-caption
-                    data-testid="pair-who-managed-caption"
-                    [caption]="c"
-                    [page]="page()"
-                  />
                 }
               }
             </section>
@@ -576,23 +570,12 @@ function share(value: number, a: number, b: number): number {
                       </span>
                       <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                     </a>
-                    @if (slot(p, 'api_docs_url', true); as c) {
-                      <aec-field-caption class="mt-1 block px-4" [correction]="c" [page]="page()" />
-                    }
                   </li>
                 } @else if (review(p, 'api_docs_url')) {
                   <li class="px-4 py-2">
                     <aec-under-review
                       [attr.data-testid]="'pair-look-api-under-review-' + s.key"
                       [label]="correctionLabel('api_docs_url')"
-                    />
-                  </li>
-                } @else if (slot(p, 'api_docs_url', false); as c) {
-                  <li class="px-4 py-2">
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('api_docs_url')"
-                      [page]="page()"
                     />
                   </li>
                 }
@@ -614,7 +597,7 @@ function share(value: number, a: number, b: number): number {
                       <span class="min-w-0 flex-1">
                         <!-- The vendor's name only on the vendor's own value. A link AECi
                              corrected keeps the product page's neutral label. -->
-                        @if (p.vendor && !slot(p, 'tool_integrations_url', true)) {
+                        @if (p.vendor && !corrected(p, 'tool_integrations_url')) {
                           <span
                             class="block text-t-16 font-semibold"
                             i18n="@@pair.empty.look.directory"
@@ -633,23 +616,12 @@ function share(value: number, a: number, b: number): number {
                       </span>
                       <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                     </a>
-                    @if (slot(p, 'tool_integrations_url', true); as c) {
-                      <aec-field-caption class="mt-1 block px-4" [correction]="c" [page]="page()" />
-                    }
                   </li>
                 } @else if (review(p, 'tool_integrations_url')) {
                   <li class="px-4 py-2">
                     <aec-under-review
                       [attr.data-testid]="'pair-look-integrations-under-review-' + s.key"
                       [label]="correctionLabel('tool_integrations_url')"
-                    />
-                  </li>
-                } @else if (slot(p, 'tool_integrations_url', false); as c) {
-                  <li class="px-4 py-2">
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('tool_integrations_url')"
-                      [page]="page()"
                     />
                   </li>
                 } @else if (s.noDirectory; as line) {
@@ -694,16 +666,6 @@ function share(value: number, a: number, b: number): number {
                   </li>
                 }
               </ul>
-              <!-- The Managed group's line beside the links, while one of them shows, as
-                   on the product page's facts card. -->
-              @if (s.linkCaption; as c) {
-                <aec-field-caption
-                  class="block px-7 pb-5"
-                  data-testid="pair-look-managed-caption"
-                  [caption]="c"
-                  [page]="page()"
-                />
-              }
             </section>
           }
         </div>
@@ -725,6 +687,9 @@ function share(value: number, a: number, b: number): number {
             exists.</span
           >
         </p>
+        <!-- AECI-1666: the page's "About this listing" panel, which the pair page projects
+             here so it ends the page body's last band (STAGE_2_VENDOR_PORTAL_SPEC.md 4.5.8). -->
+        <ng-content />
       </div>
     </section>
   `,
@@ -734,13 +699,11 @@ export class PairEmptySections {
   readonly context = input.required<ProductPairSubject>();
   /** The URL's second product. */
   readonly other = input.required<ProductPairSubject>();
-  /** The pair page, for each caption's source link click. */
-  readonly page = input.required<FieldCaptionPage>();
 
   private readonly locale = inject(LOCALE_ID);
 
   protected readonly logoAlt = logoAlt;
-  protected readonly correctionLabel = fieldOverrideLabel;
+  protected readonly correctionLabel = correctionLabel;
   protected readonly focusRing = FOCUS_RING;
   protected readonly chipMark = CHIP_MARK;
   protected readonly display = displayUrl;
@@ -800,10 +763,6 @@ export class PairEmptySections {
         ['other', this.other()],
       ] as const
     ).map(([key, product]) => {
-      const hasLink = !!product.tool_integrations_url || !!product.api_docs_url;
-      const hasTerms =
-        product.audiences.length > 0 || product.trades.length > 0 || product.phases.length > 0;
-      const managed = product.captions?.managed ?? null;
       return {
         key,
         product,
@@ -811,8 +770,6 @@ export class PairEmptySections {
         overall: visibleRating(product.rating_overall_avg, product.review_count),
         onboarding: visibleRating(product.rating_onboarding_avg, product.review_count),
         hasWho: hasWho(product),
-        whoCaption: hasTerms ? managed : null,
-        linkCaption: hasLink ? managed : null,
         noDirectory: this.noDirectoryLine(product),
         publishedBy: publishedByVendor(product),
       };
@@ -830,8 +787,7 @@ export class PairEmptySections {
   /**
    * Each facet with its chips: the context product's terms in its own order, a term the
    * other product also carries marked "Both", then the other product's remaining terms in
-   * its order. AECi's corrections on either side sit under the facet, named for their
-   * product. A facet with neither terms nor a correction is absent.
+   * its order. A facet with no term on either side is absent.
    */
   protected readonly facets = computed(() => {
     const a = this.context();
@@ -850,16 +806,7 @@ export class PairEmptySections {
           .filter((t) => !aSlugs.has(t.slug))
           .map((term) => ({ term, side: 'other' as const })),
       ];
-      const notes = (
-        [
-          ['context', a],
-          ['other', b],
-        ] as const
-      ).flatMap(([key, p]) => {
-        const correction = correctionInSlot(p.captions?.corrections, f.field, p[f.key].length > 0);
-        return correction ? [{ key, correction, label: p.name }] : [];
-      });
-      return chips.length > 0 || notes.length > 0 ? [{ ...f, chips, notes }] : [];
+      return chips.length > 0 ? [{ ...f, chips }] : [];
     });
   });
 
@@ -904,9 +851,9 @@ export class PairEmptySections {
       : $localize`:@@pair.empty.look.all:All ${n}:COUNT: ${product}:PRODUCT: integrations`;
   }
 
-  /** AECi's correction in one value's slot (AECI-1628), as on the product page. */
-  protected slot(p: ProductPairSubject, field: string, present: boolean): FieldCorrection | null {
-    return correctionInSlot(p.captions?.corrections, field, present);
+  /** Whether AECi corrected the value `field` shows. The panel lists it, the slot does not. */
+  protected corrected(p: ProductPairSubject, field: string): boolean {
+    return correctionsInSlots(p.captions?.corrections, { [field]: true }).length > 0;
   }
 
   /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
@@ -936,7 +883,9 @@ export class PairEmptySections {
   private noDirectoryLine(p: ProductPairSubject): string | null {
     if (!p.vendor || p.tool_integrations_url) return null;
     if (isUnderReview(p.under_review, 'tool_integrations_url')) return null;
-    if (correctionInSlot(p.captions?.corrections, 'tool_integrations_url', false)) return null;
+    if (correctionsInSlots(p.captions?.corrections, { tool_integrations_url: false }).length > 0) {
+      return null;
+    }
     // As on the product page: "Acme Inc." ends the sentence once, never "Inc..".
     const vendor = withoutTrailingFullStop(p.vendor.name);
     return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
@@ -951,27 +900,80 @@ function onRecord(p: ProductPairSubject): number {
 /**
  * Whether the vendor card may say "Published by {vendor}": it shows at least one link, and
  * every link it shows is the vendor's own value. A link AECi corrected is a value AECi set
- * (it carries "Corrected by"), so a card holding one says only "by {vendor}".
+ * (the panel lists it as corrected), so a card holding one says only "by {vendor}".
  */
 function publishedByVendor(p: ProductPairSubject): boolean {
   const corrections = p.captions?.corrections;
   const shown = (['api_docs_url', 'tool_integrations_url'] as const).filter((f) => !!p[f]);
-  return shown.length > 0 && shown.every((f) => !correctionInSlot(corrections, f, true));
+  return (
+    shown.length > 0 &&
+    correctionsInSlots(corrections, Object.fromEntries(shown.map((f) => [f, true]))).length === 0
+  );
 }
 
 /**
  * Whether a product has anything for "Who each product is for": a term in one of the three
- * groups, or AECi's removal in an emptied group's slot. The product page's test
- * (`hasWhoItIsFor`) over the pair subject.
+ * groups. The product page's test (`hasWhoItIsFor`) over the pair subject. A group a removal
+ * emptied disappears (AECI-1666, ruling 1).
  */
 function hasWho(p: ProductPairSubject): boolean {
-  const corrections = p.captions?.corrections;
-  return (
-    p.audiences.length > 0 ||
-    p.trades.length > 0 ||
-    p.phases.length > 0 ||
-    !!correctionInSlot(corrections, 'audience_slugs', false) ||
-    !!correctionInSlot(corrections, 'trade_slugs', false) ||
-    !!correctionInSlot(corrections, 'phase_slugs', false)
-  );
+  return p.audiences.length > 0 || p.trades.length > 0 || p.phases.length > 0;
+}
+
+/** The look-it-up card's two links, the fields it marks "Under review" when hidden. */
+const LOOK_UP_MARKED_FIELDS = ['api_docs_url', 'tool_integrations_url'] as const;
+
+/**
+ * What "About this listing" holds on an empty pair page (AECI-1666,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). Every listing shows the panel, so the empty pair
+ * does too, though it has no integration row. It lists only what this page renders for
+ * each product: the Managed group's caption while that product shows a term or a link,
+ * and AECi's corrections on the three term groups and the two links, by the product
+ * page's slot rule. Each line names its product, as a pair card's line names its
+ * mechanism. The under-review count is the look-it-up cards' own markers.
+ *
+ * `claimed`: the pair is claimed when either product is, as on a pair with integrations.
+ */
+export function emptyPairProvenance(
+  context: ProductPairSubject,
+  other: ProductPairSubject,
+): {
+  claimed: boolean;
+  groups: ProvenanceGroup[];
+  corrections: ProvenanceCorrection[];
+  underReviewCount: number;
+} {
+  const groups: ProvenanceGroup[] = [];
+  const corrections: ProvenanceCorrection[] = [];
+  let underReviewCount = 0;
+  for (const p of [context, other]) {
+    const named = (field: string) =>
+      $localize`:@@pair.provenance.mechanismField:${p.name}:MECHANISM:, ${field}:FIELD:`;
+    const managed = p.captions?.managed;
+    const shows = hasWho(p) || !!p.tool_integrations_url || !!p.api_docs_url;
+    if (managed && shows) {
+      groups.push({
+        label: named(
+          $localize`:@@products.detail.provenance.group.managed:Audiences, trades, phases and resources`,
+        ),
+        caption: managed,
+      });
+    }
+    for (const correction of correctionsInSlots(p.captions?.corrections, {
+      audience_slugs: p.audiences.length > 0,
+      trade_slugs: p.trades.length > 0,
+      phase_slugs: p.phases.length > 0,
+      api_docs_url: !!p.api_docs_url,
+      tool_integrations_url: !!p.tool_integrations_url,
+    })) {
+      corrections.push({ correction, label: named(correctionLabel(correction.field)) });
+    }
+    underReviewCount += countUnderReview(p.under_review, LOOK_UP_MARKED_FIELDS);
+  }
+  return {
+    claimed: context.claim_status !== 'unclaimed' || other.claim_status !== 'unclaimed',
+    groups,
+    corrections,
+    underReviewCount,
+  };
 }

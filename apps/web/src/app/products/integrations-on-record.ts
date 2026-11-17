@@ -1,6 +1,6 @@
 import type { ProductDetail } from '@aeci/shared';
 
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionsInSlots, isUnderReview } from '../shared/field-caption/field-caption-facts';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
@@ -33,13 +33,14 @@ export function hasNoIntegrationsOnRecord(p: ProductDetail): boolean {
  * on the same condition (`p.tool_integrations_url`).
  *
  * It also stays off while AECi has the link hidden for checking (the API nulls the URL,
- * §11d.7) and when AECi removed the link (AECI-1628). In both cases the card already says
- * what happened to the link, and "we have not found one" would contradict it.
+ * §11d.7) and when AECi removed the link (AECI-1628). In both cases the page already says
+ * what happened to the link: the facts card's "Under review" marker, or the removal line
+ * in "About this listing" (AECI-1666). "We have not found one" would contradict it.
  */
 export function showsNoIntegrationsDirectory(p: ProductDetail): boolean {
   if (!p.vendor || p.tool_integrations_url) return false;
   if (isUnderReview(p.under_review, 'tool_integrations_url')) return false;
-  return !correctionInSlot(p.captions?.corrections, 'tool_integrations_url', false);
+  return correctionsInSlots(p.captions?.corrections, { tool_integrations_url: false }).length === 0;
 }
 
 /**

@@ -1,10 +1,9 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
+import type { ProductUsefulness } from '@aeci/shared';
 
 import { AecCard } from '../shared/card/card';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { AecIcon } from '../shared/icon/icon';
 
 /**
@@ -31,12 +30,10 @@ import { AecIcon } from '../shared/icon/icon';
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
- * **Vendor-written copy is captioned (AECI-1614, replacing AECI-1316's "Written by").**
- * `caption` renders "Maintained by {vendor} · updated {date}" at the foot of the section,
- * so a reader never takes the vendor's own words for AECi's and can see how fresh they
- * are. The server sends it only for a real vendor write, so AECi's copy carries no line
- * (STAGE_2_5_SPEC.md §12.1, ADR 0033). Mock-up 6 draws it top right, beside the heading.
- * It stays at the foot, where `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 mounts it.
+ * **Vendor-written copy is attributed in the page's provenance panel** (AECI-1666; it sat
+ * under this section from AECI-1614 until then). "How teams use it: Maintained by
+ * {vendor} · updated {date}" is in "About this listing", so a reader never takes the
+ * vendor's own words for AECi's (STAGE_2_5_SPEC.md §12.1, ADR 0033).
  *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
@@ -55,14 +52,14 @@ import { AecIcon } from '../shared/icon/icon';
 @Component({
   selector: 'aec-product-usefulness',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AecCard, AecIcon, FieldCaptionLine, NgTemplateOutlet],
+  imports: [AecCard, AecIcon, NgTemplateOutlet],
   host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
       <section aria-labelledby="usefulness-title" class="space-y-8">
         <!-- Mock-up 6 band head (AECI-1720 restore): the small label and "How teams use
              {product}". The mock-up's intro line is not built: it can read as a claim about
-             who wrote the section, which the caption contradicts. The label repeats the
+             who wrote the section, which "About this listing" contradicts. The label repeats the
              heading, so it is hidden from assistive technology. -->
         <div>
           <p
@@ -141,9 +138,6 @@ import { AecIcon } from '../shared/icon/icon';
             ></ng-container>
           </div>
         }
-        @if (caption(); as c) {
-          <aec-field-caption [caption]="c" [page]="page()" />
-        }
       </section>
     }
   `,
@@ -152,10 +146,6 @@ export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
   /** The page product's name, for the heading "How teams use {product}" (AECI-1720). */
   readonly productName = input.required<string>();
-  /** `ProductDetail.captions.usefulness`: `null` when no vendor wrote the section. */
-  readonly caption = input<FieldCaption | null | undefined>(null);
-  /** The product page, for the caption component. */
-  readonly page = input.required<FieldCaptionPage>();
 
   /** One facet's row: the label above its cards, beside them from `xl`. */
   protected readonly rowClass =

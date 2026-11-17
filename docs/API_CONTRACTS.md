@@ -369,6 +369,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
 | `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
 | `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
+| `LITIGATION_HOLD_EXISTS` | 409 | `POST /api/admin/litigation-holds` (AECI-1638) when an open hold of that scope already exists: the one open global hold, or an open hold for that vendor. The early read and the partial unique index both answer it. Nothing was written. |
+| `LITIGATION_HOLD_RELEASED` | 409 | `POST /api/admin/litigation-holds/:id/release` (AECI-1638) when the hold was already released, on read or by the batch's sentinel. Nothing was written. |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -540,7 +542,8 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
   // 'vendor' = the product's vendor wrote it in the portal; the page labels the
-  // section's field caption (AECI-1614; `captions.usefulness`). null = AECi's copy, via promote. 'admin' is
+  // section's field caption (AECI-1614; `captions.usefulness`), shown in the
+  // "About this listing" panel since AECI-1666. null = AECi's copy, via promote. 'admin' is
   // reserved (ADR 0033). Defaulted to null so an older payload still parses.
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
@@ -700,7 +703,7 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
 
 ### 5.3a Field captions (AECI-1614)
 
-`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock.
+`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock. Since AECI-1666 the web renders every caption and correction in one "About this listing" panel per page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). The wire shapes below did not change.
 
 ```typescript
 export const FieldCaptionSchema = z.object({
@@ -728,15 +731,15 @@ export const ProductFieldCaptionsSchema = z.object({
 | Carrier | Added |
 |---|---|
 | `ProductDetail` | `captions: ProductFieldCaptions` |
-| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]`. Still sent, but since AECI-1666 the product page does not render them. The pair page's panel carries the row detail |
 | `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
-| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption. The vendor page's panel lists the corrections |
 
 **`under_review` (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** `VendorDetail`, `ProductDetail`, `ProductIntegrationItem` and `ProductPairMechanism` carry `under_review: string[]`, optional for deploy skew. It lists, sorted, the wire names of the fields AECi has hidden while it checks them. Each such field's value is `null` on the same payload: a hidden company fact is `null` in `company_facts`, and a hidden company size or ownership type is `null` in a product's `vendor_facts`, silently. A hidden field has no entry in `corrections`. Nothing else of the hide is public: no reason, note, source or date (`public-vendor-shapes.spec.ts`). The page renders "Under review. AEC Integrations is checking this detail." in the value's slot. The read is one extra statement per entity table in the page's existing batch, like the corrections. `VendorListItem` masks `headquarters` and `founded_year` the same way, with no marker, after it applies the company-facts display rule (§5.2). Search records mask too (`SEARCH_RANKING.md`).
 
 All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
 
-**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page then reads "Removed by AEC Integrations on {date}" in the value's slot instead of "Corrected by". Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
+**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page's panel then reads "{Field}: Removed by AEC Integrations on {date}" instead of "Corrected by". Until AECI-1666 the line sat in the value's slot. Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
 
 **The forms.** No vendor write means `null`.
 
@@ -1565,7 +1568,7 @@ export const PublicReviewUpdateSchema = z.object({
 - No reviewer data, no moderation field, and no JSON-LD.
 - **As built (AECI-1613).** `PublicReviewUpdateSchema` lives in `packages/shared/src/api/reviews.ts` beside `PublicVendorResponseSchema`, for the same import-cycle reason, and is re-exported from `review-updates.ts`. The predicate is `publishedReviewUpdatesQuery` in `apps/api/src/lib/review-updates.ts`. The reviews list reaches it through `withPublicReviewExtras`, which loads the replies and the updates for the page together. The product-detail embed runs the same query builder inside its one `db.batch` and maps through `attachReviewExtras`. `withPublicReviewExtras` replaces `withPublishedVendorResponses` on the list route.
 
-**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
+**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the record line of each page's "About this listing" panel (`aec-listing-provenance`). That was the `aec-maintenance-marker` header chip until AECI-1666 retired it. Every listing shows the panel (ruled 2026-11-17), so every product, vendor and pair page renders this line. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
 **Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Since AECI-1216 the company and product "Looks right" routes (`POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, §6.14) do the same with no content edit. Their responses echo the new `last_reviewed_at`, so the portal can show it without a refetch. Per row and never transitive: a product edit does not flip the vendor. Neither the edit endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
 
@@ -2246,6 +2249,41 @@ export const TurnstileVerdictPostSchema = z.object({
 **Accepted waste (ruled 2026-10-28, AECI-1457).** A never-cached landing route gets no arrival row from the gateway. Its post still spends one siteverify call and reports `outcome:no_row`. The tracker skips untracked routes (`isUntrackedRoute`).
 
 **No audit log, no purge.** `page_views` is log-class (ADR 0022). Nothing written here renders on a cached page.
+
+#### `POST /api/page-views/browser-evidence`
+
+The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
+
+**Switch:** `BROWSER_EVIDENCE_ENABLED` on the API Worker. Only `"true"` turns either writer on: the `ran` on a `browser-spa` insert and this endpoint's UPDATE. Any other value, or none, leaves both columns NULL on every row. Production holds it at `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 entry in `apps/web/src/content/legal/README.md`, `LEGAL_COUNSEL_RECORD.md` Q37 and Q43). Off, a well-formed post gets the same `204`, writes nothing and counts `result:disabled`.
+
+**Guard:** `rateLimit('token', { by: 'ip', tag: 'page-views' })` (`docs/waf-rate-limits.md` §6.1 and §6.2). The `page-views` sub-budget is shared with the Turnstile verdict and kept off the `token` counter that seat-invite accept and unsubscribe spend. A 429 costs one report, never a page view.
+
+**Request** (`BrowserEvidencePostSchema`, `packages/shared/src/api/page-view-browser-evidence.ts`; the words and the URL are plain constants in `page-views.ts`):
+
+```typescript
+export const BROWSER_EVIDENCE_VALUES = ['ran', 'interacted'] as const;
+export const BROWSER_EVIDENCE_URL = '/api/page-views/browser-evidence';
+export const BrowserEvidencePostSchema = z
+  .object({
+    cf_ray: TurnstileVerdictPostSchema.shape.cf_ray, // same pattern as x-aeci-cf-ray
+    evidence: z.enum(BROWSER_EVIDENCE_VALUES),
+  })
+  .strict(); // an unknown key is a 400
+```
+
+**Response:** `204`, no body. Any well-formed body gets the same `204` at once. The response never says whether a row matched, so a caller cannot probe which rays exist.
+
+**Errors:** `400 MALFORMED_REQUEST` (not JSON), `400 VALIDATION_FAILED` (schema, including an unknown evidence word or an extra key), `429 RATE_LIMITED` (the `token` bucket, `Retry-After` per §4.1a).
+
+**Behaviour, all inside `waitUntil`, which never throws** (only when the switch is on):
+
+1. One `UPDATE page_views SET browser_evidence, browser_evidence_at` matching `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0`, `cf_country IS NOT NULL AND upper(trim(cf_country)) NOT IN (<HELD_REGION_COUNTRIES>, '')` and `created_at` within the last 10 minutes (`BROWSER_EVIDENCE_WINDOW_MS`). Counted through `RETURNING`. The held list binds 42 parameters.
+   A privacy-signal row and a held-region row never carry the column, by either writer: the `browser-spa` insert skips `ran` on both, and this UPDATE refuses both. The Privacy Policy promises that hold. The browser's gate (AECI-1714) is the primary hold, and this is the server's belt.
+2. Upgrade only. `ran` needs `browser_evidence IS NULL`. `interacted` needs NULL or `ran`. A replay or a downgrade changes nothing.
+3. Zero rows changed means the row's write may still be in flight. A landing view's arrival row is written in the gateway's `waitUntil`. An in-app view's `browser-spa` row is written by a beacon that may not have committed. So either word retries once after 2 s (`BROWSER_EVIDENCE_RETRY_MS`). A second miss counts `result:no_match`.
+4. Emit `aeci.pageviews.browser_evidence` with `evidence:ran|interacted` and `result:updated|no_match|error`. A post on a tier with the switch off emits `result:disabled` instead, at once, with no UPDATE. On `error`, also warn `aeci.api.page_view.browser_evidence_update_failed`.
+
+**No audit log, no purge.** `page_views` is log-class (ADR 0022). Nothing written here renders on a cached page. **Never a PostHog event:** the report travels only on this endpoint (`ANALYTICS.md` §5).
 
 #### `POST /api/activity/arrival`
 
@@ -3497,7 +3535,7 @@ and why each leg is load-bearing.
 
 **`before_state` / `after_state` are `z.unknown().nullable()` deliberately.** They are
 free-form JSON snapshots written by ~34 call sites across the life of the schema, with
-no shared contract, in a table nothing prunes — so a reader today is parsing rows
+no shared contract, in a table that keeps rows four years — so a reader today is parsing rows
 written by code that no longer exists. `z.unknown()` is non-optional in Zod 4, so a
 *missing* key is still rejected (R10) while any present value is accepted; a
 `z.record(...)` would make `validateResponseInDev` throw on a historical scalar
@@ -5981,7 +6019,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-eight (AECI-1680)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-nine (AECI-1638)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -6055,6 +6093,7 @@ export const AdminCronJobSchema = z.enum([
   'sitemap-rebuild',     // 7-59/15 * * * *   (AECI-1505)
   'plan-snapshot',       // 11-59/15 * * * *  (AECI-1621)
   'acceptance-chain',    // 0 18 * * *  (AECI-1680)
+  'legal-retention-prune', // 0 3 * * *, enqueued by the retention-prune tick (AECI-1638)
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
@@ -6100,7 +6139,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-eight since AECI-1680): omitting a job would read as "not configured", a
+Every row is always present (twenty-nine since AECI-1638): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -7333,9 +7372,64 @@ a write that committed. No audit row on the POST, or on a PATCH whose sentinel p
 VALIDATION_FAILED` with `field: 'account_id'`, and nothing was written or forwarded. A write that
 landed answers 201 or 200 with the row as it wrote it, and is forwarded. The audit states carry `kind`, `notice_id`, `received_at`, `vendor_id`, `action` and the
 dates and outcome that changed. Names, contact details, the material, the work, the notes and
-the account id are named in `metadata.fields` and never copied, because `audit_log` is never
-pruned. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
+the account id are named in `metadata.fields` and never copied, because `audit_log` keeps
+these rows for four years, longer than the copyright notice log’s three-year retention. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
 commit.
+
+#### Litigation holds: `GET /api/admin/litigation-holds`, `POST /api/admin/litigation-holds`, `POST /api/admin/litigation-holds/:id/release` (AECI-1638)
+
+The switch that stops the legal retention prune (`ADMIN_PANEL_SPEC.md` §5.22b, `DATABASE_SCHEMA.md`
+§8.15, ADR 0058). All three behind `requireAdmin()`. The two POSTs carry `rateLimit('write')` after
+the guard. The GET is a read and carries no limiter. Contract in
+`packages/shared/src/api/litigation-holds.ts`.
+
+```ts
+type LitigationHold = {
+  id: string;
+  scope: 'global' | 'vendor';
+  vendor_id: string | null;      // null on a global hold
+  vendor_name: string | null;    // the vendor's company name, null on a global hold
+  reason: string;                // internal
+  matter_reference: string | null;
+  placed_by: string;             // profiles.id
+  placed_at: string;             // ISO
+  released_at: string | null;    // null while open
+  released_by: string | null;
+  release_reason: string | null;
+};
+
+// GET /api/admin/litigation-holds
+type LitigationHoldsResponse = {
+  generated_at: string;
+  open: LitigationHold[];        // every open hold, newest first
+  released: LitigationHold[];    // the 20 most recently released, newest first
+};
+
+// POST /api/admin/litigation-holds
+type CreateLitigationHoldRequest = {
+  scope: 'global' | 'vendor';
+  vendor_id?: string | null;     // required on 'vendor', refused on 'global'
+  reason: string;                // AdminReasonSchema: trimmed, 1 to 1000 characters
+  matter_reference?: string | null; // up to 200 characters
+};
+// 201 { hold: LitigationHold }
+
+// POST /api/admin/litigation-holds/:id/release
+type ReleaseLitigationHoldRequest = { reason: string }; // AdminReasonSchema
+// 200 { hold: LitigationHold }
+```
+
+**Refusals, in order.** The place: `400 VALIDATION_FAILED` for the body, `404 NOT_FOUND` for a
+`vendor_id` that names no vendor, then `409 LITIGATION_HOLD_EXISTS` when an open hold of that scope
+exists. The release: the body (400), then `404 NOT_FOUND`, then `409 LITIGATION_HOLD_RELEASED`. A
+refusal writes nothing.
+
+**The write.** One `db.batch`. The place: the insert and its `litigation_hold.placed` audit row
+(`entity_type = 'litigation_hold'`, `vendor_id` set on a vendor hold, `metadata.reason`). A
+partial unique index error is the same 409. The release: a sentinel that aborts when the hold was
+released after the read, the guarded `UPDATE … WHERE id = ? AND released_at IS NULL`, and its
+`litigation_hold.released` audit row. A sentinel abort is the same 409. Each write forwards its
+audit row post-commit. Nothing is purged: no page renders a hold.
 
 #### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
 

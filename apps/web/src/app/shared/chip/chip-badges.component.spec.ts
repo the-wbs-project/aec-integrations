@@ -69,11 +69,13 @@ describe('badges on the one chip', () => {
     expect(chip(free).getAttribute('data-tone')).toBe('quiet');
   });
 
-  it('renders the maintenance marker in the 500-weight label face with its two labels', () => {
-    const aeci = chip(render(MaintenanceMarker, { maintainedBy: 'aeci' }));
-    expect(aeci.getAttribute('data-face')).toBe('label');
+  // AECI-1666 retired the maintenance chip: the marker is the plain-text record line that
+  // opens "About this listing". It keeps its two labels and takes no chip at all.
+  it('renders the maintenance marker as plain text, not a chip, with its two labels', () => {
+    const aeci = render(MaintenanceMarker, { maintainedBy: 'aeci' });
+    expect(aeci.querySelector('.aec-chip, aec-chip')).toBeNull();
     expect(aeci.textContent!.trim()).toBe('AEC Integrations maintained');
-    const vendor = chip(render(MaintenanceMarker, { maintainedBy: 'vendor' }));
+    const vendor = render(MaintenanceMarker, { maintainedBy: 'vendor' });
     expect(vendor.textContent!.trim()).toBe('Vendor maintained');
   });
 

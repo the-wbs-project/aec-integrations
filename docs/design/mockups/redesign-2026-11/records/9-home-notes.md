@@ -31,7 +31,7 @@ The structure from AECI-1554 stays. I found no reason to change the band order.
 
 Each departure is a question, below. None is built into the default without one.
 
-1. **Display type on the home.** ADR 0058 replaced "Display on About, Home and vendor mastheads" with "Display sizes are allowed on detail pages". It does not say whether the home keeps Display. DESIGN.md §3 says the home hero "is re-decided in its own mock-up issue". Question 2.
+1. **Display type on the home.** ADR 0059 replaced "Display on About, Home and vendor mastheads" with "Display sizes are allowed on detail pages". It does not say whether the home keeps Display. DESIGN.md §3 says the home hero "is re-decided in its own mock-up issue". Question 2.
 2. **Three figures in one band.** Clash 8 says one large figure per band. The mock-up sets the three cited figures at `--t-24`, the sub-heading size, not the figure size. Question 4.
 3. **Header and footer on the 1328px wrap.** DESIGN.md §4 lists this as Chris's call (AECI-1766). The brief for this mock-up put them on the wrap, so the mock-up does. Today they sit on the 7xl canvas, 8px to 16px off the bands. Question 6.
 

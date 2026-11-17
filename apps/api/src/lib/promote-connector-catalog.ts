@@ -20,9 +20,9 @@
  * entirely. That is what makes a full-mirror re-sync of a 15k-row catalogue free
  * rather than 15k writes, and it is what lets the audit row obey
  * `./retention-prune.ts`'s rule 4 — **a run that changes nothing writes no audit
- * row.** `audit_log` is indefinite-retention (§26.6), so a scheduled re-sync would
- * otherwise deposit thousands of "nothing happened" rows a week into the one table
- * nothing prunes.
+ * row.** `audit_log` rows are kept four years (§26.6, AECI-1638), so a scheduled re-sync
+ * would otherwise deposit thousands of "nothing happened" rows a week that stay for four
+ * years.
  *
  * ── REACH-TIER CLAIMS, AND WHY THEY DO NOT REPLACE WHOLESALE (AECI-891) ─────
  * Operator ruling 2026-09-13: a claim may anchor to a REACHED pair, so `claims` gained

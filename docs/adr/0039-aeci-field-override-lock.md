@@ -54,7 +54,7 @@ The §4.3 "challenge recently-changed trades" workflow stays deferred. This amen
 Rule 5 above, "the reason is the vendor's to read", is unchanged. A correction is now also marked on the public page.
 
 - **A new correction names its source.** `sourceUrl` is required on `POST /api/admin/field-overrides`: https, no credentials, stored in `field_overrides.source_url` and recorded in the audit row. A row older than this has none and renders the date alone.
-- **The public page shows the correction.** "Corrected by AEC Integrations on {date}", then the source link, beside the value. It is the only public read of this table. It carries the field, the date and the source, never the reason, the internal note, the lift reason or the actor.
+- **The public page shows the correction.** "Corrected by AEC Integrations on {date}", then the source link, beside the value. *Since AECI-1666 (2026-11-17) the line sits in the page's "About this listing" panel with the field's label, not beside the value. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8.* It is the only public read of this table. It carries the field, the date and the source, never the reason, the internal note, the lift reason or the actor.
 - **The caption survives a lift, by value equality.** This ADR keeps AECi's value after a lift, so the value is still AECi's words. The caption reads the newest row per field, lifted or not, and shows while its `value` equals the live value. It goes the moment the vendor changes the value. Facets compare as sets.
 
 A lift is otherwise unchanged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 and §11d.5 hold the contract.
@@ -66,7 +66,7 @@ Two AECi writes change a vendor-held value and wrote no `field_overrides` row: t
 - **Each is recorded as a row born lifted.** `lifted_at = set_at`, `lifted_by = set_by`, `lift_reason = 'record-only'`, a fixed marker. It is the state a correct-then-lift leaves under this ADR, so the vendor keeps edit rights. Every lock reader and the partial unique index filter `lifted_at IS NULL`, so the row is never a lock and never collides with one. The lift route refuses it as already lifted. The public read does not filter, so it captions. One helper writes it, `correctionRecordInsert`, in the writer's own batch. No migration.
 - **Both name a source.** The contest accept requires `sourceUrl` in the `applied-here` case only. The logo overwrite requires it on a replacement and makes it optional on a removal.
 - **The logo record applies to vendor-held records only**, by the same held test as a lock. The logo stays outside rule 4: it is captioned, never lockable. The public read's column map is separate from the lock maps for that reason.
-- **A correction that cleared a value is marked too.** The page reads "Removed by AEC Integrations on {date}" in the value's slot (`FieldCorrection.cleared`).
+- **A correction that cleared a value is marked too.** The page reads "Removed by AEC Integrations on {date}" in the value's slot (`FieldCorrection.cleared`). *Since AECI-1666 (2026-11-17) it is listed in the "About this listing" panel only, and a section the removal emptied disappears.*
 
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8, §11b.6 and §11d.5, and `STAGE_2_5_SPEC.md` §11.2, hold the contract.
 

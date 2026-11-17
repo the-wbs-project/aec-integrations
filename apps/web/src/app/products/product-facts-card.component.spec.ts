@@ -351,15 +351,16 @@ describe('ProductFactsCard (AECI-1779)', () => {
       expect(card.querySelector('[data-testid=managed-caption]')).toBeNull();
     });
 
-    it('captions the Resources links, right after Resources', () => {
+    // AECI-1666: the Managed caption is in the page's "About this listing" panel, which
+    // the product page mounts. The card shows Resources and no caption line.
+    it('shows Resources with no caption line', () => {
       const { card } = setup(
         buildProduct({ api_docs_url: 'https://developers.procore.com/docs', captions: managed }),
       );
-      const caption = card.querySelector('[data-testid=managed-caption]')!;
-      expect(caption.textContent).toContain('Maintained by Procore Technologies');
-      expect(caption.previousElementSibling?.getAttribute('aria-labelledby')).toBe(
-        'resources-label',
-      );
+      expect(card.querySelector('#resources-label')).not.toBeNull();
+      expect(card.querySelector('[data-testid=managed-caption]')).toBeNull();
+      expect(card.querySelector('aec-field-caption')).toBeNull();
+      expect(card.textContent).not.toContain('Maintained by');
     });
   });
 });

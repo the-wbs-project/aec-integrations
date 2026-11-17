@@ -68,8 +68,10 @@ test.describe('product-PAIR page — version selectors (AECI-303)', () => {
     expect(html).not.toContain('aec-pair-version-select');
     expect(html).not.toContain('Show the latest versions');
     expect(html).not.toContain('Changes from');
-    // …while the pre-AECI-303 furniture is untouched.
-    expect(html).toContain('aec-maintenance-marker');
+    // …while the rest of the page's furniture is untouched. Since AECI-1666 the
+    // provenance panel replaces the header chip; its host is always in the HTML.
+    expect(html).toContain('aec-listing-provenance');
+    expect(html).not.toMatch(/<header[^>]*>[\s\S]*?aec-maintenance-marker[\s\S]*?<\/header>/);
   });
 
   test('the API reports version_diff: null for a pair with no releases', async ({ request }) => {
@@ -462,9 +464,13 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     );
     await expect(page.getByTestId('pair-empty-caveat')).toHaveText(CAVEAT);
     await expect(page.getByTestId('pair-empty-look-it-up-intro')).toHaveText(INTRO);
-    // Ruling 98: no "Integration" overline above the statement; the chip stays.
+    // Ruling 98: no "Integration" overline above the statement. AECI-1666 retired the
+    // header chip: "About this listing" ends the last band instead (§4.5.8).
     await expect(page.locator('[heroKicker] .aec-overline')).toHaveCount(0);
-    await expect(page.locator('[heroKicker] aec-maintenance-marker')).toHaveCount(1);
+    await expect(page.locator('[heroKicker] aec-maintenance-marker')).toHaveCount(0);
+    await expect(
+      page.getByTestId('pair-empty-look-it-up').getByTestId('listing-provenance'),
+    ).toContainText('AEC Integrations maintained');
     // Ruling 96: the integrations row never shows a bare 0.
     for (const cell of await page
       .getByTestId('pair-empty-facts-integrations')

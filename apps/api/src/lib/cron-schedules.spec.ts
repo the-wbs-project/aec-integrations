@@ -52,7 +52,19 @@ describe('CRON_SCHEDULES ↔ wrangler.jsonc', () => {
   });
 
   it('declares exactly the expected number of entries across the three blocks', () => {
-    expect(declared).toHaveLength(CRON_JOBS.length * TRIGGER_BLOCKS);
+    // One trigger per distinct expression. AECI-1638's `legal-retention-prune` shares
+    // `RETENTION_CRON`: that tick starts both jobs, so it adds a job but no trigger.
+    const expressions = new Set(Object.values(CRON_SCHEDULES));
+    expect(declared).toHaveLength(expressions.size * TRIGGER_BLOCKS);
+  });
+
+  it('shares an expression only where one switch case starts both jobs (AECI-1638)', () => {
+    const byExpression = new Map<string, string[]>();
+    for (const [job, expression] of Object.entries(CRON_SCHEDULES)) {
+      byExpression.set(expression, [...(byExpression.get(expression) ?? []), job]);
+    }
+    const shared = [...byExpression.values()].filter((jobs) => jobs.length > 1);
+    expect(shared).toEqual([['retention-prune', 'legal-retention-prune']]);
   });
 });
 

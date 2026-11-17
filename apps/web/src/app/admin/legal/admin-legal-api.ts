@@ -5,6 +5,7 @@
  * client: the same-origin request carries the HttpOnly session cookie and the API Worker's
  * `requireAdmin()` decides. Only ever called from `afterNextRender` or a user action. The
  * publish and the notice re-send are only ever called from a confirmation dialog's handler.
+ * The litigation hold writes (AECI-1638) are called from their own forms' submit handlers.
  */
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
@@ -13,6 +14,9 @@ import { firstValueFrom } from 'rxjs';
 import type {
   AdminLegalAcceptancesResponse,
   AdminLegalVersionsResponse,
+  CreateLitigationHoldRequest,
+  LitigationHoldsResponse,
+  LitigationHoldWriteResponse,
   PublishLegalVersionRequest,
   PublishLegalVersionResponse,
   ResendLegalNoticeResponse,
@@ -51,6 +55,28 @@ export class AdminLegalApi {
   acceptances(): Promise<AdminLegalAcceptancesResponse> {
     return firstValueFrom(
       this.http.get<AdminLegalAcceptancesResponse>('/api/admin/legal-acceptances'),
+    );
+  }
+
+  /** `GET /api/admin/litigation-holds` (AECI-1638): open holds and the latest released. */
+  litigationHolds(): Promise<LitigationHoldsResponse> {
+    return firstValueFrom(this.http.get<LitigationHoldsResponse>('/api/admin/litigation-holds'));
+  }
+
+  /** `POST /api/admin/litigation-holds`. Places one hold. */
+  placeHold(body: CreateLitigationHoldRequest): Promise<LitigationHoldWriteResponse> {
+    return firstValueFrom(
+      this.http.post<LitigationHoldWriteResponse>('/api/admin/litigation-holds', body),
+    );
+  }
+
+  /** `POST /api/admin/litigation-holds/:id/release`. Releases one hold. */
+  releaseHold(id: string, reason: string): Promise<LitigationHoldWriteResponse> {
+    return firstValueFrom(
+      this.http.post<LitigationHoldWriteResponse>(
+        `/api/admin/litigation-holds/${encodeURIComponent(id)}/release`,
+        { reason },
+      ),
     );
   }
 }
