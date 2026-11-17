@@ -2,11 +2,15 @@ import { formatNumber } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
   LOCALE_ID,
+  afterNextRender,
   computed,
   inject,
   input,
   signal,
+  viewChildren,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -28,6 +32,7 @@ import type { AecIconName } from '../shared/icon/icon-registry';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 
 import { integrationsOnRecordCount } from './integrations-on-record';
+import { filterPairMatches } from './pair-matches-filter';
 
 type Side = 'context' | 'other';
 type View = 'cards' | 'table';
@@ -250,6 +255,8 @@ function objectIcon(slug: string): AecIconName | null {
                 [class]="keep() === s.key ? keepOn : keepOff"
                 [attr.aria-pressed]="keep() === s.key"
                 [attr.data-testid]="'pair-matches-keep-' + s.key"
+                [attr.data-keep]="s.key"
+                #keepButton
                 (click)="setKeep(s.key)"
               >
                 <aec-logo-or-initial
@@ -484,7 +491,7 @@ function objectIcon(slug: string): AecIconName | null {
                 Clear data objects
               </button>
             } @else if (empty === 'no-lane') {
-              <button type="button" [class]="primaryButton" (click)="setKeep(otherSide())">
+              <button type="button" [class]="primaryButton" (click)="keepFromEmpty(otherSide())">
                 {{ keepLabel(otherSide()) }}
               </button>
             }
@@ -750,6 +757,8 @@ export class PairEmptyAlternatives {
   readonly alternatives = input.required<PairAlternatives>();
 
   private readonly locale = inject(LOCALE_ID);
+  private readonly injector = inject(Injector);
+  private readonly keepButtons = viewChildren('keepButton', { read: ElementRef });
 
   protected readonly logoAlt = logoAlt;
   protected readonly focusRing = FOCUS_RING;
@@ -800,16 +809,9 @@ export class PairEmptyAlternatives {
   });
 
   /** The lane's matches that pass the reader's filters, in the API's order (R1). */
-  protected readonly shown = computed(() => {
-    const on = new Set(this.onAnchors().map((a) => a.slug));
-    if (on.size === 0) return [];
-    const picked = this.picked();
-    return this.lane().matches.filter(
-      (m) =>
-        m.shared_categories.some((c) => on.has(c.slug)) &&
-        picked.every((p) => m.data_objects.some((d) => d.slug === p)),
-    );
-  });
+  protected readonly shown = computed(() =>
+    filterPairMatches(this.lane(), this.off()[this.keep()], this.picked()),
+  );
 
   protected readonly emptyState = computed<
     'no-anchors' | 'no-lane' | 'all-off' | 'no-shared' | 'no-object' | null
@@ -923,6 +925,24 @@ export class PairEmptyAlternatives {
 
   protected setKeep(side: Side): void {
     this.keep.set(side);
+  }
+
+  /**
+   * The "no-lane" empty state's button. Switching the lane removes the message and the
+   * button with it, so focus moves to the keep toggle that is now pressed instead of
+   * dropping to the body (WCAG 2.4.3).
+   */
+  protected keepFromEmpty(side: Side): void {
+    this.keep.set(side);
+    afterNextRender(
+      () => {
+        const target = this.keepButtons().find(
+          (b) => (b.nativeElement as HTMLElement).dataset['keep'] === side,
+        );
+        (target?.nativeElement as HTMLElement | undefined)?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected isOn(slug: string): boolean {

@@ -187,7 +187,7 @@ const SURFACES: readonly Surface[] = [
     status: 'covered',
     spec: 'api',
     order:
-      'New list (R1, AECI-1829): A to Z by name with compareText (case only breaks a letter tie), id breaking a tie, none cut; membership by an integration with the kept product and a category shared with the other product',
+      'New list (R1, AECI-1829): A to Z by name with compareText (case only breaks a letter tie), id breaking a tie, none cut; membership by an integration with the kept product and a category shared with the other product. The page filter (`pair-matches-filter.ts`) only removes, and the web spec holds it to that',
   },
   {
     key: 'browse-menu-term-order',

@@ -324,6 +324,47 @@ async function findEmptyPair(
   return null;
 }
 
+/**
+ * An empty pair whose closest matches are populated, from the seeded catalog. It prefers
+ * a pair that opens on the "no-lane" state (the kept product has matches on neither of
+ * the other's categories) while the other lane has cards, so one test covers both.
+ */
+async function findPopulatedEmptyPair(
+  request: import('@playwright/test').APIRequestContext,
+): Promise<{ context: string; other: string; opensEmpty: boolean } | null> {
+  const res = await request.get('/api/products?perPage=24');
+  if (!res.ok()) return null;
+  const slugs = ((await res.json()) as { data?: { slug: string }[] }).data?.map((p) => p.slug);
+  let fallback: { context: string; other: string; opensEmpty: boolean } | null = null;
+  for (const context of slugs ?? []) {
+    for (const other of slugs ?? []) {
+      if (context >= other) continue;
+      const pairRes = await request.get(`/api/products/${context}/integrations/${other}`);
+      if (!pairRes.ok()) continue;
+      const pair = (await pairRes.json()) as { mechanisms: unknown[]; moved_to: unknown };
+      if (pair.mechanisms.length > 0 || pair.moved_to !== null) continue;
+      const altRes = await request.get(
+        `/api/products/${context}/integrations/${other}/alternatives`,
+      );
+      if (!altRes.ok()) continue;
+      const { lanes } = (await altRes.json()) as {
+        lanes: Record<'context' | 'other', { anchors: unknown[]; matches: unknown[] }>;
+      };
+      if (
+        lanes.context.anchors.length > 0 &&
+        lanes.context.matches.length === 0 &&
+        lanes.other.matches.length > 0
+      ) {
+        return { context, other, opensEmpty: true };
+      }
+      if (lanes.context.matches.length > 0 && fallback === null) {
+        fallback = { context, other, opensEmpty: false };
+      }
+    }
+  }
+  return fallback;
+}
+
 const CAVEAT = 'Not on record means we have not found one. It is not proof that none exists.';
 const INTRO =
   'Linked as each vendor publishes them. What they say about building a connection is theirs, not ours.';
@@ -465,11 +506,11 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     expect(writes, 'nothing is sent before the reader submits').toEqual([]);
   });
 
-  test('does not scroll sideways at 390, 768, 1024 and 1440', async ({ page, request }) => {
+  test('does not scroll sideways at 320, 390, 768, 1024 and 1440', async ({ page, request }) => {
     const pair = await findEmptyPair(request);
     test.skip(pair === null, 'no empty pair in the local catalog');
 
-    for (const width of [390, 768, 1024, 1440]) {
+    for (const width of [320, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
       await expectNoSidewaysScroll(page, `the empty pair page at ${width}px`);
@@ -482,11 +523,80 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
 
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
     const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();
     const serious = results.violations.filter(
       (v) => v.impact === 'critical' || v.impact === 'serious',
     );
     expect(serious, serious.map((v) => `${v.id}: ${v.help}`).join('\n')).toHaveLength(0);
+  });
+});
+
+/**
+ * AECI-1829: an empty pair whose closest matches have cards, from the seeded catalog. The
+ * filter runs in the browser and fetches nothing, so each step gates on the rendered count
+ * line, never on `networkidle` (`docs/TESTING_STRATEGY.md` §14.3 (b), AECI-1909).
+ */
+test.describe('product-PAIR page — the empty pair with match cards (AECI-1829)', () => {
+  test('renders match cards, narrows them by category, and keeps focus on the lane switch', async ({
+    page,
+    request,
+  }) => {
+    const pair = await findPopulatedEmptyPair(request);
+    test.skip(pair === null, 'no empty pair with closest matches in the local catalog');
+
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    const cards = page.getByTestId('pair-matches-cards').locator('li');
+    if (pair!.opensEmpty) {
+      // The "no-lane" state: its button switches the lane, and focus lands on the toggle.
+      const empty = page.getByTestId('pair-matches-empty');
+      await expect(empty).toHaveAttribute('data-empty', 'no-lane');
+      const button = empty.getByRole('button');
+      await untilHydrated(button);
+      await button.click();
+      const toggle = page.getByTestId('pair-matches-keep-other');
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      await expect(toggle).toBeFocused();
+    }
+    await expect(cards.first()).toBeVisible();
+    const total = await cards.count();
+    const count = page.getByTestId('pair-matches-count');
+    await expect(count).toHaveText(new RegExp(`^\\s*${total} of ${total} match`));
+
+    // Turning every category off leaves the designed empty state, and the count says 0.
+    const anchors = page.getByTestId('pair-matches-anchors').getByRole('button');
+    for (const anchor of await anchors.all()) {
+      await untilHydrated(anchor);
+      await anchor.click();
+    }
+    await expect(count).toHaveText(new RegExp(`^\\s*0 of ${total} match`));
+    await expect(page.getByTestId('pair-matches-empty')).toHaveAttribute('data-empty', 'all-off');
+  });
+
+  test('has no axe violations and no sideways scroll with the cards on the page', async ({
+    page,
+    request,
+  }) => {
+    const pair = await findPopulatedEmptyPair(request);
+    test.skip(pair === null, 'no empty pair with closest matches in the local catalog');
+
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+      if (pair!.opensEmpty) {
+        const toggle = page.getByTestId('pair-matches-keep-other');
+        await untilHydrated(toggle);
+        await toggle.click();
+      }
+      await expect(page.getByTestId('pair-matches-cards').locator('li').first()).toBeVisible();
+      await expectNoSidewaysScroll(page, `the empty pair page with cards at ${width}px`);
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      const serious = results.violations.filter(
+        (v) => v.impact === 'critical' || v.impact === 'serious',
+      );
+      expect(serious, serious.map((v) => `${v.id}: ${v.help}`).join('\n')).toHaveLength(0);
+    }
   });
 });

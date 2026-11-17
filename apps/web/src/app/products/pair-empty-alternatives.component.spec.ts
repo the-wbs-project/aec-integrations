@@ -205,6 +205,33 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     );
   });
 
+  it('moves focus to the pressed keep toggle when the no-lane state switches the lane', async () => {
+    const { fixture, el } = setup({
+      ...ALTERNATIVES,
+      lanes: {
+        context: { anchors: ALTERNATIVES.lanes.context.anchors, matches: [] },
+        other: ALTERNATIVES.lanes.context,
+      },
+    });
+    document.body.appendChild(el);
+    try {
+      const empty = el.querySelector('[data-testid="pair-matches-empty"]')!;
+      expect(empty.getAttribute('data-empty')).toBe('no-lane');
+      const button = empty.querySelector<HTMLButtonElement>('button')!;
+      expect(text(button)).toBe('Keep Sage 300 CRE');
+      button.focus();
+      button.click();
+      await fixture.whenStable();
+      // The message and its button are gone; focus is on the toggle now pressed, not the body.
+      expect(el.querySelector('[data-testid="pair-matches-empty"]')).toBeNull();
+      const toggle = el.querySelector('[data-testid="pair-matches-keep-other"]')!;
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(document.activeElement).toBe(toggle);
+    } finally {
+      el.remove();
+    }
+  });
+
   it('labels a confirmed match, links each card to its pair page and gates ratings', () => {
     const { el } = setup();
     const cards = el.querySelectorAll('[data-testid="pair-matches-cards"] article');
