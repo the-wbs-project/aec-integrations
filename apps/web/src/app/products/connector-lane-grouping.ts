@@ -310,7 +310,7 @@ export function splitIntegrationLanes(
 
 /**
  * The fields a row marks "Under review" (AECI-1238, §11d.7). `ProductIntegrationRow`
- * mounts one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
+ * and `ProductIntegrationCard` each mount one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
  * list. A collapsed Via row renders its representative edge only.
  */
 export function rowUnderReviewFields(integration: ProductIntegrationItem): readonly string[] {
