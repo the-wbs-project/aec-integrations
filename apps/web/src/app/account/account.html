@@ -5,16 +5,8 @@
   aria-labelledby="account-title"
   data-testid="page-canvas"
 >
-  <p class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)" i18n="@@account.eyebrow">
-    Account
-  </p>
-  <h1
-    id="account-title"
-    class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
-    i18n="@@account.title"
-  >
-    Your account
-  </h1>
+  <p class="aec-overline text-(--text-secondary)" i18n="@@account.eyebrow">Account</p>
+  <h1 id="account-title" class="mt-3" i18n="@@account.title">Your account</h1>
 
   <!-- The page's load status region (AECI-829, WCAG 4.1.3). Always rendered, so
        the swap from loading to the loaded account is announced. The visible
@@ -118,20 +110,17 @@
       @if (showOnboardingCard()) {
       <!-- ── Onboarding prompt (AECI-1296) ───────────────────────────────────── -->
       <div
-        class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-6"
+        aecCard
+        class="p-6 md:p-8"
         role="region"
         aria-labelledby="account-onboarding-heading"
         data-testid="onboarding-card"
       >
-        <h2
-          id="account-onboarding-heading"
-          class="text-lg font-semibold tracking-tight"
-          i18n="@@account.onboarding.heading"
-        >
+        <h2 id="account-onboarding-heading" i18n="@@account.onboarding.heading">
           Tell us about yourself
         </h2>
         <p
-          class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-prose text-t-16 leading-relaxed text-(--text-secondary)"
           i18n="@@account.onboarding.body"
         >
           A few questions about where you work and what you do. Your answers fill in your reviews
@@ -156,13 +145,8 @@
       }
 
       <!-- ── Profile ─────────────────────────────────────────────────────────── -->
-      <div
-        id="profile"
-        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.profile.heading">
-          Profile
-        </h2>
+      <div id="profile" aecCard class="scroll-mt-8 p-6 md:p-8">
+        <h2 i18n="@@account.profile.heading">Profile</h2>
 
         <!-- The controls keep a form measure; the panel takes the column. -->
         <div class="max-w-2xl">
@@ -174,7 +158,7 @@
             >
               Email
             </p>
-            <p class="text-sm text-(--text-primary)">{{ p.email }}</p>
+            <p class="text-t-16 text-(--text-primary)">{{ p.email }}</p>
           </div>
 
           <!-- Display name (editable) -->
@@ -198,7 +182,7 @@
                 [formField]="form.display_name"
                 [attr.aria-invalid]="form.display_name().touched() && form.display_name().invalid() ? 'true' : null"
                 [attr.aria-describedby]="form.display_name().touched() && form.display_name().getError('standardSchema') ? 'account-display-name-error' : null"
-                class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="inputClass"
               />
               <button aecButton type="submit" [disabled]="form().submitting()" class="shrink-0">
                 @if (form().submitting()) {
@@ -211,7 +195,7 @@
             @if (form.display_name().touched() && form.display_name().getError('standardSchema')) {
             <p
               id="account-display-name-error"
-              class="text-xs font-semibold text-(--text-primary)"
+              [class]="errorClass"
               role="alert"
               i18n="@@account.displayName.error"
             >
@@ -248,12 +232,12 @@
               <h3
                 id="account-about-heading"
                 tabindex="-1"
-                class="font-display text-lg font-normal text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@account.about.heading"
               >
                 About you
               </h3>
-              <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@account.about.help">
+              <p class="mt-1 text-t-14 text-(--text-secondary)" i18n="@@account.about.help">
                 Private. We use these answers to fill in your reviews and to understand who uses the
                 site.
               </p>
@@ -302,13 +286,8 @@
       </div>
 
       <!-- ── Your reviews ────────────────────────────────────────────────────── -->
-      <div
-        id="your-reviews"
-        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.reviews.heading">
-          Your reviews
-        </h2>
+      <div id="your-reviews" aecCard class="scroll-mt-8 p-6 md:p-8">
+        <h2 i18n="@@account.reviews.heading">Your reviews</h2>
 
         @if (reviewsLoading()) {
         <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.loading">
@@ -435,13 +414,8 @@
       </div>
 
       <!-- ── Delete account ──────────────────────────────────────────────────── -->
-      <div
-        id="delete-account"
-        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-strong) p-6"
-      >
-        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.delete.heading">
-          Delete account
-        </h2>
+      <div id="delete-account" aecCard class="scroll-mt-8 p-6 md:p-8">
+        <h2 i18n="@@account.delete.heading">Delete account</h2>
         <p
           class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@account.delete.body"
