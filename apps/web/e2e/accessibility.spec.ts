@@ -84,6 +84,43 @@ test.describe('redesign accessibility gate (AECI-1818)', () => {
     expect(hidden, 'focused controls fully hidden under the consent banner').toEqual([]);
   });
 
+  // The rule above stays out of modals: the open menu paints above the banner, so the
+  // banner cannot hide its focus, and the margin once scrolled the locked page behind it.
+  test('with the banner up, Tab through the open menu at 844 by 390 is never under the banner and the page stays put', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.goto('/products/fixture-procore');
+    await expect(page.getByRole('region', { name: 'Analytics consent' })).toBeVisible();
+    await waitForHydrationSettle(page);
+    const toggle = page.getByRole('button', { name: 'Menu', exact: true });
+    await expect(async () => {
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
+    }).toPass();
+    const panel = page.locator('#nav-menu-panel');
+    for (const name of ['Categories', 'Phases', 'Audiences', 'Trades']) {
+      await panel.getByRole('button', { name }).click();
+    }
+
+    const hidden: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press('Tab');
+      const covered = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || el === document.body) return null;
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return top?.closest('[aria-label="Analytics consent"]')
+          ? (el.innerText || el.tagName).trim()
+          : null;
+      });
+      if (covered) hidden.push(covered);
+    }
+    expect(hidden, 'menu controls painted under the consent banner').toEqual([]);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
   // WCAG 2.4.7 Focus Visible. The results panel is a Tab stop (`tabindex="0"`) and had
   // `focus-visible:outline-none`, so focus landed on it with nothing drawn.
   test('/search draws a focus ring on the results panel and names both search landmarks', async ({

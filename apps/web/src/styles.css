@@ -1567,9 +1567,19 @@ aec-section-nav
    meets the viewport, which left it hidden under the banner on narrow screens (WCAG 2.4.11,
    AECI-1818). This bottom margin makes that scroll stop above the banner. Only the bottom
    edge changes: fragment jumps, `InitialFragmentScroller` and router scroll restoration all
-   align to the top, so they land where they did. Unlayered, like the rule above. */
+   align to the top, so they land where they did. Unlayered, like the rule above.
+
+   Not inside a modal. The open mobile menu (`aria-modal` on its host) and everything in the
+   CDK overlay container (dialogs, the request drawer, popovers) paint above the banner, so
+   the banner cannot hide their focus. There the margin only hurt: the menu's last control
+   asked for more scroll than its panel had, and the browser took the rest from the page the
+   menu had locked (`overflow: hidden` still scrolls by script), moving it by about 120px at
+   844 by 390. `e2e/nav-menu.spec.ts` "landscape phone" guards that. */
 html[data-consent-reserve]
-  :is(a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]) {
+  :is(a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]):not(
+    [aria-modal='true'] *,
+    .cdk-overlay-container *
+  ) {
   scroll-margin-bottom: calc(var(--aec-consent-reserve) + 0.5rem);
 }
 

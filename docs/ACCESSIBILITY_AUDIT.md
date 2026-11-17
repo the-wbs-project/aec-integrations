@@ -328,13 +328,13 @@ The two defects axe cannot see were found by the keyboard pass and are fixed her
 
 | # | Surface | Finding | SC | Status |
 |---|---|---|---|---|
-| **R1** | Every page on a first visit, worst at 768px and below | The fixed consent banner hid the focused control. A `Tab` scrolled each control only to the viewport's bottom edge, which is under the banner. Measured fully hidden stops: 27 at 320px, 14 at 390px, 4 at 768px, 1 at 1440px (`/products/revit`). | 2.4.11 (AA, 2.2) | **Fixed.** While it shows, the banner publishes its height on `<html>`. An unlayered `scroll-margin-bottom` rule in `styles.css` keeps every focusable element above it. After the fix: 0 hidden and 0 partly hidden stops at every width. |
+| **R1** | Every page on a first visit, worst at 768px and below | The fixed consent banner hid the focused control. A `Tab` scrolled each control only to the viewport's bottom edge, which is under the banner. Measured fully hidden stops: 27 at 320px, 14 at 390px, 4 at 768px, 1 at 1440px (`/products/revit`). | 2.4.11 (AA, 2.2) | **Fixed.** While it shows, the banner publishes its height on `<html>`. An unlayered `scroll-margin-bottom` rule in `styles.css` keeps every focusable element above it. After the fix: 0 hidden and 0 partly hidden stops at every width. The rule skips anything inside a modal (the open mobile menu, and the CDK overlay container's dialogs, drawer and popovers). Those paint above the banner, measured at 844 by 390, 390 by 844 and 320 by 640, so the banner cannot hide their focus. A first version applied inside the menu too. Its last control then asked for more scroll than the panel had, and the browser scrolled the locked page behind the menu by about 120px. CI caught it in `nav-menu.spec.ts` "landscape phone". |
 | **R2** | `/search` | The results tab panel is a Tab stop (`tabindex="0"`) and carried `focus-visible:outline-none`. Focus landed on it with nothing drawn. | 2.4.7 (AA, 2.0) | **Fixed.** The panel takes the standard 3px Forest ring at a 4px offset. |
 | **R3** | `/search` | The page's own `role="search"` form had no name. A landmarks list showed "Site search" and an unnamed "search". The A5 class. | 1.3.1 (A), best-practice | **Fixed.** `aria-labelledby` points at the existing "Search the directory" label. No new words. |
 
 Regression guards: `e2e/accessibility.spec.ts` "redesign accessibility gate (AECI-1818)" tabs
 45 stops at 320px with the banner up. With the fix switched off it failed and listed 16 hidden
-controls. It also asserts the panel ring and the two distinct landmark names. The component specs
+controls. A second case opens the menu at 844 by 390 with the banner up. It tabs 60 stops and asserts none is painted under the banner and the page behind stays at 0. A third asserts the panel ring and the two distinct landmark names. The component specs
 `consent-banner.component.spec.ts` and `search-page.component.spec.ts` pin the attribute, the
 custom property, the label link and the ring classes.
 
