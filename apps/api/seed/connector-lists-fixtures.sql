@@ -12,7 +12,7 @@
 --   The remote seed step (`scripts/d1-apply-migrations.sh`) runs taxonomy.sql,
 --   data-objects.sql and trades.sql only.
 --
--- WHAT IT SEEDS (29 products, no vendor, no category, no review)
+-- WHAT IT SEEDS (29 products and their one vendor; no category, review or claim)
 --   * fixture-connector-hub "Zz Fixture Connector Hub", connector. Powers 39 pairs
 --     through connector_evidenced_pairs: Hub One with partners 01-24, and the
 --     hybrid with partners 11-25.
@@ -21,6 +21,10 @@
 --     (partners 11-25), so its Integrations section has a Via lane past 20 rows.
 --     It also powers 21 pairs: Hub Two with partners 01-21.
 --   * Hub One, Hub Two and 25 partners, fixture-connector-lists-*.
+--   * One vendor, fixture-connector-lists-vendor "Zz Fixture Connector Lists
+--     Vendor", primary on all 29 products. Unverified and with no license, so the
+--     paid-plan mirror has nothing to agree with. Without a vendor every product
+--     would be a products_without_vendor finding in the scheduled data-quality run.
 --   * integration_count follows the recompute rule (recompute-counts.ts): live
 --     integrations where the product is an endpoint, plus evidenced pairs where it
 --     is an endpoint or the connector.
@@ -28,10 +32,11 @@
 -- KEPT OUT OF THE WAY OF OTHER TESTS
 --   * Every name starts "Zz Fixture", so A to Z lists put these last.
 --   * created_at is 2020-01-01, so "Newest" lists keep their top.
---   * No taxonomy term, vendor, review or claim, so no data-quality check sees a
---     new kind of row. Every product is promoted, so promotion_status_invariant holds.
+--   * No taxonomy term, review or claim. Every product is promoted and has a
+--     vendor, so the scheduled data-quality checks add no finding
+--     (src/test/seed-data-quality.spec.ts runs them over the seed chain).
 --
--- IDS: 00000000-0000-4000-8000-00000000190x (products 1900-1935),
+-- IDS: 00000000-0000-4000-8000-00000000190x (products 1900-1935, vendor 1904),
 --      -00000000200x (evidenced pairs), -00000000210x (integrations).
 --   product_a_id < product_b_id on every evidenced pair (the canonical_order CHECK):
 --   the hybrid and the hubs take lower ids than the partners.
@@ -77,6 +82,20 @@ ON CONFLICT ("slug") DO UPDATE SET
   "research_status" = excluded."research_status",
   "promotion_status" = excluded."promotion_status",
   "created_at" = excluded."created_at";
+
+-- The one vendor, unverified, no license.
+INSERT INTO "vendors" ("id","slug","company_name","website","verified","promotion_status","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000001904','fixture-connector-lists-vendor','Zz Fixture Connector Lists Vendor','https://example.com/fixture-connector-lists-vendor',0,'promoted','2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z')
+ON CONFLICT ("slug") DO UPDATE SET
+  "company_name" = excluded."company_name",
+  "verified" = excluded."verified",
+  "promotion_status" = excluded."promotion_status";
+
+INSERT INTO "product_vendors" ("product_id","vendor_id","is_primary","created_at")
+  SELECT p.id, '00000000-0000-4000-8000-000000001904', 1, '2020-01-01T00:00:00.000Z' FROM "products" p
+  WHERE p.slug IN ('fixture-hybrid-via','fixture-connector-hub')
+     OR p.slug LIKE 'fixture-connector-lists-%'
+ON CONFLICT ("product_id","vendor_id") DO NOTHING;
 
 -- Direct integrations (10): the hybrid with partners 01-10.
 INSERT INTO "integrations" ("id","name","source_product_id","target_product_id","mechanism_kind","mechanism_name","direction","created_at","updated_at") VALUES
