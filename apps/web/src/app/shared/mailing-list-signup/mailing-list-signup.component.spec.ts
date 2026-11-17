@@ -147,10 +147,16 @@ describe('MailingListSignup', () => {
     const { el } = setup();
     const card = el.querySelector('[data-testid="mailing-list-card"]')!;
     expect(card.classList).toContain('lg:grid');
-    expect(card.classList).toContain('lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]');
+    // Equal halves at lg, so the words keep a readable measure at 1024px; the 32rem form
+    // column waits for xl.
+    expect(card.classList).toContain('lg:grid-cols-2');
+    expect(card.classList).toContain('xl:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]');
     // Two columns: the words, then the form.
     expect(card.children[0]!.querySelector('h2')).not.toBeNull();
     expect(card.children[1]!.tagName).toBe('FORM');
+    // In the narrower words column the headline balances its lines, so "land" never
+    // sits alone on the second line at 1440px.
+    expect(card.querySelector('h2 > span')!.classList).toContain('text-balance');
   });
 
   it('surfaces the inline email error once touched', async () => {

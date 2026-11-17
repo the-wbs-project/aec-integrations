@@ -54,8 +54,10 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
  * words, the validation, the POST and the analytics event are unchanged.
  *
  * **Two columns (AECI-1720 restore).** From `lg` the card splits: the words on the left,
- * the form on the right, so the card never leaves its right half blank. Below `lg` they
- * stack as before. The Subscribe button is enabled until a submit is in flight or done.
+ * the form on the right, so the card never leaves its right half blank. The halves are
+ * equal at `lg` and the form takes a 32rem column from `xl`: a 32rem form at 1024px left
+ * the words a 240px column and a three-line headline. Below `lg` they stack as before.
+ * The Subscribe button is enabled until a submit is in flight or done.
  */
 @Component({
   selector: 'aec-mailing-list-signup',
@@ -67,7 +69,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
       <div [class]="wrap">
         <div
           aecCard
-          class="p-8 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-center lg:gap-x-12 lg:p-12"
+          class="p-8 lg:grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-center lg:gap-x-12 lg:p-12"
           data-testid="mailing-list-card"
         >
           <div class="min-w-0">
@@ -76,7 +78,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
             </p>
             <h2 class="mt-3 max-w-2xl text-(--text-primary)">
               <span
-                class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
+                class="block text-t-36 leading-[1.1] tracking-[-0.02em] text-balance"
                 i18n="@@mailing-list-signup.headline"
                 >Know when new tools and reviews land</span
               >
