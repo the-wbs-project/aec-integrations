@@ -1521,6 +1521,8 @@ powered hub's `PoweredIntegrationItem` does not: its rows have no single partner
 - **`partner_categories`**: the categories of the endpoint that is not the page product, in the
   order a product's own categories take (AECI-1242): curated `display_order`, then name, then slug.
   `[]` for a partner with none.
+- **`partner_vendor_name`** (AECI-1720): the partner's primary vendor, the company the partner's
+  own product card names. The card prints it as "by {vendor}". `null` with no vendor on record.
 - **`data_objects`**: the objects in `data_object_slugs`, each with its name, in the order the pair
   page's claim lanes use: curated `display_order`, then name, then slug. Same claims, same set. The
   names come from `taxonomy_data_objects`, the source the pair page's claim lanes read.

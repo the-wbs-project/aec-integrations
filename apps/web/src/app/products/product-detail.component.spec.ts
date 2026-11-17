@@ -1974,6 +1974,36 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     ).toBe(NO_DIRECTORY);
   });
 
+  // AECI-1720: a vendor whose name ends in a full stop ("SiteLedger Inc.") printed
+  // "Inc.." here. The legal-reviewed message is unchanged; the name gives up its stop.
+  it('ends the No directory line in one full stop when the vendor name ends in one', () => {
+    const p = buildProduct();
+    const { el } = setup(buildProduct({ vendor: { ...p.vendor!, name: 'SiteLedger Inc.' } }));
+    const line = squash(
+      section(el).querySelector('[data-testid=integrations-zero-no-directory]')!.textContent,
+    );
+    expect(line).toBe('We have not found an integrations page published by SiteLedger Inc.');
+    expect(line).not.toContain('..');
+  });
+
+  it('carries the kicker over the legal heading, as a paragraph, not a heading (AECI-1720)', () => {
+    const { el } = setup(buildProduct());
+    const kicker = section(el).querySelector('[data-testid=integrations-kicker]')!;
+    expect(kicker.tagName).toBe('P');
+    expect(squash(kicker.textContent)).toBe('Integrations on record');
+  });
+
+  it('heads the vendor card "From {vendor}" with one line on what its links are (AECI-1720)', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
+    const vendor = section(el).querySelector('[data-testid=integrations-zero-vendor]')!;
+    expect(squash(vendor.querySelector('#integrations-zero-resources')!.textContent)).toBe(
+      'From Procore Technologies',
+    );
+    expect(
+      squash(vendor.querySelector('[data-testid=integrations-zero-vendor-intro]')!.textContent),
+    ).toBe('What the vendor publishes about connecting to Procore.');
+  });
+
   it('never says the product "does not integrate"', () => {
     const { el } = setup(buildProduct());
     expect(el.textContent).not.toMatch(/does not integrate|doesn.t integrate/i);
@@ -2011,7 +2041,7 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     expect(squash(button.textContent)).toBe('It does exist');
   });
 
-  it('keeps the outline: the section h2, then the h3 "Know of one?" before the h3 Resources', () => {
+  it('keeps the outline: the section h2, then the h3 "Know of one?" before the h3 vendor card', () => {
     const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
     const headings = [...section(el).querySelectorAll('h2, h3')].map(
       (h) => `${h.tagName} ${squash(h.textContent)}`,
@@ -2019,7 +2049,7 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     expect(headings).toEqual([
       'H2 We have no integrations for Procore on record',
       'H3 Know of one?',
-      'H3 Resources',
+      'H3 From Procore Technologies',
     ]);
   });
 

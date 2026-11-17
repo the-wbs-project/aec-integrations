@@ -1226,6 +1226,24 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
     expect(row?.partner_categories).toEqual([]);
     expect(row?.data_objects).toEqual([]);
     expect(row?.agreement).toBeNull();
+    expect(row?.partner_vendor_name).toBeNull();
+  });
+
+  it("names the partner's primary vendor, never the page product's (AECI-1720)", async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await t.db.insert(productVendors).values([
+      { productId: u(1), vendorId: u(91), isPrimary: true },
+      // A secondary vendor first in insert order: the primary still wins.
+      { productId: u(2), vendorId: u(91), isPrimary: false },
+      { productId: u(2), vendorId: u(92), isPrimary: true },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+
+    expect((await rows('procore'))(u(51))?.partner_vendor_name).toBe('Globex');
+    expect((await rows('sage-intacct'))(u(51))?.partner_vendor_name).toBe('Acme');
   });
 
   it('reads confirmed only when every claim is, and lets a conflict win', async () => {

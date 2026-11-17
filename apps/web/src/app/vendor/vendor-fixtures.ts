@@ -2080,6 +2080,7 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             data_object_slugs: [],
             data_objects: [],
             partner_categories: [],
+            partner_vendor_name: null,
             agreement: null,
           },
         ],

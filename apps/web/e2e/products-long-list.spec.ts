@@ -71,7 +71,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await expect(groups).toHaveCount(Object.keys(FIXTURE.groups).length);
     const seen: Record<string, number> = {};
     for (const group of await groups.all()) {
-      const name = (await group.locator('h3').textContent())!.trim();
+      const name = (await group.locator('h4').textContent())!.trim();
       seen[name] = await group.locator(':scope > ul > li').count();
     }
     expect(seen).toEqual(FIXTURE.groups);
@@ -105,7 +105,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     expect(count).toBeGreaterThan(1);
     for (let i = 0; i < count; i++) {
       const group = groups.nth(i);
-      const name = (await group.locator('h3').textContent())!.trim();
+      const name = (await group.locator('h4').textContent())!.trim();
       const heading = (await group
         .getByTestId('integration-category-group-count')
         .locator('[aria-hidden]')
@@ -165,6 +165,44 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await page.getByTestId('integrations-load-more').click();
     await expect(visible).toHaveCount(Math.min(24, target.rows));
   });
+
+  // AECI-1720: one column below md shows 3 cards a group, two or three columns show 6.
+  // The rows are in the DOM at both widths; only CSS differs, so hydration changes nothing.
+  for (const [width, peek] of [
+    [390, 3],
+    [1280, 6],
+  ] as const) {
+    test(`at ${width}px a closed group shows its first ${peek} cards`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${target.slug}`);
+      const groups = page.locator('section[aec-product-integration-category-group]');
+      // By the group heading: a card's category chips name other groups too.
+      const group = (name: string) =>
+        groups.filter({ has: page.getByRole('heading', { name, level: 4, exact: true }) });
+      const alpha = group('Zz Fixture Category Alpha');
+      const beta = group('Zz Fixture Category Beta');
+      const cards = (g: typeof alpha) => g.locator('li[aec-product-integration-card]');
+      // A card hidden until found is a 1px clipped box, which Playwright counts as
+      // visible, so "shown" is a visible card that is not hidden until found.
+      const shown = (g: typeof alpha) =>
+        g.locator('li[aec-product-integration-card]:not([hidden])').filter({ visible: true });
+      await expect(cards(alpha)).toHaveCount(8);
+      await expect(shown(alpha)).toHaveCount(peek);
+      // Beta has 4: all show from md, 3 and a button on a phone.
+      await expect(shown(beta)).toHaveCount(Math.min(peek, 4));
+      const betaButton = beta.getByTestId('integration-category-group-toggle');
+      await (width < 768 ? expect(betaButton).toBeVisible() : expect(betaButton).toBeHidden());
+      const button = alpha.getByTestId('integration-category-group-toggle');
+      const label = button.getByTestId(
+        width < 768 ? 'integration-show-more-phone' : 'integration-show-more',
+      );
+      await expect(label).toBeVisible();
+      await expect(label).toHaveText(`Show ${8 - peek} more in Zz Fixture Category Alpha`);
+      await untilHydrated(button);
+      await button.click();
+      await expect(shown(alpha)).toHaveCount(8);
+    });
+  }
 
   test('nothing overflows sideways at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });

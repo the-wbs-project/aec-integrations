@@ -226,6 +226,14 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    */
   partner_categories: z.array(IntegrationTermSchema).default([]),
   /**
+   * The partner's primary vendor name (AECI-1720, mock-up 6's "by {vendor}" card
+   * byline): the company the partner product card already names, picked the same
+   * way (`pickPrimaryVendorRow`). `null` for a partner with no vendor on record. Absent
+   * from an API that predates the field, which a client reads the same way. Row data
+   * only: nothing orders, filters or counts by it.
+   */
+  partner_vendor_name: z.string().nullable().optional(),
+  /**
    * The row's agreement state (AECI-1781), one of the pair page's four claim states.
    * Ruling 2026-11-14 (Chris, asked on AECI-1781): "A", the weakest flow decides.
    * Rolled up by `integrationAgreement` (`../agreement`), where any `conflict` wins,
