@@ -30,6 +30,7 @@ import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { planChangeSnapshots } from '../db/schema';
+import { sha256HexBytes } from './hash';
 import {
   buildPlanChangeSnapshot,
   planSnapshotKey,
@@ -80,12 +81,6 @@ export interface PlanSnapshotSweepOptions {
   limit?: number;
 }
 
-/** Lowercase hex SHA-256. */
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** Stamp the row written. Guarded on `r2_key IS NULL`, so a double-fired run that
  *  already stamped it changes nothing. */
 async function stamp(db: Db, id: string, key: string, at: string): Promise<void> {
@@ -113,7 +108,7 @@ async function writeOne(
     commitSha: opts.commitSha,
   });
   const body = new TextEncoder().encode(`${JSON.stringify(snapshot)}\n`).buffer as ArrayBuffer;
-  const sha256 = await sha256Hex(body);
+  const sha256 = await sha256HexBytes(body);
   const customMetadata = {
     schema: String(PLAN_SNAPSHOT_SCHEMA),
     sha256,

@@ -1836,6 +1836,40 @@ pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-productio
 
 The rule protects objects written before it too, so a snapshot written between the deploy and the lock is covered once the rule exists. Do not add a lifecycle rule on `evidence/`. A lock wins over a lifecycle rule anyway, and nothing should ever expire these objects.
 
+### Acceptance chain lock (AECI-1680, ADR 0057)
+
+Since AECI-1680 a nightly job (`acceptance-chain`, 18:00 UTC, on `RECONCILE_QUEUE`) writes the agreement acceptance chain into `UPLOADS` under `evidence/acceptance-chain/`: one hash-chained JSON file of row fingerprints a night, and DigiCert's RFC 3161 token beside it as `.tsr`. These files must never change. The 4-year `evidence/` rule above already covers them, but acceptance retention is the life of the account plus six years, which has no fixed end, so they get their own rule held indefinitely. When two rules cover a key, the longer one wins. The rule protects files written before it too. `ops:verify-acceptance-chain` reports `LOCK MISSING` as a failure when no rule covers the prefix, and `LOCK NOT INDEFINITE`, also a failure, when only the 4-year rule does (legal ruling 2026-11-17).
+
+**Operator step right after the AECI-1680 deploy reaches each tier: add the lock, then run the verify.** Do it before that tier's first 18:00 UTC export if you can. Until the rule exists, a chain file can be overwritten. The DigiCert token stays the backstop, because an account admin can remove a lock rule. Chris runs these by hand from the repo root, logged in to the WBS Project account. An agent never runs them. Each asks for confirmation. An indefinite rule cannot lapse, and a bucket with it can never be emptied while it exists. Legal ruled for the indefinite rule on 2026-11-17, so do not swap in a fixed term. Staging first, after the deploy that carries migration `0125`:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-staging --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Demo, after the promote to demo:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-demo --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Production, after the promote to production:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-production --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Check each with the next command. It should list `evidence-4y` and `acceptance-chain`, the second with prefix `evidence/acceptance-chain/` and condition `indefinitely`.
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-production
+```
+
+Then run the verify on that tier. It must print `LOCK:  LOCKED`. `LOCK MISSING` and `LOCK NOT INDEFINITE` are both failures.
+
+```
+pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production
+```
+
 Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.
 
 ## Operator steps after merge (AECI-1268)

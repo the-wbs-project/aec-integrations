@@ -364,6 +364,10 @@ records before they run, rather than stopping the job:
 **Records no job deletes.** The plan-change ranking snapshots under `evidence/` in each `UPLOADS`
 bucket are under a 4-year R2 bucket lock (ADR 0056). Nobody can delete or overwrite them, so the hold
 needs no step for them. Their ledger, `plan_change_snapshots` in D1, has no delete path either.
+The acceptance chain files under `evidence/acceptance-chain/` (ADR 0057) are under their own
+indefinite lock, and their ledger tables have no delete path. They hold fingerprints, not rows, so
+they prove an acceptance row was not edited but cannot restore it. Export the acceptance rows
+themselves for the hold.
 
 **Ending a hold.** Only when the attorney says the matter is closed. Record the end date on the Linear
 issue and tell everyone who got the notice.
@@ -412,6 +416,81 @@ cd /tmp && npx wrangler r2 object get "aeci-uploads-production/$KEY" --remote --
    present the saved D1 rank as a search position (`SEARCH_RANKING.md` §7a).
 7. A row with `r2_key` NULL was not written yet, or is failing. See `alerts.md`
    "Plan-change snapshot sweep". Say so in the reply rather than leave the date out.
+8. Move the files out of `/tmp` into the hold folder.
+
+## Prove an acceptance was not edited
+
+Use this when a demand letter, a court or counsel asks us to show that an agreement acceptance or a
+license grant is what was recorded at the time. Counsel asked for a tamper-evident record (Q5(c)),
+and Chris ruled yes (ruling 15).
+
+Each night at 18:00 UTC a job writes the SHA-256 fingerprint of every new or changed
+`agreement_acceptances` and `license_grants` row to a file in the production `UPLOADS` bucket under
+`evidence/acceptance-chain/`. Each file names the hash of the file before it, and DigiCert signs a
+timestamp of each file's hash. The files hold fingerprints, ids and fields that are not personal.
+The IP address and browser are not in the fingerprint. ADR 0057.
+
+1. Open a Linear issue for the matter, as for every legal event above.
+2. Run the verify after 18:15 UTC, so the night's export has run. It is read-only. It needs
+   `openssl` on your PATH and a wrangler login with R2 and D1 read on the account.
+
+```
+pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production
+```
+
+3. Read the result. The verify ends with three separate lines: `LOCK:`, `CHAIN:` and `ROWS:`. A
+   missing lock and a broken chain are different events with different remedies, so neither is
+   folded into the other. `PASS` means `LOCKED`, `CHAIN INTACT` and `ROWS MATCH`. Each finding
+   means:
+
+| Finding | What it means | What to do |
+|---|---|---|
+| `LOCK MISSING` | No R2 lock rule covers the chain. Anyone with R2 write access could change it | Apply the lock in `docs/environments.md` "Acceptance chain lock", then re-run |
+| `LOCK NOT INDEFINITE` (fail) | Only the 4-year `evidence/` rule covers it. Those files become deletable when it lapses | Apply the indefinite rule |
+| `CHAIN BROKEN` | A file in R2 was changed, replaced, deleted or malformed. The seq named is the first file that no longer proves the ones before it | Stop. Tell Chris and counsel. Do not touch R2 |
+| `CHAIN STALE` | Every link holds, but the newest file is more than 50 hours old. The export stopped, or the newest files were deleted | Check `job_runs` and `alerts.md` "Acceptance chain export". If the export ran, treat it as `CHAIN BROKEN` |
+| `TIMESTAMP MISSING` | DigiCert was unreachable that night, or its reply failed the Worker's signature check and was not stored. Each run retries up to 7 outstanding earlier files, newest first, with no age cutoff | Check `alerts.md` "Acceptance chain export" if it persists |
+| `TIMESTAMP INVALID` | `openssl ts -verify` failed. Usually DigiCert rotated its intermediate | See the header of `apps/api/scripts/certs/digicert-tsa-chain.pem` |
+| `CHANGED` | The D1 row differs from its last fingerprint | Find its audit row. A write after the last export with an audit row is legitimate and shows in tomorrow's file. One with no audit row is an edit outside the app |
+| `UNEXPORTED` (fail) | A row older than the last export is missing from the chain | Treat it as `CHANGED` |
+| `ABSENT` | A row in the chain is missing from D1 | Restore it from D1 Time Travel if within 30 days, and tell Chris |
+| `TOMBSTONE WITHOUT PRUNE AUDIT` | A row was deleted with no prune audit row naming it | Treat it as `ABSENT` |
+
+4. To give the evidence for one acceptance, set `ID` to the acceptance id. Find the files that
+   carry it. Each night's file only lists the rows that changed, so the latest file that names it
+   holds its current fingerprint.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT seq, fingerprint, deleted FROM acceptance_chain_rows WHERE row_id = '$ID'"
+```
+
+5. Set `SEQ` to the six-digit seq, for example `000042`. Download that file and its timestamp token
+   into the matter's hold folder. Then download every earlier file too, because each link proves the
+   one before it. The verify in step 2 already walked them all.
+
+```
+cd /tmp && npx wrangler r2 object get "aeci-uploads-production/evidence/acceptance-chain/$SEQ.json" --remote --file "$SEQ.json"
+```
+
+```
+cd /tmp && npx wrangler r2 object get "aeci-uploads-production/evidence/acceptance-chain/$SEQ.tsr" --remote --file "$SEQ.tsr"
+```
+
+6. Anyone can check the token. Run these two from the repo root. Set `SHA` to the file's SHA-256
+   from the first, then run the check against the pinned DigiCert chain. It prints
+   `Verification: OK`.
+
+```
+shasum -a 256 "/tmp/$SEQ.json"
+```
+
+```
+openssl ts -verify -digest "$SHA" -in "/tmp/$SEQ.tsr" -CAfile apps/api/scripts/certs/digicert-tsa-chain.pem
+```
+
+7. The row's fingerprint is `sha256(canonicalJson(...))` over the columns in `COLUMN_MANIFEST`
+   (`apps/api/src/lib/acceptance-chain.ts`). That code at the commit that wrote the file says
+   exactly how to recompute it from the D1 row.
 8. Move the files out of `/tmp` into the hold folder.
 
 ## A legal change notice did not go out

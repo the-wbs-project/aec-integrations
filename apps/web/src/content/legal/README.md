@@ -610,6 +610,17 @@ Some sentences here are promises about what we do when something happens. The pr
 | Single-use links "stop working within days" | Privacy Policy "Edge request log" and "Debugging record" | "Data breach (Fla. Stat. 501.171)", recorded checks |
 | We promptly notify the poster, forward a counter-notice, restore between 10 and 14 business days after it unless a court action is filed, and keep a log of every notice and counter-notice | Terms of Service "Copyright complaints" | "Copyright notice or counter-notice" |
 
+### The acceptance evidence chain (AECI-1680)
+
+Every acceptance of these agreements is a row in `agreement_acceptances`. Each night at 18:00 UTC
+a job writes the SHA-256 fingerprint of every new or changed acceptance and grant row to a
+hash-chained file in the `UPLOADS` R2 bucket under `evidence/acceptance-chain/`, and DigiCert
+timestamps each file (ADR 0057). The files hold fingerprints and fields that are not personal,
+never the rows, and the IP address and browser are not in the fingerprint. To prove an acceptance
+was not edited, run `pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production`.
+The steps are in `docs/runbooks/legal.md` "Prove an acceptance was not edited". No page promises
+this record, so a change to it needs no new legal version.
+
 ## Site-wide notice of a material change (spec §27.4, AECI-1592)
 
 The Privacy Policy promises a notice on every page for 30 days before a material change takes effect,
