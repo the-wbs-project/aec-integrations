@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: October 27, 2026
+last_updated: November 17, 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -63,7 +63,7 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 ## When there is nothing listed
 
-If no integration is recorded between two products, the page says "We have no integration between (one product) and (the other) on record." Under it: "Not on record means we have not found one. It is not proof that none exists." The page then sets the two products side by side: how many integrations each has on record, their reviews and ratings, and who each is for. Last, it links each vendor's own integrations page and API documentation, so you can look it up yourself. Those pages are the vendor's words, not ours. An API is not an integration. If you know of one, tell us. See [Requests and corrections](/docs/reviewers/requests-and-corrections).
+If no integration is recorded between two products, the page says "We have no integration between (one product) and (the other) on record." Under it: "Not on record means we have not found one. It is not proof that none exists." The page then sets the two products side by side. It shows how many integrations each has on record. When either product has reviews, it also shows each one's review count and ratings. A product shows ratings once it has five reviews. Where we list them, it shows who each product is for. Last, it links each vendor's own integrations page and API documentation, where we have the link on record. Those pages are the vendor's words, not ours. An API is not an integration. If you know of one, tell us. See [Requests and corrections](/docs/reviewers/requests-and-corrections).
 
 ## On a product's page
 

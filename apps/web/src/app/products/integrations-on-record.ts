@@ -41,3 +41,15 @@ export function showsNoIntegrationsDirectory(p: ProductDetail): boolean {
   if (isUnderReview(p.under_review, 'tool_integrations_url')) return false;
   return !correctionInSlot(p.captions?.corrections, 'tool_integrations_url', false);
 }
+
+/**
+ * The figure "integrations on record" prints for a product (AECI-1827): the stored
+ * `integration_count`, unless it is 0. That column is recomputed after each write, so it
+ * can lag the rows, and a stored zero never wins over listed rows. The product page's
+ * facts card passes the rows its page lists. The empty pair page passes the API's
+ * `listed_integration_count`, the same rows counted on the server
+ * (`countListedIntegrationRows`). One function, so the two pages cannot disagree.
+ */
+export function integrationsOnRecordCount(stored: number, listed: number): number {
+  return stored === 0 ? listed : stored;
+}

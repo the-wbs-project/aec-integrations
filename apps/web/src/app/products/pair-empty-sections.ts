@@ -28,6 +28,7 @@ import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { integrationNoun } from './integration-stat';
+import { integrationsOnRecordCount } from './integrations-on-record';
 
 /** A group heading: the overline with its 16px glyph, as on the product page. */
 const GROUP_HEADING = 'aec-overline flex items-center gap-2 text-(--text-secondary)';
@@ -165,17 +166,20 @@ function hasWho(p: ProductPairSubject): boolean {
                 </th>
                 @for (s of sides(); track s.key) {
                   <td [class]="cell">
-                    @if (s.product.integration_count > 0) {
+                    <!-- The product page facts card's figure (integrationsOnRecordCount),
+                         so the two pages print the same number. A zero is words, never a
+                         bare 0 (ruling 96, option B). -->
+                    @if (s.onRecord > 0) {
                       <span
                         class="block font-display text-t-20 leading-[1.1] font-semibold tabular-nums text-(--text-primary)"
-                        >{{ count(s.product.integration_count) }}</span
+                        >{{ count(s.onRecord) }}</span
                       >&ngsp;
-                      <span class="text-t-13 text-(--text-secondary)">{{
-                        noun(s.product.integration_count)
-                      }}</span>
+                      <span class="text-t-13 text-(--text-secondary)">{{ noun(s.onRecord) }}</span>
                     } @else {
-                      <span class="text-t-14 text-(--text-secondary)" i18n="@@products.stat.none"
-                        >Not yet connected</span
+                      <span
+                        class="text-t-14 text-(--text-secondary)"
+                        i18n="@@pair.empty.facts.integrationsNone"
+                        >None on record yet</span
                       >
                     }
                   </td>
@@ -568,6 +572,10 @@ export class PairEmptySections {
       return {
         key,
         product,
+        onRecord: integrationsOnRecordCount(
+          product.integration_count,
+          product.listed_integration_count ?? 0,
+        ),
         overall: visibleRating(product.rating_overall_avg, product.review_count),
         onboarding: visibleRating(product.rating_onboarding_avg, product.review_count),
         hasWho: hasWho(product),

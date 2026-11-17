@@ -28,6 +28,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
+import { integrationsOnRecordCount } from './integrations-on-record';
 import { integrationNoun } from './integration-stat';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin } from './product-extensions';
@@ -426,10 +427,9 @@ export class ProductFactsCard {
    * after each write, so it can lag the rows. A stored zero never wins over listed rows:
    * the card must not say "We have no integrations on record" above a list of them.
    */
-  protected readonly count = computed(() => {
-    const stored = this.product().integration_count;
-    return stored === 0 ? this.pageRowCount() : stored;
-  });
+  protected readonly count = computed(() =>
+    integrationsOnRecordCount(this.product().integration_count, this.pageRowCount()),
+  );
 
   /** The printed count. `aec-figure` never formats. */
   protected readonly countText = computed(() => formatNumber(this.count(), this.locale, '1.0-0'));

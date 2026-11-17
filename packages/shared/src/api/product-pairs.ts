@@ -435,6 +435,14 @@ export const ProductPairSubjectSchema = ProductListItemSchema.extend({
   api_docs_url: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   /**
+   * AECI-1827: how many rows the product's own page lists under "Integrations" and
+   * "Integrations it powers" (`countListedIntegrationRows`). The product page's facts
+   * card prints this when the stored `integration_count` is 0, because that column can
+   * lag. The empty pair page applies the same rule (`integrationsOnRecordCount`), so the
+   * two pages print the same figure. Required: the API deploys before the SSR Worker.
+   */
+  listed_integration_count: z.number().int().min(0),
+  /**
    * AECI-1827: the captions the empty pair page needs beside the facts it shows. `managed`
    * is the product's "Maintained by" line for the Managed group (the two links, audiences,
    * phases and trades), built by the same function as `ProductDetail.captions.managed`.

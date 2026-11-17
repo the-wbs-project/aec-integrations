@@ -614,9 +614,13 @@ function writePairViewCookie(mode: PairViewMode): void {
         <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
         <div heroKicker class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p class="aec-overline text-(--text-on-brand-secondary)" i18n="@@pair.eyebrow">
-            Integration
-          </p>
+          <!-- AECI-1827, ruling 98: the empty pair drops the word, so "Integration" never
+               sits directly above "We have no integration". The chip stays. -->
+          @if (v.mechanisms.length > 0) {
+            <p class="aec-overline text-(--text-on-brand-secondary)" i18n="@@pair.eyebrow">
+              Integration
+            </p>
+          }
           <!-- One header marker for the whole pair; computePairMaintenance folds the N
                mechanisms server-side (AECI-616). Distinct from the per-claim agreement
                badge on the mechanism cards below: this says who is on the hook for the

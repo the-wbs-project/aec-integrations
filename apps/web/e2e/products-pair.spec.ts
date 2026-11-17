@@ -341,7 +341,9 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
     expect(html).not.toContain('application/ld+json');
     const title = decode(html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '');
-    expect(title).toContain(CAVEAT);
+    // Ruling 97: the two names, then the caveat, word for word.
+    expect(title.endsWith(`: ${CAVEAT}`)).toBe(true);
+    expect(title).not.toContain('integration:');
     for (const name of ['description', 'twitter:description', 'twitter:title']) {
       const content = html.match(new RegExp(`<meta name="${name}" content="([^"]*)"`))?.[1];
       expect(decode(content ?? ''), name).toContain(CAVEAT);
@@ -368,6 +370,16 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     );
     await expect(page.getByTestId('pair-empty-caveat')).toHaveText(CAVEAT);
     await expect(page.getByTestId('pair-empty-look-it-up-intro')).toHaveText(INTRO);
+    // Ruling 98: no "Integration" overline above the statement; the chip stays.
+    await expect(page.locator('[heroKicker] .aec-overline')).toHaveCount(0);
+    await expect(page.locator('[heroKicker] aec-maintenance-marker')).toHaveCount(1);
+    // Ruling 96: the integrations row never shows a bare 0.
+    for (const cell of await page
+      .getByTestId('pair-empty-facts-integrations')
+      .locator('td')
+      .all()) {
+      await expect(cell).not.toHaveText(/^\s*0\s*$/);
+    }
     await context.close();
   });
 

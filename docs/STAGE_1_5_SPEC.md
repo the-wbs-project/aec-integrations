@@ -741,7 +741,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 
 **Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822). AECI-1827 added each side's corrections, its Managed "Maintained by" caption and its `under_review` list to the pair payload (`docs/API_CONTRACTS.md`). A link shows exactly as on the product page's facts card: a corrected link with "Corrected by", a hidden link as "Under review", a removed link as "Removed by" with no link. Never write that an API means a connection could be built.
 
-**Title and description (AECI-1827, provisional wording).** The `<title>` is "{A} and {B} integration: " followed by the caveat, word for word. It runs past the 60-character title budget on purpose: truncation cuts from the end, so a cut title still reads "{A} and {B} integration: Not on record…". The description is the statement and the caveat while both fit 155 characters, then the title's wording, then the caveat alone. No rung is ever cut, so the statement never shows without the caveat. `og:` and Twitter tags copy both.
+**Title and description (AECI-1827, ruling 97 of 2026-11-17).** The `<title>` is "{A} and {B}: " followed by the caveat, word for word. It runs past the 60-character title budget on purpose: truncation cuts from the end, so a cut title still reads "{A} and {B}: Not on record…". The description is the statement and the caveat while both fit 155 characters, then the title's wording, then the caveat alone. The app never cuts a rung, so no tag carries the statement without the full caveat. `og:` and Twitter tags copy both.
 
 **States.**
 

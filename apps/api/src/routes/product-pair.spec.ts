@@ -4,7 +4,7 @@
  */
 
 import type { ClaimDirection, ProductPairResponse } from '@aeci/shared';
-import { ProductPairResponseSchema } from '@aeci/shared';
+import { ProductPairResponseSchema, countListedIntegrationRows } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -2369,5 +2369,96 @@ describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url is htt
       await (await get('/api/products/procore/integrations/revit')).json(),
     );
     expect(parsed.mechanisms[0]?.pricing_url).toBeNull();
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — listed_integration_count (AECI-1827)', () => {
+  /** Products, slugs chosen so canonical A/B order is easy to read. */
+  async function seedListed() {
+    await seedProducts();
+    await t.db.insert(products).values([
+      { id: u(3), slug: 'autocad', name: 'AutoCAD', promotionStatus: 'promoted' },
+      {
+        id: u(4),
+        slug: 'zapier',
+        name: 'Zapier',
+        productRole: 'connector',
+        promotionStatus: 'promoted',
+      },
+      { id: u(5), slug: 'sage', name: 'Sage', promotionStatus: 'promoted' },
+      { id: u(6), slug: 'bim360', name: 'BIM 360', promotionStatus: 'promoted' },
+    ]);
+    // Procore's own rows. The stored integration_count stays 0 throughout.
+    await integration(u(10), u(1), u(3)); // direct
+    await integration(u(11), u(1), u(3)); // a second direct edge, its own row
+    await integration(u(12), u(1), u(5), { poweredByProductId: u(4) }); // via Zapier
+    await integration(u(13), u(5), u(1), { poweredByProductId: u(4) }); // collapses
+    await integration(u(14), u(1), u(6), { mechanismKind: 'iPaaS' }); // unnamed via
+    await integration(u(15), u(1), u(6), { poweredByProductId: u(1) }); // self, direct
+    await integration(u(16), u(3), u(5), { poweredByProductId: u(1) }); // Procore powers
+    await integration(u(17), u(5), u(3), { poweredByProductId: u(1) }); // the same pair
+    await integration(u(18), u(1), u(3), { retiredAt: '2026-01-01T00:00:00.000Z' }); // not live
+    // The evidenced arm: Procore and AutoCAD via Zapier, a Via row of its own.
+    const [a, b] = [u(1), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(4),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      mechanismName: 'Zapier',
+    });
+  }
+
+  /** The detail payload's two sections, counted by the same shared rule. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function countFromDetail(detail: any): number {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edge = (i: any) => ({
+      partnerSlug: i.source.slug === detail.slug ? i.target.slug : i.source.slug,
+      sourceSlug: i.source.slug,
+      targetSlug: i.target.slug,
+      connectorSlug: i.via?.slug ?? i.powered_by_product?.slug ?? null,
+      evidenced: i.via !== null && i.via !== undefined,
+      mechanismKind: i.mechanism_kind,
+    });
+    return countListedIntegrationRows(
+      detail.slug,
+      [...detail.integrations_as_source, ...detail.integrations_as_target].map(edge),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      detail.integrations_as_connector.map((i: any) => ({
+        sourceSlug: i.source.slug,
+        targetSlug: i.target.slug,
+      })),
+    );
+  }
+
+  it('counts the rows the product page lists, with the stored count at 0', async () => {
+    await seedListed();
+    const pair = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(pair.mechanisms).toEqual([]);
+    expect(pair.context_product.integration_count).toBe(0);
+    // 2 direct + Zapier/Sage + unnamed/BIM 360 + the self-powered edge + Zapier/AutoCAD
+    // (evidenced) + 1 powered pair = 7. The retired edge is not listed.
+    expect(pair.context_product.listed_integration_count).toBe(7);
+    expect(pair.other_product.listed_integration_count).toBe(0);
+
+    const detailRes = await buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug',
+      handler: createProductDetailHandler(t.factory),
+    }).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
+    const detail: unknown = await detailRes.json();
+    expect(countFromDetail(detail)).toBe(pair.context_product.listed_integration_count);
+  });
+
+  it('adds no statement to the one-trip batch', async () => {
+    await seedListed();
+    const batch = vi.spyOn(t.db, 'batch');
+    await get('/api/products/procore/integrations/revit');
+    expect((batch.mock.calls[0]?.[0] as readonly unknown[]).length).toBe(12);
+    batch.mockRestore();
   });
 });

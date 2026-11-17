@@ -34,6 +34,7 @@ const productListItem = (slug: string, name: string, overrides = {}) => ({
   trades: [],
   api_docs_url: null,
   tool_integrations_url: null,
+  listed_integration_count: 0,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,
@@ -2103,6 +2104,10 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
 
   it('states the legal statement as the h1, with the caveat and the status pill beside it', () => {
     const { el } = setup(emptyPair());
+    // Ruling 98: no "Integration" overline above the statement. The chip stays.
+    const kicker = el.querySelector('aec-hero-band [heroKicker]');
+    expect(text(kicker)).not.toMatch(/^Integration\b/);
+    expect(kicker?.querySelector('aec-maintenance-marker')).toBeTruthy();
     expect(text(el.querySelector('h1'))).toBe(
       'We have no integration between Procore and Revit on record.',
     );
@@ -2118,6 +2123,11 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     );
     // Never a wording that asserts absence.
     expect(el.textContent).not.toMatch(/does not integrate|not compatible|no integration exists/i);
+  });
+
+  it('keeps the "Integration" overline on a pair with integrations (ruling 98)', () => {
+    const { el } = setup(buildPair());
+    expect(text(el.querySelector('aec-hero-band [heroKicker] .aec-overline'))).toBe('Integration');
   });
 
   it('keeps the products in URL order, context first, in every section', () => {
@@ -2153,12 +2163,12 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     expect(el.querySelector('[data-testid="pair-empty-facts"]')!.textContent).not.toContain('3.9');
   });
 
-  it('prints the integration count, and the product cards words at zero', () => {
+  it('prints the integration count, and "None on record yet" at zero (ruling 96)', () => {
     const { el } = setup(emptyPair({ integration_count: 12 }, { integration_count: 0 }));
     const cells = Array.from(
       el.querySelectorAll('[data-testid="pair-empty-facts-integrations"] td'),
     ).map((td) => text(td));
-    expect(cells).toEqual(['12 integrations', 'Not yet connected']);
+    expect(cells).toEqual(['12 integrations', 'None on record yet']);
   });
 
   it('lists who each product is for in the API order, with a removal and the Managed line', () => {

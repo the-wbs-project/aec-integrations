@@ -239,8 +239,8 @@ test.describe('logo rule (AECI-1769)', () => {
         response: res,
         json: {
           ...body,
-          context_product: { ...body.context_product, logo_url: CLAIMED_LOGO },
-          other_product: { ...body.other_product, logo_url: LOGO },
+          context_product: { ...body['context_product'], logo_url: CLAIMED_LOGO },
+          other_product: { ...body['other_product'], logo_url: LOGO },
           mechanisms: [],
           moved_to: null,
         },

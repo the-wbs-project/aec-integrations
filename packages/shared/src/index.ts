@@ -10,6 +10,7 @@ export * from './countries';
 export * from './deploy-env';
 export * from './errors';
 export * from './integration-context';
+export * from './listed-integration-rows';
 export * from './landing-path';
 export * from './live-integration';
 export * from './listing-visibility';

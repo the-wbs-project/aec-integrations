@@ -232,18 +232,18 @@ function pairMetaDescription(pair: ProductPairResponse): string {
 
 /**
  * AECI-1827: the empty pair's `<title>` (legal review item 1, `STAGE_1_5_SPEC.md` §11.4:
- * the caveat goes wherever the statement appears, the title included). It leads with the
- * two names and "integration", then the caveat word for word. Truncation only ever cuts
- * from the end, so a cut title still reads "{A} and {B} integration: Not on record…" and
- * never a bare "no integration". It is longer than the 60-character budget on purpose:
- * `fitTitle` emits its last rung whole, the page is `noindex`, and a link preview cuts it
- * safely. No brand suffix, because the caveat must come before anything else.
+ * the caveat goes wherever the statement appears, the title included). Ruling 97: the
+ * two names, then the caveat word for word. Truncation only ever cuts from the end, so a
+ * cut title still reads "{A} and {B}: Not on record…" and never a bare "no integration".
+ * It is longer than the 60-character budget on purpose: `fitTitle` emits its last rung
+ * whole, the page is `noindex`, and the app cuts nothing. No brand suffix, because the
+ * caveat must come before anything else.
  */
 export function emptyPairMetaTitle(pair: ProductPairResponse): string {
   const context = pair.context_product.name;
   const other = pair.other_product.name;
   const caveat = integrationsZeroCaveat();
-  return $localize`:@@pair.empty.meta.title:${context}:context: and ${other}:other: integration: ${caveat}:caveat:`;
+  return $localize`:@@pair.empty.meta.title:${context}:context: and ${other}:other:: ${caveat}:caveat:`;
 }
 
 /**

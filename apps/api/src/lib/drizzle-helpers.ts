@@ -25,6 +25,7 @@ import {
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
+  countListedIntegrationRows,
   distinctDataObjectSlugs,
   effectiveContextDirection,
   integrationAgreement,
@@ -35,6 +36,7 @@ import {
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
   storedFoundVia,
+  type ListedEndpointEdge,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { endpointsVisibleSql, visibleProductSql } from '@aeci/shared/listing-visibility';
@@ -952,6 +954,26 @@ export const productListConfig = {
   },
 } as const;
 
+/** AECI-1827: one `integrations` row as `countListedIntegrationRows` reads it. */
+const listedEdgeConfig = {
+  columns: { id: true, mechanismKind: true },
+  with: {
+    sourceProduct: { columns: { slug: true } },
+    targetProduct: { columns: { slug: true } },
+    poweredByProduct: { columns: { slug: true } },
+  },
+} as const;
+
+/** AECI-1827: one `connector_evidenced_pairs` row, the same way. */
+const listedEvidencedEdgeConfig = {
+  columns: { id: true },
+  with: {
+    productA: { columns: { slug: true } },
+    productB: { columns: { slug: true } },
+    connectorProduct: { columns: { slug: true } },
+  },
+} as const;
+
 /**
  * One side of the product-PAIR page (AECI-1822): the list hydration plus the two
  * link columns and the four taxonomy joins. Loaded in the pair read's own
@@ -976,6 +998,16 @@ export const productPairSubjectConfig = {
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkWithOrderColumns } } },
     productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkWithOrderColumns } } },
+    // AECI-1827: the rows the product page lists, as slugs only, for
+    // `listed_integration_count`. The SAME six relations and live filters as
+    // `productDetailConfig`, so the two reads cannot select different rows. They ride
+    // the subject's own statement: no round trip and no statement is added.
+    sourceIntegrations: { ...listedEdgeConfig, where: liveIntegrationWhere },
+    targetIntegrations: { ...listedEdgeConfig, where: liveIntegrationWhere },
+    evidencedPairsAsA: { ...listedEvidencedEdgeConfig, where: liveEvidencedPairWhere },
+    evidencedPairsAsB: { ...listedEvidencedEdgeConfig, where: liveEvidencedPairWhere },
+    poweredIntegrations: { ...listedEdgeConfig, where: liveIntegrationWhere },
+    evidencedPairsAsConnector: { ...listedEvidencedEdgeConfig, where: liveEvidencedPairWhere },
   },
 } as const;
 
@@ -1590,6 +1622,63 @@ export interface RawProductListRow {
   updatedAt: string;
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
 }
+/** AECI-1827: the slug-only rows `listedEdgeConfig` selects. */
+interface RawListedEdge {
+  mechanismKind: string | null;
+  sourceProduct: { slug: string };
+  targetProduct: { slug: string };
+  poweredByProduct: { slug: string } | null;
+}
+interface RawListedEvidencedEdge {
+  productA: { slug: string };
+  productB: { slug: string };
+  connectorProduct: { slug: string };
+}
+
+/**
+ * AECI-1827: the rows the product's own page lists (`countListedIntegrationRows`), from
+ * the same relations `toProductDetail` reads. The page product is the endpoint on one
+ * side of each endpoint row, and neither endpoint of a powered row it must count.
+ */
+function listedIntegrationCount(raw: RawProductPairSubjectRow): number {
+  const self = raw.slug;
+  const integrationEdge = (r: RawListedEdge): ListedEndpointEdge => ({
+    partnerSlug: r.sourceProduct.slug === self ? r.targetProduct.slug : r.sourceProduct.slug,
+    sourceSlug: r.sourceProduct.slug,
+    targetSlug: r.targetProduct.slug,
+    connectorSlug: r.poweredByProduct?.slug ?? null,
+    evidenced: false,
+    mechanismKind: r.mechanismKind,
+  });
+  const evidencedEdge = (r: RawListedEvidencedEdge): ListedEndpointEdge => ({
+    partnerSlug: r.productA.slug === self ? r.productB.slug : r.productA.slug,
+    sourceSlug: r.productA.slug,
+    targetSlug: r.productB.slug,
+    connectorSlug: r.connectorProduct.slug,
+    evidenced: true,
+    mechanismKind: null,
+  });
+  return countListedIntegrationRows(
+    self,
+    [
+      ...(raw.sourceIntegrations ?? []).map(integrationEdge),
+      ...(raw.targetIntegrations ?? []).map(integrationEdge),
+      ...(raw.evidencedPairsAsA ?? []).map(evidencedEdge),
+      ...(raw.evidencedPairsAsB ?? []).map(evidencedEdge),
+    ],
+    [
+      ...(raw.poweredIntegrations ?? []).map((r) => ({
+        sourceSlug: r.sourceProduct.slug,
+        targetSlug: r.targetProduct.slug,
+      })),
+      ...(raw.evidencedPairsAsConnector ?? []).map((r) => ({
+        sourceSlug: r.productA.slug,
+        targetSlug: r.productB.slug,
+      })),
+    ],
+  );
+}
+
 /** A pair page's subject row (AECI-1822): the list row plus links and taxonomy. */
 export interface RawProductPairSubjectRow extends RawProductListRow {
   toolIntegrationsUrl: string | null;
@@ -1597,6 +1686,13 @@ export interface RawProductPairSubjectRow extends RawProductListRow {
   /** AECI-1827. Optional so a hand-built fixture without them reads as no caption. */
   managedEditedAt?: string | null;
   managedEndedAt?: string | null;
+  /** AECI-1827: the listed rows, slugs only. Optional so an older fixture reads as none. */
+  sourceIntegrations?: RawListedEdge[];
+  targetIntegrations?: RawListedEdge[];
+  evidencedPairsAsA?: RawListedEvidencedEdge[];
+  evidencedPairsAsB?: RawListedEvidencedEdge[];
+  poweredIntegrations?: RawListedEdge[];
+  evidencedPairsAsConnector?: RawListedEvidencedEdge[];
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
@@ -2384,6 +2480,9 @@ function toPairSubject(
       .map(toTaxonomyLink),
     api_docs_url: raw.apiDocsUrl,
     tool_integrations_url: raw.toolIntegrationsUrl,
+    // AECI-1827: what the product page's facts card falls back to when the stored
+    // `integration_count` is 0, so the pair page prints the same figure.
+    listed_integration_count: listedIntegrationCount(raw),
     // AECI-1827: the same Managed caption and corrections the product page carries
     // (`toProductDetail`), so a fact shown here keeps its caption. Only the Managed group:
     // the pair page shows no description, website, categories or usefulness.
