@@ -3,7 +3,7 @@ title: Requesting changes and appeals
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing or one of its details.
 section: vendors
 order: 9
-last_updated: November 9, 2026
+last_updated: November 17, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. So does an owner deciding a request, on any integration.
@@ -111,7 +111,7 @@ In **Messages** you get a notice with our reason. In the portal the field carrie
 We aim to hide the detail within two business days of receiving the source, and to decide within five. When we decide, one of two things happens, and you get a notice either way:
 
 - we put the detail back as it was, because it is right;
-- we correct it, and the page shows "Corrected by AEC Integrations on (date)" beside the new value.
+- we correct it, and the page's "About this listing" panel shows "Corrected by AEC Integrations on (date)" for that detail.
 
 To dispute a hide, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the message.
 

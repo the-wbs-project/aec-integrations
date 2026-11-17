@@ -1,68 +1,41 @@
-import type { FieldCaption, FieldCorrection } from '@aeci/shared';
+/**
+ * Pure picks over the caption payload, Angular-free so a plain Vitest spec can use them.
+ *
+ * AECI-1666 moved every caption and correction into the page's one "About this listing"
+ * panel. The panel still names only what the page renders (§4.5.8): a correction on a field
+ * the page never shows, or a removal whose slot something else fills, points at nothing.
+ * {@link correctionsInSlots} and {@link countUnderReview} hold that rule for every page.
+ */
+import type { FieldCorrection } from '@aeci/shared';
 
 /**
- * Pure picks over the caption payload (AECI-1614), Angular-free so the lane grouping and
- * its plain Vitest spec can use them. The server decides every caption's form and date
- * (`apps/api/src/lib/field-captions.ts`). These only choose which one to show.
+ * The corrections a page can point at (AECI-1666, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8).
+ * `slots` names every field the page renders a slot for, and says whether its value shows
+ * now. A correction that set a value is listed while the value shows. One that cleared it
+ * (`cleared`) is listed while the slot is empty. A field missing from `slots` has no slot
+ * on the page, so it is left out. Leave out a slot that something else fills, such as a
+ * curated link a vendor's own link replaces.
  */
-
-/** An unparseable date sorts last, and the component then renders nothing for it. */
-function instant(date: string): number {
-  const at = Date.parse(date);
-  return Number.isNaN(at) ? Number.NEGATIVE_INFINITY : at;
-}
-
-/** The correction on `field`, or `null`. The API sends at most one per field. */
-export function correctionFor(
+export function correctionsInSlots(
   corrections: readonly FieldCorrection[] | null | undefined,
-  field: string,
-): FieldCorrection | null {
-  return corrections?.find((c) => c.field === field) ?? null;
+  slots: Readonly<Record<string, boolean>>,
+): FieldCorrection[] {
+  return (corrections ?? []).filter(
+    (correction) =>
+      Object.hasOwn(slots, correction.field) && slots[correction.field] !== !!correction.cleared,
+  );
 }
 
 /**
- * The correction to show in one value's slot (AECI-1628). A correction that set a value
- * sits under that value, so it shows while the value is `present`. One that cleared the
- * value sits in the empty slot, so it shows while the value is absent. The server already
- * drops a correction the live value no longer matches; this keeps a page from captioning
- * a value it did not render, or a gap it filled with something else.
+ * How many hidden values the page marks "Under review" (AECI-1666). `marked` is the list
+ * of fields the page mounts an `aec-under-review` marker for. A hidden field the page never
+ * renders has no marker, so the panel's count leaves it out.
  */
-export function correctionInSlot(
-  corrections: readonly FieldCorrection[] | null | undefined,
-  field: string,
-  present: boolean,
-): FieldCorrection | null {
-  const correction = correctionFor(corrections, field);
-  if (!correction) return null;
-  return present !== !!correction.cleared ? correction : null;
-}
-
-/**
- * The newest correction in the list. A table row may not show the corrected field, so it
- * carries one generic caption. A tie keeps the earlier entry, so the pick is stable.
- */
-export function newestCorrection(
-  corrections: readonly FieldCorrection[] | null | undefined,
-): FieldCorrection | null {
-  let newest: FieldCorrection | null = null;
-  for (const correction of corrections ?? []) {
-    if (!newest || instant(correction.date) > instant(newest.date)) newest = correction;
-  }
-  return newest;
-}
-
-/**
- * The newer of two captions, for a Via row that collapses several edges into one row
- * (`STAGE_1_5_SPEC.md` §13.3). A collapsed row has one line, and the pair page shows each
- * edge's own caption. A tie keeps `a`.
- */
-export function newestCaption(
-  a: FieldCaption | null | undefined,
-  b: FieldCaption | null | undefined,
-): FieldCaption | null {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  return instant(b.date) > instant(a.date) ? b : a;
+export function countUnderReview(
+  underReview: readonly string[] | null | undefined,
+  marked: readonly string[],
+): number {
+  return (underReview ?? []).filter((field) => marked.includes(field)).length;
 }
 
 /**

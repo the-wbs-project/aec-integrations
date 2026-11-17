@@ -576,7 +576,7 @@ Use this for one wrong value on a record a vendor holds: a company, a product th
 Decide within 5 business days of the received date. The row's "Decide by" date shows the deadline.
 
 - **The value is right.** Choose **Restore** on the row, and write the reason for the vendor to read. The value returns to the public page.
-- **The value is wrong.** Correct it under "Field corrections" with the source. That ends the hide in the same save, and the page shows "Corrected by AEC Integrations".
+- **The value is wrong.** Correct it under "Field corrections" with the source. That ends the hide in the same save, and the page's "About this listing" panel shows "Corrected by AEC Integrations".
 - **You cannot decide yet.** Email the requester what further verification is needed and when you expect to decide. Then choose **Record status reply** on the row, and note what you told them. The note is internal. It changes nothing public.
 - **The vendor changed the value itself.** Its save ended the hide, and the row leaves the list.
 

@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 9, 2026
+last_updated: November 17, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -34,7 +34,7 @@ Once you claim it:
 - You can edit its details, and your edits go live.
 - The company that makes the other product is told that you claimed it.
 - Change requests sent after the claim about its details come to you, on the integration's own page under Change requests. Ones sent before the claim stay with AEC Integrations. On an integration delivered through a connector, a request about its type always goes to AEC Integrations.
-- The public page marks it "Vendor maintained". Once you edit it, each card also reads "Maintained by" your company and the date of your last change.
+- The public page's "About this listing" panel marks it "Vendor maintained". Once you edit it, the same panel also reads "Maintained by" your company and the date of your last change.
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a request about who owns it.
 

@@ -69,6 +69,18 @@ describe('FieldCaptionLine (AECI-1614)', () => {
     );
   });
 
+  // AECI-1666: in the provenance panel a group's line names the group.
+  it('names the group when a label is given, in both forms', () => {
+    expect(setup({ caption: UPDATED, label: 'About' }).text('field-caption')).toBe(
+      'About: Maintained by Autodesk · updated October 4, 2026',
+    );
+    expect(
+      setup({ caption: { ...UPDATED, form: 'until' }, label: 'How teams use it' }).text(
+        'field-caption',
+      ),
+    ).toBe('How teams use it: Maintained by Autodesk until October 4, 2026');
+  });
+
   it('renders the corrected form, then a source link', () => {
     const { el, text } = setup({ correction: CORRECTION });
     expect(text('field-correction')).toContain(

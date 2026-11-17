@@ -6,32 +6,45 @@ import { MaintenanceMarker } from './maintenance-marker';
 
 @Component({
   imports: [MaintenanceMarker],
-  template: `<aec-maintenance-marker [maintainedBy]="by" [reviewedAt]="at" [ownerName]="owner" />`,
+  template: `<aec-maintenance-marker
+    [maintainedBy]="by"
+    [reviewedAt]="at"
+    [ownerName]="owner"
+    [claimed]="claimed"
+  />`,
 })
 class Host {
   by: 'aeci' | 'vendor' = 'aeci';
   at: string | null = null;
   owner: string | null = null;
+  claimed = true;
 }
 
 const squash = (t: string | null | undefined) => t?.replace(/\s+/g, ' ').trim() ?? '';
 
-function mount(by: 'aeci' | 'vendor', at: string | null, owner: string | null): HTMLElement {
+function mount(
+  by: 'aeci' | 'vendor',
+  at: string | null,
+  owner: string | null,
+  claimed = true,
+): HTMLElement {
   const fixture = TestBed.createComponent(Host);
   fixture.componentInstance.by = by;
   fixture.componentInstance.at = at;
   fixture.componentInstance.owner = owner;
+  fixture.componentInstance.claimed = claimed;
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
 }
 
-/** The VISIBLE label: the chip's text with any sr-only span removed. */
+/** The VISIBLE label: the line's text with any sr-only span removed. */
 function render(
   by: 'aeci' | 'vendor' = 'aeci',
   at: string | null = null,
   owner: string | null = null,
+  claimed = true,
 ): string {
-  const el = mount(by, at, owner).cloneNode(true) as HTMLElement;
+  const el = mount(by, at, owner, claimed).cloneNode(true) as HTMLElement;
   el.querySelectorAll('.sr-only').forEach((n) => n.remove());
   return squash(el.textContent);
 }
@@ -107,6 +120,30 @@ describe('MaintenanceMarker', () => {
 
   it('drops an unparseable timestamp rather than rendering "Invalid Date"', () => {
     expect(render('aeci', 'not-a-date')).toBe('AEC Integrations maintained');
+  });
+
+  // AECI-1666 ruling 3: an unclaimed listing never reads "Vendor maintained". The date
+  // was a vendor's write, so it must not be restated as an AECi review either.
+  it('reads the AECi form with no date on an unclaimed listing', () => {
+    expect(render('vendor', '2026-08-17T03:25:47.160Z', 'Procore Technologies', false)).toBe(
+      'AEC Integrations maintained',
+    );
+    expect(squash(mount('vendor', null, 'Procore Technologies', false).textContent)).toBe(
+      'AEC Integrations maintained',
+    );
+  });
+
+  it('keeps an AECi review date on an unclaimed listing', () => {
+    expect(render('aeci', '2026-08-17T03:25:47.160Z', null, false)).toBe(
+      'AEC Integrations maintained · Reviewed August 17, 2026',
+    );
+  });
+
+  // AECI-1666 retired the chip: the line is plain text, with no border or fill.
+  it('renders plain text, not a chip', () => {
+    const line = mount('vendor', null, null).querySelector('[data-testid="maintenance-marker"]');
+    expect(line).not.toBeNull();
+    expect(line!.className).not.toMatch(/\bborder\b|\bbg-|rounded/);
   });
 
   // No checkmark, shield, or tick: the marker is attribution, not endorsement.

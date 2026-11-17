@@ -1079,7 +1079,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 2. **Indemnity super-cap (Q6).** The greater of $10,000 or ten times the fees paid in the trailing twelve months; fraud, wilful misconduct and gross negligence, IP infringement by submitted content, breach of confidentiality and violation of law stay uncapped; one-way.
 3. **Brand assets after a claim ends (Q12).** Badge off at once; uploaded logos and screenshots removed within 14 days, sooner where possible.
 4. **Updated reviews (Q18).** Build 'Add an update': original kept, dated addendum, latest rating counts (AECI-1613).
-5. **Captions (Q19, Q4).** 'Maintained by {Vendor} · updated {date}' and 'Maintained by {Vendor} until {date}' on vendor-maintained fields; 'Corrected by AEC Integrations on {date}' on operator corrections (AECI-1614, AECI-1628).
+5. **Captions (Q19, Q4).** 'Maintained by {Vendor} · updated {date}' and 'Maintained by {Vendor} until {date}' on vendor-maintained fields; 'Corrected by AEC Integrations on {date}' on operator corrections (AECI-1614, AECI-1628). *Since AECI-1666 (2026-11-17) these captions sit in one "About this listing" panel per page, not under each field group. The wording is unchanged.*
 6. **Correction deadlines (Q21).** Hide or flag within two business days of proof; correct within five if verified.
 7. **Renewal refund (Q2).** The 14-day full refund applies after a renewal charge too.
 8. **Removal election (Q4).** A vendor may have its own authored fields removed within 30 days after its plan ends.

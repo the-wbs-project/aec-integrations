@@ -335,49 +335,74 @@ const connector = (overrides: Partial<ProductDetail> = {}) =>
  * a connector product's page intelligible (its endpoint table is legitimately
  * empty because it is the mechanism, not an endpoint).
  */
-// ── Maintenance marker (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───────
+// ── Record line (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9; AECI-1666) ──────
 //
-// The rendered half of the defect. `aec-maintenance-marker` and its four branches
-// have shipped since AECI-616 and have their own component spec, but until now
-// NOTHING bound the API's `maintenance` object to this page's mount site — so a
-// dropped input or a wrong field name would have rendered AECi attribution
-// forever and no test would have noticed. That is exactly the shape of the bug
-// this issue reports, one layer down.
-describe('ProductDetailPage maintenance marker', () => {
+// The rendered half of the AECI-981 defect: nothing bound the API's `maintenance` object
+// to this page's mount site, so a dropped input would have rendered AECi attribution
+// forever. Since AECI-1666 the line opens "About this listing" instead of sitting in the
+// header as a chip, and an unclaimed listing never reads "Vendor maintained".
+describe('ProductDetailPage record line', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders AECi attribution with no date for an unreviewed record', () => {
-    const { el } = setup(buildProduct());
-    const marker = el.querySelector('aec-maintenance-marker');
-    expect(marker).toBeTruthy();
-    expect(marker!.textContent).toContain('AEC Integrations maintained');
-    expect(marker!.textContent).not.toMatch(/\d{4}/);
-  });
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]');
 
-  it('renders the vendor branch when the record has been taken over', () => {
+  it('retires the header chip', () => {
     const { el } = setup(
       buildProduct({
         maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
       }),
     );
-    const marker = el.querySelector('aec-maintenance-marker');
+    expect(el.querySelector('[slot="hero"] aec-maintenance-marker')).toBeNull();
+  });
+
+  // Ruling 2026-11-17: every listing shows the panel, including one AECi maintains alone.
+  it('shows the panel with the AECi record line on an AECi-only listing', () => {
+    const { el } = setup(buildProduct());
+    expect(panel(el)?.hasAttribute('hidden')).toBe(false);
+    expect(panel(el)?.querySelector('h2')?.textContent?.trim()).toBe('About this listing');
+    expect(panel(el)?.querySelector('aec-maintenance-marker')?.textContent?.trim()).toBe(
+      'AEC Integrations maintained',
+    );
+  });
+
+  it('adds the review date to the AECi record line when there is one', () => {
+    const { el } = setup(
+      buildProduct({
+        maintenance: { maintained_by: 'aeci', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
+      }),
+    );
+    expect(panel(el)?.querySelector('aec-maintenance-marker')?.textContent?.trim()).toBe(
+      'AEC Integrations maintained · Reviewed September 16, 2026',
+    );
+  });
+
+  it('opens the panel with the vendor line when the record has been taken over', () => {
+    const { el } = setup(
+      buildProduct({
+        maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
+      }),
+    );
+    const marker = panel(el)!.querySelector('aec-maintenance-marker');
     // The verb differs by branch off the SAME column: "Updated" for a vendor,
     // "Reviewed" for AECi. Asserting the whole string is what catches a mis-bind
     // that passes the right date into the wrong branch.
     expect(marker!.textContent).toContain(
       'Vendor maintained: Procore Technologies keeps this up to date · Updated September 16, 2026',
     );
-    expect(marker!.textContent).not.toContain('AEC Integrations maintained');
   });
 
-  it('carries the date through to the AECi branch too', () => {
+  it('reads the AECi form on an unclaimed listing whatever is stored (ruling 3)', () => {
     const { el } = setup(
       buildProduct({
-        maintenance: { maintained_by: 'aeci', last_reviewed_at: '2026-03-04T00:00:00.000Z' },
+        claim_status: 'unclaimed',
+        maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
+        under_review: ['description'],
+        description: null,
       }),
     );
-    expect(el.querySelector('aec-maintenance-marker')!.textContent).toContain(
-      'AEC Integrations maintained · Reviewed March 4, 2026',
+    expect(el.textContent).not.toContain('Vendor maintained');
+    expect(panel(el)!.querySelector('aec-maintenance-marker')!.textContent?.trim()).toBe(
+      'AEC Integrations maintained',
     );
   });
 });
@@ -1351,8 +1376,8 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
   });
 });
 
-// AECI-1614: one caption per field group, and each correction beside its value.
-describe('ProductDetailPage field captions (AECI-1614)', () => {
+// AECI-1666: every caption and correction moved into one "About this listing" panel.
+describe('ProductDetailPage provenance panel (AECI-1666)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const updated = (name: string) => ({
@@ -1382,195 +1407,253 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     Array.from(el?.querySelectorAll(`[data-testid="${id}"]`) ?? []).map((n) =>
       n.textContent?.replace(/\s+/g, ' ').trim(),
     );
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]')!;
 
-  it('renders no line when the payload has no captions', () => {
-    const { el } = setup(buildProduct({ audiences: [term('a')] }));
-    expect(lines(el, 'field-caption')).toEqual([]);
-    expect(lines(el, 'field-correction')).toEqual([]);
-  });
-
-  it('captions website and categories once, under Categories when there are any', () => {
-    const { el } = setup(
-      buildProduct({
-        categories: [term('bim')],
-        captions: { ...CAPTIONS, profile: updated('Procore Technologies') },
-      }),
-    );
-    const found = el.querySelectorAll('[data-testid="profile-caption"]');
-    expect(found.length).toBe(1);
-    expect(found[0]?.closest('section')?.getAttribute('aria-labelledby')).toBe('categories-label');
-    expect(found[0]?.textContent).toContain('Maintained by Procore Technologies');
-  });
-
-  it('captions the website alone when the product has no categories', () => {
-    const { el } = setup(
-      buildProduct({
-        categories: [],
-        captions: { ...CAPTIONS, profile: updated('Procore Technologies') },
-      }),
-    );
-    const found = el.querySelectorAll('[data-testid="profile-caption"]');
-    expect(found.length).toBe(1);
-    expect(found[0]?.closest('section[aria-labelledby="categories-label"]')).toBeNull();
-  });
-
-  it('captions the description inside #about', () => {
+  it('mounts one card in the sidebar and one disclosure in the body, one test id', () => {
     const { el } = setup(
       buildProduct({ captions: { ...CAPTIONS, description: updated('Procore Technologies') } }),
     );
-    expect(lines(el.querySelector('#about'), 'field-caption')).toEqual([
-      'Maintained by Procore Technologies · updated October 4, 2026',
-    ]);
+    const copies = el.querySelectorAll('aec-listing-provenance');
+    expect(copies).toHaveLength(2);
+    expect(el.querySelectorAll('[data-testid="listing-provenance"]')).toHaveLength(1);
+    expect(panel(el).closest('aside')).not.toBeNull();
+    expect(panel(el).querySelector('h2')?.textContent?.trim()).toBe('About this listing');
+    const disclosure = Array.from(copies).find((c) => c !== panel(el))!;
+    expect(disclosure.querySelector('details')?.hasAttribute('open')).toBe(false);
+    expect(disclosure.closest('aside')).toBeNull();
   });
 
-  it('passes the usefulness caption down, and no "Written by" line', () => {
+  it('renders no inline caption anywhere outside the panel', () => {
     const { el } = setup(
       buildProduct({
-        usefulness: {
-          audiences: [{ slug: 'a', name: 'A', points: ['One'] }],
-          phases: [],
-        },
-        usefulness_source: 'vendor',
-        captions: { ...CAPTIONS, usefulness: updated('Procore Technologies') },
-      }),
-    );
-    expect(lines(el.querySelector('#how-teams-use-it'), 'field-caption')).toHaveLength(1);
-    expect(el.textContent).not.toContain('Written by');
-  });
-
-  it('gives the Managed group exactly one caption, after Resources', () => {
-    const { el } = setup(
-      buildProduct({
-        audiences: [term('a')],
-        phases: [term('p')],
-        api_docs_url: 'https://developers.procore.com/docs',
-        captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
-      }),
-    );
-    expect(lines(el, 'field-caption')).toHaveLength(1);
-    const managed = el.querySelector('[data-testid="managed-caption"]')!;
-    expect(managed.previousElementSibling?.getAttribute('aria-labelledby')).toBe('resources-label');
-  });
-
-  it('keeps the Managed caption when the group holds facets but no Resources', () => {
-    const { el } = setup(
-      buildProduct({
+        categories: [term('c')],
         trades: [term('t')],
-        captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
+        usefulness: { audiences: [{ slug: 'a', name: 'A', points: ['One'] }], phases: [] },
+        usefulness_source: 'vendor',
+        captions: {
+          description: updated('Procore Technologies'),
+          profile: updated('Procore Technologies'),
+          usefulness: updated('Procore Technologies'),
+          managed: updated('Procore Technologies'),
+          corrections: [correction('website'), correction('trade_slugs')],
+        },
       }),
     );
-    expect(el.querySelector('#resources-label')).toBeNull();
-    expect(lines(el, 'field-caption')).toHaveLength(1);
+    for (const caption of Array.from(el.querySelectorAll('aec-field-caption'))) {
+      expect(caption.closest('aec-listing-provenance')).not.toBeNull();
+    }
+    expect(el.querySelector('[data-testid="profile-caption"]')).toBeNull();
+    expect(el.querySelector('[data-testid="managed-caption"]')).toBeNull();
+    expect(el.querySelector('[data-testid="logo-correction"]')).toBeNull();
   });
 
-  it('drops the Managed caption when the group shows nothing', () => {
-    const { el } = setup(
-      buildProduct({ captions: { ...CAPTIONS, managed: updated('Procore Technologies') } }),
-    );
-    expect(lines(el, 'field-caption')).toEqual([]);
-  });
-
-  it('puts each correction beside the value it corrects', () => {
+  it('names each group, in page order', () => {
     const { el } = setup(
       buildProduct({
         categories: [term('c')],
         audiences: [term('a')],
-        trades: [term('t')],
-        phases: [term('p')],
-        tool_integrations_url: 'https://www.procore.com/integrations',
-        api_docs_url: 'https://developers.procore.com/docs',
+        usefulness: { audiences: [{ slug: 'a', name: 'A', points: ['One'] }], phases: [] },
+        usefulness_source: 'vendor',
+        captions: {
+          ...CAPTIONS,
+          description: updated('Procore Technologies'),
+          profile: updated('Procore Technologies'),
+          usefulness: { ...updated('Procore Technologies'), form: 'until' },
+          managed: updated('Procore Technologies'),
+        },
+      }),
+    );
+    expect(lines(panel(el), 'field-caption')).toEqual([
+      'About: Maintained by Procore Technologies · updated October 4, 2026',
+      'Website and categories: Maintained by Procore Technologies · updated October 4, 2026',
+      'How teams use it: Maintained by Procore Technologies until October 4, 2026',
+      'Audiences, trades, phases and resources: Maintained by Procore Technologies · updated October 4, 2026',
+    ]);
+  });
+
+  it('drops a group caption when the group shows nothing', () => {
+    const { el } = setup(
+      buildProduct({
+        description: null,
+        captions: {
+          ...CAPTIONS,
+          description: updated('Procore Technologies'),
+          managed: updated('Procore Technologies'),
+        },
+      }),
+    );
+    expect(lines(panel(el), 'field-caption')).toEqual([]);
+    expect(panel(el).hasAttribute('hidden')).toBe(false);
+  });
+
+  it('lists every correction by field, removals included, with the source link', () => {
+    const { el } = setup(
+      buildProduct({
+        website: null,
+        logo_url: 'https://logo.example/mark.png',
         captions: {
           ...CAPTIONS,
           corrections: [
-            correction('website', 'https://www.example.com/a'),
-            correction('category_slugs'),
-            correction('audience_slugs'),
-            correction('trade_slugs'),
-            correction('phase_slugs'),
-            correction('tool_integrations_url'),
-            correction('api_docs_url'),
+            correction('logo_url', 'https://brand.example/kit'),
+            correction('website', null, true),
+            correction('phase_slugs', null, true),
           ],
         },
       }),
     );
-    const words = 'Corrected by AEC Integrations on September 15, 2026';
-    for (const label of ['categories', 'audiences', 'trades', 'phases']) {
-      const group = el.querySelector(`section[aria-labelledby="${label}-label"]`);
-      expect(lines(group, 'field-correction')).toEqual([words]);
-    }
-    const resources = el.querySelector('section[aria-labelledby="resources-label"]')!;
-    for (const item of Array.from(resources.querySelectorAll('li'))) {
-      expect(lines(item, 'field-correction')).toEqual([words]);
-    }
-    const hero = lines(el, 'field-correction').filter((t) => t?.startsWith('Website:'));
-    expect(hero).toHaveLength(1);
-    expect(hero[0]).toContain(`Website: ${words}`);
+    const found = lines(panel(el), 'field-correction');
+    expect(found[0]).toMatch(/^Logo: Corrected by AEC Integrations on September 15, 2026 · Source/);
+    expect(found.slice(1)).toEqual([
+      'Website: Removed by AEC Integrations on September 15, 2026',
+      'Project phases: Removed by AEC Integrations on September 15, 2026',
+    ]);
+    expect(panel(el).querySelector('a[href="https://brand.example/kit"]')).not.toBeNull();
   });
 
-  // AECI-1628: a correction that cleared a value reads "Removed by" in the value's slot.
-  it('puts each removal where the value would be', () => {
+  // AECI-1666 ruling 1: a section a removal left empty disappears.
+  it('drops a facet or Resources section that a removal emptied', () => {
     const { el } = setup(
       buildProduct({
-        website: null,
-        logo_url: null,
         trades: [],
         tool_integrations_url: null,
-        api_docs_url: 'https://developers.procore.com/docs',
+        api_docs_url: null,
         captions: {
           ...CAPTIONS,
           corrections: [
-            correction('logo_url', null, true),
-            correction('website', null, true),
             correction('trade_slugs', null, true),
             correction('tool_integrations_url', null, true),
           ],
         },
       }),
     );
-    const removed = 'Removed by AEC Integrations on September 15, 2026';
-    expect(lines(el, 'logo-correction')).toEqual([`Logo: ${removed}`]);
-    expect(lines(el, 'field-correction')).toContain(`Website: ${removed}`);
-    const trades = el.querySelector('section[aria-labelledby="trades-label"]');
-    expect(lines(trades, 'field-correction')).toEqual([removed]);
-    expect(trades?.querySelector('aec-taxonomy-badge')).toBeNull();
-    const resources = el.querySelector('section[aria-labelledby="resources-label"]')!;
-    expect(lines(resources, 'field-correction')).toEqual([`Integrations page: ${removed}`]);
-    expect(el.textContent).not.toContain('Corrected by');
+    expect(el.querySelector('#trades-label')).toBeNull();
+    expect(el.querySelector('#resources-label')).toBeNull();
+    expect(lines(panel(el), 'field-correction')).toHaveLength(2);
   });
 
-  it('labels a logo replacement under the name', () => {
+  it('counts the values under review', () => {
     const { el } = setup(
       buildProduct({
-        logo_url: 'https://logo.example/mark.png',
-        captions: {
-          ...CAPTIONS,
-          corrections: [correction('logo_url', 'https://brand.example/kit')],
-        },
+        description: null,
+        website: null,
+        under_review: ['description', 'website'],
       }),
     );
-    expect(lines(el, 'logo-correction')[0]).toMatch(
-      /^Logo: Corrected by AEC Integrations on September 15, 2026 · Source/,
-    );
+    expect(lines(panel(el), 'provenance-under-review')).toEqual([
+      '2 values on this page are under review.',
+    ]);
   });
 
-  it('shows no removal once the slot holds a value again', () => {
+  // §4.5.8: the count names only values the page marks in their slot.
+  it('counts only the hidden values the page marks', () => {
     const { el } = setup(
-      buildProduct({
-        website: 'https://www.procore.com',
-        captions: { ...CAPTIONS, corrections: [correction('website', null, true)] },
-      }),
+      buildProduct({ website: null, under_review: ['website', 'unrendered_field'] }),
     );
-    expect(lines(el, 'field-correction')).toEqual([]);
+    expect(lines(panel(el), 'provenance-under-review')).toEqual([
+      '1 value on this page is under review.',
+    ]);
   });
 
-  it('renders no correction line for a value that was cleared', () => {
+  // The count is every `aec-under-review` the page mounts, the Integrations rows' included.
+  describe('counting the Integrations rows', () => {
+    const row = (
+      source: ProductLink,
+      target: ProductLink,
+      extra: Partial<ProductIntegrationItem> = {},
+    ): ProductIntegrationItem => ({
+      ...edge(source, target),
+      mechanism_kind: 'native',
+      context_direction: null,
+      powered_by_product: null,
+      ...extra,
+    });
+    const agave = link('agave-erp-sync', 'Agave ERP Sync');
+    const markers = (el: HTMLElement) => el.querySelectorAll('aec-under-review').length;
+    const count = (el: HTMLElement) => lines(panel(el), 'provenance-under-review');
+
+    it('counts two row markers as two', () => {
+      const { el } = setup(
+        buildProduct({
+          integrations_as_source: [
+            row(procore, sage, { under_review: ['mechanism_url'] }),
+            row(procore, acumatica, { under_review: ['description'] }),
+          ],
+        }),
+      );
+      expect(markers(el)).toBe(2);
+      expect(count(el)).toEqual(['2 values on this page are under review.']);
+    });
+
+    it('adds a product field to the row markers', () => {
+      const { el } = setup(
+        buildProduct({
+          website: null,
+          under_review: ['website'],
+          integrations_as_source: [row(procore, sage, { under_review: ['mechanism_url'] })],
+          integrations_as_target: [row(vista, procore, { under_review: ['description'] })],
+        }),
+      );
+      expect(markers(el)).toBe(3);
+      expect(count(el)).toEqual(['3 values on this page are under review.']);
+    });
+
+    // Two Via edges to one partner collapse into one row, which renders the
+    // representative edge's markers only (`splitIntegrationLanes`).
+    it('counts a collapsed Via row by the edge it renders', () => {
+      const { el } = setup(
+        buildProduct({
+          integrations_as_source: [
+            row(procore, sage, { via: agave, name: 'A', under_review: ['mechanism_url'] }),
+            row(procore, sage, { via: agave, name: 'B', under_review: ['description'] }),
+          ],
+        }),
+      );
+      expect(
+        el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]'),
+      ).toHaveLength(1);
+      expect(markers(el)).toBe(1);
+      expect(count(el)).toEqual(['1 value on this page is under review.']);
+    });
+  });
+
+  // §4.5.8: a field the page never renders shows no line, and a correction that set a
+  // value shows only while that value does.
+  it('drops a correction with no slot on the page, or on a value the page does not show', () => {
     const { el } = setup(
       buildProduct({
         website: null,
-        captions: { ...CAPTIONS, corrections: [correction('website')] },
+        api_docs_url: null,
+        captions: {
+          ...CAPTIONS,
+          corrections: [
+            correction('unrendered_field'),
+            correction('website'),
+            correction('api_docs_url'),
+          ],
+        },
       }),
     );
-    expect(lines(el, 'field-correction')).toEqual([]);
+    expect(lines(panel(el), 'field-correction')).toEqual([]);
+  });
+
+  // AECI-1666 ruling 2: the rows lost their line, so the panel says where it went.
+  it('notes the integration pages when a row carried a caption or a correction', () => {
+    const row = (extra: Partial<ProductIntegrationItem>): ProductIntegrationItem => ({
+      ...edge(procore, sage),
+      mechanism_kind: 'native',
+      context_direction: null,
+      powered_by_product: null,
+      ...extra,
+    });
+    const withNote = setup(
+      buildProduct({ integrations_as_source: [row({ caption: updated('Sage') })] }),
+    ).el;
+    expect(lines(panel(withNote), 'provenance-integrations-note')).toEqual([
+      "Each integration's page says who maintains it.",
+    ]);
+    TestBed.resetTestingModule();
+    const without = setup(buildProduct({ integrations_as_source: [row({})] })).el;
+    expect(lines(panel(without), 'provenance-integrations-note')).toEqual([]);
   });
 });
 

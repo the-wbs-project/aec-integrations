@@ -46,7 +46,7 @@ The decision above stands as first written. `usefulness_source` is written only 
 
 ## Amendment 2026-11-05 (AECI-1614): the field caption replaces "Written by"
 
-The attribution from the 2026-10-14 amendment moved to the shared field caption. The section now reads "Maintained by {vendor} · updated {date}", or "Maintained by {vendor} until {date}" once the product's plan has ended. "Written by" is removed.
+The attribution from the 2026-10-14 amendment moved to the shared field caption. The section now reads "Maintained by {vendor} · updated {date}", or "Maintained by {vendor} until {date}" once the product's plan has ended. "Written by" is removed. *Since AECI-1666 (2026-11-17) that line sits in the page's "About this listing" panel, labelled "How teams use it", not at the foot of the section. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8.*
 
 - **The date is a new stamp.** `products.usefulness_edited_at` moves only when a vendor write changes the block. `last_reviewed_at` could not back it, because "Looks right" moves that with no content change.
 - **The stamp follows this ADR's one-way rule.** A return of records to AECi clears the other edit stamps, because promote can write those fields again. It leaves this one, because promote cannot write a `'vendor'` block again.
