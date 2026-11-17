@@ -9,12 +9,14 @@ import type { ProductsListResponse } from '@aeci/shared';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
 import { ProductCardGrid } from '../products/product-card-grid';
 import { ProductTable } from '../products/product-table';
 import { EmptyState } from '../shared/empty-state/empty-state';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { FILTER_LINK_CLASS } from '../shared/facets/filter-row';
 import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
 import { createListingView } from '../shared/listing-toolbar/listing-view';
 import {
@@ -104,12 +106,10 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
     <ng-template #pageHeader let-t>
       <aec-breadcrumb [items]="crumbs()" />
 
-      <h1 class="font-display text-4xl font-semibold tracking-tight md:text-5xl">
-        {{ t.name }}
-      </h1>
+      <h1 [class]="headerClass.title">{{ t.name }}</h1>
 
       @if (t.description) {
-        <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
+        <p [class]="headerClass.lede">{{ t.description }}</p>
       }
     </ng-template>
 
@@ -123,24 +123,25 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
         BrowseLayout without the rail, so both states share one header and wrap.
       -->
       <aec-browse-layout [filters]="false">
-        <div slot="header" class="space-y-4">
+        <div slot="header">
           <ng-container
             [ngTemplateOutlet]="pageHeader"
             [ngTemplateOutletContext]="{ $implicit: t }"
           />
         </div>
 
-        <aec-empty-state slot="grid" class="max-w-prose space-y-3">
-          <p class="text-(--text-primary)">{{ emptyTermHeadline() }}</p>
-          <p class="text-sm text-(--text-secondary)" i18n="@@taxonomy.browse.emptyTerm.body">
+        <!-- Mock-up 10, the empty term: a lead line at 16px and 600 in primary
+             ink, the sentence under it, then "Browse all products" as the
+             standalone link role with a 44px target. Same words as before. -->
+        <aec-empty-state slot="grid">
+          <p class="max-w-2xl font-semibold text-(--text-primary)">{{ emptyTermHeadline() }}</p>
+          <p class="mt-1 max-w-2xl" i18n="@@taxonomy.browse.emptyTerm.body">
             As the catalog grows, this page fills in on its own.
           </p>
           <a
             routerLink="/products"
-            class="inline-block rounded-sm text-sm font-semibold text-(--accent-primary) underline
-              decoration-(--border-strong) underline-offset-4 transition-colors
-              hover:decoration-(--accent-primary) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="emptyLinkClass"
+            class="mt-2"
             i18n="@@taxonomy.browse.emptyTerm.cta"
             >Browse all products</a
           >
@@ -150,13 +151,13 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
       <aec-mailing-list-signup />
     } @else {
       <aec-browse-layout>
-        <div slot="header" class="space-y-4">
+        <div slot="header">
           <ng-container
             [ngTemplateOutlet]="pageHeader"
             [ngTemplateOutletContext]="{ $implicit: t }"
           />
 
-          <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
+          <p [class]="headerClass.count">{{ productCountLabel() }}</p>
         </div>
 
         <aec-facet-sidebar
@@ -233,6 +234,10 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
 export class TaxonomyBrowsePage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+  /** The standalone link role, the same spelling as the filter panel's links. */
+  protected readonly emptyLinkClass = FILTER_LINK_CLASS;
 
   /** Taxonomy kind for this route — static `data: { kind }` in `app.routes.ts`. */
   protected readonly kind = computed<TaxonomyKind>(

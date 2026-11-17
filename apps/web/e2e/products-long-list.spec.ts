@@ -1,11 +1,14 @@
 /**
  * AECI-1783: the long integration list on the product page.
  *
- * Runs against whatever D1 the stack under test reads. It looks for a product whose
- * section groups (13 rows or more, fewer groups than half the rows, no Via lane) and
- * skips when the database has none,
- * as `detail-deferred-hydration.spec.ts` does. The committed seed has no such product,
- * so seed one locally to exercise it.
+ * Runs against the committed e2e fixture `fixture-long-list`
+ * (`apps/api/seed/long-list-fixtures.sql`, AECI-1868): 14 integrations to 14
+ * partners in three local-only categories plus one uncategorised partner, so the
+ * section groups (13 rows or more, fewer groups than half the rows, no Via lane).
+ * Group sizes: Alpha 8 (longer than the 6-card peek), Beta 4, Gamma 2, none 1.
+ * Partner 01 sits in Alpha and Beta, so 14 rows print 15 cards.
+ *
+ * The spec skips only where the fixture is absent: a deployed tier never seeds it.
  *
  * What it proves in a real browser:
  *  - every row is a crawlable pair-page link in the raw server HTML, hidden or not;
@@ -19,80 +22,62 @@
  *  - "Show more" moves focus to the first card it revealed;
  *  - a text-fragment link to a hidden card opens its group, and it stays open.
  */
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
 
-const GROUPED_LIST_MIN_ROWS = 13;
-
-interface Edge {
-  source: { slug: string };
-  target: { slug: string };
-  via: unknown;
-  powered_by_product: { id: string } | null;
-  mechanism_kind: string | null;
-  partner_categories?: Array<{ slug: string }>;
-}
-
-/**
- * The grouping rule ruled on 2026-11-16: 13 rows or more, and fewer category groups
- * than half the rows. A row with no category adds the uncategorised group.
- */
-function groups(edges: Edge[]): number {
-  const keys = new Set<string>();
-  for (const e of edges) {
-    const cats = e.partner_categories ?? [];
-    if (cats.length === 0) keys.add('');
-    for (const c of cats) keys.add(c.slug);
-  }
-  return keys.size;
-}
-
-/** A product whose Integrations section groups, or null. */
-async function findLongList(
-  request: APIRequestContext,
-): Promise<{ slug: string; rows: number } | null> {
-  for (let page = 1; page <= 5; page++) {
-    const res = await request.get(`/api/products?perPage=100&page=${page}`);
-    if (!res.ok()) return null;
-    const body = await res.json();
-    const items: Array<{ slug: string; integration_count?: number }> = body.data ?? [];
-    for (const item of items) {
-      if (Number(item.integration_count ?? 0) < GROUPED_LIST_MIN_ROWS) continue;
-      const detail = await (await request.get(`/api/products/${item.slug}`)).json();
-      const edges: Edge[] = [
-        ...(detail.integrations_as_source ?? []),
-        ...(detail.integrations_as_target ?? []),
-      ];
-      // A Via lane keeps the lane cards. Approximate the lane rule: any connector edge.
-      const viaLane = edges.some(
-        (e) => e.via || e.powered_by_product || e.mechanism_kind === 'iPaaS',
-      );
-      if (!viaLane && edges.length >= GROUPED_LIST_MIN_ROWS && groups(edges) * 2 < edges.length) {
-        return { slug: item.slug, rows: edges.length };
-      }
-    }
-    if (page * 100 >= Number(body.total ?? 0)) break;
-  }
-  return null;
-}
+/** The seeded fixture: its slug, its row count and its groups (heading → cards). */
+const FIXTURE = {
+  slug: 'fixture-long-list',
+  rows: 14,
+  groups: {
+    'Zz Fixture Category Alpha': 8,
+    'Zz Fixture Category Beta': 4,
+    'Zz Fixture Category Gamma': 2,
+    'No category on record': 1,
+  } as Record<string, number>,
+};
 
 const text = async (page: Page, selector: string) =>
   (await page.locator(selector).allTextContents()).map((t) => t.replace(/\s+/g, ' ').trim());
 
 test.describe('product page: long integration lists (AECI-1783)', () => {
-  let target: { slug: string; rows: number } | null = null;
+  let seeded = false;
+  const target = { slug: FIXTURE.slug, rows: FIXTURE.rows };
 
   test.beforeAll(async ({ request }) => {
-    target = await findLongList(request);
+    const res = await request.get(`/api/products/${FIXTURE.slug}`);
+    // Only a 404 means "not seeded here". Any other failure is a real error, not a skip.
+    if (res.status() === 404) return;
+    expect(res.status(), `GET /api/products/${FIXTURE.slug}`).toBe(200);
+    seeded = true;
+    // The fixture is the contract: its shape must hold, or every test below is moot.
+    const detail = await res.json();
+    const edges = [
+      ...(detail.integrations_as_source ?? []),
+      ...(detail.integrations_as_target ?? []),
+    ];
+    expect(edges, 'fixture-long-list rows').toHaveLength(FIXTURE.rows);
   });
 
   test.beforeEach(() => {
-    test.skip(target === null, 'no product with a groupable integration list in this database');
+    test.skip(!seeded, 'fixture-long-list is not seeded here (a deployed tier, not the e2e seed)');
+  });
+
+  test('the fixture prints its four groups with their card counts', async ({ page }) => {
+    await page.goto(`/products/${target.slug}`);
+    const groups = page.locator('section[aec-product-integration-category-group]');
+    await expect(groups).toHaveCount(Object.keys(FIXTURE.groups).length);
+    const seen: Record<string, number> = {};
+    for (const group of await groups.all()) {
+      const name = (await group.locator('h3').textContent())!.trim();
+      seen[name] = await group.locator(':scope > ul > li').count();
+    }
+    expect(seen).toEqual(FIXTURE.groups);
   });
 
   test('every row is a crawlable pair-page link in the raw server HTML', async ({ request }) => {
-    const { slug, rows } = target!;
+    const { slug, rows } = target;
     const html = await (await request.get(`/products/${slug}`)).text();
     const links = new Set(
       [...html.matchAll(new RegExp(`href="/products/${slug}/integrations/([a-z0-9-]+)"`, 'g'))].map(
@@ -110,7 +95,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   test('rail, group heading and chip counts agree; a rail link focuses its heading', async ({
     page,
   }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     const rail = page.getByTestId('integrations-rail-link');
     await untilHydrated(rail.nth(1));
 
@@ -146,12 +131,12 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   });
 
   test('"Show more" reveals rows already in the DOM, without a request', async ({ page }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     const group = page
       .locator('section[aec-product-integration-category-group]')
       .filter({ has: page.getByTestId('integration-category-group-toggle') })
       .first();
-    test.skip((await group.count()) === 0, 'no group is longer than its peek');
+    await expect(group, 'the Alpha group is longer than its peek').toHaveCount(1);
     const toggle = group.getByTestId('integration-category-group-toggle');
     await untilHydrated(toggle);
     const hiddenBefore = await group.locator('ul > li[hidden]').count();
@@ -168,26 +153,28 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   });
 
   test('"One list" shows 12, and "Load more" adds 12', async ({ page }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     const oneList = page.getByRole('button', { name: 'One list' });
     await untilHydrated(oneList);
     await oneList.click();
     const list = page.locator('aec-product-integration-one-list');
     const visible = list.locator(':scope > ul > li:not([hidden])');
-    await expect(visible).toHaveCount(Math.min(12, target!.rows));
-    await expect(list.locator('[aria-live="polite"]')).toHaveText(`Showing 12 of ${target!.rows}`);
+    await expect(visible).toHaveCount(Math.min(12, target.rows));
+    await expect(list.locator('[aria-live="polite"]')).toHaveText(`Showing 12 of ${target.rows}`);
     await page.getByTestId('integrations-load-more').click();
-    await expect(visible).toHaveCount(Math.min(24, target!.rows));
+    await expect(visible).toHaveCount(Math.min(24, target.rows));
   });
 
   test('nothing overflows sideways at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     await page.getByTestId('integrations-rail').scrollIntoViewIfNeeded();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(overflow).toBe(0);
+    // On Linux CI the root's scrollWidth excludes the classic scrollbar gutter and
+    // clientWidth does not, so the difference can be negative. Overflow is above 0.
+    expect(overflow).toBeLessThanOrEqual(0);
     const names = await text(page, '[data-testid="integrations-rail-link"]');
     expect(names.length).toBeGreaterThan(1);
   });
@@ -195,7 +182,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   test('a filter on a freshly loaded page leaves no stale group and no duplicate id', async ({
     page,
   }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     const search = page.locator('#integrations input[type=search]');
     await untilHydrated(page.getByTestId('integrations-rail-link').first());
     // One partner's name, typed before the reader scrolls anywhere: most groups drop.
@@ -222,7 +209,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await page.evaluate((slug) => {
       history.pushState({}, '', `/products/${slug}`);
       dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-    }, target!.slug);
+    }, target.slug);
     const rail = page.getByTestId('integrations-rail-link');
     await expect(rail.first()).toBeVisible();
     await rail.last().click();
@@ -234,12 +221,12 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   });
 
   test('"Show more" moves focus to the first card it revealed', async ({ page }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     const group = page
       .locator('section[aec-product-integration-category-group]')
       .filter({ has: page.getByTestId('integration-category-group-toggle') })
       .first();
-    test.skip((await group.count()) === 0, 'no group is longer than its peek');
+    await expect(group, 'the Alpha group is longer than its peek').toHaveCount(1);
     const toggle = group.getByTestId('integration-category-group-toggle');
     await untilHydrated(toggle);
     await toggle.focus();
@@ -252,7 +239,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
   test('a text-fragment link to a hidden card opens its group, and it stays open', async ({
     page,
   }) => {
-    await page.goto(`/products/${target!.slug}`);
+    await page.goto(`/products/${target.slug}`);
     // A hidden card in the last group with a toggle, whose name occurs once on the page.
     const pick = await page.evaluate(() => {
       const groups = [
@@ -275,11 +262,11 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
       }
       return null;
     });
-    test.skip(pick === null, 'no hidden card with a name unique on the page');
+    expect(pick, 'a hidden card whose name is unique on the page').not.toBeNull();
     const fragment = encodeURIComponent(pick!.name).replace(/-/g, '%2D');
     // A fresh load, as from a search result, not a same-document jump.
     await page.goto('about:blank');
-    await page.goto(`/products/${target!.slug}#:~:text=${fragment}`);
+    await page.goto(`/products/${target.slug}#:~:text=${fragment}`);
     const group = page.locator(`#${pick!.id}`);
     const toggle = group.getByTestId('integration-category-group-toggle');
     await untilHydrated(toggle);

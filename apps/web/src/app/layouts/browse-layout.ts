@@ -3,8 +3,10 @@ import { booleanAttribute, Component, computed, input } from '@angular/core';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 
 /**
- * Browse layout shell: `/products`, the four taxonomy term pages and `/search`
- * (AECI-1793, mock-up 10). Named slots only; no state.
+ * Browse layout shell: `/products`, the four taxonomy term pages, the four
+ * taxonomy index pages (no filter rail, AECI-1795) and `/search` (AECI-1793,
+ * mock-up 10). Named slots only; no state. The header slot's parts are spelled
+ * once in `browse-header.ts`.
  *
  * Two parts, both on the 1328px page wrap (`BAND_WRAP_CLASS`, ruling 3 of
  * 2026-11-16), so the content lines up with the header and footer:
