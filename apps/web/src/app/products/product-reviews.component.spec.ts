@@ -183,10 +183,10 @@ describe('ProductReviews', () => {
       expect(onboarding.querySelector('.aec-figure-suffix')!.textContent!.trim()).toBe('/5');
       const note = (card: Element, id: string) => card.querySelector(`[data-testid="${id}"]`)!;
       expect(note(overall, 'review-score-overall-note').textContent!.trim()).toBe(
-        'How well it does the job once it is in place.',
+        'The score for the product itself.',
       );
       expect(note(onboarding, 'review-score-onboarding-note').textContent!.trim()).toBe(
-        'How the first weeks went, from install to the team using it.',
+        'The score for getting set up and started.',
       );
       // The note is the card's last child and takes the free space above it.
       expect(overall.lastElementChild).toBe(note(overall, 'review-score-overall-note'));

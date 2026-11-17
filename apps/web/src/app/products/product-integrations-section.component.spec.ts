@@ -464,16 +464,17 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(kicker.textContent!.trim()).toBe('Integrations on record');
     // The intro line is a promise that waits for Chris.
     expect(el.textContent).not.toContain('with the evidence behind it');
-    const badge = el.querySelector('[data-testid="integrations-count-badge"]')!;
-    expect(badge.getAttribute('aria-hidden')).toBe('true');
-    expect(badge.textContent!.replace(/\s+/g, ' ').trim()).toBe('4 of 4 integrations shown');
+    // The mock-up's "N of N integrations shown" badge is not built: it is the row count,
+    // which can differ from the facts card's figure (ruled 2026-11-16).
+    expect(el.querySelector('[data-testid="integrations-count-badge"]')).toBeNull();
+    expect(el.textContent).not.toContain('integrations shown');
     const heading = () =>
       el.querySelector('[data-testid="integrations-list-heading"]')!.textContent!.trim();
     expect(el.querySelector('[data-testid="integrations-list-heading"]')!.tagName).toBe('H3');
     expect(heading()).toBe('All integrations on record');
     pressChip(fixture, el, 'Outbound');
     expect(heading()).toBe('Integrations that match these filters');
-    expect(badge.textContent!.replace(/\s+/g, ' ').trim()).toBe('1 of 4 integrations shown');
+    expect(el.querySelector('[role="status"]')!.textContent!.trim()).toBe('Showing 1 of 4');
   });
 
   it('labels the search box, lays the panel out in rows, and names the category row', () => {
@@ -536,8 +537,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
     const { fixture, el } = setup(rows());
     const status = el.querySelector('[role="status"]')!;
-    // AECI-1720: the list row always says how many show (mock-up 6, "Showing 14 of 14").
-    expect(status.textContent?.trim()).toBe('Showing 4 of 4');
+    // AECI-1720: idle, the status is empty, as on the shared List filter: an idle
+    // "Showing 4 of 4" would be a row count beside the heading (ruled 2026-11-16).
+    expect(status.textContent?.trim()).toBe('');
     pressChip(fixture, el, 'Outbound');
     expect(cardNames(el)).toEqual(['Sage']);
     expect(status.textContent).toContain('Showing 1 of 4');

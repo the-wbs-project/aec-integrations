@@ -275,13 +275,15 @@ import { ProductIntegrationsTable } from './product-integrations-table';
              integration. -->
         <div aecCard class="min-w-0 space-y-4 p-6" data-testid="integrations-zero-vendor">
           @if (p.tool_integrations_url || p.api_docs_url) {
-            <!-- AECI-1720 (mock-up 8): "From {vendor}" and one neutral line, when the
-                 product has a vendor. Without one, the facts card's "Resources". -->
+            <!-- AECI-1720 (mock-up 8): "From {vendor}" and one neutral line, only while
+                 both say something true: the product has a vendor and no link shown here
+                 carries AECi's "Corrected by" caption. A corrected link is AECi's value,
+                 not the vendor's. Otherwise the facts card's "Resources". -->
             <div class="space-y-2">
               <h3 id="integrations-zero-resources" class="aec-overline text-(--text-secondary)">
                 <span class="flex items-center gap-2">
                   <aec-icon name="book" decorative [size]="4" />
-                  @if (p.vendor; as v) {
+                  @if (vendorSourced(p) && p.vendor; as v) {
                     <span data-testid="integrations-zero-vendor-heading">{{
                       fromVendorLabel(v.name)
                     }}</span>
@@ -290,7 +292,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                   }
                 </span>
               </h3>
-              @if (p.vendor) {
+              @if (vendorSourced(p)) {
                 <p
                   class="text-t-14 text-(--text-secondary)"
                   data-testid="integrations-zero-vendor-intro"
@@ -375,14 +377,14 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         </div>
       </div>
     } @else {
-      <!-- AECI-1720 (mock-up 6, .band-head): the kicker over the heading, and the view's
-           count on the right. The kicker is a paragraph, not a heading. The heading stays
-           "Integrations" with no count (ruled 2026-11-16). The mock-up's intro line makes
-           a promise about evidence and waits for Chris, so it is not built. -->
-      <div
-        class="grid gap-x-8 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-        data-testid="integrations-head"
-      >
+      <!-- AECI-1720 (mock-up 6, .band-head): the kicker over the heading. The kicker is a
+           paragraph, not a heading. The heading stays "Integrations" with no count (ruled
+           2026-11-16), and the mock-up's "N of N integrations shown" badge is not built:
+           it is the section's row count, which can differ from the facts card's figure
+           (a stored count that lags, a connector's powered edges), the problem the
+           ruling closed. The mock-up's intro line makes a promise about evidence and
+           waits for Chris, so it is not built. -->
+      <div data-testid="integrations-head">
         <div class="min-w-0">
           <p
             class="aec-overline mb-3 text-(--text-secondary)"
@@ -411,22 +413,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             </p>
           }
         </div>
-        @if (lanes().rowCount > 0) {
-          <!-- The same number as the list row's status below, so it is said once: this
-               copy is hidden from assistive tech, as the mock-up's is. -->
-          <p
-            class="text-t-14 text-(--text-secondary) sm:text-end"
-            aria-hidden="true"
-            data-testid="integrations-count-badge"
-          >
-            <span class="font-semibold text-(--text-primary) tabular-nums">{{
-              shownOfTotal()
-            }}</span
-            >&ngsp;<span i18n="@@products.detail.body.integrations.countBadge"
-              >integrations shown</span
-            >
-          </p>
-        }
       </div>
     }
 
@@ -913,6 +899,20 @@ export class ProductIntegrationsSection {
     return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
   });
 
+  /**
+   * Whether the zero state's link card may say the links come from the vendor
+   * ("From {vendor}", "What the vendor publishes…"): the product has a vendor, and no
+   * link the card shows carries a correction. A corrected link is a value AECi set,
+   * and its own "Corrected by" caption says so, so the card must not call it the
+   * vendor's. A link AECi hid for checking or removed is not shown, so it does not count.
+   */
+  protected vendorSourced(p: ProductDetail): boolean {
+    if (!p.vendor) return false;
+    if (p.tool_integrations_url && this.linkCorrection(p, 'tool_integrations_url')) return false;
+    if (p.api_docs_url && this.linkCorrection(p, 'api_docs_url')) return false;
+    return true;
+  }
+
   /** "From {vendor}", the zero state's vendor card heading (mock-up 8). */
   protected fromVendorLabel(vendor: string): string {
     return $localize`:@@products.detail.body.integrations.zero.fromVendor:From ${vendor}:VENDOR:`;
@@ -1201,15 +1201,16 @@ export class ProductIntegrationsSection {
   protected readonly chipRowClass =
     '-m-1.5 flex min-w-0 items-center gap-2 overflow-x-auto p-1.5 max-md:flex-nowrap md:flex-wrap md:overflow-visible';
 
-  /** "14 of 14", the head's count (the shared "{shown} of {total}" message). */
-  protected readonly shownOfTotal = computed(() => {
-    const shown = this.filteredLanes().rowCount;
-    const total = this.lanes().rowCount;
-    return $localize`:@@products.detail.group.count.filtered:${shown}:SHOWN: of ${total}:TOTAL:`;
-  });
-
-  /** "Showing 14 of 14", the list row's status. The filter box's own message id. */
+  /**
+   * "Showing 4 of 14", the list row's status while anything filters. The filter box's
+   * own message id and rule: empty while nothing filters, as on the connector page's
+   * shared List filter (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
+   * the section's row count, which can differ from the facts card's figure, the count
+   * the heading was ruled not to carry (2026-11-16). The region stays in the DOM so
+   * the first change is announced.
+   */
   protected readonly statusLabel = computed(() => {
+    if (!this.filterActive()) return '';
     const shown = this.filteredLanes().rowCount;
     const total = this.lanes().rowCount;
     return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;

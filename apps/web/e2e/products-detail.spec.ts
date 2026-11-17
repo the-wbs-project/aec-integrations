@@ -259,9 +259,10 @@ test.describe('product detail — table names and section-nav location (AECI-831
     expect(html).toContain('data-testid="integrations-filter-panel"');
 
     await page.goto(`/products/${SLUG}`);
-    // AECI-1720: the list row always says how many show (mock-up 6).
+    // Idle, the status is empty (AECI-1720 kept it so): a row count beside the heading
+    // can differ from the facts card's figure, which the 2026-11-16 ruling closed.
     const status = page.locator('#integrations [role="status"]');
-    await expect(status).toHaveText(/Showing (\d+) of \1/);
+    await expect(status).toHaveText('');
     const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();
     test.skip((await chip.count()) === 0, 'no filter chips on this fixture');
     await untilHydrated(chip);
@@ -269,7 +270,7 @@ test.describe('product detail — table names and section-nav location (AECI-831
     await expect(chip).toHaveAttribute('aria-pressed', 'true');
     await expect(status).toHaveText(/Showing \d+ of \d+/);
     await page.locator('[data-testid="integrations-filter-clear"]').click();
-    await expect(status).toHaveText(/Showing (\d+) of \1/);
+    await expect(status).toHaveText('');
   });
 
   // A8: the "On this page" nav always names exactly one current section.

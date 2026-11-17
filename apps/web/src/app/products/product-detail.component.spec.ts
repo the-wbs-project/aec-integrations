@@ -2126,6 +2126,13 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     const vendor = section(el).querySelector('[data-testid=integrations-zero-vendor]')!;
     const caption = vendor.querySelector('[data-testid=field-correction]');
     expect(squash(caption?.textContent)).toContain('Corrected by AEC Integrations');
+    // AECI-1720: a corrected link is AECi's value, so the card does not call its links
+    // the vendor's. It keeps the facts card's "Resources" and drops the vendor line.
+    expect(squash(vendor.querySelector('#integrations-zero-resources')!.textContent)).toBe(
+      'Resources',
+    );
+    expect(vendor.querySelector('[data-testid=integrations-zero-vendor-intro]')).toBeNull();
+    expect(vendor.textContent).not.toContain('What the vendor publishes');
   });
 
   it('holds the No directory line when AECi removed the integrations page link', () => {
