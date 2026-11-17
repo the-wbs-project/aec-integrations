@@ -25,17 +25,25 @@ describe('HomeTrustPillars', () => {
     ]);
   });
 
-  it('sits on white: no Forest ground, the commitments are shared cards (AECI-1800)', () => {
+  it('puts the three commitments in one Forest feature card (ruling 2026-11-17)', () => {
     const h = setup();
-    expect(h.querySelector('[class*="bg-(--accent-primary)"]')).toBeNull();
-    const list = h.querySelector('ul');
-    expect(list?.classList).toContain('aec-card-grid');
-    for (const li of Array.from(h.querySelectorAll('li'))) {
-      expect(li.classList).toContain('aec-card');
-      expect(li.classList).toContain('shadow-card');
-      // Not a link, so the card does not lift.
-      expect(li.className).not.toContain('translate-y');
+    const forest = h.querySelectorAll('[class*="bg-(--accent-primary)"]');
+    expect(forest).toHaveLength(1);
+    const card = forest[0];
+    expect(card.getAttribute('data-testid')).toBe('about-trust-card');
+    // The home "What we do instead" recipe: a card, never a band.
+    for (const c of ['aec-card', 'rounded-card', 'shadow-card', 'text-(--text-on-brand)']) {
+      expect(card.classList).toContain(c);
     }
+    // All three points live inside the card, split by on-brand hairlines.
+    const points = Array.from(card.querySelectorAll('li'));
+    expect(points).toHaveLength(3);
+    for (const li of points) expect(li.classList).toContain('aec-on-brand-rule');
+    // No control on the card: the pillars have no link today.
+    expect(card.querySelectorAll('a, button')).toHaveLength(0);
+    // The head row and the closing line stay on white, outside the card.
+    expect(card.querySelector('h2')).toBeNull();
+    expect(card.textContent).not.toContain('We will earn revenue');
   });
 
   it('is a static band — no rotation, no controls', () => {

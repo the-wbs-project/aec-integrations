@@ -59,14 +59,17 @@ describe('AboutPage', () => {
     ]);
   });
 
-  it('has one Bone band, the hero, and no Forest ground in the body (AECI-1800)', () => {
+  it('has one Bone band (the hero) and one Forest feature card (AECI-1800)', () => {
     const { host } = setup();
     const bands = host.querySelectorAll('aec-bone-band');
     expect(bands).toHaveLength(1);
     expect(bands[0].querySelector('h1')).not.toBeNull();
     // Forest may fill only the header, a detail hero, the footer and one feature
-    // card. The commitments band used to be a mid-page Forest ground.
-    expect(host.querySelector('[class*="bg-(--accent-primary)"]')).toBeNull();
+    // card. The commitments are that card (ruling 2026-11-17), never a band.
+    const forest = host.querySelectorAll('[class*="bg-(--accent-primary)"]');
+    expect(forest).toHaveLength(1);
+    expect(forest[0].classList).toContain('aec-card');
+    expect(forest[0].closest('aec-home-trust-pillars')).not.toBeNull();
     expect(host.querySelector('[class*="bg-(--accent-warm)"]:not(.aec-bone-band)')).toBeNull();
   });
 

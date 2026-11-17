@@ -24,8 +24,9 @@
  *      on detail pages, and this is a content page.
  *   2. White: "Why we exist" and "How we're different".
  *   3. White, after a hairline: the three commitments (`<aec-home-trust-pillars>`).
- *      They left their mid-page Forest band, because Forest may fill only the
- *      header, a detail page hero, the footer and one feature card.
+ *      They left their full-bleed Forest band, because Forest may fill only the
+ *      header, a detail page hero, the footer and one feature card. They are now
+ *      the page's one Forest feature card (Chris, ruling 2026-11-17).
  *   4. White, after a hairline: "Who it's for" and "Start exploring".
  *
  * Each section row puts its heading left and its content right from `lg`, the

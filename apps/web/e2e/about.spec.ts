@@ -70,7 +70,7 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText("couldn't find anywhere");
   });
 
-  test('one Bone band, and the commitments sit on white, not Forest (AECI-1800)', async ({
+  test('one Bone band; the commitments are one Forest card on a white band (AECI-1800)', async ({
     page,
   }) => {
     await page.goto('/about');
@@ -90,6 +90,21 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
     // compare against the body's own computed ground rather than a literal.
     const body = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     expect(ground).toBe(body);
+
+    // The page's one Forest feature card (ruling 2026-11-17): a card with 24px
+    // corners that holds all three points, never a full-bleed band.
+    const card = page.getByTestId('about-trust-card');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('li')).toHaveCount(3);
+    const box = await card.evaluate((el) => ({
+      radius: getComputedStyle(el).borderTopLeftRadius,
+      width: el.getBoundingClientRect().width,
+      viewport: document.documentElement.clientWidth,
+      bg: getComputedStyle(el).backgroundColor,
+    }));
+    expect(box.radius).toBe('24px');
+    expect(box.width).toBeLessThan(box.viewport);
+    expect(box.bg).not.toBe(body);
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {

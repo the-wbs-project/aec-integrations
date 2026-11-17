@@ -20,17 +20,23 @@
  * page wrap around it. Forest may fill only the header, a detail page hero, the
  * footer and one feature card (DESIGN.md §2), so the band left its mid-page Forest
  * ground. The head row is the home argument band's 5:7 split (overline and the
- * Section-role `<h2>` left, the lede right). The three commitments are shared
- * `aecCard`s in the shared `aec-card-grid`. They are not links, so they do not
- * lift, and the Clay top stripe is gone (Clay is a stroke, and a stripe needs a
- * text label it would mark).
+ * Section-role `<h2>` left, the lede right).
+ *
+ * **The page's one Forest feature card (Chris, ruling 2026-11-17).** The three
+ * commitments are the three points of one Forest card, in their shipped order. The
+ * card copies the recipe of the home page's "What we do instead" card in
+ * `home-why.ts` (AECI-1792): `aec-card`, Forest fill, Bone ink, `shadow-card`,
+ * `rounded-card`, 32px padding (48px from `lg`), and the points in columns split by
+ * `aec-on-brand-rule` hairlines. The classes are reused, not extracted: the home
+ * card also carries an icon tile, a card heading and a button, so a shared component
+ * would have to be reshaped around both and the home page would move. The pillars
+ * have no link today, so the card has no button and no focus stop. The closing line
+ * stays on white under the card. The Clay top stripe and the hover lift are gone.
  *
  * Light theme only (Stage 1). Copy is authored with `$localize` so it stays
  * i18n-extractable in one place.
  */
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-
-import { AecCard } from '../shared/card/card';
 
 /** One trust commitment: the mantra and the one-line explanation. */
 interface Pillar {
@@ -43,7 +49,6 @@ interface Pillar {
   selector: 'aec-home-trust-pillars',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecCard],
   template: `
     <section>
       <div class="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
@@ -64,14 +69,27 @@ interface Pillar {
         </p>
       </div>
 
-      <ul class="aec-card-grid mt-12">
-        @for (p of pillars; track p.id) {
-          <li aecCard class="flex flex-col p-6 md:p-8">
-            <h3 class="text-(--text-primary)">{{ p.title }}</h3>
-            <p class="mt-3 text-t-16 leading-relaxed text-(--text-secondary)">{{ p.body }}</p>
-          </li>
-        }
-      </ul>
+      <!-- The page's one Forest feature card (ruling 2026-11-17). The recipe of the
+           home page's "What we do instead" card: Forest fill, Bone ink, the card
+           shadow, 24px corners, the points in columns split by on-brand hairlines.
+           It holds no link or button, so it needs no focus ring of its own. -->
+      <div
+        data-testid="about-trust-card"
+        class="aec-card mt-12 rounded-card border bg-(--accent-primary) p-8 text-(--text-on-brand) shadow-card lg:p-12"
+      >
+        <ul class="grid gap-8 md:grid-cols-3">
+          @for (p of pillars; track p.id) {
+            <li
+              class="aec-on-brand-rule max-md:not-first:border-t max-md:not-first:pt-8 md:not-first:border-s md:not-first:ps-8"
+            >
+              <h3 class="text-(--text-on-brand)">{{ p.title }}</h3>
+              <p class="mt-2 text-t-16 leading-relaxed text-(--text-on-brand-secondary)">
+                {{ p.body }}
+              </p>
+            </li>
+          }
+        </ul>
+      </div>
 
       <p class="mt-8 max-w-[70ch] text-t-14 leading-relaxed text-(--text-secondary)">
         {{ closing }}
