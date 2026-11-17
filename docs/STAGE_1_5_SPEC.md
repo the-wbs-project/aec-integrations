@@ -901,7 +901,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   **Amended 2026-11-17 (AECI-1788): the rows are cards.** The endpoint section became cards in
   AECI-1782, so this section followed it. Each partner row is now a nested card in the shared card
   grid inside its hub card, as the Via lane cards are, and the filter sits in a "Filters" panel
-  under the heading, with "Clear filters" as on the Integrations panel (ruled 2026-11-17). Each card is still the row's one link to the pair page with the same
+  under the heading, with "Clear filters" (ruled 2026-11-17). Each card is still the row's one link to the pair page with the same
   accessible name. The content, the hub-relative direction, the order and the counts are
   unchanged. The mechanism badge and the data-object count no longer fold at `md`: a card has room
   for both chips at every width. `DESIGN.md` §5 "Open values (components)" carries the values.

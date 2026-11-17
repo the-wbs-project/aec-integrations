@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 
 import type {
   ContextDirection,
@@ -450,6 +450,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               <aec-icon name="search" decorative [size]="4" />
             </span>
             <input
+              #filterInput
               id="integrations-filter"
               type="search"
               autocomplete="off"
@@ -1122,7 +1123,7 @@ export class ProductIntegrationsSection {
   }
 
   /** The panel's search field, so "Clear filters" can hand focus back to it. */
-  private readonly filterField = viewChild(IntegrationListFilter);
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
 
   /**
    * "Clear filters": every facet and the query, back to the whole section. The button
@@ -1134,7 +1135,7 @@ export class ProductIntegrationsSection {
     this.directions.set([]);
     this.categories.set([]);
     this.dataObjects.set([]);
-    this.filterField()?.focusInput();
+    this.filterInput()?.nativeElement.focus();
   }
 
   /**
