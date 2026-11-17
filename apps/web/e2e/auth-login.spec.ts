@@ -130,6 +130,21 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     const violations = await aaViolations(page);
     expect(violations, formatViolations(violations)).toEqual([]);
   });
+
+  // AECI-1805: inside the card, a 24px page gutter left the Google button 207px wide at
+  // 320px, and "Continue with Google" broke onto two lines away from its G mark.
+  test('at 320px "Continue with Google" stays on one line, a 44px button', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/auth/login');
+    const google = page.getByRole('button', { name: 'Continue with Google' });
+    await expect(google).toBeVisible();
+    const box = await google.boundingBox();
+    expect(box?.height ?? 0).toBeLessThanOrEqual(46);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    const termsLine = page.getByTestId('login-terms-line');
+    await expect(termsLine.getByRole('link', { name: 'Terms of Service' })).toBeVisible();
+    await expect(termsLine.getByRole('link', { name: 'Privacy Policy' })).toBeVisible();
+  });
 });
 
 async function aaViolations(page: Page) {
