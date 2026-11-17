@@ -282,7 +282,7 @@ export class UpdatesPage {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
-    if (isReplayedEvent(event)) return; // the native default already ran
+    if (isReplayedEvent(event)) return; // a replayed early press is dropped (AECI-1919)
     event.preventDefault();
     this.status.set('idle');
     await submit(this.form, async (f) => {

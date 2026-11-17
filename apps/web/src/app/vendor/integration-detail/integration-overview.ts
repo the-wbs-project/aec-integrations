@@ -64,6 +64,7 @@ import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components
 import { VendorTip } from './vendor-tip';
 import { VendorHiddenNote } from '../components/vendor-hidden-note';
 import { VendorLockedNote } from '../components/vendor-locked-note';
+import { isReplayedEvent } from '../../core/event-replay';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
 type Control = 'text' | 'url' | 'textarea' | 'select';
@@ -800,6 +801,7 @@ export class IntegrationOverview {
   }
 
   protected async save(event: Event, row: Row): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const field = row.edit;
     if (!field || this.busy()) return;

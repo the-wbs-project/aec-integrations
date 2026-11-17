@@ -49,6 +49,7 @@ import {
   type ClaimDialogOpening,
   type ClaimListing,
 } from './claim-dialog.service';
+import { AecFormSubmit } from '../form-field/form-submit';
 
 /** The three numbered steps, in order. `done` is the receipt, outside the count. The
  *  plan step was removed by AECI-1365. */
@@ -132,6 +133,7 @@ interface ClaimDialogModel {
 @Component({
   selector: 'aec-claim-dialog-flow',
   imports: [
+    AecFormSubmit,
     AecButton,
     ClaimantFields,
     ClaimRoutedNotice,
@@ -373,12 +375,7 @@ interface ClaimDialogModel {
           }
         }
         @default {
-          <form
-            method="dialog"
-            id="claim-dialog-form"
-            novalidate
-            (submit)="$event.preventDefault(); primary()"
-          >
+          <form method="dialog" id="claim-dialog-form" novalidate (aecSubmit)="primary()">
             @switch (step()) {
               @case ('you') {
                 <h3

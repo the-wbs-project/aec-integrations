@@ -21,6 +21,7 @@ import {
   FIELD_INPUT_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AdminLicensesApi } from './admin-licenses-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The billing email on the admin Billing tab (AECI-1381; decision 16 of
@@ -169,6 +170,7 @@ export class BillingEmailControl {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

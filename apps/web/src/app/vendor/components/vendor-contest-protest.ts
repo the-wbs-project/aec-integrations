@@ -22,6 +22,7 @@ import {
   protestErrorReloads,
   protestStatusLabel,
 } from './vendor-contest-labels';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type Side = 'submitted' | 'received';
 type Busy = 'file' | 'reply' | 'withdraw' | null;
@@ -52,7 +53,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
  */
 @Component({
   selector: 'aec-vendor-contest-protest',
-  imports: [DatePipe, NgTemplateOutlet, RouterLink],
+  imports: [AecFormSubmit, DatePipe, NgTemplateOutlet, RouterLink],
   styles: [':host { display: block; }'],
   template: `
     @let c = contest();
@@ -188,12 +189,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         }
 
         @if (side() === 'received' && canReply()) {
-          <form
-            method="dialog"
-            class="space-y-2 pt-1"
-            (submit)="$event.preventDefault(); reply()"
-            novalidate
-          >
+          <form method="dialog" class="space-y-2 pt-1" (aecSubmit)="reply()" novalidate>
             <label [for]="ids.replyText" [class]="labelClass" i18n="@@vendor.protest.reply.label"
               >Your reply</label
             >
@@ -252,7 +248,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             method="dialog"
             [id]="ids.form"
             class="mt-2 max-w-prose space-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-3"
-            (submit)="$event.preventDefault(); file()"
+            (aecSubmit)="file()"
             novalidate
             [attr.aria-labelledby]="ids.formHeading"
           >

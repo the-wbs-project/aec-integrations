@@ -21,6 +21,7 @@ import {
   FIELD_INPUT_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AdminLicensesApi } from './admin-licenses-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The company legal name on the admin Billing tab (AECI-1625). Projected into the "Legal
@@ -160,6 +161,7 @@ export class LegalNameControl {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

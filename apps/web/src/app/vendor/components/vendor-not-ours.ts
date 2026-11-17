@@ -24,6 +24,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import { NO_OWNER } from './vendor-contest-form';
 import { contestSubmitErrorMessage } from './vendor-contest-labels';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The caller's newest "not ours" on one row (AECI-1225): an `owner` contest it filed
@@ -335,6 +336,7 @@ export class VendorNotOurs {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.submitting()) return;
     this.attempted.set(true);

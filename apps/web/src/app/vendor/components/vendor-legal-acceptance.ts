@@ -43,6 +43,7 @@ import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorLegalAcceptanceState } from '../vendor-legal-acceptance-state';
+import { isReplayedEvent } from '../../core/event-replay';
 
 const SUPPORT_EMAIL = 'support@aecintegrations.com';
 
@@ -690,6 +691,7 @@ export class VendorLegalAcceptance {
   }
 
   protected async accept(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     this.failure.set(null);

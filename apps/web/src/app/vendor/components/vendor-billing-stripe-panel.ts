@@ -50,6 +50,7 @@ import { formatPlanPrice } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { billedIntervalLabel, stripeBillingErrorMessage } from './vendor-billing-stripe-errors';
 import { VendorBillingStripeWatch, liveLicenseCount } from './vendor-billing-stripe-watch';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Per-license price in cents, by interval. Display only: Stripe bills from its own
  *  prices, resolved by lookup key on the API (`managed_annual`, `managed_monthly`). */
@@ -667,6 +668,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async checkout(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     this.panelError.set(null);
@@ -723,6 +725,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async add(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const quantity = parseQuantity(this.addQuantity());

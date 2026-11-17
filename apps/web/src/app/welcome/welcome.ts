@@ -30,6 +30,7 @@ import {
 } from '../shared/form-field/form-field-classes';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
 
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
@@ -72,7 +73,7 @@ export function welcomeNextPath(raw: string | null): string {
  */
 @Component({
   selector: 'aec-welcome-page',
-  imports: [AecButton, AecCard, ProfileDetailsForm],
+  imports: [AecFormSubmit, AecButton, AecCard, ProfileDetailsForm],
   template: `
     <!-- AECI-987: the 7xl canvas with the form + context rail. From lg the header
          and the form sit in columns 1 to 7 and the rail docks in 9 to 12. Below lg
@@ -161,13 +162,7 @@ export function welcomeNextPath(raw: string | null): string {
               </button>
             </div>
           } @else {
-            <form
-              method="dialog"
-              aecCard
-              class="mt-10"
-              novalidate
-              (submit)="$event.preventDefault(); onSave()"
-            >
+            <form method="dialog" aecCard class="mt-10" novalidate (aecSubmit)="onSave()">
               <div class="space-y-6 p-6 sm:p-8">
                 <div class="space-y-1.5">
                   <label

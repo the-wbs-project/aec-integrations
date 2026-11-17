@@ -33,7 +33,7 @@
     method="dialog"
     novalidate
     class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-    (submit)="$event.preventDefault(); submit()"
+    (aecSubmit)="submit()"
   >
     <ul class="space-y-3">
       @for (c of candidates(); track c.productId) {

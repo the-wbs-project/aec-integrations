@@ -43,7 +43,7 @@
 } @else {
 <div class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start">
   @switch (mode()) { @case ('extend') {
-  <form method="dialog" novalidate (submit)="$event.preventDefault(); submitExtend()">
+  <form method="dialog" novalidate (aecSubmit)="submitExtend()">
     <label
       [attr.for]="idPrefix() + '-license-end'"
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -107,7 +107,7 @@
     </div>
   </form>
   } @case ('reference') {
-  <form method="dialog" novalidate (submit)="$event.preventDefault(); submitReference()">
+  <form method="dialog" novalidate (aecSubmit)="submitReference()">
     <label
       [attr.for]="idPrefix() + '-license-reference'"
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -150,7 +150,7 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form method="dialog" novalidate (submit)="$event.preventDefault(); submitRevoke()">
+  <form method="dialog" novalidate (aecSubmit)="submitRevoke()">
     @if (productName(); as product) {
     <p
       class="text-sm text-(--text-primary)"

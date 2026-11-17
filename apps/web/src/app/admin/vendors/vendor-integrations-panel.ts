@@ -17,6 +17,7 @@ import { ADMIN_RETIRE_REASON_MAX, type AdminVendorIntegrationRow } from '@aeci/s
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Rows per fetch. The API caps a page at 100; a vendor owning more is told so. */
 export const INTEGRATIONS_PAGE_SIZE = 100;
@@ -60,7 +61,7 @@ type Mode = 'retire' | 'restore';
  */
 @Component({
   selector: 'aec-vendor-integrations-panel',
-  imports: [DatePipe, NewTabIcon],
+  imports: [AecFormSubmit, DatePipe, NewTabIcon],
   templateUrl: './vendor-integrations-panel.html',
 })
 export class VendorIntegrationsPanel {

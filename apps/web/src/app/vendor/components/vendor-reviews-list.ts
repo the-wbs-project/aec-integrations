@@ -44,6 +44,7 @@ import {
   type ReviewReplyState,
 } from './vendor-review-labels';
 import { VendorDocsLink } from './vendor-docs-link';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Reviews per page. Small: each row can open a form. */
 export const VENDOR_REVIEWS_PAGE_SIZE = 10;
@@ -89,7 +90,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
  */
 @Component({
   selector: 'aec-vendor-reviews-list',
-  imports: [AecSelect, DatePipe, ReviewStars, RouterLink, VendorDocsLink],
+  imports: [AecFormSubmit, AecSelect, DatePipe, ReviewStars, RouterLink, VendorDocsLink],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-reviews-heading" data-vendor-reviews>
@@ -451,7 +452,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                         method="dialog"
                         class="space-y-2"
                         novalidate
-                        (submit)="$event.preventDefault(); save(item)"
+                        (aecSubmit)="save(item)"
                         data-reply-form
                       >
                         <label [for]="fieldId(item)" [class]="labelClass">{{

@@ -345,11 +345,36 @@ describe('form-declares-method (AECI-1919)', () => {
     ]);
   });
 
-  it('accepts a declared method, wherever it sits in the tag', () => {
-    expect(hits(HTML, '<form method="dialog" novalidate (submit)="save($event)">')).toEqual([]);
+  it('accepts the two shapes, wherever the attributes sit in the tag', () => {
+    expect(hits(HTML, '<form method="dialog" novalidate (aecSubmit)="save()">')).toEqual([]);
+    expect(hits(HTML, "<form novalidate method='dialog'>")).toEqual([]);
     const search = '<form\n  role="search"\n  action="/search"\n  method="get"\n>';
     expect(scanFile(TS, search)).toEqual([]);
+    expect(scanFile(HTML, search)).toEqual([]);
   });
+
+  /** Each case as an inline `.ts` template and as an external `.html` file. */
+  const BAD_FORMS = [
+    ['a GET to the page itself', '<form method="get" novalidate>'],
+    ['a GET to another page', '<form method="get" action="/products">'],
+    ['an empty method', '<form method="" novalidate>'],
+    ['a POST', '<form method="post" (submit)="save($event)">'],
+    ['method= inside another attribute', '<form (submit)="x; method=1" novalidate>'],
+    ['method="dialog" inside another attribute', '<form data-x=\'method="dialog"\'>'],
+    ['a bound method', '<form [attr.method]="m">'],
+    ['a /search action with no GET', '<form action="/search">'],
+  ] as const;
+
+  for (const [label, tag] of BAD_FORMS) {
+    it(`flags ${label}, in .ts and in .html`, () => {
+      expect(hits(TS, tag), `${label} (.ts)`).toEqual(['form-declares-method']);
+      expect(hits(HTML, tag), `${label} (.html)`).toEqual(['form-declares-method']);
+      const split = tag.replace('<form ', '<form\n  ');
+      expect(scanFile(TS, `<div>\n  ${split}\n</div>`)).toEqual([
+        expect.objectContaining({ ruleId: 'form-declares-method', line: 2 }),
+      ]);
+    });
+  }
 
   it('ignores forms named in comments, other tags and spec templates', () => {
     expect(hits(HTML, '<!-- the SSR <form> has no action -->')).toEqual([]);

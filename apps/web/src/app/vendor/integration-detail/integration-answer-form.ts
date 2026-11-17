@@ -30,6 +30,7 @@ import {
   LABEL,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
+import { isReplayedEvent } from '../../core/event-replay';
 
 let nextId = 0;
 
@@ -291,6 +292,7 @@ export class IntegrationAnswerForm implements OnInit {
   }
 
   protected async save(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const note = this.note().trim();

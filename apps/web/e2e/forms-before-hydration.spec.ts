@@ -20,6 +20,8 @@
  */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
+
 const PRODUCT = 'fixture-procore';
 const VENDOR = 'fixture-procore-technologies';
 
@@ -37,6 +39,9 @@ const INERT_FORM_ROUTES: readonly FormRoute[] = [
   { path: `/products/${PRODUCT}/integrations/fixture-acme-connector` },
   { path: `/vendors/${VENDOR}` },
   { path: '/categories/project-management' },
+  { path: '/categories' },
+  { path: '/audiences' },
+  { path: '/phases' },
   { path: '/trades' },
   { path: '/search' },
   { path: '/roadmap' },
@@ -127,6 +132,26 @@ async function fillAll(form: ReturnType<Page['locator']>): Promise<void> {
   }
 }
 
+/**
+ * Every form on the page takes one of the two allowed shapes: `method="dialog"`,
+ * or `method="get"` with `action="/search"`. A GET anywhere else is the leak.
+ */
+async function expectFormShapes(page: Page, path: string): Promise<void> {
+  const shapes = await page.locator('form').evaluateAll((forms) =>
+    forms.map((f) => ({
+      method: (f.getAttribute('method') ?? '').toLowerCase(),
+      action: f.getAttribute('action'),
+    })),
+  );
+  shapes.forEach((shape, i) => {
+    const ok = shape.method === 'dialog' || (shape.method === 'get' && shape.action === '/search');
+    expect(
+      ok,
+      `form ${i} on ${path} is method="dialog" or a /search GET, got ${JSON.stringify(shape)}`,
+    ).toBe(true);
+  });
+}
+
 test.describe('forms before hydration (AECI-1919)', () => {
   test.use({ javaScriptEnabled: false });
 
@@ -144,6 +169,7 @@ test.describe('forms before hydration (AECI-1919)', () => {
         new URL(route.path, baseURL).pathname,
       );
       expect(guard.sent, 'no write while the page loads').toEqual([]);
+      await expectFormShapes(page, route.path);
 
       const forms = page.locator('form:not([method="get"])');
       const count = await forms.count();
@@ -153,17 +179,12 @@ test.describe('forms before hydration (AECI-1919)', () => {
       for (let i = 0; i < count; i++) {
         const form = forms.nth(i);
         const shape = await form.evaluate((el: HTMLFormElement) => ({
-          method: el.getAttribute('method'),
           submits: [...el.elements]
             .filter(
               (e): e is HTMLButtonElement => e instanceof HTMLButtonElement && e.type === 'submit',
             )
             .map((b) => ({ id: b.id, disabled: b.disabled })),
         }));
-        expect(
-          shape.method === 'dialog' || shape.submits.every((s) => s.disabled),
-          `form ${i} on ${route.path} is inert (method="dialog") or its submit is disabled`,
-        ).toBe(true);
 
         await fillAll(form);
         guard.arm();
@@ -199,6 +220,7 @@ test.describe('forms before hydration (AECI-1919)', () => {
         new URL(route.path, baseURL).pathname,
       );
       await expect(page.locator('form:not([method="get"])')).toHaveCount(0);
+      await expectFormShapes(page, route.path);
       expect(guard.sent, 'no write while the page loads').toEqual([]);
     });
   }
@@ -210,6 +232,7 @@ test.describe('forms before hydration (AECI-1919)', () => {
     }) => {
       const guard = await guardRequests(page, new URL(baseURL!).origin);
       await page.goto(route.path);
+      await expectFormShapes(page, route.path);
       const forms = page.locator('form[method="get"]');
       const count = await forms.count();
       expect(count, `${route.path} has a search form`).toBeGreaterThan(0);
@@ -235,6 +258,68 @@ test.describe('forms before hydration (AECI-1919)', () => {
         ]);
         expect(url.searchParams.get('q')).toBe('revit');
       }
+    });
+  }
+});
+
+/**
+ * Routes whose SSR form has an enabled submit, so a press before hydration is
+ * queued by the event-replay contract and handed to the listener once the app is
+ * stable. The page no longer unloads (`method="dialog"`), so the replay reaches the
+ * handler. It must be dropped quietly: no "`preventDefault` called during event
+ * replay" error, and no request.
+ */
+const REPLAY_ROUTES: readonly string[] = ['/vendor-program/list-your-product', '/roadmap'];
+
+test.describe('a press before hydration is dropped (AECI-1919)', () => {
+  for (const path of REPLAY_ROUTES) {
+    test(`${path}: an early Enter replays without an error or a request`, async ({
+      page,
+      baseURL,
+    }) => {
+      const origin = new URL(baseURL!).origin;
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      page.on('console', (m) => {
+        if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) {
+          errors.push(m.text());
+        }
+      });
+
+      // Hold the app's entry bundle until the press has been made.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const writes: string[] = [];
+      await page.route('**/*', async (route) => {
+        const req = route.request();
+        const url = new URL(req.url());
+        if (url.origin !== origin) return route.abort();
+        if (req.method() !== 'GET') {
+          if (url.pathname.startsWith('/api/')) writes.push(`${req.method()} ${url.pathname}`);
+          return route.fulfill({ status: 204, body: '' });
+        }
+        if (/\/main-[^/]+\.js$/.test(url.pathname)) await held;
+        return route.continue();
+      });
+
+      await page.goto(path, { waitUntil: 'commit' });
+      const form = page.locator('form[method="dialog"]').first();
+      await expect(form, 'the form is server-rendered').toBeVisible();
+      await expect(form, 'not hydrated yet').toHaveAttribute('jsaction', /submit/);
+      const address = page.url();
+
+      await fillAll(form);
+      await form.locator(TEXT_FIELD).filter({ visible: true }).first().press('Enter');
+      await page.waitForTimeout(300);
+      expect(page.url(), 'the early press did not navigate').toBe(address);
+
+      release();
+      await untilHydrated(form);
+      await page.waitForTimeout(1_000);
+
+      expect(page.url(), 'the address is unchanged after the replay').toBe(address);
+      expect(errors, 'no error from the replayed press').toEqual([]);
+      expect(writes, 'the replayed press sent nothing').toEqual([]);
     });
   }
 });

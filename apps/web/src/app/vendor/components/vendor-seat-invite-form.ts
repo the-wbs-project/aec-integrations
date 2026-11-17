@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The invite form on the Seats section (AECI-664 /
@@ -102,6 +103,7 @@ export class VendorSeatInviteForm {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const address = this.email().trim();
     if (!address || this.busy()) return;

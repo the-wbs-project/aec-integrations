@@ -58,6 +58,7 @@ import {
   ROW_ACTION,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
+import { isReplayedEvent } from '../../core/event-replay';
 
 type RecordField = Extract<OfferedContestField, 'listing_url' | 'docs_url'>;
 
@@ -699,6 +700,7 @@ export class IntegrationLinksSection {
 
   /** The record links: `PATCH`, one field, the shared edit rule first. */
   protected async saveRecord(event: Event, field: RecordField): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const raw = this.draft().trim();
@@ -750,6 +752,7 @@ export class IntegrationLinksSection {
     group: SideGroup,
     kind: IntegrationLinkKind,
   ): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const value = this.draft().trim();

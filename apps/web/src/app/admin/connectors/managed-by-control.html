@@ -32,7 +32,7 @@
     method="dialog"
     novalidate
     class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-    (submit)="$event.preventDefault(); submit()"
+    (aecSubmit)="submit()"
   >
     <p class="text-sm text-(--text-secondary)">
       @if (formMode() === 'vendor') {

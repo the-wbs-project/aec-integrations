@@ -50,6 +50,7 @@ import {
   FIELD_LABEL_CLASS,
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
 
 /**
  * One "would you recommend" segment (AECI-1807): the segmented control recipe of the
@@ -120,6 +121,7 @@ interface ReviewModel {
 @Component({
   selector: 'aec-review-form',
   imports: [
+    AecFormSubmit,
     AecButton,
     AecCard,
     AecIcon,

@@ -18,6 +18,7 @@ import {
 import { AecButton } from '../shared/button/button';
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
+import { isReplayedEvent } from '../core/event-replay';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -247,6 +248,7 @@ export class HomeFeedbackForm {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     this.submitFailed.set(false);
     await submit(this.form, async (f) => {

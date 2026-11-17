@@ -23,6 +23,7 @@ import {
 
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReviewUpdatesApi } from './admin-review-updates-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -63,7 +64,7 @@ type ReasonedDecision = Exclude<ReviewUpdateDecision, 'approve'>;
  */
 @Component({
   selector: 'aec-review-update-queue',
-  imports: [DatePipe, RouterLink],
+  imports: [AecFormSubmit, DatePipe, RouterLink],
   templateUrl: './review-update-queue.html',
 })
 export class ReviewUpdateQueue {

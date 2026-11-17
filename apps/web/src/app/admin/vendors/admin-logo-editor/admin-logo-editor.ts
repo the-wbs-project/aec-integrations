@@ -23,18 +23,14 @@ import { firstValueFrom } from 'rxjs';
 
 import { LogoInput } from '../../../shared/logo-input/logo-input';
 import { overrideReasonBody } from '../admin-vendors-api';
+import { AecFormSubmit } from '../../../shared/form-field/form-submit';
 
 @Component({
   selector: 'aec-admin-logo-editor',
-  imports: [LogoInput],
+  imports: [AecFormSubmit, LogoInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <form
-      method="dialog"
-      class="max-w-xl space-y-4"
-      novalidate
-      (submit)="$event.preventDefault(); save()"
-    >
+    <form method="dialog" class="max-w-xl space-y-4" novalidate (aecSubmit)="save()">
       <aec-logo-input
         [inputId]="'admin-logo-' + kind() + '-' + recordId()"
         [value]="draft()"

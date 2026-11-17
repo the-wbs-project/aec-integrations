@@ -525,7 +525,7 @@
           <form
             method="dialog"
             novalidate
-            (submit)="$event.preventDefault(); confirmProtest(c.id, protestMode() ?? 'reject')"
+            (aecSubmit)="confirmProtest(c.id, protestMode() ?? 'reject')"
             class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
           >
             <label
@@ -675,7 +675,7 @@
         <form
           method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirm(c.id, 'accept')"
+          (aecSubmit)="confirm(c.id, 'accept')"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
         >
           <label
@@ -817,7 +817,7 @@
         <form
           method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirm(c.id, 'decline')"
+          (aecSubmit)="confirm(c.id, 'decline')"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
         >
           <label

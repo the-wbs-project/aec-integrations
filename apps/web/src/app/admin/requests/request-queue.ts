@@ -11,6 +11,7 @@ import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 import { LicenseReleaseQueue } from './license-release-queue';
 import { ProductRequestQueue } from './product-request-queue';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
@@ -67,7 +68,14 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [DatePipe, LicenseReleaseQueue, NewTabIcon, ProductRequestQueue, RouterLink],
+  imports: [
+    AecFormSubmit,
+    DatePipe,
+    LicenseReleaseQueue,
+    NewTabIcon,
+    ProductRequestQueue,
+    RouterLink,
+  ],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {

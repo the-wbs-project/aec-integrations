@@ -55,6 +55,7 @@ import {
   ROW_ACTION,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -1184,6 +1185,7 @@ export class IntegrationSharedData {
   }
 
   protected async add(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.adding()) return;
     const data = this.draftData() || this.dataOptions()[0]?.slug;

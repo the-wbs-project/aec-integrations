@@ -20,6 +20,7 @@ import {
 import type { AdminEmailSwitch, AdminEmailSwitchesResponse } from '@aeci/shared';
 
 import { AdminEmailApi } from './admin-email-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** The change the open dialog would make. */
 interface PendingChange {
@@ -51,6 +52,7 @@ interface PendingChange {
 @Component({
   selector: 'aec-email-switches',
   imports: [
+    AecFormSubmit,
     BrnDialog,
     BrnDialogContent,
     BrnDialogDescription,

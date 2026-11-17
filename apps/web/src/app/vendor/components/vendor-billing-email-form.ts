@@ -22,6 +22,7 @@ import {
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The billing email block on the vendor Billing tab, under the section's own
@@ -155,6 +156,7 @@ export class VendorBillingEmailForm {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

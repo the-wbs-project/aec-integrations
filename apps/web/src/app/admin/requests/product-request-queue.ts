@@ -14,6 +14,7 @@ import {
 } from '../../shared/product-combobox/product-combobox';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -466,6 +467,7 @@ export class ProductRequestQueue {
   }
 
   protected async submit(event: Event, row: AdminProductRequest): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const kind = this.decision();
     if (!kind || this.pending()) return;

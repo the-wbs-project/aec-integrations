@@ -748,8 +748,8 @@ export class VendorProductFacetEditor {
     void this.store.reload('products');
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

@@ -466,7 +466,7 @@ import { AecMeter } from '../shared/meter/meter';
         <p class="mt-4 max-w-xl text-t-16 text-(--text-secondary)" i18n="@@demo.bone.body">
           Secondary text on Bone is 6.91:1. A control keeps its own edge and fill.
         </p>
-        <form method="dialog" class="mt-8 max-w-xl" novalidate (submit)="$event.preventDefault()">
+        <form method="dialog" class="mt-8 max-w-xl" novalidate>
           <div class="flex flex-wrap gap-3">
             <label class="sr-only" for="demo-bone-email" i18n="@@demo.bone.emailLabel">
               Email address

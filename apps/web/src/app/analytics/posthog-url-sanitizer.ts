@@ -34,7 +34,7 @@ const SECRET_PARAM = 'token';
 const FORM_FIELD_PREFIX = 'ng.form';
 
 function isSecretKey(key: string): boolean {
-  return key === SECRET_PARAM || key.startsWith(FORM_FIELD_PREFIX);
+  return key === SECRET_PARAM || key.toLowerCase().startsWith(FORM_FIELD_PREFIX);
 }
 
 /**

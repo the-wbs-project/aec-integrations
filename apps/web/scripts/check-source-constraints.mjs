@@ -252,22 +252,45 @@ const TAG_RULES = [
     // edge log and PostHog keep that address. `method="dialog"` makes the
     // native submit do nothing outside a `<dialog>`, needs no script, so CSP
     // and the cached HTML are untouched, and still fires the `submit` event the
-    // component handles after hydration. Spec files are out of scope: their
-    // templates never render on the site.
+    // component handles after hydration. Only two shapes pass, read from the
+    // static attributes themselves: `method="dialog"`, or `method="get"` with
+    // `action="/search"`. A GET anywhere else is the leak, and `post` or an
+    // empty or bound method is not inert either. Spec files are out of scope:
+    // their templates never render on the site.
     extensions: ['.ts', '.html'],
     exclude: ['.spec.ts'],
     tag: 'form',
-    check: (tag) => /\smethod=/.test(tag),
-    label: '<form> without a `method`',
+    check: (tag) => {
+      const attrs = readAttributes(tag);
+      const method = attrs.get('method')?.toLowerCase();
+      if (method === 'dialog') return true;
+      return method === 'get' && attrs.get('action') === '/search';
+    },
+    label: '<form> that is not method="dialog" or a /search GET',
     hint:
-      '  Every <form> declares its method (AECI-1919, DESIGN.md "Forms are inert\n' +
-      '  before hydration"):\n' +
+      '  Every <form> takes one of two shapes (AECI-1919, DESIGN.md "Forms are\n' +
+      '  inert before hydration"):\n' +
       '      a form the component submits  →  method="dialog"\n' +
       '      a no-JS GET form (search)     →  method="get" action="/search"\n' +
-      '  Without it, a press before hydration GETs the page with every answer in\n' +
-      '  the address.',
+      '  Anything else lets a press before hydration GET the page with every\n' +
+      '  answer in the address.',
   },
 ];
+
+/**
+ * The static attributes of one opening tag, name to value, honouring quotes so a
+ * `method=` inside another attribute's value is never read as the attribute. A
+ * bound attribute (`[attr.method]`) keeps its bracketed name, so it never counts.
+ */
+function readAttributes(tag) {
+  const attrs = new Map();
+  const body = tag.replace(/^<[\w-]+/, '').replace(/\/?>$/, '');
+  const re = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  for (const m of body.matchAll(re)) {
+    if (!attrs.has(m[1])) attrs.set(m[1], m[2] ?? m[3] ?? m[4] ?? '');
+  }
+  return attrs;
+}
 
 const ALL_EXTENSIONS = [...new Set([...RULES, ...TAG_RULES].flatMap((r) => r.extensions))];
 

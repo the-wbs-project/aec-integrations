@@ -29,6 +29,7 @@ import {
   SUSPENSION_CONFIRM_BUTTON,
   SUSPENSION_INPUT,
 } from './vendor-suspension-model';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 export type ListingHideMode = 'hide' | 'restore';
 
@@ -61,7 +62,7 @@ const STALE_CODES = new Set([
  */
 @Component({
   selector: 'aec-listing-hide-form',
-  imports: [DatePipe],
+  imports: [AecFormSubmit, DatePipe],
   templateUrl: './listing-hide-form.html',
 })
 export class ListingHideForm {

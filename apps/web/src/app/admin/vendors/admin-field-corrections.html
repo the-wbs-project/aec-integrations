@@ -30,7 +30,7 @@
   class="mt-4 max-w-xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
   novalidate
   [attr.aria-labelledby]="id('form-title')"
-  (submit)="$event.preventDefault(); submit()"
+  (aecSubmit)="submit()"
 >
   <p
     [id]="id('form-title')"
@@ -486,7 +486,7 @@
             [id]="liftFormId(lock, 'form')"
             class="max-w-xl space-y-3"
             novalidate
-            (submit)="$event.preventDefault(); lift(lock)"
+            (aecSubmit)="lift(lock)"
           >
             <div>
               <label

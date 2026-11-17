@@ -195,13 +195,7 @@
       <!-- ── Form ──────────────────────────────────────────────────────────── -->
       <!-- AECI-1807: the form is the shared card, its fields padded inside it and the
            submit in the form footer, as /welcome does. -->
-      <form
-        method="dialog"
-        aecCard
-        class="mt-10 max-w-2xl"
-        novalidate
-        (submit)="$event.preventDefault(); onSubmit()"
-      >
+      <form method="dialog" aecCard class="mt-10 max-w-2xl" novalidate (aecSubmit)="onSubmit()">
         <div class="space-y-8 p-6 sm:p-8">
           <!-- Overall rating (required) -->
           <div class="space-y-2">

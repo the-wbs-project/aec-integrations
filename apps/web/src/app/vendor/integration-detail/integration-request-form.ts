@@ -46,6 +46,7 @@ import {
   ID_STYLES,
   LABEL,
 } from './integration-detail-styles';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
 const NO_OWNER = 'none';
@@ -464,6 +465,7 @@ export class IntegrationRequestForm {
   }
 
   protected async send(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.sending()) return;
     this.attempted.set(true);

@@ -20,6 +20,7 @@ import type { ProductListItem } from '@aeci/shared';
 
 import { LogoOrInitial } from '../logo-or-initial/logo-or-initial';
 import { AecIcon } from '../icon/icon';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * One row the picker can offer. `GET /api/products` returns the full
@@ -112,7 +113,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
         (input)="onInput($event)"
         (focusin)="focused.set(true)"
         (focusout)="focused.set(false)"
-        (keydown.enter)="$event.preventDefault()"
+        (keydown.enter)="onEnterKey($event)"
         (keydown.escape)="dismissed.set(true)"
         (keydown.arrowdown)="dismissed.set(false)"
         [placeholder]="placeholderText()"
@@ -346,6 +347,13 @@ export class ProductCombobox {
    *  brought the picker back. */
   focus(): void {
     this.field().nativeElement.focus();
+  }
+
+  /** Enter never submits the surrounding form. A replayed press is dropped, because
+   *  `preventDefault` throws on a replay (AECI-1919, `core/event-replay.ts`). */
+  protected onEnterKey(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
   }
 
   protected onInput(event: Event): void {
