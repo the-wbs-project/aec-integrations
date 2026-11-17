@@ -49,6 +49,27 @@ describe('RoadmapPage', () => {
     expect(host.querySelector('aec-mailing-list-signup')).not.toBeNull();
   });
 
+  // AECI-1801: one Bone band per page. The hero is the band, and the signup takes its
+  // white ground, as on the product and vendor pages.
+  it('has one Bone band, the hero, and the signup on its white ground', () => {
+    const { host } = setup();
+    expect(host.querySelectorAll('.aec-bone-band')).toHaveLength(1);
+    const band = host.querySelector('aec-bone-band')!;
+    expect(band.querySelector('h1')).not.toBeNull();
+    const signup = host.querySelector('aec-mailing-list-signup section')!;
+    expect(signup.classList).not.toContain('aec-bone-band');
+    expect(signup.classList).toContain('bg-(--surface-base)');
+  });
+
+  it('puts the section heading at the Section role on an inner span, in a 5:7 row', () => {
+    const { host } = setup();
+    const h2 = [...host.querySelectorAll('h2')].find((h) =>
+      h.textContent?.includes('In the meantime'),
+    )!;
+    expect(h2.querySelector('span')!.className).toContain('text-t-36');
+    expect(h2.parentElement!.className).toContain('lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]');
+  });
+
   it('is noindex — a placeholder must not compete in the index', () => {
     const { title } = setup();
     expect(title.getTitle()).toBe('Roadmap · AEC Integrations');

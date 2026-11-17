@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
@@ -20,7 +20,10 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
+import { categoryHub } from './category-hub';
 import { connectedProductCount } from './powered-hub-grouping';
+import { ProductCategoryHub } from './product-category-hub';
+import { ProductPairFinder } from './product-pair-finder';
 import { RoleBadge } from './role-badge';
 
 /**
@@ -44,10 +47,12 @@ import { RoleBadge } from './role-badge';
  *   - "Visit website" (the one filled button, `on-brand`) and "Write a review"
  *     (`on-brand-secondary`), with the website's correction and under-review lines.
  *
- * The `heroPanel` slot is left empty. Ruling R3 decision 1 settled the visual as a category
- * hub with a pair finder, and AECI-1787 builds it.
+ * The `heroPanel` slot holds the visual of ruling R3 decision 1 (AECI-1787): the category
+ * hub (`aec-product-category-hub`), when any integration's partner has a category, with
+ * the pair finder (`aec-product-pair-finder`) under it. With no hub the panel holds the
+ * finder alone. The hub orders A to Z by name (ruling R1).
  *
- * Nothing here orders anything. No paid-plan input is read.
+ * Nothing else here orders anything. No paid-plan input is read.
  */
 @Component({
   selector: 'aec-product-hero',
@@ -62,6 +67,8 @@ import { RoleBadge } from './role-badge';
     LogoOrInitial,
     MaintenanceMarker,
     NewTabIcon,
+    ProductCategoryHub,
+    ProductPairFinder,
     ReviewCta,
     ReviewStars,
     RoleBadge,
@@ -271,6 +278,28 @@ import { RoleBadge } from './role-badge';
         </a>
       }
       <aec-review-cta heroActions [slug]="p.slug" [productId]="p.id" variant="on-brand-secondary" />
+
+      <!-- AECI-1787: the category hub with the pair finder under it (ruling R3 decision 1).
+           Both are in the server HTML. The finder routes after hydration. Below lg the
+           panel stacks under the hero text, so it keeps the hub alone and the finder
+           waits for lg: the finder there added about 200px above the facts card. With no
+           hub the panel holds nothing below lg, so styles.css hides it
+           (.aec-hero-panel-lg-only). -->
+      <div
+        heroPanel
+        class="flex flex-col gap-6"
+        [class.aec-hero-panel-lg-only]="hub().length === 0"
+        data-testid="product-hero-visual"
+      >
+        @if (hub().length > 0) {
+          <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
+        }
+        <aec-product-pair-finder
+          class="max-lg:hidden"
+          [productSlug]="p.slug"
+          [productName]="p.name"
+        />
+      </div>
     </aec-hero-band>
   `,
 })
@@ -278,6 +307,25 @@ export class ProductHero {
   readonly product = input.required<ProductDetail>();
 
   protected readonly logoAlt = logoAlt;
+
+  private readonly band = viewChild.required(HeroBand);
+
+  /**
+   * Owner ruling 2026-11-17, item 82: "Show all" grows the panel in place, and the
+   * band centres its two columns, so the text column used to jump down (about 300px
+   * with 32 categories). The hub emits before it changes, so the band can pin both
+   * columns where they sit now. Collapsed, the layout is exactly as before.
+   */
+  protected onHubToggle(expanding: boolean): void {
+    if (expanding) this.band().holdColumns();
+    else this.band().releaseColumns();
+  }
+
+  /** The category hub's entries, A to Z (AECI-1787, `category-hub.ts`). */
+  protected readonly hub = computed(() => {
+    const p = this.product();
+    return categoryHub(p.integrations_as_source, p.integrations_as_target);
+  });
   protected readonly websiteLabel = fieldOverrideLabel('website');
   protected readonly logoLabel = fieldOverrideLabel('logo_url');
 

@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
-import { compareFacetValues, PHASE_LIFECYCLE_ORDER, orderFacetItems } from './search-facet-order';
+import {
+  compareFacetValues,
+  PHASE_LIFECYCLE_ORDER,
+  orderFacetItems,
+  withCheckedValues,
+} from './search-facet-order';
 
 function item(value: string, count = 0): RefinementItem {
   return { value, label: value, count, isRefined: false };
@@ -79,5 +84,32 @@ describe('compareFacetValues', () => {
       'Spotable',
       'SRS Distribution',
     ]);
+  });
+});
+
+describe('withCheckedValues (AECI-1899)', () => {
+  const checked = (value: string, count = 0): RefinementItem => ({
+    value,
+    label: value,
+    count,
+    isRefined: true,
+  });
+
+  it('adds a checked value the response left out, checked at 0', () => {
+    expect(withCheckedValues([], ['Roofing'])).toEqual([checked('Roofing')]);
+  });
+
+  it('returns the same list when nothing is missing', () => {
+    const items = [checked('AI', 3), item('Scheduling', 9)];
+    expect(withCheckedValues(items, ['AI'])).toBe(items);
+    expect(withCheckedValues([], [])).toEqual([]);
+  });
+
+  it('places an added value after checked values with matches, before unchecked ones', () => {
+    const out = withCheckedValues(
+      [checked('AI', 3), item('Scheduling', 9)],
+      ['AI', 'zeta', 'Beta'],
+    );
+    expect(out.map((i) => i.value)).toEqual(['AI', 'Beta', 'zeta', 'Scheduling']);
   });
 });

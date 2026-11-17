@@ -1283,7 +1283,8 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
   it('renders nothing at zero, on a connector or an application', () => {
     for (const product of [connector(), buildProduct()]) {
       const { el } = setup(product);
-      expect(el.querySelector('[slot="hero"]')!.textContent).not.toContain('Connects');
+      // The pair finder's "Connects to" label (AECI-1787) is not the reach line.
+      expect(el.querySelector('[slot="hero"]')!.textContent).not.toMatch(/Connects \d/);
       TestBed.resetTestingModule();
     }
   });
@@ -1787,9 +1788,11 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     expect(stars).toHaveLength(2);
   });
 
-  it('leaves the hero panel slot empty until AECI-1787 builds the visual', () => {
+  it('fills the hero panel slot with the visual of ruling R3 (AECI-1787)', () => {
     const { el } = setup(buildProduct());
-    expect(el.querySelector('.aec-hero-panel')?.children).toHaveLength(0);
+    const panel = el.querySelector('.aec-hero-panel')!;
+    expect(panel.querySelector('[data-testid="product-hero-visual"]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid="product-pair-finder"]')).not.toBeNull();
   });
 
   it('puts the mailing-list band on white, so the page keeps one Bone band', () => {

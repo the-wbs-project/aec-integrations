@@ -207,9 +207,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'product-page-hero-visual',
-    status: 'pending',
-    owner: 'AECI-1787',
-    order: 'Any featured subset reads no Managed-only input',
+    status: 'covered',
+    spec: 'web',
+    order:
+      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); from lg the first 8 of that order show and "Show all" reveals the rest (ruling 59); the count never orders or cuts',
   },
   {
     key: 'product-page-similar-products',
@@ -1510,6 +1511,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: 'help center pages and sections in authored order; static content',
   },
   {
+    file: 'apps/web/src/app/products/category-hub.ts',
+    count: 1,
+    registered: ['product-page-hero-visual'],
+  },
+  {
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',
     count: 3,
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
@@ -1532,9 +1538,10 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/web/src/app/search/search-facet-order.ts',
-    count: 1,
+    count: 2,
     registered: ['taxonomy-term-product-count'],
-    allowed: 'lifecycle order for phases on /search',
+    allowed:
+      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899)',
   },
   {
     file: 'apps/web/src/app/search/search-url-state.ts',

@@ -37,6 +37,25 @@ describe('ContactPage', () => {
     expect(mailto?.textContent?.trim()).toBe('support@aecintegrations.com');
   });
 
+  // AECI-1801: the /about recipe. One Bone band (the hero), shared cards on white, the
+  // address as an underlined standalone link, and no Forest feature card.
+  it('sits the hero on the one Bone band and the routes in shared cards', () => {
+    const host = setup().host;
+    expect(host.querySelectorAll('aec-bone-band')).toHaveLength(1);
+    expect(host.querySelector('aec-bone-band h1')).not.toBeNull();
+    const cards = host.querySelectorAll('section.aec-card');
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(card.querySelector('h2 > span')!.className).toContain('text-t-36');
+      // White cards, not a Forest feature card.
+      expect(card.className).not.toContain('bg-(--accent-primary)');
+    }
+    const address = host.querySelector<HTMLAnchorElement>(
+      'a[href="mailto:support@aecintegrations.com"]',
+    )!;
+    expect(address.className).toContain('underline');
+  });
+
   it('points listing fixes back at the directory', () => {
     const hrefs = Array.from(setup().host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('/products');

@@ -73,6 +73,33 @@ describe('MailingListSignup', () => {
     expect(el.textContent).toContain('occasional updates');
   });
 
+  it('is one shared card on the page wrap; the ground input only changes the band (AECI-1799)', () => {
+    const bone = setup().fixture.nativeElement as HTMLElement;
+    const boneBand = bone.querySelector('section')!;
+    expect(boneBand.classList).toContain('bg-(--accent-warm)');
+    // The unlayered class that keeps an edge under forced colours.
+    expect(boneBand.classList).toContain('aec-bone-band');
+    expect(boneBand.firstElementChild?.classList).toContain('max-w-[1328px]');
+    const card = boneBand.querySelector('.aec-card')!;
+    expect(card.classList).toContain('rounded-card');
+    expect(card.classList).toContain('shadow-card');
+    // The headline size is on an inner span (the unlayered h2 rule beats the element).
+    expect(card.querySelector('h2 > span.text-t-36')).not.toBeNull();
+
+    TestBed.resetTestingModule();
+    const whiteFixture = setup().fixture;
+    whiteFixture.componentRef.setInput('ground', 'white');
+    whiteFixture.detectChanges();
+    const white = (whiteFixture.nativeElement as HTMLElement).querySelector('section')!;
+    expect(white.classList).toContain('bg-(--surface-base)');
+    expect(white.classList).not.toContain('bg-(--accent-warm)');
+    expect(white.classList).not.toContain('aec-bone-band');
+    // Same card, same form, on either ground.
+    expect(white.querySelector('.aec-card form #mailing-list-email')).not.toBeNull();
+    // The field keeps its 3:1 edge class.
+    expect(white.querySelector('#mailing-list-email')?.classList).toContain('aec-field-control');
+  });
+
   it('disables submit while the email is invalid and never POSTs', async () => {
     const { fixture, el, httpMock } = setup();
     typeEmail(fixture, 'not-an-email');

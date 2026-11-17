@@ -20,66 +20,84 @@
  * which only POSTs from a user action against the non-cached `/api/*`.
  *
  * Voice per `PRODUCT.md`: editorial, sentence case, no hyperbole, no dates we
- * can't keep. Layout per `DESIGN.md`: a warm Bone (`accent-warm`) hero band,
- * body measure capped at 70ch, Source Serif display for headings.
+ * can't keep.
+ *
+ * **Layout (AECI-1801, the `/about` recipe of AECI-1800).** Three bands on the
+ * 1328px page wrap (`BAND_WRAP_CLASS`): the hero on `aec-bone-band`, the page's
+ * one Bone band, with the h1 at the Headline role (the global h1 size); a white
+ * band whose one section puts its heading left and its prose right from `lg`
+ * (the 5:7 split); and the signup on its white ground (`ground="white"`), so the
+ * page no longer carries a second Bone band. The words and their order are
+ * unchanged.
  */
 import { Component, inject } from '@angular/core';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 
 @Component({
   selector: 'app-roadmap',
-  imports: [MailingListSignup],
+  imports: [BoneBand, MailingListSignup],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="max-w-[70ch]">
-            <p class="aec-overline text-(--accent-primary)" i18n="@@app.roadmap.eyebrow">Roadmap</p>
-            <h1
-              class="mt-3 font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-              i18n="@@app.roadmap.headline"
-            >
-              What we're building next
-            </h1>
-            <p
-              class="mt-5 text-lg leading-relaxed text-(--text-secondary)"
-              i18n="@@app.roadmap.lede"
-            >
-              A public roadmap is coming soon. It will show what's in progress, what's queued, and
-              what we've decided not to build, so you can see where the directory is heading before
-              it gets there.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
+      <!-- 1. Hero: the page's one Bone band, as on /about. -->
+      <aec-bone-band>
         <div class="max-w-[70ch]">
-          <h2
-            class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
-            i18n="@@app.roadmap.meantime.heading"
-          >
-            In the meantime
-          </h2>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@app.roadmap.eyebrow">Roadmap</p>
+          <h1 class="mt-4 text-(--text-primary)" i18n="@@app.roadmap.headline">
+            What we're building next
+          </h1>
           <p
-            class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-            i18n="@@app.roadmap.meantime.body"
+            class="mt-6 max-w-[36em] text-t-20 leading-normal text-(--text-secondary)"
+            i18n="@@app.roadmap.lede"
           >
-            The directory grows every week as we add new products, integrations, and reviews. Add
-            your email below and we'll tell you what shipped instead of asking you to check back.
+            A public roadmap is coming soon. It will show what's in progress, what's queued, and
+            what we've decided not to build, so you can see where the directory is heading before it
+            gets there.
           </p>
+        </div>
+      </aec-bone-band>
+
+      <!-- 2. White: one short section, heading left and prose right from lg. -->
+      <div class="py-16 md:py-24">
+        <div [class]="wrap">
+          <section [class]="row">
+            <h2 class="text-(--text-primary)">
+              <span [class]="sectionTitle" i18n="@@app.roadmap.meantime.heading"
+                >In the meantime</span
+              >
+            </h2>
+            <p
+              class="max-w-[70ch] text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@app.roadmap.meantime.body"
+            >
+              The directory grows every week as we add new products, integrations, and reviews. Add
+              your email below and we'll tell you what shipped instead of asking you to check back.
+            </p>
+          </section>
         </div>
       </div>
 
-      <aec-mailing-list-signup source="roadmap_page" />
+      <!-- 3. White, after a hairline: the signup. White ground keeps the page to one
+           Bone band (the hero), as on the product and vendor pages. -->
+      <aec-mailing-list-signup source="roadmap_page" ground="white" />
     </div>
   `,
 })
 export class RoadmapPage {
   private readonly meta = inject(MetaService);
+
+  /** The 1328px page wrap the header, footer and bands share. */
+  protected readonly wrap = BAND_WRAP_CLASS;
+
+  /** One section row: heading left and content right from `lg` (5:7, as `/about`). */
+  protected readonly row = 'grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16';
+
+  /** The Section role on an inner span, so the unlayered h2 rule cannot beat it. */
+  protected readonly sectionTitle = 'block text-t-36 leading-[1.1] tracking-[-0.02em]';
 
   constructor() {
     this.meta.setStaticPageMeta({

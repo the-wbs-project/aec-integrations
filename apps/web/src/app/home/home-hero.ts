@@ -61,26 +61,14 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { firstValueFrom, timeout } from 'rxjs';
 
-import {
-  defaultIntegrationContext,
-  type ProductListItem,
-  type ProductPairResponse,
-  type TaxonomyTermWithCount,
-} from '@aeci/shared';
+import type { ProductListItem, TaxonomyTermWithCount } from '@aeci/shared';
 
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { AecIcon } from '../shared/icon/icon';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
-import { pairPath } from '../core/api/product-pairs';
-import { decodeNotFound } from '../core/api/http-get-or-null';
-import {
-  httpGetSlugRedirect,
-  movedPairPath,
-  rewriteRetiredPairSlugs,
-} from '../core/api/slug-redirects';
+import { productSlug, routeFinderPair } from '../shared/pair-finder/pair-finder-route';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import { isReplayedEvent } from '../core/event-replay';
@@ -107,24 +95,6 @@ const FOCUS_RING_CLASS =
 /** A link in the "Most viewed" row. The underline is the link cue, not colour. */
 const POPULAR_LINK_CLASS =
   'rounded-sm text-(--text-primary) underline decoration-(--border-field) decoration-1 underline-offset-4 transition-colors hover:text-(--accent-primary) hover:decoration-current focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
-
-/** How long the finder waits on the pair read before it navigates anyway (AECI-1823). */
-const PAIR_READ_TIMEOUT_MS = 2500;
-
-/** Resolve with `fallback` if `work` has not settled within `ms`. */
-function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const limit = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
-}
-
-/** A chosen product suggestion's slug (`routerLink` is `['/products', slug]`). */
-function productSlug(s: AutocompleteSuggestion | null): string | null {
-  if (!s || s.kind !== 'product') return null;
-  return s.routerLink[1] ?? null;
-}
 
 @Component({
   selector: 'aec-home-hero',
@@ -372,68 +342,29 @@ export class HomeHero {
     this.field('tool')?.focus();
   }
 
-  /** The pair branch of `submitPair`: read, retired-slug lookup, then navigate. */
-  private async routePair(tool: string, other: string): Promise<void> {
-    const context = defaultIntegrationContext(tool, other);
-    const rest = context === tool ? other : tool;
-    // The visitor edited a picker while a read was in flight: that choice is theirs
-    // now, so do not act on the captured pair (AECI-1823).
-    const changed = (): boolean =>
-      productSlug(this.chosen.tool()) !== tool || productSlug(this.chosen.other()) !== other;
-
-    const check = await this.checkPair(context, rest);
-    if (changed()) return;
-    if (check.missing) {
-      // A retired slug redirects to its survivor pair, as the pair resolver does
-      // (AECI-991). Bounded by the same budget as the read, here only: a timeout
-      // reads as "no redirect" and falls through to search.
-      const rewritten = await withTimeout(
-        rewriteRetiredPairSlugs(context, rest, (slug) =>
-          httpGetSlugRedirect(this.http, 'product', slug),
-        ),
-        PAIR_READ_TIMEOUT_MS,
-        null,
-      );
-      if (changed()) return;
-      if (rewritten) {
-        void this.router.navigateByUrl(movedPairPath(rewritten));
-        return;
-      }
-      // A stale slug: send the visitor to search, not the generic 404 (AECI-1823).
-      const typed = this.missingText(check.slug, tool, other) || this.typedText();
-      if (typed) {
-        navigateToSearchQuery(this.router, typed);
-        return;
-      }
-    }
-    void this.router.navigate(['/products', context, 'integrations', rest]);
+  /**
+   * The pair branch of `submitPair`: read, retired-slug lookup, then navigate. The
+   * routing is shared with the product page's finder (`pair-finder-route.ts`, AECI-1787).
+   */
+  private routePair(tool: string, other: string): Promise<void> {
+    return routeFinderPair(
+      {
+        router: this.router,
+        http: this.http,
+        // The visitor edited a picker while a read was in flight: that choice is theirs
+        // now, so do not act on the captured pair (AECI-1823).
+        changed: () =>
+          productSlug(this.chosen.tool()) !== tool || productSlug(this.chosen.other()) !== other,
+        missingText: (slug) => this.missingText(slug, tool, other),
+        typedText: () => this.typedText(),
+      },
+      tool,
+      other,
+    );
   }
 
   /** True while the pair check runs. Drives `aria-busy`. */
   protected readonly checking = signal(false);
-
-  /**
-   * Read the pair from the endpoint its resolver uses. Only a canonical `NOT_FOUND`
-   * says it is missing, and then `slug` is the one the envelope names, if any. Any
-   * other failure, including the timeout, answers "not missing", so a slow or flaky
-   * read never strands the visitor: the pair page makes its own decision.
-   */
-  private async checkPair(
-    context: string,
-    other: string,
-  ): Promise<{ missing: boolean; slug: string | null }> {
-    try {
-      await firstValueFrom(
-        this.http
-          .get<ProductPairResponse>(pairPath(context, other, undefined))
-          .pipe(timeout(PAIR_READ_TIMEOUT_MS)),
-      );
-      return { missing: false, slug: null };
-    } catch (err) {
-      const notFound = decodeNotFound(err);
-      return { missing: notFound !== null, slug: notFound?.slug ?? null };
-    }
-  }
 
   /** The typed text of the picker whose product the 404 named, or '' when it named neither. */
   private missingText(slug: string | null, tool: string, other: string): string {

@@ -84,6 +84,22 @@ describe('UpdatesPage', () => {
     );
   });
 
+  // AECI-1801: the /about recipe. The page is all hero, on the one Bone band, and the
+  // form sits in the shared white card on the input recipe.
+  it('sits on the one Bone band, the form in a shared card on the field recipe', () => {
+    const { el } = setup();
+    expect(el.querySelectorAll('aec-bone-band')).toHaveLength(1);
+    const band = el.querySelector('aec-bone-band')!;
+    expect(band.querySelector('h1')).not.toBeNull();
+    const card = band.querySelector('.aec-card')!;
+    expect(card.querySelector('form')).not.toBeNull();
+    const input = card.querySelector('#updates-email')!;
+    expect(input.classList).toContain('aec-field-control');
+    // A 240px basis, so below that the button wraps under the field instead of
+    // squeezing it to a sliver at 390px.
+    expect(input.classList).toContain('basis-60');
+  });
+
   it('disables submit while the email is invalid and never POSTs', async () => {
     const { fixture, el, httpMock } = setup();
     typeEmail(fixture, 'not-an-email');
