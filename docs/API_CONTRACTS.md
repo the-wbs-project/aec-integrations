@@ -1794,7 +1794,8 @@ omitted field is left unchanged — so the listing pages' Cards/Table toggle
 PATCHes `listing_view_preference` alone without re-sending the display name, and
 an account-form save can't clobber the remembered view with a stale client copy
 it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
-keys.
+keys, except the About-you answers. Those are named in `metadata.about_you_fields` and
+their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8).
 
 `listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
 and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site

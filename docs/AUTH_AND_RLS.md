@@ -1178,6 +1178,18 @@ address also sits in the `before_state` / `after_state` of past
 `billing_account.email_changed` audit rows. Erasure does not rewrite those rows, as it does
 not rewrite `metadata.invited_email` on `vendor_seat.invited` rows.
 
+**About-you answers never enter the audit record (AECI-1869, ruling 2026-11-17).** The Privacy
+Policy says the About-you answers are deleted with the account. Erasure keeps audit rows, so the
+`profile.updated` row names the answers a request touched in `metadata.about_you_fields` and holds
+none of their values. The six are `company_type`, `company_size`, `primary_role`, `firm_name`,
+`linkedin_url` and `audience_ids` (`ABOUT_YOU_AUDIT_KEYS` in `apps/api/src/routes/account.ts`).
+`display_name`, `listing_view_preference` and `onboarding` keep their values, under the audit-record
+exception. Rows written before the fix still hold the values until
+`scripts/ops/2026-11-about-you-audit-scrub/` runs after deployment to each environment. Its README
+tracks completion. After the scrub, erasure needs no audit rewrite for these answers. The billing
+email audit values above intentionally survive erasure. `apps/api/src/routes/account.spec.ts` edits
+About you, deletes the account, and asserts that no audit row holds the firm name or the LinkedIn link.
+
 **Pending claim confirmations are deleted (AECI-1435, 2026-10-21).** A
 `request_confirmations` row (ADR 0043) holds an address typed on the anonymous claim or
 listing form and the whole request body, waiting on the emailed link. It is nobody else's
