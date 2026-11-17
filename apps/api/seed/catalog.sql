@@ -214,11 +214,13 @@ ON CONFLICT DO NOTHING;
 -- groups read "until" with that license's `ended_at`, and its description stays
 -- "updated". `managed_ended_at` and `plan_ended_at` mirror the license rows above, or
 -- `plan_end_mirror_drift` flags the local DB. The dates use `ended_at`, not a clock.
+-- Neither product sets `maintained_by = 'vendor'`: Autodesk and Bluebeam are not owned
+-- here, so `maintained_by_without_owner` would flag them (AECI-1908). The captions read
+-- the edit stamps, not the marker.
 UPDATE "products" SET
   "description_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
   "profile_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
-  "managed_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
-  "maintained_by" = 'vendor'
+  "managed_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days')
 WHERE "id" = 'b0000000-0000-4000-8000-000000000001';
 
 UPDATE "products" SET
@@ -227,7 +229,6 @@ UPDATE "products" SET
   "usefulness_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days'),
   "usefulness" = '{"audiences":[],"phases":[{"slug":"construction","name":"Construction","points":["Markups stay with the drawing set on site."]}]}',
   "usefulness_source" = 'vendor',
-  "maintained_by" = 'vendor',
   "managed_ended_at" = (SELECT "ended_at" FROM "licenses" WHERE "id" = 'ac000000-0000-4000-8000-000000000005')
 WHERE "id" = 'b0000000-0000-4000-8000-000000000005';
 

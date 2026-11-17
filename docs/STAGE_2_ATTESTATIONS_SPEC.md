@@ -2791,6 +2791,20 @@ Four consequences worth stating, because each is a thing someone will otherwise
    wrong for every other reader to save one upsert. A test pins the restamp as a
    fact so a later change to it is deliberate.
 
+#### The invariant and its check (AECI-1908 — 2026-11-17)
+
+**`maintained_by = 'vendor'` on a vendor or product implies an owner.** A vendor row needs its own
+`owned_at`; a product needs at least one joined vendor with `owned_at` set. Every write in the table
+above needs a seat, and a seat implies `owned_at`. The return to AECi and Terminate clear `owned_at`
+and reset the marker in one batch. **A claim end does not break the invariant.** The last-seat revoke
+and an erasure set `claim_ended_at` and keep both `owned_at` and the marker (ADR 0042 decision 3,
+ADR 0051 decision 1), and the promote fence below keys on the marker. The public record line reads
+the AECi form on any unclaimed listing (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8), so a frozen row
+shows nothing wrong. The 04:00 data-quality check `maintained_by_without_owner` (severity `warn`)
+reports a breach. The one known path is a vendor save that read the seat before a concurrent return
+or Terminate, because vendor writes carry no commit-time seat sentinel. Attestations never write
+the product or vendor marker (§13.4).
+
 #### The promote fence
 
 **Promote never advances `last_reviewed_at` on a vendor-maintained row.** The marker
