@@ -19,6 +19,7 @@ import {
   waitForHydrationSettle,
 } from './console-capture';
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const PATH = '/updates';
 const TITLE = 'Get updates · AEC Integrations';
@@ -123,6 +124,33 @@ test.describe(`${PATH} — AECI-536`, () => {
       found_via_detail: 'aec integrations directory',
     });
   });
+
+  // AECI-1801: one Bone band, a 44px field with its 3:1 edge, and at 390px a field wide
+  // enough to read (it was squeezed to about 70px beside the button before).
+  for (const width of [1440, 390]) {
+    test(`the field is 44px tall and usable, on the one Bone band, at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(PATH);
+      await expect(page.locator('.aec-bone-band')).toHaveCount(1);
+      const input = page.locator('#updates-email');
+      const box = (await input.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(240);
+      const edge = await input.evaluate((el) => getComputedStyle(el).borderTopColor);
+      const fieldEdge = await page.evaluate(() => {
+        const probe = document.createElement('div');
+        probe.style.color = 'var(--border-field)';
+        document.body.append(probe);
+        const colour = getComputedStyle(probe).color;
+        probe.remove();
+        return colour;
+      });
+      expect(edge).toBe(fieldEdge);
+      await expectNoSidewaysScroll(page);
+    });
+  }
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto(PATH);

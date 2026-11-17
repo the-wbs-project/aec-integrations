@@ -22,6 +22,15 @@
  * against empty space. It collapses to a single column below `lg` (the pitch stacks
  * above the card).
  *
+ * **Redesign (AECI-1801, the `/about` recipe of AECI-1800).** The band is
+ * `aec-bone-band`, the page's one Bone band, on the 1328px page wrap. The page is
+ * all hero, so it has no white body band. The h1 is the Headline role (the global
+ * h1 size) and the lede the `--t-20` role, as on `/about`. The card is the shared
+ * `aecCard`, a white card on Bone as in the home hero and the mailing list band.
+ * The field keeps `.aec-field-control` (the 3:1 edge and 44px height) and the
+ * error `.aec-field-error`. The words, the fields, the validation, the POST and the
+ * analytics event are unchanged.
+ *
  * **Static + edge-cache / SSR-safe** (like `/about`): the SSR HTML is the static
  * form island and the POST only ever fires from a user action against the
  * non-cached `/api/*`, so the page stays visitor-state-neutral. It carries
@@ -46,6 +55,8 @@ import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecIcon } from '../shared/icon/icon';
 import { AecButton } from '../shared/button/button';
+import { BoneBand } from '../shared/bone-band/bone-band';
+import { AecCard } from '../shared/card/card';
 
 interface SubscribeModel {
   email: string;
@@ -60,30 +71,26 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 
 @Component({
   selector: 'app-updates',
-  imports: [AecButton, AecIcon, RouterLink, FormField, FoundViaField],
+  imports: [AecButton, AecCard, AecIcon, BoneBand, RouterLink, FormField, FoundViaField],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment, not a page
-           background), matching /about. -->
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
+      <!-- The page's one Bone band, as on /about. The page is all hero. -->
+      <aec-bone-band>
+        <section>
           <!-- Two-column hero: the pitch on the left, the signup card on the
                right, so the wide band reads as one composition instead of a lone
                card against empty space. Collapses to a single column below lg
                (the pitch stacks above the card). -->
           <div class="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
             <div class="max-w-xl">
-              <p class="aec-overline text-(--accent-primary)" i18n="@@app.updates.eyebrow">
+              <p class="aec-overline text-(--text-secondary)" i18n="@@app.updates.eyebrow">
                 Mailing list
               </p>
-              <h1
-                class="mt-3 font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-                i18n="@@app.updates.headline"
-              >
+              <h1 class="mt-4 text-(--text-primary)" i18n="@@app.updates.headline">
                 Get AEC Integrations updates
               </h1>
               <p
-                class="mt-5 text-lg leading-relaxed text-(--text-secondary)"
+                class="mt-6 text-t-20 leading-normal text-(--text-secondary)"
                 i18n="@@app.updates.body"
               >
                 Occasional updates as AEC Integrations grows. Here's what to expect:
@@ -99,7 +106,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                     <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
                       <aec-icon name="check" decorative [size]="5" />
                     </span>
-                    <span class="text-base leading-relaxed text-(--text-secondary)">{{
+                    <span class="text-t-16 leading-relaxed text-(--text-secondary)">{{
                       item.text
                     }}</span>
                   </li>
@@ -109,33 +116,35 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 
             <!-- Signup card. A stable bordered container whose inner content swaps
                  form <-> success panel, so the surrounding layout does not shift. -->
-            <div
-              class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
-            >
+            <div aecCard class="p-8 lg:p-12">
               @if (subscribed()) {
                 <div>
-                  <h2
-                    #successHeading
-                    tabindex="-1"
-                    class="font-display text-2xl font-normal leading-snug text-(--text-primary) outline-none md:text-3xl"
-                    i18n="@@app.updates.success.headline"
-                  >
-                    You're on the list.
+                  <h2 #successHeading tabindex="-1" class="text-(--text-primary) outline-none">
+                    <span
+                      class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
+                      i18n="@@app.updates.success.headline"
+                      >You're on the list.</span
+                    >
                   </h2>
                   <p
-                    class="mt-3 text-base leading-relaxed text-(--text-secondary)"
+                    class="mt-3 text-t-16 leading-relaxed text-(--text-secondary)"
                     i18n="@@app.updates.success.body"
                   >
                     We'll send occasional updates as AEC Integrations develops.
                   </p>
-                  <a aecButton routerLink="/products" i18n="@@app.updates.success.browse">
+                  <a
+                    aecButton
+                    routerLink="/products"
+                    class="mt-6"
+                    i18n="@@app.updates.success.browse"
+                  >
                     Browse integrations
                   </a>
                 </div>
               } @else {
                 <form novalidate (submit)="onSubmit($event)">
                   <label
-                    class="block font-label text-sm text-(--text-primary)"
+                    class="block font-label text-t-14 text-(--text-primary)"
                     for="updates-email"
                     i18n="@@app.updates.email.label"
                     >Email address</label
@@ -151,7 +160,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                       placeholder="you@yourfirm.com"
                       [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                       [attr.aria-describedby]="emailErrorShown() ? 'updates-email-error' : null"
-                      class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="aec-field-control min-w-0 flex-1 basis-60 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                     />
                     <button aecButton type="submit" [disabled]="submitDisabled()">
                       @if (form().submitting()) {
@@ -186,7 +195,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 
                   <!-- Inline non-terminal notices. Kept in the DOM so the polite
                        live region announces on change. -->
-                  <p class="mt-3 text-sm text-(--text-primary)" role="status" aria-live="polite">
+                  <p class="mt-3 text-t-14 text-(--text-primary)" role="status" aria-live="polite">
                     @switch (status()) {
                       @case ('exists') {
                         <span i18n="@@app.updates.status.exists">You're already on the list.</span>
@@ -202,8 +211,8 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
               }
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </aec-bone-band>
     </div>
   `,
 })
