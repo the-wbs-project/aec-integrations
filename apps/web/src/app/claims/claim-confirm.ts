@@ -184,7 +184,7 @@ function failureStatus(err: unknown): FailureStatus {
               }
               <a
                 routerLink="/docs/vendors/claiming-your-listing"
-                class="mt-6 inline-flex text-t-14 font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="mt-3 inline-flex min-h-11 items-center text-t-14 font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@requests.sent.docsLink"
                 >How claims work</a
               >
