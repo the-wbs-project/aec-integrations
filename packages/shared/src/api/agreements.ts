@@ -324,10 +324,10 @@ export const SIGN_IN_TERMS_LINE =
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot
  * file (`plans_page_sha256`), so the record points at the page as it stood.
  */
-export const PLANS_PAGE_CURRENT_VERSION = '1.0';
+export const PLANS_PAGE_CURRENT_VERSION = '1.1';
 
 /** Every Plans version that was ever current, oldest first. The current one is last. */
-export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0'] as const;
+export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1'] as const;
 
 /**
  * SHA-256 (lowercase hex) of each Plans version's snapshot file under
@@ -337,6 +337,7 @@ export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0'] as const;
  */
 export const PLANS_PAGE_SHA256: Record<string, string> = {
   '1.0': '49393a154d24095a1ccd8c1db69ca6e3e827e8850bfc93d0182d0d43d0aa375b',
+  '1.1': '6fc4c1a2f600aef26039db0570bf4d1ea4bbc29a71aa5b6b3a4acd005194fa51',
 };
 
 /** Whether `version` was ever a published Plans version. */

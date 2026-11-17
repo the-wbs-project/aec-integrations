@@ -18,6 +18,7 @@
  */
 import rankingV1_0Md from '../../content/docs/trust/versions/how-ranking-works/v1.0.md';
 import plansV1_0Md from '../../content/docs/vendors/versions/plans/v1.0.md';
+import plansV1_1Md from '../../content/docs/vendors/versions/plans/v1.1.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { type DocsBlock, renderDocsBody } from './docs-markdown';
 import { DOCS_PAGE_VERSIONS, type DocsPageVersions } from './docs-page-versions';
@@ -39,6 +40,7 @@ export interface DocsSnapshot {
 const SOURCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'vendors/plans': {
     '1.0': plansV1_0Md,
+    '1.1': plansV1_1Md,
   },
   'trust/how-ranking-works': {
     '1.0': rankingV1_0Md,

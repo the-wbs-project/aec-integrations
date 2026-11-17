@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
+import type { ProductUsefulness } from '@aeci/shared';
 
 import { ProductUsefulnessSection } from './product-usefulness';
 
@@ -25,51 +25,21 @@ const FULL: ProductUsefulness = {
   ],
 };
 
-function setup(data: ProductUsefulness, caption: FieldCaption | null = null) {
+function setup(data: ProductUsefulness) {
   const fixture = TestBed.createComponent(ProductUsefulnessSection);
   fixture.componentRef.setInput('data', data);
-  fixture.componentRef.setInput('caption', caption);
-  fixture.componentRef.setInput('page', {
-    surface: 'product_detail',
-    entityType: 'product',
-    entityId: 'p1',
-  });
   fixture.detectChanges();
   return fixture;
 }
 
 describe('ProductUsefulnessSection', () => {
-  // AECI-1614: the caption replaced AECI-1316's "Written by" line.
-  describe('caption', () => {
-    const caption = (el: HTMLElement) =>
-      el.querySelector('[data-testid="field-caption"]')?.textContent?.trim() ?? null;
-
-    it('says who maintains the section and when, at its foot', () => {
-      const el = setup(FULL, {
-        form: 'updated',
-        vendor_names: ['Procore'],
-        date: '2026-10-04T00:00:00.000Z',
-      }).nativeElement as HTMLElement;
-      expect(caption(el)).toBe('Maintained by Procore · updated October 4, 2026');
-      const section = el.querySelector('section')!;
-      expect(section.lastElementChild?.tagName.toLowerCase()).toBe('aec-field-caption');
-    });
-
-    it('takes the until form when the plan ended', () => {
-      const el = setup(FULL, {
-        form: 'until',
-        vendor_names: ['Procore'],
-        date: '2026-10-04T00:00:00.000Z',
-      }).nativeElement as HTMLElement;
-      expect(caption(el)).toBe('Maintained by Procore until October 4, 2026');
-    });
-
-    it('carries no line with no vendor write, and no "Written by" ever', () => {
-      const el = setup(FULL).nativeElement as HTMLElement;
-      expect(caption(el)).toBeNull();
-      expect(el.textContent).not.toContain('Written by');
-      expect(el.querySelector('[data-testid="usefulness-attribution"]')).toBeNull();
-    });
+  // AECI-1666: the section's "Maintained by" line moved to the page's provenance panel.
+  it('carries no caption line and no "Written by"', () => {
+    const el = setup(FULL).nativeElement as HTMLElement;
+    expect(el.querySelector('aec-field-caption')).toBeNull();
+    expect(el.textContent).not.toContain('Maintained by');
+    expect(el.textContent).not.toContain('Written by');
+    expect(el.querySelector('[data-testid="usefulness-attribution"]')).toBeNull();
   });
 
   it('renders both columns with every group name and point when both facets are populated', () => {

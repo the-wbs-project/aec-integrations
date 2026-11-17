@@ -1,9 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input } from '@angular/core';
 
-import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
-
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import type { ProductUsefulness } from '@aeci/shared';
 
 /**
  * AECI-170 — the "How teams use it" section on the product detail page
@@ -34,11 +32,10 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
- * **Vendor-written copy is captioned (AECI-1614, replacing AECI-1316's "Written by").**
- * `caption` renders "Maintained by {vendor} · updated {date}" under the section, so a
- * reader never takes the vendor's own words for AECi's and can see how fresh they are.
- * The server sends it only for a real vendor write, so AECi's copy carries no line
- * (STAGE_2_5_SPEC.md §12.1, ADR 0033).
+ * **Vendor-written copy is attributed in the page's provenance panel** (AECI-1666; it sat
+ * under this section from AECI-1614 until then). "How teams use it: Maintained by
+ * {vendor} · updated {date}" is in "About this listing", so a reader never takes the
+ * vendor's own words for AECi's (STAGE_2_5_SPEC.md §12.1, ADR 0033).
  *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
@@ -52,7 +49,7 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
  */
 @Component({
   selector: 'aec-product-usefulness',
-  imports: [FieldCaptionLine, NgTemplateOutlet],
+  imports: [NgTemplateOutlet],
   host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
@@ -110,19 +107,12 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
             </div>
           }
         </div>
-        @if (caption(); as c) {
-          <aec-field-caption [caption]="c" [page]="page()" />
-        }
       </section>
     }
   `,
 })
 export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
-  /** `ProductDetail.captions.usefulness`: `null` when no vendor wrote the section. */
-  readonly caption = input<FieldCaption | null | undefined>(null);
-  /** The product page, for the caption component. */
-  readonly page = input.required<FieldCaptionPage>();
 
   protected readonly audienceGroups = computed(() =>
     this.data().audiences.filter((g) => g.points.length > 0),

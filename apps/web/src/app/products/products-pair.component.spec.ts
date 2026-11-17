@@ -239,7 +239,8 @@ describe('ProductsPairPage', () => {
       expect(linkFrom(el)).toEqual(['Link from Procore Technologies']);
     });
 
-    it('adds no mark when the card caption already names that vendor', () => {
+    // AECI-1666: the card no longer carries a caption naming the vendor, so the mark stays.
+    it('keeps the mark when the card caption names that vendor', () => {
       const pair = withLinks({
         context: { listing_url: 'https://procore.example/l', docs_url: null },
         other: null,
@@ -252,7 +253,7 @@ describe('ProductsPairPage', () => {
           date: '2026-10-04T00:00:00.000Z',
         },
       };
-      expect(linkFrom(setup(pair).el)).toEqual([]);
+      expect(linkFrom(setup(pair).el)).toEqual(['Link from Procore Technologies']);
     });
 
     it('labels each side by its product name, not its vendor', () => {
@@ -1116,10 +1117,24 @@ describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
     expect(strip.closest('article')!.className).toContain('bg-(--surface-base)');
   });
 
-  it('names no company on the pair header chip, and drops its date', () => {
+  // AECI-1666: the header chip is retired; the record line opens the panel.
+  it('names no company on the record line, and drops its date', () => {
     const { el } = setup(withFacts());
-    const chip = el.querySelector('aec-maintenance-marker')?.textContent?.trim();
-    expect(chip).toBe('Vendor maintained');
+    expect(el.querySelector('header aec-maintenance-marker')).toBeNull();
+    const line = el
+      .querySelector('[data-testid="listing-provenance"] aec-maintenance-marker')
+      ?.textContent?.trim();
+    expect(line).toBe('Vendor maintained');
+  });
+
+  it('reads the AECi record line when neither product is claimed (ruling 3)', () => {
+    const pair = withFacts();
+    const { el } = setup({
+      ...pair,
+      context_product: { ...pair.context_product, claim_status: 'unclaimed' },
+      other_product: { ...pair.other_product, claim_status: 'unclaimed' },
+    });
+    expect(el.textContent).not.toContain('Vendor maintained');
   });
 
   it('renders At a glance on the card with all four facts', () => {
@@ -1615,21 +1630,20 @@ describe('ProductsPairPage unclaimed wording (AECI-1618)', () => {
   });
 });
 
-// AECI-1614: each mechanism card carries its own caption, and corrections sit beside
-// the value they correct.
-describe('ProductsPairPage: field captions (AECI-1614)', () => {
+// AECI-1666: every caption and correction moved off the cards into one "About this
+// listing" panel after them.
+describe('ProductsPairPage: provenance panel (AECI-1666)', () => {
   const CAPTION = {
     form: 'updated' as const,
     vendor_names: ['Autodesk'],
     date: '2026-10-04T00:00:00.000Z',
   };
-  const correction = (field: string, cleared = false) => ({
+  const correction = (field: string, cleared = false, source_url: string | null = null) => ({
     field,
     date: '2026-09-15T00:00:00.000Z',
-    source_url: null,
+    source_url,
     cleared,
   });
-  const words = 'Corrected by AEC Integrations on September 15, 2026';
   const lines = (el: Element, id: string) =>
     Array.from(el.querySelectorAll(`[data-testid="${id}"]`)).map((n) =>
       n.textContent?.replace(/\s+/g, ' ').trim(),
@@ -1644,148 +1658,154 @@ describe('ProductsPairPage: field captions (AECI-1614)', () => {
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
   };
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]')!;
 
-  it('renders one caption per mechanism, and none on a mechanism without', () => {
-    const el = render([
-      { caption: CAPTION },
-      { caption: null },
-      { caption: { ...CAPTION, form: 'until', vendor_names: ['Autodesk', 'Procore'] } },
-    ]);
-    const cards = el.querySelectorAll('article');
-    expect(lines(cards[0]!, 'field-caption')).toEqual([
-      'Maintained by Autodesk · updated October 4, 2026',
-    ]);
-    expect(lines(cards[1]!, 'field-caption')).toEqual([]);
-    expect(lines(cards[2]!, 'field-caption')).toEqual([
-      'Maintained by Autodesk and Procore until October 4, 2026',
-    ]);
-  });
-
-  it('captions a via mechanism and reads absent fields as none', () => {
-    const via = { id: 'c1', slug: 'zapier', name: 'Zapier', logo_url: null };
-    const el = render([{ via, caption: CAPTION }, { via }]);
-    const cards = el.querySelectorAll('article');
-    expect(lines(cards[0]!, 'field-caption')).toHaveLength(1);
-    expect(lines(cards[1]!, 'field-caption')).toEqual([]);
-  });
-
-  it('puts corrections beside the description, price, stage and curated link', () => {
+  it('puts no caption or correction on a card', () => {
     const el = render([
       {
-        description: 'Syncs models.',
-        pricing_model: 'Free',
-        maturity: 'GA',
-        docs_url: 'https://docs.example.com',
+        caption: CAPTION,
         corrections: [
           correction('description'),
           correction('pricing_model'),
-          correction('maturity'),
-          correction('docs_url'),
+          correction('docs_url', true),
+          correction('direction'),
         ],
+        pricing_model: 'Free',
       },
     ]);
     const card = el.querySelector('article')!;
-    expect(lines(card, 'field-correction')).toEqual([words, words, words, words]);
-    const docs = card.querySelector('a[href="https://docs.example.com"]')!.closest('li')!;
-    expect(lines(docs, 'field-correction')).toEqual([words]);
-    const stage = card.querySelector('[data-testid="pair-glance"]')!;
-    expect(lines(stage, 'field-correction')).toHaveLength(2);
+    expect(card.querySelector('aec-field-caption')).toBeNull();
+    expect(card.querySelector('[data-testid="pair-header-corrections"]')).toBeNull();
+    expect(card.querySelector('[data-testid="pair-removed-links"]')).toBeNull();
+    for (const caption of Array.from(el.querySelectorAll('aec-field-caption'))) {
+      expect(caption.closest('aec-listing-provenance')).not.toBeNull();
+    }
   });
 
-  it('names the field for a correction on the card header', () => {
-    const el = render([{ mechanism_name: 'Bridge', corrections: [correction('direction')] }]);
-    expect(lines(el, 'field-correction')[0]).toMatch(/: Corrected by AEC Integrations on/);
-    expect(el.querySelector('[data-testid="pair-header-corrections"]')).not.toBeNull();
-  });
-
-  it('names a correction on the heading, and skips a header value that is not shown', () => {
-    const el = render([
-      {
-        mechanism_name: 'Bridge',
-        direction: null,
-        corrections: [correction('mechanism_name'), correction('direction')],
-      },
-    ]);
-    expect(lines(el, 'field-correction')).toHaveLength(1);
-    expect(lines(el, 'field-correction')[0]).toMatch(/: Corrected by AEC Integrations on/);
-  });
-
-  it('skips a correction that cleared the price', () => {
-    const el = render([
-      {
-        pricing_model: null,
-        pricing_url: 'https://example.com/pricing',
-        corrections: [correction('pricing_model')],
-      },
-    ]);
-    expect(lines(el, 'field-correction')).toEqual([]);
-  });
-
-  it('does not caption a vendor own link with a correction on the curated one', () => {
-    const el = render([
-      {
-        docs_url: 'https://docs.example.com',
-        vendor_links: {
-          context: { listing_url: null, docs_url: 'https://own.example.com/docs' },
-          other: null,
-        },
-        corrections: [correction('docs_url')],
-      },
-    ]);
-    expect(lines(el, 'field-correction')).toEqual([]);
-  });
-
-  // AECI-1628: a removal reads "Removed by" in the slot the value would fill.
-  it('puts each removal where the description, price, stage and curated link would be', () => {
-    const el = render([
-      {
-        description: null,
-        pricing_model: null,
-        pricing_url: null,
-        maturity: null,
-        listing_url: null,
-        docs_url: null,
-        vendor_links: undefined,
-        corrections: [
-          correction('description', true),
-          correction('pricing_model', true),
-          correction('maturity', true),
-          correction('listing_url', true),
-        ],
-      },
-    ]);
-    const card = el.querySelector('article')!;
-    const removed = 'Removed by AEC Integrations on September 15, 2026';
-    const all = lines(card, 'field-correction');
-    expect(all).toHaveLength(4);
-    expect(all.every((t) => t?.includes(removed))).toBe(true);
-    expect(all.some((t) => t?.startsWith('Description') || t?.includes(': Removed'))).toBe(true);
-    const glance = card.querySelector('[data-testid="pair-glance"]')!;
-    expect(lines(glance, 'field-correction')).toHaveLength(2);
+  it('mounts the panel after the cards, card and disclosure, one test id', () => {
+    const el = render([{ caption: CAPTION }]);
+    const copies = el.querySelectorAll('aec-listing-provenance');
+    expect(copies).toHaveLength(2);
+    expect(el.querySelectorAll('[data-testid="listing-provenance"]')).toHaveLength(1);
+    const lastCard = el.querySelectorAll('article')[0]!;
     expect(
-      lines(card.querySelector('[data-testid="pair-removed-links"]')!, 'field-correction'),
-    ).toHaveLength(1);
+      lastCard.compareDocumentPosition(panel(el)) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  it('takes no removed-link line when a vendor link fills the slot', () => {
+  it('lists one mechanism by field alone', () => {
     const el = render([
       {
-        docs_url: null,
-        vendor_links: {
-          context: { listing_url: null, docs_url: 'https://own.example.com/docs' },
-          other: null,
-        },
-        corrections: [correction('docs_url', true)],
+        caption: CAPTION,
+        maturity: 'GA',
+        corrections: [
+          correction('docs_url', true),
+          correction('maturity', false, 'https://s.example'),
+        ],
       },
     ]);
-    expect(el.querySelector('[data-testid="pair-removed-links"]')).toBeNull();
+    expect(lines(panel(el), 'field-caption')).toEqual([
+      'Maintained by Autodesk · updated October 4, 2026',
+    ]);
+    const found = lines(panel(el), 'field-correction');
+    expect(found[0]).toBe('Documentation link: Removed by AEC Integrations on September 15, 2026');
+    expect(found[1]).toMatch(
+      /^Release stage: Corrected by AEC Integrations on September 15, 2026 · Source/,
+    );
   });
 
-  it('names a removal of the heading', () => {
+  it('prefixes each line with the card heading when there is more than one mechanism', () => {
     const el = render([
-      { mechanism_name: null, corrections: [correction('mechanism_name', true)] },
+      { mechanism_name: 'Bridge', caption: CAPTION },
+      { mechanism_name: null, mechanism_kind: 'api', corrections: [correction('direction')] },
+      { caption: { ...CAPTION, form: 'until', vendor_names: ['Autodesk', 'Procore'] } },
     ]);
-    expect(lines(el, 'field-correction')[0]).toMatch(/: Removed by AEC Integrations on/);
+    expect(lines(panel(el), 'field-caption')).toEqual([
+      'Bridge: Maintained by Autodesk · updated October 4, 2026',
+      'Procore + Autodesk Construction Cloud: Maintained by Autodesk and Procore until October 4, 2026',
+    ]);
+    expect(lines(panel(el), 'field-correction')).toEqual([
+      'API, Direction: Corrected by AEC Integrations on September 15, 2026',
+    ]);
+  });
+
+  // §4.5.8: a removed or corrected curated link whose slot a vendor's own link fills
+  // shows no line, because the card renders the vendor's link instead.
+  it('drops a curated-link correction when a vendor link of that kind fills the slot', () => {
+    const el = render([
+      {
+        listing_url: 'https://example.com/listing',
+        docs_url: null,
+        vendor_links: {
+          context: { listing_url: 'https://vendor.example/listing', docs_url: null },
+          other: { listing_url: null, docs_url: 'https://vendor.example/docs' },
+        },
+        corrections: [correction('listing_url'), correction('docs_url', true)],
+      },
+    ]);
+    expect(lines(panel(el), 'field-correction')).toEqual([]);
+  });
+
+  it('lists a curated-link correction and removal when no vendor link fills the slot', () => {
+    const el = render([
+      {
+        listing_url: 'https://example.com/listing',
+        docs_url: null,
+        vendor_links: { context: null, other: null },
+        corrections: [correction('listing_url'), correction('docs_url', true)],
+      },
+    ]);
+    expect(lines(panel(el), 'field-correction')).toEqual([
+      'Listing link: Corrected by AEC Integrations on September 15, 2026',
+      'Documentation link: Removed by AEC Integrations on September 15, 2026',
+    ]);
+  });
+
+  it('drops a correction on a field the card never renders, or on a value it does not show', () => {
+    const el = render([
+      {
+        pricing_model: null,
+        corrections: [
+          correction('website'),
+          correction('mechanism_url', true),
+          correction('pricing_model'),
+          correction('description', true),
+        ],
+      },
+    ]);
+    expect(lines(panel(el), 'field-correction')).toEqual([]);
+  });
+
+  it('counts the values under review across the cards', () => {
+    const el = render([
+      { description: null, under_review: ['description'] },
+      { docs_url: null, under_review: ['docs_url'] },
+    ]);
+    expect(lines(panel(el), 'provenance-under-review')).toEqual([
+      '2 values on this page are under review.',
+    ]);
+  });
+
+  // Ruling 2026-11-17: every listing shows the panel, including one AECi maintains alone.
+  it('shows the panel with the AECi record line when nothing else applies', () => {
+    const el = render([{}]);
+    expect(panel(el).hasAttribute('hidden')).toBe(false);
+    expect(panel(el).querySelector('li')?.textContent?.trim()).toBe('AEC Integrations maintained');
+    expect(panel(el).querySelectorAll('li')).toHaveLength(1);
+  });
+
+  it('drops a price or stage whose value AECi removed from At a glance', () => {
+    const el = render([
+      {
+        pricing_model: null,
+        maturity: null,
+        built_by_vendor: null,
+        corrections: [correction('pricing_model', true), correction('maturity', true)],
+      },
+    ]);
+    const glance = el.querySelector('[data-testid="pair-glance"]');
+    expect(glance?.textContent ?? '').not.toContain('Price');
+    expect(glance?.textContent ?? '').not.toContain('Release stage');
   });
 });
 

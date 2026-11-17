@@ -17,21 +17,22 @@ export interface FieldCaptionPage {
 
 /**
  * The **field caption** (AECI-1614; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8): one quiet line
- * under a group of fields that says who wrote them and when. It is the group-level
- * companion of the page-level `MaintenanceMarker`, which it does not replace.
+ * that says who wrote a group of fields and when, or that AECi corrected one field.
+ *
+ * **Since AECI-1666 it renders only inside `aec-listing-provenance`**, the page's one
+ * "About this listing" panel. No page mounts it under a group, beside a value or on a
+ * table row. In the panel every line names what it speaks for through `label`: the group
+ * ("How teams use it: Maintained by…") or the field ("Website: Corrected by…").
  *
  *   - `caption`: "Maintained by {vendor} · updated {date}" or "Maintained by {vendor} until
  *     {date}". The server picks the form and the date from a real vendor write or a plan
  *     end, never `updated_at` or `last_reviewed_at`.
  *   - `correction`: "Corrected by AEC Integrations on {date}", then the source link when
- *     one is recorded. `label` names the field where the line cannot sit under one value,
- *     such as the vendor page's row of company facts. A correction that cleared the value
- *     (`cleared`, AECI-1628) reads "Removed by AEC Integrations on {date}" instead, in the
- *     slot the value would fill. Same muted line, same source rule.
+ *     one is recorded. A correction that cleared the value (`cleared`, AECI-1628) reads
+ *     "Removed by AEC Integrations on {date}" instead. Same muted line, same source rule.
  *
  * **Attribution, never endorsement.** Muted small text with no fill, border, chip or badge.
- * It must not read as a trust signal, a status or an ad. That is why this is not a chip
- * like the marker: the marker labels a whole record once, and this repeats down a page.
+ * It must not read as a trust signal, a status or an ad.
  *
  * **Text colour.** `--text-secondary` passes AA on every surface this sits on: base, raised,
  * Bone and a hovered table row. `--text-tertiary` fails on muted and sunken ones.
@@ -91,7 +92,7 @@ export class FieldCaptionLine {
   readonly caption = input<FieldCaption | null | undefined>(null);
   /** The "Corrected by" form. Absent or `null` renders no such line. */
   readonly correction = input<FieldCorrection | null | undefined>(null);
-  /** Names the corrected field where the line cannot sit under that one value. */
+  /** Names the group or the field the line speaks for. `null` reads the bare form. */
   readonly label = input<string | null>(null);
   /** The page this sits on, reported with a click on the source link. */
   readonly page = input.required<FieldCaptionPage>();
@@ -107,6 +108,13 @@ export class FieldCaptionLine {
       style: 'long',
       type: 'conjunction',
     }).format(caption.vendor_names);
+    const label = this.label();
+    // AECI-1666: in the provenance panel the line names its group.
+    if (label) {
+      return caption.form === 'until'
+        ? $localize`:@@fieldCaption.maintained.until.labelled:${label}:GROUP:: Maintained by ${vendors}:VENDORS: until ${date}:DATE:`
+        : $localize`:@@fieldCaption.maintained.updated.labelled:${label}:GROUP:: Maintained by ${vendors}:VENDORS: · updated ${date}:DATE:`;
+    }
     return caption.form === 'until'
       ? $localize`:@@fieldCaption.maintained.until:Maintained by ${vendors}:VENDORS: until ${date}:DATE:`
       : $localize`:@@fieldCaption.maintained.updated:Maintained by ${vendors}:VENDORS: · updated ${date}:DATE:`;

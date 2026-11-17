@@ -15,25 +15,61 @@ import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import type { FieldCaptionPage } from '../shared/field-caption/field-caption';
+import {
+  correctionsInSlots,
+  countUnderReview,
+  isUnderReview,
+} from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import {
+  ListingProvenance,
+  type ProvenanceCorrection,
+  type ProvenanceGroup,
+} from '../shared/listing-provenance/listing-provenance';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { countLaneUnderReview, splitIntegrationLanes } from './connector-lane-grouping';
 import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin, ProductExtensionsSection } from './product-extensions';
 import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
+
+/** A product field group, as the provenance panel names it (AECI-1666). */
+type ProductCaptionGroup = 'description' | 'profile' | 'usefulness' | 'managed';
+
+/** The panel's name for each product field group: the page's own section names. */
+function groupLabel(group: ProductCaptionGroup): string {
+  switch (group) {
+    case 'description':
+      return $localize`:@@products.detail.provenance.group.description:About`;
+    case 'profile':
+      return $localize`:@@products.detail.provenance.group.profile:Website and categories`;
+    case 'usefulness':
+      return $localize`:@@products.detail.provenance.group.usefulness:How teams use it`;
+    case 'managed':
+      return $localize`:@@products.detail.provenance.group.managed:Audiences, trades, phases and resources`;
+  }
+}
+
+/** Every field this page marks "Under review" in its slot (AECI-1238). The panel's count
+ *  reads this list (AECI-1666), and `underReview()` takes only these names. */
+const UNDER_REVIEW_MARKED_FIELDS = [
+  'website',
+  'tool_integrations_url',
+  'api_docs_url',
+  'description',
+] as const;
+type UnderReviewMarkedField = (typeof UNDER_REVIEW_MARKED_FIELDS)[number];
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -81,12 +117,11 @@ import { RoleBadge } from './role-badge';
   imports: [
     DetailLayout,
     ExternalLinkTracker,
-    FieldCaptionLine,
     UnderReviewMarker,
     LogoOrInitial,
     UnclaimedNote,
+    ListingProvenance,
     MailingListSignup,
-    MaintenanceMarker,
     NgTemplateOutlet,
     NewTabIcon,
     NotFound,
@@ -171,27 +206,12 @@ import { RoleBadge } from './role-badge';
                   Product
                 </p>
                 <aec-role-badge [role]="p.product_role" />
-                <aec-maintenance-marker
-                  [maintainedBy]="p.maintenance.maintained_by"
-                  [reviewedAt]="p.maintenance.last_reviewed_at"
-                  [ownerName]="p.vendor?.name ?? null"
-                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ p.name }}
               </h1>
-              <!-- AECI-1628: AECi replaced or removed the logo a vendor holds. The logo
-                   sits beside this column, so the line names it. -->
-              @if (slotCorrection('logo_url', !!p.logo_url); as c) {
-                <aec-field-caption
-                  data-testid="logo-correction"
-                  [correction]="c"
-                  [label]="logoLabel"
-                  [page]="captionPage()"
-                />
-              }
               <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
                    image, with counsel's wording directly beside it. -->
               @if (p.claim_status === 'unclaimed') {
@@ -236,7 +256,7 @@ import { RoleBadge } from './role-badge';
                allows exactly one exception to sentence case: eyebrows, kickers
                and sidebar microheadings. A chip is none of those, and this one
                sat two lines under a real overline ("PRODUCT"), competing with it.
-               Metrics now match RoleBadge / MaintenanceMarker so every chip on
+               Metrics now match RoleBadge so every chip on
                this page is one height. -->
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             @if (p.rating_overall_avg !== null) {
@@ -301,17 +321,12 @@ import { RoleBadge } from './role-badge';
             }
             <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
           </div>
-          @if (slotCorrection('website', !!p.website); as c) {
-            <aec-field-caption [correction]="c" [label]="websiteLabel" [page]="captionPage()" />
-          }
           <!-- AECI-1238 (§11d.7): AECi hid the website while it checks it. -->
           @if (underReview('website')) {
-            <aec-under-review data-testid="website-under-review" [label]="websiteLabel" />
-          }
-          <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
-               With no categories, it sits here under the website. -->
-          @if (p.categories.length === 0 && p.captions?.profile; as c) {
-            <aec-field-caption data-testid="profile-caption" [caption]="c" [page]="captionPage()" />
+            <aec-under-review
+              data-testid="website-under-review"
+              [label]="correctionLabel('website')"
+            />
           }
         </div>
 
@@ -392,7 +407,9 @@ import { RoleBadge } from './role-badge';
             ></section>
           }
 
-          @if (p.categories.length > 0 || slotCorrection('category_slugs', false)) {
+          <!-- AECI-1666: a facet or link section a removal left empty disappears. The
+               removal, and every other provenance line, is in "About this listing". -->
+          @if (p.categories.length > 0) {
             <section aria-labelledby="categories-label" class="space-y-3">
               <h2
                 id="categories-label"
@@ -401,28 +418,15 @@ import { RoleBadge } from './role-badge';
               >
                 Categories
               </h2>
-              @if (p.categories.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (c of p.categories; track c.slug) {
-                    <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
-                  }
-                </div>
-              }
-              <aec-field-caption
-                [correction]="slotCorrection('category_slugs', p.categories.length > 0)"
-                [page]="captionPage()"
-              />
-              @if (p.captions?.profile; as c) {
-                <aec-field-caption
-                  data-testid="profile-caption"
-                  [caption]="c"
-                  [page]="captionPage()"
-                />
-              }
+              <div class="flex flex-wrap gap-2">
+                @for (c of p.categories; track c.slug) {
+                  <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
+                }
+              </div>
             </section>
           }
 
-          @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
+          @if (p.audiences.length > 0) {
             <section aria-labelledby="audiences-label" class="space-y-3">
               <h2
                 id="audiences-label"
@@ -431,17 +435,11 @@ import { RoleBadge } from './role-badge';
               >
                 Audiences
               </h2>
-              @if (p.audiences.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (d of p.audiences; track d.slug) {
-                    <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
-                  }
-                </div>
-              }
-              <aec-field-caption
-                [correction]="slotCorrection('audience_slugs', p.audiences.length > 0)"
-                [page]="captionPage()"
-              />
+              <div class="flex flex-wrap gap-2">
+                @for (d of p.audiences; track d.slug) {
+                  <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
+                }
+              </div>
             </section>
           }
 
@@ -453,7 +451,7 @@ import { RoleBadge } from './role-badge';
             isn't promoted yet (TRADES_VOCABULARY.md §6). Sits between Audiences
             and Project phases to match the facet sidebar's dimension order.
           -->
-          @if (p.trades.length > 0 || slotCorrection('trade_slugs', false)) {
+          @if (p.trades.length > 0) {
             <section aria-labelledby="trades-label" class="space-y-3">
               <h2
                 id="trades-label"
@@ -462,20 +460,15 @@ import { RoleBadge } from './role-badge';
               >
                 Trades
               </h2>
-              @if (p.trades.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (tr of p.trades; track tr.slug) {
-                    <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
-                  }
-                </div>
-              }
-              @if (slotCorrection('trade_slugs', p.trades.length > 0); as c) {
-                <aec-field-caption [correction]="c" [page]="captionPage()" />
-              }
+              <div class="flex flex-wrap gap-2">
+                @for (tr of p.trades; track tr.slug) {
+                  <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
+                }
+              </div>
             </section>
           }
 
-          @if (p.phases.length > 0 || slotCorrection('phase_slugs', false)) {
+          @if (p.phases.length > 0) {
             <section aria-labelledby="phases-label" class="space-y-3">
               <h2
                 id="phases-label"
@@ -484,16 +477,11 @@ import { RoleBadge } from './role-badge';
               >
                 Project phases
               </h2>
-              @if (p.phases.length > 0) {
-                <div class="flex flex-wrap gap-2">
-                  @for (ph of p.phases; track ph.slug) {
-                    <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
-                  }
-                </div>
-              }
-              @if (slotCorrection('phase_slugs', p.phases.length > 0); as c) {
-                <aec-field-caption [correction]="c" [page]="captionPage()" />
-              }
+              <div class="flex flex-wrap gap-2">
+                @for (ph of p.phases; track ph.slug) {
+                  <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
+                }
+              </div>
             </section>
           }
 
@@ -502,8 +490,6 @@ import { RoleBadge } from './role-badge';
           @if (
             p.tool_integrations_url ||
             p.api_docs_url ||
-            slotCorrection('tool_integrations_url', false) ||
-            slotCorrection('api_docs_url', false) ||
             underReview('tool_integrations_url') ||
             underReview('api_docs_url')
           ) {
@@ -531,23 +517,12 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
-                    @if (slotCorrection('tool_integrations_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
                   </li>
                 } @else if (underReview('tool_integrations_url')) {
                   <li>
                     <aec-under-review
                       data-testid="tool-integrations-under-review"
                       [label]="correctionLabel('tool_integrations_url')"
-                    />
-                  </li>
-                } @else if (slotCorrection('tool_integrations_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('tool_integrations_url')"
-                      [page]="captionPage()"
                     />
                   </li>
                 }
@@ -566,9 +541,6 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
-                    @if (slotCorrection('api_docs_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
                   </li>
                 } @else if (underReview('api_docs_url')) {
                   <li>
@@ -577,32 +549,9 @@ import { RoleBadge } from './role-badge';
                       [label]="correctionLabel('api_docs_url')"
                     />
                   </li>
-                } @else if (slotCorrection('api_docs_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('api_docs_url')"
-                      [page]="captionPage()"
-                    />
-                  </li>
                 }
               </ul>
             </section>
-          }
-
-          <!-- AECI-1614: the Managed group's one caption (audiences, trades, phases and the
-               two Resources links). One line, after the last of them, not one per group:
-               the same sentence four times down a sidebar is noise that starts to read as
-               a badge. A sibling of Resources, not inside it, because the group can hold
-               facets alone and Resources then does not render. Below lg it spans the
-               fact panel, since it speaks for both columns. -->
-          @if (managedCaption(); as c) {
-            <aec-field-caption
-              class="sm:col-span-2 lg:col-span-1"
-              data-testid="managed-caption"
-              [caption]="c"
-              [page]="captionPage()"
-            />
           }
 
           <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 lg:col-span-1">
@@ -713,6 +662,24 @@ import { RoleBadge } from './role-badge';
           </section>
         </div>
 
+        <!-- AECI-1666: "About this listing", the page's one provenance panel. A card at
+             the end of the sidebar from lg. Below lg the disclosure copy at the end of
+             the body takes over, so only this copy carries the test id. -->
+        <aec-listing-provenance
+          slot="metadata"
+          data-testid="listing-provenance"
+          variant="card"
+          [maintainedBy]="p.maintenance.maintained_by"
+          [reviewedAt]="p.maintenance.last_reviewed_at"
+          [ownerName]="p.vendor?.name ?? null"
+          [claimed]="p.claim_status !== 'unclaimed'"
+          [groups]="provenance().groups"
+          [corrections]="provenance().corrections"
+          [underReviewCount]="provenance().underReviewCount"
+          [integrationsNote]="provenance().integrationsNote"
+          [page]="captionPage()"
+        />
+
         <!--
           The nav takes its own slot rather than riding along in the body: the
           layout projects it bare into the page container so its sticky bound is
@@ -752,9 +719,6 @@ import { RoleBadge } from './role-badge';
                 >
                   {{ p.description }}
                 </p>
-                @if (p.captions?.description; as c) {
-                  <aec-field-caption [caption]="c" [page]="captionPage()" />
-                }
               } @else {
                 <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
                 <aec-under-review data-testid="description-under-review" />
@@ -765,13 +729,7 @@ import { RoleBadge } from './role-badge';
 
         <div slot="body" class="space-y-12">
           @if (p.usefulness; as u) {
-            <aec-product-usefulness
-              id="how-teams-use-it"
-              class="scroll-mt-20"
-              [data]="u"
-              [caption]="p.captions?.usefulness"
-              [page]="captionPage()"
-            />
+            <aec-product-usefulness id="how-teams-use-it" class="scroll-mt-20" [data]="u" />
           }
 
           <!-- Powered ("this product IS the connector") integrations, per Stage
@@ -841,6 +799,19 @@ import { RoleBadge } from './role-badge';
               [firstPage]="p.reviews"
             />
           </section>
+
+          <aec-listing-provenance
+            variant="disclosure"
+            [maintainedBy]="p.maintenance.maintained_by"
+            [reviewedAt]="p.maintenance.last_reviewed_at"
+            [ownerName]="p.vendor?.name ?? null"
+            [claimed]="p.claim_status !== 'unclaimed'"
+            [groups]="provenance().groups"
+            [corrections]="provenance().corrections"
+            [underReviewCount]="provenance().underReviewCount"
+            [integrationsNote]="provenance().integrationsNote"
+            [page]="captionPage()"
+          />
         </div>
       </aec-detail-layout>
 
@@ -932,38 +903,76 @@ export class ProductDetailPage {
     entityId: this.product()?.id ?? '',
   }));
 
-  protected readonly websiteLabel = fieldOverrideLabel('website');
-  protected readonly logoLabel = fieldOverrideLabel('logo_url');
-  protected readonly correctionLabel = fieldOverrideLabel;
+  protected readonly correctionLabel = correctionLabel;
 
-  /**
-   * AECi's correction in one value's slot (AECI-1628): a value-setting one while the
-   * value shows, a removal while it does not.
-   */
-  protected slotCorrection(field: string, present: boolean) {
-    return correctionInSlot(this.product()?.captions?.corrections, field, present);
-  }
-
-  /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
-  protected underReview(field: string): boolean {
+  /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. Typed to the marked
+   *  list, so a new marker the panel's count does not know fails the template check. */
+  protected underReview(field: UnderReviewMarkedField): boolean {
     return isUnderReview(this.product()?.under_review, field);
   }
 
   /**
-   * The Managed group's caption, while the group shows anything. A vendor can clear every
-   * field in it, and a caption under nothing says nothing. Categories and the website are
-   * not in the group (`field-captions.ts`).
+   * What "About this listing" holds (AECI-1666). Each group's caption shows while the
+   * group shows anything, because a caption on a group the page does not render says
+   * nothing. A correction is listed only where the page has its slot (§4.5.8): one that
+   * set a value while the value renders, one that cleared it while the slot is empty. The
+   * under-review count is every marker the page mounts: the product fields it marks, plus
+   * each Integrations row's markers (`countLaneUnderReview`). The integrations note shows
+   * when any row carried a caption or a correction, since the rows no longer say so
+   * themselves.
    */
-  protected readonly managedCaption = computed(() => {
+  protected readonly provenance = computed<{
+    groups: readonly ProvenanceGroup[];
+    corrections: readonly ProvenanceCorrection[];
+    underReviewCount: number;
+    integrationsNote: boolean;
+  }>(() => {
     const p = this.product();
-    if (!p) return null;
-    const hasValues =
-      p.audiences.length > 0 ||
-      p.trades.length > 0 ||
-      p.phases.length > 0 ||
-      !!p.tool_integrations_url ||
-      !!p.api_docs_url;
-    return hasValues ? (p.captions?.managed ?? null) : null;
+    if (!p) return { groups: [], corrections: [], underReviewCount: 0, integrationsNote: false };
+    const captions = p.captions;
+    // `managed` covers the two Resources links, audiences, trades and phases; `profile`
+    // covers the website and categories (`apps/api/src/lib/field-captions.ts`).
+    const shown = {
+      description: !!p.description,
+      profile: !!p.website || p.categories.length > 0,
+      usefulness: this.hasUsefulness(),
+      managed:
+        p.audiences.length > 0 ||
+        p.trades.length > 0 ||
+        p.phases.length > 0 ||
+        !!p.tool_integrations_url ||
+        !!p.api_docs_url,
+    };
+    const groups: ProvenanceGroup[] = [];
+    const add = (caption: ProvenanceGroup['caption'] | null | undefined, label: string) => {
+      if (caption) groups.push({ label, caption });
+    };
+    if (shown.description) add(captions?.description, groupLabel('description'));
+    if (shown.profile) add(captions?.profile, groupLabel('profile'));
+    if (shown.usefulness) add(captions?.usefulness, groupLabel('usefulness'));
+    if (shown.managed) add(captions?.managed, groupLabel('managed'));
+    const rows = [...p.integrations_as_source, ...p.integrations_as_target];
+    return {
+      groups,
+      corrections: correctionsInSlots(captions?.corrections, {
+        logo_url: !!p.logo_url,
+        website: !!p.website,
+        tool_integrations_url: !!p.tool_integrations_url,
+        api_docs_url: !!p.api_docs_url,
+        category_slugs: p.categories.length > 0,
+        audience_slugs: p.audiences.length > 0,
+        trade_slugs: p.trades.length > 0,
+        phase_slugs: p.phases.length > 0,
+      }).map((correction) => ({ correction, label: correctionLabel(correction.field) })),
+      // The page's own markers plus one per row marker, from the same lane split the
+      // Integrations section renders, so the two cannot drift.
+      underReviewCount:
+        countUnderReview(p.under_review, UNDER_REVIEW_MARKED_FIELDS) +
+        countLaneUnderReview(
+          splitIntegrationLanes(p.integrations_as_source, p.integrations_as_target),
+        ),
+      integrationsNote: rows.some((row) => !!row.caption || (row.corrections?.length ?? 0) > 0),
+    };
   });
 
   /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */

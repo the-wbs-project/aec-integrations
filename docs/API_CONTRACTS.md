@@ -535,7 +535,8 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
   // 'vendor' = the product's vendor wrote it in the portal; the page labels the
-  // section's field caption (AECI-1614; `captions.usefulness`). null = AECi's copy, via promote. 'admin' is
+  // section's field caption (AECI-1614; `captions.usefulness`), shown in the
+  // "About this listing" panel since AECI-1666. null = AECi's copy, via promote. 'admin' is
   // reserved (ADR 0033). Defaulted to null so an older payload still parses.
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
@@ -685,7 +686,7 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
 
 ### 5.3a Field captions (AECI-1614)
 
-`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock.
+`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock. Since AECI-1666 the web renders every caption and correction in one "About this listing" panel per page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). The wire shapes below did not change.
 
 ```typescript
 export const FieldCaptionSchema = z.object({
@@ -713,15 +714,15 @@ export const ProductFieldCaptionsSchema = z.object({
 | Carrier | Added |
 |---|---|
 | `ProductDetail` | `captions: ProductFieldCaptions` |
-| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]`. Still sent, but since AECI-1666 the product page does not render them. The pair page's panel carries the row detail |
 | `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
-| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption. The vendor page's panel lists the corrections |
 
 **`under_review` (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** `VendorDetail`, `ProductDetail`, `ProductIntegrationItem` and `ProductPairMechanism` carry `under_review: string[]`, optional for deploy skew. It lists, sorted, the wire names of the fields AECi has hidden while it checks them. Each such field's value is `null` on the same payload: a hidden company fact is `null` in `company_facts`, and a hidden company size or ownership type is `null` in a product's `vendor_facts`, silently. A hidden field has no entry in `corrections`. Nothing else of the hide is public: no reason, note, source or date (`public-vendor-shapes.spec.ts`). The page renders "Under review. AEC Integrations is checking this detail." in the value's slot. The read is one extra statement per entity table in the page's existing batch, like the corrections. `VendorListItem` masks `headquarters` and `founded_year` the same way, with no marker, after it applies the company-facts display rule (§5.2). Search records mask too (`SEARCH_RANKING.md`).
 
 All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
 
-**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page then reads "Removed by AEC Integrations on {date}" in the value's slot instead of "Corrected by". Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
+**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page's panel then reads "{Field}: Removed by AEC Integrations on {date}" instead of "Corrected by". Until AECI-1666 the line sat in the value's slot. Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
 
 **The forms.** No vendor write means `null`.
 
@@ -1500,7 +1501,7 @@ export const PublicReviewUpdateSchema = z.object({
 - No reviewer data, no moderation field, and no JSON-LD.
 - **As built (AECI-1613).** `PublicReviewUpdateSchema` lives in `packages/shared/src/api/reviews.ts` beside `PublicVendorResponseSchema`, for the same import-cycle reason, and is re-exported from `review-updates.ts`. The predicate is `publishedReviewUpdatesQuery` in `apps/api/src/lib/review-updates.ts`. The reviews list reaches it through `withPublicReviewExtras`, which loads the replies and the updates for the page together. The product-detail embed runs the same query builder inside its one `db.batch` and maps through `attachReviewExtras`. `withPublicReviewExtras` replaces `withPublishedVendorResponses` on the list route.
 
-**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
+**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the record line of each page's "About this listing" panel (`aec-listing-provenance`). That was the `aec-maintenance-marker` header chip until AECI-1666 retired it. Every listing shows the panel (ruled 2026-11-17), so every product, vendor and pair page renders this line. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
 **Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Since AECI-1216 the company and product "Looks right" routes (`POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, §6.14) do the same with no content edit. Their responses echo the new `last_reviewed_at`, so the portal can show it without a refetch. Per row and never transitive: a product edit does not flip the vendor. Neither the edit endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
 
