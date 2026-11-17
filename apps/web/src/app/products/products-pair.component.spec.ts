@@ -2335,6 +2335,13 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(text(card.querySelector('[data-testid="pair-look-by"]'))).toBe('by Acme');
   });
 
+  it('ends the no-directory line with one full stop when the vendor name has its own', () => {
+    const { el } = setup(emptyPair({ vendor: vendor('v1', 'Acme Inc.') }));
+    expect(text(el.querySelector('[data-testid="pair-look-no-directory-context"]'))).toBe(
+      'We have not found an integrations page published by Acme Inc.',
+    );
+  });
+
   it("names the vendor's directory and says Published by only on the vendor's own links", () => {
     const { el } = setup(
       emptyPair({

@@ -28,7 +28,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
-import { integrationsOnRecordCount } from './integrations-on-record';
+import { integrationsOnRecordCount, withoutTrailingFullStop } from './integrations-on-record';
 
 /** The shared focus ring on a light ground, 3px at 3px. */
 const FOCUS_RING =
@@ -920,7 +920,8 @@ export class PairEmptySections {
     if (!p.vendor || p.tool_integrations_url) return null;
     if (isUnderReview(p.under_review, 'tool_integrations_url')) return null;
     if (correctionInSlot(p.captions?.corrections, 'tool_integrations_url', false)) return null;
-    const vendor = p.vendor.name;
+    // As on the product page: "Acme Inc." ends the sentence once, never "Inc..".
+    const vendor = withoutTrailingFullStop(p.vendor.name);
     return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
   }
 }
