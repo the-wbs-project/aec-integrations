@@ -209,8 +209,11 @@ const CARD_CATEGORIES = 2;
                   [ownPage]="true"
                   size="sm"
                 />
+                <aec-unclaimed-note />
+              } @else {
+                <!-- No logo on record: the note alone, no second initial tile. -->
+                <aec-unclaimed-note />
               }
-              <aec-unclaimed-note />
             </div>
           }
           @if (card.categories.length > 0) {
