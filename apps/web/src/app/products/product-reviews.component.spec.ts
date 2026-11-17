@@ -400,6 +400,66 @@ describe('ProductReviews', () => {
       expect(time.textContent?.trim()).toBe('Sep 11, 2026');
     });
 
+    // AECI-1872 (ruling 42) build condition (a): the review text comes first, whole,
+    // and the reply never changes, shortens or reorders it.
+    it('renders the whole long review body before the reply, with no clamp or "Show more"', () => {
+      const longBody = Array.from(
+        { length: 40 },
+        (_, i) => `Sentence ${i + 1} of a long review about setup.`,
+      ).join(' ');
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [
+          makeReview(1, {
+            body: longBody,
+            vendor_responses: [makeResponse({ body: 'VENDOR REPLY TEXT' })],
+          }),
+        ],
+      });
+
+      const article = el.querySelector('ul > li > article') as HTMLElement;
+      const original = article.querySelector('[data-testid="review-original"]') as HTMLElement;
+      const body = original.querySelector(':scope > p') as HTMLElement;
+      const reply = article.querySelector('[data-testid="vendor-response"]') as HTMLElement;
+
+      expect(body.textContent?.trim()).toBe(longBody);
+      expect(body.className).not.toMatch(/line-clamp|truncate|max-h-|overflow-hidden/);
+      expect(original.textContent).not.toContain('VENDOR REPLY TEXT');
+      expect(
+        original.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // Nothing in the review card expands or collapses.
+      expect(article.querySelector('button, details, [aria-expanded]')).toBeNull();
+    });
+
+    // Condition (b): the label and the date are visible whenever the reply is. They
+    // are plain text in the panel heading, never behind a toggle, hover or tooltip.
+    it('shows the "Response from" label and the date as visible text in the panel', () => {
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [makeReview(1, { vendor_responses: [makeResponse()] })],
+      });
+      const reply = el.querySelector('[data-testid="vendor-response"]') as HTMLElement;
+      const h4 = reply.querySelector('h4') as HTMLElement;
+      const label = [...h4.querySelectorAll('span')].find((s) =>
+        s.textContent?.includes('Response from Autodesk'),
+      )!;
+      const time = reply.querySelector('time') as HTMLElement;
+
+      expect(label).toBeTruthy();
+      expect(label.classList).not.toContain('sr-only');
+      expect(time.classList).not.toContain('sr-only');
+      expect(time.textContent?.trim()).toBe('Sep 11, 2026');
+      for (const node of [reply, h4, label, time]) {
+        expect(node.hasAttribute('hidden')).toBe(false);
+        expect(node.getAttribute('aria-hidden')).toBeNull();
+        expect(node.closest('details, [aria-expanded="false"], [role="tooltip"]')).toBeNull();
+      }
+      // The heading and date come before the reply text in the panel.
+      const text = reply.querySelector(':scope > p') as HTMLElement;
+      expect(h4.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('renders the body as plain text with its line breaks, never as HTML', () => {
       const { el } = setup({
         reviewCount: 1,

@@ -162,6 +162,8 @@ On November 7, 2026 the sign-in page redesign added a paragraph to the Privacy P
 
 On November 4, 2026 **AECI-1592** added a paragraph to the Privacy Policy's "Cookies and similar technologies": dismissing a notice is the visitor's choice, the browser keeps a per-notice flag, and we remove the flag on the first visit after the notice period ends. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
 
+On November 17, 2026 **AECI-1872** (ruling 42, option C) reworded the "Labeled." bullet under "Vendor responses" in the Review Guidelines, in place in the 1.0 draft, without a bump. It now says a response appears after the review text, in its own panel labeled "Response from" the company's name, with its date, and is never mixed with the reviewer's words. The product page has shown the reply that way since AECI-1784. Production records no Review Guidelines version on any acceptance: the column from migration 0118 is not on production yet. So the edit goes in place. Re-run that check before the redesign ships to `main`. An acceptance recording 1.0 before this edit is live makes it a bump and an archive. Counsel should check the sentence with AECI-308.
+
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
 "Copyright Agent, The WBS Project, Inc." at the address and `copyright@thewbsproject.com` printed in

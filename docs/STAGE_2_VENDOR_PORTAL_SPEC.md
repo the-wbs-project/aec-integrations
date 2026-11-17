@@ -3997,7 +3997,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 ### 11c.1 What a reply is
 
-A vendor that owns a product answers one approved review of that product in public. The reply sits under the review on the product page. It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
+A vendor that owns a product answers one approved review of that product in public. The reply appears after the review text on the product page, in its own panel (ruling 42). It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
 
 ### 11c.2 The rulings
 
@@ -4185,7 +4185,7 @@ Shapes and error codes are in `API_CONTRACTS.md` §6.6, §6.10 and §6.14.
 
 ### 11c.15 The public render (AECI-1178)
 
-- **After the review text, never part of it.** The reply is a separate block after the review body. It is never styled as part of the review. Since AECI-1784 that block is a nested panel inside the review card (`DESIGN.md` §4, clash 14), with its own fill and label.
+- **After the review text, in its own labelled panel, never mixed with the reviewer's words** (ruling 42, AECI-1872, 2026-11-17). The reply appears after the review text, in its own panel inside the review card (`DESIGN.md` §4, clash 14), labelled "Response from" the company's name, with its date. It is never mixed with the reviewer's words. This is the Review Guidelines "Vendor responses" promise, reworded in place on 2026-11-17 to say what the page does.
 - **The label is "Response from {vendor name}"**, then the publication date, from `published_at`. `{vendor name}` is `vendors.company_name`. Co-owner replies stack in the wire order.
 - **The reply is announced as belonging to its review.** The reply block is a labelled region tied to its review, for example `aria-labelledby` on the label. Each review stays an `article`.
 - **Visitor-state-neutral.** The page's SSR output is the same for every visitor. No "your reply is pending" state appears on the public page. The vendor sees that in the portal.
