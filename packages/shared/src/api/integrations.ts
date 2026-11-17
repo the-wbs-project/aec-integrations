@@ -234,6 +234,12 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    */
   partner_vendor_name: z.string().nullable().optional(),
   /**
+   * That vendor's slug (AECI-1720), for the product page's `vendor:{slug}` Cache-Tag
+   * only: a vendor rename purges `vendor:{slug}`, so a page printing the name must carry
+   * the tag (`CACHE_STRATEGY.md` §3). Not rendered. `null` with no vendor on record.
+   */
+  partner_vendor_slug: z.string().nullable().optional(),
+  /**
    * The row's agreement state (AECI-1781), one of the pair page's four claim states.
    * Ruling 2026-11-14 (Chris, asked on AECI-1781): "A", the weakest flow decides.
    * Rolled up by `integrationAgreement` (`../agreement`), where any `conflict` wins,

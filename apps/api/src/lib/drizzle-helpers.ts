@@ -1936,9 +1936,14 @@ function productRowFacts(
   partner: RawProductLink,
 ): Pick<
   ProductIntegrationItem,
-  'data_objects' | 'partner_categories' | 'partner_vendor_name' | 'agreement'
+  | 'data_objects'
+  | 'partner_categories'
+  | 'partner_vendor_name'
+  | 'partner_vendor_slug'
+  | 'agreement'
 > {
   const listed = claims.filter((claim) => !isClaimRefuted(claim.attestations));
+  const partnerVendor = pickPrimaryVendorRow(partner.productVendors ?? []);
   const objects = new Map<string, RawProductDetailClaimRow['dataObject']>();
   for (const claim of listed) objects.set(claim.dataObject.slug, claim.dataObject);
   return {
@@ -1949,7 +1954,8 @@ function productRowFacts(
       .map(({ category }) => category)
       .sort(compareTermsByDisplayOrder)
       .map(({ slug, name }) => ({ slug, name })),
-    partner_vendor_name: pickPrimaryVendorRow(partner.productVendors ?? [])?.companyName ?? null,
+    partner_vendor_name: partnerVendor?.companyName ?? null,
+    partner_vendor_slug: partnerVendor?.slug ?? null,
     agreement: integrationAgreement(
       listed.map((claim) => ({ agreement: computeAgreement(claim.attestations) })),
     ),

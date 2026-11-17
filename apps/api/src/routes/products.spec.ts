@@ -1227,6 +1227,7 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
     expect(row?.data_objects).toEqual([]);
     expect(row?.agreement).toBeNull();
     expect(row?.partner_vendor_name).toBeNull();
+    expect(row?.partner_vendor_slug).toBeNull();
   });
 
   it("names the partner's primary vendor, never the page product's (AECI-1720)", async () => {
@@ -1244,6 +1245,9 @@ describe('GET /api/products/:slug — partner categories, agreement, data-object
 
     expect((await rows('procore'))(u(51))?.partner_vendor_name).toBe('Globex');
     expect((await rows('sage-intacct'))(u(51))?.partner_vendor_name).toBe('Acme');
+    // The same vendor's slug, for the page's `vendor:{slug}` Cache-Tag.
+    expect((await rows('procore'))(u(51))?.partner_vendor_slug).toBe('globex');
+    expect((await rows('sage-intacct'))(u(51))?.partner_vendor_slug).toBe('acme');
   });
 
   it('reads confirmed only when every claim is, and lets a conflict win', async () => {

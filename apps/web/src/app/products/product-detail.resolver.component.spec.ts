@@ -331,6 +331,53 @@ describe('productDetailResolver — product-specific', () => {
     ]);
   });
 
+  it("tags each row's partner vendor, whose name the row prints (AECI-1720)", async () => {
+    // A vendor rename purges `vendor:{slug}` only, so a page printing "by {vendor}"
+    // must carry that tag. A partner with no vendor on record adds none.
+    const row = (id: string, slug: string, vendorSlug: string | null) => ({
+      id,
+      name: `Procore ↔ ${slug}`,
+      mechanism_kind: 'native' as const,
+      mechanism_name: null,
+      direction: null,
+      context_direction: null,
+      source: { id: 's1', name: 'Procore', slug: 'procore', logo_url: null },
+      target: { id: `t-${slug}`, name: slug, slug, logo_url: null },
+      via: null,
+      powered_by_product: null,
+      data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      partner_vendor_name: vendorSlug ? 'Some Vendor' : null,
+      partner_vendor_slug: vendorSlug,
+      agreement: null,
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    });
+    const product = buildProduct({
+      vendor: null,
+      integrations_as_source: [row('i1', 'sage', 'sage-group'), row('i2', 'bare', null)],
+    });
+    const ctx = createRequestContext(buildClient(async () => product));
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toEqual([
+      { type: 'integration', id: 'i1' },
+      { type: 'product', slug: 'sage' },
+      { type: 'vendor', slug: 'sage-group' },
+      { type: 'integration', id: 'i2' },
+      { type: 'product', slug: 'bare' },
+    ]);
+  });
+
   // AECI-518 — the second argument the shared harness deliberately does not
   // assert. The canonical is what gives the node a stable `@id`, and it is the
   // URI the product-PAIR page references in `about[]`; passing the wrong URL (or
