@@ -1,10 +1,10 @@
 /**
  * AECI-1891 and AECI-1788: filtering the product page's connector lists.
  *
- * Runs against whatever D1 the stack under test reads. Each case looks for a product
- * with the shape it needs and skips when the database has none, as
- * `detail-deferred-hydration.spec.ts` does. The committed seed has neither shape, so
- * seed one locally to exercise them.
+ * Runs against the committed seed (`apps/api/seed/connector-lists-fixtures.sql`):
+ * `fixture-hybrid-via` has a Via lane past 20 rows, and `fixture-connector-hub`
+ * powers 39 pairs. Nothing skips: a database without them fails, so CI always runs
+ * every case.
  *
  * What it proves in a real browser:
  *  - AECI-1891: on a page with a Via lane and more than 20 rows, a filter typed on a
@@ -34,24 +34,11 @@ interface Detail {
   integrations_as_connector?: Edge[];
 }
 
-/** Scan the product list for the first detail that `match` accepts. */
-async function findProduct(
-  request: APIRequestContext,
-  match: (detail: Detail) => boolean,
-): Promise<Detail | null> {
-  for (let page = 1; page <= 5; page++) {
-    const res = await request.get(`/api/products?perPage=100&page=${page}`);
-    if (!res.ok()) return null;
-    const body = await res.json();
-    const items: Array<{ slug: string; integration_count?: number }> = body.data ?? [];
-    for (const item of items) {
-      if (Number(item.integration_count ?? 0) <= DEFER_THRESHOLD) continue;
-      const detail = (await (await request.get(`/api/products/${item.slug}`)).json()) as Detail;
-      if (match(detail)) return detail;
-    }
-    if (page * 100 >= Number(body.total ?? 0)) break;
-  }
-  return null;
+/** The fixture's product detail. A missing fixture fails the case, it never skips. */
+async function fixture(request: APIRequestContext, slug: string): Promise<Detail> {
+  const res = await request.get(`/api/products/${slug}`);
+  expect(res.ok(), `seed fixture ${slug} (seed/connector-lists-fixtures.sql)`).toBe(true);
+  return (await res.json()) as Detail;
 }
 
 const endpointEdges = (d: Detail) => [
@@ -88,11 +75,8 @@ test.describe('product page: a Via lane past the 20-row cut (AECI-1891)', () => 
   let target: Detail | null = null;
 
   test.beforeAll(async ({ request }) => {
-    target = await findProduct(request, hasLongViaLane);
-  });
-
-  test.beforeEach(() => {
-    test.skip(target === null, 'no product with a Via lane and more than 20 rows');
+    target = await fixture(request, 'fixture-hybrid-via');
+    expect(hasLongViaLane(target), 'fixture-hybrid-via has a Via lane past 20 rows').toBe(true);
   });
 
   test('every row is a pair-page link in the raw server HTML', async ({ request }) => {
@@ -133,11 +117,8 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
   let target: Detail | null = null;
 
   test.beforeAll(async ({ request }) => {
-    target = await findProduct(request, powersMany);
-  });
-
-  test.beforeEach(() => {
-    test.skip(target === null, 'no connector that powers more than 20 edges');
+    target = await fixture(request, 'fixture-connector-hub');
+    expect(powersMany(target), 'fixture-connector-hub powers more than 20 pairs').toBe(true);
   });
 
   for (const width of [320, 390, 768, 1024, 1440]) {
@@ -178,15 +159,13 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
     const rows = page.locator('#powered-integrations [role=region] li');
     const before = await rows.count();
     expect(before).toBeGreaterThan(DEFER_THRESHOLD);
-    // The last row's link text starts with its partner name: one word of it is enough.
+    // The last row's partner, whole: its link name is "View the {hub} and {partner}
+    // integration, ...", and the partner's full name matches that one row.
     const label = (await page
       .locator('#powered-integrations [role=region] li a')
       .last()
       .getAttribute('aria-label'))!;
-    const word = label
-      .replace(/^View the /, '')
-      .split(' and ')[1]!
-      .split(' ')[0]!;
+    const word = label.split(' and ').at(-1)!.split(' integration')[0]!;
     await search.fill(word);
     const shown = await shownCount(page, '#powered-integrations');
     expect(shown).toBeGreaterThan(0);

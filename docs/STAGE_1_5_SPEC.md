@@ -1023,7 +1023,11 @@ grouping, counting or render-condition rules.
 threshold, and this section became a component.** Presentation and composition only; the grouping,
 counting and render-condition rules above are all still in force.
 
-1. **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
+1. ⚠️ **Superseded by AECI-1788 (2026-11-17).** Both product-page sections now put the search box
+   in a Bone filter panel under the `<h2>`, with the status line and "Clear filters" in a row under
+   the panel (`integration-filter-recipe.ts`). The heading-row filter component is deleted.
+   `DESIGN.md` §5 "Open values (components)" carries the values. The text below is the history.
+   **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
    a band beneath it. Below `sm` it drops to a full-width second line. It stays right-aligned when a
    long `<h2>` wraps it onto a second line at `sm` and above, via `sm:ms-auto` on its host — the
    row's `justify-between` would otherwise place a lone wrapped item at flex-start. The
@@ -1450,7 +1454,8 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
   entry, the sitemap and the cache tags are all unchanged.
 
 ⚠️ **Amended again by AECI-848 (2026-09-10):** the filter moved into this section's heading row,
-right-aligned opposite the `<h2>`, and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
+right-aligned opposite the `<h2>` (superseded by AECI-1720 and AECI-1788: the filter is now a Bone
+panel under the `<h2>`, `DESIGN.md` §5), and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
 that renders rows renders a filter**, including the single-lane page above. Both changes and the
 reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
 same component shape there.
@@ -1469,8 +1474,8 @@ filter did not.
 
 - **The placeholder is now "Filter by product or connection"**, in both this section and §12.3's.
   The `sr-only` labels ("Search these integrations" / "Search these connections") were already
-  field-agnostic and are unchanged. `DESIGN.md` records the placeholder as the justification for the
-  input's `w-96` width; the longer string still reads in full at that width.
+  field-agnostic and are unchanged. The `w-96` width this string once justified went with the heading-row filter
+  (superseded by AECI-1788). The search box now fills its column in the filter panel, `DESIGN.md` §5.
 - **A collapsed Via row is matched on its REPRESENTATIVE edge's label, not on every collapsed
   edge's.** The row renders exactly one label (`ProductIntegrationRow` binds
   `integration().mechanism_name`), so testing the representative is what keeps the filter and the

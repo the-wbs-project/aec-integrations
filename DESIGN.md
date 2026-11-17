@@ -1149,7 +1149,7 @@ group's rows.
   speech input can target it. The link keeps a 28px target, over the 24px floor (AECI-1079).
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
-- **Clash 24 (blend) and the mock-up.** The integrations section is built from shipped parts: this card, the table, the row and the List filter. Every row stays in the server-rendered HTML. The mock-up draws one card per partner product in a three-column grid, not one disclosure card per counterpart. AECI-1782 settled it: the per-partner card is its own card (`product-integration-card.ts`), and this card stays as the lane wrapper when a page has a Via lane. The listing sort select is not one of the parts, because R5 rejects a sort control on the integrations list.
+- **Clash 24 (blend) and the mock-up.** The integrations section is built from shipped parts: this card, the table, the row and the List filter (the List filter since superseded by AECI-1788: both sections take the filter panel recipe in `integration-filter-recipe.ts`). Every row stays in the server-rendered HTML. The mock-up draws one card per partner product in a three-column grid, not one disclosure card per counterpart. AECI-1782 settled it: the per-partner card is its own card (`product-integration-card.ts`), and this card stays as the lane wrapper when a page has a Via lane. The listing sort select is not one of the parts, because R5 rejects a sort control on the integrations list.
 
 **Vendor portal variant (AECI-999) — superseded 2026-09-28 by the integration detail page, AECI-1156.**
 The portal's Integrations tab used to nest the same pattern three deep: `vendor-counterpart-group.ts`
