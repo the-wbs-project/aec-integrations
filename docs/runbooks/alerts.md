@@ -2381,6 +2381,35 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 
 To read a snapshot, use `legal.md` "Pull the ranking evidence for a product".
 
+## Acceptance chain export (AECI-1680)
+
+Use this when `aeci.acceptance_chain.run` reports `outcome:failed`, the liveness sweep says `acceptance-chain` is missing, `aeci.acceptance_chain.timestamp_failed` appears in the logs two nights running, or `ops:verify-acceptance-chain` reports a failure.
+
+What the job does: once a day at 18:00 UTC it fingerprints every `agreement_acceptances` and `license_grants` row, writes the new and changed fingerprints and a tombstone per deleted row to the `UPLOADS` bucket as `evidence/acceptance-chain/<seq>.json`, checks it with `head`, and records it in `acceptance_chain_exports`. Then it asks DigiCert for an RFC 3161 timestamp, verifies the signed reply in the Worker, and stores the token beside the file as `.tsr`. A reply that fails verification is never stored, because the lock would make it permanent. A file is written every night, even with no changes. ADR 0057, `DATABASE_SCHEMA.md` §9.17.
+
+1. Check the last run. `/admin/system` shows the `acceptance-chain` row. A `failed` row names the reason. The queue retries a failed message three times. A retry is safe: a file already in R2 is adopted, never overwritten.
+2. A `timestamp_failed` log line does not fail the run. The file is written and `tsa_status` is `failed`. Each run retries the 7 newest files that lack a token. List the files still without one:
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT seq, day, tsa_status FROM acceptance_chain_exports WHERE tsa_status <> 'granted' ORDER BY seq DESC"
+```
+
+3. The limit is 7 outstanding files per run, newest first, with no age cutoff. A file more than 7 seqs back is still retried once it is among the 7 newest outstanding files. A late token proves the file existed at that later time, so tell Chris if a gap persists. The DigiCert endpoint is `http://timestamp.digicert.com`.
+4. Read the `reason` on the `timestamp_failed` line. `fetch:` and `http_` reasons are the network or DigiCert, and the backfill clears them. A reason starting `rejected pki_status=0 reason=` means DigiCert's reply failed the Worker's check, and no token was stored. `reason=unpinned_issuer` on every night means DigiCert rotated its timestamping intermediate. Fix it this way:
+   1. Fetch the new intermediate from the CA Issuers URL in the responder certificate of a fresh reply.
+   2. Append it to `apps/api/scripts/certs/digicert-tsa-chain.pem` with its subject, source and SHA-256 fingerprint. The file's header shows the format.
+   3. Add its base64 SPKI to `PINNED_TSA_ISSUERS` in `apps/api/src/lib/rfc3161.ts`. `rfc3161.spec.ts` fails until the two lists match.
+   4. Deploy. Each run's backfill then retries the files that lack a token.
+
+   Any other `reason=` value, such as `signature_invalid`, `nonce_mismatch` or `digest_mismatch`, on more than one night means a reply was altered or DigiCert broke. Tell Chris.
+5. `adopt_conflict` in a failed run means an object already sits at the next key and does not continue the chain. Stop. Do not delete it. Run the verify and tell Chris.
+6. `put_refused`, a thrown R2 error, or `head_mismatch` is the bucket. Fix the cause and let the queue retry.
+7. Never delete or edit a row in `acceptance_chain_exports` or `acceptance_chain_rows`. The verify reconstructs its evidence from R2, but reads the export ledger's `MAX(seq)` as a minimum walk length. Ledger damage can cause re-exports or verification failures. A lowered `seq` makes the next run find an existing file: it adopts one that continues the chain and stops with `adopt_conflict` otherwise. Tell Chris before attempting ledger recovery.
+8. The R2 lock is an operator step. If the verify reports `LOCK MISSING`, apply it from `docs/environments.md` "Acceptance chain lock".
+9. A new cron trigger takes about 15 minutes to propagate after a deploy.
+
+To prove one acceptance, use `legal.md` "Prove an acceptance was not edited".
+
 ## Runbooks kept in other files
 
 The index of every runbook is [`README.md`](./README.md).

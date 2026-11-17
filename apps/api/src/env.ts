@@ -40,7 +40,8 @@ export type ScheduledJob =
   | 'vendor_claim_nudge'
   | 'brand_asset_removal'
   | 'acceptance_evidence_removal'
-  | 'plan_snapshot';
+  | 'plan_snapshot'
+  | 'acceptance_chain';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron

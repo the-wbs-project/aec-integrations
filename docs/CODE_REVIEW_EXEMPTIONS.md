@@ -195,6 +195,12 @@ scope:
     # where the R2 object went. Never deleted.
     - apps/api/src/lib/plan-change-ledger.ts
     - apps/api/src/lib/plan-snapshot-sweep.ts
+    # Added 2026-11-17 (AECI-1680): the acceptance chain ledger
+    # `acceptance_chain_exports` and `acceptance_chain_rows`, log-class under the ADR
+    # 0022 amendment of 2026-11-17. One db.batch per night after R2 confirmed the file,
+    # then the DigiCert status UPDATEs. The acceptance and grant writes carry their own
+    # audit rows. Never deleted.
+    - apps/api/src/lib/acceptance-chain-export.ts
   categories:
     - Audit logging
     - Data integrity

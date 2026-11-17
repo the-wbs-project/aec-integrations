@@ -12,6 +12,7 @@ import {
   auditLog,
   billingAccounts,
   claimThreadAcknowledgments,
+  dmcaNotices,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -921,6 +922,33 @@ describe('DELETE /api/account', () => {
     ]);
   });
 
+  it('nulls dmca_notices.account_id and keeps the notice (AECI-1665, ruling 1A)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await t.db.insert(dmcaNotices).values({
+      id: u(8),
+      kind: 'notice',
+      receivedAt: '2026-11-01T12:00:00.000Z',
+      submitterName: 'Rights Holder',
+      submitterContact: 'rights@example.test',
+      contentIdentified: 'https://example.test/x',
+      accountId: USER,
+      action: 'removed',
+      createdBy: u(9),
+      updatedBy: u(9),
+    });
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(dmcaNotices)).toEqual([
+      expect.objectContaining({ id: u(8), accountId: null, action: 'removed' }),
+    ]);
+  });
+
   it('pins the inbound FKs to profiles(id) at twenty-one — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
@@ -1192,19 +1220,19 @@ describe('PATCH /api/account: About you (AECI-1296)', () => {
 
     const [audit] = await t.db.select().from(auditLog);
     expect(audit!.action).toBe('profile.updated');
-    expect(asState(audit!.beforeState)).toEqual({
-      company_type: null,
-      company_size: null,
-      primary_role: null,
-      firm_name: null,
-      linkedin_url: null,
-      onboarding: 'pending',
-      audience_ids: [],
-    });
-    expect(asState(audit!.afterState)).toMatchObject({
-      company_type: 'general_contractor',
-      onboarding: 'completed',
-      audience_ids: [AUD_A, AUD_B],
+    // AECI-1869: the answers are named, never valued. Only `onboarding` keeps its values.
+    expect(asState(audit!.beforeState)).toEqual({ onboarding: 'pending' });
+    expect(asState(audit!.afterState)).toEqual({ onboarding: 'completed' });
+    expect(asState(audit!.metadata)).toEqual({
+      source: 'account',
+      about_you_fields: [
+        'company_type',
+        'company_size',
+        'primary_role',
+        'firm_name',
+        'linkedin_url',
+        'audience_ids',
+      ],
     });
 
     // A second PATCH replaces the set and leaves untouched answers alone.
@@ -1219,6 +1247,59 @@ describe('PATCH /api/account: About you (AECI-1296)', () => {
     ]);
     expect(await t.db.select().from(profileDetails)).toHaveLength(1);
     expect(await t.db.select().from(auditLog)).toHaveLength(2);
+  });
+
+  it('writes no state for an answers-only edit, and keeps display_name values', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await run(createUpdateAccountHandler(t.factory), 'patch', { firm_name: 'Turner Build' });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      display_name: 'Ada L',
+      linkedin_url: 'linkedin.com/in/ada-l',
+    });
+
+    const rows = await t.db.select().from(auditLog).orderBy(auditLog.createdAt, auditLog.id);
+    const answersOnly = rows.find(
+      (r) => (asState(r.metadata).about_you_fields as string[]).join() === 'firm_name',
+    );
+    expect(answersOnly!.beforeState).toBeNull();
+    expect(answersOnly!.afterState).toBeNull();
+    const mixed = rows.find(
+      (r) => (asState(r.metadata).about_you_fields as string[]).join() === 'linkedin_url',
+    );
+    expect(asState(mixed!.beforeState)).toEqual({ display_name: 'Ada' });
+    expect(asState(mixed!.afterState)).toEqual({ display_name: 'Ada L' });
+  });
+
+  it('leaves no About-you value in any audit row after the account is deleted (AECI-1869)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      firm_name: 'Turner Build',
+      linkedin_url: 'https://www.linkedin.com/in/ada-l',
+    });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      firm_name: 'Skanska Field',
+      linkedin_url: 'https://www.linkedin.com/in/ada-lovelace',
+    });
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(profileDetails)).toHaveLength(0);
+    const rows = await t.db.select().from(auditLog);
+    expect(rows.map((r) => r.action)).toEqual(
+      expect.arrayContaining(['profile.updated', 'account.deleted']),
+    );
+    const stored = JSON.stringify(
+      rows.map((r) => [r.beforeState, r.afterState, r.metadata]),
+    ).toLowerCase();
+    for (const value of ['turner build', 'skanska field', 'linkedin.com/in/ada']) {
+      expect(stored).not.toContain(value);
+    }
   });
 
   it('records a skip, and a later save still reads as completed', async () => {
