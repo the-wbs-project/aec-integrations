@@ -27,6 +27,7 @@ import {
   parseDollarsToCents,
   suspensionErrorMessage,
 } from './vendor-suspension-model';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type CostKind = AbuseCostEntry['kind'];
 
@@ -46,7 +47,7 @@ const utcToday = (): string => new Date().toISOString().slice(0, 10);
  */
 @Component({
   selector: 'aec-suspension-cost-log',
-  imports: [DatePipe],
+  imports: [AecFormSubmit, DatePipe],
   templateUrl: './suspension-cost-log.html',
 })
 export class SuspensionCostLog {

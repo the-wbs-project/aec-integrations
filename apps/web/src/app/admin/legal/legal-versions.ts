@@ -36,6 +36,7 @@ import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-sel
 import { AdminLegalAcceptanceStatus } from './legal-acceptance-status';
 import { AdminLitigationHolds } from './litigation-holds';
 import { AdminLegalApi } from './admin-legal-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** A Yes/No answer. `null` until the operator picks one: neither question has a default. */
 export type Answer = 'yes' | 'no' | null;
@@ -194,6 +195,7 @@ export function humanBytes(bytes: number): string {
 @Component({
   selector: 'aec-admin-legal-versions',
   imports: [
+    AecFormSubmit,
     AdminLegalAcceptanceStatus,
     AdminLitigationHolds,
     AecSelect,

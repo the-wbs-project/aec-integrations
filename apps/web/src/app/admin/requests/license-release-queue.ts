@@ -12,6 +12,7 @@ import type {
 import { AdminSummaryStore } from '../admin-summary.store';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminRequestsApi } from './admin-requests-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -132,6 +133,7 @@ export class LicenseReleaseQueue {
   }
 
   protected async submit(event: Event, row: AdminLicenseReleaseRequest): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const kind = this.decision();
     if (!kind || this.pending()) return;

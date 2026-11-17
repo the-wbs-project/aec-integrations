@@ -10,6 +10,7 @@ import type {
 
 import { AdminVendorsApi } from '../vendors/admin-vendors-api';
 import { ManagedByApi } from './managed-by-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * The `managed_by` flip control (AECI-722's UI over AECI-720's endpoint).
@@ -41,6 +42,7 @@ import { ManagedByApi } from './managed-by-api';
  */
 @Component({
   selector: 'aec-managed-by-control',
+  imports: [AecFormSubmit],
   templateUrl: './managed-by-control.html',
 })
 export class ManagedByControl {

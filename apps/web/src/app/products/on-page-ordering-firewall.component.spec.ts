@@ -385,11 +385,11 @@ describe('on-page ordering firewall: the redesigned product page Integrations se
   const cases: [string, ReaderChoices][] = [
     ['cards, no filter', {}],
     ['table, no filter', { view: 'table' }],
-    ['cards, Outbound', { chips: ['Outbound'] }],
+    ['cards, Procore sends', { chips: ['Procore sends'] }],
     ['table, Accounting', { view: 'table', chips: ['Accounting'] }],
     [
-      'cards, Outbound and Accounting and a query',
-      { query: 'co', chips: ['Outbound', 'Accounting'] },
+      'cards, Procore sends and Accounting and a query',
+      { query: 'co', chips: ['Procore sends', 'Accounting'] },
     ],
   ];
 

@@ -431,7 +431,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     const text = sage.textContent!.replace(/\s+/g, ' ');
     expect(text).toContain('Accounting');
     expect(text).toContain('Direction:');
-    expect(text).toContain('Outbound');
+    expect(text).toContain('Sends to Sage');
+    expect(text).not.toContain('Outbound');
     expect(text).toContain('Invoices');
     expect(text).toContain('Sage REST bridge');
     // A single_source row names no vendor (ruling 2026-11-14 on AECI-1781).
@@ -472,7 +473,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       el.querySelector('[data-testid="integrations-list-heading"]')!.textContent!.trim();
     expect(el.querySelector('[data-testid="integrations-list-heading"]')!.tagName).toBe('H3');
     expect(heading()).toBe('All integrations on record');
-    pressChip(fixture, el, 'Outbound');
+    pressChip(fixture, el, 'Enscape sends');
     expect(heading()).toBe('Integrations that match these filters');
     expect(el.querySelector('[role="status"]')!.textContent!.trim()).toBe('Showing 1 of 4');
   });
@@ -528,7 +529,19 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
         b.textContent!.replace(/\s+/g, ' ').trim(),
       );
     // AECI-1783: every chip prints how many rows it would show.
-    expect(chips(groups[0]!)).toEqual(['→ Outbound 1', '← Inbound 1', '⇄ Both 1']);
+    // AECI-1720 restore C (mock-up 6): "Any direction" first, pressed while no direction
+    // chip is, counting every row the other filters keep. Then the page product's words.
+    expect(chips(groups[0]!)).toEqual([
+      'Any direction 4',
+      '→ Enscape sends 1',
+      '← Enscape receives 1',
+      '⇄ Both ways 1',
+    ]);
+    expect(
+      groups[0]!
+        .querySelector('[data-testid="integrations-filter-direction-any"] button')!
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
     // AECI-1783: "Types of data" sits between direction and categories.
     expect(chips(groups[1]!)).toEqual(['Invoices 1']);
     expect(chips(groups[2]!)).toEqual(['Accounting 2', 'Field management 2']);
@@ -540,7 +553,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     // AECI-1720: idle, the status is empty, as on "Integrations it powers": an idle
     // "Showing 4 of 4" would be a row count beside the heading (ruled 2026-11-16).
     expect(status.textContent?.trim()).toBe('');
-    pressChip(fixture, el, 'Outbound');
+    pressChip(fixture, el, 'Enscape sends');
     expect(cardNames(el)).toEqual(['Sage']);
     expect(status.textContent).toContain('Showing 1 of 4');
     // The heading carries no count (ruled 2026-11-16).
@@ -555,7 +568,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(cardNames(el)).toEqual(['Sage', 'Xero']);
     pressChip(fixture, el, 'Field management');
     expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Xero']);
-    pressChip(fixture, el, 'Both');
+    pressChip(fixture, el, 'Both ways');
     expect(cardNames(el)).toEqual(['Xero']);
     type(fixture, filterInput(el)!, 'sage');
     expect(cardNames(el)).toEqual([]);
@@ -576,7 +589,11 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     fixture.detectChanges();
     expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Vista', 'Xero']);
     expect(filterInput(el)!.value).toBe('');
-    expect(el.querySelectorAll('aec-chip button[aria-pressed="true"]')).toHaveLength(0);
+    // Only "Any direction" stays pressed: it is the no-direction-chosen state.
+    const pressed = [...el.querySelectorAll('aec-chip button[aria-pressed="true"]')];
+    expect(pressed.map((b) => b.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
+      'Any direction 4',
+    ]);
     expect(clear()).toBeNull();
     // The button removed itself, so focus moved to the search field (AECI-1788).
     expect(document.activeElement).toBe(filterInput(el));
@@ -599,7 +616,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     // AECI-1783: the card view groups 25 rows, so the lane cut is checked in the table.
     showTable(fixture, el);
     expect(rowCount(el)).toBe(20);
-    pressChip(fixture, el, 'Inbound');
+    pressChip(fixture, el, 'Enscape receives');
     expect(rowCount(el)).toBe(1);
     expect(el.querySelector('tr[aec-product-integration-row]')!.textContent).toContain(
       'Partner 24',
@@ -696,7 +713,7 @@ describe('ProductIntegrationsSection approved copy (AECI-1783, 2026-11-16)', () 
       'No integrations match that search.',
     );
     type(fixture, filterInput(el)!, '');
-    pressChip(fixture, el, 'Outbound');
+    pressChip(fixture, el, 'Enscape sends');
     pressChip(fixture, el, 'Invoices');
     type(fixture, filterInput(el)!, 'vista');
     expect(text(el.querySelector('[data-testid="integrations-filter-empty"]')!)).toBe(
@@ -810,7 +827,7 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
       }
     };
     check();
-    pressChip(fixture, el, 'Inbound');
+    pressChip(fixture, el, 'Enscape receives');
     check();
     pressChip(fixture, el, 'Scheduling');
     expect(groups(el).map((g) => text(g.querySelector('h4')!))).toEqual(['Scheduling']);

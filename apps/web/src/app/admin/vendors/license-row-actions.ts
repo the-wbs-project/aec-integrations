@@ -24,6 +24,7 @@ import { LICENSE_GRANT_REFERENCE_MAX } from '@aeci/shared/entitlements';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Which edits a license offers. Mirrors the API's refusals, so no button leads to one. */
 export interface LicenseRowActionSet {
@@ -85,6 +86,7 @@ type Mode = 'extend' | 'reference' | 'revoke';
  */
 @Component({
   selector: 'aec-license-row-actions',
+  imports: [AecFormSubmit],
   templateUrl: './license-row-actions.html',
 })
 export class LicenseRowActions {

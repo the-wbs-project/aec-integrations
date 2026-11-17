@@ -30,6 +30,7 @@ import {
   LABEL,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
+import { isReplayedEvent } from '../../core/event-replay';
 
 let nextId = 0;
 
@@ -64,6 +65,7 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
   styles: [ID_STYLES],
   template: `
     <form
+      method="dialog"
       class="id-well space-y-3 p-4 text-sm"
       [attr.aria-labelledby]="id + '-title'"
       (submit)="save($event)"
@@ -290,6 +292,7 @@ export class IntegrationAnswerForm implements OnInit {
   }
 
   protected async save(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const note = this.note().trim();

@@ -88,7 +88,7 @@ export class RatingSummary {
 
   protected readonly ariaLabel = computed(
     () =>
-      $localize`:@@reviews.rating.aria:Rated ${this.formatted()}:VALUE: out of 5, from ${this.reviewCount()}:COUNT: reviews`,
+      $localize`:@@reviews.rating.aria:Product quality ${this.formatted()}:VALUE: out of 5, from ${this.reviewCount()}:COUNT: reviews`,
   );
 
   protected readonly noneLabel = computed(

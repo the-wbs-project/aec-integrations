@@ -15,6 +15,7 @@ import { RouterLink } from '@angular/router';
 import { ADMIN_REASON_MAX, type BrandAssetRemoval } from '@aeci/shared';
 
 import { AdminVendorsApi } from './admin-vendors-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type HoldAction = 'hold' | 'lift';
 
@@ -33,7 +34,7 @@ type HoldAction = 'hold' | 'lift';
  */
 @Component({
   selector: 'aec-brand-asset-removals',
-  imports: [DatePipe, RouterLink],
+  imports: [AecFormSubmit, DatePipe, RouterLink],
   templateUrl: './brand-asset-removals.html',
 })
 export class BrandAssetRemovals {

@@ -201,11 +201,16 @@ const URL_SYNC_DEBOUNCE_MS = 350;
         <form
           class="relative mt-6 max-w-2xl"
           role="search"
+          aria-labelledby="search-input-label"
           action="/search"
           method="get"
           (submit)="onSubmit($event)"
         >
-          <label class="sr-only" for="search-input" i18n="@@search.input.label"
+          <label
+            id="search-input-label"
+            class="sr-only"
+            for="search-input"
+            i18n="@@search.input.label"
             >Search the directory</label
           >
           <span
@@ -340,7 +345,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             [id]="panelId"
             [attr.aria-labelledby]="tabId(activeTab())"
             tabindex="0"
-            class="space-y-6 focus-visible:outline-none"
+            class="space-y-6 rounded-control focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)"
           >
             <!-- Toolbar row, same placement and 44px height as aec-listing-toolbar
                  on /products. min-h reserves it before the controller mounts so

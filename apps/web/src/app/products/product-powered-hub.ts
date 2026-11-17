@@ -7,7 +7,6 @@ import { RequestTrigger } from '../requests/request-trigger';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
-  directionLabel,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -99,8 +98,9 @@ import { Chip } from '../shared/chip/chip';
  * still the row's one link to the pair page with the same accessible name, so no
  * heading and no partner link were added. Below `md` the row folded the mechanism and
  * the data-object count into its meta line. A card has room for its chips at every
- * width, so the chips show at every width and the fold went. The flat card shows the
- * "One-way" or "Bidirectional" word at every width for the same reason.
+ * width, so the chips show at every width and the fold went. Every card's direction
+ * comes from the shared helper ("Sends to", "Receives from", "Syncs both ways"): a hub
+ * card reads from its hub, a hubless card from the endpoint it prints first.
  */
 @Component({
   // Attribute selector on the page's real <section>, matching the sibling
@@ -638,10 +638,10 @@ export class ProductPoweredHub {
   }
 
   /** Hub-relative direction presentation (arrow glyph + label), or null when unknown. */
-  protected hubDirection(partner: {
-    readonly hubDirection: Parameters<typeof contextDirectionLabel>[0];
-  }): { label: string; glyph: string } | null {
-    const framed = contextDirectionLabel(partner.hubDirection);
+  protected hubDirection(
+    partner: Pick<PoweredHubPartner, 'hubDirection' | 'partner'>,
+  ): { label: string; glyph: string } | null {
+    const framed = contextDirectionLabel(partner.hubDirection, partner.partner.name);
     return framed.token === null ? null : framed;
   }
 
@@ -651,15 +651,15 @@ export class ProductPoweredHub {
    */
   protected readonly directionGlyph = directionGlyph;
 
-  /** One-way / Bidirectional for a hubless pair row; `''` when unknown.
-   *
-   *  `pair.direction` is a `ContextDirection` (`outbound`/`inbound`/`both`), and
-   *  a hubless row has no hub to read that frame against — hence the collapse.
-   *  Since AECI-921 `directionLabel` accepts `both` directly, so only the two
-   *  arrows need synthesising. */
+  /**
+   * A hubless pair card's direction words (AECI-1720 restore C): the shared helper
+   * every other row uses, "Sends to {B}", "Receives from {B}" or "Syncs both ways".
+   * The card has no page product to frame against, so it frames on endpoint A, the
+   * name it prints first, which is the frame `pair.direction` is already in. `''`
+   * when unknown, which the template's `@if`-as-binding treats as absent.
+   */
   protected pairDirectionLabel(pair: PoweredConnection): string {
-    if (pair.direction === null) return '';
-    return directionLabel(pair.direction === 'both' ? 'both' : 'one-way');
+    return contextDirectionLabel(pair.direction, pair.b.name).label;
   }
 
   /**
@@ -672,7 +672,7 @@ export class ProductPoweredHub {
    * link. Before AECI-1117 only the object count (AECI-1080) made it in, and a
    * reader heard "View the Procore and Sage integration" with no direction.
    *
-   * Direction is the hub-relative word the row shows ("Outbound"), so the name
+   * Direction is the hub-relative words the row shows ("Sends to Procore"), so the name
    * contains the visible text (WCAG 2.5.3). The name opens with the hub, which is
    * what that word is relative to. An unknown direction is said in words, since
    * the row shows a dash for it.
@@ -686,26 +686,18 @@ export class ProductPoweredHub {
   }
 
   /**
-   * Accessible name for a flat "Other connections" row (AECI-1117). The row
-   * draws `A → B`, so a one-way pair says which way in words: "One-way" alone,
-   * the visible label from `md` up, would drop the half the arrow carries. Below
-   * `md` the arrow is the ONLY direction cue on screen, and it is `aria-hidden`.
+   * Accessible name for a flat "Other connections" card (AECI-1117). The card
+   * draws `A → B` with an `aria-hidden` arrow, so the name says which way in the
+   * card's own words since AECI-1788: "Sends to B" or "Receives from B" from A,
+   * which the name opens with. "One-way" alone dropped the half the arrow carries.
    */
   protected flatRowAriaLabel(pair: PoweredConnection): string {
-    let directionPhrase: string;
-    switch (pair.direction) {
-      case 'outbound':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.a.name}:FROM: to ${pair.b.name}:TO:`;
-        break;
-      case 'inbound':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.b.name}:FROM: to ${pair.a.name}:TO:`;
-        break;
-      case 'both':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction:direction ${directionLabel('both')}:DIRECTION:`;
-        break;
-      default:
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
-    }
+    // The visible words, framed on A, which the name opens with (WCAG 2.5.3), the same
+    // message ids as a hub card's name.
+    const label = this.pairDirectionLabel(pair);
+    const directionPhrase = label
+      ? $localize`:@@products.detail.body.powers.row.aria.direction:direction ${label}:DIRECTION:`
+      : $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
     return this.rowAriaLabel(pair.a.name, pair.b.name, directionPhrase, pair);
   }
 

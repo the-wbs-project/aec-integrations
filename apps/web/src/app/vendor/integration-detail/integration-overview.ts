@@ -64,6 +64,7 @@ import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components
 import { VendorTip } from './vendor-tip';
 import { VendorHiddenNote } from '../components/vendor-hidden-note';
 import { VendorLockedNote } from '../components/vendor-locked-note';
+import { isReplayedEvent } from '../../core/event-replay';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
 type Control = 'text' | 'url' | 'textarea' | 'select';
@@ -135,6 +136,7 @@ const PENCIL =
                 <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   @if (editing() === row.key && row.edit) {
                     <form
+                      method="dialog"
                       class="flex min-w-0 flex-1 flex-wrap items-start gap-2"
                       [attr.aria-label]="editFormLabel(row.label)"
                       (submit)="save($event, row)"
@@ -799,6 +801,7 @@ export class IntegrationOverview {
   }
 
   protected async save(event: Event, row: Row): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const field = row.edit;
     if (!field || this.busy()) return;

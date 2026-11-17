@@ -44,6 +44,7 @@ import {
   type ReviewReplyState,
 } from './vendor-review-labels';
 import { VendorDocsLink } from './vendor-docs-link';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Reviews per page. Small: each row can open a form. */
 export const VENDOR_REVIEWS_PAGE_SIZE = 10;
@@ -89,7 +90,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
  */
 @Component({
   selector: 'aec-vendor-reviews-list',
-  imports: [AecSelect, DatePipe, ReviewStars, RouterLink, VendorDocsLink],
+  imports: [AecFormSubmit, AecSelect, DatePipe, ReviewStars, RouterLink, VendorDocsLink],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-reviews-heading" data-vendor-reviews>
@@ -255,11 +256,11 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                       class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
                     >
                       <span class="flex items-center gap-1.5">
-                        <span i18n="@@vendor.reviews.item.overall">Overall</span>
+                        <span i18n="@@vendor.reviews.item.overall">Product quality</span>
                         <aec-review-stars [rating]="item.review.rating_overall" kind="overall" />
                       </span>
                       <span class="flex items-center gap-1.5">
-                        <span i18n="@@vendor.reviews.item.onboarding">Onboarding</span>
+                        <span i18n="@@vendor.reviews.item.onboarding">Onboarding experience</span>
                         <aec-review-stars
                           [rating]="item.review.rating_onboarding"
                           kind="onboarding"
@@ -324,12 +325,14 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                           class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
                         >
                           <span class="flex items-center gap-1.5">
-                            <span i18n="@@vendor.reviews.update.overall">New overall rating</span>
+                            <span i18n="@@vendor.reviews.update.overall"
+                              >New product quality rating</span
+                            >
                             <aec-review-stars [rating]="u.rating_overall" kind="overall" />
                           </span>
                           <span class="flex items-center gap-1.5">
                             <span i18n="@@vendor.reviews.update.onboarding"
-                              >New onboarding rating</span
+                              >New onboarding experience rating</span
                             >
                             <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
                           </span>
@@ -448,9 +451,10 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
 
                     @if (isComposing(item)) {
                       <form
+                        method="dialog"
                         class="space-y-2"
                         novalidate
-                        (submit)="$event.preventDefault(); save(item)"
+                        (aecSubmit)="save(item)"
                         data-reply-form
                       >
                         <label [for]="fieldId(item)" [class]="labelClass">{{

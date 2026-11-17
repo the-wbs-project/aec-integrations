@@ -117,7 +117,7 @@ describe('ProductPoweredHub', () => {
     const card = el.querySelector('ul li a[data-testid="powered-card"]')!;
     expect(card).not.toBeNull();
     expect(card.textContent).toContain('Acumatica');
-    expect(card.textContent).toContain('Outbound');
+    expect(card.textContent).toContain('Sends to Acumatica');
     expect(card.textContent).toContain('\u2192');
   });
 
@@ -401,8 +401,8 @@ describe('ProductPoweredHub', () => {
       const el = setupWithObjects([['rfis', 'models'], []]);
       const labels = [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
       expect(labels).toEqual([
-        'View the Procore and Partner 0 integration, direction Outbound, API, 2 types of data',
-        'View the Procore and Partner 1 integration, direction Outbound, API',
+        'View the Procore and Partner 0 integration, direction Sends to Partner 0, API, 2 types of data',
+        'View the Procore and Partner 1 integration, direction Sends to Partner 1, API',
       ]);
     });
 
@@ -440,9 +440,9 @@ describe('ProductPoweredHub', () => {
         { ...poweredEdge(HUB, cmic), direction: null, mechanism_kind: null },
       ]);
       expect(names(el)).toEqual([
-        'View the Procore and Acumatica integration, direction Inbound, API',
+        'View the Procore and Acumatica integration, direction Receives from Acumatica, API',
         'View the Procore and CMiC integration, direction not listed',
-        'View the Procore and Sage integration, direction Outbound, API',
+        'View the Procore and Sage integration, direction Sends to Sage, API',
       ]);
     });
 
@@ -451,7 +451,9 @@ describe('ProductPoweredHub', () => {
         { ...poweredEdge(HUB, link('sage', 'Sage')), direction: 'both' },
         poweredEdge(HUB, link('cmic', 'CMiC')),
       ]);
-      expect(names(el)[1]).toBe('View the Procore and Sage integration, direction Both, API');
+      expect(names(el)[1]).toBe(
+        'View the Procore and Sage integration, direction Syncs both ways, API',
+      );
     });
 
     it('says which way a flat one-way row flows, which its arrow alone carried', () => {
@@ -463,9 +465,35 @@ describe('ProductPoweredHub', () => {
         poweredEdge(fieldwire, bluebeam),
         { ...poweredEdge(raken, zeta), direction: 'both' },
       ]);
+      // AECI-1788 after restore C: the card's own words, framed on A, the name it
+      // prints first. The flow runs Fieldwire to Bluebeam, so Bluebeam receives.
       expect(names(el)).toEqual([
-        'View the Bluebeam and Fieldwire integration, direction One-way from Fieldwire to Bluebeam, API',
-        'View the Raken and Zeta integration, direction Bidirectional, API',
+        'View the Bluebeam and Fieldwire integration, direction Receives from Fieldwire, API',
+        'View the Raken and Zeta integration, direction Syncs both ways, API',
+      ]);
+      const words = [...el.querySelectorAll('a[data-testid="powered-card"]')].map((a) =>
+        a.textContent!.replace(/\s+/g, ' '),
+      );
+      expect(words[0]).toContain('Receives from Fieldwire');
+      expect(words[1]).toContain('Syncs both ways');
+      expect(words.join(' ')).not.toMatch(/One-way|Bidirectional/);
+    });
+
+    it('frames a hub card on the hub when the hub is endpoint B of the stored pair', () => {
+      // Endpoints are stored A to Z, so with Zeta Hub as the hub every pair stores the
+      // hub as B. One flow per direction, each read from the hub: the partner the hub
+      // sends to, the partner it receives from, and a round trip.
+      const hub = link('zeta-hub', 'Zeta Hub');
+      const el = setupEdges([
+        poweredEdge(hub, link('alpha', 'Alpha')),
+        poweredEdge(link('beta', 'Beta'), hub),
+        { ...poweredEdge(hub, link('gamma', 'Gamma')), direction: 'both' },
+      ]);
+      expect(el.querySelector('h3 button')!.textContent).toContain('Zeta Hub');
+      expect(names(el)).toEqual([
+        'View the Zeta Hub and Alpha integration, direction Sends to Alpha, API',
+        'View the Zeta Hub and Beta integration, direction Receives from Beta, API',
+        'View the Zeta Hub and Gamma integration, direction Syncs both ways, API',
       ]);
     });
 

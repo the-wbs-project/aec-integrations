@@ -448,7 +448,7 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                         class="hidden px-4 py-3 text-end font-semibold md:table-cell"
                         i18n="@@products.detail.reviews.item.overall"
                       >
-                        Overall
+                        Product quality
                       </th>
                       <th
                         scope="col"

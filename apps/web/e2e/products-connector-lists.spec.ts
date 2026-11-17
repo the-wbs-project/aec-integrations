@@ -134,6 +134,47 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
     });
   }
 
+  // WCAG 2.4.11, as accessibility.spec.ts checks it (AECI-1818): with the consent
+  // banner up, Tab from the search box through the powered cards and "Clear filters"
+  // never leaves the focused control wholly under the banner.
+  test('with the consent banner up, focus in the powered section is never under it', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto(`/products/${target!.slug}`);
+    await expect(page.getByRole('region', { name: 'Analytics consent' })).toBeVisible();
+    const search = page.locator('#powers-filter');
+    await untilHydrated(search);
+    const underBanner = () =>
+      page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        const card = document.querySelector('[aria-label="Analytics consent"] .aec-popover');
+        if (!el || !card || card.contains(el) || el === document.body) return null;
+        const r = el.getBoundingClientRect();
+        const b = card.getBoundingClientRect();
+        const under = r.top >= b.top && r.bottom <= b.bottom + 1;
+        return under ? (el.getAttribute('aria-label') || el.innerText || el.tagName).trim() : null;
+      });
+    const hidden: string[] = [];
+    await search.focus();
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('Tab');
+      const covered = await underBanner();
+      if (covered) hidden.push(covered);
+    }
+    // "Clear filters" hands focus back to the search box, which must stay visible too.
+    await search.fill('Partner 0');
+    const clear = page.getByTestId('powers-filter-clear');
+    await clear.focus();
+    const onClear = await underBanner();
+    if (onClear) hidden.push(onClear);
+    await page.keyboard.press('Enter');
+    await expect(search).toBeFocused();
+    const onSearch = await underBanner();
+    if (onSearch) hidden.push(onSearch);
+    expect(hidden, 'focused controls fully hidden under the consent banner').toEqual([]);
+  });
+
   test('every powered pair is a link in the raw server HTML', async ({ request }) => {
     const { slug } = target!;
     const html = await (await request.get(`/products/${slug}`)).text();

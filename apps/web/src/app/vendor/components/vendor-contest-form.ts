@@ -36,6 +36,7 @@ import {
   noOwnerLabel,
 } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** The owner picker's value for "neither endpoint vendor". Never a UUID, so it
  *  can never collide with a vendor id. It becomes `null` on the wire. */
@@ -140,6 +141,7 @@ interface SelectOption {
 
       @if (open()) {
         <form
+          method="dialog"
           [id]="fieldId('panel')"
           class="mt-4 space-y-5"
           novalidate
@@ -600,6 +602,7 @@ export class VendorContestForm {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.submitting()) return;
     this.attempted.set(true);

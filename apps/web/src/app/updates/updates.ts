@@ -142,7 +142,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                   </a>
                 </div>
               } @else {
-                <form novalidate (submit)="onSubmit($event)">
+                <form method="dialog" novalidate (submit)="onSubmit($event)">
                   <label
                     class="block font-label text-t-14 text-(--text-primary)"
                     for="updates-email"
@@ -282,7 +282,7 @@ export class UpdatesPage {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
-    if (isReplayedEvent(event)) return; // the native default already ran
+    if (isReplayedEvent(event)) return; // a replayed early press is dropped (AECI-1919)
     event.preventDefault();
     this.status.set('idle');
     await submit(this.form, async (f) => {

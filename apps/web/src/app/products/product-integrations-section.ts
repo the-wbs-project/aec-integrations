@@ -12,7 +12,9 @@ import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { formatNameList } from '../core/meta.helpers';
 import { RequestTrigger } from '../requests/request-trigger';
-import { contextDirectionLabel } from '../search/mechanism-labels';
+import { directionFilterLabel } from '../search/mechanism-labels';
+
+import { directionGlyph } from './pair-direction-labels';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
@@ -234,35 +236,47 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         </div>
       </div>
 
-      <div class="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-12">
-        <div class="min-w-0 space-y-6">
-          <!-- Ruling 51, option A (2026-11-16): the heading and the line the legal review
-               relied on sit directly above the button, as one group. The words are the
-               ones STAGE_1_5_SPEC.md section 11.4 approved for the empty pair page. The
-               line is also the button's description, so a screen reader hears what the
-               button is for. -->
-          <div class="space-y-3" data-testid="integrations-zero-know">
-            <h3>
-              <span
-                class="font-display text-t-20 font-semibold text-(--text-primary)"
-                i18n="@@products.detail.body.integrations.zero.knowHeading"
-                >Know of one?</span
-              >
-            </h3>
-            <p
-              id="integrations-zero-know-line"
-              class="max-w-prose text-t-16 text-(--text-secondary)"
-              data-testid="integrations-zero-know-line"
-              i18n="@@products.detail.body.integrations.zero.knowLine"
+      <div
+        class="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch"
+        data-testid="integrations-zero-grid"
+      >
+        <!-- AECI-1720 restore C (mock-up 8, .know): the page's one Forest feature card
+             (DESIGN.md §2 "A Forest feature card"). A card, never a band: rounded-card,
+             the card shadow, Forest fill, Bone ink, 32px padding (24px below md), and the
+             Bone main button pinned to its foot. No illustration (ruling R5). The product
+             page carries no other Forest feature card, so it stays one per page.
+             Ruling 51, option A (2026-11-16): the heading and the line the legal review
+             relied on sit directly above the button, as one group. The words are the ones
+             STAGE_1_5_SPEC.md section 11.4 approved for the empty pair page. The line is
+             also the button's description, so a screen reader hears what it is for. -->
+        <div
+          class="aec-card flex min-w-0 flex-col gap-4 rounded-card border bg-(--accent-primary) p-6 text-(--text-on-brand) shadow-card md:p-8"
+          data-testid="integrations-zero-know"
+        >
+          <h3 class="text-(--text-on-brand)">
+            <span
+              class="font-display text-t-24 leading-tight font-semibold"
+              i18n="@@products.detail.body.integrations.zero.knowHeading"
+              >Know of one?</span
             >
-              Tell us where you saw it and we will look at it.
-            </p>
-            <!-- The existing correction request, the same trigger as every "suggest a
-                 correction" link: the drawer in the browser, the routed form without
-                 JavaScript or on a modified click. -->
+          </h3>
+          <p
+            id="integrations-zero-know-line"
+            class="max-w-[30em] text-t-16 text-(--text-on-brand-secondary)"
+            data-testid="integrations-zero-know-line"
+            i18n="@@products.detail.body.integrations.zero.knowLine"
+          >
+            Tell us where you saw it and we will look at it.
+          </p>
+          <!-- The existing correction request, the same trigger as every "suggest a
+               correction" link: the drawer in the browser, the routed form without
+               JavaScript or on a modified click. -->
+          <div class="mt-auto pt-4">
             <a
               aecButton
+              variant="on-brand"
               aecRequestTrigger
+              class="max-md:w-full"
               [entity]="'product'"
               [kind]="'correction'"
               [slug]="p.slug"
@@ -466,10 +480,16 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           </div>
 
           @if (directionChoices().length > 0) {
+            <!-- AECI-1720 restore C (mock-up 6, #dirSeg): "Any direction" first, then the
+                 page's product's words. Below md the four chips wrap two by two, as the
+                 mock-up's phone layout does, so none hides off the edge. "Any direction"
+                 is pressed while no direction chip is, and pressing it releases them.
+                 Its count is every row the other filters keep, rows with no direction
+                 on record included. -->
             <div
               role="group"
               aria-labelledby="integrations-filter-direction"
-              [class]="chipRowClass"
+              [class]="directionRowClass"
               data-testid="integrations-filter-direction"
             >
               <span
@@ -478,6 +498,17 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 i18n="@@search.facet.direction"
                 >Direction</span
               >
+              <aec-chip
+                class="shrink-0"
+                [selected]="directions().length === 0"
+                (activated)="clearDirections()"
+                data-testid="integrations-filter-direction-any"
+              >
+                {{ anyDirectionLabel }}
+                <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                  directionCountRows().length
+                }}</span>
+              </aec-chip>
               @for (choice of directionChoices(); track choice.token) {
                 <aec-chip
                   class="shrink-0"
@@ -952,7 +983,7 @@ export class ProductIntegrationsSection {
   protected readonly query = signal('');
 
   /** The direction chips the reader pressed (AECI-1782). Component-local, like the query. */
-  private readonly directions = signal<readonly ContextDirection[]>([]);
+  protected readonly directions = signal<readonly ContextDirection[]>([]);
 
   /** The partner-category chips the reader pressed (AECI-1782). */
   private readonly categories = signal<readonly string[]>([]);
@@ -1033,7 +1064,7 @@ export class ProductIntegrationsSection {
   protected readonly arrangement = signal<IntegrationArrangement>('grouped');
 
   /** The rows a direction chip counts: every filter except the direction chips. */
-  private readonly directionCountRows = computed(() =>
+  protected readonly directionCountRows = computed(() =>
     rowsForFacetCount(this.lanes(), this.filterState(), 'directions'),
   );
 
@@ -1065,11 +1096,10 @@ export class ProductIntegrationsSection {
     const chosen = this.directions();
     const rows = this.directionCountRows();
     return directionOptions(this.lanes()).map((token) => {
-      const { label, glyph } = contextDirectionLabel(token);
       return {
         token,
-        label,
-        glyph,
+        label: directionFilterLabel(token, this.productName()),
+        glyph: directionGlyph(token),
         selected: chosen.includes(token),
         count: countRowsWithDirection(rows, token),
       };
@@ -1108,6 +1138,14 @@ export class ProductIntegrationsSection {
 
   protected toggleDirection(token: ContextDirection): void {
     this.directions.update((current) => toggleFacetValue(current, token));
+  }
+
+  /** The direction filter's first chip (mock-up 6, `#dirSeg`). */
+  protected readonly anyDirectionLabel = $localize`:@@products.detail.integrations.filter.direction.any:Any direction`;
+
+  /** "Any direction": release every direction chip. */
+  protected clearDirections(): void {
+    this.directions.set([]);
   }
 
   protected toggleCategory(slug: string): void {
@@ -1200,6 +1238,14 @@ export class ProductIntegrationsSection {
    * cancelled by a negative margin, keeps each chip's 3px focus ring at 3px inside the
    * scroller, which would otherwise clip it.
    */
+  /**
+   * The direction chips (AECI-1720 restore C): two by two below md, as mock-up 6 lays out
+   * its four direction choices on a phone, so the row never scrolls a choice out of view.
+   * From md they wrap like the other chip rows.
+   */
+  protected readonly directionRowClass =
+    'grid min-w-0 grid-cols-2 items-center gap-2 md:flex md:flex-wrap';
+
   protected readonly chipRowClass =
     '-m-1.5 flex min-w-0 items-center gap-2 overflow-x-auto p-1.5 max-md:flex-nowrap md:flex-wrap md:overflow-visible';
 

@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The invite form on the Seats section (AECI-664 /
@@ -37,7 +38,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 @Component({
   selector: 'aec-vendor-seat-invite-form',
   template: `
-    <form (submit)="submit($event)">
+    <form method="dialog" (submit)="submit($event)">
       <div class="flex flex-wrap items-start gap-2">
         <div class="min-w-[16rem] flex-1">
           <label class="sr-only" for="seat-invite-email" i18n="@@vendor.seats.invite.label">
@@ -102,6 +103,7 @@ export class VendorSeatInviteForm {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const address = this.email().trim();
     if (!address || this.busy()) return;

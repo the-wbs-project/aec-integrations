@@ -183,7 +183,15 @@ describe('VendorReviewsList — reading', () => {
     expect(update.querySelector('time')!.getAttribute('datetime')).toBe(
       withUpdate.review.updates[0]!.published_at,
     );
-    expect(update.querySelector('[aria-label="Overall rating 4 out of 5"]')).not.toBeNull();
+    expect(update.querySelector('[aria-label="Product quality 4 out of 5"]')).not.toBeNull();
+    // One score, one name: the visible labels match the stars' names (AECI-1720 restore C).
+    const updateText = update.textContent!.replace(/\s+/g, ' ');
+    expect(updateText).toContain('New product quality rating');
+    expect(updateText).toContain('New onboarding experience rating');
+    const cardText = li.querySelector('article')!.textContent!.replace(/\s+/g, ' ');
+    expect(cardText).toContain('Product quality');
+    expect(cardText).toContain('Onboarding experience');
+    expect(cardText).not.toMatch(/\bOverall\b/);
     expect(update.querySelector('button')).toBeNull();
     // Below the review card, above any reply.
     const card = li.querySelector('article')!.firstElementChild as HTMLElement;

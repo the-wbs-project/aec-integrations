@@ -457,13 +457,13 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Each row has a real accessible name naming BOTH endpoints, and (AECI-1117)
     // restating the direction and mechanism the aria-label would otherwise hide.
     expect(rows[0]!.getAttribute('aria-label')).toBe(
-      'View the Procore and Acumatica integration, direction Outbound, iPaaS',
+      'View the Procore and Acumatica integration, direction Sends to Acumatica, iPaaS',
     );
-    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Both');
+    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Syncs both ways');
     // Direction is framed relative to the hub, and the mechanism is shown —
     // the same vocabulary the sibling endpoint table uses.
-    expect(rows[0]!.textContent).toContain('Outbound');
-    expect(rows[1]!.textContent).toContain('Both');
+    expect(rows[0]!.textContent).toContain('Sends to Acumatica');
+    expect(rows[1]!.textContent).toContain('Syncs both ways');
     expect(rows[0]!.textContent).toContain('iPaaS');
   });
 
@@ -1838,6 +1838,30 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     expect(band.querySelector('[data-variant=ghost]')).toBeNull();
   });
 
+  // AECI-1720 restore C (mock-up 6, .lede): the description's first paragraph under the
+  // name, two lines at most, hidden from assistive tech because About reads it in full.
+  it('prints the description first paragraph as a two-line lede, and nothing without one', () => {
+    const { el } = setup(
+      buildProduct({ description: 'Construction management platform.\n\nA second paragraph.' }),
+    );
+    const lede = el.querySelector<HTMLElement>('[data-testid=product-hero-lede]')!;
+    expect(lede.textContent!.trim()).toBe('Construction management platform.');
+    expect(lede.className).toContain('line-clamp-2');
+    expect(lede.getAttribute('aria-hidden')).toBe('true');
+    expect(lede.closest('aec-hero-band')).not.toBeNull();
+  });
+
+  it('prints no lede without a description', () => {
+    const { el } = setup(buildProduct({ description: null }));
+    expect(el.querySelector('[data-testid=product-hero-lede]')).toBeNull();
+  });
+
+  it('pins the product hero text column to the top beside the panel (mock-up 6)', () => {
+    const { el } = setup(buildProduct());
+    const text = el.querySelector('aec-hero-band [data-testid=hero-band-text]')!;
+    expect(text.classList).toContain('lg:self-start');
+  });
+
   it('keeps the two averages apart, each at one decimal, and the count', () => {
     const { el } = setup(
       buildProduct({ review_count: 12, rating_overall_avg: 4.25, rating_onboarding_avg: 3 }),
@@ -1845,9 +1869,11 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     const ratings = el.querySelector('[data-testid=product-hero-ratings]')!;
     const text = ratings.textContent!.replace(/\s+/g, ' ');
     expect(text).toContain('4.3');
-    expect(text).toContain('Overall');
+    // Mock-up 6's names (AECI-1720 restore C), one name on every public page.
+    expect(text).toContain('Product quality');
+    expect(text).not.toContain('Overall');
     expect(text).toContain('3.0');
-    expect(text).toContain('Onboarding');
+    expect(text).toContain('Onboarding experience');
     expect(text).toContain('12 reviews');
     const stars = ratings.querySelectorAll('aec-review-stars');
     expect(stars).toHaveLength(2);
@@ -2149,18 +2175,36 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     const group = section(el).querySelector<HTMLElement>('[data-testid=integrations-zero-know]')!;
     const children = [...group.children];
 
-    expect(children.map((c) => c.tagName)).toEqual(['H3', 'P', 'A']);
+    // The button sits in its own wrapper at the card's foot (mock-up 8, .know .acts).
+    expect(children.map((c) => c.tagName)).toEqual(['H3', 'P', 'DIV']);
     expect(squash(children[0]!.textContent)).toBe('Know of one?');
     expect(squash(children[1]!.textContent)).toBe(
       'Tell us where you saw it and we will look at it.',
     );
-    expect(children[2]!.getAttribute('data-testid')).toBe('integrations-zero-correction');
-
-    const button = children[2] as HTMLAnchorElement;
+    const button = children[2]!.firstElementChild as HTMLAnchorElement;
+    expect(button.getAttribute('data-testid')).toBe('integrations-zero-correction');
     const described = el.querySelector('#' + button.getAttribute('aria-describedby'));
     expect(described).toBe(children[1]);
     // The label is unchanged: the description adds to the name, it does not replace it.
     expect(squash(button.textContent)).toBe('It does exist');
+  });
+
+  // AECI-1720 restore C (mock-up 8, .know): the group is the page's one Forest feature
+  // card, with Bone ink and the Bone main button.
+  it('draws "Know of one?" as the one Forest feature card, with the Bone main button', () => {
+    const { el } = setup(buildProduct());
+    const card = section(el).querySelector<HTMLElement>('[data-testid=integrations-zero-know]')!;
+    expect(card.className).toContain('bg-(--accent-primary)');
+    expect(card.className).toContain('text-(--text-on-brand)');
+    expect(card.className).toContain('rounded-card');
+    expect(card.className).toContain('shadow-card');
+    const button = card.querySelector('[data-testid=integrations-zero-correction]')!;
+    expect(button.getAttribute('data-variant')).toBe('on-brand');
+    // One Forest feature card per page: nothing else in the page body takes the fill.
+    const forest = [...el.querySelectorAll<HTMLElement>('[class*="bg-(--accent-primary)"]')].filter(
+      (node) => !node.closest('aec-hero-band') && node.classList.contains('aec-card'),
+    );
+    expect(forest).toEqual([card]);
   });
 
   it('keeps the outline: the section h2, then the h3 "Know of one?" before the h3 vendor card', () => {
