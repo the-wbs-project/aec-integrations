@@ -1470,6 +1470,39 @@ textarea:-webkit-autofill:focus {
   animation: aeci-drawer-in var(--duration-slow) var(--ease-standard);
 }
 
+/* The product hero's category hub (AECI-1787, DESIGN.md §5 "The hero diagram").
+   Its one entrance: the list fades in and rises 4px over the slow step. Opacity
+   and transform only, so nothing moves in layout. It runs only when the visitor
+   has not asked for reduced motion, so under that setting the list is simply
+   there. Hydration reuses the server's nodes, so the entrance does not replay. */
+@keyframes aec-category-hub-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .aec-category-hub {
+    animation: aec-category-hub-in var(--duration-slow) var(--ease-standard) both;
+  }
+}
+
+/* The product hero's panel below lg (AECI-1787). There it stacks under the hero
+   text and holds the category hub alone: the pair finder shows from lg. A product
+   with no hub has nothing to show there, so the panel goes rather than leave an
+   empty box. Keyed on the caller's marker class, so the shared band
+   (`shared/hero-band/hero-band.ts`) is unchanged for every other page. */
+@media (width < 64rem) {
+  .aec-hero-panel:has(> .aec-hero-panel-lg-only) {
+    display: none;
+  }
+}
+
 /* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
    ADR 0057). It is never a global setting and is off under reduced motion.
    `InPageSmoothScroll` (`app/core/in-page-smooth-scroll.ts`) adds this class to
