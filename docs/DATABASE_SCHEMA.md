@@ -1482,7 +1482,8 @@ migration. See Phase 2 Spec §5.2.
 `target_type = 'product'`, so every claim reader (`resolveTargetVendor` on approve,
 the `/admin/claims` enrichment, the vendor portal's `vendorRequestsWhere`, the §6.7
 sweep and the stale-claim check) keeps handling both. Corrections keep their
-product or vendor target.
+product or vendor target. A correction from an empty pair page also records the
+pair's other product in `context_product_id` (AECI-1828), shown as "Pair with".
 
 **Claims routed to the owners (AECI-1368, 2026-10-15).** A claim on a company that
 already has an unbanned owner seat is stored with `routed_to_owners_at` set, and
@@ -1552,8 +1553,10 @@ create table vendor_requests (
   -- the company (VENDOR_SIGNUP_PROCESS.md decision 1): one posted with
   -- target_type 'product' is stored with target_type 'vendor' and the product's
   -- vendor id (primary, else any product_vendors row), and the product lands here.
-  -- NULL for a company-page claim, a correction (corrections keep their product
-  -- target), or a claim stored before 0076 (those keep target_type 'product').
+  -- NULL for a company-page claim, a claim stored before 0076 (those keep
+  -- target_type 'product'), or a correction. One exception since AECI-1828: a
+  -- correction sent from an empty pair page ("It does exist") keeps its product
+  -- target and records the pair's other product here (API_CONTRACTS.md `pair_slug`).
   -- NO FK and NO CHECK, like target_id: either is a drizzle-kit recreate here.
   context_product_id text,
 
