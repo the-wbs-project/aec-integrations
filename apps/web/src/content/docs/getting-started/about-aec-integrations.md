@@ -13,7 +13,7 @@ AEC Integrations is a directory of the software used in architecture, engineerin
 - **Products.** Each product is classified four ways: what it does, who uses it, which project phases it supports, and which trades it serves. See [How listings are classified](/docs/getting-started/taxonomy).
 - **Vendors.** The companies that make the products.
 - **Integrations.** Each pair of products that work together has its own page. It shows how they connect, which types of data move between them, and in which direction. See [Reading an integration page](/docs/getting-started/reading-an-integration-page).
-- **Reviews.** People who have used a product can review it. Each review scores the product and the onboarding separately, as "Overall" and "Onboarding".
+- **Reviews.** People who have used a product can review it. Each review scores the product and the onboarding separately, as "Product quality" and "Onboarding experience".
 
 ## Where the listings come from
 

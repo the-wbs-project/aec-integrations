@@ -32,9 +32,9 @@ A card is one way the two products connect.
 
 **The chips** beside the heading say which way data moves, from the left-hand product's side:
 
-- **Outbound**: it sends data to the other product.
-- **Inbound**: it receives data from the other product.
-- **Both**: data moves both ways.
+- **Sends to {product}**: it sends data to the other product.
+- **Receives from {product}**: it receives data from the other product.
+- **Syncs both ways**: data moves both ways.
 
 When a page has more than one card, a chip such as "3 types of data" says how many each card covers.
 

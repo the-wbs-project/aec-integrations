@@ -49,11 +49,11 @@ One type of data, moving one way, through one integration, is the smallest thing
 
 ## Directions
 
-An integration page tells direction from the left-hand product's side:
+A product page and an integration page tell direction from the page's own product, and name the other one:
 
-- **Outbound**: it sends data to the other product.
-- **Inbound**: it receives data from the other product.
-- **Both**: data moves both ways.
+- **Sends to {product}**: it sends data to the other product.
+- **Receives from {product}**: it receives data from the other product.
+- **Syncs both ways**: data moves both ways.
 
 ## If a term looks wrong
 

@@ -42,12 +42,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
-import {
-  DIRECTION_ORDER,
-  directionAria,
-  directionGlyph,
-  directionHeading,
-} from './pair-direction-labels';
+import { DIRECTION_ORDER, directionGlyph, directionHeading } from './pair-direction-labels';
 import { PairVersionSelect } from './pair-version-select';
 import { Chip } from '../shared/chip/chip';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
@@ -119,7 +114,6 @@ interface ClaimGroup {
   readonly direction: ContextDirection;
   readonly heading: string;
   readonly glyph: string;
-  readonly aria: string;
   readonly rows: readonly ClaimRow[];
 }
 
@@ -149,7 +143,6 @@ function buildClaimGroups(
     direction,
     heading: directionHeading(direction, otherName),
     glyph: directionGlyph(direction),
-    aria: directionAria(direction, otherName),
     rows: claims
       .filter((c) => c.direction === direction)
       .map((claim) => buildClaimRow(claim, vendors, selectedVersions)),
@@ -460,7 +453,6 @@ interface MechanismView {
   readonly direction: ContextDirection | null;
   readonly glyph: string;
   readonly directionLabel: string;
-  readonly directionAria: string;
   /**
    * AECI-711 depth axis, rendered in the card header beside the mechanism badge.
    * `depthDirection` is the claims-aware `effective_direction` (the product row's
@@ -1459,7 +1451,6 @@ export class ProductsPairPage {
       direction: m.direction,
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
-      directionAria: m.direction ? directionAria(m.direction, otherName) : '',
       // The claims-aware direction, never the stored one: the stored arrow is
       // exactly what this page hides once claims exist, and the product row reads
       // the claims-aware value, so a stored-direction chip would contradict both.
