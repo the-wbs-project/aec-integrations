@@ -3,7 +3,7 @@ title: How listings are classified
 description: The four ways every product is classified, the kinds of integration, and the types of data an integration can carry.
 section: getting-started
 order: 4
-last_updated: October 9, 2026
+last_updated: November 18, 2026
 ---
 
 Every product on AEC Integrations is classified four ways. Each way uses a fixed list of terms that we maintain, not free-form tags. That keeps similar products comparable, whoever wrote their listing.
@@ -51,8 +51,8 @@ One type of data, moving one way, through one integration, is the smallest thing
 
 A product page and an integration page tell direction from the page's own product, and name the other one:
 
-- **Sends to {product}**: it sends data to the other product.
-- **Receives from {product}**: it receives data from the other product.
+- **Sends to**, then the other product's name: it sends data to the other product.
+- **Receives from**, then the other product's name: it receives data from the other product.
 - **Syncs both ways**: data moves both ways.
 
 ## If a term looks wrong

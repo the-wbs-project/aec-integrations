@@ -256,11 +256,11 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                       class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
                     >
                       <span class="flex items-center gap-1.5">
-                        <span i18n="@@vendor.reviews.item.overall">Overall</span>
+                        <span i18n="@@vendor.reviews.item.overall">Product quality</span>
                         <aec-review-stars [rating]="item.review.rating_overall" kind="overall" />
                       </span>
                       <span class="flex items-center gap-1.5">
-                        <span i18n="@@vendor.reviews.item.onboarding">Onboarding</span>
+                        <span i18n="@@vendor.reviews.item.onboarding">Onboarding experience</span>
                         <aec-review-stars
                           [rating]="item.review.rating_onboarding"
                           kind="onboarding"
@@ -325,12 +325,14 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                           class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
                         >
                           <span class="flex items-center gap-1.5">
-                            <span i18n="@@vendor.reviews.update.overall">New overall rating</span>
+                            <span i18n="@@vendor.reviews.update.overall"
+                              >New product quality rating</span
+                            >
                             <aec-review-stars [rating]="u.rating_overall" kind="overall" />
                           </span>
                           <span class="flex items-center gap-1.5">
                             <span i18n="@@vendor.reviews.update.onboarding"
-                              >New onboarding rating</span
+                              >New onboarding experience rating</span
                             >
                             <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
                           </span>

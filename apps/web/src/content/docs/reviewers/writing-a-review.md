@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: November 6, 2026
+last_updated: November 18, 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -53,7 +53,7 @@ A review we turned down still counts as your review of that product. You cannot 
 A published review appears in the product's Reviews section, newest first. It shows:
 
 - your headline and the date,
-- your Overall and Onboarding stars,
+- your Product quality and Onboarding experience stars,
 - what you wrote,
 - your role, your years using the product, and whether you would recommend it, if you gave them.
 
