@@ -48,6 +48,7 @@ import {
   CHECKS,
   checkAlgoliaDrift,
   checkAlgoliaUnclaimedLogo,
+  checkMaintainedByWithoutOwner,
   checkArrivalCfCoverage,
   checkBrowserEvidenceCoverage,
   checkDefaultMetaDescription,
@@ -705,6 +706,79 @@ describe('checkAlgoliaUnclaimedLogo', () => {
     const finding = await checkAlgoliaUnclaimedLogo(t.db, undefined);
     expect(finding.skipped).toBe(true);
     expect(finding.lines).toEqual([]);
+  });
+});
+
+// ── maintained_by_without_owner (AECI-1908) ──────────────────────────────────
+
+describe('checkMaintainedByWithoutOwner', () => {
+  async function markVendorMaintained(table: 'products' | 'vendors', id: string): Promise<void> {
+    if (table === 'products') {
+      await t.db.update(products).set({ maintainedBy: 'vendor' }).where(eq(products.id, id));
+    } else {
+      await t.db.update(vendors).set({ maintainedBy: 'vendor' }).where(eq(vendors.id, id));
+    }
+  }
+
+  it('flags a never-owned vendor and a product whose only vendor is never-owned', async () => {
+    await seedVendor({ id: 'v-open', slug: 'open-co', companyName: 'Open Co' });
+    await seedProduct({ id: 'p-open', slug: 'open-tool', name: 'Open Tool' });
+    await linkProductVendor('p-open', 'v-open');
+    await markVendorMaintained('vendors', 'v-open');
+    await markVendorMaintained('products', 'p-open');
+
+    const { lines, note } = await checkMaintainedByWithoutOwner(t.db);
+    expect(lines).toEqual([
+      'vendor Open Co (open-co) is vendor-maintained but not owned',
+      'product Open Tool (open-tool) is vendor-maintained but no vendor owns it',
+    ]);
+    expect(note).toBe('0 vendor(s) and 0 product(s) frozen by a claim end (by design, ADR 0051)');
+  });
+
+  it('flags a product with no vendor link at all', async () => {
+    await seedProduct({ id: 'p-orphan', slug: 'orphan', name: 'Orphan' });
+    await markVendorMaintained('products', 'p-orphan');
+
+    expect((await checkMaintainedByWithoutOwner(t.db)).lines).toEqual([
+      'product Orphan (orphan) is vendor-maintained but no vendor owns it',
+    ]);
+  });
+
+  it('treats a product owned through a second vendor as owned', async () => {
+    await seedVendor({ id: 'v-owned', ownedAt: OLD });
+    await seedVendor({ id: 'v-open' });
+    await seedProduct({ id: 'p-shared' });
+    await linkProductVendor('p-shared', 'v-open');
+    await linkProductVendor('p-shared', 'v-owned');
+    await markVendorMaintained('products', 'p-shared');
+    await markVendorMaintained('vendors', 'v-owned');
+
+    expect((await checkMaintainedByWithoutOwner(t.db)).lines).toEqual([]);
+  });
+
+  it('counts a claim-ended owner in the note and never flags it', async () => {
+    await seedVendor({ id: 'v-lapsed', ownedAt: OLD });
+    await t.db.update(vendors).set({ claimEndedAt: RECENT }).where(eq(vendors.id, 'v-lapsed'));
+    await seedProduct({ id: 'p-lapsed' });
+    await linkProductVendor('p-lapsed', 'v-lapsed');
+    await markVendorMaintained('vendors', 'v-lapsed');
+    await markVendorMaintained('products', 'p-lapsed');
+
+    const { lines, note } = await checkMaintainedByWithoutOwner(t.db);
+    expect(lines).toEqual([]);
+    expect(note).toBe('1 vendor(s) and 1 product(s) frozen by a claim end (by design, ADR 0051)');
+  });
+
+  it('ignores AECi-maintained rows whatever their ownership', async () => {
+    await seedVendor({ id: 'v-open' });
+    await seedVendor({ id: 'v-lapsed', ownedAt: OLD });
+    await t.db.update(vendors).set({ claimEndedAt: RECENT }).where(eq(vendors.id, 'v-lapsed'));
+    await seedProduct({ id: 'p-open' });
+    await linkProductVendor('p-open', 'v-open');
+
+    const { lines, note } = await checkMaintainedByWithoutOwner(t.db);
+    expect(lines).toEqual([]);
+    expect(note).toBe('0 vendor(s) and 0 product(s) frozen by a claim end (by design, ADR 0051)');
   });
 });
 
