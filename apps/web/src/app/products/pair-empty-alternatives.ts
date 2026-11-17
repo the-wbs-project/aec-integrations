@@ -65,8 +65,6 @@ function objectIcon(slug: string): AecIconName | null {
   imports: [AecCard, AecIcon, Chip, LogoOrInitial, ReviewStars, RouterLink],
   host: { class: 'block' },
   template: `
-    @let ctx = context();
-    @let oth = other();
     <!-- What you would be moving: the page's one Bone band (mock-up 5). -->
     <section
       aria-labelledby="pair-moving-title"
@@ -442,6 +440,17 @@ function objectIcon(slug: string): AecIconName | null {
                     Turn at least one category back on to see matches.
                   </p>
                 }
+                @case ('no-shared') {
+                  <p class="m-0 font-semibold" i18n="@@pair.empty.matches.emptyNoSharedTitle">
+                    No match shares a category you left on with {{ swapName() }}.
+                  </p>
+                  <p
+                    class="m-0 mt-1 text-t-14 text-(--text-secondary)"
+                    i18n="@@pair.empty.matches.emptyNoSharedBody"
+                  >
+                    Turn another category on to widen the list.
+                  </p>
+                }
                 @case ('no-object') {
                   <p class="m-0 font-semibold" i18n="@@pair.empty.matches.emptyObjectsTitle">
                     No match has every data object you picked on record.
@@ -456,7 +465,7 @@ function objectIcon(slug: string): AecIconName | null {
                 }
               }
             </div>
-            @if (empty === 'all-off') {
+            @if (empty === 'all-off' || empty === 'no-shared') {
               <button
                 type="button"
                 [class]="primaryButton"
@@ -803,13 +812,15 @@ export class PairEmptyAlternatives {
   });
 
   protected readonly emptyState = computed<
-    'no-anchors' | 'no-lane' | 'all-off' | 'no-object' | null
+    'no-anchors' | 'no-lane' | 'all-off' | 'no-shared' | 'no-object' | null
   >(() => {
     const lane = this.lane();
     if (lane.anchors.length === 0) return 'no-anchors';
     if (lane.matches.length === 0) return 'no-lane';
     if (this.onAnchors().length === 0) return 'all-off';
-    return this.shown().length === 0 ? 'no-object' : null;
+    if (this.shown().length > 0) return null;
+    // Nothing picked: the categories left on are what emptied the list, not the data.
+    return this.picked().length === 0 ? 'no-shared' : 'no-object';
   });
 
   /** One to three results never leave a blank column (PLAN.md §10). */

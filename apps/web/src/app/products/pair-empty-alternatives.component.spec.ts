@@ -174,6 +174,26 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     );
   });
 
+  it('says the categories emptied the list, not the data, when nothing is picked', () => {
+    const { el, click } = setup({
+      ...ALTERNATIVES,
+      lanes: {
+        ...ALTERNATIVES.lanes,
+        context: {
+          ...ALTERNATIVES.lanes.context,
+          matches: [ALTERNATIVES.lanes.context.matches[1]!],
+        },
+      },
+    });
+    click('[data-testid="pair-matches-anchor-accounting"]');
+    const empty = el.querySelector('[data-testid="pair-matches-empty"]')!;
+    expect(empty.getAttribute('data-empty')).toBe('no-shared');
+    expect(text(empty)).toContain('No match shares a category you left on with Sage 300 CRE.');
+    expect(text(empty)).not.toContain('data object');
+    click('[data-testid="pair-matches-empty"] button');
+    expect(cardNames(el)).toEqual(['Alpha Ledger']);
+  });
+
   it('switches the lane with the keep toggle, with a designed state for a lane with no anchors', () => {
     const { el, click } = setup();
     click('[data-testid="pair-matches-keep-other"]');
