@@ -95,7 +95,9 @@ export const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstar
  * One view's browser report state (AECI-1714). `ray` names the view's `page_views`
  * row: the document's ray for the landing view, the beacon response's ray for an
  * in-app view, `null` until it is known or when there is none. `touched` records an
- * interaction seen before the ray arrived, so it is posted once the ray does.
+ * interaction seen before the ray arrived, so it is posted once the ray does. The
+ * pending beacon holds its own view, so a ray that lands after the next navigation
+ * still posts an interaction this view already saw.
  */
 interface EvidenceView {
   ray: string | null;
@@ -233,7 +235,9 @@ export class PageViewTracker {
 
   /**
    * Start a new view's report state and make sure the interaction listeners are on.
-   * Replaces the previous view, so a late ray or interaction for it is ignored.
+   * Replaces the previous view, so a later interaction counts for this one. The
+   * previous view stays reachable through its own pending beacon, so an interaction
+   * it already saw is still posted when that beacon's ray arrives.
    */
   private armView(ray: string | null): EvidenceView {
     const view: EvidenceView = { ray, touched: false, sent: false };
@@ -248,23 +252,31 @@ export class PageViewTracker {
     this.listen(false);
   }
 
-  /** The beacon answered. `null` (no `cfray` stamp, e.g. local dev) ends the view's report. */
+  /**
+   * The beacon answered for `view`, which may no longer be current (AECI-1714 review).
+   * `null` (no `cfray` stamp, e.g. local dev, or a failed beacon) ends the report, and
+   * disarms only if `view` is still current, so the next view is left alone. A ray
+   * posts an interaction `view` already saw, current or not. An untouched view posts
+   * nothing.
+   */
   private setViewRay(view: EvidenceView, ray: string | null): void {
-    if (this.view !== view) return;
     if (!ray) {
-      this.disarmView();
+      if (this.view === view) this.disarmView();
       return;
     }
     view.ray = ray;
     this.flushInteraction(view);
   }
 
-  /** Post `interacted` once the view has both a ray and an interaction, then stop listening. */
+  /**
+   * Post `interacted` once the view has both a ray and an interaction. Stops listening
+   * only for the current view: a late post for a past view leaves the next one armed.
+   */
   private flushInteraction(view: EvidenceView): void {
     if (view.sent || !view.touched || !view.ray) return;
     view.sent = true;
     postBrowserEvidence(view.ray, 'interacted');
-    this.listen(false);
+    if (this.view === view) this.listen(false);
   }
 
   private listen(on: boolean): void {

@@ -6,7 +6,11 @@
  * be emitted synchronously without booting the real router.
  */
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+  type TestRequest,
+} from '@angular/common/http/testing';
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type Event, NavigationEnd, Router } from '@angular/router';
@@ -654,6 +658,79 @@ describe('PageViewTracker', () => {
       interact();
 
       expect(reports().slice(2)).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+    });
+
+    describe('a beacon that answers after the next navigation (AECI-1714 review)', () => {
+      /** Answer one pending SPA beacon, stamped as the gateway stamps it. */
+      function answer(req: TestRequest, ray: string | null): void {
+        const headers: Record<string, string> = ray
+          ? { 'Server-Timing': `cfray;desc="${ray}"` }
+          : {};
+        req.flush(null, { status: 204, statusText: 'No Content', headers });
+      }
+
+      it('still posts the interaction view A saw, and B arms and posts on its own ray', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        events.next(nav(1, '/'));
+        events.next(nav(2, '/products/procore'));
+        interact();
+        events.next(nav(3, '/vendors/autodesk'));
+        const [a, b] = httpMock.match('/api/page-views');
+
+        answer(a!, SPA_RAY);
+        await settle();
+        expect(reports().slice(1)).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+
+        interact();
+        answer(b!, SPA_RAY_2);
+        await settle();
+        interact();
+
+        expect(reports()).toEqual([
+          { cf_ray: LANDING_RAY, evidence: 'ran' },
+          { cf_ray: SPA_RAY, evidence: 'interacted' },
+          { cf_ray: SPA_RAY_2, evidence: 'interacted' },
+        ]);
+        httpMock.verify();
+      });
+
+      it('posts nothing for an untouched view A when its ray lands late', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        events.next(nav(1, '/'));
+        events.next(nav(2, '/products/procore'));
+        events.next(nav(3, '/vendors/autodesk'));
+        const [a, b] = httpMock.match('/api/page-views');
+
+        answer(a!, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+
+        answer(b!, SPA_RAY_2);
+        await settle();
+        interact();
+        expect(reports().slice(1)).toEqual([{ cf_ray: SPA_RAY_2, evidence: 'interacted' }]);
+      });
+
+      it("posts nothing when A's late beacon has no ray, and leaves B armed", async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        events.next(nav(1, '/'));
+        events.next(nav(2, '/products/procore'));
+        interact();
+        events.next(nav(3, '/vendors/autodesk'));
+        const [a, b] = httpMock.match('/api/page-views');
+
+        answer(a!, null);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+
+        interact();
+        answer(b!, SPA_RAY_2);
+        await settle();
+        expect(reports().slice(1)).toEqual([{ cf_ray: SPA_RAY_2, evidence: 'interacted' }]);
+      });
     });
 
     it('posts nothing for an in-app view whose beacon carried no ray (local dev)', async () => {
