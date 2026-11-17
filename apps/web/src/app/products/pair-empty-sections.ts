@@ -77,7 +77,7 @@ function share(value: number, a: number, b: number): number {
  * Two white bands, each the mock-up's small label over its large heading:
  *
  *  - **"The two products, side by side" / "What we have on record for each".** The
- *    ledger (integrations on record, reviews, product quality, onboarding experience),
+ *    ledger (integrations on record, reviews, and the Overall and Onboarding scores),
  *    each side its own value and meter, never blended. The integrations figure is the
  *    product's own facts card figure (`integrationsOnRecordCount`), "None on record yet"
  *    at zero. With no reviews on either side the three review rows are absent. Under five
@@ -88,6 +88,8 @@ function share(value: number, a: number, b: number): number {
  *    documentation and its integrations directory as new-tab links, and its own page on
  *    AEC Integrations. A link shows exactly as on the product page's facts card: corrected
  *    with "Corrected by", hidden as "Under review", removed as "Removed by" with no link.
+ *    The head says "Published by {vendor}" only while every link shown is the vendor's own
+ *    value, and a corrected directory link keeps the neutral "Integrations page" label.
  *
  * The two products appear in URL order, context first. Nothing here orders, filters or
  * features by a paid-plan input. Every value is a static listing field, so the cached SSR
@@ -277,16 +279,18 @@ function share(value: number, a: number, b: number): number {
                           [size]="4"
                         />
                         @if (r.key === 'overall') {
+                          <!-- The product page's names for the two scores (Same-Behavior
+                               Rule): its hero's message ids, so one site names them one way. -->
                           <span
                             class="block text-t-14 font-semibold"
-                            i18n="@@pair.empty.facts.quality"
-                            >Product quality</span
+                            i18n="@@products.detail.hero.rating.overall"
+                            >Overall</span
                           >
                         } @else {
                           <span
                             class="block text-t-14 font-semibold"
-                            i18n="@@pair.empty.facts.onboarding"
-                            >Onboarding experience</span
+                            i18n="@@products.detail.hero.rating.onboarding"
+                            >Onboarding</span
                           >
                         }
                       </div>
@@ -513,13 +517,27 @@ function share(value: number, a: number, b: number): number {
                       p.name
                     }}</span>
                   </h3>
+                  <!-- "Published by" only while every link the card shows is the vendor's own
+                       value: a link AECi corrected is a value AECi set, and a card with no
+                       link has nothing the vendor published. Otherwise the plain byline. -->
                   @if (p.vendor; as v) {
-                    <p
-                      class="m-0 text-t-14 text-(--text-secondary)"
-                      i18n="@@pair.empty.look.publishedBy"
-                    >
-                      Published by {{ v.name }}
-                    </p>
+                    @if (s.publishedBy) {
+                      <p
+                        class="m-0 text-t-14 text-(--text-secondary)"
+                        data-testid="pair-look-published-by"
+                        i18n="@@pair.empty.look.publishedBy"
+                      >
+                        Published by {{ v.name }}
+                      </p>
+                    } @else {
+                      <p
+                        class="m-0 text-t-14 text-(--text-secondary)"
+                        data-testid="pair-look-by"
+                        i18n="@@pair.empty.facts.by"
+                      >
+                        by {{ v.name }}
+                      </p>
+                    }
                   }
                   @if (p.claim_status === 'unclaimed') {
                     <aec-unclaimed-note class="mt-1" />
@@ -590,11 +608,13 @@ function share(value: number, a: number, b: number): number {
                         ><aec-icon name="grid-plus" decorative [size]="5"
                       /></span>
                       <span class="min-w-0 flex-1">
-                        @if (p.vendor; as v) {
+                        <!-- The vendor's name only on the vendor's own value. A link AECi
+                             corrected keeps the product page's neutral label. -->
+                        @if (p.vendor && !slot(p, 'tool_integrations_url', true)) {
                           <span
                             class="block text-t-16 font-semibold"
                             i18n="@@pair.empty.look.directory"
-                            >{{ v.name }} integrations directory</span
+                            >{{ p.vendor.name }} integrations directory</span
                           >
                         } @else {
                           <span
@@ -687,7 +707,7 @@ function share(value: number, a: number, b: number): number {
         <!-- Legal review item 10: an API is not an integration. The words are the ones
              STAGE_1_5_SPEC.md section 11.4 fixed, shared with the product page. -->
         <p
-          class="mx-auto mt-6 flex max-w-prose items-start justify-center gap-3 text-center text-t-16 text-(--text-secondary)"
+          class="mx-auto mt-6 flex max-w-prose items-start gap-3 text-t-16 text-(--text-secondary) md:justify-center md:text-center"
           data-testid="pair-look-api-note"
         >
           <aec-icon
@@ -777,6 +797,7 @@ export class PairEmptySections {
         whoCaption: hasTerms ? managed : null,
         linkCaption: hasLink ? managed : null,
         noDirectory: this.noDirectoryLine(product),
+        publishedBy: publishedByVendor(product),
       };
     }),
   );
@@ -907,6 +928,17 @@ export class PairEmptySections {
 /** The product page facts card's figure (ruling 96): the stored count unless it is 0. */
 function onRecord(p: ProductPairSubject): number {
   return integrationsOnRecordCount(p.integration_count, p.listed_integration_count ?? 0);
+}
+
+/**
+ * Whether the vendor card may say "Published by {vendor}": it shows at least one link, and
+ * every link it shows is the vendor's own value. A link AECi corrected is a value AECi set
+ * (it carries "Corrected by"), so a card holding one says only "by {vendor}".
+ */
+function publishedByVendor(p: ProductPairSubject): boolean {
+  const corrections = p.captions?.corrections;
+  const shown = (['api_docs_url', 'tool_integrations_url'] as const).filter((f) => !!p[f]);
+  return shown.length > 0 && shown.every((f) => !correctionInSlot(corrections, f, true));
 }
 
 /**

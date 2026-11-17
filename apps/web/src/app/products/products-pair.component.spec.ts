@@ -203,6 +203,8 @@ describe('ProductsPairPage', () => {
     expect(el.textContent).toContain('Marketplace app');
     expect(el.textContent).toContain('Procore + Autodesk Construction Cloud');
     expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
+    // AECI-1835: only the empty pair hosts the correction drawer; this page is unchanged.
+    expect(el.querySelector('aec-request-drawer')).toBeNull();
   });
 
   // AECI-1007: each endpoint vendor's own links, labelled by product (AECI-1141),
@@ -2127,6 +2129,9 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     const button = know.querySelector<HTMLAnchorElement>('[data-testid="pair-empty-correction"]')!;
     expect(text(button)).toBe('It does exist');
     expect(button.getAttribute('href')).toBe('/products/procore/correction');
+    // The page hosts the drawer the trigger opens. Without it a click is cancelled and
+    // nothing opens.
+    expect(el.querySelector('aec-request-drawer')).toBeTruthy();
     expect(text(el.querySelector('[data-testid="pair-empty-look-it-up-intro"]'))).toBe(
       'Linked as each vendor publishes them. What they say about building a connection is theirs, not ours.',
     );
@@ -2285,7 +2290,12 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(link.getAttribute('href')).toBe('https://acme.example/integrations');
     expect(link.target).toBe('_blank');
     expect(link.rel).toBe('noopener nofollow');
-    expect(text(link)).toContain('Acme integrations directory');
+    // AECi corrected this link, so it keeps the neutral label and the head drops
+    // "Published by": a corrected value is AECi's, not the vendor's.
+    expect(text(link)).toContain('Integrations page');
+    expect(text(link)).not.toContain('Acme integrations directory');
+    expect(ctx.querySelector('[data-testid="pair-look-published-by"]')).toBeNull();
+    expect(text(ctx.querySelector('[data-testid="pair-look-by"]'))).toBe('by Acme');
     expect(text(link)).toContain('acme.example/integrations');
     expect(link.parentElement!.textContent).toContain('Corrected by AEC Integrations');
     expect(text(ctx.querySelector('[data-testid="pair-look-all-context"]'))).toContain(
@@ -2300,7 +2310,9 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
       'Maintained by Acme',
     );
     const other = el.querySelector('[data-testid="pair-empty-look-other"]')!;
-    expect(text(other)).toContain('Published by Globex');
+    expect(text(other.querySelector('[data-testid="pair-look-published-by"]'))).toBe(
+      'Published by Globex',
+    );
     expect(other.querySelector('[data-testid="pair-look-integrations-other"]')).toBeNull();
     expect(other.textContent).toContain('Integrations page: Removed by AEC Integrations');
     expect(other.querySelector('[data-testid="pair-look-no-directory-other"]')).toBeNull();
@@ -2317,6 +2329,42 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(text(el.querySelector('[data-testid="pair-look-no-directory-context"]'))).toBe(
       'We have not found an integrations page published by Acme.',
     );
+    // A card with no link never heads itself "Published by" above that line.
+    const card = el.querySelector('[data-testid="pair-empty-look-context"]')!;
+    expect(card.querySelector('[data-testid="pair-look-published-by"]')).toBeNull();
+    expect(text(card.querySelector('[data-testid="pair-look-by"]'))).toBe('by Acme');
+  });
+
+  it("names the vendor's directory and says Published by only on the vendor's own links", () => {
+    const { el } = setup(
+      emptyPair({
+        vendor: vendor('v1', 'Acme'),
+        tool_integrations_url: 'https://acme.example/integrations',
+        api_docs_url: 'https://acme.example/api',
+      }),
+    );
+    const card = el.querySelector('[data-testid="pair-empty-look-context"]')!;
+    expect(text(card.querySelector('[data-testid="pair-look-published-by"]'))).toBe(
+      'Published by Acme',
+    );
+    expect(text(card.querySelector('[data-testid="pair-look-integrations-context"]'))).toContain(
+      'Acme integrations directory',
+    );
+  });
+
+  it('names the two scores as the product page does, Overall and Onboarding', () => {
+    const { el } = setup(
+      emptyPair(
+        { review_count: 7, rating_overall_avg: 4.2, rating_onboarding_avg: 3.5 },
+        { review_count: 6, rating_overall_avg: 3.1, rating_onboarding_avg: 2.9 },
+      ),
+    );
+    const head = (id: string) => text(el.querySelector(`[data-testid="${id}"] [role="rowheader"]`));
+    expect(head('pair-empty-facts-overall')).toBe('Overall');
+    expect(head('pair-empty-facts-onboarding')).toBe('Onboarding');
+    const facts = el.querySelector('[data-testid="pair-empty-facts"]')!.textContent!;
+    expect(facts).not.toContain('Product quality');
+    expect(facts).not.toContain('Onboarding experience');
   });
 
   it('shows an unclaimed side as an initial tile with the Unclaimed note, never its logo above 32px', () => {
