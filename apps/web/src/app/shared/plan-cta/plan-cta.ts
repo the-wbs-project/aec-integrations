@@ -12,7 +12,7 @@
  *  - `mobile_bar` a slim bar fixed to the bottom of the screen below `lg`
  *                 (`PlanCtaMobileBarComponent`). It shows only once the top pair has
  *                 scrolled away, and hides while a full call to action is on screen.
- *  - `bottom`     a full-width Forest panel (`PlanCtaPanelComponent`).
+ *  - `bottom`     the Forest feature card (`PlanCtaPanelComponent`).
  *
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
  * dialog (`shared/claim-dialog/`), and every one reads "Claim your listing": the hero,
@@ -119,7 +119,7 @@ abstract class PlanCta {
   template: `
     <p
       [class]="
-        tone() === 'inverse' ? 'text-sm text-(--surface-base)' : 'text-sm text-(--text-secondary)'
+        tone() === 'inverse' ? 'text-sm text-(--text-on-brand)' : 'text-sm text-(--text-secondary)'
       "
     >
       <span i18n="@@planCta.contact.lead">Questions?</span>
@@ -128,8 +128,8 @@ abstract class PlanCta {
         routerLink="/contact"
         [class]="
           tone() === 'inverse'
-            ? 'font-semibold text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)'
-            : 'font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+            ? 'rounded-sm font-semibold text-(--text-on-brand) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+            : 'rounded-sm font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)'
         "
         i18n="@@planCta.contact.link"
         >Contact us</a
@@ -168,7 +168,8 @@ export class PlanContactLinkComponent {
 export class PlanCtaActionsComponent extends PlanCta {}
 
 /**
- * The full-width Forest panel that closes a page (`placement: bottom`). On the
+ * The Forest feature card that closes a page (`placement: bottom`, AECI-1802: the
+ * home card recipe, Bone ink and the Bone main button). On the
  * docs page it sits in "Getting Managed" under an `h2`, so its heading is an
  * `h3`. A page that gives it its own section passes `headingLevel` 2.
  */
@@ -178,13 +179,12 @@ export class PlanCtaActionsComponent extends PlanCta {}
   host: { class: 'block', 'data-plans-cta': 'bottom' },
   template: `
     <section
-      class="rounded-(--radius-lg) bg-(--accent-primary) px-6 py-7 text-(--surface-base) sm:px-8"
+      class="aec-card rounded-card border bg-(--accent-primary) p-8 text-(--text-on-brand) shadow-card"
       [class.lg:grid]="split()"
       [class.lg:grid-cols-12]="split()"
       [class.lg:items-center]="split()"
       [class.lg:gap-x-12]="split()"
-      [class.lg:px-10]="split()"
-      [class.lg:py-10]="split()"
+      [class.lg:p-12]="split()"
       aria-labelledby="plans-cta-heading"
     >
       <div [class.lg:col-span-6]="split()" [class.xl:col-span-7]="split()">

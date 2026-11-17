@@ -275,6 +275,16 @@ describe('WelcomePage canvas and context rail (AECI-987)', () => {
     expect(rail.parentElement?.classList).toContain('lg:grid-cols-12');
   });
 
+  // AECI-1806: the form is the shared card; the heading is the global h1.
+  it('draws the form as the shared card with one h1 above it', async () => {
+    const { el } = await setup();
+    const form = el.querySelector('form')!;
+    expect(form.classList).toContain('aec-card');
+    expect(form.classList).toContain('shadow-card');
+    expect(el.querySelectorAll('h1').length).toBe(1);
+    expect(el.querySelector('h1')?.className).not.toMatch(/text-\dxl|font-display/);
+  });
+
   // No link: leaving mid-form would drop the answers, and Skip is the way out.
   it('says where the answers go and that they can be changed on the account page', async () => {
     const { el } = await setup();

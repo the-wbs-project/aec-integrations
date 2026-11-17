@@ -706,6 +706,42 @@ describe('AccountPage', () => {
     expect(el.querySelector('#account-display-name')?.closest('.max-w-2xl')).not.toBeNull();
   });
 
+  // AECI-1806: each section is the shared card, and the display name is on the field recipe.
+  it('draws every section as the shared card and the display name on the field recipe', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'pending' });
+    const { el } = await setup(api);
+    for (const sel of [
+      '[data-testid="onboarding-card"]',
+      '#profile',
+      '#your-reviews',
+      '#delete-account',
+    ]) {
+      const section = el.querySelector(sel)!;
+      expect(section.classList, sel).toContain('aec-card');
+      expect(section.classList, sel).toContain('shadow-card');
+    }
+    expect(el.querySelectorAll('h1').length).toBe(1);
+    const input = el.querySelector('#account-display-name')!;
+    expect(input.classList).toContain('aec-field-control');
+    expect(input.classList).toContain('w-full');
+  });
+
+  it('ties the display-name error to its field with the shared error recipe', async () => {
+    const { el, fixture } = await setup();
+    const input = el.querySelector('#account-display-name') as HTMLInputElement;
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    (el.querySelector('#profile form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const error = el.querySelector('#account-display-name-error')!;
+    expect(error.classList).toContain('aec-field-error');
+    expect(error.getAttribute('role')).toBe('alert');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe('account-display-name-error');
+  });
+
   it("puts each review row's date beside its status badge", async () => {
     const { el } = await setup();
     const date = el.querySelector('[data-testid="account-review-date"]')!;

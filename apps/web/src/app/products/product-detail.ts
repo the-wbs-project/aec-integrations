@@ -10,13 +10,13 @@ import { Analytics } from '../analytics/analytics';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { isUnderReview } from '../shared/field-caption/field-caption-facts';
-import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 
 import { groupPoweredIntegrations } from './powered-hub-grouping';
+import { ProductAbout } from './product-about';
 import { ProductExtensionsSection } from './product-extensions';
 import { ProductFactsCard } from './product-facts-card';
 import { ProductHero } from './product-hero';
@@ -74,11 +74,10 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
   selector: 'aec-product-detail',
   imports: [
     DetailLayout,
-    FieldCaptionLine,
-    UnderReviewMarker,
     MailingListSignup,
     NgTemplateOutlet,
     NotFound,
+    ProductAbout,
     ProductExtensionsSection,
     ProductFactsCard,
     ProductHero,
@@ -131,29 +130,8 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               class="grid scroll-mt-20 items-start"
               [class]="aboutColumns()"
             >
-              <div class="min-w-0 space-y-6">
-                <h2 id="description-title">
-                  <span
-                    class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
-                    i18n="@@products.detail.body.description"
-                    >About</span
-                  >
-                </h2>
-                @if (p.description) {
-                  <p
-                    class="max-w-prose break-words text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
-                    data-testid="product-description"
-                  >
-                    {{ p.description }}
-                  </p>
-                  @if (p.captions?.description; as c) {
-                    <aec-field-caption [caption]="c" [page]="captionPage()" />
-                  }
-                } @else if (underReview('description')) {
-                  <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
-                  <aec-under-review data-testid="description-under-review" />
-                }
-              </div>
+              <!-- The label, "About {product}" and the description (AECI-1720 restore). -->
+              <aec-product-about [product]="p" [page]="captionPage()" />
               @if (hasWhoItIsFor()) {
                 <aec-product-who-it-is-for class="min-w-0" [product]="p" [page]="captionPage()" />
               }
@@ -161,12 +139,23 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
           </div>
         }
 
-        <div slot="body" class="space-y-12">
-          @if (p.usefulness; as u) {
+        <!-- Mock-up 6 .band + .band.plain + .band.plain (AECI-1720 restore): each body
+             section is its own white band, 64px of space above and below, 96px from md,
+             with a hairline between neighbours. The colour is the unlayered border rule's
+             --border-default. The body band's own padding gives the first and last their
+             outer space. Usefulness mounts on the same test as its nav entry, so a hidden
+             host never takes a band. -->
+        <div
+          slot="body"
+          class="divide-y [&>*]:py-16 md:[&>*]:py-24 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0"
+          data-testid="product-body-bands"
+        >
+          @if (hasUsefulness() && p.usefulness; as u) {
             <aec-product-usefulness
               id="how-teams-use-it"
               class="scroll-mt-20"
               [data]="u"
+              [productName]="p.name"
               [caption]="p.captions?.usefulness"
               [page]="captionPage()"
             />
@@ -181,8 +170,8 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
                of #integrations, because §13.6 swaps the two sections on a connector
                page. The swap has to move real DOM order: CSS order would leave
                screen readers and crawlers on the old sequence (WCAG 1.3.2).
-               <ng-container> emits no element, so the body's space-y-12 still lands
-               on the sections themselves. -->
+               <ng-container> emits no element, so the body's bands still land on
+               the sections themselves. -->
           <ng-template #poweredSection>
             <section
               aec-product-powered-hub
@@ -293,11 +282,6 @@ export class ProductDetailPage {
     entityType: 'product',
     entityId: this.product()?.id ?? '',
   }));
-
-  /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
-  protected underReview(field: string): boolean {
-    return isUnderReview(this.product()?.under_review, field);
-  }
 
   /** Whether the About band's "Who it is for" column renders (AECI-1780). */
   protected readonly hasWhoItIsFor = computed(() => {

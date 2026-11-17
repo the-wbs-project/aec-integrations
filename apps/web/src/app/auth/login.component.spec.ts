@@ -138,6 +138,34 @@ describe('LoginPage', () => {
     expect(form.compareDocumentPosition(line!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // AECI-1805: a focused flow. Every state sits in one shared card in a narrow column.
+  it('puts the form, both buttons and the Terms line in one shared card', async () => {
+    const { el } = await setup();
+    const section = el.querySelector('section')!;
+    expect(section.classList).toContain('max-w-md');
+    expect(section.classList).toContain('mx-auto');
+    const cards = el.querySelectorAll('.aec-card');
+    expect(cards.length).toBe(1);
+    const card = cards[0];
+    expect(card.classList).toContain('shadow-card');
+    for (const sel of ['h1', 'form', '[data-testid="login-terms-line"]', 'button[type="button"]']) {
+      expect(card.contains(el.querySelector(sel)), sel).toBe(true);
+    }
+    expect(el.querySelectorAll('h1').length).toBe(1);
+    // The brand mark takes its Clay from the token, not a hex fill.
+    expect(el.querySelector('[fill="#E89668"]')).toBeNull();
+  });
+
+  it('keeps the "Check your email" message in the same card', async () => {
+    const { fixture, el } = await setup();
+    typeEmail(fixture, 'pm@example.com');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+    const card = el.querySelector('.aec-card')!;
+    expect(card.querySelector('h1')?.textContent).toContain('Check your email');
+  });
+
   it('shows the Terms line even when sign-in is unavailable', async () => {
     const { el } = await setup({ configured: false });
     expect(el.querySelector('[data-testid="login-terms-line"]')).not.toBeNull();

@@ -1849,9 +1849,10 @@ aec-section-nav
 }
 
 /* The "Getting Managed" panel's heading (`shared/plan-cta/plan-cta.ts`): serif at 24px,
-   on Forest. A class beats the unlayered `h3` rule. */
+   in Bone ink on the Forest feature card (AECI-1802). A class beats the unlayered `h3`
+   rule. */
 .aec-plan-cta-heading {
-  color: var(--surface-base);
+  color: var(--text-on-brand);
   font-size: var(--t-24);
   line-height: 1.25;
 }

@@ -169,6 +169,16 @@ export class HeroBand {
       : `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`,
   );
 
+  /**
+   * Below `md` the display title steps down to `--t-statement` (37px at 390, 36px at 320),
+   * mock-up 7's phone size. At `--t-display` (47px at 390) a long word such as "Management"
+   * did not fit beside the 68px mark and broke mid-word. Below 360px it steps once more, to
+   * `--t-fig` (28px): at 320px the column beside the mark is 188px, and "Construction" or
+   * "Management" at 36px is wider than that. The step is `!important` because Tailwind
+   * sorts the arbitrary `max-[360px]` query before `max-md`, which would otherwise win.
+   * The `h1` keeps `break-words`, so a word still
+   * breaks only when it cannot fit on a line of its own (AECI-1720 restore).
+   */
   protected readonly titleClass = computed(() => {
     switch (this.titleSize()) {
       case 'statement':
@@ -177,7 +187,7 @@ export class HeroBand {
         // Balanced, as mock-up 5's `.statement` is, so the lines break as it draws them.
         return 'block font-display text-t-statement-wide font-normal tracking-[-0.02em] text-balance';
       default:
-        return 'font-display text-t-display font-normal tracking-[-0.02em]';
+        return 'font-display text-t-display font-normal tracking-[-0.02em] max-md:text-t-statement max-[360px]:text-t-fig!';
     }
   });
 

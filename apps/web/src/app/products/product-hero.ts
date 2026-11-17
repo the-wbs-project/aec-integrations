@@ -14,6 +14,7 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
 import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { HeroBand } from '../shared/hero-band/hero-band';
+import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -60,6 +61,7 @@ import { RoleBadge } from './role-badge';
   imports: [
     AecBreadcrumb,
     AecButton,
+    AecIcon,
     Chip,
     ExternalLinkTracker,
     FieldCaptionLine,
@@ -98,8 +100,11 @@ import { RoleBadge } from './role-badge';
       <!-- The logo rule decides the mark (AECI-1769): a claimed product's logo, or the
            initial tile. An unclaimed product is the tile at this size whatever the payload
            holds. -->
+      <!-- Mock-up 6 .hero-mark: a soft 4px Bone ring and the card shadow around the mark.
+           The radius stays the mark's own (AECI-1750 is still open). -->
       <aec-logo-or-initial
         heroMark
+        class="rounded-mark shadow-card ring-4 ring-(--border-on-brand-subtle)"
         data-testid="product-hero-mark"
         [src]="p.logo_url"
         [name]="p.name"
@@ -165,56 +170,68 @@ import { RoleBadge } from './role-badge';
            averages it has, at one decimal, kept apart, then the count. With 1 to 4 reviews it
            shows "Not yet rated" and the count. At zero it is one plain line, not a panel:
            a lone bordered box read as a button. -->
+      <!-- Mock-up 6 .hrate: the two scores and the review count in three cells, the figure
+           at --t-fig. Below sm the two scores share the first row and the count takes its
+           own row under a rule (mock-up 6 at 760px), so it never floats beside a score. -->
       @if (p.review_count > 0) {
         <div
-          class="mt-8 inline-flex max-w-full flex-wrap items-stretch rounded-card border aec-on-brand-rule bg-(--surface-hero-panel)"
+          class="mt-8 grid max-w-full grid-cols-2 rounded-card border aec-on-brand-rule bg-(--surface-hero-panel) sm:inline-flex sm:items-stretch"
           data-testid="product-hero-ratings"
         >
           @if (p.rating_overall_avg !== null) {
-            <div class="flex flex-col justify-center gap-1 px-6 py-4">
-              <span class="flex items-center gap-3">
+            <div
+              class="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-6"
+              [class.col-span-2]="p.rating_onboarding_avg === null"
+              data-testid="product-hero-rating-cell"
+            >
+              <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span
-                  class="font-display text-t-24 font-semibold tabular-nums text-(--text-on-brand)"
+                  class="font-display text-t-fig font-semibold tabular-nums text-(--text-on-brand)"
                   >{{ decimal(p.rating_overall_avg) }}</span
                 >
                 <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
               </span>
               <span
-                class="text-t-14 font-semibold text-(--text-on-brand-secondary)"
+                class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                 i18n="@@products.detail.hero.rating.overall"
                 >Overall</span
               >
             </div>
             @if (p.rating_onboarding_avg !== null) {
               <div
-                class="flex flex-col justify-center gap-1 px-6 py-4 sm:border-s aec-on-brand-rule"
+                class="flex min-w-0 flex-col justify-center gap-1 border-s px-4 py-4 aec-on-brand-rule sm:px-6"
+                data-testid="product-hero-rating-cell"
               >
-                <span class="flex items-center gap-3">
+                <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span
-                    class="font-display text-t-24 font-semibold tabular-nums text-(--text-on-brand)"
+                    class="font-display text-t-fig font-semibold tabular-nums text-(--text-on-brand)"
                     >{{ decimal(p.rating_onboarding_avg) }}</span
                   >
                   <aec-review-stars [rating]="p.rating_onboarding_avg" kind="onboarding" />
                 </span>
                 <span
-                  class="text-t-14 font-semibold text-(--text-on-brand-secondary)"
+                  class="text-t-13 font-semibold text-(--text-on-brand-secondary) sm:text-t-14"
                   i18n="@@products.detail.hero.rating.onboarding"
                   >Onboarding</span
                 >
               </div>
             }
           } @else {
-            <div class="flex items-center px-6 py-4">
+            <div class="col-span-2 flex items-center px-4 py-4 sm:px-6">
               <aec-chip tone="quiet" i18n="@@products.detail.hero.notRated">Not yet rated</aec-chip>
             </div>
           }
-          <div class="flex items-center px-6 py-4 sm:border-s aec-on-brand-rule">
+          <div
+            class="col-span-2 flex items-center border-t px-2 py-2 aec-on-brand-rule sm:border-s sm:border-t-0 sm:px-3"
+            data-testid="product-hero-review-count"
+          >
             <a
               [href]="'/products/' + p.slug + '#reviews'"
               data-smooth-scroll
-              class="text-t-14 font-semibold text-(--text-on-brand) underline decoration-(--border-on-brand-strong) underline-offset-4 hover:decoration-(--text-on-brand)"
+              class="inline-flex min-h-11 items-center gap-2 rounded-control px-2 text-t-14 font-semibold text-(--text-on-brand) underline decoration-(--border-on-brand-strong) underline-offset-4 hover:decoration-(--text-on-brand) sm:px-3"
             >
               {{ reviewCountLabel(p.review_count) }}
+              <aec-icon name="arrow-down" decorative [size]="4" />
             </a>
           </div>
         </div>

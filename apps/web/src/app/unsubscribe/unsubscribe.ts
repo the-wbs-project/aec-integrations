@@ -27,6 +27,7 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { LandingApi } from '../shared/landing/landing-api';
 import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 
 /**
  * `no-token` — reached without a `?token=` (a bare visit / stripped link).
@@ -40,124 +41,107 @@ type UnsubscribeStatus = 'no-token' | 'idle' | 'unsubscribing' | 'done' | 'inval
 
 @Component({
   selector: 'app-unsubscribe',
-  imports: [AecButton, RouterLink],
+  imports: [AecButton, AecCard, RouterLink],
   template: `
-    <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment), matching
-           /about and /updates. -->
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-2xl px-6 py-16 md:px-8 md:py-20">
-          <p class="aec-overline text-(--accent-primary)" i18n="@@app.unsubscribe.eyebrow">
-            Mailing list
-          </p>
+    <!-- A focused flow (DESIGN.md "The Page-Width Rule", AECI-1808): a narrow
+         centred column on white, like the not-found page. No band. -->
+    <div class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24">
+      <p class="aec-overline text-(--text-secondary)" i18n="@@app.unsubscribe.eyebrow">
+        Mailing list
+      </p>
 
-          <!-- A stable bordered card whose inner content swaps by status, so the
-               layout does not shift between confirm and result. -->
-          <div
-            class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
-          >
-            @switch (status()) {
-              @case ('done') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  class="font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl"
-                  i18n="@@app.unsubscribe.done.headline"
-                >
-                  You've been unsubscribed
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.unsubscribe.done.body"
-                >
-                  You won't receive any more mailing-list updates from AEC Integrations. You can
-                  rejoin any time from the site.
-                </p>
-                <a
-                  aecButton
-                  routerLink="/products"
-                  class="mt-6"
-                  i18n="@@app.unsubscribe.done.browse"
-                >
-                  Browse integrations
-                </a>
+      <!-- One shared card whose inner content swaps by status, so the layout does
+           not shift between confirm and result. -->
+      <div aecCard class="mt-4 p-6 sm:p-8 md:p-10">
+        @switch (status()) {
+          @case ('done') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              class="text-(--text-primary) outline-none"
+              i18n="@@app.unsubscribe.done.headline"
+            >
+              You've been unsubscribed
+            </h1>
+            <p
+              class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@app.unsubscribe.done.body"
+            >
+              You won't receive any more mailing-list updates from AEC Integrations. You can rejoin
+              any time from the site.
+            </p>
+            <a aecButton routerLink="/products" class="mt-6" i18n="@@app.unsubscribe.done.browse">
+              Browse integrations
+            </a>
+          }
+          @case ('invalid') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              class="text-(--text-primary) outline-none"
+              i18n="@@app.unsubscribe.invalid.headline"
+            >
+              This link is no longer valid
+            </h1>
+            <p
+              class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@app.unsubscribe.invalid.body"
+            >
+              This unsubscribe link has already been used or has expired. If you're still receiving
+              emails, use the unsubscribe link at the bottom of the most recent one.
+            </p>
+          }
+          @case ('no-token') {
+            <h1 class="text-(--text-primary)" i18n="@@app.unsubscribe.noToken.headline">
+              Unsubscribe from updates
+            </h1>
+            <p
+              class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@app.unsubscribe.noToken.body"
+            >
+              To unsubscribe, open the unsubscribe link at the bottom of any email we've sent you.
+              That link is tied to your address, so we can remove the right one.
+            </p>
+          }
+          @default {
+            <!-- idle / unsubscribing / error: the confirm prompt. -->
+            <h1 class="text-(--text-primary)" i18n="@@app.unsubscribe.confirm.headline">
+              Unsubscribe from updates?
+            </h1>
+            <p
+              class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@app.unsubscribe.confirm.body"
+            >
+              Confirm below and we'll stop sending you AEC Integrations mailing-list updates.
+            </p>
+            <button
+              aecButton
+              type="button"
+              class="mt-6"
+              [disabled]="status() === 'unsubscribing'"
+              (click)="onConfirm()"
+            >
+              @if (status() === 'unsubscribing') {
+                <span i18n="@@app.unsubscribe.confirm.pending">Unsubscribing…</span>
+              } @else {
+                <span i18n="@@app.unsubscribe.confirm.action">Unsubscribe</span>
               }
-              @case ('invalid') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  class="font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl"
-                  i18n="@@app.unsubscribe.invalid.headline"
-                >
-                  This link is no longer valid
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.unsubscribe.invalid.body"
-                >
-                  This unsubscribe link has already been used or has expired. If you're still
-                  receiving emails, use the unsubscribe link at the bottom of the most recent one.
-                </p>
-              }
-              @case ('no-token') {
-                <h1
-                  class="font-display text-3xl font-normal leading-snug text-(--text-primary) md:text-4xl"
-                  i18n="@@app.unsubscribe.noToken.headline"
-                >
-                  Unsubscribe from updates
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.unsubscribe.noToken.body"
-                >
-                  To unsubscribe, open the unsubscribe link at the bottom of any email we've sent
-                  you. That link is tied to your address, so we can remove the right one.
-                </p>
-              }
-              @default {
-                <!-- idle / unsubscribing / error: the confirm prompt. -->
-                <h1
-                  class="font-display text-3xl font-normal leading-snug text-(--text-primary) md:text-4xl"
-                  i18n="@@app.unsubscribe.confirm.headline"
-                >
-                  Unsubscribe from updates?
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.unsubscribe.confirm.body"
-                >
-                  Confirm below and we'll stop sending you AEC Integrations mailing-list updates.
-                </p>
-                <button
-                  aecButton
-                  type="button"
-                  class="mt-6"
-                  [disabled]="status() === 'unsubscribing'"
-                  (click)="onConfirm()"
-                >
-                  @if (status() === 'unsubscribing') {
-                    <span i18n="@@app.unsubscribe.confirm.pending">Unsubscribing…</span>
-                  } @else {
-                    <span i18n="@@app.unsubscribe.confirm.action">Unsubscribe</span>
-                  }
-                </button>
+            </button>
 
-                @if (status() === 'error') {
-                  <p
-                    #resultHeading
-                    tabindex="-1"
-                    class="mt-4 text-sm font-semibold text-(--text-primary) outline-none"
-                    role="alert"
-                    i18n="@@app.unsubscribe.error"
-                  >
-                    Something went wrong. Please try again.
-                  </p>
-                }
-              }
+            @if (status() === 'error') {
+              <p
+                #resultHeading
+                tabindex="-1"
+                class="mt-4 text-t-14 font-semibold text-(--text-primary) outline-none"
+                role="alert"
+                i18n="@@app.unsubscribe.error"
+              >
+                Something went wrong. Please try again.
+              </p>
             }
-          </div>
-        </div>
-      </section>
+          }
+        }
+      </div>
     </div>
   `,
 })
