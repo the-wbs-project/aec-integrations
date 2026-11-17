@@ -112,22 +112,23 @@ const FOCUS_RING =
             [label]="countNoun()"
             zero="integrations-not-on-record"
             [product]="p.name"
-          />
-          <!-- Mock-up 8 .f-stat: at zero the panel points to the Integrations section's own
-               "Know of one?" block, where the reader can suggest one. A plain link, no
-               promise (AECI-1720 restore). -->
-          @if (count() === 0) {
-            <a
-              [href]="'/products/' + p.slug + '#integrations'"
-              data-smooth-scroll
-              data-testid="product-facts-know-of-one"
-              class="mt-2 inline-flex min-h-6 w-fit items-center text-t-13 text-(--text-secondary) underline decoration-(--border-underline) underline-offset-4 hover:text-(--text-primary) hover:decoration-(--text-secondary) {{
-                focusRing
-              }}"
-              i18n="@@products.detail.metadata.knowOfOne"
-              >Know of one?</a
-            >
-          }
+          >
+            <!-- Mock-up 8 .f-stat: at zero the figure's projected slot points to the
+                 Integrations section's own "Know of one?" block, where the reader can
+                 suggest one. A plain link, no promise (AECI-1720 restore). -->
+            @if (count() === 0) {
+              <a
+                [href]="'/products/' + p.slug + '#integrations'"
+                data-smooth-scroll
+                data-testid="product-facts-know-of-one"
+                class="mt-2 inline-flex min-h-6 w-fit items-center text-t-13 text-(--text-secondary) underline decoration-(--border-underline) underline-offset-4 hover:text-(--text-primary) hover:decoration-(--text-secondary) {{
+                  focusRing
+                }}"
+                i18n="@@products.detail.metadata.knowOfOne"
+                >Know of one?</a
+              >
+            }
+          </aec-figure>
         </div>
 
         <div [class]="column" class="space-y-6">
