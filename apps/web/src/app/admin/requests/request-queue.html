@@ -121,6 +121,17 @@
               <span class="text-(--text-secondary)">{{ targetFallbackLabel(r.target_type) }}</span>
               }
             </h3>
+            <!-- AECI-1828: a correction sent from an empty pair page names both products. -->
+            @if (r.pair_product; as pair) {
+            <p class="mt-1 text-xs text-(--text-secondary)" data-testid="request-pair-product">
+              <span class="font-bold" i18n="@@admin.requests.meta.pairWith">Pair with</span>&ngsp;
+              <a
+                [routerLink]="['/products', pair.slug]"
+                class="ms-1.5 text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ pair.name }}</a
+              >
+            </p>
+            }
           </div>
 
           <span class="shrink-0 text-xs text-(--text-secondary)">{{ age(r.created_at) }}</span>

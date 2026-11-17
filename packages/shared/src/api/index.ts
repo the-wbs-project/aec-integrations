@@ -41,6 +41,7 @@ export * from './page-views';
 export * from './page-view-raw';
 export * from './page-view-turnstile';
 export * from './product-facets';
+export * from './pair-alternatives';
 export * from './product-pairs';
 export * from './product-requests';
 export * from './product-versions';

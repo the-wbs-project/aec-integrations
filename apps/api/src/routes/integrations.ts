@@ -19,7 +19,9 @@ import {
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
   isClaimPubliclyBacked,
+  PairAlternativesSchema,
   PairTimelineResponseSchema,
+  type PairAlternatives,
   ProductPairResponseSchema,
   type IntegrationDetail,
   type RetiredIntegrationDetail,
@@ -54,13 +56,16 @@ import {
   integrationListConfig,
   integrationPairConfig,
   integrationTimelineConfig,
+  pairAlternativesConfig,
   pickPrimaryVendorRow,
   productPairSubjectConfig,
   productVersionDiffGateConfig,
   publicProductLinkConfig,
   toIntegrationDetail,
   toMechanismKind,
+  toPairAlternatives,
   toPairTimelines,
+  type RawPairAlternativesRow,
   toProductLink,
   toProductPairResponse,
   VERSION_ORDER,
@@ -876,6 +881,58 @@ export function createPairTimelineHandler(
       PairTimelineResponseSchema.parse(body);
     });
 
+    return json(body);
+  };
+}
+
+/**
+ * `GET /api/products/:slug/integrations/:otherSlug/alternatives` (AECI-341, AECI-1829,
+ * AECI-1830; `STAGE_1_5_SPEC.md` §11.3 and §11.4). The empty pair page's "What you would
+ * be moving" and closest matches, for both kept products, in one D1 round trip: one
+ * statement per product, through the product page's own relations and live filters.
+ *
+ * 404 rules mirror the pair read (unknown or hidden slug, equal slugs). The SSR resolver
+ * calls it only for an empty pair. The response reads no visitor, plan or license, so the
+ * page that embeds it stays in the shared, URL-keyed edge cache.
+ */
+export function createPairAlternativesHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const contextSlug = c.req.param('slug');
+    const otherSlug = c.req.param('otherSlug');
+    if (!contextSlug || !otherSlug) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product slug', { field: 'slug' });
+    }
+    if (contextSlug === otherSlug) {
+      throw notFoundError('product', { slug: otherSlug });
+    }
+    const { db } = dbFor(c.env);
+    // `findMany` + `limit: 1`, never `findFirst`, for the reason the pair read gives.
+    const [contextRows, otherRows] = await db.batch([
+      db.query.products.findMany({
+        ...pairAlternativesConfig,
+        where: and(eq(products.slug, contextSlug), visibleProductWhere),
+        limit: 1,
+      }),
+      db.query.products.findMany({
+        ...pairAlternativesConfig,
+        where: and(eq(products.slug, otherSlug), visibleProductWhere),
+        limit: 1,
+      }),
+    ]);
+    const [context] = contextRows;
+    const [other] = otherRows;
+    if (!context) throw notFoundError('product', { slug: contextSlug });
+    if (!other) throw notFoundError('product', { slug: otherSlug });
+
+    const body: PairAlternatives = toPairAlternatives(
+      context as unknown as RawPairAlternativesRow,
+      other as unknown as RawPairAlternativesRow,
+    );
+    validateResponseInDev(c.env, () => {
+      PairAlternativesSchema.parse(body);
+    });
     return json(body);
   };
 }

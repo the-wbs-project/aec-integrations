@@ -1172,8 +1172,10 @@ function buildDescription(env: Env, input: LinearIssueInput): string {
     `**Target:** ${input.targetName} (${input.targetType}, \`${input.slug}\`)`,
   ];
   if (input.contextProduct) {
+    // AECI-1828: on a correction the second product is the pair it was sent about.
+    const label = input.kind === 'correction' ? 'Pair with' : 'Came from';
     lines.push(
-      `**Came from:** ${input.contextProduct.name} (product, \`${input.contextProduct.slug}\`)`,
+      `**${label}:** ${input.contextProduct.name} (product, \`${input.contextProduct.slug}\`)`,
     );
   }
   lines.push(`**Submitter:** ${input.submitterEmail}`);

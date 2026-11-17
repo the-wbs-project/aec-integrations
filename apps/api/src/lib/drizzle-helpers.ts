@@ -63,6 +63,11 @@ import type {
   PoweredIntegrationItem,
   ProductDetail,
   ProductIntegrationItem,
+  PairAlternativeLane,
+  PairAlternativeMatch,
+  PairAlternatives,
+  IntegrationTerm,
+  ContextDirection,
   ProductLink,
   ProductListItem,
   ProductPairClaim,
@@ -1016,6 +1021,218 @@ export const productPairSubjectConfig = {
     evidencedPairsAsConnector: { ...listedEvidencedEdgeConfig, where: liveEvidencedPairWhere },
   },
 } as const;
+
+/**
+ * AECI-1829 / AECI-341: a lane match as the empty pair page's alternatives read loads it:
+ * the product-detail partner link plus its review figures. Public: the logo shows only
+ * while the match is claimed (`toProductLink`).
+ */
+const lanePartnerConfig = {
+  ...partnerProductLinkConfig,
+  columns: {
+    ...productLinkColumns,
+    reviewCount: true,
+    ratingOverallAvg: true,
+    ratingOnboardingAvg: true,
+  },
+} as const;
+
+/**
+ * AECI-1829 / AECI-1830: one of the empty pair's two products for the alternatives read.
+ * Its categories (the other lane's anchors) and its endpoint rows, through the SAME
+ * relations, row configs and live filters as `productDetailConfig`, so a match is exactly
+ * a partner its product page lists. One statement per product.
+ */
+export const pairAlternativesConfig = {
+  columns: { id: true, slug: true, name: true },
+  with: {
+    productCategories: {
+      columns: {},
+      with: { category: { columns: taxonomyLinkWithOrderColumns } },
+    },
+    sourceIntegrations: {
+      ...productDetailIntegrationConfig,
+      with: { ...productDetailIntegrationConfig.with, targetProduct: lanePartnerConfig },
+      where: liveIntegrationWhere,
+    },
+    targetIntegrations: {
+      ...productDetailIntegrationConfig,
+      with: { ...productDetailIntegrationConfig.with, sourceProduct: lanePartnerConfig },
+      where: liveIntegrationWhere,
+    },
+    evidencedPairsAsA: {
+      ...connectorEvidencedPairDetailConfig,
+      with: { ...connectorEvidencedPairDetailConfig.with, productB: lanePartnerConfig },
+      where: liveEvidencedPairWhere,
+    },
+    evidencedPairsAsB: {
+      ...connectorEvidencedPairDetailConfig,
+      with: { ...connectorEvidencedPairDetailConfig.with, productA: lanePartnerConfig },
+      where: liveEvidencedPairWhere,
+    },
+  },
+} as const;
+
+/** A lane match's raw partner: the link plus its review figures. */
+interface RawLanePartner extends RawProductLink {
+  reviewCount?: number;
+  ratingOverallAvg?: number | null;
+  ratingOnboardingAvg?: number | null;
+}
+
+/** One product as `pairAlternativesConfig` returns it. */
+export interface RawPairAlternativesRow {
+  id: string;
+  slug: string;
+  name: string;
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
+  sourceIntegrations: RawProductIntegrationRow[];
+  targetIntegrations: RawProductIntegrationRow[];
+  evidencedPairsAsA: RawProductEvidencedPairRow[];
+  evidencedPairsAsB: RawProductEvidencedPairRow[];
+}
+
+/** One product's endpoint rows as the product page maps them, each with its raw partner. */
+function laneRows(
+  raw: RawPairAlternativesRow,
+): Array<{ item: ProductIntegrationItem; partner: RawLanePartner }> {
+  return [
+    ...raw.sourceIntegrations.map((r) => ({
+      item: toProductIntegrationItem(r, true),
+      partner: r.targetProduct as RawLanePartner,
+    })),
+    ...raw.targetIntegrations.map((r) => ({
+      item: toProductIntegrationItem(r, false),
+      partner: r.sourceProduct as RawLanePartner,
+    })),
+    ...[...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB].map((r) => ({
+      item: toProductIntegrationItemFromEvidencedPair(r, raw.id),
+      partner: (r.productA.id === raw.id ? r.productB : r.productA) as RawLanePartner,
+    })),
+  ];
+}
+
+/** Two directions in one frame: opposing one-ways are a round trip, as the web merges. */
+function mergeLaneDirection(
+  left: ContextDirection | null,
+  right: ContextDirection | null,
+): ContextDirection | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left === right ? left : 'both';
+}
+
+/** The vocabulary order of a data object: `display_order`, nulls last, then name. */
+function compareDataObjectTerms(
+  x: { name: string; displayOrder: number | null },
+  y: { name: string; displayOrder: number | null },
+): number {
+  const xo = x.displayOrder ?? Number.MAX_SAFE_INTEGER;
+  const yo = y.displayOrder ?? Number.MAX_SAFE_INTEGER;
+  return xo - yo || compareText(x.name, y.name);
+}
+
+/**
+ * The distinct data objects a product's rows list, in the vocabulary's own order. The
+ * same claims the product page lists: public and not refuted (`productRowFacts`).
+ */
+function laneDataObjects(raw: RawPairAlternativesRow, partnerId?: string): IntegrationTerm[] {
+  const objects = new Map<string, { slug: string; name: string; displayOrder: number | null }>();
+  const take = (claims: readonly RawProductDetailClaimRow[]) => {
+    for (const claim of publicClaims(claims)) {
+      if (isClaimRefuted(claim.attestations)) continue;
+      const o = claim.dataObject;
+      objects.set(o.slug, { slug: o.slug, name: o.name, displayOrder: o.displayOrder ?? null });
+    }
+  };
+  const wanted = (id: string) => partnerId === undefined || id === partnerId;
+  for (const r of raw.sourceIntegrations) if (wanted(r.targetProduct.id)) take(r.claims);
+  for (const r of raw.targetIntegrations) if (wanted(r.sourceProduct.id)) take(r.claims);
+  for (const r of [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]) {
+    const partner = r.productA.id === raw.id ? r.productB : r.productA;
+    if (wanted(partner.id)) take(r.claims);
+  }
+  return [...objects.values()]
+    .sort(compareDataObjectTerms)
+    .map(({ slug, name }) => ({ slug, name }));
+}
+
+/** Name A to Z, case-blind, then id: ruling R1's order for a new on-page list. */
+function compareMatches(x: PairAlternativeMatch, y: PairAlternativeMatch): number {
+  const byName = compareText(x.product.name, y.product.name);
+  if (byName !== 0) return byName;
+  return x.product.id < y.product.id ? -1 : x.product.id > y.product.id ? 1 : 0;
+}
+
+/**
+ * One lane: keep `kept`, match against `swapped`'s categories. A to Z by name, id as the
+ * tie-break (ruling R1). The edges to one partner collapse into one match.
+ */
+function toLane(
+  kept: RawPairAlternativesRow,
+  swapped: RawPairAlternativesRow,
+): PairAlternativeLane {
+  const anchors = swapped.productCategories
+    .map((r) => r.category)
+    .sort(compareTermsByDisplayOrder)
+    .map(toTaxonomyLink);
+  const anchorSlugs = new Set(anchors.map((a) => a.slug));
+  const byPartner = new Map<string, { partner: RawLanePartner; items: ProductIntegrationItem[] }>();
+  for (const { item, partner } of laneRows(kept)) {
+    if (partner.id === kept.id || partner.id === swapped.id) continue;
+    const entry = byPartner.get(partner.id);
+    if (entry) entry.items.push(item);
+    else byPartner.set(partner.id, { partner, items: [item] });
+  }
+  const matches: PairAlternativeMatch[] = [];
+  for (const { partner, items } of byPartner.values()) {
+    const shared = (items[0]?.partner_categories ?? []).filter((c) => anchorSlugs.has(c.slug));
+    if (shared.length === 0) continue;
+    const reviews = partner.reviewCount ?? 0;
+    const rated = reviews >= RATING_VISIBILITY_MIN_REVIEWS;
+    const agreement = integrationAgreement(
+      items.flatMap((i) => (i.agreement ? [{ agreement: i.agreement }] : [])),
+    );
+    matches.push({
+      product: toProductLink(partner),
+      vendor_name: items[0]?.partner_vendor_name ?? null,
+      review_count: reviews,
+      rating_overall_avg: rated ? (partner.ratingOverallAvg ?? null) : null,
+      rating_onboarding_avg: rated ? (partner.ratingOnboardingAvg ?? null) : null,
+      shared_categories: shared,
+      data_objects: laneDataObjects(kept, partner.id),
+      direction: items.reduce<ContextDirection | null>(
+        (d, i) => mergeLaneDirection(d, i.context_direction),
+        null,
+      ),
+      confirmed: agreement === 'confirmed',
+    });
+  }
+  return { anchors, matches: matches.sort(compareMatches) };
+}
+
+/**
+ * `GET /api/products/:slug/integrations/:otherSlug/alternatives` (AECI-341, AECI-1829,
+ * AECI-1830). `moving` groups each product's distinct data objects; the two lanes list
+ * the closest matches. A pure function of the two rows: no plan, license or paid input.
+ */
+export function toPairAlternatives(
+  context: RawPairAlternativesRow,
+  other: RawPairAlternativesRow,
+): PairAlternatives {
+  const a = laneDataObjects(context);
+  const b = laneDataObjects(other);
+  const bSlugs = new Set(b.map((t) => t.slug));
+  const aSlugs = new Set(a.map((t) => t.slug));
+  return {
+    moving: {
+      context_only: a.filter((t) => !bSlugs.has(t.slug)),
+      both: a.filter((t) => bSlugs.has(t.slug)),
+      other_only: b.filter((t) => !aSlugs.has(t.slug)),
+    },
+    lanes: { context: toLane(context, other), other: toLane(other, context) },
+  };
+}
 
 /** Detail adds editorial fields, taxonomy joins, both integration sides. */
 export const productDetailConfig = {
@@ -2949,6 +3166,39 @@ export interface RawAdminVendorRequestRow {
  * rows into this shape first; product and vendor ids are both UUIDs, so the one
  * returned map cannot collide.
  */
+/**
+ * AECI-1828: the page's rows plus one `(product, context_product_id)` pseudo-target per
+ * pair correction, so `resolveRequestTargets` hydrates the "Pair with" product in the
+ * same batched scan. Product and vendor ids are both UUIDs, so the map cannot collide.
+ */
+export function withPairProducts(
+  rows: ReadonlyArray<{
+    kind: string;
+    targetType: string;
+    targetId: string;
+    contextProductId: string | null;
+  }>,
+): Array<{ targetType: string; targetId: string }> {
+  return [
+    ...rows,
+    ...rows.flatMap((r) =>
+      r.kind === 'correction' && r.contextProductId
+        ? [{ targetType: 'product', targetId: r.contextProductId }]
+        : [],
+    ),
+  ];
+}
+
+/** The hydrated "Pair with" product of one pair correction, or `null` (AECI-1828). */
+export function pairProductOf(
+  row: { kind: string; contextProductId: string | null },
+  targets: ReadonlyMap<string, LinkRef>,
+): LinkRef | null {
+  return row.kind === 'correction' && row.contextProductId
+    ? (targets.get(row.contextProductId) ?? null)
+    : null;
+}
+
 export async function resolveRequestTargets(
   db: Db,
   rows: ReadonlyArray<{ targetType: string; targetId: string }>,
@@ -2998,6 +3248,9 @@ export function toAdminVendorRequest(
    *  empty so the single-row PATCH confirmation — which does not fan out to
    *  GoTrue — reports `null` without needing to pass anything. */
   authAccountByEmail: ReadonlyMap<string, AuthAccountRef | null> = new Map(),
+  /** AECI-1828: the pair's other product on a pair correction, hydrated by the caller
+   *  through `pairProductTargets`. `null` for every other row. */
+  pairProduct: LinkRef | null = null,
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -3006,6 +3259,7 @@ export function toAdminVendorRequest(
     target_type: raw.targetType as AdminVendorRequest['target_type'],
     target_id: raw.targetId,
     target,
+    pair_product: raw.kind === 'correction' ? pairProduct : null,
     submitter_email: raw.submitterEmail,
     submitter_name: raw.submitterName,
     submitter_role: raw.submitterRole,

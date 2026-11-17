@@ -695,3 +695,28 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(body.error.message).toContain('/admin/claims');
   });
 });
+
+describe('GET /api/admin/requests: the pair product of a pair correction (AECI-1828)', () => {
+  const PAIR_ID = '77777777-7777-4777-8777-777777777777';
+
+  it('names the pair product on a correction, never on a claim', async () => {
+    await t.db.insert(products).values({ id: PAIR_ID, slug: 'other-tool', name: 'Other Tool' });
+    await seed(
+      reqRow({ kind: 'correction', contextProductId: PAIR_ID }),
+      reqRow({
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        kind: 'claim',
+        contextProductId: PAIR_ID,
+        createdAt: '2026-05-01T00:00:00.000Z',
+      }),
+    );
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+    const correction = parsed.data.find((r) => r.kind === 'correction')!;
+    expect(correction.pair_product).toEqual({
+      id: PAIR_ID,
+      name: 'Other Tool',
+      slug: 'other-tool',
+    });
+    expect(parsed.data.find((r) => r.kind === 'claim')!.pair_product).toBeNull();
+  });
+});

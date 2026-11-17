@@ -4,7 +4,11 @@
  */
 
 import type { ClaimDirection, ProductPairResponse } from '@aeci/shared';
-import { ProductPairResponseSchema, countListedIntegrationRows } from '@aeci/shared';
+import {
+  PairAlternativesSchema,
+  ProductPairResponseSchema,
+  countListedIntegrationRows,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,7 +37,7 @@ import {
 import { resolveMovedPair } from '../lib/pair-redirect';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createProductPairHandler } from './integrations';
+import { createPairAlternativesHandler, createProductPairHandler } from './integrations';
 import { createProductDetailHandler } from './products';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -2460,5 +2464,110 @@ describe('GET /api/products/:slug/integrations/:otherSlug — listed_integration
     await get('/api/products/procore/integrations/revit');
     expect((batch.mock.calls[0]?.[0] as readonly unknown[]).length).toBe(12);
     batch.mockRestore();
+  });
+});
+
+// AECI-341 / AECI-1829 / AECI-1830: the empty pair page's alternatives read.
+describe('GET /api/products/:slug/integrations/:otherSlug/alternatives', () => {
+  const alternatives = (url: string) =>
+    buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug/integrations/:otherSlug/alternatives',
+      handler: createPairAlternativesHandler(t.factory),
+    }).request(url, {}, TEST_ENV, fakeExecutionContext());
+
+  /** Procore and Revit share no edge. Procore connects to three partners. */
+  async function seedAlternatives() {
+    await seedProducts();
+    await t.db.insert(products).values([
+      { id: u(3), slug: 'zeta-pm', name: 'zeta PM', promotionStatus: 'promoted' },
+      { id: u(4), slug: 'alpha-pm', name: 'Alpha PM', promotionStatus: 'promoted' },
+      {
+        id: u(5),
+        slug: 'beta-erp',
+        name: 'Beta ERP',
+        promotionStatus: 'promoted',
+        reviewCount: 7,
+        ratingOverallAvg: 4.2,
+        ratingOnboardingAvg: 3.9,
+      },
+    ]);
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(301), slug: 'pm', name: 'Project management', displayOrder: 1 },
+      { id: u(302), slug: 'erp', name: 'ERP', displayOrder: 2 },
+      { id: u(303), slug: 'cad', name: 'CAD', displayOrder: 3 },
+    ]);
+    await t.db.insert(productCategories).values([
+      // Revit (the other product) carries pm and erp: the anchors of Procore's lane.
+      { productId: u(2), categoryId: u(301) },
+      { productId: u(2), categoryId: u(302) },
+      { productId: u(3), categoryId: u(301) },
+      { productId: u(4), categoryId: u(301) },
+      { productId: u(5), categoryId: u(303) },
+    ]);
+    await dataObject(u(20), 'rfis', 'RFIs', 2);
+    await dataObject(u(21), 'drawings', 'Drawings', 1);
+    await integration(u(10), u(1), u(3));
+    await integration(u(11), u(4), u(1));
+    await integration(u(12), u(1), u(5));
+    await integration(u(13), u(2), u(5));
+    await claim(u(30), u(10), u(20), 'a_to_b');
+    await claim(u(31), u(11), u(21), 'a_to_b');
+    await claim(u(32), u(13), u(20), 'a_to_b');
+  }
+
+  it('lists the kept product matches A to Z that share a category with the other product', async () => {
+    await seedAlternatives();
+    const res = await alternatives('/api/products/procore/integrations/revit/alternatives');
+    expect(res.status).toBe(200);
+    const body = PairAlternativesSchema.parse(await res.json());
+    expect(body.lanes.context.anchors.map((a) => a.slug)).toEqual(['pm', 'erp']);
+    // Beta ERP is a partner of Procore but shares no category with Revit: not a match.
+    // Case never decides the order: "Alpha PM" before "zeta PM".
+    expect(body.lanes.context.matches.map((m) => m.product.slug)).toEqual(['alpha-pm', 'zeta-pm']);
+    const zeta = body.lanes.context.matches[1]!;
+    expect(zeta.shared_categories.map((c) => c.slug)).toEqual(['pm']);
+    expect(zeta.data_objects.map((d) => d.slug)).toEqual(['rfis']);
+    expect(zeta.direction).toBe('outbound');
+    expect(zeta.confirmed).toBe(false);
+    // Keep Revit: its only partner, Beta ERP, carries no Procore category (Procore has none).
+    expect(body.lanes.other.anchors).toEqual([]);
+    expect(body.lanes.other.matches).toEqual([]);
+  });
+
+  it('groups the data objects each product exchanges, in the vocabulary order', async () => {
+    await seedAlternatives();
+    const body = PairAlternativesSchema.parse(
+      await (await alternatives('/api/products/procore/integrations/revit/alternatives')).json(),
+    );
+    expect(body.moving.context_only.map((d) => d.slug)).toEqual(['drawings']);
+    expect(body.moving.both.map((d) => d.slug)).toEqual(['rfis']);
+    expect(body.moving.other_only).toEqual([]);
+  });
+
+  it('withholds a match rating under five reviews and reads one statement per product', async () => {
+    await seedAlternatives();
+    await t.db.insert(productCategories).values({ productId: u(5), categoryId: u(302) });
+    const batch = vi.spyOn(t.db, 'batch');
+    const body = PairAlternativesSchema.parse(
+      await (await alternatives('/api/products/procore/integrations/revit/alternatives')).json(),
+    );
+    expect((batch.mock.calls[0]?.[0] as readonly unknown[]).length).toBe(2);
+    batch.mockRestore();
+    const beta = body.lanes.context.matches.find((m) => m.product.slug === 'beta-erp')!;
+    expect(beta.review_count).toBe(7);
+    expect(beta.rating_overall_avg).toBe(4.2);
+    const alpha = body.lanes.context.matches.find((m) => m.product.slug === 'alpha-pm')!;
+    expect(alpha.rating_overall_avg).toBeNull();
+  });
+
+  it('404s an unknown slug and equal slugs', async () => {
+    await seedProducts();
+    expect(
+      (await alternatives('/api/products/procore/integrations/nope/alternatives')).status,
+    ).toBe(404);
+    expect(
+      (await alternatives('/api/products/procore/integrations/procore/alternatives')).status,
+    ).toBe(404);
   });
 });

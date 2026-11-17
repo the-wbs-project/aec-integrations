@@ -75,7 +75,9 @@ import {
 } from '../lib/audit';
 import {
   adminVendorRequestConfig,
+  pairProductOf,
   resolveRequestTargets,
+  withPairProducts,
   toAdminVendorRequest,
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
@@ -232,7 +234,7 @@ export function createAdminRequestsListHandler(
     // latency. Keep the claim gate in step with `toAdminVendorRequest`.
     const claimEmails = rows.filter((r) => r.kind === 'claim').map((r) => r.submitterEmail);
     const [targets, authAccountByEmail] = await Promise.all([
-      resolveRequestTargets(db, rows),
+      resolveRequestTargets(db, withPairProducts(rows)),
       fetchAuthAccounts(c.env, claimEmails),
     ]);
 
@@ -243,6 +245,7 @@ export function createAdminRequestsListHandler(
           isDuplicate(row),
           targets.get(row.targetId) ?? null,
           authAccountByEmail,
+          pairProductOf(row, targets),
         ),
       ),
       page: query.page,
@@ -414,11 +417,13 @@ export function createModerateRequestHandler(
     // `is_duplicate` is `false` on the single-row confirmation (the dashboard
     // re-fetches the list, which recomputes it). Hydrate the target `LinkRef`
     // (AECI-217) from the one row's `(target_type, target_id)`.
-    const targets = await resolveRequestTargets(db, [existing]);
+    const targets = await resolveRequestTargets(db, withPairProducts([existing]));
     const body: ModerateRequestResponse = toAdminVendorRequest(
       { ...existing, status: newStatus, resolvedById: userId, resolvedAt },
       false,
       targets.get(existing.targetId) ?? null,
+      new Map(),
+      pairProductOf(existing, targets),
     );
 
     validateResponseInDev(c.env, () => {

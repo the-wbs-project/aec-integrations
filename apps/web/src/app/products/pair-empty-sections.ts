@@ -495,11 +495,15 @@ function share(value: number, a: number, b: number): number {
               class="min-w-0 overflow-hidden"
               [attr.data-testid]="'pair-empty-look-' + s.key"
             >
+              <!-- Mock-up 5's head: a coloured band for a claimed product, in AECi's own
+                   Forest (we hold no vendor brand colours), and the neutral head for an
+                   unclaimed one, which gets no colour (ruling R7). -->
               <div
-                class="relative flex items-center gap-4 overflow-hidden bg-(--surface-sunken) p-6 md:px-8"
+                [class]="p.claim_status === 'claimed' ? headClaimed : headNeutral"
+                [attr.data-head]="p.claim_status === 'claimed' ? 'brand' : 'neutral'"
               >
                 <span
-                  class="pointer-events-none absolute -end-15 -top-20 size-60 rounded-full bg-(--surface-sunken-hover) opacity-50"
+                  [class]="p.claim_status === 'claimed' ? sheenClaimed : sheenNeutral"
                   aria-hidden="true"
                 ></span>
                 <span class="relative size-13.5 shrink-0 [&>*]:size-full [&_span]:text-t-24">
@@ -523,7 +527,7 @@ function share(value: number, a: number, b: number): number {
                   @if (p.vendor; as v) {
                     @if (s.publishedBy) {
                       <p
-                        class="m-0 text-t-14 text-(--text-secondary)"
+                        [class]="p.claim_status === 'claimed' ? bylineClaimed : bylineNeutral"
                         data-testid="pair-look-published-by"
                         i18n="@@pair.empty.look.publishedBy"
                       >
@@ -531,7 +535,7 @@ function share(value: number, a: number, b: number): number {
                       </p>
                     } @else {
                       <p
-                        class="m-0 text-t-14 text-(--text-secondary)"
+                        [class]="p.claim_status === 'claimed' ? bylineClaimed : bylineNeutral"
                         data-testid="pair-look-by"
                         i18n="@@pair.empty.facts.by"
                       >
@@ -740,6 +744,19 @@ export class PairEmptySections {
   protected readonly focusRing = FOCUS_RING;
   protected readonly chipMark = CHIP_MARK;
   protected readonly display = displayUrl;
+
+  /** The vendor card head (mock-up 5 `.lc-head`): Forest for a claimed product, neutral
+   *  for an unclaimed one, with the mock-up's sheen circle. */
+  protected readonly headClaimed =
+    'relative flex items-center gap-4 overflow-hidden bg-(--accent-primary) p-6 text-(--text-on-brand) md:px-8';
+  protected readonly headNeutral =
+    'relative flex items-center gap-4 overflow-hidden bg-(--surface-sunken) p-6 md:px-8';
+  protected readonly sheenClaimed =
+    'pointer-events-none absolute -end-15 -top-20 size-60 rounded-full bg-(--surface-on-brand-wash)';
+  protected readonly sheenNeutral =
+    'pointer-events-none absolute -end-15 -top-20 size-60 rounded-full bg-(--surface-sunken-hover) opacity-50';
+  protected readonly bylineClaimed = 'm-0 text-t-14 text-(--text-on-brand-secondary)';
+  protected readonly bylineNeutral = 'm-0 text-t-14 text-(--text-secondary)';
 
   /** Mock-up 5's band: 96px above and below from md, 64px below it. */
   protected readonly wrap = `${BAND_WRAP_CLASS} py-16 md:py-24`;

@@ -9,7 +9,7 @@
  * hydration-miss branch fetches the same endpoint via the same-origin `/api/*`
  * passthrough (`http-get-or-null.ts`), not this client.
  */
-import type { ProductPairResponse } from '@aeci/shared';
+import type { PairAlternatives, ProductPairResponse } from '@aeci/shared';
 
 import type { ServerApiClient } from '../../../server-api-client';
 import { fetchOrNull } from './fetch-or-null';
@@ -69,3 +69,31 @@ export async function fetchProductPair(
 ): Promise<ProductPairResponse | null> {
   return fetchOrNull<ProductPairResponse>(client, pairPath(contextSlug, otherSlug, selection));
 }
+
+/**
+ * AECI-1829 / AECI-1830: the empty pair page's alternatives ("What you would be moving"
+ * and the closest matches), `GET /api/products/:slug/integrations/:otherSlug/alternatives`.
+ * The SSR resolver calls it for an empty pair only. `null` on a `NOT_FOUND`.
+ */
+export function pairAlternativesPath(contextSlug: string, otherSlug: string): string {
+  return `/api/products/${encodeURIComponent(contextSlug)}/integrations/${encodeURIComponent(
+    otherSlug,
+  )}/alternatives`;
+}
+
+export async function fetchPairAlternatives(
+  client: ServerApiClient,
+  contextSlug: string,
+  otherSlug: string,
+): Promise<PairAlternatives | null> {
+  return fetchOrNull<PairAlternatives>(client, pairAlternativesPath(contextSlug, otherSlug));
+}
+
+/**
+ * What the pair route resolves: the pair, plus, for an empty pair only, its alternatives.
+ * One object, so one `TransferState` slot carries both and the page renders them on the
+ * server, the same for every visitor.
+ */
+export type PairPageData = ProductPairResponse & {
+  readonly alternatives?: PairAlternatives | null;
+};

@@ -45,6 +45,8 @@ import {
   directionGlyph,
   directionHeading,
 } from './pair-direction-labels';
+import type { PairPageData } from '../core/api/product-pairs';
+import { PairEmptyAlternatives } from './pair-empty-alternatives';
 import { PairEmptySections } from './pair-empty-sections';
 import { PairEmptyStage } from './pair-empty-stage';
 import { RequestDrawer } from '../requests/request-drawer';
@@ -601,6 +603,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     RouterLink,
     Chip,
     PairEmptySections,
+    PairEmptyAlternatives,
     PairEmptyStage,
     AecButton,
     RequestTrigger,
@@ -620,7 +623,7 @@ function writePairViewCookie(mode: PairViewMode): void {
       <aec-hero-band
         titleSize="statement"
         panel="bare"
-        [panelFrom]="v.mechanisms.length > 0 ? 'lg' : 'xl'"
+        [panelFrom]="v.mechanisms.length > 0 ? 'lg' : 'wide'"
       >
         <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
@@ -722,6 +725,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                 [entity]="'product'"
                 [kind]="'correction'"
                 [slug]="context.slug"
+                [pairSlug]="other.slug"
                 [bodyPrefill]="knowPrefill()"
                 [href]="'/products/' + context.slug + '/correction'"
                 aria-describedby="pair-empty-know-line"
@@ -855,6 +859,12 @@ function writePairViewCookie(mode: PairViewMode): void {
       </aec-hero-band>
 
       @if (v.mechanisms.length === 0) {
+        <!-- AECI-1830 and AECI-1829: "What you would be moving" (the page's one Bone band)
+             and the closest matches, where mock-up 5 has them (ruling R6). Absent when the
+             alternatives read failed: the rest of the page stands on its own. -->
+        @if (alternatives(); as alt) {
+          <aec-pair-empty-alternatives [context]="context" [other]="other" [alternatives]="alt" />
+        }
         <!-- AECI-1827, AECI-1835: the empty pair's body, its own two bands. Exactly when the
              pair has no integration and no connector-evidenced pair (the API returns both
              as mechanisms). -->
@@ -1394,8 +1404,12 @@ function writePairViewCookie(mode: PairViewMode): void {
         </section>
       }
 
-      <!-- The page's one Bone band (ruling 12 of 2026-11-16). -->
-      <aec-mailing-list-signup />
+      <!-- The page's one Bone band (ruling 12 of 2026-11-16). On an empty pair with its
+           alternatives, "What you would be moving" is that band, as in mock-up 5, which has
+           no mailing list. -->
+      @if (v.mechanisms.length > 0 || !alternatives()) {
+        <aec-mailing-list-signup />
+      }
 
       <!-- The in-place correction drawer (AECI-128) that the empty pair's "It does exist"
            trigger opens, as on the product page. Without it the trigger cancels the click
@@ -1447,10 +1461,13 @@ export class ProductsPairPage {
   protected readonly caveatShown = computed(() => this.pair()?.mechanisms.length === 0);
 
   /** Resolved pair (or `null` on NOT_FOUND); SSR-hydrated from `TransferState`. */
-  private readonly pair = toSignal<ProductPairResponse | null, ProductPairResponse | null>(
-    this.route.data.pipe(map((d) => (d['pair'] ?? null) as ProductPairResponse | null)),
-    { initialValue: (this.route.snapshot.data['pair'] ?? null) as ProductPairResponse | null },
+  private readonly pair = toSignal<PairPageData | null, PairPageData | null>(
+    this.route.data.pipe(map((d) => (d['pair'] ?? null) as PairPageData | null)),
+    { initialValue: (this.route.snapshot.data['pair'] ?? null) as PairPageData | null },
   );
+
+  /** AECI-1829 / AECI-1830: the empty pair's alternatives, when the read returned them. */
+  protected readonly alternatives = computed(() => this.pair()?.alternatives ?? null);
 
   /** The reader's remembered Basic/Detailed choice, or `null` until hydrated.
    *  Populated ONLY post-hydration (see the constructor + the cookie helpers) so

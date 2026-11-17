@@ -125,13 +125,16 @@ import {
 } from '@angular/core';
 import { ResolveFn, Router } from '@angular/router';
 
-import { orderedPairSlugs, type ProductPairResponse } from '@aeci/shared';
+import { orderedPairSlugs, type PairAlternatives, type ProductPairResponse } from '@aeci/shared';
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import type { AeciRequestContext } from '../../server/request-context';
 import {
+  fetchPairAlternatives,
   fetchProductPair,
+  pairAlternativesPath,
   pairPath,
+  type PairPageData,
   type PairVersionSelectionParams,
 } from '../core/api/product-pairs';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
@@ -357,9 +360,19 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // always has one, and a null router simply skips the redirect and renders.
     const router = inject(Router, { optional: true });
     const http = inject(HttpClient);
-    const pair = transferState.hasKey(stateKey)
+    const transferred = transferState.hasKey(stateKey);
+    let pair: PairPageData | null = transferred
       ? transferState.get(stateKey, null)
       : await httpGetOrNull<ProductPairResponse>(http, pairPath(contextSlug, otherSlug, selection));
+    // AECI-1829 / AECI-1830: an in-app navigation to an empty pair reads its alternatives
+    // too. A hydration hit already carries what the server rendered, in the same slot.
+    if (!transferred && pair && pair.mechanisms.length === 0 && !pair.moved_to) {
+      const alternatives = await httpGetOrNull<PairAlternatives>(
+        http,
+        pairAlternativesPath(contextSlug, otherSlug),
+      );
+      pair = { ...pair, alternatives };
+    }
 
     // AECI-953 — the client half of the moved-pair redirect. A SPA navigation has no
     // HTTP status, so the equivalent of a 301 is a `replaceUrl` navigation: the moved
@@ -397,7 +410,12 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     return null;
   }
 
-  const pair = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
+  let pair: PairPageData | null = await fetchProductPair(
+    ctx.api,
+    contextSlug,
+    otherSlug,
+    selection,
+  );
 
   // ── AECI-953: the moved-pair 301, before anything else the server does ──────
   // Checked ahead of the `!pair` 404 branch and ahead of the TransferState write:
@@ -425,6 +443,16 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     headers.set('Cache-Tag', `pair:${minSlug}__${maxSlug}`);
     transferState.set(stateKey, null);
     return null;
+  }
+
+  // AECI-1829 / AECI-1830: an empty pair renders its alternatives on the server, in the
+  // same TransferState slot, so the cached HTML holds them for every visitor. A failed
+  // read renders the page without them rather than failing it.
+  if (pair && pair.mechanisms.length === 0) {
+    const alternatives = await fetchPairAlternatives(ctx.api, contextSlug, otherSlug).catch(
+      () => null,
+    );
+    pair = { ...pair, alternatives };
   }
 
   transferState.set(stateKey, pair);
@@ -465,6 +493,12 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     if (mechanism.powered_by_product) {
       ctx.embedded.push({ type: 'product', slug: mechanism.powered_by_product.slug });
     }
+  }
+  // AECI-341: the closest matches are data-derived, so a purge on any matched product
+  // must reach this page. Both lanes render in the HTML, so both are tagged.
+  const lanes = pair.alternatives?.lanes;
+  for (const match of [...(lanes?.context.matches ?? []), ...(lanes?.other.matches ?? [])]) {
+    ctx.embedded.push({ type: 'product', slug: match.product.slug });
   }
 
   return pair;

@@ -229,7 +229,7 @@ describe('aec-hero-band, statement title and bare panel (AECI-1798)', () => {
   selector: 'aec-hero-band-empty-pair-host',
   imports: [HeroBand],
   template: `
-    <aec-hero-band titleSize="statement" panel="bare" panelFrom="xl">
+    <aec-hero-band titleSize="statement" panel="bare" panelFrom="wide">
       <span heroTitle>We have no integration between A and B on record.</span>
       <div heroPanel>Diagram</div>
     </aec-hero-band>
@@ -237,8 +237,8 @@ describe('aec-hero-band, statement title and bare panel (AECI-1798)', () => {
 })
 class EmptyPairHost {}
 
-describe('aec-hero-band, panel from xl (AECI-1835)', () => {
-  it('stacks the panel until xl, then gives it 540px; the default stays at lg', async () => {
+describe('aec-hero-band, the wide panel from 1040px (AECI-1835)', () => {
+  it('stacks the panel below 1040px, then gives it 540px; the default stays at lg', async () => {
     await TestBed.configureTestingModule({
       imports: [EmptyPairHost, PairHost],
       providers: [provideZonelessChangeDetection()],
@@ -248,12 +248,14 @@ describe('aec-hero-band, panel from xl (AECI-1835)', () => {
     const grid = (empty.nativeElement as HTMLElement).querySelector(
       '[data-testid="hero-band-grid"]',
     )!;
-    expect(grid.classList).toContain('xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]');
+    expect(grid.classList).toContain(
+      'min-[1040px]:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]',
+    );
     expect([...grid.classList].some((c) => c.startsWith('lg:'))).toBe(false);
-    // Top-aligned from xl: a centred text column moved whole when a font swap re-wrapped
+    // Top-aligned from 1040px: a centred text column moved whole when a font swap re-wrapped
     // a long name beside the taller diagram (layout shift 0.068 at 1280).
-    expect(grid.classList).toContain('xl:items-start');
-    expect(grid.classList).not.toContain('xl:items-center');
+    expect(grid.classList).toContain('min-[1040px]:items-start');
+    expect(grid.classList).not.toContain('min-[1040px]:items-center');
     const pair = TestBed.createComponent(PairHost);
     await pair.whenStable();
     const pairGrid = (pair.nativeElement as HTMLElement).querySelector(

@@ -357,6 +357,54 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     }
   });
 
+  test('renders What you would be moving and the closest matches on the server (AECI-1829, AECI-1830)', async ({
+    browser,
+    request,
+  }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    await expect(page.getByTestId('pair-empty-moving').locator('h2')).toHaveText(
+      'The data each product already exchanges',
+    );
+    await expect(page.getByTestId('pair-empty-matches').locator('h2')).toHaveText(
+      'Keep one product. See what it already connects to.',
+    );
+    await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page.getByTestId('pair-matches-order')).toContainText(
+      'Products run A to Z by name.',
+    );
+    await context.close();
+  });
+
+  test('the keep toggle switches the lane after hydration and the count is announced', async ({
+    page,
+    request,
+  }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`, {
+      waitUntil: 'networkidle',
+    });
+    await expect(page.getByTestId('pair-matches-count')).toHaveAttribute('aria-live', 'polite');
+    const other = page.getByTestId('pair-matches-keep-other');
+    await expect(async () => {
+      await other.click();
+      await expect(other).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
+    }).toPass();
+    await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
   test('server-renders the four legal-reviewed strings with JavaScript off', async ({
     browser,
     request,
@@ -386,7 +434,7 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     // AECI-1835: mock-up 5's diagram and correction entry are in the server HTML.
     await expect(page.getByTestId('pair-empty-medallion')).toHaveText('No integration on record');
     await expect(
-      page.getByTestId('pair-empty-stage').locator('svg[viewBox="0 0 540 280"]'),
+      page.getByTestId('pair-empty-stage').locator('svg[viewBox="0 0 540 270"]'),
     ).toHaveAttribute('aria-hidden', 'true');
     await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
     await context.close();

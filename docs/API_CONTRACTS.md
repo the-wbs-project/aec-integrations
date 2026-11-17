@@ -1254,6 +1254,35 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
 
+#### `GET /api/products/:slug/integrations/:otherSlug/alternatives` (AECI-341 · AECI-1829 · AECI-1830)
+
+The empty pair page's "What you would be moving" and closest matches (`STAGE_1_5_SPEC.md` §11.3 and §11.4). Public, no session. Source of truth: `packages/shared/src/api/pair-alternatives.ts` (`PairAlternativesSchema`), `createPairAlternativesHandler` in `apps/api/src/routes/integrations.ts`, `toPairAlternatives` in `apps/api/src/lib/drizzle-helpers.ts`.
+
+```typescript
+PairAlternatives = {
+  moving: { context_only: IntegrationTerm[]; both: IntegrationTerm[]; other_only: IntegrationTerm[] };
+  lanes: { context: PairAlternativeLane; other: PairAlternativeLane };
+};
+PairAlternativeLane = { anchors: LinkRef[]; matches: PairAlternativeMatch[] };
+PairAlternativeMatch = {
+  product: ProductLink; // logo withheld while unclaimed
+  vendor_name: string | null;
+  review_count: number;
+  rating_overall_avg: number | null; // null under five reviews
+  rating_onboarding_avg: number | null;
+  shared_categories: IntegrationTerm[]; // the match's categories the other product carries
+  data_objects: IntegrationTerm[]; // on the kept product's integrations with the match
+  direction: 'outbound' | 'inbound' | 'both' | null; // from the kept product's side
+  confirmed: boolean; // a label only (ruling R1)
+};
+```
+
+- **One round trip.** One statement per product, through the product page's own endpoint relations and live filters (`pairAlternativesConfig`). A match is exactly a partner the kept product's page lists.
+- **`moving`.** Each product's distinct data objects across its integrations on record, public and not refuted, as the product page lists them. Three groups, each in the data-object vocabulary's order (`display_order`, nulls last, then name). It orders nothing.
+- **A lane.** Keep one product. `anchors` are the other product's categories in its own order. A match has an integration on record with the kept product and shares at least one anchor. Neither of the pair's products is a match. Edges to one partner collapse into one match.
+- **Order (ruling R1).** Matches run A to Z by name with `compareText`, the id breaking a tie. Nothing else. No plan, license or paid input is read; the on-page ordering firewall registers it as `pair-page-closest-matches`.
+- The SSR resolver calls it for an empty pair only and embeds every match's `product:` cache tag. Errors: `NOT_FOUND` (404, either slug unknown or hidden, or the two equal), `VALIDATION_FAILED` (400, a missing slug).
+
 #### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
 
 The pair's **per-claim attestation history** (§9.1), read off the append-only rows: §2.1's supersession is retract-then-insert, never an in-place `UPDATE`, precisely so this read has something to show. A claim a vendor deleted (AECI-1245) takes its rows with it, so it has no history here.
@@ -1628,11 +1657,14 @@ export const ClaimTargetResponseSchema = z.object({
 export const CorrectionRequestSchema = CorrectionFormSchema.extend({
   target_type: z.enum(['product', 'vendor']),
   slug: z.string().min(1),
+  pair_slug: z.string().min(1).optional(), // AECI-1828
 });
 // CorrectionFormSchema = { body (20–2000),
 //                          source_url ('' or a valid URL ≤500),
 //                          submitter_email (email, ≤200) }
 ```
+
+**`pair_slug` (AECI-1828, `STAGE_1_5_SPEC.md` §11.5).** The empty pair page's "It does exist" sends the pair's other product. On a product target the request records both products: the target, and this one in `vendor_requests.context_product_id`. The audit row carries `pair_product_id` and `pair_product_slug`, and the Linear issue reads "Pair with". A slug that resolves to no listed product, or equals the target, records a plain correction. `GET /api/admin/requests` returns it as `pair_product`.
 
 Both return `RequestSubmitResponse` (`{ request_id: string; message: string; confirmation_required: boolean }`) with HTTP `201`. A correction never waits on a link, so its `confirmation_required` is always `false` (AECI-1435). Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
 
@@ -2367,7 +2399,7 @@ Errors: `NOT_FOUND`; `INVALID_STATE_TRANSITION` (422) if the review is not in th
 
 #### `GET /api/admin/requests`
 
-Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9).
+Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9). Since AECI-1828 each row carries `pair_product: LinkRef | null`: on a correction sent from an empty pair page, the pair's other product, shown as "Pair with"; `null` on every other row.
 Source of truth: `packages/shared/src/api/admin-requests.ts` (Zod), `apps/api/src/routes/admin-requests.ts` (handlers).
 
 ```typescript

@@ -37,10 +37,9 @@ const CARD_CATEGORIES = 2;
   selector: 'aec-pair-empty-stage',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AecIcon, Chip, LogoOrInitial, RouterLink, UnclaimedNote],
-  // Stacked between lg and xl, the 540px diagram sits at the end of the row, so the band's
-  // right half is not left blank under a full-width statement (it is beside it from xl).
+  // Beside the statement from 1040px, as mock-up 5 has it; under it, at the start, below.
   host: {
-    class: 'block lg:ms-auto lg:w-fit xl:ms-0 xl:w-auto xl:py-6',
+    class: 'block min-[1040px]:pt-6',
     'data-testid': 'pair-empty-stage',
   },
   styles: `
@@ -69,7 +68,7 @@ const CARD_CATEGORIES = 2;
           <!-- The join: the ribbons and the medallion from md, a Clay tick above and below
                the label below md. -->
           <div
-            class="relative flex flex-col items-center py-6 md:z-0 md:-my-10 md:h-[280px] md:py-0"
+            class="relative flex flex-col items-center py-6 md:z-0 md:-my-12 md:h-[270px] md:py-0"
             data-testid="pair-empty-join"
           >
             <span
@@ -78,7 +77,7 @@ const CARD_CATEGORIES = 2;
             ></span>
             <svg
               class="absolute inset-0 hidden size-full overflow-visible md:block"
-              viewBox="0 0 540 280"
+              viewBox="0 0 540 270"
               aria-hidden="true"
               focusable="false"
             >
@@ -251,7 +250,7 @@ export class PairEmptyStage {
   /** From under the first card (its lower left) to the medallion's left dot. */
   protected readonly ribbonA = 'M110 0 C110 130, 160 130, 224 130';
   /** From the medallion's right dot to under the second card (its upper right). */
-  protected readonly ribbonB = 'M430 280 C430 130, 380 130, 316 130';
+  protected readonly ribbonB = 'M430 270 C430 130, 380 130, 316 130';
 
   protected readonly cards = computed(() => [
     this.card('context', this.context(), $localize`:@@pair.empty.card.one:Product one`),

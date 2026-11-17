@@ -33,7 +33,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ProductDetailSchema, ProductPairResponseSchema } from '@aeci/shared';
+import {
+  PairAlternativesSchema,
+  ProductDetailSchema,
+  ProductPairResponseSchema,
+} from '@aeci/shared';
 import {
   CAPABILITIES,
   PRODUCT_FIELD_CAPABILITIES,
@@ -65,7 +69,7 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { createProductPairHandler } from '../routes/integrations';
+import { createPairAlternativesHandler, createProductPairHandler } from '../routes/integrations';
 import { createProductDetailHandler } from '../routes/products';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -180,9 +184,10 @@ const SURFACES: readonly Surface[] = [
   },
   {
     key: 'pair-page-closest-matches',
-    status: 'pending',
-    owner: 'AECI-1829',
-    order: 'New list: A to Z by name, id tie-break (R1)',
+    status: 'covered',
+    spec: 'api',
+    order:
+      'New list (R1, AECI-1829): A to Z by name with compareText (case only breaks a letter tie), id breaking a tie, none cut; membership by an integration with the kept product and a category shared with the other product',
   },
   {
     key: 'browse-menu-term-order',
@@ -1135,6 +1140,120 @@ describe('on-page ordering firewall: related_products', () => {
   );
 });
 
+// ─── The empty pair page's closest matches (AECI-1829, AECI-341) ───────────────
+
+const alternativesRoute: Route = {
+  path: '/api/products/:slug/integrations/:otherSlug/alternatives',
+  url: '/api/products/page/integrations/swapped/alternatives',
+  handler: (t) => createPairAlternativesHandler(t.factory),
+};
+
+/** Every candidate is a match: an integration with the page product, the shared category. */
+const MATCHES_ORDER = Object.entries(RELATED_NAME)
+  .sort(([an, a], [bn, b]) => compareText(a, b) || Number(an) - Number(bn))
+  .map(([n]) => u(Number(n)));
+
+/**
+ * The page product (kept), the swapped product, and the nine named candidates, each with
+ * an integration to the page product and the swapped product's category. The paid
+ * worlds load the Managed profile and both companies' confirmations onto three of them.
+ */
+async function seedMatches(db: Db, world: World, renameLast = false) {
+  await db
+    .insert(taxonomyCategories)
+    .values({ id: u(21), slug: 'field', name: 'Field', displayOrder: 1 });
+  await seedFacetTerms(db);
+  await db.insert(products).values([
+    { id: u(1), slug: 'page', name: 'Page', promotionStatus: 'promoted' },
+    { id: u(11), slug: 'swapped', name: 'Swapped', promotionStatus: 'promoted' },
+    ...Object.entries(RELATED_NAME).map(([n, name]) => ({
+      id: u(Number(n)),
+      slug: `p${n}`,
+      name: renameLast && n === '9' ? 'Aardvark' : name,
+      promotionStatus: 'promoted' as const,
+    })),
+  ]);
+  await db
+    .insert(productCategories)
+    .values([2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((n) => ({ productId: u(n), categoryId: u(21) })));
+  await db.insert(taxonomyDataObjects).values({ id: u(71), slug: 'invoices', name: 'Invoices' });
+  for (const n of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    await db.insert(integrations).values({
+      id: u(200 + n),
+      name: `P${n} to Page`,
+      sourceProductId: u(n),
+      targetProductId: u(1),
+      mechanismKind: 'native',
+      direction: 'both',
+    });
+    await db.insert(claims).values({
+      id: u(300 + n),
+      integrationId: u(200 + n),
+      dataObjectId: u(71),
+      direction: 'both',
+    });
+  }
+  if (world === 'free') return;
+
+  await seedTwoVendors(db);
+  for (const n of RELATED_LOADED[world]) {
+    const vendorId = n % 2 === 0 ? GLOBEX : ACME;
+    await db.insert(productVendors).values({ productId: u(n), vendorId, isPrimary: true });
+    await giveManagedProfile(db, u(n), vendorId, n);
+    await db.insert(attestations).values([
+      {
+        id: u(400 + n),
+        claimId: u(300 + n),
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: vendorId,
+      },
+      {
+        id: u(500 + n),
+        claimId: u(300 + n),
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: vendorId,
+      },
+    ]);
+  }
+}
+
+async function matchesOrder(world: World, renameLast = false) {
+  const body = PairAlternativesSchema.parse(
+    await readWorld((db) => seedMatches(db, world, renameLast), alternativesRoute),
+  );
+  return body.lanes.context.matches.map((m) => m.product.id);
+}
+
+describe('on-page ordering firewall: the empty pair page closest matches', () => {
+  it(
+    '[surface:pair-page-closest-matches] A to Z by name (compareText: a letter before case), id breaking a tie, none cut',
+    async () => {
+      expect(await matchesOrder('free')).toEqual(MATCHES_ORDER);
+    },
+    DB_TIMEOUT,
+  );
+
+  for (const world of ['last', 'first'] as const) {
+    it(
+      `[surface:pair-page-closest-matches] neither the order nor the set moves when the paid inputs load the ${world} matches`,
+      async () => {
+        expect(await matchesOrder(world)).toEqual(MATCHES_ORDER);
+      },
+      DB_TIMEOUT,
+    );
+  }
+
+  it(
+    'sees a move when an order input changes (the comparison is not vacuous)',
+    async () => {
+      expect((await matchesOrder('free', true))[0]).toBe(u(9));
+    },
+    DB_TIMEOUT,
+  );
+});
+
 // ─── 6. The taxonomy term-count exception ─────────────────────────────────────
 
 const webSource = (rel: string) => stripComments(readFileSync(join(WEB_APP, rel), 'utf8'));
@@ -1415,8 +1534,8 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/api/src/lib/drizzle-helpers.ts',
-    count: 14,
-    registered: ['pair-page-claims'],
+    count: 17,
+    registered: ['pair-page-claims', 'pair-page-closest-matches'],
     allowed: `term lists by display_order or name, attestation timelines by created_at, vendor products A to Z; ${NEVER_PLAN}`,
   },
   {

@@ -195,6 +195,66 @@ describe('productsPairResolver — server path', () => {
     );
   });
 
+  it('renders an empty pair with its alternatives and tags every match (AECI-1829)', async () => {
+    const meta = metaStub();
+    const alternatives = {
+      moving: { context_only: [], both: [], other_only: [] },
+      lanes: {
+        context: {
+          anchors: [],
+          matches: [
+            {
+              product: { id: 'm1', slug: 'match-one', name: 'Match One', logo_url: null },
+              vendor_name: null,
+              review_count: 0,
+              rating_overall_avg: null,
+              rating_onboarding_avg: null,
+              shared_categories: [],
+              data_objects: [],
+              direction: null,
+              confirmed: false,
+            },
+          ],
+        },
+        other: { anchors: [], matches: [] },
+      },
+    };
+    const ctx = createRequestContext(
+      apiClient(async (path) =>
+        path.endsWith('/alternatives') ? alternatives : pairFixture({ mechanisms: [] }),
+      ),
+    );
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+    });
+
+    const result = (await run()) as { alternatives?: unknown } | null;
+
+    expect(result?.alternatives).toEqual(alternatives);
+    expect(ctx.embedded).toContainEqual({ type: 'product', slug: 'match-one' });
+  });
+
+  it('does not read alternatives for a pair with integrations', async () => {
+    const meta = metaStub();
+    const request = vi.fn(async (_path: string) => pairFixture());
+    const ctx = createRequestContext({ request } as unknown as ServerApiClient);
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+    });
+    await run();
+    expect(request.mock.calls.some(([path]) => String(path).endsWith('/alternatives'))).toBe(false);
+  });
+
   it('sets noindex when the pair has no mechanisms', async () => {
     const meta = metaStub();
     const ctx = createRequestContext(apiClient(async () => pairFixture({ mechanisms: [] })));
