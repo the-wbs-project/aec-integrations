@@ -139,8 +139,18 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
           </div>
         }
 
-        <div slot="body" class="space-y-12">
-          @if (p.usefulness; as u) {
+        <!-- Mock-up 6 .band + .band.plain + .band.plain (AECI-1720 restore): each body
+             section is its own white band, 64px of space above and below, 96px from md,
+             with a hairline between neighbours. The colour is the unlayered border rule's
+             --border-default. The body band's own padding gives the first and last their
+             outer space. Usefulness mounts on the same test as its nav entry, so a hidden
+             host never takes a band. -->
+        <div
+          slot="body"
+          class="divide-y [&>*]:py-16 md:[&>*]:py-24 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0"
+          data-testid="product-body-bands"
+        >
+          @if (hasUsefulness() && p.usefulness; as u) {
             <aec-product-usefulness
               id="how-teams-use-it"
               class="scroll-mt-20"
@@ -160,8 +170,8 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
                of #integrations, because §13.6 swaps the two sections on a connector
                page. The swap has to move real DOM order: CSS order would leave
                screen readers and crawlers on the old sequence (WCAG 1.3.2).
-               <ng-container> emits no element, so the body's space-y-12 still lands
-               on the sections themselves. -->
+               <ng-container> emits no element, so the body's bands still land on
+               the sections themselves. -->
           <ng-template #poweredSection>
             <section
               aec-product-powered-hub

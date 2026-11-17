@@ -35,19 +35,32 @@ import { ProductCardGrid, type ProductCardGridColumns } from './product-card-gri
     '[class]': 'layoutClass()',
   },
   template: `
-    <div class="space-y-2">
-      <h2
-        id="similar-title"
-        class="font-display text-2xl font-semibold text-(--text-primary)"
-        i18n="@@products.detail.similar.heading"
+    <!-- Mock-up 6 band head (AECI-1720 restore): the small label above the heading. It
+         repeats the heading word for word, so it is hidden from assistive technology. The
+         heading and both lines are the approved words (AECI-1785, ruling R1). -->
+    <div>
+      <p
+        aria-hidden="true"
+        class="aec-overline mb-3 text-(--text-secondary)"
+        i18n="@@products.detail.similar.kicker"
       >
         Similar products
+      </p>
+      <h2 id="similar-title">
+        <span
+          class="font-display text-t-36 leading-[1.1] font-semibold tracking-[-0.02em] text-(--text-primary)"
+          i18n="@@products.detail.similar.heading"
+          >Similar products</span
+        >
       </h2>
-      <p class="max-w-prose text-(--text-secondary)" i18n="@@products.detail.similar.intro">
+      <p
+        class="mt-4 max-w-[38em] text-t-16 leading-relaxed text-(--text-secondary)"
+        i18n="@@products.detail.similar.intro"
+      >
         Products that share a category with {{ productName() }}.
       </p>
       <p
-        class="text-sm text-(--text-secondary)"
+        class="mt-2 text-t-14 text-(--text-secondary)"
         data-testid="similar-products-order"
         i18n="@@products.detail.similar.order"
       >
@@ -75,7 +88,7 @@ export class ProductSimilarProducts {
 
   protected readonly layoutClass = computed(() =>
     this.products().length === 1
-      ? 'grid scroll-mt-20 gap-6 md:grid-cols-2 md:items-start md:gap-12'
-      : 'grid scroll-mt-20 gap-6',
+      ? 'grid scroll-mt-20 gap-8 md:grid-cols-2 md:items-start md:gap-12'
+      : 'grid scroll-mt-20 gap-8',
   );
 }

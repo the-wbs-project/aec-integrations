@@ -100,15 +100,38 @@ describe('MailingListSignup', () => {
     expect(white.querySelector('#mailing-list-email')?.classList).toContain('aec-field-control');
   });
 
-  it('disables submit while the email is invalid and never POSTs', async () => {
+  it('keeps submit enabled while the email is invalid, shows the error on submit and never POSTs', async () => {
     const { fixture, el, httpMock } = setup();
     typeEmail(fixture, 'not-an-email');
     await settle();
     fixture.detectChanges();
 
-    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    // AECI-1720 restore: a disabled pale button read as broken, so it stays enabled.
+    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
     await submitForm(fixture);
+    await settle();
+    fixture.detectChanges();
     httpMock.expectNone('/api/subscribe');
+    expect(el.querySelector('#mailing-list-email-error')?.getAttribute('role')).toBe('alert');
+  });
+
+  it('shows the error when an empty email is submitted, and never POSTs', async () => {
+    const { fixture, el, httpMock } = setup();
+    await submitForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    httpMock.expectNone('/api/subscribe');
+    expect(el.querySelector('#mailing-list-email-error')).not.toBeNull();
+  });
+
+  it('splits the card into words and form from lg, so the right half is never blank', () => {
+    const { el } = setup();
+    const card = el.querySelector('[data-testid="mailing-list-card"]')!;
+    expect(card.classList).toContain('lg:grid');
+    expect(card.classList).toContain('lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]');
+    // Two columns: the words, then the form.
+    expect(card.children[0]!.querySelector('h2')).not.toBeNull();
+    expect(card.children[1]!.tagName).toBe('FORM');
   });
 
   it('surfaces the inline email error once touched', async () => {
