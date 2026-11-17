@@ -776,6 +776,48 @@ describe('ReviewForm', () => {
       httpMock.verify();
     });
 
+    // AECI-1807: the form is the shared card with the submit in its footer, the h1 takes
+    // the global rule, and the field controls take the shared recipe.
+    it('draws the form as the shared card under one plain h1, the submit in its footer', async () => {
+      const { fixture, el, httpMock } = setup(withVendor());
+      await showForm(fixture);
+      const form = el.querySelector('form')!;
+      expect(form.classList).toContain('aec-card');
+      expect(form.classList).toContain('shadow-card');
+      const submit = form.querySelector('button[type="submit"]')!;
+      expect(submit.parentElement?.classList).toContain('border-t');
+      expect(el.querySelectorAll('h1').length).toBe(1);
+      expect(el.querySelector('h1')?.className).not.toMatch(/text-\dxl|font-display/);
+      for (const id of ['review-title-input', 'review-body', 'reviewer-firm', 'years-using']) {
+        expect(el.querySelector(`#${id}`)?.classList).toContain('aec-field-control');
+        expect(el.querySelector(`#${id}`)?.classList).toContain('focus-visible:outline-3');
+      }
+      // The years field keeps its short width; the others fill the column.
+      expect(el.querySelector('#years-using')?.classList).toContain('w-28');
+      expect(el.querySelector('#years-using')?.classList).not.toContain('w-full');
+      expect(el.querySelector('[data-testid="context-rail"] a')?.classList).toContain('min-h-11');
+      httpMock.verify();
+    });
+
+    // AECI-1807: "would you recommend" is the segmented control. The chosen segment is
+    // solid Forest and carries a tick, so colour is not the only cue.
+    it('marks the chosen recommend segment with Forest and a tick', async () => {
+      const { fixture, el } = setup(withVendor());
+      await showForm(fixture);
+      const list = el.querySelector('ul[aria-labelledby="recommend-label"]')!;
+      expect(list.classList).toContain('aec-field-control');
+      const options = list.querySelectorAll<HTMLElement>('[role="option"]');
+      expect(options[0]!.querySelector('aec-icon')).toBeNull();
+      options[0]!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(options[0]!.getAttribute('aria-selected')).toBe('true');
+      expect(options[0]!.classList).toContain('bg-(--accent-primary)');
+      expect(options[0]!.querySelector('aec-icon')).not.toBeNull();
+      expect(options[1]!.querySelector('aec-icon')).toBeNull();
+      expect(options[1]!.classList).not.toContain('bg-(--accent-primary)');
+    });
+
     it('names the product and vendor, says what happens next, and links the guide', async () => {
       const { fixture, el } = setup(withVendor());
       await showForm(fixture);
