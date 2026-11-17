@@ -12,6 +12,7 @@ import {
   auditLog,
   billingAccounts,
   claimThreadAcknowledgments,
+  dmcaNotices,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -918,6 +919,33 @@ describe('DELETE /api/account', () => {
     expect(res.status).toBe(200);
     expect(await t.db.select().from(claimThreadAcknowledgments)).toEqual([
       expect.objectContaining({ id: u(6), vendorId: u(2), profileId: null, textVersion: '1' }),
+    ]);
+  });
+
+  it('nulls dmca_notices.account_id and keeps the notice (AECI-1665, ruling 1A)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await t.db.insert(dmcaNotices).values({
+      id: u(8),
+      kind: 'notice',
+      receivedAt: '2026-11-01T12:00:00.000Z',
+      submitterName: 'Rights Holder',
+      submitterContact: 'rights@example.test',
+      contentIdentified: 'https://example.test/x',
+      accountId: USER,
+      action: 'removed',
+      createdBy: u(9),
+      updatedBy: u(9),
+    });
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(dmcaNotices)).toEqual([
+      expect.objectContaining({ id: u(8), accountId: null, action: 'removed' }),
     ]);
   });
 

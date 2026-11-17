@@ -134,6 +134,11 @@ import {
   createAdminThreadsListHandler,
 } from './routes/admin-threads';
 import {
+  createAdminDmcaNoticesHandler,
+  createCreateDmcaNoticeHandler,
+  createUpdateDmcaNoticeHandler,
+} from './routes/admin-dmca-notices';
+import {
   createAdminEmailSearchHandler,
   createAdminEmailSendsHandler,
   createAdminEmailSummaryHandler,
@@ -1302,6 +1307,23 @@ authAdmin.post(
 // §5.22a / AECI-1677 — who has accepted each final agreement version, and who has not.
 // A read: no audit, no limiter.
 authAdmin.get('/api/admin/legal-acceptances', requireAdmin(), createAdminLegalAcceptancesHandler());
+// §5.23 / AECI-1665 — the copyright notice log (counsel Q38). The GET is a read (no
+// audit, no limiter). The POST logs a notice or counter-notice and the PATCH edits one:
+// writes that audit in their own batch and carry `rateLimit('write')` after the guard.
+// No delete route, and no purge: the log is never public.
+authAdmin.get('/api/admin/dmca-notices', requireAdmin(), createAdminDmcaNoticesHandler());
+authAdmin.post(
+  '/api/admin/dmca-notices',
+  requireAdmin(),
+  rateLimit('write'),
+  createCreateDmcaNoticeHandler(),
+);
+authAdmin.patch(
+  '/api/admin/dmca-notices/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateDmcaNoticeHandler(),
+);
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

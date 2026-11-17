@@ -1,11 +1,11 @@
 # Legal runbooks
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
-report or demand letter, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
+report or demand letter, a copyright notice or counter-notice, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
 change notice, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
 [`alerts.md`](./alerts.md). Subscription and billing procedures are in
 [`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
-`docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q40, Q41). Where counsel did not say something, these steps say
+`docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q38, Q40, Q41). Where counsel did not say something, these steps say
 "retain an attorney", not a guess.
 
 **Insurance.** The WBS Project has no general liability or cyber policy today (Chris, 2026-11-11).
@@ -155,6 +155,44 @@ Circuit, but a plaintiff can sue where any reader lives. Treat every letter as r
    depends on the letter. Do not reply without one, and do not promise a fix date or a standard in
    writing without the attorney.
 6. **Reply by the deadline.** Record the reply and its date on the issue.
+
+## Copyright notice or counter-notice (AECI-1665)
+
+Use this when a notice of claimed copyright infringement, or a counter-notice, reaches our designated agent. The address and the email `copyright@thewbsproject.com` are printed in the Terms' "Copyright complaints" section. The registration and its renewal date are in `apps/web/src/content/legal/README.md` "DMCA designated agent". A copyright notice sent to the support inbox counts too, so move it to the same handling.
+
+The Terms promise four things here. We promptly notify the person who posted the material. We forward a counter-notice to the person who sent the notice. We restore the material between 10 and 14 business days after we receive the counter-notice, unless they tell us they have filed a court action. We keep a log of every notice and counter-notice, and terminate repeat infringers in appropriate circumstances. Counsel set these in Q38 (`docs/LEGAL_COUNSEL_RECORD.md`).
+
+**The log is `/admin/dmca`.** Every notice and every counter-notice gets a row there, the same day it arrives, complete or not. A counter-notice is logged against the notice it answers. The page shows each counter-notice's restore window and whether it is overdue. Business days are Monday to Friday, excluding US federal holidays, in New York time (`apps/api/src/lib/business-days.ts`). The table is `dmca_notices` (`docs/DATABASE_SCHEMA.md` §8.14). It is never public.
+
+**A notice**
+
+1. **Check the notice.** A valid notice has the six elements of 17 U.S.C. 512(c)(3): a physical or electronic signature, the copyrighted work, the material that infringes it and where it is on the service, the sender's contact details, a statement of good-faith belief that the use is not authorized, and a statement that the notice is accurate and, under penalty of perjury, that the sender is the owner or may act for the owner. If it names the work, the material and how to reach the sender, but lacks another element, write back promptly and say what is missing. Log the row as it is. Leave blank what the notice did not give: the name, the contact details or the material. The page shows a missing name as "Not given". An incomplete notice is logged with `no_action` (step 2). The page will not save a `removed` or `disabled` row until the material is identified.
+2. **Remove or disable the material, then log it.** Use the tool for the kind of material:
+
+   | Material | Tool | Can it be put back? |
+   |---|---|---|
+   | A published review | **Remove** on `/admin/reviews` (`docs/ADMIN_PANEL_SPEC.md` §5.21) | Not from the panel. Remove is final there. The row stays in D1 with status `removed`. |
+   | A logo | **Remove on objection** in the logo editor (`listing-submissions.md` §6a) | Only by uploading it again. The action deletes the stored file, so save a copy to the hold folder first. |
+   | One text value on a vendor-held record | The value hide (`catalog.md` "Hide a value") | Yes. Restoring the hide puts the value back. The daily `field_hide_decision_overdue` check warns after five business days, so expect it. |
+   | Anything else | No tool. Tell Chris the same day. | |
+
+   Set `action` to `removed` or `disabled`, with `action_at`. Set `account_id` to the account that posted the material, and `vendor_id` when it is a vendor's logo, screenshot or text. An incomplete notice, or one about material that is not on our service, is `no_action`. A `no_action` notice never counts against an account.
+3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
+
+**A counter-notice**
+
+4. **Check the counter-notice.** A valid counter-notice has the elements of 17 U.S.C. 512(g)(3): a signature, the removed material and where it was, a statement under penalty of perjury of good-faith belief that it was removed by mistake or misidentification, the sender's name, address and phone number, consent to the federal district court for their address (the Southern District of Florida if they are outside the United States, as the Terms say), and a statement that they will accept service from the person who sent the notice. If one is missing, write back and say what. The clock does not start until a complete counter-notice arrives.
+5. **Log it against the notice.** Create a counter-notice row with "Counter-notice to…" set to the notice, and `received_at` set to the day it arrived. The restore window counts from that day.
+6. **Forward it to the person who sent the notice, promptly.** Send them a copy. Say we will restore the material in 10 business days unless they tell us they have filed a court action seeking to restrain the poster. Stamp `forwarded_at` on the counter-notice.
+7. **Watch the clock.** Before business day 10 the page shows "Restore window opens" with the day-10 date. From day 10 it shows "Restore by" with the day-14 date. A forwarded counter-notice past day 14 with no outcome shows "Overdue". Until you stamp `forwarded_at`, it shows as waiting to be forwarded, whatever the day. If the sender of the notice tells us they have filed a court action before we restore, stamp `court_action_at`, keep the material down, and record `not_restored`.
+8. **Restore, or record why not.** With no court action, put the material back between business day 10 and business day 14, never before day 10. Then set `restore_outcome` to `restored` with its date. A takedown restored this way no longer counts against the account. A removed review has no restore route in the panel. Tell Chris by business day 10, because putting it back needs an ops script.
+9. **Close the notice.** Stamp `closed_at` on each row when nothing more will happen: a `no_action` notice once you have replied, a counter-notice once its outcome is recorded, a notice once its counter-notice is closed. A takedown with no counter-notice can still draw one, so close it when you judge nothing more will come, and say why in `notes`. The three-year retention counts from `closed_at`. The job that deletes rows after three years is AECI-1905, not built yet. No row can fall due before late 2029.
+
+**Repeat infringers**
+
+10. **Review the account after every takedown.** Open `/admin/users/:id`. "Copyright takedowns" counts that account's notices that led to a removal or a disabling. A `no_action` notice and a takedown restored after a counter-notice do not count. The counter-notices the account filed show beside it. There is no fixed threshold. The Terms say "in appropriate circumstances". Counsel said no threshold is required, but the policy must be applied. Decide each time. Write the decision and its reason in the notice's `notes`, and in a Linear issue assigned to Chris. A reader account is banned on `/admin/users/:id` (`docs/ADMIN_PANEL_SPEC.md` §5.8). A vendor's access ends only through Suspend, then Terminate, on `/admin/vendors/:id`.
+
+A deleted account loses its link to its notices, and a re-created account starts at zero (Chris's ruling of 2026-11-17). The rows themselves stay.
 
 ## Subpoena or legal process for a reviewer's identity
 

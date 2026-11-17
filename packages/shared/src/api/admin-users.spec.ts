@@ -55,6 +55,8 @@ function detail(overrides: Record<string, unknown> = {}) {
       seat_invites_sent: 0,
       licenses_granted: 0,
       requests_by_email: null,
+      dmca_takedowns: 0,
+      dmca_counter_notices: 0,
     },
     repeat_offender: false,
     about: {

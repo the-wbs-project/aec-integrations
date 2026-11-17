@@ -88,6 +88,7 @@ import {
   billingAccounts,
   claimThreadAcknowledgments,
   claimThreadMessages,
+  dmcaNotices,
   feedback,
   integrationFieldChallenges,
   licenseReleaseRequests,
@@ -769,6 +770,12 @@ export function createDeleteAccountHandler(
       // activity middleware never writes on this request, and both of its writers
       // gate on the profile existing, so a racing request cannot bring a row back.
       db.delete(userActivityDaily).where(eq(userActivityDaily.userId, userId)),
+      // AECI-1665 (ruling 1A of 2026-11-17, `AUTH_AND_RLS.md` §8): a copyright notice or
+      // counter-notice that names the account keeps its row, with the account cleared. It
+      // is evidence for a copyright claim and is kept three years after it closes
+      // (`DATABASE_SCHEMA.md` §8.14). No FK, so it is nulled explicitly. `updated_at`
+      // moves, so an edit form opened before the erasure gets a 409 and reloads.
+      db.update(dmcaNotices).set({ accountId: null }).where(eq(dmcaNotices.accountId, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

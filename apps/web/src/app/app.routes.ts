@@ -388,6 +388,14 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./admin/legal/legal-versions').then((m) => m.AdminLegalVersions),
       },
+      // AECI-1665 — the copyright notice log (`ADMIN_PANEL_SPEC.md` §5.23): every DMCA
+      // notice and counter-notice, with the restore clock. Lazy, one flat child, no
+      // resolver; the parent's `adminSummaryResolver` is the gate. `?account=` and
+      // `?open=` are read by the component after render.
+      {
+        path: 'dmca',
+        loadComponent: () => import('./admin/dmca/dmca-notices').then((m) => m.AdminDmcaNotices),
+      },
       // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
       // read layer over the connector lane. Two flat children, the
       // same arrangement and the same reason as the vendor pair below: the detail
