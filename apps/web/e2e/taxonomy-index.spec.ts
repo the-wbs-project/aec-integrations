@@ -4,6 +4,8 @@ import { expect, test } from '@playwright/test';
 import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
+import { untilHydrated } from './hydration';
+
 // AECI-61 / AECI-157 / AECI-544 — the four taxonomy flat-index pages
 // (`/categories`, `/audiences`, `/phases`, `/trades`): every term with its
 // product count, rendered as an editorial card grid. One generalized
@@ -104,8 +106,9 @@ for (const facet of FACETS) {
       await expect(cards).toHaveCount(terms.length);
       // `products?` — the card says "1 product" in the singular, so an
       // environment whose first term happens to carry exactly one would fail a
-      // plural-only match.
-      await expect(cards.first()).toContainText(/\bproducts?\b/);
+      // plural-only match. The count sits on the card, outside the title link
+      // (the card recipe, AECI-1795), so read the card's list item.
+      await expect(cards.first().locator('xpath=ancestor::li[1]')).toContainText(/\bproducts?\b/);
     });
 
     test('clicking a card navigates to the browse page', async ({ page }) => {
@@ -171,18 +174,36 @@ for (const facet of FACETS) {
         .map((t) => t.slug);
 
       // Each facet's DEFAULT is what SSR emitted: the curated sequence for
-      // phases, A→Z for the other three (which do not offer `Sequence` at all).
+      // phases, A→Z for the other three (which do not offer "Project order" at all).
       const isPhases = facet.segment === 'phases';
       await expectOrder(isPhases ? apiOrder : alphabetical, isPhases ? 'the API sequence' : 'A→Z');
 
-      const optionLabels = await page
-        .locator('#main fieldset button')
-        .evaluateAll((bs) => bs.map((b) => b.textContent?.trim() ?? ''));
-      expect(optionLabels).toEqual(
-        isPhases ? ['Sequence', 'A → Z', 'Products'] : ['A → Z', 'Products'],
-      );
+      // The shared sort control (ruling 7 of 2026-11-16, AECI-1795): an Aria
+      // combobox whose listbox opens in the top layer.
+      const trigger = page.locator('#main aec-listing-sort-select button[role="combobox"]');
+      await expect(trigger).toHaveText(isPhases ? 'Project order' : 'Name (A–Z)');
+      const choose = async (label: string) => {
+        await untilHydrated(trigger);
+        await expect(async () => {
+          if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+          await page.getByRole('option', { name: label, exact: true }).click({ timeout: 2_000 });
+          await expect(trigger).toHaveText(label, { timeout: 1_000 });
+        }).toPass({ timeout: 15_000 });
+      };
 
-      await page.getByRole('button', { name: 'Products', exact: true }).click();
+      await untilHydrated(trigger);
+      await trigger.click();
+      // A retrying assertion: the listbox renders after the click. The active
+      // option also carries a decorative tick, so match each label's start.
+      const labels = isPhases
+        ? ['Project order', 'Name (A–Z)', 'Products']
+        : ['Name (A–Z)', 'Products'];
+      await expect(page.getByRole('option')).toHaveText(
+        labels.map((l) => new RegExp(`^${l.replace(/[()]/g, '\\$&')}`)),
+      );
+      await page.keyboard.press('Escape');
+
+      await choose('Products');
       // Sorting must reorder, never add or drop a card, so the set is invariant.
       await expect.poll(async () => [...(await slugs())].sort()).toEqual([...apiOrder].sort());
       await expectOrder(byProducts, 'product count');
@@ -192,11 +213,11 @@ for (const facet of FACETS) {
       expect(new URL(page.url()).pathname).toBe(path);
       expect(new URL(page.url()).search).toBe('');
 
-      await page.getByRole('button', { name: 'A → Z', exact: true }).click();
+      await choose('Name (A–Z)');
       await expectOrder(alphabetical, 'alphabetical');
 
       if (isPhases) {
-        await page.getByRole('button', { name: 'Sequence', exact: true }).click();
+        await choose('Project order');
         await expectOrder(apiOrder, 'the API sequence again');
       }
     });

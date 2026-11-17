@@ -95,9 +95,11 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self' 'unsafe-inline'");
   });
 
-  it('allows the Google Fonts stylesheet + woff2 origins', () => {
-    expect(CONTENT_SECURITY_POLICY).toContain('https://fonts.googleapis.com');
-    expect(CONTENT_SECURITY_POLICY).toContain('https://fonts.gstatic.com');
+  it('loads fonts from our own origin only (self-hosted since AECI-1892)', () => {
+    expect(CONTENT_SECURITY_POLICY).toContain("font-src 'self';");
+    expect(CONTENT_SECURITY_POLICY).toContain("style-src 'self' 'unsafe-inline';");
+    expect(CONTENT_SECURITY_POLICY).not.toContain('fonts.googleapis.com');
+    expect(CONTENT_SECURITY_POLICY).not.toContain('fonts.gstatic.com');
   });
 
   it('carries no Datadog intake host on connect-src (AECI-651)', () => {

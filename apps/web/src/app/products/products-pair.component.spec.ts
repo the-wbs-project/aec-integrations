@@ -430,7 +430,7 @@ describe('ProductsPairPage', () => {
     // duplicate standalone mechanism arrow.
     const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
     expect(occurrences).toBe(1);
-    const laneHeadings = Array.from(el.querySelectorAll('h3.aec-overline')).map(
+    const laneHeadings = Array.from(el.querySelectorAll('h4.aec-overline')).map(
       (h) => h.textContent ?? '',
     );
     expect(laneHeadings.some((t) => t.includes('Sends to Revit'))).toBe(true);
@@ -592,18 +592,20 @@ describe('ProductsPairPage', () => {
     expect(el.textContent).toContain('1 type of data shared');
   });
 
-  it('keeps a mechanism-card h2 when the mechanism is unnamed but has claims (no h1→h3 skip)', () => {
+  it('keeps a mechanism-card h3 when the mechanism is unnamed but has claims (no h2→h4 skip)', () => {
     const pair = buildPairWithClaims([claim('models', 'Models', 'outbound')]);
     const { el } = setup({
       ...pair,
       mechanisms: [{ ...pair.mechanisms[0]!, mechanism_name: null }],
     });
-    // Detailed view (the default) renders the Layer-B lane <h3>s. Without a card
-    // <h2> the hierarchy would jump page <h1> → lane <h3>. The kind label is
-    // promoted into the heading as the fallback.
-    const cardHeadings = Array.from(el.querySelectorAll('h2')).map((h) => h.textContent?.trim());
+    // Detailed view (the default) renders the Layer-B lane <h4>s. Without a card
+    // <h3> the hierarchy would jump data <h2> → lane <h4>. The kind label is
+    // promoted into the heading as the fallback (ruling 10 of 2026-11-16: h2/h3/h4).
+    const cardHeadings = Array.from(el.querySelectorAll('article h3')).map((h) =>
+      h.textContent?.trim(),
+    );
     expect(cardHeadings.some((t) => t?.includes('Marketplace app'))).toBe(true);
-    expect(el.querySelector('h3.aec-overline')).toBeTruthy();
+    expect(el.querySelector('article h4.aec-overline')).toBeTruthy();
   });
 
   it('shows the empty-mechanisms message when the pair has no integrations', () => {
@@ -923,11 +925,11 @@ describe('ProductsPairPage', () => {
       // The "data transfers" (Layer-B claim rows + lane headings) are gone.
       expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
       expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(0);
-      // The only overline h3 left is the At a glance strip's, never a lane heading.
-      const h3s = Array.from(el.querySelectorAll('h3.aec-overline')).map((h) =>
+      // The only overline h4 left is the At a glance strip's, never a lane heading.
+      const h4s = Array.from(el.querySelectorAll('h4.aec-overline')).map((h) =>
         h.textContent?.trim(),
       );
-      expect(h3s).toEqual(['At a glance']);
+      expect(h4s).toEqual(['At a glance']);
       expect(el.textContent).not.toContain('Sends to Revit');
       expect(el.textContent).not.toContain('Receives from Revit');
       // The Overview essentials remain.
@@ -1113,14 +1115,16 @@ describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
     );
   });
 
-  it('tints the At a glance strip Bone, with a border and no shadow', () => {
+  it('tints the At a glance strip Bone, as a nested fill with no border and no shadow', () => {
     const { el } = setup(withFacts());
     const strip = el.querySelector('[data-testid="pair-glance"]')!;
     expect(strip.className).toContain('bg-(--accent-warm)');
-    expect(strip.className).toContain('border');
+    expect(strip.className).toContain('rounded-panel');
+    expect(strip.className.split(/\s+/)).not.toContain('border');
     expect(strip.className).not.toContain('shadow');
-    // The strip only: the card around it stays on the base surface.
+    // The strip only: the card around it is the white shared card (AECI-1798).
     expect(strip.closest('article')!.className).toContain('bg-(--surface-base)');
+    expect(strip.closest('article')!.className).toContain('shadow-card');
   });
 
   it('names no company on the pair header chip, and drops its date', () => {
@@ -1296,6 +1300,11 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
     expect(el.textContent).toContain('New in 2026.10 · v5');
     expect(el.textContent).toContain('+');
     expect(el.textContent).toContain('1 added');
+    // The edge colour is the unlayered class: a border-colour utility loses to the
+    // unlayered `* { border-color }` rule and rendered grey (AECI-1798 review).
+    const row = el.querySelector('aec-agreement-badge')?.closest('li');
+    expect(row?.classList).toContain('aec-diff-added');
+    expect(row?.classList).toContain('border-s-2');
   });
 
   it('renders the removed marker and strikes the name through', async () => {
@@ -1311,6 +1320,9 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
 
     expect(el.textContent).toContain('Removed in 2026.10 · v5');
     expect(el.querySelector('.line-through')).not.toBeNull();
+    expect(el.querySelector('aec-agreement-badge')?.closest('li')?.classList).toContain(
+      'aec-diff-removed',
+    );
     expect(el.textContent).toContain('1 removed');
   });
 
@@ -1649,7 +1661,11 @@ describe('ProductsPairPage unclaimed wording (AECI-1618)', () => {
     );
     const notes = (fixture.nativeElement as HTMLElement).querySelectorAll('aec-unclaimed-note');
     expect(notes.length).toBe(1);
-    expect(notes[0]?.closest('a')?.getAttribute('href')).toContain('/products/revit');
+    // AECI-1798: only the name is a link now, so the note sits in the side's card,
+    // whose name links to the unclaimed product.
+    const card = notes[0]!.closest('[data-testid^="pair-side-"]')!;
+    expect(card.getAttribute('data-testid')).toBe('pair-side-other');
+    expect(card.querySelector('a')?.getAttribute('href')).toContain('/products/revit');
   });
 });
 
@@ -1916,6 +1932,142 @@ describe('ProductsPairPage breadcrumb (AECI-1777)', () => {
     const { el } = setup(buildPair());
     expect(el.querySelectorAll('nav[aria-label="Breadcrumb"] [aria-current="page"]')).toHaveLength(
       1,
+    );
+  });
+});
+
+// AECI-1798: mock-up 12. The Forest hero carries the statement and the two products as
+// its diagram, the toggle sits beside the data h2, and headings nest h2, h3, h4. These
+// pin behaviour that a regression would change, not class names alone.
+describe('ProductsPairPage: the mock-up 12 layout (AECI-1798)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    clearViewCookie();
+  });
+
+  const ARROWS = /[→←⇄↔]/;
+
+  it('renders one h1 in the hero band, with the same words as before', () => {
+    const { el } = setup(buildPair());
+    const h1s = el.querySelectorAll('h1');
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]!.closest('aec-hero-band')).toBeTruthy();
+    expect(h1s[0]!.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'How Procore and Revit exchange data',
+    );
+    // The Statement size sits on the band's inner span, not on the h1 (the unlayered
+    // h1 rule beats a size utility).
+    expect(h1s[0]!.querySelector('span')!.className).toContain('text-t-statement');
+  });
+
+  it('nests the headings h2, h3, h4: data heading, card title, lane and At a glance', () => {
+    const { el } = setup(
+      buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'inbound'),
+      ]),
+    );
+    const levels = Array.from(el.querySelectorAll('h1, h2, h3, h4'))
+      .filter((h) => !h.closest('aec-mailing-list-signup'))
+      .map((h) => `${h.tagName}:${h.textContent?.replace(/\s+/g, ' ').trim()}`);
+    expect(levels).toEqual([
+      'H1:How Procore and Revit exchange data',
+      'H2:2 types of data shared',
+      'H3:Procore + Autodesk Construction Cloud',
+      'H4:At a glance',
+      'H4:Sends to Revit',
+      'H4:Receives from Revit',
+    ]);
+  });
+
+  it('puts the context product first and the other second in the hero diagram', () => {
+    const { el } = setup(buildPair());
+    const rail = el.querySelector('[data-testid="pair-rail"]')!;
+    expect(rail.closest('aec-hero-band')).toBeTruthy();
+    const names = Array.from(rail.querySelectorAll('[data-testid^="pair-side-"] a')).map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(names).toEqual(['/products/procore', '/products/revit']);
+  });
+
+  it('shows the hero badge with the counted heading, aria-hidden, and draws no arrow', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    const ribbon = el.querySelector('[data-testid="pair-ribbon"]')!;
+    expect(ribbon.getAttribute('aria-hidden')).toBe('true');
+    const badge = el.querySelector('[data-testid="pair-hero-badge"]')!;
+    expect(badge.textContent?.trim()).toBe(
+      el.querySelector('[data-testid="pair-data-heading"] h2')!.textContent?.trim(),
+    );
+    // The hero states no direction: no arrow character anywhere in the diagram.
+    expect(el.querySelector('[data-testid="pair-rail"]')!.textContent).not.toMatch(ARROWS);
+  });
+
+  it('drops the hero badge when the heading counts nothing, and the ribbon with no integration', () => {
+    const counted = setup(buildPair());
+    expect(counted.el.querySelector('[data-testid="pair-ribbon"]')).toBeTruthy();
+    expect(counted.el.querySelector('[data-testid="pair-hero-badge"]')).toBeNull();
+    TestBed.resetTestingModule();
+    const empty = setup(buildPair({ mechanisms: [] }));
+    expect(empty.el.querySelector('[data-testid="pair-ribbon"]')).toBeNull();
+    // The empty branch's sentence is unchanged and still renders.
+    expect(empty.el.textContent).toContain('don’t have any integrations documented');
+  });
+
+  it('moves the toggle out of the hero, beside the data heading', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    const group = el.querySelector('[role="group"][aria-label="Choose a view"]')!;
+    expect(group.closest('aec-hero-band')).toBeNull();
+    expect(group.parentElement).toBe(
+      el.querySelector('[data-testid="pair-data-heading"]')!.parentElement,
+    );
+    // The pressed segment carries a tick, so its state is not colour alone.
+    const pressed = group.querySelector('button[aria-pressed="true"]')!;
+    expect(pressed.textContent).toContain('Detailed');
+    expect(pressed.querySelector('aec-icon')).toBeTruthy();
+    expect(group.querySelector('button[aria-pressed="false"] aec-icon')).toBeNull();
+  });
+
+  it('keeps every claim row and Sources trigger in the default render', () => {
+    const { el } = setup(
+      buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'inbound'),
+      ]),
+    );
+    expect(el.querySelectorAll('[data-testid="pair-lanes"] li')).toHaveLength(2);
+    expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(2);
+  });
+
+  it('puts each version selector in its own side card, outside any link', async () => {
+    const pair = buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]);
+    const { fixture, el } = setup({ ...pair, version_diff: versionDiff() });
+    await hydrate(fixture);
+    const selects = Array.from(el.querySelectorAll('aec-pair-version-select'));
+    expect(
+      selects.map((s) => s.closest('[data-testid^="pair-side-"]')?.getAttribute('data-testid')),
+    ).toEqual(['pair-side-context', 'pair-side-other']);
+    for (const s of selects) expect(s.closest('a')).toBeNull();
+  });
+
+  it('shows a 64px tile for an unclaimed side and keeps its 32px logo beside the note', () => {
+    const { el } = setup(
+      buildPair({
+        other_product: {
+          ...productListItem('revit', 'Revit'),
+          logo_url: 'https://cdn.example.com/revit.png',
+          claim_status: 'unclaimed',
+        },
+      }),
+    );
+    const side = el.querySelector('[data-testid="pair-side-other"]')!;
+    const imgs = Array.from(side.querySelectorAll('img'));
+    expect(imgs.map((i) => i.getAttribute('width'))).toEqual(['32']);
+    expect(imgs[0]!.closest('aec-logo-or-initial')!.nextElementSibling!.tagName).toBe(
+      'AEC-UNCLAIMED-NOTE',
+    );
+    // The large mark is the initial tile: no image above 32px on an unclaimed side.
+    expect(side.querySelector('aec-logo-or-initial span[aria-hidden="true"]')?.textContent).toBe(
+      'R',
     );
   });
 });

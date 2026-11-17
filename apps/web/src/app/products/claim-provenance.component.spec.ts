@@ -67,6 +67,14 @@ describe('ClaimProvenance', () => {
     expect(btn?.getAttribute('aria-label')).toContain('Sources for RFIs');
   });
 
+  it('draws a 44px trigger with the info icon, not a letter (AECI-1798)', () => {
+    const { host } = open(claim('unverified', [att('aeci', true)]));
+    const btn = host.querySelector('button')!;
+    expect(btn.className.split(/\s+/)).toContain('size-11');
+    expect(btn.querySelector('aec-icon')).toBeTruthy();
+    expect(btn.textContent?.trim()).toBe('');
+  });
+
   it('attributes the AECi seed and closes on the unconfirmed state', () => {
     const { popoverText } = open(claim('unverified', [att('aeci', true)]), {
       context: 'Acme Software',
