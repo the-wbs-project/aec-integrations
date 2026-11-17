@@ -26,8 +26,9 @@ A directory and review platform for software integrations in the Architecture, E
 > Stage 2 target. Today the catalog is **entirely AECi-curated**: production holds zero
 > vendor attestations and zero verified vendors, every claim renders **"Listed by AEC Integrations"**
 > (worded "Unverified · AECi" until AECI-1142),
-> and every record carries **"AEC Integrations maintained"**. The **"Vendor maintained"**
-> branch (both labels ruled 2026-09-28, AECI-1142) became *reachable* in AECI-981 — any vendor save in the portal now transfers it —
+> and every record's "About this listing" panel opens with the line **"AEC Integrations maintained"**
+> (a header chip until AECI-1666). The **"Vendor maintained"**
+> branch (both labels ruled 2026-09-28, AECI-1142) became *reachable* in AECI-981 — any vendor save in the portal now changes that line —
 > but the portal is dark and no seat is granted, so in production it is still unreached.
 > Public copy must describe
 > what ships, not this paragraph — an `/about` line claiming integration details were
