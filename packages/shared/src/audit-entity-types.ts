@@ -34,6 +34,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'legal_version',
   'license_grant',
   'listing_request',
+  'litigation_hold',
   'notification_setting',
   'product',
   'product_proposal',

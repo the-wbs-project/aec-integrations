@@ -1434,6 +1434,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * fingerprints of the agreement acceptance and license grant rows that changed to R2,
  * hash-chained to the previous night, and asks DigiCert for an RFC 3161 timestamp
  * (ADR 0057). It is queue-backed, on the reconcile queue.
+ *
+ * `legal-retention-prune` is the twenty-ninth job (AECI-1638) and adds no trigger: the
+ * 03:00 `retention-prune` tick enqueues it on the reconcile queue. It deletes `audit_log`
+ * rows older than four years and acceptance and grant records past their retention, and
+ * an open litigation hold stops it (ADR 0058).
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1464,6 +1469,7 @@ export const AdminCronJobSchema = z.enum([
   'acceptance-evidence-removal', // 0 17 * * *
   'plan-snapshot', // 11-59/15 * * * *
   'acceptance-chain', // 0 18 * * *
+  'legal-retention-prune', // 0 3 * * *  (enqueued by the retention-prune tick)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

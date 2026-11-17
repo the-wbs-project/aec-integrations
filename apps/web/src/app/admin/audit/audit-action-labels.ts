@@ -32,7 +32,7 @@
  *
  * `category.created` / `audience.created` / `phase.created` were templated in
  * promote.ts too. Promote stopped minting terms in AECI-1048, so nothing writes
- * them now. They stay mapped because `audit_log` is never pruned and production
+ * them now. They stay mapped because `audit_log` rows are kept four years and production
  * holds rows with them.
  */
 
@@ -251,6 +251,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Copyright notices (AECI-1665) ─────────────────────────────────────────
   'dmca_notice.created': $localize`:@@admin.audit.action.dmcaNoticeCreated:Copyright notice logged`,
   'dmca_notice.updated': $localize`:@@admin.audit.action.dmcaNoticeUpdated:Copyright notice edited`,
+
+  // ── Litigation holds (AECI-1638) ──────────────────────────────────────────
+  'litigation_hold.placed': $localize`:@@admin.audit.action.litigationHoldPlaced:Litigation hold placed`,
+  'litigation_hold.released': $localize`:@@admin.audit.action.litigationHoldReleased:Litigation hold released`,
 
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,
