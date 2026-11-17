@@ -16,6 +16,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const DEFER_THRESHOLD = 20;
 
@@ -138,6 +139,19 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
   test.beforeEach(() => {
     test.skip(target === null, 'no connector that powers more than 20 edges');
   });
+
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    test(`no sideways scroll at ${width}px, with the filter on too`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${target!.slug}`);
+      await expectNoSidewaysScroll(page, `connector page at ${width}px`);
+      const search = page.locator('#powers-filter');
+      await untilHydrated(search);
+      await search.fill('a');
+      await expect(page.getByTestId('powers-filter-clear')).toBeVisible();
+      await expectNoSidewaysScroll(page, `connector page at ${width}px, filtered`);
+    });
+  }
 
   test('every powered pair is a link in the raw server HTML', async ({ request }) => {
     const { slug } = target!;
