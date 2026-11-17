@@ -221,9 +221,10 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
             '#vp-what-changes, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-faq, aec-plan-cta-panel section',
           ),
         ];
-        const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();
-        const left = container.left + 32;
-        const inner = container.width - 64;
+        // AECI-1802: the hero sits in the Bone band's 1328px page wrap, gutters 48px from lg.
+        const container = hero.closest('.max-w-\\[1328px\\]')!.getBoundingClientRect();
+        const left = container.left + 48;
+        const inner = container.width - 96;
         return sections.map((section) => {
           // The right edge of the furthest visible text or control in the section.
           let right = 0;
