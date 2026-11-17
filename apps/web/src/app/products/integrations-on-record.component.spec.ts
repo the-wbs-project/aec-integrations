@@ -223,11 +223,11 @@ describe('integrations on record: the pair page and the facts card agree (AECI-1
     page.detectChanges();
     const cells = [
       ...(page.nativeElement as HTMLElement).querySelectorAll(
-        '[data-testid="pair-empty-facts-integrations"] td',
+        '[data-testid="pair-empty-facts-integrations"] [role="cell"]',
       ),
     ];
     expect(figure).toBe('7');
-    expect(text(cells[0]?.querySelector('span'))).toBe(figure);
+    expect(text(cells[0])).toBe(figure);
     // A product with no rows reads as words, never a bare 0.
     expect(text(cells[1])).toBe('None on record yet');
     expect(cells.some((c) => /(^|\s)0(\s|$)/.test(c.textContent ?? ''))).toBe(false);

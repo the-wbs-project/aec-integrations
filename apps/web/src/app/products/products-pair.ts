@@ -46,12 +46,14 @@ import {
   directionHeading,
 } from './pair-direction-labels';
 import { PairEmptySections } from './pair-empty-sections';
+import { PairEmptyStage } from './pair-empty-stage';
+import { RequestTrigger } from '../requests/request-trigger';
+import { AecButton } from '../shared/button/button';
 import { PairVersionSelect } from './pair-version-select';
 import { Chip } from '../shared/chip/chip';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecCard } from '../shared/card/card';
-import { integrationsZeroCaveat } from '../shared/figure/figure';
 import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 
@@ -598,6 +600,9 @@ function writePairViewCookie(mode: PairViewMode): void {
     RouterLink,
     Chip,
     PairEmptySections,
+    PairEmptyStage,
+    AecButton,
+    RequestTrigger,
   ],
   template: `
     @let v = view();
@@ -610,7 +615,11 @@ function writePairViewCookie(mode: PairViewMode): void {
            as its diagram. The data band is white, and the mailing list is the page's one
            Bone band (ruling 12 of 2026-11-16). The pair page keeps its own shell: it is not
            on DetailLayout, which has a facts card the pair page does not. -->
-      <aec-hero-band titleSize="statement" panel="bare">
+      <aec-hero-band
+        titleSize="statement"
+        panel="bare"
+        [panelFrom]="v.mechanisms.length > 0 ? 'lg' : 'xl'"
+      >
         <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
         <div heroKicker class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -620,6 +629,18 @@ function writePairViewCookie(mode: PairViewMode): void {
             <p class="aec-overline text-(--text-on-brand-secondary)" i18n="@@pair.eyebrow">
               Integration
             </p>
+          } @else {
+            <!-- AECI-1835: mock-up 5's status pill, above the statement it summarises. -->
+            <span
+              class="inline-flex items-center gap-3 rounded-pill bg-(--surface-on-brand-wash) py-2 ps-2 pe-4 text-t-14 font-semibold text-(--text-on-brand)"
+              data-testid="pair-empty-status"
+            >
+              <span
+                class="grid size-6.5 place-items-center rounded-full bg-(--surface-on-brand-wash-hover)"
+                ><aec-icon name="unlink" decorative [size]="4"
+              /></span>
+              <span i18n="@@pair.empty.status">Not on record</span>
+            </span>
           }
           <!-- One header marker for the whole pair; computePairMaintenance folds the N
                mechanisms server-side (AECI-616). Distinct from the per-claim agreement
@@ -653,12 +674,64 @@ function writePairViewCookie(mode: PairViewMode): void {
         <!-- The caveat, in the band's default slot directly under the statement. Its own
              block: content projection matches only a control-flow block with one root. -->
         @if (caveatShown()) {
-          <p
-            class="max-w-prose text-t-16 leading-relaxed text-(--text-on-brand) md:text-t-20"
-            data-testid="pair-empty-caveat"
-          >
-            {{ caveat }}
-          </p>
+          <div data-testid="pair-empty-lede">
+            <!-- The caveat, word for word. The first sentence is the mock-up's strong. -->
+            <p
+              class="max-w-[36em] text-t-16 leading-normal text-(--text-on-brand-secondary) md:text-t-20"
+              data-testid="pair-empty-caveat"
+              i18n="@@pair.empty.caveat"
+            >
+              <strong class="font-semibold text-(--text-on-brand)"
+                >Not on record means we have not found one.</strong
+              >
+              It is not proof that none exists.
+            </p>
+            <!-- AECI-1835: the correction entry (STAGE_1_5_SPEC.md 11.4, ruling R6), the
+                 inline strip. The words are the product page zero state's, from the same
+                 message ids. The button opens the existing correction request. -->
+            <div
+              class="mt-8 flex max-w-[640px] items-center gap-6 rounded-panel bg-(--surface-hero-panel) py-4 ps-6 pe-4 ring-1 ring-(--border-on-brand-subtle) ring-inset max-md:flex-wrap max-md:gap-4 max-md:p-4"
+              data-testid="pair-empty-know"
+            >
+              <span
+                class="grid size-11.5 shrink-0 place-items-center rounded-control bg-(--surface-on-brand-wash) text-(--text-on-brand)"
+                ><aec-icon name="flag" decorative [size]="5"
+              /></span>
+              <div class="min-w-0 flex-1">
+                <p
+                  class="m-0 font-display text-t-20 font-semibold text-(--text-on-brand)"
+                  i18n="@@products.detail.body.integrations.zero.knowHeading"
+                >
+                  Know of one?
+                </p>
+                <p
+                  id="pair-empty-know-line"
+                  class="m-0 text-t-16 text-(--text-on-brand-secondary)"
+                  i18n="@@products.detail.body.integrations.zero.knowLine"
+                >
+                  Tell us where you saw it and we will look at it.
+                </p>
+              </div>
+              <a
+                aecButton
+                variant="on-brand"
+                class="max-md:w-full"
+                aecRequestTrigger
+                [entity]="'product'"
+                [kind]="'correction'"
+                [slug]="context.slug"
+                [bodyPrefill]="knowPrefill()"
+                [href]="'/products/' + context.slug + '/correction'"
+                aria-describedby="pair-empty-know-line"
+                data-testid="pair-empty-correction"
+              >
+                <ng-container i18n="@@products.detail.body.integrations.zero.exists"
+                  >It does exist</ng-container
+                >
+                <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
+              </a>
+            </div>
+          </div>
         }
 
         <!-- The diagram (ruling 8): the two products as white cards, context first, joined
@@ -667,131 +740,131 @@ function writePairViewCookie(mode: PairViewMode): void {
              none. Its badge repeats the data heading's count under the h2's own
              condition, a counted heading, and is aria-hidden so a screen reader hears it
              once (ruling 9). A pair with no integration draws no ribbon. -->
-        <div heroPanel class="grid" data-testid="pair-rail">
-          @for (side of sides(); track side.key) {
-            @if (side.key === 'other') {
-              @if (v.mechanisms.length > 0) {
-                <div
-                  class="relative flex min-h-28 items-center justify-center"
-                  aria-hidden="true"
-                  data-testid="pair-ribbon"
-                >
-                  <span
-                    class="absolute inset-y-0 start-1/2 w-1.5 -translate-x-1/2 rounded-pill bg-(--accent-secondary) rtl:translate-x-1/2"
-                  ></span>
-                  @if (v.syncTotal > 0) {
-                    <span
-                      class="relative rounded-pill bg-(--accent-primary) px-4 py-2 text-t-14 font-semibold whitespace-nowrap text-(--text-on-brand) ring-1 ring-(--border-on-brand-strong)"
-                      data-testid="pair-hero-badge"
-                      >{{ v.syncHeadline }}</span
-                    >
-                  }
-                </div>
-              } @else {
-                <!-- AECI-1827: no ribbon (the pair has no integration). The status pill sits
-                     where the ribbon's badge would. It is read in order, between the two
-                     products, and the statement above says the same in full. -->
-                <div class="flex justify-center py-4">
-                  <span
-                    class="inline-flex items-center gap-2 rounded-pill bg-(--accent-primary) px-4 py-2 text-t-14 font-semibold whitespace-nowrap text-(--text-on-brand) ring-1 ring-(--border-on-brand-strong)"
-                    data-testid="pair-empty-status"
+        @if (v.mechanisms.length > 0) {
+          <div heroPanel class="grid" data-testid="pair-rail">
+            @for (side of sides(); track side.key) {
+              @if (side.key === 'other') {
+                @if (v.mechanisms.length > 0) {
+                  <div
+                    class="relative flex min-h-28 items-center justify-center"
+                    aria-hidden="true"
+                    data-testid="pair-ribbon"
                   >
-                    <aec-icon name="unlink" decorative [size]="4" />
-                    <span i18n="@@pair.empty.status">Not on record</span>
-                  </span>
-                </div>
-              }
-            }
-            <div [class]="side.offsetClass">
-              <div
-                aecCard
-                class="px-6 py-5 text-(--text-primary)"
-                [attr.data-testid]="'pair-side-' + side.key"
-              >
-                <div class="flex min-w-0 items-center gap-4">
-                  <!-- The logo rule decides the mark (AECI-1769): a claimed product's
-                       logo, or the initial tile. At 64px an unclaimed product is the tile
-                       whatever the payload holds. -->
-                  <aec-logo-or-initial
-                    [name]="side.product.name"
-                    [src]="side.product.logo_url"
-                    [alt]="logoAlt(side.product.name)"
-                    [claimStatus]="side.product.claim_status"
-                    size="lg"
-                  />
-                  <div class="min-w-0">
-                    <p class="m-0 font-display text-t-24 leading-tight font-semibold break-words">
-                      <a
-                        [routerLink]="['/products', side.product.slug]"
-                        class="text-(--text-primary) no-underline underline-offset-3 hover:text-(--accent-primary) hover:underline focus-visible:outline-(--accent-primary)"
-                        >{{ side.product.name }}</a
+                    <span
+                      class="absolute inset-y-0 start-1/2 w-1.5 -translate-x-1/2 rounded-pill bg-(--accent-secondary) rtl:translate-x-1/2"
+                    ></span>
+                    @if (v.syncTotal > 0) {
+                      <span
+                        class="relative rounded-pill bg-(--accent-primary) px-4 py-2 text-t-14 font-semibold whitespace-nowrap text-(--text-on-brand) ring-1 ring-(--border-on-brand-strong)"
+                        data-testid="pair-hero-badge"
+                        >{{ v.syncHeadline }}</span
                       >
-                    </p>
-                    @if (side.product.vendor) {
-                      <p class="m-0 text-t-14 text-(--text-secondary)">
-                        {{ side.product.vendor.name }}
-                      </p>
                     }
                   </div>
-                </div>
-                <!-- AECI-1618: an unclaimed product keeps its small sourced logo with
-                     counsel's wording directly beside it, as on the product hero. -->
-                @if (side.product.claim_status === 'unclaimed') {
-                  <div class="mt-3 flex items-center gap-2">
+                } @else {
+                  <div class="h-4" aria-hidden="true"></div>
+                }
+              }
+              <div [class]="side.offsetClass">
+                <div
+                  aecCard
+                  class="px-6 py-5 text-(--text-primary)"
+                  [attr.data-testid]="'pair-side-' + side.key"
+                >
+                  <div class="flex min-w-0 items-center gap-4">
+                    <!-- The logo rule decides the mark (AECI-1769): a claimed product's
+                       logo, or the initial tile. At 64px an unclaimed product is the tile
+                       whatever the payload holds. -->
                     <aec-logo-or-initial
                       [name]="side.product.name"
                       [src]="side.product.logo_url"
                       [alt]="logoAlt(side.product.name)"
                       [claimStatus]="side.product.claim_status"
-                      [ownPage]="true"
-                      size="sm"
+                      size="lg"
                     />
-                    <aec-unclaimed-note />
+                    <div class="min-w-0">
+                      <p class="m-0 font-display text-t-24 leading-tight font-semibold break-words">
+                        <a
+                          [routerLink]="['/products', side.product.slug]"
+                          class="text-(--text-primary) no-underline underline-offset-3 hover:text-(--accent-primary) hover:underline focus-visible:outline-(--accent-primary)"
+                          >{{ side.product.name }}</a
+                        >
+                      </p>
+                      @if (side.product.vendor) {
+                        <p class="m-0 text-t-14 text-(--text-secondary)">
+                          {{ side.product.vendor.name }}
+                        </p>
+                      }
+                    </div>
                   </div>
-                }
-                @if (side.product.rating_overall_avg !== null) {
-                  <!-- The same span and accessible name as before AECI-1798. -->
-                  <span
-                    class="mt-2 flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
-                    [attr.aria-label]="ratingAria(side.product)"
-                  >
-                    <span aria-hidden="true" class="text-(--accent-rating)">★</span>
-                    <span class="tabular-nums">{{
-                      side.product.rating_overall_avg.toFixed(1)
-                    }}</span>
+                  <!-- AECI-1618: an unclaimed product keeps its small sourced logo with
+                     counsel's wording directly beside it, as on the product hero. -->
+                  @if (side.product.claim_status === 'unclaimed') {
+                    <div class="mt-3 flex items-center gap-2">
+                      <aec-logo-or-initial
+                        [name]="side.product.name"
+                        [src]="side.product.logo_url"
+                        [alt]="logoAlt(side.product.name)"
+                        [claimStatus]="side.product.claim_status"
+                        [ownPage]="true"
+                        size="sm"
+                      />
+                      <aec-unclaimed-note />
+                    </div>
+                  }
+                  @if (side.product.rating_overall_avg !== null) {
+                    <!-- The same span and accessible name as before AECI-1798. -->
                     <span
-                      >· {{ side.product.review_count }}
-                      <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
+                      class="mt-2 flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
+                      [attr.aria-label]="ratingAria(side.product)"
                     >
-                  </span>
-                }
-                <!-- AECI-303 (§9.1): the side's version selector, under its own product.
+                      <span aria-hidden="true" class="text-(--accent-rating)">★</span>
+                      <span class="tabular-nums">{{
+                        side.product.rating_overall_avg.toFixed(1)
+                      }}</span>
+                      <span
+                        >· {{ side.product.review_count }}
+                        <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
+                      >
+                    </span>
+                  }
+                  <!-- AECI-303 (§9.1): the side's version selector, under its own product.
                      Only the name is a link, so the combobox is not inside an anchor.
                      Renders nothing when the diff does not apply (a null versionView),
                      or when the side has fewer than two releases. -->
-                @if (side.version; as sv) {
-                  <aec-pair-version-select
-                    class="mt-4 block"
-                    [side]="side.key"
-                    [label]="versionLabelFor(side.product.name)"
-                    [options]="sv.options"
-                    [value]="sv.selected"
-                    (changed)="setVersion(side.key, $event)"
-                  />
-                }
+                  @if (side.version; as sv) {
+                    <aec-pair-version-select
+                      class="mt-4 block"
+                      [side]="side.key"
+                      [label]="versionLabelFor(side.product.name)"
+                      [options]="sv.options"
+                      [value]="sv.selected"
+                      (changed)="setVersion(side.key, $event)"
+                    />
+                  }
+                </div>
               </div>
-            </div>
-          }
-        </div>
+            }
+          </div>
+        } @else {
+          <!-- AECI-1835: mock-up 5's diagram, two cards, ribbons and the medallion. -->
+          <aec-pair-empty-stage heroPanel [context]="context" [other]="other" />
+        }
       </aec-hero-band>
 
-      <section class="bg-(--surface-base) text-(--text-primary)">
-        <div [class]="bandWrap" data-testid="page-canvas">
-          @if (v.mechanisms.length === 0) {
-            <!-- AECI-1827: the empty pair's body. Exactly when the pair has no integration
-                 and no connector-evidenced pair (the API returns both as mechanisms). -->
-            <aec-pair-empty-sections [context]="context" [other]="other" [page]="v.captionPage" />
-          } @else {
+      @if (v.mechanisms.length === 0) {
+        <!-- AECI-1827, AECI-1835: the empty pair's body, its own two bands. Exactly when the
+             pair has no integration and no connector-evidenced pair (the API returns both
+             as mechanisms). -->
+        <aec-pair-empty-sections
+          data-testid="page-canvas"
+          [context]="context"
+          [other]="other"
+          [page]="v.captionPage"
+        />
+      } @else {
+        <section class="bg-(--surface-base) text-(--text-primary)">
+          <div [class]="bandWrap" data-testid="page-canvas">
             <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
               <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
                  2026-09-28 (Chris): the summary band and ratio line are replaced by
@@ -1315,9 +1388,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                 </article>
               }
             </div>
-          }
-        </div>
-      </section>
+          </div>
+        </section>
+      }
 
       <!-- The page's one Bone band (ruling 12 of 2026-11-16). -->
       <aec-mailing-list-signup />
@@ -1353,9 +1426,14 @@ export class ProductsPairPage {
   });
   protected readonly logoAlt = logoAlt;
   protected readonly correctionLabel = fieldOverrideLabel;
-  /** AECI-1827: the legal caveat beside the empty pair's statement, the product page's
-   *  own string and message id (`PLAN.md` §5.2, `STAGE_1_5_SPEC.md` §11.4). */
-  protected readonly caveat = integrationsZeroCaveat();
+  /** AECI-1835: the correction request's opening text names both products (§11.5). */
+  protected readonly knowPrefill = computed(() => {
+    const pair = this.pair();
+    if (!pair) return null;
+    const a = pair.context_product.name;
+    const b = pair.other_product.name;
+    return $localize`:@@pair.empty.know.prefill:An integration between ${a}:A: and ${b}:B:. Where I saw it: `;
+  });
   /** Whether the caveat shows: exactly when the statement does (no mechanism). */
   protected readonly caveatShown = computed(() => this.pair()?.mechanisms.length === 0);
 

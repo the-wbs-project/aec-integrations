@@ -2010,11 +2010,8 @@ describe('ProductsPairPage: the mock-up 12 layout (AECI-1798)', () => {
     TestBed.resetTestingModule();
     const empty = setup(buildPair({ mechanisms: [] }));
     expect(empty.el.querySelector('[data-testid="pair-ribbon"]')).toBeNull();
-    // AECI-1827: the status pill sits where the ribbon's badge would.
-    expect(
-      empty.el.querySelector('[data-testid="pair-rail"] [data-testid="pair-empty-status"]')
-        ?.textContent,
-    ).toContain('Not on record');
+    // AECI-1835: the empty pair draws mock-up 5's diagram instead of the rail.
+    expect(empty.el.querySelector('[data-testid="pair-empty-stage"]')).toBeTruthy();
   });
 
   it('moves the toggle out of the hero, beside the data heading', () => {
@@ -2076,9 +2073,10 @@ describe('ProductsPairPage: the mock-up 12 layout (AECI-1798)', () => {
   });
 });
 
-// AECI-1827: the empty pair page (STAGE_1_5_SPEC.md §11.4). The pair has no integration
-// and no connector-evidenced pair, so the API returns no mechanism.
-describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
+// AECI-1827, restyled to mock-up 5 by AECI-1835: the empty pair page (STAGE_1_5_SPEC.md
+// §11.4). The pair has no integration and no connector-evidenced pair, so the API returns
+// no mechanism.
+describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const DATE = '2026-06-01T00:00:00.000Z';
@@ -2101,13 +2099,16 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     });
 
   const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim();
+  const cells = (el: HTMLElement, id: string) =>
+    Array.from(el.querySelectorAll(`[data-testid="${id}"] [role="cell"]`)).map((c) => text(c));
 
-  it('states the legal statement as the h1, with the caveat and the status pill beside it', () => {
+  it('states the legal statement as the h1, with the caveat, the pill and the correction entry', () => {
     const { el } = setup(emptyPair());
     // Ruling 98: no "Integration" overline above the statement. The chip stays.
     const kicker = el.querySelector('aec-hero-band [heroKicker]');
     expect(text(kicker)).not.toMatch(/^Integration\b/);
     expect(kicker?.querySelector('aec-maintenance-marker')).toBeTruthy();
+    expect(text(kicker?.querySelector('[data-testid="pair-empty-status"]'))).toBe('Not on record');
     expect(text(el.querySelector('h1'))).toBe(
       'We have no integration between Procore and Revit on record.',
     );
@@ -2115,9 +2116,17 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     expect(text(caveat)).toBe(
       'Not on record means we have not found one. It is not proof that none exists.',
     );
-    // The caveat sits in the hero, with the statement, never apart from it.
+    expect(text(caveat?.querySelector('strong'))).toBe(
+      'Not on record means we have not found one.',
+    );
     expect(caveat!.closest('aec-hero-band')).toBe(el.querySelector('h1')!.closest('aec-hero-band'));
-    expect(text(el.querySelector('[data-testid="pair-empty-status"]'))).toBe('Not on record');
+    // The correction entry: §11.4's words, the existing correction request.
+    const know = el.querySelector('[data-testid="pair-empty-know"]')!;
+    expect(text(know)).toContain('Know of one?');
+    expect(text(know)).toContain('Tell us where you saw it and we will look at it.');
+    const button = know.querySelector<HTMLAnchorElement>('[data-testid="pair-empty-correction"]')!;
+    expect(text(button)).toBe('It does exist');
+    expect(button.getAttribute('href')).toBe('/products/procore/correction');
     expect(text(el.querySelector('[data-testid="pair-empty-look-it-up-intro"]'))).toBe(
       'Linked as each vendor publishes them. What they say about building a connection is theirs, not ours.',
     );
@@ -2125,22 +2134,50 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     expect(el.textContent).not.toMatch(/does not integrate|not compatible|no integration exists/i);
   });
 
-  it('keeps the "Integration" overline on a pair with integrations (ruling 98)', () => {
-    const { el } = setup(buildPair());
-    expect(text(el.querySelector('aec-hero-band [heroKicker] .aec-overline'))).toBe('Integration');
+  it('draws the diagram with the medallion label and no arrow or data-type bead', () => {
+    const { el } = setup(emptyPair());
+    const stage = el.querySelector('[data-testid="pair-empty-stage"]')!;
+    expect(stage.closest('aec-hero-band')).toBeTruthy();
+    expect(text(stage.querySelector('[data-testid="pair-empty-medallion"]'))).toBe(
+      'No integration on record',
+    );
+    expect(stage.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(stage.querySelector('svg marker, svg [marker-end]')).toBeNull();
+    expect(stage.textContent).not.toMatch(/[→←↔⇄]/);
+    // The cards' tags and names; each name a real link.
+    expect(Array.from(stage.querySelectorAll('h2 a')).map((a) => a.getAttribute('href'))).toEqual([
+      '/products/procore',
+      '/products/revit',
+    ]);
+    expect(text(stage.querySelector('[data-testid="pair-side-context"]'))).toContain('Product one');
+    expect(text(stage.querySelector('[data-testid="pair-side-other"]'))).toContain('Product two');
   });
 
   it('keeps the products in URL order, context first, in every section', () => {
     const { el } = setup(emptyPair());
-    const heads = Array.from(el.querySelectorAll('[data-testid="pair-empty-facts"] thead th'));
-    expect(heads.map((h) => text(h.querySelector('a')))).toEqual(['Procore', 'Revit']);
+    const heads = Array.from(
+      el.querySelectorAll('[data-testid="pair-empty-facts"] [role="columnheader"] a'),
+    );
+    expect(heads.map((h) => text(h))).toEqual(['Procore', 'Revit']);
     expect(text(el.querySelector('[data-testid="pair-empty-look-context"] h3'))).toBe('Procore');
     expect(text(el.querySelector('[data-testid="pair-empty-look-other"] h3'))).toBe('Revit');
   });
 
+  it('uses the mock-up kickers and headings', () => {
+    const { el } = setup(emptyPair());
+    const sbs = el.querySelector('[data-testid="pair-empty-side-by-side"]')!;
+    expect(text(sbs.querySelector('.aec-overline'))).toBe('The two products, side by side');
+    expect(text(sbs.querySelector('h2'))).toBe('What we have on record for each');
+    const look = el.querySelector('[data-testid="pair-empty-look-it-up"]')!;
+    expect(text(look.querySelector('.aec-overline'))).toBe('Look it up yourself');
+    expect(text(look.querySelector('h2'))).toBe("Each vendor's own pages");
+  });
+
   it('drops the reviews row and both rating rows when neither side has a review', () => {
     const { el } = setup(emptyPair());
-    const rows = Array.from(el.querySelectorAll('[data-testid="pair-empty-facts"] tbody tr'));
+    const rows = Array.from(
+      el.querySelectorAll('[data-testid="pair-empty-facts"] [role="row"][data-testid]'),
+    );
     expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
       'pair-empty-facts-integrations',
     ]);
@@ -2153,51 +2190,61 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
         { review_count: 2, rating_overall_avg: null, rating_onboarding_avg: null },
       ),
     );
-    const cells = (id: string) =>
-      Array.from(el.querySelectorAll(`[data-testid="${id}"] td`)).map((td) => text(td));
-    expect(cells('pair-empty-facts-reviews')).toEqual(['7 reviews', '2 reviews']);
-    expect(cells('pair-empty-facts-overall')[0]).toContain('4.2');
-    expect(cells('pair-empty-facts-overall')[1]).toBe('Not yet rated');
-    expect(cells('pair-empty-facts-onboarding')[0]).toContain('3.5');
+    expect(cells(el, 'pair-empty-facts-reviews')).toEqual(['7', '2']);
+    expect(cells(el, 'pair-empty-facts-overall')[0]).toContain('4.2');
+    expect(cells(el, 'pair-empty-facts-overall')[1]).toBe('Not yet rated');
+    expect(cells(el, 'pair-empty-facts-onboarding')[0]).toContain('3.5');
     // No cell holds a mean of the two sides.
     expect(el.querySelector('[data-testid="pair-empty-facts"]')!.textContent).not.toContain('3.9');
   });
 
   it('prints the integration count, and "None on record yet" at zero (ruling 96)', () => {
     const { el } = setup(emptyPair({ integration_count: 12 }, { integration_count: 0 }));
-    const cells = Array.from(
-      el.querySelectorAll('[data-testid="pair-empty-facts-integrations"] td'),
-    ).map((td) => text(td));
-    expect(cells).toEqual(['12 integrations', 'None on record yet']);
+    expect(cells(el, 'pair-empty-facts-integrations')).toEqual(['12', 'None on record yet']);
   });
 
-  it('lists who each product is for in the API order, with a removal and the Managed line', () => {
+  it('marks a term both products carry as Both, keeps each product order, and the captions', () => {
     const { el } = setup(
-      emptyPair({
-        vendor: vendor('v1', 'Acme'),
-        audiences: [
-          { id: 'a2', slug: 'gc', name: 'General contractors' },
-          { id: 'a1', slug: 'arch', name: 'Architects' },
-        ],
-        captions: {
-          managed: { form: 'updated', vendor_names: ['Acme'], date: DATE },
-          corrections: [{ field: 'phase_slugs', date: DATE, source_url: null, cleared: true }],
+      emptyPair(
+        {
+          vendor: vendor('v1', 'Acme'),
+          audiences: [
+            { id: 'a2', slug: 'gc', name: 'General contractors' },
+            { id: 'a1', slug: 'arch', name: 'Architects' },
+          ],
+          captions: {
+            managed: { form: 'updated', vendor_names: ['Acme'], date: DATE },
+            corrections: [{ field: 'phase_slugs', date: DATE, source_url: null, cleared: true }],
+          },
         },
-      }),
+        {
+          audiences: [
+            { id: 'a3', slug: 'owners', name: 'Owners' },
+            { id: 'a1', slug: 'arch', name: 'Architects' },
+          ],
+        },
+      ),
     );
-    const who = el.querySelector('[data-testid="pair-empty-who-context"]')!;
-    expect(Array.from(who.querySelectorAll('aec-taxonomy-badge')).map((b) => text(b))).toEqual([
-      'General contractors',
-      'Architects',
+    const audiences = el.querySelector('[data-testid="pair-empty-who-audiences"]')!;
+    // What a screen reader hears: the marks are aria-hidden.
+    const spoken = (c: Element) => {
+      const copy = c.cloneNode(true) as Element;
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+      return copy.textContent?.replace(/\s+/g, ' ').replace(/\s*\(/, ' (').trim();
+    };
+    const chips = Array.from(audiences.querySelectorAll('aec-chip:not([density])')).map(spoken);
+    expect(chips).toEqual([
+      'General contractors (Procore only)',
+      'Architects Both',
+      'Owners (Revit only)',
     ]);
-    expect(who.textContent).toContain('Project phases');
-    expect(who.textContent).toContain('Removed by AEC Integrations');
-    expect(text(who.querySelector('[data-testid="pair-who-managed-caption"]'))).toContain(
+    const phases = el.querySelector('[data-testid="pair-empty-who-phases"]')!;
+    expect(text(phases)).toContain('Procore: Removed by AEC Integrations');
+    expect(text(el.querySelector('[data-testid="pair-who-managed-caption"]'))).toContain(
       'Maintained by Acme',
     );
-    // The other side has nothing, and says so plainly.
-    expect(text(el.querySelector('[data-testid="pair-empty-who-other"]'))).toContain(
-      'Nothing listed yet.',
+    expect(text(el.querySelector('[data-testid="pair-empty-who"]'))).toContain(
+      'appears on both products',
     );
   });
 
@@ -2206,6 +2253,7 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
       emptyPair(
         {
           vendor: vendor('v1', 'Acme'),
+          integration_count: 3,
           tool_integrations_url: 'https://acme.example/integrations',
           api_docs_url: null,
           under_review: ['api_docs_url'],
@@ -2218,6 +2266,7 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
         },
         {
           vendor: vendor('v2', 'Globex'),
+          integration_count: 0,
           api_docs_url: 'https://globex.example/api',
           tool_integrations_url: null,
           captions: {
@@ -2236,7 +2285,12 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     expect(link.getAttribute('href')).toBe('https://acme.example/integrations');
     expect(link.target).toBe('_blank');
     expect(link.rel).toBe('noopener nofollow');
+    expect(text(link)).toContain('Acme integrations directory');
+    expect(text(link)).toContain('acme.example/integrations');
     expect(link.parentElement!.textContent).toContain('Corrected by AEC Integrations');
+    expect(text(ctx.querySelector('[data-testid="pair-look-all-context"]'))).toContain(
+      'All 3 Procore integrations',
+    );
     // Hidden for checking: the marker, no link.
     expect(ctx.querySelector('[data-testid="pair-look-api-context"]')).toBeNull();
     expect(text(ctx.querySelector('[data-testid="pair-look-api-under-review-context"]'))).toContain(
@@ -2246,11 +2300,13 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
       'Maintained by Acme',
     );
     const other = el.querySelector('[data-testid="pair-empty-look-other"]')!;
-    // Removed by AECi: the caption, no link, and no "we have not found" line under it.
+    expect(text(other)).toContain('Published by Globex');
     expect(other.querySelector('[data-testid="pair-look-integrations-other"]')).toBeNull();
     expect(other.textContent).toContain('Integrations page: Removed by AEC Integrations');
     expect(other.querySelector('[data-testid="pair-look-no-directory-other"]')).toBeNull();
     expect(other.querySelector('[data-testid="pair-look-api-other"]')).toBeTruthy();
+    // No "All 0" link: a product with none on record has no list to open.
+    expect(other.querySelector('[data-testid="pair-look-all-other"]')).toBeNull();
     expect(text(el.querySelector('[data-testid="pair-look-api-note"]'))).toBe(
       'An API is not an integration. We list an integration only when we can show that one exists.',
     );
@@ -2263,20 +2319,46 @@ describe('ProductsPairPage — the empty pair (AECI-1827)', () => {
     );
   });
 
-  it('shows an unclaimed side as an initial tile with the Unclaimed note, never its logo', () => {
+  it('shows an unclaimed side as an initial tile with the Unclaimed note, never its logo above 32px', () => {
     const { el } = setup(
-      emptyPair({}, { claim_status: 'unclaimed', logo_url: 'https://cdn.example/revit.png' }),
+      emptyPair(
+        { claim_status: 'claimed', logo_url: 'https://cdn.example/procore.png' },
+        { claim_status: 'unclaimed', logo_url: 'https://cdn.example/revit.png' },
+      ),
     );
-    for (const id of ['pair-empty-facts', 'pair-empty-look-other']) {
-      const scope = el.querySelector(`[data-testid="${id}"]`)!;
-      expect(scope.querySelector('img[src*="revit"]')).toBeNull();
-      expect(scope.querySelector('[data-testid="unclaimed-note"]')?.textContent).toContain(
-        'Unclaimed · not affiliated with or endorsed by this vendor',
-      );
-    }
+    const card = el.querySelector(
+      '[data-testid="pair-empty-stage"] [data-testid="pair-side-other"]',
+    )!;
+    expect(card.querySelector('[data-testid="unclaimed-note"]')?.textContent).toContain(
+      'Unclaimed · not affiliated with or endorsed by this vendor',
+    );
+    expect(
+      el.querySelector('[data-testid="pair-empty-look-other"] [data-testid="unclaimed-note"]'),
+    ).toBeTruthy();
     // Nowhere on the page does the unclaimed logo render above 32px.
     for (const img of Array.from(el.querySelectorAll<HTMLImageElement>('img[src*="revit"]'))) {
       expect(Number(img.getAttribute('width'))).toBeLessThanOrEqual(32);
     }
+    // The claimed product's logo does show in its card's large mark.
+    expect(
+      el.querySelector(
+        '[data-testid="pair-empty-stage"] [data-testid="pair-side-context"] img[src*="procore"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('shows no second initial tile beside the note when an unclaimed product has no logo', () => {
+    const { el } = setup(emptyPair({}, { claim_status: 'unclaimed', logo_url: null }));
+    const card = el.querySelector(
+      '[data-testid="pair-empty-stage"] [data-testid="pair-side-other"]',
+    )!;
+    expect(card.querySelectorAll('aec-logo-or-initial')).toHaveLength(1);
+  });
+
+  it('keeps the "Integration" overline on a pair with integrations (ruling 98)', () => {
+    const { el } = setup(buildPair());
+    expect(text(el.querySelector('aec-hero-band [heroKicker] .aec-overline'))).toBe('Integration');
+    expect(el.querySelector('[data-testid="pair-empty-stage"]')).toBeNull();
+    expect(el.querySelector('[data-testid="pair-rail"]')).toBeTruthy();
   });
 });

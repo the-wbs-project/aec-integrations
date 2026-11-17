@@ -223,3 +223,40 @@ describe('aec-hero-band, statement title and bare panel (AECI-1798)', () => {
     expect(panel.querySelector('[data-testid="panel-content"]')).not.toBeNull();
   });
 });
+
+// AECI-1835: the empty pair page's fixed 540px diagram keeps the panel stacked until xl.
+@Component({
+  selector: 'aec-hero-band-empty-pair-host',
+  imports: [HeroBand],
+  template: `
+    <aec-hero-band titleSize="statement" panel="bare" panelFrom="xl">
+      <span heroTitle>We have no integration between A and B on record.</span>
+      <div heroPanel>Diagram</div>
+    </aec-hero-band>
+  `,
+})
+class EmptyPairHost {}
+
+describe('aec-hero-band, panel from xl (AECI-1835)', () => {
+  it('stacks the panel until xl, then gives it 540px; the default stays at lg', async () => {
+    await TestBed.configureTestingModule({
+      imports: [EmptyPairHost, PairHost],
+      providers: [provideZonelessChangeDetection()],
+    }).compileComponents();
+    const empty = TestBed.createComponent(EmptyPairHost);
+    await empty.whenStable();
+    const grid = (empty.nativeElement as HTMLElement).querySelector(
+      '[data-testid="hero-band-grid"]',
+    )!;
+    expect(grid.classList).toContain('xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]');
+    expect([...grid.classList].some((c) => c.startsWith('lg:'))).toBe(false);
+    const pair = TestBed.createComponent(PairHost);
+    await pair.whenStable();
+    const pairGrid = (pair.nativeElement as HTMLElement).querySelector(
+      '[data-testid="hero-band-grid"]',
+    )!;
+    expect(pairGrid.classList).toContain(
+      'lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px]',
+    );
+  });
+});

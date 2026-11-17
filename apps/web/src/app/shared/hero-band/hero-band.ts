@@ -78,11 +78,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   template: `
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
       <div [class]="wrap">
-        <div
-          #grid
-          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
-          data-testid="hero-band-grid"
-        >
+        <div #grid [class]="gridClass()" data-testid="hero-band-grid">
           <div
             class="min-w-0 lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start"
             [attr.data-held]="held() ? '' : null"
@@ -142,6 +138,20 @@ export class HeroBand {
    * (mock-up 12, AECI-1798). The column, its width and its forced-colours edge are the same.
    */
   readonly panel = input<'surface' | 'bare'>('surface');
+
+  /**
+   * Where the right column starts. `lg` is the default: 400px from `lg`, 540px from `xl`.
+   * `xl` keeps the panel stacked under the text until `xl` and then gives it 540px, for a
+   * panel drawn at a fixed 540px, as the empty pair page's diagram is (mock-up 5,
+   * AECI-1835). Below its breakpoint the panel stacks under the text either way.
+   */
+  readonly panelFrom = input<'lg' | 'xl'>('lg');
+
+  protected readonly gridClass = computed(() =>
+    this.panelFrom() === 'xl'
+      ? 'grid gap-8 xl:items-center xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]'
+      : 'grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]',
+  );
 
   protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
 

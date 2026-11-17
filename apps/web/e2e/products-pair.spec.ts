@@ -30,6 +30,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
+
 /** Resolve a real pair from the live catalog, so the spec doesn't pin fixture slugs. */
 async function findPair(
   request: import('@playwright/test').APIRequestContext,
@@ -376,11 +378,29 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     // Ruling 96: the integrations row never shows a bare 0.
     for (const cell of await page
       .getByTestId('pair-empty-facts-integrations')
-      .locator('td')
+      .locator('[role="cell"]')
       .all()) {
       await expect(cell).not.toHaveText(/^\s*0\s*$/);
     }
+    // AECI-1835: mock-up 5's diagram and correction entry are in the server HTML.
+    await expect(page.getByTestId('pair-empty-medallion')).toHaveText('No integration on record');
+    await expect(page.getByTestId('pair-empty-stage').locator('svg')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
     await context.close();
+  });
+
+  test('does not scroll sideways at 390, 768, 1024 and 1440', async ({ page, request }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    for (const width of [390, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+      await expectNoSidewaysScroll(page, `the empty pair page at ${width}px`);
+    }
   });
 
   test('has no axe violations', async ({ page, request }) => {
