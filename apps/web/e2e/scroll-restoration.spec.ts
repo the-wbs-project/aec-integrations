@@ -1180,26 +1180,24 @@ async function flipTheSwitch(page: Page): Promise<void> {
 }
 
 /**
- * Clicks an in-page section link and, `gapMs` later, does `then` in the page:
- * the race where a router scroll starts while the smooth-scroll class is on.
- * Both happen inside the page so the gap does not depend on the test's round
- * trip.
+ * Clicks an in-page section link and, `gapMs` later, the header's Products link,
+ * both inside the page so the gap does not depend on the test's round trip. Used
+ * under reduced motion, where there is no glide to wait for (see `glideThen`).
  */
-async function sectionClickThen(
+async function sectionClickThenProducts(
   page: Page,
   sectionLink: string,
-  then: 'click-products' | 'back-two',
   gapMs = 50,
 ): Promise<void> {
   await page.evaluate(
-    ({ sectionLink, then, gapMs }) => {
+    ({ sectionLink, gapMs }) => {
       document.querySelector<HTMLAnchorElement>(sectionLink)!.click();
-      setTimeout(() => {
-        if (then === 'back-two') history.go(-2);
-        else document.querySelector<HTMLAnchorElement>('header a[href="/products"]')!.click();
-      }, gapMs);
+      setTimeout(
+        () => document.querySelector<HTMLAnchorElement>('header a[href="/products"]')!.click(),
+        gapMs,
+      );
     },
-    { sectionLink, then, gapMs },
+    { sectionLink, gapMs },
   );
 }
 
@@ -1550,7 +1548,7 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
 
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await startScrollSampler(page);
-    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'click-products');
+    await sectionClickThenProducts(page, 'aec-section-nav a[href$="#integrations"]');
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await scrollSettled(page)).toBe(0);
     const before = await offsetsBeforeRestingOn(page, '/products');
