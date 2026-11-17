@@ -7,7 +7,7 @@
  *
  * Anchor site: **Devin (DeepWiki)**, Mobbin screen c3936cdb. The article is a
  * compact centred column with a small Source Serif `h1`, one muted lede line,
- * then the body in `.aec-prose aec-docs-prose`. From `xl` the "On this page"
+ * then the body in `.aec-prose`. From `xl` the "On this page"
  * rail (`docs-toc.ts`) sits at the far right. A quiet previous / next pager
  * closes the article. No overline, no hero, no cards (the Plans page's
  * pricing widget is the one exception).
@@ -106,7 +106,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           <!-- Pre-formatted in the frontmatter and rendered verbatim: SSR runs
                UTC and the browser does not, so reformatting would mismatch.
                The top bar shows this line from sm; here it covers phones. -->
-          <p class="mt-2 text-sm text-(--text-secondary) sm:hidden" i18n="@@app.docs.lastUpdated">
+          <p class="mt-2 text-t-14 text-(--text-secondary) sm:hidden" i18n="@@app.docs.lastUpdated">
             Last updated {{ page.lastUpdated }}
           </p>
         </header>
@@ -126,7 +126,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
               {{ vendorProgram.before
               }}<a
                 [routerLink]="vendorProgramPath"
-                class="rounded-sm text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark text-(--accent-primary) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 >{{ vendorProgram.link }}</a
               >{{ vendorProgram.after }}
             </p>
@@ -134,7 +134,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           } @else if (segment.widget === 'plans-cta') {
             <aec-plan-cta-panel class="mt-6 mb-6" page="docs_plans" />
           } @else {
-            <div class="aec-prose aec-docs-prose" [class.mt-6]="first">
+            <div class="aec-prose" [class.mt-6]="first">
               @for (block of segment.blocks; track $index) {
                 @if (block.heading; as heading) {
                   @if (heading.level === 2) {
@@ -175,7 +175,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
 
       @if (neighbours.prev || neighbours.next) {
         <nav
-          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-5 text-sm xl:col-start-2 xl:row-start-2"
+          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-5 text-t-14 xl:col-start-2 xl:row-start-2"
           i18n-aria-label="@@app.docs.pager.aria"
           aria-label="Previous and next articles"
         >
@@ -183,7 +183,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             <a
               [routerLink]="prev.path"
               rel="prev"
-              class="group min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)"
+              class="group min-w-0 rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.previous"
                 >Previous</span
@@ -198,7 +198,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             <a
               [routerLink]="next.path"
               rel="next"
-              class="group ms-auto min-w-0 rounded-sm text-end focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)"
+              class="group ms-auto min-w-0 rounded-mark text-end focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.next">Next</span>
               <span

@@ -237,6 +237,24 @@ describe('DocsShellComponent', () => {
     expect(panel.classList).toContain('hidden');
   });
 
+  // AECI-1803: every sidebar control is a 44px target on the shared radius and
+  // weights 400 and 600 only (DESIGN.md §3), and the menu glyph is the registry's.
+  it('gives every tree and guide link a 44px target, 400 and 600 weights only', async () => {
+    const { host } = await renderAt(ARTICLE);
+    const links = [
+      ...Array.from(tree(host).querySelectorAll('a')),
+      ...Array.from(host.querySelectorAll('nav[aria-label="Guides"] a')),
+    ];
+    expect(links.length).toBeGreaterThan(5);
+    for (const link of links) {
+      expect(link.classList, link.textContent ?? '').toContain('min-h-11');
+      expect(link.className).not.toMatch(/font-medium|rounded-md|outline-2/);
+    }
+    expect(tree(host).querySelector('a[aria-current="page"]')?.classList).toContain('rounded-mark');
+    const button = host.querySelector('button[aria-controls="docs-nav-panel"]')!;
+    expect(button.querySelector('aec-icon')?.getAttribute('name')).toBe('panel-left');
+  });
+
   // Escape is the expected way out of an open disclosure, and focus goes back.
   it('closes the panel on Escape and returns focus to the button', async () => {
     const { host, harness } = await renderAt(ARTICLE);

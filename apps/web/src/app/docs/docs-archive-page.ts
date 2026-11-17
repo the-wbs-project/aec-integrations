@@ -49,34 +49,34 @@ const PLANS_PAGE = 'vendors/plans';
           <h1 class="aec-docs-title text-(--text-primary)">{{ snapshot.title }}</h1>
           @if (isPlans) {
             <p
-              class="mt-4 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+              class="mt-4 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
               data-testid="plans-archive-notice"
               i18n="@@app.docs.plans.archive.notice"
             >
               This is the Plans page as recorded at version {{ snapshot.version }} on
               {{ snapshot.recordedOn }}.
               <a
-                class="rounded-sm text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark text-(--accent-primary) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [routerLink]="currentPath"
                 >Read the current page.</a
               >
             </p>
           } @else {
             <p
-              class="mt-4 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+              class="mt-4 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
               data-testid="docs-archive-notice"
               i18n="@@app.docs.archive.notice"
             >
               This is version {{ snapshot.version }}, recorded on {{ snapshot.recordedOn }}.
               <a
-                class="rounded-sm text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark text-(--accent-primary) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [routerLink]="currentPath"
                 >Read the current version.</a
               >
             </p>
           }
         </header>
-        <div class="aec-prose aec-docs-prose mt-6">
+        <div class="aec-prose mt-6">
           @for (block of snapshot.blocks; track $index) {
             @if (block.heading; as heading) {
               @if (heading.level === 2) {
