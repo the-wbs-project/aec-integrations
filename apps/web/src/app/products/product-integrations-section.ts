@@ -439,10 +439,9 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center lg:gap-4"
           data-testid="integrations-filter-top"
         >
-          <!-- The search box (mock-up 6, .sfield): the field recipe of the shared List
-               filter, with a search glyph inside it, filling its column. The status it
-               would print lives in the list row below, so the panel holds no count. The
-               shared List filter is unchanged for its other callers. -->
+          <!-- The search box (mock-up 6, .sfield): the field recipe with a search glyph
+               inside it, filling its column. The status lives in the list row below, so
+               the panel holds no count. "Integrations it powers" uses the same recipe. -->
           <div class="relative min-w-0" data-testid="integrations-filter-search">
             <label
               for="integrations-filter"
@@ -1206,8 +1205,8 @@ export class ProductIntegrationsSection {
 
   /**
    * "Showing 4 of 14", the list row's status while anything filters. The filter box's
-   * own message id and rule: empty while nothing filters, as on the connector page's
-   * shared List filter (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
+   * own message id and rule: empty while nothing filters, as on "Integrations it
+   * powers" (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
    * the section's row count, which can differ from the facts card's figure, the count
    * the heading was ruled not to carry (2026-11-16). The region stays in the DOM so
    * the first change is announced.

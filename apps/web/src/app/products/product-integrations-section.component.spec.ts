@@ -537,7 +537,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
     const { fixture, el } = setup(rows());
     const status = el.querySelector('[role="status"]')!;
-    // AECI-1720: idle, the status is empty, as on the shared List filter: an idle
+    // AECI-1720: idle, the status is empty, as on "Integrations it powers": an idle
     // "Showing 4 of 4" would be a row count beside the heading (ruled 2026-11-16).
     expect(status.textContent?.trim()).toBe('');
     pressChip(fixture, el, 'Outbound');
