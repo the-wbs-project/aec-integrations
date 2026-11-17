@@ -72,7 +72,7 @@ export const DOCS_TOC_MIN_HEADINGS = 2;
                 [attr.data-heading-id]="heading.id"
                 data-smooth-scroll
                 [attr.aria-current]="heading.id === activeId() ? 'location' : null"
-                class="aec-docs-toc-link rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-docs-toc-link rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               >
                 <span class="aec-docs-toc-label">{{ heading.text }}</span>
                 <span aria-hidden="true" class="aec-docs-toc-dash"></span>

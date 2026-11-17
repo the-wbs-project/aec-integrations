@@ -14,40 +14,46 @@
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule; `src/content/README.md`). The chrome is `i18n`/`$localize`.
  *
- * Layout mirrors `/methodology` (the anchor reference for this surface). Light
+ * Layout mirrors `/methodology` (the anchor reference for this surface): the
+ * hero on `aec-bone-band`, the body a white band on the 1328px page wrap, the
+ * prose at the shared `.aec-prose` style and a 42rem measure (AECI-1804). Light
  * theme only.
  */
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
 import { ACCESSIBILITY_DOC, type AccessibilityDoc } from './accessibility-content';
 
 @Component({
   selector: 'app-accessibility',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [BoneBand],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="max-w-[70ch]">
-            <!-- No eyebrow: it would only repeat the h1 (impeccable kicker-above-heading). -->
-            <h1
-              class="font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-            >
-              {{ doc.frontmatter.title }}
-            </h1>
-            <!-- Authored pre-formatted in the frontmatter and rendered verbatim. -->
-            <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@app.accessibility.lastUpdated">
-              Last updated {{ doc.frontmatter.lastUpdated }}
-            </p>
-          </div>
+      <!-- Hero: the page's one Bone band, as on /methodology and /legal/*
+           (AECI-1804), with the h1 at the Headline role (the global h1 size). -->
+      <aec-bone-band>
+        <div class="max-w-[42rem]">
+          <!-- No eyebrow: it would only repeat the h1 (impeccable kicker-above-heading). -->
+          <h1 class="text-(--text-primary)">
+            {{ doc.frontmatter.title }}
+          </h1>
+          <!-- Authored pre-formatted in the frontmatter and rendered verbatim. -->
+          <p class="mt-4 text-t-14 text-(--text-secondary)" i18n="@@app.accessibility.lastUpdated">
+            Last updated {{ doc.frontmatter.lastUpdated }}
+          </p>
         </div>
-      </section>
+      </aec-bone-band>
 
-      <!-- Rendered Markdown (sanitized by Angular). Styled globally via .aec-prose. -->
-      <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
+      <!-- Rendered Markdown (sanitized by Angular). Styled globally via .aec-prose.
+           White band on the page wrap; the article keeps the rem prose measure. -->
+      <div class="py-16 md:py-24">
+        <div [class]="wrap">
+          <article class="aec-prose max-w-[42rem]" [innerHTML]="doc.html"></article>
+        </div>
       </div>
     </div>
   `,
@@ -56,6 +62,9 @@ export class AccessibilityPage {
   private readonly meta = inject(MetaService);
 
   protected readonly doc: AccessibilityDoc = ACCESSIBILITY_DOC;
+
+  /** The 1328px page wrap the header, footer and bands share. */
+  protected readonly wrap = BAND_WRAP_CLASS;
 
   constructor() {
     this.meta.setStaticPageMeta({

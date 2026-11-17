@@ -107,4 +107,17 @@ describe('DocsSectionComponent', () => {
     const list = host.querySelector('[data-testid="docs-section-pages"]');
     expect(list?.classList).toContain('lg:grid-cols-2');
   });
+
+  // AECI-1803: each page title is a 44px target with the 3px ring.
+  it('gives every page link a 44px target and the 3px focus ring', () => {
+    const { host } = render('reviewers');
+    const links = Array.from(
+      host.querySelectorAll<HTMLAnchorElement>('[data-testid="docs-section-pages"] a'),
+    );
+    expect(links.length).toBeGreaterThan(1);
+    for (const link of links) {
+      expect(link.classList).toContain('min-h-11');
+      expect(link.classList).toContain('focus-visible:outline-3');
+    }
+  });
 });

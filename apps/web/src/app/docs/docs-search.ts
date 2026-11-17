@@ -53,9 +53,17 @@ import type { DocsGuide } from './docs-content';
 import { DOCS_SEARCH_FACTORY } from './docs-search.factory';
 import type { DocsSearchFn, DocsSearchHit } from './docs-search-hits';
 import { AecIcon } from '../shared/icon/icon';
+import { FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Search-as-you-type debounce, ms. The header autocomplete's value. */
 export const DOCS_SEARCH_DEBOUNCE_MS = 180;
+
+/**
+ * The input: the shared field recipe (`FIELD_INPUT_CLASS`, 44px, the 3:1 field
+ * edge, 16px text), with the text moved to 48px for the leading glyph, as the
+ * `/search` query box does (AECI-1803). The browser's own clear button is off.
+ */
+export const DOCS_SEARCH_INPUT_CLASS = `${FIELD_INPUT_CLASS} min-w-0 ps-12 [&::-webkit-search-cancel-button]:hidden`;
 
 /** `pending` until hydration decides; `ready` with a client; `off` without config. */
 type State = 'pending' | 'ready' | 'off';
@@ -66,16 +74,16 @@ type State = 'pending' | 'ready' | 'off';
   template: `
     @switch (state()) {
       @case ('pending') {
-        <div class="mb-4 h-9" data-docs-search-slot></div>
+        <div class="mb-4 h-11" data-docs-search-slot></div>
       }
       @case ('ready') {
         <div class="mb-4" role="search" [attr.aria-label]="label()">
           <label [attr.for]="inputId" class="sr-only">{{ label() }}</label>
           <div class="relative">
             <span
-              class="pointer-events-none absolute start-2.5 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
+              class="pointer-events-none absolute start-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
             >
-              <aec-icon name="search" decorative [size]="4" />
+              <aec-icon name="search" decorative [size]="5" />
             </span>
             <input
               ngCombobox
@@ -91,7 +99,7 @@ type State = 'pending' | 'ready' | 'off';
               (focus)="onFocus()"
               (blur)="focused.set(false)"
               [placeholder]="placeholder"
-              class="h-9 w-full rounded-md border border-(--border-default) bg-(--surface-base) ps-8 pe-3 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 [&::-webkit-search-cancel-button]:hidden focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="inputClass"
             />
           </div>
 
@@ -125,13 +133,13 @@ type State = 'pending' | 'ready' | 'off';
                         ngOption
                         [value]="hit"
                         [label]="optionLabel(hit)"
-                        class="flex cursor-pointer flex-col gap-0.5 rounded-sm px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
                       >
-                        <span class="truncate text-xs text-(--text-secondary)"
+                        <span class="truncate text-t-12 text-(--text-secondary)"
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
                         >
                         <!-- Every run is an element, so no collapsed space lands between runs. -->
-                        <span class="text-sm font-semibold text-(--text-primary)">
+                        <span class="text-t-14 font-semibold text-(--text-primary)">
                           @for (part of hit.heading; track $index) {
                             @if (part.match) {
                               <mark class="bg-transparent text-inherit underline">{{
@@ -143,7 +151,7 @@ type State = 'pending' | 'ready' | 'off';
                           }
                         </span>
                         @if (hit.snippet.length > 0) {
-                          <span class="line-clamp-2 text-xs text-(--text-secondary)">
+                          <span class="line-clamp-2 text-t-12 text-(--text-secondary)">
                             @for (part of hit.snippet; track $index) {
                               @if (part.match) {
                                 <mark class="bg-transparent font-semibold text-(--text-primary)">{{
@@ -169,7 +177,7 @@ type State = 'pending' | 'ready' | 'off';
           -->
           @if (showEmpty()) {
             <p
-              class="m-0 mt-1.5 px-1 text-xs text-(--text-secondary)"
+              class="m-0 mt-1.5 px-1 text-t-12 text-(--text-secondary)"
               aria-hidden="true"
               i18n="@@app.docs.search.empty"
             >
@@ -188,6 +196,7 @@ export class DocsSearchComponent {
   readonly guide = input.required<DocsGuide>();
 
   protected readonly inputId = 'aec-docs-search';
+  protected readonly inputClass = DOCS_SEARCH_INPUT_CLASS;
   protected readonly placeholder = $localize`:@@app.docs.search.placeholder:Search`;
 
   protected readonly state = signal<State>('pending');

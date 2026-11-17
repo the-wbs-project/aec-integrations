@@ -82,6 +82,29 @@ describe('LegalPage', () => {
     expect(host.textContent).toContain('Version 1.1');
   });
 
+  it('puts the hero on the one Bone band and the body on the page wrap at a rem measure (AECI-1804)', () => {
+    const { host } = render('terms');
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    const article = host.querySelector('article.aec-prose');
+    // rem, not ch: a ch measure re-wraps when the web font swaps in.
+    expect(article?.classList).toContain('max-w-[42rem]');
+    expect(article?.className).not.toMatch(/\dch\]/);
+    expect(article?.parentElement?.classList).toContain('max-w-[1328px]');
+    // The h1 is the Headline role: no size utility the unlayered h1 rule would kill.
+    expect(host.querySelector('h1')?.className).not.toMatch(/text-\d?xl|font-normal/);
+  });
+
+  it('draws the version callouts on the control radius with in-text links (AECI-1804)', () => {
+    const { host } = render('terms', '1.0');
+    const notice = host.querySelector('[data-testid="legal-superseded"]');
+    expect(notice?.classList).toContain('rounded-control');
+    const link = notice?.querySelector('a');
+    expect(link?.classList).toContain('underline');
+    expect(link?.classList).toContain('hover:text-(--accent-primary-hover)');
+  });
+
   it('hides the effective-date chip while the draft frontmatter leaves it blank', () => {
     const { host } = render('terms');
     expect(host.textContent).not.toContain('Effective');

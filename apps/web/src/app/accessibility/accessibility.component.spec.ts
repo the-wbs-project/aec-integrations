@@ -32,6 +32,17 @@ describe('AccessibilityPage', () => {
     expect(host.querySelector('h1')?.textContent?.trim()).toBe('Accessibility statement');
   });
 
+  it('puts the hero on the one Bone band and the article on the page wrap (AECI-1804)', () => {
+    const { host } = setup();
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    const article = host.querySelector('article.aec-prose');
+    expect(article?.classList).toContain('max-w-[42rem]');
+    expect(article?.parentElement?.classList).toContain('max-w-[1328px]');
+    expect(host.querySelector('h1')?.className).not.toMatch(/text-\d?xl|font-normal/);
+  });
+
   it('renders the three sections in order', () => {
     const { host } = setup();
     const h2s = Array.from(host.querySelectorAll('article.aec-prose h2')).map((h) =>
