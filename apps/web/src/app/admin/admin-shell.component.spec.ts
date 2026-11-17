@@ -156,7 +156,7 @@ describe('AdminShell', () => {
       // Operations = the three queues, Vendor claims (AECI-521 — folded into
       // ADMIN_NAV_GROUPS at the AECI-619 reconciliation), Vendors (AECI-652),
       // Users (AECI-692), Email (AECI-1223, §5.14), Legal versions (AECI-1688,
-      // §5.22), System status (AECI-580, §5.6)
+      // §5.22), Copyright notices (AECI-1665, §5.23), System status (AECI-580, §5.6)
       // and Audit log (AECI-653, §5.18).
       expect(navLinks(root)).toEqual([
         '/admin/overview',
@@ -178,6 +178,7 @@ describe('AdminShell', () => {
         '/admin/users',
         '/admin/email',
         '/admin/legal',
+        '/admin/dmca',
         '/admin/system',
         '/admin/audit',
       ]);

@@ -14,7 +14,7 @@ import {
 
 /**
  * AECI-1766 - the one Bone band of a page (DESIGN.md §2 "Bone: one band per
- * page", §4 "The detail page band shell", clash 2, ADR 0057). A frame, not a
+ * page", §4 "The detail page band shell", clash 2, ADR 0058). A frame, not a
  * page: it paints the ground, holds the page wrap and sets the band rhythm. The
  * caller owns every word. Content is projected, with no named slots.
  *

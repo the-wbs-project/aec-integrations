@@ -306,6 +306,15 @@ export const AdminUserCountsSchema = z.object({
    * attempted — never `0`, which would assert "this person filed none".
    */
   requests_by_email: z.number().int().min(0).nullable(),
+  /**
+   * AECI-1665 (`ADMIN_PANEL_SPEC.md` §5.8, §5.23). Copyright notices against this account
+   * whose material we removed or disabled, less any restored after a counter-notice. The
+   * repeat-infringer review reads it. Computed by the predicate the
+   * `/admin/dmca?account=` list uses, so the two never disagree.
+   */
+  dmca_takedowns: z.number().int().min(0),
+  /** AECI-1665. Counter-notices this account filed. */
+  dmca_counter_notices: z.number().int().min(0),
 });
 export type AdminUserCounts = z.infer<typeof AdminUserCountsSchema>;
 

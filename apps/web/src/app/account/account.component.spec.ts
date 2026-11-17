@@ -560,6 +560,25 @@ describe('AccountPage', () => {
     );
   });
 
+  // ── AECI-1665: copyright notices that name the account are kept ────────
+  it('says, before the confirmation, that copyright notices are kept for 3 years', async () => {
+    const { fixture, el } = await setup();
+    const line = el.querySelector('[data-testid="account-delete-copyright"]');
+    expect(line?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'If we received a copyright notice or counter-notice that names your account, we keep it for 3 years after we close the matter. It is no longer linked to your account.',
+    );
+    const trigger = Array.from(el.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete account',
+    ) as HTMLButtonElement;
+    trigger.click();
+    await settle();
+    fixture.detectChanges();
+    const dialogLine = document.querySelector('[data-testid="account-delete-dialog-copyright"]');
+    expect(dialogLine?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'We keep copyright notices and counter-notices that name your account for 3 years after we close the matter.',
+    );
+  });
+
   // ── AECI-1296: About you + the onboarding card ─────────────────────────
   it('shows the onboarding card only while onboarding is pending', async () => {
     const pendingApi = makeApiMock();

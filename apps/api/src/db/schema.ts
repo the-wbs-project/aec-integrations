@@ -2439,6 +2439,82 @@ export const legalVersions = sqliteTable(
 );
 
 /**
+ * The copyright notice log (AECI-1665, counsel Q38, `DATABASE_SCHEMA.md` §8.14,
+ * `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice we
+ * received. The Terms "Copyright complaints" section promises this log exists, and the
+ * repeat-infringer count on `/admin/users/:id` reads it (`lib/dmca-notices.ts`).
+ *
+ * `kind` is `notice` or `counter_notice`. A counter-notice names the notice it answers in
+ * `notice_id`. A notice has none. `action` is `pending`, `removed`, `disabled` or
+ * `no_action`. The restore clock of a counter-notice is computed by the API from
+ * `received_at`, never stored. `closed_at` starts the three-year retention, whose sweep is
+ * the named follow-up AECI-1905.
+ *
+ * No CHECK on `kind`, `action` or `restore_outcome`, the house rule for enum-like text
+ * (`legal_versions.document` above): Zod owns the vocabulary, and a CHECK change on D1 is a
+ * table recreate (`docs/migrations.md` §0). No FK. `account_id` is a `profiles.id` that the
+ * account-deletion batch nulls and the row stays (`AUTH_AND_RLS.md` §8, ruling 1A of
+ * 2026-11-17). `vendor_id`, `notice_id`, `created_by` and `updated_by` are plain ids too.
+ * The one writer is `routes/admin-dmca-notices.ts`: each insert and update carries its
+ * `dmca_notice.*` audit row in the same `db.batch`. Nothing deletes a row yet. Never public.
+ */
+export const dmcaNotices = sqliteTable(
+  'dmca_notices',
+  {
+    id: uuidPk(),
+    /** `DMCA_NOTICE_KINDS`: `notice` | `counter_notice`. No CHECK. */
+    kind: text('kind').notNull(),
+    /** On a counter-notice: the `dmca_notices.id` of the notice it answers. NULL on a notice. */
+    noticeId: text('notice_id'),
+    /** ISO-8601. The restore clock of a counter-notice counts from it. */
+    receivedAt: text('received_at').notNull(),
+    /** NULL when the notice did not give it: every notice is logged on receipt. */
+    submitterName: text('submitter_name'),
+    /** Email, postal address and phone, as given. NULL when the notice did not give it. */
+    submitterContact: text('submitter_contact'),
+    /** URLs or a description of the material. NULL when the notice did not identify it.
+     *  Required when `action` is `removed` or `disabled` (Zod and the route, no CHECK). */
+    contentIdentified: text('content_identified'),
+    /** On a notice: the copyrighted work claimed. */
+    workClaimed: text('work_claimed'),
+    /** A `profiles.id`, NO FK. Nulled by account deletion; the row stays. */
+    accountId: text('account_id'),
+    /** A `vendors.id`, NO FK. Set when the material is a vendor's logo or screenshot. */
+    vendorId: text('vendor_id'),
+    /** `DMCA_ACTIONS`: `pending` | `removed` | `disabled` | `no_action`. No CHECK. */
+    action: text('action').notNull().default('pending'),
+    /** ISO-8601. When the action was taken. */
+    actionAt: text('action_at'),
+    /** ISO-8601. Notice: the uploader was told. Counter-notice: sent on to the complainant. */
+    forwardedAt: text('forwarded_at'),
+    /** ISO-8601. Counter-notice: the complainant reported a court action. */
+    courtActionAt: text('court_action_at'),
+    /** `DMCA_RESTORE_OUTCOMES`: `restored` | `not_restored`. Counter-notice only. No CHECK. */
+    restoreOutcome: text('restore_outcome'),
+    /** ISO-8601. */
+    restoreOutcomeAt: text('restore_outcome_at'),
+    /** ISO-8601. Nothing more will happen. Retention counts three years from it. */
+    closedAt: text('closed_at'),
+    /** Operator notes. Never public. */
+    notes: text('notes'),
+    /** A `profiles.id`, NO FK. */
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    /** A `profiles.id`, NO FK. */
+    updatedBy: text('updated_by').notNull(),
+    /** The race sentinel of the PATCH (`expected_updated_at`). */
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('dmca_notices_account_kind_idx')
+      .on(t.accountId, t.kind)
+      .where(sql`"account_id" IS NOT NULL`),
+    index('dmca_notices_notice_id_idx').on(t.noticeId),
+    index('dmca_notices_received_at_idx').on(t.receivedAt),
+  ],
+);
+
+/**
  * Where each company's change notice stands (AECI-1620, `DATABASE_SCHEMA.md` §8.6j). One row
  * per published version and company, written by `lib/legal-notice.ts`: `queued` just before
  * the company's message is sent to `aeci-legal-notice-{env}`, then `delivered` when the
@@ -3945,6 +4021,75 @@ export const planChangeSnapshots = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// The acceptance chain (AECI-1680, ADR 0057, DATABASE_SCHEMA.md §9.17)
+//
+// Log-class and exempt from the §26.1 audit-in-batch invariant under ADR 0022: they
+// record what the nightly export wrote to R2, and the acceptance and grant writes
+// carry their own `audit_log` rows. Written only by `lib/acceptance-chain-export.ts`,
+// after R2 confirmed the night's file. Never pruned. The R2 files are the evidence:
+// the verify command (`ops:verify-acceptance-chain`) walks R2 and never trusts these
+// tables, so editing them only causes a re-export.
+// ===========================================================================
+
+/**
+ * One row per nightly chain file under `evidence/acceptance-chain/` in `UPLOADS`. `seq`
+ * is the primary key, so a second run for the same file trips it.
+ *
+ * `tsa_status` is the DigiCert RFC 3161 timestamp's state: `granted` (the token is in R2
+ * at `tsa_key`), `failed` (the request failed, and a later run retries it) or `pending`
+ * (not asked yet). No CHECK: a CHECK change on D1 is a table recreate
+ * (`docs/migrations.md` §0). The TypeScript union is the guard.
+ */
+export const acceptanceChainExports = sqliteTable(
+  'acceptance_chain_exports',
+  {
+    /** 1, 2, 3, … The file's place in the chain. */
+    seq: integer('seq').primaryKey(),
+    /** `YYYY-MM-DD`, UTC. The night the file was written. */
+    day: text('day').notNull(),
+    /** The file's R2 key in `UPLOADS`. */
+    objectKey: text('object_key').notNull(),
+    /** Lowercase hex SHA-256 of the file bytes. The next file's `prev_sha256`. */
+    sha256: text('sha256').notNull(),
+    /** The previous file's SHA-256. NULL at seq 1. */
+    prevSha256: text('prev_sha256'),
+    /** SHA-256 over every live row's `table:id:fingerprint` line, sorted. */
+    stateSha256: text('state_sha256').notNull(),
+    /** Entries in the file: changed rows plus tombstones. 0 on a quiet night. */
+    entries: integer('entries').notNull(),
+    tsaStatus: text('tsa_status').notNull().$type<'pending' | 'granted' | 'failed'>(),
+    /** The timestamp token's R2 key. NULL until DigiCert granted one. */
+    tsaKey: text('tsa_key'),
+    /** ISO-8601. When R2 confirmed the file. */
+    exportedAt: text('exported_at').notNull(),
+  },
+  (t) => [
+    // The backfill read: the latest files whose timestamp is not granted.
+    index('acceptance_chain_exports_tsa_status_idx').on(t.tsaStatus, t.seq),
+  ],
+);
+
+/**
+ * The last fingerprint exported for each acceptance and grant row. It drives the
+ * nightly diff and nothing else: the verify command reads the fingerprints from R2.
+ * `deleted` is 1 once a tombstone was written for the row.
+ */
+export const acceptanceChainRows = sqliteTable(
+  'acceptance_chain_rows',
+  {
+    /** `agreement_acceptances` | `license_grants`. */
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    /** Lowercase hex SHA-256 of the row's hashed columns (`lib/acceptance-chain.ts`). */
+    fingerprint: text('fingerprint').notNull(),
+    /** The chain file that last carried this row. */
+    seq: integer('seq').notNull(),
+    deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.tableName, t.rowId] })],
+);
+
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).$type<unknown>().notNull(),
@@ -4400,6 +4545,7 @@ export const notificationPreferences = sqliteTable(
 //
 // DOMAIN state: the person told us these facts, so every change writes its
 // `audit_log` row in the same `db.batch` (`routes/account.ts`, `profile.updated`).
+// That row names the touched answers and never holds their values (AECI-1869).
 // Side tables rather than columns on `profiles`, for the same reason as
 // `notification_preferences` above: a later change to `profiles` must not force
 // a drizzle-kit recreate (`docs/migrations.md` §0). The reverse hazard holds too.
@@ -6155,6 +6301,7 @@ export const schema = {
   licenseGrants,
   agreementAcceptances,
   legalVersions,
+  dmcaNotices,
   legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,

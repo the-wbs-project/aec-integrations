@@ -602,6 +602,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -889,6 +892,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -1200,6 +1206,9 @@
           // AECI-1636 acceptance evidence removal (IP and browser after 90 days). The next
           // free daily slot after 16:00. Rides BRAND_ASSETS_QUEUE.
           "0 17 * * *",
+          // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
+          // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
+          "0 18 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",

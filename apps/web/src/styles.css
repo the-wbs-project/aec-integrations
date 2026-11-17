@@ -1504,7 +1504,7 @@ textarea:-webkit-autofill:focus {
 }
 
 /* Smooth scrolling is scoped to in-page section links (AECI-1752, clash 38 of
-   ADR 0057). It is never a global setting and is off under reduced motion.
+   ADR 0058). It is never a global setting and is off under reduced motion.
    `InPageSmoothScroll` (`app/core/in-page-smooth-scroll.ts`) adds this class to
    <html> for the span of one jump from an `<a data-smooth-scroll>` link, so the
    browser's own fragment scroll animates and honours `scroll-margin-top`.
