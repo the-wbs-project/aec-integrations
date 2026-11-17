@@ -9,6 +9,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const FOREST = 'rgb(30, 58, 47)';
 const CLAY_DEEP = 'rgb(161, 77, 34)';
@@ -103,11 +104,7 @@ test.describe('aec-meter and aec-figure rendered (AECI-1767)', () => {
     await page.setViewportSize({ width: 320, height: 800 });
     const long = byId(page, 'meter-long');
     expect((await long.locator('.aec-meter-track').boundingBox())!.width).toBeGreaterThan(100);
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-      ),
-    ).toBe(true);
+    await expectNoSidewaysScroll(page);
   });
 
   test('the stacked load bar is at most 260px wide with its text below', async ({ page }) => {

@@ -7,6 +7,7 @@ import {
   computed,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -134,7 +135,15 @@ export class ProductCategoryHub {
     return $localize`:@@products.detail.hero.hub.showAll:Show all ${n}:count: categories`;
   });
 
+  /**
+   * The state the hub is about to take, emitted BEFORE it changes, so the host can
+   * measure the layout as it still is (the product hero holds its columns, owner
+   * ruling 2026-11-17, item 82).
+   */
+  readonly expandedChange = output<boolean>();
+
   protected toggle(): void {
+    this.expandedChange.emit(!this.expanded());
     this.expanded.update((open) => !open);
   }
 

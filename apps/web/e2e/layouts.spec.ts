@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // Phase 2.6 (AECI-52). Smoke for the reusable layout shells via their preview
 // routes. Validates: SSR returns 200, slots render, axe-core finds no
@@ -66,12 +67,9 @@ test.describe('layout shells (preview routes)', () => {
 
       // The page itself must not scroll horizontally; the index layout's
       // table wraps in its own overflow container instead.
-      const docOverflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(docOverflow, 'document must not overflow horizontally on mobile').toBeLessThanOrEqual(
-        1,
-      );
+      await expectNoSidewaysScroll(page, 'document must not overflow horizontally on mobile', {
+        tolerance: 1,
+      });
     });
   }
 });
