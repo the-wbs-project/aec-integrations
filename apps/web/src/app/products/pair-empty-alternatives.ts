@@ -105,14 +105,25 @@ function objectIcon(slug: string): AecIconName | null {
             aria-hidden="true"
             focusable="false"
           >
-            <ellipse cx="350" cy="150" rx="350" ry="150" class="fill-(--accent-primary-soft)" />
+            <!-- Mock-up 5's two fills, from tokens at opacities the code already uses: Forest
+                 at .1 and Clay at .36 (the diagram's Clay). Forest at .16, nearer the mock-up,
+                 left the secondary text on the overlap at 4.39:1. At .1 the three grounds give
+                 5.80, 4.74 and 5.35:1. -->
+            <ellipse
+              cx="350"
+              cy="150"
+              rx="350"
+              ry="150"
+              class="fill-(--accent-primary)"
+              opacity=".1"
+            />
             <ellipse
               cx="650"
               cy="150"
               rx="350"
               ry="150"
               class="fill-(--accent-secondary)"
-              opacity=".16"
+              opacity=".36"
             />
           </svg>
           @for (group of groups(); track group.key) {
@@ -225,23 +236,25 @@ function objectIcon(slug: string): AecIconName | null {
               attestations.
             </p>
           </div>
-          <p class="m-0 text-end" aria-hidden="true">
-            <span class="block font-display text-t-36 leading-none font-semibold tabular-nums"
-              >{{ count(shown().length)
-              }}<span class="ms-1 text-t-20 font-normal text-(--text-secondary)"
-                ><ng-container i18n="@@pair.empty.matches.of">of</ng-container>
-                {{ count(lane().matches.length) }}</span
-              ></span
-            >
-            <span class="text-t-13 text-(--text-secondary)" i18n="@@pair.empty.matches.matchNow"
-              >products match right now</span
-            >
+          <!-- Mock-up 5's count line (.count-badge): small, at the intro's baseline. The
+               announced count is the lane's own line below (aria-live), so this one is hidden. -->
+          <p
+            class="m-0 text-t-14 text-(--text-secondary)"
+            aria-hidden="true"
+            data-testid="pair-matches-count-badge"
+          >
+            <span class="font-semibold text-(--text-primary) tabular-nums"
+              >{{ count(shown().length) }}
+              <ng-container i18n="@@pair.empty.matches.of">of</ng-container>
+              {{ count(lane().matches.length) }}</span
+            >&ngsp;<span i18n="@@pair.empty.matches.matchNow">products match right now</span>
           </p>
         </div>
 
         <!-- The deck: keep toggle, category anchors, view toggle. -->
         <div
-          class="grid gap-4 rounded-panel bg-(--surface-sunken) p-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center md:gap-6 md:p-4"
+          class="grid gap-4 rounded-card bg-(--accent-warm) p-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center md:p-4"
+          data-testid="pair-matches-deck"
         >
           <div
             role="group"
@@ -502,7 +515,7 @@ function objectIcon(slug: string): AecIconName | null {
               <li class="min-w-0">
                 <article
                   aecCard
-                  class="relative flex h-full flex-col gap-4 p-6 transition-shadow duration-base ease-standard hover:shadow-menu"
+                  class="group/card relative flex h-full flex-col gap-4 p-6 transition-shadow duration-base ease-standard hover:shadow-menu"
                 >
                   <div class="flex min-w-0 items-center gap-3">
                     <aec-logo-or-initial
@@ -528,7 +541,10 @@ function objectIcon(slug: string): AecIconName | null {
                       }
                     </div>
                   </div>
-                  <div class="grid gap-1.5 rounded-panel bg-(--surface-sunken) p-3 text-t-13">
+                  <div
+                    class="grid gap-1.5 rounded-panel border bg-(--surface-base) p-3 text-t-13"
+                    data-testid="pair-match-scores"
+                  >
                     <dl class="m-0 grid gap-1.5">
                       @for (r of ratingRows(m); track r.kind) {
                         <div class="flex items-center justify-between gap-2">
@@ -577,11 +593,15 @@ function objectIcon(slug: string): AecIconName | null {
                       </p>
                     }
                     @if (m.data_objects.length > 0) {
-                      <div class="flex flex-wrap gap-1.5">
+                      <!-- The product page's data chip (product-integration-card.ts), the
+                           Same-Behavior Rule: dense, neutral, no glyph. -->
+                      <div class="flex flex-wrap gap-1.5" data-testid="pair-match-objects">
                         @for (o of m.data_objects; track o.slug) {
-                          <aec-chip density="dense" [tone]="isPicked(o.slug) ? 'wash' : null">{{
-                            o.name
-                          }}</aec-chip>
+                          <aec-chip
+                            density="dense"
+                            [tone]="isPicked(o.slug) ? 'wash' : 'neutral'"
+                            >{{ o.name }}</aec-chip
+                          >
                         }
                       </div>
                     } @else {
@@ -606,13 +626,21 @@ function objectIcon(slug: string): AecIconName | null {
                   }
                   <a
                     [routerLink]="pairLink(m)"
-                    class="mt-auto flex items-center justify-between gap-3 border-t pt-4 text-t-14 font-semibold text-(--text-primary) no-underline after:absolute after:inset-0 after:rounded-card hover:text-(--accent-primary) {{
+                    class="mt-auto flex min-h-11 items-center justify-between gap-3 text-t-14 font-semibold text-(--text-secondary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary) {{
                       focusRing
                     }}"
                     [attr.data-testid]="'pair-match-link-' + m.product.slug"
                   >
-                    <span class="min-w-0">{{ pairLabel(m) }}</span>
-                    <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
+                    <span class="min-w-0 break-words">{{ pairLabel(m) }}</span>
+                    <!-- The product page card's round button (product-integration-card.ts). A
+                         chevron, never an arrow: an arrow here means data-flow direction. -->
+                    <span
+                      class="grid size-9 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)"
+                      aria-hidden="true"
+                      data-testid="pair-match-go"
+                    >
+                      <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
+                    </span>
                   </a>
                 </article>
               </li>

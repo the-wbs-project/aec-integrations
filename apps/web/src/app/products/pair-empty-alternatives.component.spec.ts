@@ -281,6 +281,34 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     expect(text(firstRow)).toContain('Sends to zeta Books');
   });
 
+  it('draws the deck, count, chips, score box and foot as mock-up 5 and the product page do', () => {
+    const { el } = setup();
+    const deck = el.querySelector('[data-testid="pair-matches-deck"]')!;
+    expect(deck.className).toContain('bg-(--accent-warm)');
+    expect(deck.className).not.toContain('surface-sunken');
+    // The small count line, hidden from assistive tech: the lane's line is the live one.
+    const badge = el.querySelector('[data-testid="pair-matches-count-badge"]')!;
+    expect(text(badge)).toBe('2 of 2 products match right now');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    expect(badge.className).toContain('text-t-14');
+    expect(el.querySelector('[data-testid="pair-matches-count"]')!.getAttribute('aria-live')).toBe(
+      'polite',
+    );
+    const card = el.querySelector('[data-testid="pair-matches-cards"] article')!;
+    // The product page card's data chip: dense and neutral.
+    const chip = card.querySelector('[data-testid="pair-match-objects"] aec-chip')!;
+    expect(chip.querySelector('[data-tone="neutral"]')).toBeTruthy();
+    const scores = card.querySelector('[data-testid="pair-match-scores"]')!;
+    expect(scores.className).toContain('border');
+    expect(scores.className).toContain('bg-(--surface-base)');
+    // The foot keeps its words as the link's name. The round button is a chevron, hidden.
+    const link = card.querySelector<HTMLAnchorElement>('[data-testid="pair-match-link-zeta"]')!;
+    expect(text(link)).toBe('Bluebeam Revu and zeta Books');
+    const go = link.querySelector('[data-testid="pair-match-go"]')!;
+    expect(go.getAttribute('aria-hidden')).toBe('true');
+    expect(go.className).toContain('rounded-full');
+  });
+
   it('states the real order, not the mock-up text', () => {
     const { el } = setup();
     const order = text(el.querySelector('[data-testid="pair-matches-order"]'));
