@@ -196,12 +196,14 @@ pair `deploy.yml` uses. It refuses to overwrite an object that exists.
 
 ### Browser report check per tier (AECI-1715)
 
-The committed API var `BROWSER_EVIDENCE_ENABLED` tells the `browser_evidence_coverage`
-data-quality check that this tier captures the browser report (`docs/runbooks/alerts.md`
-"Browser evidence coverage"). It does not switch the capture. The SSR Worker's var of the same
-name does that (AECI-1714). The API cannot read the web var, so it carries its own copy. Only
-`"true"` runs the check. Absent or any other value reports it *Skipped*. It is a plain var: no
-secret, no preflight.
+The committed API var `BROWSER_EVIDENCE_ENABLED` is the server's half of the browser report
+switch. It does two things. It turns on both API writers: the `ran` on a `browser-spa` insert
+and the `POST /api/page-views/browser-evidence` UPDATE (AECI-1713). With it off, the endpoint
+still answers 204 and writes nothing. It also tells the `browser_evidence_coverage` data-quality
+check that this tier captures the report (`docs/runbooks/alerts.md` "Browser evidence
+coverage"). The browser's half is the SSR Worker's var of the same name (AECI-1714). The API
+cannot read the web var, so it carries its own copy. Only `"true"` counts. Absent or any other
+value writes nothing and reports the check *Skipped*. It is a plain var: no secret, no preflight.
 
 | Tier | API `BROWSER_EVIDENCE_ENABLED` |
 | --- | --- |
@@ -1770,8 +1772,9 @@ header change.
 The page tracker's browser report (`ran` / `interacted`, `docs/ANALYTICS.md` §5) runs only where the
 web Worker's committed var `BROWSER_EVIDENCE_ENABLED` is `"true"`. The SSR Worker then injects
 `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` into every page. Any other value, or none,
-injects nothing, and the browser sends no report. It needs no secret and no API var: the endpoint is
-always deployed, and the switch is only this flag.
+injects nothing, and the browser sends no report. It needs no secret. The endpoint is always
+deployed, but the API stores a report only where its own `BROWSER_EVIDENCE_ENABLED` is `"true"`
+too ("Browser report check per tier" above). Flip both in the same change.
 
 | Tier | `BROWSER_EVIDENCE_ENABLED` (committed web var) |
 | --- | --- |

@@ -324,9 +324,10 @@
     "LEGAL_PUBLISH_ENABLED": "true",
     // AECI-1715 (epic AECI-1711): the API's mirror of the SSR Worker's
     // BROWSER_EVIDENCE_ENABLED (apps/web/wrangler.jsonc, AECI-1714), which switches the
-    // browser report on. The API cannot read the web var, so this one tells the
-    // `browser_evidence_coverage` data-quality check that capture is on. Only "true"
-    // runs the check; anything else reports it skipped. "true" on local, staging and
+    // browser report on. The API cannot read the web var, so this one is the server's
+    // half: only "true" lets the API store a report (AECI-1713) and runs the
+    // `browser_evidence_coverage` data-quality check; anything else writes nothing and
+    // reports the check skipped. "true" on local, staging and
     // demo. Production stays "false" until Privacy Policy 1.1 is in force, and flips in
     // the same change as the web var. `wrangler-browser-evidence.spec.ts` pins all four.
     "BROWSER_EVIDENCE_ENABLED": "true",
