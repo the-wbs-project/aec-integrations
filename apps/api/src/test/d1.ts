@@ -79,6 +79,47 @@ function migrationStatements(upToExclusive?: string): string[] {
   return out;
 }
 
+/**
+ * The real `setImmediate`, captured when this module loads. A spec that later calls
+ * `vi.useFakeTimers()` replaces the global, and a faked one would never fire.
+ */
+const realSetImmediate = globalThis.setImmediate;
+
+/**
+ * Let the event loop run once (AECI-1916). Everything this harness does is
+ * synchronous, and a route spec over it settles in microtasks alone, so without
+ * this a whole spec file can run without the event loop turning. The vitest worker
+ * then cannot read the main process's reply to its `onTaskUpdate` RPC. When the
+ * file has run longer than birpc's 60 s timeout, the timer fires first and the run
+ * exits 1 with "Timeout calling onTaskUpdate", every test green.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => realSetImmediate(resolve));
+}
+
+/**
+ * The migrated schema as a serialized SQLite image, built once per spec file and
+ * keyed by `upToExclusive`. Replaying about 600 migration statements cost about
+ * 110 ms per test. Opening a copy of the image costs about 1 ms. The image is the
+ * database file only: connection pragmas such as `foreign_keys` are set again on
+ * every open.
+ */
+const migratedImages = new Map<string, Buffer>();
+
+function migratedImage(upToExclusive?: string): Buffer {
+  const key = upToExclusive ?? '';
+  let image = migratedImages.get(key);
+  if (!image) {
+    const build = new Database(':memory:');
+    build.pragma('foreign_keys = ON');
+    for (const stmt of migrationStatements(upToExclusive)) build.prepare(stmt).run();
+    image = build.serialize();
+    build.close();
+    migratedImages.set(key, image);
+  }
+  return image;
+}
+
 type Stmt = {
   run?: () => unknown;
   all?: () => unknown;
@@ -133,9 +174,10 @@ export interface TestDb {
  * destructive migrations against non-empty data.
  */
 export async function makeTestDb(opts: { upToExclusive?: string } = {}): Promise<TestDb> {
-  const raw = new Database(':memory:');
+  // Yield one macrotask before the synchronous work below. See `yieldToEventLoop`.
+  await yieldToEventLoop();
+  const raw = new Database(migratedImage(opts.upToExclusive));
   raw.pragma('foreign_keys = ON');
-  for (const stmt of migrationStatements(opts.upToExclusive)) raw.prepare(stmt).run();
 
   const sqlDb = drizzle(raw, { schema });
 
