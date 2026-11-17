@@ -47,6 +47,7 @@ import {
 } from './pair-direction-labels';
 import { PairEmptySections } from './pair-empty-sections';
 import { PairEmptyStage } from './pair-empty-stage';
+import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { AecButton } from '../shared/button/button';
 import { PairVersionSelect } from './pair-version-select';
@@ -603,6 +604,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     PairEmptyStage,
     AecButton,
     RequestTrigger,
+    RequestDrawer,
   ],
   template: `
     @let v = view();
@@ -1394,6 +1396,13 @@ function writePairViewCookie(mode: PairViewMode): void {
 
       <!-- The page's one Bone band (ruling 12 of 2026-11-16). -->
       <aec-mailing-list-signup />
+
+      <!-- The in-place correction drawer (AECI-128) that the empty pair's "It does exist"
+           trigger opens, as on the product page. Without it the trigger cancels the click
+           and nothing opens. Renders nothing until opened. -->
+      @if (v.mechanisms.length === 0) {
+        <aec-request-drawer />
+      }
     }
   `,
 })

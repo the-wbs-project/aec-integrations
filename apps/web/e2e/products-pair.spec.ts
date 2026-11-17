@@ -30,6 +30,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 /** Resolve a real pair from the live catalog, so the spec doesn't pin fixture slugs. */
@@ -389,6 +390,31 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     ).toHaveAttribute('aria-hidden', 'true');
     await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
     await context.close();
+  });
+
+  test('"It does exist" opens the correction drawer with an editable prefill and sends nothing', async ({
+    page,
+    request,
+  }) => {
+    const pair = await findEmptyPair(request);
+    test.skip(pair === null, 'no empty pair in the local catalog');
+
+    const writes: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() !== 'GET' && r.url().includes('/api/')) writes.push(r.url());
+    });
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    const button = page.getByTestId('pair-empty-correction');
+    await untilHydrated(button);
+    await button.click();
+    // The page hosts the drawer: without it the trigger cancels the click and nothing opens.
+    const body = page.getByRole('dialog').getByRole('textbox', { name: 'What should we fix?' });
+    await expect(body).toBeVisible();
+    // The reader's own words to change: the pair named, no claim that one exists.
+    await expect(body).toHaveValue(/^An integration between .+ and .+\. Where I saw it: $/);
+    await body.fill('My own words');
+    await expect(body).toHaveValue('My own words');
+    expect(writes, 'nothing is sent before the reader submits').toEqual([]);
   });
 
   test('does not scroll sideways at 390, 768, 1024 and 1440', async ({ page, request }) => {
