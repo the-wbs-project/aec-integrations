@@ -20,8 +20,8 @@ link is then status-checked by a **parallel HTTP sweep** (no hydration needed to
 read a status code), so the no-404 / no-5xx gates still cover every discovered
 link while the browser work stays O(page types), not O(catalog).
 
-- **Environment crawled:** `http://localhost:8794`
-- **Seed totals (API):** products 39, vendors 8, integrations 25; taxonomy — categories 35, audiences-with-products 9, phases-with-products 4, published-trades 2
+- **Environment crawled:** `http://localhost:8790`
+- **Seed totals (API):** products 10, vendors 7, integrations 4; taxonomy — categories 32, audiences-with-products 9, phases-with-products 4, published-trades 1
 
 ## Structural index page types
 
@@ -46,7 +46,7 @@ the tightest constraint.
 | Page type | URL pattern | Data | Reachable | Min depth | Shortest path (patterns) |
 |---|---|---|---|---|---|
 | product detail | `/products/:slug` | yes | ✓ | 2 | / → /products → /products/:slug |
-| vendor detail | `/vendors/:slug` | yes | ✓ | 3 | / → /products → /products/:slug → /vendors/:slug |
+| vendor detail | `/vendors/:slug` | yes | ✓ | 2 | / → /categories/:slug → /vendors/:slug |
 | product pair (integration) | `/products/:contextSlug/integrations/:otherSlug` | yes | ✓ | 3 | / → /products → /products/:slug → /products/:contextSlug/integrations/:otherSlug |
 | category browse | `/categories/:slug` | yes | ✓ | 1 | / → /categories/:slug |
 | discipline browse (audience) | `/audiences/:slug` | yes | ✓ | 1 | / → /audiences/:slug |
@@ -65,14 +65,14 @@ _none_
 
 | Metric | Count |
 |---|---|
-| Distinct internal pages reached (2xx) | 176 |
-| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 181 |
-| — hydrated in browser (bounded ≤ 5/type: reachability + console) | 39 |
-| — status-verified via parallel HTTP sweep (no-404 / no-5xx) | 142 |
+| Distinct internal pages reached (2xx) | 124 |
+| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 129 |
+| — hydrated in browser (bounded ≤ 5/type: reachability + console) | 42 |
+| — status-verified via parallel HTTP sweep (no-404 / no-5xx) | 87 |
 | Unexpected internal 404s | 0 |
 | Internal 5xx / navigation failures | 0 |
 | Redirects (recorded, not followed) | 5 |
-| Distinct external links seen (recorded, never counted toward reach) | 8 |
+| Distinct external links seen (recorded, never counted toward reach) | 16 |
 
 ## Console health (AECI-162)
 
