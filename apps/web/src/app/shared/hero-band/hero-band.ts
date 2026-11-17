@@ -12,7 +12,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
 
 /**
  * AECI-1766 - the Forest hero band of a detail page (DESIGN.md §2 "Forest
- * grounds", §4 "The detail page band shell", ADR 0057). A frame, not a page:
+ * grounds", §4 "The detail page band shell", ADR 0058). A frame, not a page:
  * AECI-1778 fills it on the product page. It owns the ground, the glow, the
  * page wrap and the vertical rhythm. The caller owns every word.
  *

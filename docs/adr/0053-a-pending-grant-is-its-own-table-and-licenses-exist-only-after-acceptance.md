@@ -26,4 +26,4 @@ A `pending` state on `licenses` would have needed a new clause in every one of t
 
 - Readers of `licenses` need no change. A new reader must not read `license_grants` as live.
 - An admin who expects a grant to show at once now sees it waiting until an owner accepts. The 11:00 job expires a grant nobody accepted at its end date, and sends one reminder after 7 days.
-- The store is append-only in D1, not tamper-evident against AECi itself. A nightly export to a versioned R2 bucket with a running hash is a separate Platform issue (ruling 15).
+- The store is append-only in D1. *Amended 2026-11-17 (AECI-1680):* it is now tamper-evident against AECi itself through a nightly hash chain of row fingerprints in locked R2 with a DigiCert timestamp (ruling 15, ADR 0057). R2 has no object versioning, so a bucket lock holds the files.

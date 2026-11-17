@@ -413,7 +413,7 @@ never exempt.
 
 Exempt (derived, log-class, ledger and service-log writes):
 
-`claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`acceptance_chain_exports` · `acceptance_chain_rows` · `claim_thread_reads` · `feedback` · `job_runs` · `legal_notice_deliveries` · `legal_notice_reader_deliveries` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
 `notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` · `plan_change_snapshots` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
@@ -580,3 +580,31 @@ and is never exempt. There is no delete path: the R2 objects are under a 4-year 
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writers, and the consolidated list above carries it.
+
+## Amendment 2026-11-17: the acceptance chain ledger (AECI-1680)
+
+Nothing above is reversed, and no new class is added. `acceptance_chain_exports` and
+`acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17) are a ledger of evidence files, like
+`page_views_archive_days` is a ledger of archive copies. Both join the consolidated exemption list
+above.
+
+**The tables.** One `acceptance_chain_exports` row per nightly chain file the export wrote to R2,
+and one `acceptance_chain_rows` row per acceptance or grant row, holding the last fingerprint
+exported for it. The daily job in `apps/api/src/lib/acceptance-chain-export.ts` writes both in one
+`db.batch` after R2 confirmed the file, then updates `tsa_status` and `tsa_key` after the DigiCert
+request (ADR 0057).
+
+**Why it is exempt.** They record what was copied to R2, not a decision. Every write to
+`agreement_acceptances` and `license_grants` already carries its own `audit_log` row in its own
+batch. These tables change no domain state and are invisible on every public surface. The verify
+command reconstructs its evidence from R2 and reads only `MAX(seq)` from `acceptance_chain_exports`
+as a minimum walk length. It never reads `acceptance_chain_rows`. Ledger damage can cause re-exports
+or verification failures.
+
+**What would end the exemption.** If any code ever reads these tables to decide which agreement
+binds an account, a person's access or a vendor's standing, or an operator action edits a row
+through the app, that is domain state and audits in the same `db.batch`. A delete would be a
+scheduled or operator `DELETE` and is never exempt. There is no delete path.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the tables, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names their writer, and the consolidated list above carries them.

@@ -1166,6 +1166,12 @@ AECI-1373 adds two more of the same shape: `license_release_requests.requested_b
 AECI-1416 adds one more: `product_proposals.decided_by`, the owner seat that decided a product
 proposal. The batch nulls it with `updated_at` pinned, and the proposal and its frozen payload
 survive.
+AECI-1665 adds one more: `dmca_notices.account_id`, the account that posted the material a
+copyright notice names. The batch nulls it where it names the user. The notice and any
+counter-notice survive for three years after they close, because they are the record of a
+copyright matter (Privacy Policy "Retention", `DATABASE_SCHEMA.md` §8.14). A deleted and
+re-created account starts with a clean takedown count (Chris's ruling of 2026-11-17).
+`apps/api/src/routes/account.spec.ts` asserts it.
 
 **A billing email equal to the person's address is nulled (AECI-1389, ruling 2026-10-16).**
 `billing_accounts.billing_email` is an address an owner typed, not a profile link, so no FK
@@ -1177,6 +1183,18 @@ so the statement is left out. `apps/api/src/routes/account.spec.ts` asserts both
 address also sits in the `before_state` / `after_state` of past
 `billing_account.email_changed` audit rows. Erasure does not rewrite those rows, as it does
 not rewrite `metadata.invited_email` on `vendor_seat.invited` rows.
+
+**About-you answers never enter the audit record (AECI-1869, ruling 2026-11-17).** The Privacy
+Policy says the About-you answers are deleted with the account. Erasure keeps audit rows, so the
+`profile.updated` row names the answers a request touched in `metadata.about_you_fields` and holds
+none of their values. The six are `company_type`, `company_size`, `primary_role`, `firm_name`,
+`linkedin_url` and `audience_ids` (`ABOUT_YOU_AUDIT_KEYS` in `apps/api/src/routes/account.ts`).
+`display_name`, `listing_view_preference` and `onboarding` keep their values, under the audit-record
+exception. Rows written before the fix still hold the values until
+`scripts/ops/2026-11-about-you-audit-scrub/` runs after deployment to each environment. Its README
+tracks completion. After the scrub, erasure needs no audit rewrite for these answers. The billing
+email audit values above intentionally survive erasure. `apps/api/src/routes/account.spec.ts` edits
+About you, deletes the account, and asserts that no audit row holds the firm name or the LinkedIn link.
 
 **Pending claim confirmations are deleted (AECI-1435, 2026-10-21).** A
 `request_confirmations` row (ADR 0043) holds an address typed on the anonymous claim or

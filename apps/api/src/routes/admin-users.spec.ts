@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  dmcaNotices,
   licenses,
   products,
   profileAudiences,
@@ -672,6 +673,43 @@ describe('GET /api/admin/users/:id — the detail', () => {
 
     expect(seat.counts.seat_invites_sent).toBe(1);
     expect(admin.counts.licenses_granted).toBe(1);
+  });
+
+  it('counts copyright takedowns and counter-notices with the shared predicate (AECI-1665)', async () => {
+    await seedPeople();
+    const notice = (n: number, action: string) => ({
+      id: u(90 + n),
+      kind: 'notice',
+      receivedAt: '2026-11-01T12:00:00.000Z',
+      submitterName: 'Rights Holder',
+      submitterContact: 'rights@example.test',
+      contentIdentified: 'https://example.test/x',
+      accountId: REVIEWER,
+      action,
+      createdBy: ADMIN,
+      updatedBy: ADMIN,
+    });
+    await t.db.insert(dmcaNotices).values([
+      notice(1, 'removed'),
+      notice(2, 'disabled'),
+      notice(3, 'no_action'),
+      notice(4, 'pending'),
+      // A counter-notice on the second notice that ended in a restore: it stops counting.
+      {
+        ...notice(5, 'pending'),
+        kind: 'counter_notice',
+        noticeId: u(92),
+        restoreOutcome: 'restored',
+      },
+    ]);
+    const app = await detailApp();
+
+    const body = await readJson(await call(app, `/users/${REVIEWER}`));
+    const other = await readJson(await call(app, `/users/${SEAT}`));
+
+    expect(body.counts.dmca_takedowns).toBe(1);
+    expect(body.counts.dmca_counter_notices).toBe(1);
+    expect(other.counts).toMatchObject({ dmca_takedowns: 0, dmca_counter_notices: 0 });
   });
 
   it('matches vendor_requests case-INSENSITIVELY — submitter_email is not lowercased on write', async () => {

@@ -364,6 +364,32 @@
       </dt>
       <dd class="font-medium text-(--text-primary)">{{ u.counts.licenses_granted }}</dd>
     </div>
+    <!--
+      AECI-1665: the repeat-infringer count (ADMIN_PANEL_SPEC.md section 5.23). Notices whose
+      material we removed or disabled, less any restored after a counter-notice. The link
+      opens this account's rows on the copyright notice log.
+    -->
+    <div class="flex gap-2" data-testid="user-dmca-count">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.dmcaTakedowns">
+        Copyright takedowns
+      </dt>
+      <dd class="font-medium text-(--text-primary)">
+        <a
+          [routerLink]="['/admin/dmca']"
+          [queryParams]="{ account: u.id }"
+          class="underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ u.counts.dmca_takedowns }}<span class="sr-only" i18n="@@admin.users.detail.dmcaLink">
+            takedowns. Open the copyright notice log.</span
+          ></a
+        >
+        <span
+          class="font-normal text-(--text-secondary)"
+          i18n="@@admin.users.detail.dmcaCounterNotices"
+          >{u.counts.dmca_counter_notices, plural, =1 {(1 counter-notice)} other {({{
+          u.counts.dmca_counter_notices }} counter-notices)}}</span
+        >
+      </dd>
+    </div>
     <div class="flex gap-2">
       <!--
         Best-effort and labelled so: `vendor_requests` has no user FK, only
