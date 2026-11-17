@@ -4498,6 +4498,61 @@ export function sendCronJobFailedAlert(
 }
 
 /**
+ * `litigation-hold-reminder` (AECI-1638, `ADMIN_PANEL_SPEC.md` §5.22b): a litigation hold
+ * has been open more than 90 days. Sent by the daily legal retention job to
+ * `SUPPORT_EMAIL`, at most once every 30 days per hold (`lib/litigation-hold-reminder.ts`
+ * reads the ledger for that). It names the scope, the vendor, the reason, the matter
+ * reference and the age, and links `/admin/legal` to release or keep the hold. The reason
+ * is the operator's own internal note. No vendor or person receives it.
+ */
+export function sendLitigationHoldReminder(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    holdId: string;
+    scope: 'global' | 'vendor';
+    vendorName: string | null;
+    vendorId: string | null;
+    reason: string;
+    matterReference: string | null;
+    placedAt: string;
+    ageDays: number;
+  } & Pick<SendDedupe, 'dedupeKey'>,
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const scope =
+    opts.scope === 'global'
+      ? 'Global: the retention prune deletes nothing'
+      : `Vendor: ${opts.vendorName ?? opts.vendorId ?? 'unknown'}`;
+  const facts: EmailTableRow[] = [
+    ['Scope', scope, { plain: true }],
+    ['Reason', opts.reason, { plain: true }],
+    ['Matter', opts.matterReference ?? 'none given', { plain: true }],
+    ['Placed', opts.placedAt],
+    ['Open for', `${opts.ageDays} days`],
+    ['Environment', tierLabel(c.env)],
+    ['Runbook', 'docs/runbooks/legal.md, "Litigation hold notice"'],
+  ];
+  const intro =
+    `A litigation hold has been open for ${opts.ageDays} days. While it is open, the retention prune keeps records past their promised period. ` +
+    'Release it on /admin/legal if the matter has ended, or keep it if the matter is still open. This reminder repeats every 30 days while the hold stays open.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `Hold open for ${opts.ageDays} days: release it or keep it.`,
+    heading: 'A litigation hold is still open',
+    table: facts,
+    ...(base ? { cta: { label: 'Open the legal page', url: link(`${base}/admin/legal`) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'litigation-hold-reminder',
+    subject: `[AECi] Litigation hold open for ${opts.ageDays} days`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'litigation_hold', id: opts.holdId },
+  });
+}
+
+/**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *
  * House layout, like its sibling `landing-signup`. The facts ride the layout's `table`, so

@@ -45,6 +45,7 @@ import {
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
   sendCronJobFailedAlert,
+  sendLitigationHoldReminder,
   sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
@@ -669,6 +670,22 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         reason: 'list subscriptions: network 0',
         failedAt: '2026-11-03T01:15:27.000Z',
         attempts: 4,
+      }),
+  },
+  'litigation-hold-reminder': {
+    links: true,
+    send: (c) =>
+      sendLitigationHoldReminder(c, {
+        to: 'support@aecintegrations.com',
+        holdId: 'h-1',
+        scope: 'vendor',
+        vendorId: 'v-1',
+        vendorName: 'Bentley',
+        reason: 'Demand letter received',
+        matterReference: 'AECI-9999',
+        placedAt: '2026-08-01T10:00:00.000Z',
+        ageDays: 91,
+        dedupeKey: 'litigation-hold-reminder:h-1:2026-10-31',
       }),
   },
   'stripe-reconcile-alert': {

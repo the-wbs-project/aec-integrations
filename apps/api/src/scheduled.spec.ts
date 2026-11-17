@@ -24,6 +24,7 @@ import {
   planChangeSnapshots,
   acceptanceChainExports,
   agreementAcceptances,
+  litigationHolds,
   products,
   profileDetails,
   profiles,
@@ -1650,6 +1651,102 @@ describe('plan-change snapshot sweep (AECI-1621): cron → reconcile queue → c
   });
 });
 
+describe('legal retention prune (AECI-1638): 03:00 tick → reconcile queue → consumer', () => {
+  /** An `audit_log` row five years old, past the four-year cutoff. */
+  async function seedOldAuditRow(): Promise<string> {
+    const id = crypto.randomUUID();
+    const createdAt = new Date(Date.now() - 5 * 366 * 24 * 60 * 60 * 1000).toISOString();
+    await t.db
+      .insert(auditLog)
+      .values({ id, actorType: 'system', action: 'vendor.updated', createdAt });
+    return id;
+  }
+
+  it('the 03:00 tick enqueues legal_retention on the reconcile queue and still runs the 400-day prune inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(RETENTION_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'legal_retention', trigger: 'cron' }),
+    );
+    // The 400-day prune is queue-less and unchanged: one inline row, and no legal row
+    // until the consumer runs.
+    expect((await jobRunRows()).map((r) => r.job)).toEqual(['retention-prune']);
+  });
+
+  it('the consumer prunes a four-year-old audit row, records the run, forwards the audit row and ack()s', async () => {
+    const old = await seedOldAuditRow();
+    const { batch, ack, retry } = makeBatch('legal_retention', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((r) => r.id)).not.toContain(old);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ action: 'retention.pruned', actorType: 'system' });
+    expect(audits[0]?.metadata).toMatchObject({
+      source: 'legal-retention-prune',
+      rowsDeleted: 1,
+      tables: [{ table: 'audit_log', rowsDeleted: 1 }],
+    });
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'legal-retention-prune', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'legal-retention-prune',
+      rowsDeleted: 1,
+      // The hold reminder ran first and found no hold.
+      reminders: { due: 0, outcomes: {} },
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.legal_retention.prune',
+      1,
+      ['trigger:cron', 'outcome:ok', 'audit:run'],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ message: 'audit retention.pruned', source: 'audit_log' }),
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('a global hold makes the run skipped and deletes nothing', async () => {
+    const old = await seedOldAuditRow();
+    await t.db.insert(litigationHolds).values({
+      scope: 'global',
+      reason: 'Subpoena',
+      placedBy: 'admin-1',
+      placedAt: new Date().toISOString(),
+    });
+    const { batch, ack } = makeBatch('legal_retention', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect((await t.db.select().from(auditLog)).map((r) => r.id)).toEqual([old]);
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'legal-retention-prune',
+      outcome: 'skipped',
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.legal_retention.prune',
+      1,
+      ['trigger:cron', 'outcome:skipped', 'reason:litigation_hold'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('acceptance chain export (AECI-1680): cron → reconcile queue → consumer', () => {
   it('the 0 18 cron enqueues one message on the reconcile queue and does not run inline', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
@@ -2523,12 +2620,16 @@ describe('job_runs bookkeeping (§7.2)', () => {
   it.each(ALL_CRONS)('%s writes exactly one completed row for %s', async (cron, job) => {
     await scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
 
+    // AECI-1638: the 03:00 tick also starts the legal prune. With no RECONCILE_QUEUE
+    // binding here it runs inline, so it writes its own row after the 400-day prune's.
+    const expected = cron === RETENTION_CRON ? [job, 'legal-retention-prune'] : [job];
     const rows = await jobRunRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ job });
-    // Completed on exit: both fields set, whatever the outcome was.
-    expect(rows[0]?.finishedAt).toEqual(expect.any(String));
-    expect(rows[0]?.outcome).toEqual(expect.any(String));
+    expect(rows.map((r) => r.job)).toEqual(expected);
+    for (const row of rows) {
+      // Completed on exit: both fields set, whatever the outcome was.
+      expect(row.finishedAt).toEqual(expect.any(String));
+      expect(row.outcome).toEqual(expect.any(String));
+    }
   });
 
   it('the 00:15 snapshot records BOTH of its passes in one job_runs row', async () => {
@@ -2723,10 +2824,13 @@ describe('job_runs bookkeeping (§7.2)', () => {
     });
     expect((audits[0]?.metadata as { rowsDeleted: number }).rowsDeleted).toBe(1);
     // The prune's own entry row was written moments ago, so it survives its own
-    // cutoff and is the only `job_runs` row left.
+    // cutoff. The legal prune ran after it inline (no RECONCILE_QUEUE here), found
+    // nothing four years old, and wrote no audit row.
     const rows = await jobRunRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+    expect(rows.map((r) => [r.job, r.outcome])).toEqual([
+      ['retention-prune', 'ok'],
+      ['legal-retention-prune', 'ok'],
+    ]);
   });
 
   it('a retention run that deletes nothing writes no audit row', async () => {

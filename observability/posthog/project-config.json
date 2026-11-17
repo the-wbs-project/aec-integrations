@@ -183,6 +183,12 @@
       "skipped or failed. A failed DigiCert request is a warn log, not a failed run. It carries",
       "activeFrom until its first production heartbeat.",
       "",
+      "AECI-1638 added legal-retention-prune, the twenty-ninth job. It has no trigger of its own:",
+      "the 03:00 retention-prune tick enqueues it on the reconcile queue. It deletes audit rows",
+      "older than four years and acceptance and grant records past their retention. Its heartbeat",
+      "aeci.legal_retention.prune fires on EVERY run, outcome ok, skipped (a global litigation",
+      "hold) or failed. It carries activeFrom until its first production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -230,6 +236,16 @@
         "maxAgeMinutes": 1560,
         "datadogMonitor": "AECi \u2014 Retention prune not running (no daily run)",
         "datadogNoDataTimeframeMinutes": 1560
+      },
+      {
+        "job": "legal-retention-prune",
+        "cron": "0 3 * * *",
+        "metric": "aeci.legal_retention.prune",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-25T04:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1638. Never had a Datadog monitor: the job did not exist. Enqueued by the 03:00 retention tick on RECONCILE_QUEUE, daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped (a global litigation hold) or failed, so its absence means the job stopped running. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "data-quality",

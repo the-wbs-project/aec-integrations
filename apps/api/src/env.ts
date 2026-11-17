@@ -41,7 +41,8 @@ export type ScheduledJob =
   | 'brand_asset_removal'
   | 'acceptance_evidence_removal'
   | 'plan_snapshot'
-  | 'acceptance_chain';
+  | 'acceptance_chain'
+  | 'legal_retention';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron

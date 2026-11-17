@@ -100,6 +100,15 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-reviews/admin-reviews-preview').then((m) => m.AdminReviewsPreview),
   },
+  // AECI-1638 — the `/admin/legal` litigation holds section over a fake API, so the
+  // place and release forms render without an admin session.
+  {
+    path: 'admin-litigation-holds',
+    loadComponent: () =>
+      import('./admin-litigation-holds/admin-litigation-holds-preview').then(
+        (m) => m.AdminLitigationHoldsPreview,
+      ),
+  },
   // AECI-1613 — the `/admin/review-updates` queue over a fixture-backed fake API,
   // so every card state and the reason form render without an admin session.
   {

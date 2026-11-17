@@ -681,6 +681,9 @@
   <!-- AECI-1677: who has accepted each final version. Its own component and file. -->
   <aec-admin-legal-acceptance-status />
 
+  <!-- AECI-1638: litigation holds, the switch that stops the legal retention prune. -->
+  <aec-admin-litigation-holds />
+
   <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
     <ng-template brnDialogContent>
       @if (pending(); as p) {

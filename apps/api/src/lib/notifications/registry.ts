@@ -742,6 +742,25 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL which scheduled job failed and why.',
     note: 'Always on: it is the alert for a failed job, so pausing it would hide the failure. Sent in waitUntil, so a failed send changes nothing about the job. A send that did not go out reaches the PostHog backstop alert through aeci.cron.failure_email.',
   },
+  // AECI-1638: a litigation hold left open too long.
+  'litigation-hold-reminder': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: '0 3 legal retention prune, queued (lib/litigation-hold-reminder.ts runLitigationHoldReminders)',
+    },
+    envRule: 'production-only',
+    dedupe:
+      'One per hold at most every 30 days: the job skips a hold whose last sent or unknown send of this template is under 30 days old in notification_sends. Key litigation-hold-reminder:{holdId}:{YYYY-MM-DD}, so a queue retry the same day is a duplicate.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.22b',
+    summary:
+      'Tells SUPPORT_EMAIL that a litigation hold has been open more than 90 days, with its scope, vendor, reason, matter and age, so it is released or kept on purpose.',
+    note: 'Always on: a forgotten hold keeps personal data past the Privacy Policy period, and this is the only prompt. Production only: holds on other tiers are test data. It names an internal reason and a vendor id, never a person.',
+  },
   // AECI-1503 (E9.5): the backstop for a missed Stripe webhook.
   'stripe-reconcile-alert': {
     channel: 'email',

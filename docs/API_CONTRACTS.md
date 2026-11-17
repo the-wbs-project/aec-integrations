@@ -364,6 +364,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
 | `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
 | `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
+| `LITIGATION_HOLD_EXISTS` | 409 | `POST /api/admin/litigation-holds` (AECI-1638) when an open hold of that scope already exists: the one open global hold, or an open hold for that vendor. The early read and the partial unique index both answer it. Nothing was written. |
+| `LITIGATION_HOLD_RELEASED` | 409 | `POST /api/admin/litigation-holds/:id/release` (AECI-1638) when the hold was already released, on read or by the batch's sentinel. Nothing was written. |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -3430,7 +3432,7 @@ and why each leg is load-bearing.
 
 **`before_state` / `after_state` are `z.unknown().nullable()` deliberately.** They are
 free-form JSON snapshots written by ~34 call sites across the life of the schema, with
-no shared contract, in a table nothing prunes — so a reader today is parsing rows
+no shared contract, in a table that keeps rows four years — so a reader today is parsing rows
 written by code that no longer exists. `z.unknown()` is non-optional in Zod 4, so a
 *missing* key is still rejected (R10) while any present value is accepted; a
 `z.record(...)` would make `validateResponseInDev` throw on a historical scalar
@@ -5914,7 +5916,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-eight (AECI-1680)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-nine (AECI-1638)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5988,6 +5990,7 @@ export const AdminCronJobSchema = z.enum([
   'sitemap-rebuild',     // 7-59/15 * * * *   (AECI-1505)
   'plan-snapshot',       // 11-59/15 * * * *  (AECI-1621)
   'acceptance-chain',    // 0 18 * * *  (AECI-1680)
+  'legal-retention-prune', // 0 3 * * *, enqueued by the retention-prune tick (AECI-1638)
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
@@ -6033,7 +6036,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-eight since AECI-1680): omitting a job would read as "not configured", a
+Every row is always present (twenty-nine since AECI-1638): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -7266,9 +7269,64 @@ a write that committed. No audit row on the POST, or on a PATCH whose sentinel p
 VALIDATION_FAILED` with `field: 'account_id'`, and nothing was written or forwarded. A write that
 landed answers 201 or 200 with the row as it wrote it, and is forwarded. The audit states carry `kind`, `notice_id`, `received_at`, `vendor_id`, `action` and the
 dates and outcome that changed. Names, contact details, the material, the work, the notes and
-the account id are named in `metadata.fields` and never copied, because `audit_log` is never
-pruned. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
+the account id are named in `metadata.fields` and never copied, because `audit_log` keeps
+these rows for four years, longer than the copyright notice log’s three-year retention. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
 commit.
+
+#### Litigation holds: `GET /api/admin/litigation-holds`, `POST /api/admin/litigation-holds`, `POST /api/admin/litigation-holds/:id/release` (AECI-1638)
+
+The switch that stops the legal retention prune (`ADMIN_PANEL_SPEC.md` §5.22b, `DATABASE_SCHEMA.md`
+§8.15, ADR 0058). All three behind `requireAdmin()`. The two POSTs carry `rateLimit('write')` after
+the guard. The GET is a read and carries no limiter. Contract in
+`packages/shared/src/api/litigation-holds.ts`.
+
+```ts
+type LitigationHold = {
+  id: string;
+  scope: 'global' | 'vendor';
+  vendor_id: string | null;      // null on a global hold
+  vendor_name: string | null;    // the vendor's company name, null on a global hold
+  reason: string;                // internal
+  matter_reference: string | null;
+  placed_by: string;             // profiles.id
+  placed_at: string;             // ISO
+  released_at: string | null;    // null while open
+  released_by: string | null;
+  release_reason: string | null;
+};
+
+// GET /api/admin/litigation-holds
+type LitigationHoldsResponse = {
+  generated_at: string;
+  open: LitigationHold[];        // every open hold, newest first
+  released: LitigationHold[];    // the 20 most recently released, newest first
+};
+
+// POST /api/admin/litigation-holds
+type CreateLitigationHoldRequest = {
+  scope: 'global' | 'vendor';
+  vendor_id?: string | null;     // required on 'vendor', refused on 'global'
+  reason: string;                // AdminReasonSchema: trimmed, 1 to 1000 characters
+  matter_reference?: string | null; // up to 200 characters
+};
+// 201 { hold: LitigationHold }
+
+// POST /api/admin/litigation-holds/:id/release
+type ReleaseLitigationHoldRequest = { reason: string }; // AdminReasonSchema
+// 200 { hold: LitigationHold }
+```
+
+**Refusals, in order.** The place: `400 VALIDATION_FAILED` for the body, `404 NOT_FOUND` for a
+`vendor_id` that names no vendor, then `409 LITIGATION_HOLD_EXISTS` when an open hold of that scope
+exists. The release: the body (400), then `404 NOT_FOUND`, then `409 LITIGATION_HOLD_RELEASED`. A
+refusal writes nothing.
+
+**The write.** One `db.batch`. The place: the insert and its `litigation_hold.placed` audit row
+(`entity_type = 'litigation_hold'`, `vendor_id` set on a vendor hold, `metadata.reason`). A
+partial unique index error is the same 409. The release: a sentinel that aborts when the hold was
+released after the read, the guarded `UPDATE … WHERE id = ? AND released_at IS NULL`, and its
+`litigation_hold.released` audit row. A sentinel abort is the same 409. Each write forwards its
+audit row post-commit. Nothing is purged: no page renders a hold.
 
 #### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
 

@@ -621,7 +621,9 @@ is a 400 before that point and writes nothing.
   No month key is stored, so "monthly rotation" destroys nothing: every past month's hash can be
   recomputed while `PAGE_VIEW_IP_HASH_SECRET` survives. A litigation hold therefore keeps that secret
   unchanged, and copies the affected objects out of the 400-day lifecycle (`docs/runbooks/legal.md`
-  "Subpoena or legal process for a reviewer's identity", AECI-1622).
+  "Subpoena or legal process for a reviewer's identity", AECI-1622). The litigation hold switch on
+  `/admin/legal` (AECI-1638, ADR 0058) stops only the legal retention prune of audit and
+  acceptance records. It does not stop this lifecycle, so the copy-out step still applies.
 
 **What is never in it.** `cookie`, `authorization` and every `cf-access-*` header (the
 Cloudflare Access session JWT, user email and service token on gated tiers). Every IP-bearing header

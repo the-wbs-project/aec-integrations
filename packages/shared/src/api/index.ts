@@ -36,6 +36,7 @@ export * from './legal-in-force';
 export * from './legal-versions';
 export * from './license-grants';
 export * from './license-release-requests';
+export * from './litigation-holds';
 export * from './notification-preferences';
 export * from './page-views';
 export * from './page-view-raw';

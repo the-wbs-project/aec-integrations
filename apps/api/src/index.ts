@@ -139,6 +139,11 @@ import {
   createUpdateDmcaNoticeHandler,
 } from './routes/admin-dmca-notices';
 import {
+  createAdminLitigationHoldsHandler,
+  createPlaceLitigationHoldHandler,
+  createReleaseLitigationHoldHandler,
+} from './routes/admin-litigation-holds';
+import {
   createAdminEmailSearchHandler,
   createAdminEmailSendsHandler,
   createAdminEmailSummaryHandler,
@@ -1323,6 +1328,22 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createUpdateDmcaNoticeHandler(),
+);
+// §5.22b / AECI-1638 — litigation holds, the switch that stops the legal retention prune.
+// The GET is a read (no audit, no limiter). Place and release are writes that audit in
+// their own batch and carry `rateLimit('write')` after the guard. No purge: never public.
+authAdmin.get('/api/admin/litigation-holds', requireAdmin(), createAdminLitigationHoldsHandler());
+authAdmin.post(
+  '/api/admin/litigation-holds',
+  requireAdmin(),
+  rateLimit('write'),
+  createPlaceLitigationHoldHandler(),
+);
+authAdmin.post(
+  '/api/admin/litigation-holds/:id/release',
+  requireAdmin(),
+  rateLimit('write'),
+  createReleaseLitigationHoldHandler(),
 );
 app.route('/', authAdmin);
 
