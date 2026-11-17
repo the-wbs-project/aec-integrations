@@ -135,8 +135,10 @@
         loads on the claim/correction interaction, never on initial detail-page
         load, keeping the detail/browse JS budget green. No `prefetch` (idle
         prefetch would pull the chunk back into the page-load window).
+        AECI-1807: the scroll padding keeps a field that takes focus, and the
+        error under it, above the pinned submit bar (85px tall at 320px).
       -->
-      <div class="min-h-0 flex-1 overflow-y-auto px-6 pt-6">
+      <div class="min-h-0 flex-1 scroll-pb-32 overflow-y-auto px-6 pt-6">
         @defer (when drawer.isOpen()) {
         <aec-request-form-body
           [entity]="t.entity"
