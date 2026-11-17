@@ -113,6 +113,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
   styles: [':host { display: block; }'],
   template: `
     <form
+      method="dialog"
       [id]="fieldId('form')"
       class="mt-4 space-y-6"
       novalidate

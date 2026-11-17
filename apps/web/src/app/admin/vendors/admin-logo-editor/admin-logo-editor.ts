@@ -29,7 +29,12 @@ import { overrideReasonBody } from '../admin-vendors-api';
   imports: [LogoInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <form class="max-w-xl space-y-4" novalidate (submit)="$event.preventDefault(); save()">
+    <form
+      method="dialog"
+      class="max-w-xl space-y-4"
+      novalidate
+      (submit)="$event.preventDefault(); save()"
+    >
       <aec-logo-input
         [inputId]="'admin-logo-' + kind() + '-' + recordId()"
         [value]="draft()"

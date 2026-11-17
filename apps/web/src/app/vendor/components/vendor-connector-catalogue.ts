@@ -194,6 +194,7 @@ function domId(value: string): string {
         }
 
         <form
+          method="dialog"
           role="search"
           class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end"
           [attr.aria-label]="filterLabel"

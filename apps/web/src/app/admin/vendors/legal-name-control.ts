@@ -66,7 +66,7 @@ import { AdminLicensesApi } from './admin-licenses-api';
         </button>
       </div>
     } @else {
-      <form class="space-y-3" (submit)="submit($event)" novalidate>
+      <form method="dialog" class="space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label
             class="sr-only"

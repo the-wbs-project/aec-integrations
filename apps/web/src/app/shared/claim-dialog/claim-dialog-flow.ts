@@ -373,7 +373,12 @@ interface ClaimDialogModel {
           }
         }
         @default {
-          <form id="claim-dialog-form" novalidate (submit)="$event.preventDefault(); primary()">
+          <form
+            method="dialog"
+            id="claim-dialog-form"
+            novalidate
+            (submit)="$event.preventDefault(); primary()"
+          >
             @switch (step()) {
               @case ('you') {
                 <h3

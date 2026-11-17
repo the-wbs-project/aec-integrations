@@ -140,6 +140,7 @@ interface SelectOption {
 
       @if (open()) {
         <form
+          method="dialog"
           [id]="fieldId('panel')"
           class="mt-4 space-y-5"
           novalidate

@@ -99,6 +99,7 @@
   <!-- The form: one component for a new row and an edit. -->
   @if (editing(); as mode) {
   <form
+    method="dialog"
     data-testid="dmca-form"
     aria-labelledby="admin-dmca-form-heading"
     (submit)="save($event)"

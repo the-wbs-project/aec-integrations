@@ -159,7 +159,9 @@ export class LoginPage {
    * False until the browser has hydrated. The email submit stays disabled until
    * then. Event replay only queues an early event for later. It never cancels
    * the native action, so a click on the SSR HTML would still run the native form
-   * submit and drop `?next=` (AECI-831, AECI-1655).
+   * submit and drop `?next=` (AECI-831, AECI-1655). The form also declares
+   * `method="dialog"` (AECI-1919), so that native submit now does nothing, and this
+   * gate stays as the second layer.
    */
   protected readonly hydrated = signal(false);
 

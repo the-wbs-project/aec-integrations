@@ -79,6 +79,7 @@
 </div>
 } @else {
 <form
+  method="dialog"
   [id]="ids().form"
   novalidate
   (submit)="$event.preventDefault(); submit()"

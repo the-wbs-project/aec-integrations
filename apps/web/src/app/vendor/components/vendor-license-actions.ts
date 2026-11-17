@@ -199,7 +199,7 @@ type MenuAction = 'release' | 'keep';
             {{ description() }}
           </p>
 
-          <form class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
+          <form method="dialog" class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
             <fieldset class="space-y-3">
               <legend class="sr-only" i18n="@@vendor.billing.release.when">
                 When should the subscription come off?

@@ -115,7 +115,7 @@ interface FieldConfig {
         </p>
       </div>
 
-      <form class="space-y-6" novalidate (submit)="onFormSubmit($event)">
+      <form method="dialog" class="space-y-6" novalidate (submit)="onFormSubmit($event)">
         @if (updatedElsewhere()) {
           <div
             class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"

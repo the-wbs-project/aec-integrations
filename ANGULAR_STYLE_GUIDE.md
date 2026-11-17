@@ -550,6 +550,7 @@ ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme and 
 | `no-named-color-class` | `.html`, `.css` | `text-white`, `bg-black`, … — not `-transparent` | Tokens, not literals (AECI-597, §20) |
 | `no-color-opacity-modifier` | `.html`, `.css` | `text-(--surface-base)/70`, `bg-forest/40`: a `/NN` on a colour utility. Not `text-sm/6` or `w-1/2`. Allow-list `COLOR_OPACITY_MODIFIER_ALLOW` is empty and cleared by AECI-1813 | Every alpha is a measured named token (AECI-1747, redesign clash 6) |
 | `no-smooth-scroll` | `.ts`, `.html`, `.css` | A smooth `scroll-behavior` from CSS, `scrollBehavior =` or `style.setProperty`; a smooth `behavior` scroll option, key bare or quoted, value on the same or the next line; any `[style.scroll-behavior]` binding; Tailwind `scroll-smooth` incl. `[class.scroll-smooth]`; the switch class `aeci-smooth-scroll`. Allow-lists `styles.css`, `core/in-page-smooth-scroll.ts` and `index.html` | One smooth-scroll mechanism, one switch (AECI-1752, §3 scroll notes) |
+| `form-declares-method` | `.ts`, `.html`, not `.spec.ts` | A `<form>` opening tag with no `method`. A tag rule: it reads the whole tag across lines and skips tags inside comments | Forms are inert before hydration (AECI-1919, DESIGN.md) |
 
 **Two escape hatches, and they are not interchangeable.**
 

@@ -103,6 +103,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
   host: { class: 'block' },
   template: `
     <form
+      method="dialog"
       novalidate
       class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
       [attr.aria-label]="formLabel()"

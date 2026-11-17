@@ -95,6 +95,7 @@ interface FieldOption {
   styles: [ID_STYLES],
   template: `
     <form
+      method="dialog"
       id="change-requests-form"
       tabindex="-1"
       class="id-well mt-4 scroll-mt-20 space-y-4 p-4 text-sm focus:outline-none"

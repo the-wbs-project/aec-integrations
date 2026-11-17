@@ -135,6 +135,7 @@ const PENCIL =
                 <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   @if (editing() === row.key && row.edit) {
                     <form
+                      method="dialog"
                       class="flex min-w-0 flex-1 flex-wrap items-start gap-2"
                       [attr.aria-label]="editFormLabel(row.label)"
                       (submit)="save($event, row)"

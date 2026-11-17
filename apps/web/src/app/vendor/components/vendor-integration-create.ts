@@ -241,6 +241,7 @@ function emptyDraft(): Draft {
           } @else if (mode() === 'request') {
             <!-- AECI-1377: the request form swaps in for step 1. -->
             <form
+              method="dialog"
               class="space-y-4"
               novalidate
               (submit)="onRequestSubmit($event)"
@@ -346,6 +347,7 @@ function emptyDraft(): Draft {
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              method="dialog"
               class="space-y-6"
               novalidate
               (submit)="onSubmit($event)"

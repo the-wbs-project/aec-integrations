@@ -10,7 +10,7 @@ import {
   TAILWIND_PALETTE,
   COLOR_OPACITY_MODIFIER,
 } from '../../../eslint.color-patterns.mjs';
-import { RULES, scanFile } from '../scripts/check-source-constraints.mjs';
+import { RULES, TAG_RULES, scanFile } from '../scripts/check-source-constraints.mjs';
 
 /**
  * AECI-597 — the first test the line scanner has ever had.
@@ -324,5 +324,41 @@ describe('pattern exports stay in sync with the rule table', () => {
     expect(byId['no-tailwind-palette']).toBe(new RegExp(TAILWIND_PALETTE).source);
     expect(byId['no-named-color-class']).toBe(new RegExp(NAMED_COLOR_CLASS).source);
     expect(byId['no-color-opacity-modifier']).toBe(new RegExp(COLOR_OPACITY_MODIFIER).source);
+  });
+});
+
+describe('form-declares-method (AECI-1919)', () => {
+  const TS = 'apps/web/src/app/some/component.ts';
+
+  it('is the one tag rule', () => {
+    expect(TAG_RULES.map((r) => r.id)).toEqual(['form-declares-method']);
+  });
+
+  it('flags a form with no method, on one line or across several', () => {
+    expect(hits(HTML, '<form novalidate (submit)="save($event)">')).toEqual([
+      'form-declares-method',
+    ]);
+    expect(hits(HTML, '<form>')).toEqual(['form-declares-method']);
+    const split = '<div>\n  <form\n    novalidate\n    (submit)="a > b && save()"\n  >\n</div>';
+    expect(scanFile(TS, split)).toEqual([
+      expect.objectContaining({ ruleId: 'form-declares-method', line: 2 }),
+    ]);
+  });
+
+  it('accepts a declared method, wherever it sits in the tag', () => {
+    expect(hits(HTML, '<form method="dialog" novalidate (submit)="save($event)">')).toEqual([]);
+    const search = '<form\n  role="search"\n  action="/search"\n  method="get"\n>';
+    expect(scanFile(TS, search)).toEqual([]);
+  });
+
+  it('ignores forms named in comments, other tags and spec templates', () => {
+    expect(hits(HTML, '<!-- the SSR <form> has no action -->')).toEqual([]);
+    expect(scanFile(TS, '/**\n * a native `<form action="/search">`\n */')).toEqual([]);
+    expect(hits(HTML, '<formfield></formfield><aec-form-row>')).toEqual([]);
+    expect(hits('apps/web/src/app/some/component.spec.ts', '<form (submit)="x()">')).toEqual([]);
+  });
+
+  it('honours the escape hatch on the line before the tag', () => {
+    expect(hits(HTML, '<!-- constraints-guard-allow-next-line -->\n<form>')).toEqual([]);
   });
 });

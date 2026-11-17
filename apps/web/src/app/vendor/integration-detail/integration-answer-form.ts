@@ -64,6 +64,7 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
   styles: [ID_STYLES],
   template: `
     <form
+      method="dialog"
       class="id-well space-y-3 p-4 text-sm"
       [attr.aria-labelledby]="id + '-title'"
       (submit)="save($event)"

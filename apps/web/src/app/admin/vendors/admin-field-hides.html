@@ -26,6 +26,7 @@
 
 @if (formOpen()) {
 <form
+  method="dialog"
   [id]="id('form')"
   class="mt-4 max-w-xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
   novalidate
@@ -430,6 +431,7 @@
       <tr class="border-b border-(--border-default)">
         <td colspan="4" class="py-3">
           <form
+            method="dialog"
             [id]="actionFormId(hide, 'form')"
             class="max-w-xl space-y-3"
             novalidate

@@ -92,7 +92,12 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
             </p>
           </div>
 
-          <form class="mt-8 max-w-xl min-w-0 lg:mt-0" novalidate (submit)="onSubmit($event)">
+          <form
+            method="dialog"
+            class="mt-8 max-w-xl min-w-0 lg:mt-0"
+            novalidate
+            (submit)="onSubmit($event)"
+          >
             <div class="flex flex-wrap gap-3">
               <label
                 class="sr-only"

@@ -476,6 +476,7 @@
   </button>
   } @else {
   <form
+    method="dialog"
     novalidate
     (submit)="$event.preventDefault(); confirmBan()"
     class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-4"

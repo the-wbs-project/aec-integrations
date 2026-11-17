@@ -551,6 +551,7 @@
              no plan to pick and no arrangement to record. -->
         @if (formOpenId() === r.id && formMode() === 'approve') {
         <form
+          method="dialog"
           novalidate
           (submit)="$event.preventDefault(); confirmApprove(r.id)"
           class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
@@ -587,6 +588,7 @@
         <!-- Reject form: internal decision note (audit-only; the claimant email is neutral) -->
         @if (formOpenId() === r.id && formMode() === 'reject') {
         <form
+          method="dialog"
           novalidate
           (submit)="$event.preventDefault(); confirmReject(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"

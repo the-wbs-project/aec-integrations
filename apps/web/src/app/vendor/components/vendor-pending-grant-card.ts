@@ -221,7 +221,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
         </dd>
       </dl>
 
-      <form novalidate class="mt-4 space-y-4" (submit)="accept($event)">
+      <form method="dialog" novalidate class="mt-4 space-y-4" (submit)="accept($event)">
         <div class="space-y-1.5">
           <label
             [attr.for]="id('title')"

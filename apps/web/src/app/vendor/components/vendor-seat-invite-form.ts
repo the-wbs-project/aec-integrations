@@ -37,7 +37,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 @Component({
   selector: 'aec-vendor-seat-invite-form',
   template: `
-    <form (submit)="submit($event)">
+    <form method="dialog" (submit)="submit($event)">
       <div class="flex flex-wrap items-start gap-2">
         <div class="min-w-[16rem] flex-1">
           <label class="sr-only" for="seat-invite-email" i18n="@@vendor.seats.invite.label">

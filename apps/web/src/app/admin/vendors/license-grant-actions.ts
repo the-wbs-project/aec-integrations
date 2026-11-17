@@ -54,6 +54,7 @@ import { AdminLicensesApi } from './admin-licenses-api';
       </button>
     } @else {
       <form
+        method="dialog"
         novalidate
         class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start"
         (submit)="$event.preventDefault(); submit()"

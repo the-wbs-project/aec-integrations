@@ -142,7 +142,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                   </a>
                 </div>
               } @else {
-                <form novalidate (submit)="onSubmit($event)">
+                <form method="dialog" novalidate (submit)="onSubmit($event)">
                   <label
                     class="block font-label text-t-14 text-(--text-primary)"
                     for="updates-email"

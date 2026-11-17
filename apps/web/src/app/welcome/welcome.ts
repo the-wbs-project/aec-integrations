@@ -161,7 +161,13 @@ export function welcomeNextPath(raw: string | null): string {
               </button>
             </div>
           } @else {
-            <form aecCard class="mt-10" novalidate (submit)="$event.preventDefault(); onSave()">
+            <form
+              method="dialog"
+              aecCard
+              class="mt-10"
+              novalidate
+              (submit)="$event.preventDefault(); onSave()"
+            >
               <div class="space-y-6 p-6 sm:p-8">
                 <div class="space-y-1.5">
                   <label

@@ -128,6 +128,7 @@ import { VendorTip } from './vendor-tip';
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {
         <form
+          method="dialog"
           class="id-well mt-3 space-y-3 p-4 text-sm"
           [attr.aria-label]="addFormLabel"
           (submit)="add($event)"

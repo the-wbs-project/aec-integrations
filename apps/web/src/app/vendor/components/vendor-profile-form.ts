@@ -120,7 +120,7 @@ interface FieldConfig {
     VendorLockedNote,
   ],
   template: `
-    <form class="space-y-8" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-8" novalidate (submit)="onFormSubmit($event)">
       <!--
         AECI-967 (section 6.9). The product form has always said what to do about
         its AECi-owned identity fields; this form said nothing at all, so a vendor

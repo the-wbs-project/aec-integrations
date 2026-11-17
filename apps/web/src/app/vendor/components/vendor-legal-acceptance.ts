@@ -248,7 +248,12 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
           </p>
 
           @if (canAccept()) {
-            <form novalidate class="mt-6 max-w-xl space-y-5" (submit)="accept($event)">
+            <form
+              method="dialog"
+              novalidate
+              class="mt-6 max-w-xl space-y-5"
+              (submit)="accept($event)"
+            >
               @if (askName()) {
                 <div class="space-y-1.5 sm:max-w-[calc(50%-0.625rem)]">
                   <label

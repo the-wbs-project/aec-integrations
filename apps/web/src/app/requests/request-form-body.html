@@ -172,7 +172,7 @@
   pinned bar (AECI-847).
 -->
 @switch (kind()) { @case ('correction') {
-<form [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
+<form method="dialog" [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
   <div [class]="fieldsClass()">
     <!-- What's wrong -->
     <div class="space-y-1.5">
@@ -299,7 +299,7 @@
   </div>
 </form>
 } @case ('claim') {
-<form [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
+<form method="dialog" [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
   <div [class]="fieldsClass()">
     <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
     <aec-claim-routed-notice [show]="routed()" [company]="company()" />

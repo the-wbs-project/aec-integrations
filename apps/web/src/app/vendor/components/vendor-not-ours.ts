@@ -141,6 +141,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
 
     @if (open()) {
       <form
+        method="dialog"
         [id]="fieldId('panel')"
         class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) p-4"
         novalidate

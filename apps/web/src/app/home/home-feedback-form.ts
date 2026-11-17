@@ -69,7 +69,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         Thanks. We read every suggestion.
       </p>
     } @else {
-      <form class="flex flex-col gap-5" novalidate (submit)="onSubmit($event)">
+      <form method="dialog" class="flex flex-col gap-5" novalidate (submit)="onSubmit($event)">
         <!-- Feature ideas -->
         <div class="flex flex-col gap-1.5">
           <label

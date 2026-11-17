@@ -65,7 +65,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
     </div>
 
     @if (editing()) {
-      <form class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
+      <form method="dialog" class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label
             class="sr-only"

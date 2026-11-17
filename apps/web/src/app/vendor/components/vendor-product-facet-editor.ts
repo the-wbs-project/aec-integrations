@@ -161,7 +161,7 @@ interface PendingRemoval {
     BrnDialogDescription,
   ],
   template: `
-    <form class="space-y-5" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-5" novalidate (submit)="onFormSubmit($event)">
       <div class="space-y-2">
         @if (headingLevel() === 2) {
           <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">

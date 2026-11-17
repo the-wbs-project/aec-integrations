@@ -448,6 +448,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
 
                     @if (isComposing(item)) {
                       <form
+                        method="dialog"
                         class="space-y-2"
                         novalidate
                         (submit)="$event.preventDefault(); save(item)"

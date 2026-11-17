@@ -146,6 +146,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
           data-testid="product-create-panel"
         >
           <form
+            method="dialog"
             class="space-y-5"
             novalidate
             (submit)="onSubmit($event)"

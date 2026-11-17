@@ -80,6 +80,7 @@ The `/legal/*` pages are public promises, and the two vendor agreements are acce
 - `.dev.vars` or `.env` files added to commits
 - SQL constructed via string concatenation (use Drizzle's query builder or parameterized `sql` templates, never interpolation)
 - Banned-user enforcement missing on write paths
+- A `<form>` with no `method`. Before hydration its native submit GETs the page with every answer in the address, which the edge log and PostHog keep. A form the component submits takes `method="dialog"`. A no-JS search form takes `method="get" action="/search"`. A new form route gets a line in `e2e/forms-before-hydration.spec.ts` (DESIGN.md "Forms are inert before hydration", AECI-1919). The lint guard `form-declares-method` catches the attribute, not the missing spec line.
 
 ### Authorization model
 

@@ -226,6 +226,7 @@ function parseQuantity(text: string): number | null {
         <brn-dialog (closed)="onAddClosed()">
           <ng-template brnDialogContent>
             <form
+              method="dialog"
               novalidate
               class="max-h-[85vh] w-[min(92vw,30rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
               data-testid="stripe-add-dialog"
@@ -335,7 +336,7 @@ function parseQuantity(text: string): number | null {
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
           subscription puts one product on Managed.
         </p>
-        <form novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
+        <form method="dialog" novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
           <fieldset>
             <legend [class]="labelClass" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period

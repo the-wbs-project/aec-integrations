@@ -222,9 +222,11 @@ export class RequestFormBody implements OnInit {
 
   /**
    * False until the browser has hydrated, as on sign-in. The submit stays disabled
-   * until then. Event replay never cancels a native submit, and the SSR form has no
-   * action, so an early press or Enter would GET this page with every answer, the
-   * email included, in the query string (AECI-1807 review).
+   * until then. Event replay never cancels a native submit. Before AECI-1919 the SSR
+   * form had no method, so an early press or Enter would GET this page with every
+   * answer, the email included, in the query string (AECI-1807 review). The form now
+   * declares `method="dialog"`, whose native submit does nothing, and this gate
+   * stays as the second layer.
    */
   protected readonly hydrated = signal(false);
 

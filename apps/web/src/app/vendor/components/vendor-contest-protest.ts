@@ -188,7 +188,12 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         }
 
         @if (side() === 'received' && canReply()) {
-          <form class="space-y-2 pt-1" (submit)="$event.preventDefault(); reply()" novalidate>
+          <form
+            method="dialog"
+            class="space-y-2 pt-1"
+            (submit)="$event.preventDefault(); reply()"
+            novalidate
+          >
             <label [for]="ids.replyText" [class]="labelClass" i18n="@@vendor.protest.reply.label"
               >Your reply</label
             >
@@ -244,6 +249,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           </button>
         } @else {
           <form
+            method="dialog"
             [id]="ids.form"
             class="mt-2 max-w-prose space-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-3"
             (submit)="$event.preventDefault(); file()"

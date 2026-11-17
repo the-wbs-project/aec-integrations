@@ -133,6 +133,7 @@ const PENCIL =
               <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
                 @if (editing() === 'record:' + field) {
                   <form
+                    method="dialog"
                     class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
                     [attr.aria-label]="editLabel(fieldLabel(field))"
                     (submit)="saveRecord($event, field)"
@@ -367,6 +368,7 @@ const PENCIL =
                   <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
                     @if (editing() === target) {
                       <form
+                        method="dialog"
                         class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
                         [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                         (submit)="saveSide($event, group, kind.key)"
