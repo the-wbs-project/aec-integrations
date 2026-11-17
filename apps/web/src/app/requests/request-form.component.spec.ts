@@ -190,12 +190,42 @@ describe('RequestForm', () => {
     });
   });
 
-  it('disables submit while the form is invalid', async () => {
-    const { fixture, el, httpMock } = setup('product', 'correction');
+  // AECI-1807: "Submit stays enabled" (DESIGN.md), as on the claim dialog. A press with
+  // bad answers shows every error, sends nothing and focuses the first bad field.
+  it('keeps submit enabled on an empty correction; a press shows the errors and focuses the body', async () => {
+    const { fixture, el, api, httpMock } = setup('product', 'correction');
     await settle();
     fixture.detectChanges();
     const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+
+    el.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitCorrection).not.toHaveBeenCalled();
+    expect(el.querySelector('#correction-body-error')?.getAttribute('role')).toBe('alert');
+    expect(el.querySelector('#correction-email-error')).not.toBeNull();
+    expect(document.activeElement?.id).toBe('correction-body');
+    httpMock.verify();
+  });
+
+  it('focuses the first bad claim field on a press once the box is ticked', async () => {
+    const { fixture, el, api, httpMock } = setup('vendor', 'claim');
+    await settle();
+    fixture.detectChanges();
+    type(fixture, '#claim-name', 'Jane Example');
+    toggleTerms(fixture);
+    await settle();
+    fixture.detectChanges();
+
+    el.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitClaim).not.toHaveBeenCalled();
+    expect(el.querySelector('#claim-title-error')).not.toBeNull();
+    expect(document.activeElement?.id).toBe('claim-title');
     httpMock.verify();
   });
 
@@ -536,8 +566,12 @@ describe('RequestForm', () => {
       expect(el.querySelector('#claim-linkedin')?.getAttribute('aria-describedby')).toBe(
         'claim-linkedin-hint claim-linkedin-error',
       );
-      expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+      // AECI-1807: the press is refused and focus goes to the bad field.
+      (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await settle();
+      fixture.detectChanges();
       expect(api.submitClaim).not.toHaveBeenCalled();
+      expect(document.activeElement?.id).toBe('claim-linkedin');
       httpMock.verify();
     });
 
@@ -610,6 +644,28 @@ describe('RequestForm canvas and context rail (AECI-987)', () => {
     httpMock.verify();
   });
 
+  // AECI-1807: the form is the shared card with its submit in the form footer, and the
+  // heading takes the global h1 rule, as /welcome does.
+  it('draws the routed form as the shared card, the submit in its footer, under one plain h1', () => {
+    const { el, httpMock } = setup('product', 'correction');
+    const form = el.querySelector('form')!;
+    expect(form.classList).toContain('aec-card');
+    expect(form.classList).toContain('shadow-card');
+    const submit = form.querySelector('button[type="submit"]')!;
+    expect(submit.parentElement?.classList).toContain('border-t');
+    expect(submit.parentElement?.classList).toContain('flex-col-reverse');
+    expect(el.querySelectorAll('h1').length).toBe(1);
+    expect(el.querySelector('h1')?.className).not.toMatch(/text-\dxl|font-display/);
+    expect(el.querySelector('p.aec-overline')?.textContent?.trim()).toBe('Suggest a correction');
+    // The controls take the shared recipe: the 3:1 edge class and the 3px ring.
+    const input = el.querySelector('#correction-email')!;
+    expect(input.classList).toContain('aec-field-control');
+    expect(input.classList).toContain('focus-visible:outline-3');
+    // The rail's docs link has a 44px target.
+    expect(el.querySelector('[data-testid="context-rail"] a')?.classList).toContain('min-h-11');
+    httpMock.verify();
+  });
+
   it('names the company and the product page on a product claim, with the claim steps', () => {
     const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
       name: 'Acme Takeoff',
@@ -677,6 +733,17 @@ describe('RequestFormBody bodyPrefill (AECI-967)', () => {
     const { el, httpMock } = setupBody(null);
     expect(el.querySelector('[data-testid="context-rail"]')).toBeNull();
     expect(el.querySelector('aside')).toBeNull();
+    httpMock.verify();
+  });
+
+  // AECI-1807: the panel is the surface, so the drawer's form is no card, and its
+  // submit stays in the pinned bar (AECI-847).
+  it('keeps the drawer form bare with the submit in the pinned bar', () => {
+    const { el, httpMock } = setupBody(null);
+    expect(el.querySelector('form')?.classList).not.toContain('aec-card');
+    const bar = el.querySelector('button[type="submit"]')?.parentElement;
+    expect(bar?.classList).toContain('sticky');
+    expect(bar?.classList).toContain('bottom-0');
     httpMock.verify();
   });
 
