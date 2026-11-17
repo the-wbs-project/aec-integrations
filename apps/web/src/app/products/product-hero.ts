@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
@@ -292,7 +292,7 @@ import { RoleBadge } from './role-badge';
         data-testid="product-hero-visual"
       >
         @if (hub().length > 0) {
-          <aec-product-category-hub [entries]="hub()" />
+          <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
         }
         <aec-product-pair-finder
           class="max-lg:hidden"
@@ -307,6 +307,19 @@ export class ProductHero {
   readonly product = input.required<ProductDetail>();
 
   protected readonly logoAlt = logoAlt;
+
+  private readonly band = viewChild.required(HeroBand);
+
+  /**
+   * Owner ruling 2026-11-17, item 82: "Show all" grows the panel in place, and the
+   * band centres its two columns, so the text column used to jump down (about 300px
+   * with 32 categories). The hub emits before it changes, so the band can pin both
+   * columns where they sit now. Collapsed, the layout is exactly as before.
+   */
+  protected onHubToggle(expanding: boolean): void {
+    if (expanding) this.band().holdColumns();
+    else this.band().releaseColumns();
+  }
 
   /** The category hub's entries, A to Z (AECI-1787, `category-hub.ts`). */
   protected readonly hub = computed(() => {

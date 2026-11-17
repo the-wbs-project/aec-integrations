@@ -323,6 +323,46 @@ describe('ProductHero visual: many categories (ruling 59)', () => {
     ).toHaveLength(4);
     el.remove();
   });
+
+  // Owner ruling 2026-11-17, item 82. jsdom has no layout, so the boxes are stubbed to
+  // the 1024px numbers measured on `revit` with 12 categories: the grid at 100, the
+  // text centred at 256 while collapsed, and at 356 once the panel has grown. The
+  // offsets must be read from the collapsed layout, before the hub expands.
+  it('"Show all" pins both hero columns where they sat, and "Show fewer" lets them go', async () => {
+    const { fixture, el } = setup(withCategories(12));
+    const grid = el.querySelector<HTMLElement>('[data-testid="hero-band-grid"]')!;
+    const [text, panel] = Array.from(grid.children) as HTMLElement[];
+    const collapsed = () => el.querySelectorAll('li.lg\\:hidden').length > 0;
+    const box = (top: number) => ({ top }) as DOMRect;
+    grid.getBoundingClientRect = () => box(100);
+    panel.getBoundingClientRect = () => box(100);
+    text.getBoundingClientRect = () => box(collapsed() ? 256 : 356);
+
+    // Collapsed: no hold, so the band centres the columns as before.
+    expect(text.hasAttribute('data-held')).toBe(false);
+    expect(panel.hasAttribute('data-held')).toBe(false);
+
+    const button = el.querySelector<HTMLButtonElement>(
+      '[data-testid="product-category-hub-toggle"]',
+    )!;
+    button.click();
+    await fixture.whenStable();
+    expect(collapsed()).toBe(false);
+    expect(text.hasAttribute('data-held')).toBe(true);
+    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('156px');
+    expect(text.classList).toContain('lg:data-held:self-start');
+    expect(text.classList).toContain('lg:data-held:mt-(--aec-hero-held)');
+    expect(panel.hasAttribute('data-held')).toBe(true);
+    expect(panel.style.getPropertyValue('--aec-hero-held')).toBe('0px');
+    expect(panel.classList).toContain('lg:data-held:self-start');
+
+    button.click();
+    await fixture.whenStable();
+    expect(collapsed()).toBe(true);
+    expect(text.hasAttribute('data-held')).toBe(false);
+    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('');
+    expect(panel.hasAttribute('data-held')).toBe(false);
+  });
 });
 
 describe('ProductHero visual: the pair finder (AECI-1787)', () => {

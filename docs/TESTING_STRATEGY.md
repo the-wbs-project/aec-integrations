@@ -504,6 +504,15 @@ request context, a cookie domain or a session mint, imports `E2E_BASE_URL` from
 `apps/web/e2e/base-url.ts`. That module is also what `playwright.config.ts` reads. A
 `localhost:8788` literal passes in CI and fails on every `dev:agent` port pair (AECI-1449).
 
+**Check sideways scroll with `expectNoSidewaysScroll(page)`.** It lives in
+`apps/web/e2e/no-sideways-scroll.ts` and passes when the root's `scrollWidth` is at most its
+`clientWidth`. Never assert that the two are equal, or that their difference is exactly 0. On
+Linux CI the root's `scrollWidth` leaves out the classic scrollbar gutter and `clientWidth` keeps
+it, so `scrollWidth` can be the smaller one on a page that fits. Three specs failed in CI that
+way. The helper is for the page root only. A check that compares an element's width with its
+container, such as a header row or a scroll strip, stays as it is. Its `tolerance` option keeps
+an older 1px allowance at the same strength. Do not raise it to make a real overflow pass.
+
 ### 7.5 Test data
 
 - The local environment uses a fixed seed data set in D1

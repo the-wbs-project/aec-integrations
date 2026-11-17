@@ -15,6 +15,7 @@ import {
   expectConsoleClean,
   waitForHydrationSettle,
 } from './console-capture';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 test.describe('/contact — Phase 7.3 (AECI-238)', () => {
   test('GET /contact returns 200 and is non-cacheable (private, no-store, no Cache-Tag)', async ({
@@ -90,6 +91,19 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
 
     await expect(page).toHaveURL(/\/contact$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Get in touch');
+  });
+
+  // AECI-1801: the /about recipe, one Bone band, nothing scrolls sideways at 390px.
+  test('has one Bone band and fits at 390px, axe clean', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto('/contact?topic=add-product');
+    await expect(page.locator('.aec-bone-band')).toHaveCount(1);
+    await expect(page.locator('aec-bone-band h1')).toHaveText('Get in touch');
+    await expectNoSidewaysScroll(page);
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {

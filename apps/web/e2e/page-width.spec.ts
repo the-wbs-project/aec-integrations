@@ -25,6 +25,7 @@ import {
   type BrowserContext,
   type Page,
 } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const PRODUCT_SLUG = 'fixture-procore';
 
@@ -96,11 +97,7 @@ async function firstTwo(page: Page, list: string): Promise<[Box, Box]> {
 }
 
 async function noHorizontalScroll(page: Page): Promise<void> {
-  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
+  await expectNoSidewaysScroll(page, 'no horizontal page scroll');
 }
 
 /** The prose block's width against 75ch measured in its own font. */
