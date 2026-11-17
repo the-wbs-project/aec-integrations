@@ -205,6 +205,12 @@ const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: tru
 const partnerProductLinkConfig = {
   ...publicProductLinkConfig,
   with: {
+    // AECI-1720: the partner's vendor, for the card's "by {vendor}" byline. The same
+    // join and primary pick as the product list card's vendor.
+    productVendors: {
+      columns: { isPrimary: true },
+      with: { vendor: { columns: vendorLinkColumns } },
+    },
     productCategories: {
       columns: {},
       with: { category: { columns: taxonomyLinkWithOrderColumns } },
@@ -1395,6 +1401,9 @@ interface RawProductLink extends RawOwnedProductLink {
   /** AECI-1781: present on a product-detail endpoint row only
    *  ({@link partnerProductLinkConfig}). Never serialised on the link itself. */
   productCategories?: Array<{ category: RawTaxonomyLinkWithOrder }>;
+  /** AECI-1720: present on a product-detail endpoint row only, for the partner's
+   *  vendor name. Never serialised on the link itself. */
+  productVendors?: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
 }
 /** A connector product as `pairConnectorProductConfig` returns it (AECI-933).
  *  `productVendors` is optional so a hand-built fixture without it reads as "no
@@ -2028,8 +2037,16 @@ function partnerOf(a: RawProductLink, b: RawProductLink, contextProductId: strin
 function productRowFacts(
   claims: readonly RawProductDetailClaimRow[],
   partner: RawProductLink,
-): Pick<ProductIntegrationItem, 'data_objects' | 'partner_categories' | 'agreement'> {
+): Pick<
+  ProductIntegrationItem,
+  | 'data_objects'
+  | 'partner_categories'
+  | 'partner_vendor_name'
+  | 'partner_vendor_slug'
+  | 'agreement'
+> {
   const listed = claims.filter((claim) => !isClaimRefuted(claim.attestations));
+  const partnerVendor = pickPrimaryVendorRow(partner.productVendors ?? []);
   const objects = new Map<string, RawProductDetailClaimRow['dataObject']>();
   for (const claim of listed) objects.set(claim.dataObject.slug, claim.dataObject);
   return {
@@ -2040,6 +2057,8 @@ function productRowFacts(
       .map(({ category }) => category)
       .sort(compareTermsByDisplayOrder)
       .map(({ slug, name }) => ({ slug, name })),
+    partner_vendor_name: partnerVendor?.companyName ?? null,
+    partner_vendor_slug: partnerVendor?.slug ?? null,
     agreement: integrationAgreement(
       listed.map((claim) => ({ agreement: computeAgreement(claim.attestations) })),
     ),

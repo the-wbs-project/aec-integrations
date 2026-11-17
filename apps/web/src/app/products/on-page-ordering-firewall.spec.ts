@@ -135,6 +135,11 @@ const ENDPOINT_PAYLOAD_FIELDS = [
   // keeps a row label only.
   'data_objects',
   'partner_categories',
+  // AECI-1720: the partner's vendor name, the card's "by {vendor}" line. A vendor
+  // renames its company, so no order may read it.
+  'partner_vendor_name',
+  // Its slug, for the page's vendor Cache-Tag only. Never rendered or ordered by.
+  'partner_vendor_slug',
   'agreement',
   // "Maintained by" and corrections: edit stamps a Managed vendor moves.
   'caption',
@@ -203,6 +208,10 @@ function paidValue(field: string, level: number): unknown {
       return level === 0 ? null : level % 2 === 0 ? 'both' : 'outbound';
     case 'mechanism_kind':
       return level % 2 === 0 ? 'api' : 'webhook';
+    case 'partner_vendor_name':
+      return level === 0 ? null : `${String.fromCharCode(65 + (level % 26))} Vendor ${level}`;
+    case 'partner_vendor_slug':
+      return level === 0 ? null : `${String.fromCharCode(97 + (level % 26))}-vendor-${level}`;
     case 'mechanism_name':
     case 'name':
       return `${String.fromCharCode(90 - (level % 26))} label ${level}`;

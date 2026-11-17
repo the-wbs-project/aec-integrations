@@ -259,6 +259,8 @@ test.describe('product detail — table names and section-nav location (AECI-831
     expect(html).toContain('data-testid="integrations-filter-panel"');
 
     await page.goto(`/products/${SLUG}`);
+    // Idle, the status is empty (AECI-1720 kept it so): a row count beside the heading
+    // can differ from the facts card's figure, which the 2026-11-16 ruling closed.
     const status = page.locator('#integrations [role="status"]');
     await expect(status).toHaveText('');
     const chip = page.locator('#integrations aec-chip button[aria-pressed]').first();

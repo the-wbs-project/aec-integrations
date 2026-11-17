@@ -139,6 +139,7 @@ Codified so callers don't re-derive the rules per surface:
    - **The recrawl and home stats follow.** The removed or restored company, product and pair URLs go to the recrawl buffer, and `requestHomeStatsRefresh` runs after commit, because the home stats come from `stats_cache`, not from the cached page.
 
 9. **A product page lists its similar products** (AECI-1785). The resolver pushes `product:{slug}` for every card in "Similar products", so an edit to a shown product purges the page (rule 2). A product newly added to a shared category, renamed into the first six, or restored from a hide (rule 8), carries no tag the page holds yet. The page shows it within the 15-minute detail TTL (§4). The page carries no `category:{slug}` tag, so promote's term tags do not reach it.
+10. **A product page names each integration partner's vendor** (AECI-1720). Each card and table row prints "by {vendor}" (`ProductIntegrationItem.partner_vendor_name`). A vendor rename is a vendor promote, which purges `vendor:{slug}` only, and the partner's `product:` tag does not move. So the resolver pushes `vendor:{partner_vendor_slug}` for every row with a vendor on record.
 
 ### Cache-Tag header construction helper
 
