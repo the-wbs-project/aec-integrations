@@ -135,7 +135,8 @@ test.describe('product reviews — reviewer updates (AECI-1613)', () => {
     test.skip(!updateSeeded, 'review-update-fixtures.sql not seeded');
     await page.goto(`/products/${UPDATE_PRODUCT}`);
     const review = page.locator('article', {
-      has: page.getByRole('heading', { name: UPDATED_REVIEW_TITLE, level: 3 }),
+      // AECI-1720: review titles are h4 under the list's h3 "Newest first".
+      has: page.getByRole('heading', { name: UPDATED_REVIEW_TITLE, level: 4 }),
     });
     // The seeded review is older than the first page, so load more until it shows.
     const loadMore = page.getByRole('button', { name: 'Load more reviews' });

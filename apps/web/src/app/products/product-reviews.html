@@ -1,12 +1,44 @@
 <div class="space-y-8">
-  <div class="flex flex-wrap items-baseline justify-between gap-4">
-    <h2
-      id="reviews-title"
-      class="font-display text-2xl font-semibold text-(--text-primary)"
-      i18n="@@products.detail.body.reviews"
-    >
-      Reviews
-    </h2>
+  <!-- AECI-1720 (mock-up 6, .band-head): the kicker over the heading, and with reviews
+       the mock-up's heading and intro. The kicker is a paragraph, not a heading. The
+       mock-up's two lines on when ratings show and on moderation are promises that wait
+       for Chris, so they are not built. The review button stays in this row on every
+       page, with or without the score cards. -->
+  <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4" data-testid="reviews-head">
+    <div class="min-w-0">
+      <p
+        class="aec-overline mb-3 text-(--text-secondary)"
+        data-testid="reviews-kicker"
+        i18n="@@products.detail.body.reviews.kicker"
+      >
+        Reviews
+      </p>
+      <h2 id="reviews-title" class="text-balance">
+        @if (isEmpty()) {
+        <span
+          class="font-display text-t-24 leading-tight font-semibold tracking-[-0.02em] text-(--text-primary) md:text-t-36"
+          i18n="@@products.detail.body.reviews"
+          >Reviews</span
+        >
+        } @else {
+        <span
+          class="font-display text-t-24 leading-tight font-semibold tracking-[-0.02em] text-(--text-primary) md:text-t-36"
+          i18n="@@products.detail.body.reviews.heading"
+          >Two ratings, kept apart</span
+        >
+        }
+      </h2>
+      @if (!isEmpty()) {
+      <p
+        class="mt-4 max-w-[38em] text-t-16 leading-relaxed text-(--text-secondary)"
+        data-testid="reviews-intro"
+        i18n="@@products.detail.body.reviews.intro"
+      >
+        Every reviewer rates the product itself and, separately, what it took to get it running. A
+        great tool with a hard rollout shows up as exactly that.
+      </p>
+      }
+    </div>
     <aec-review-cta [slug]="slug()" [productId]="productId()" />
   </div>
 
@@ -27,6 +59,9 @@
     class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr]"
     data-testid="review-summary"
   >
+    <!-- AECI-1720 (mock-up 6, .score): the figure with its "/5", the stars, and the
+         card's one-line description at the foot, so a card that is as tall as the
+         scale card is not half empty. -->
     <div
       aecCard
       stripe="forest"
@@ -37,9 +72,17 @@
         size="score"
         [value]="ratingOverallAvg()!"
         [text]="overallDisplay()"
+        [suffix]="outOfFive"
         [label]="overallLabel"
       />
       <aec-review-stars [rating]="ratingOverallAvg()!" kind="overall" />
+      <p
+        class="mt-auto max-w-[26em] text-t-14 text-(--text-secondary)"
+        data-testid="review-score-overall-note"
+        i18n="@@products.detail.reviews.overall.note"
+      >
+        How well it does the job once it is in place.
+      </p>
     </div>
     <div
       aecCard
@@ -51,9 +94,17 @@
         size="score"
         [value]="ratingOnboardingAvg()!"
         [text]="onboardingDisplay()"
+        [suffix]="outOfFive"
         [label]="onboardingLabel"
       />
       <aec-review-stars [rating]="ratingOnboardingAvg()!" kind="onboarding" />
+      <p
+        class="mt-auto max-w-[26em] text-t-14 text-(--text-secondary)"
+        data-testid="review-score-onboarding-note"
+        i18n="@@products.detail.reviews.onboarding.note"
+      >
+        How the first weeks went, from install to the team using it.
+      </p>
     </div>
     <div
       aecCard
@@ -109,6 +160,22 @@
        card is one cell (ruling A8). The order is the API's, newest first.
        grid-cols-1 pins the single column to minmax(0, 1fr), so one long
        unbroken word or URL wraps instead of widening the page. -->
+  <!-- The list row (mock-up 6, .rv-meta-line): the list's heading, which says its
+       order, and how many reviews show. -->
+  <div
+    class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2"
+    data-testid="reviews-list-row"
+  >
+    <h3>
+      <span
+        class="font-display text-t-24 leading-tight font-semibold text-(--text-primary)"
+        i18n="@@products.detail.body.reviews.newestFirst"
+        >Newest first</span
+      >
+    </h3>
+    <p class="text-t-14 text-(--text-secondary)" data-testid="reviews-shown">{{ shownLabel() }}</p>
+  </div>
+
   <ul
     class="grid grid-cols-1 items-start gap-6"
     [class]="listColumnsClass()"
@@ -126,11 +193,12 @@
       <article aecCard class="flex flex-col gap-4 p-6" [attr.aria-labelledby]="titleId(r)">
         <div class="flex flex-col gap-4" data-testid="review-original">
           <div class="flex flex-col gap-1">
-            <h3 [id]="titleId(r)" class="min-w-0 break-words">
+            <!-- An h4 under the list's h3 "Newest first" (AECI-1720). -->
+            <h4 [id]="titleId(r)" class="min-w-0 break-words">
               <span class="font-display text-t-20 leading-tight font-semibold text-(--text-primary)"
                 >{{ r.title }}</span
               >
-            </h3>
+            </h4>
             <span class="text-t-13 text-(--text-secondary)"
               >{{ r.created_at | date: 'mediumDate' }}</span
             >
@@ -211,7 +279,7 @@
           data-testid="review-update"
         >
           <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h4
+            <h5
               [id]="updateLabelId(r, i)"
               class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
             >
@@ -225,7 +293,7 @@
                 >&ngsp;{{ updateContext(r.title, (u.published_at | date: 'mediumDate') ?? '')
                 }}</span
               >
-            </h4>
+            </h5>
             <time class="shrink-0 text-xs text-(--text-secondary)" [attr.datetime]="u.published_at"
               >{{ u.published_at | date: 'mediumDate' }}</time
             >
@@ -238,10 +306,16 @@
             <span class="flex items-center gap-1.5">
               <span i18n="@@products.detail.reviews.update.overall">New overall rating</span>
               <aec-review-stars [rating]="u.rating_overall" kind="overall" />
+              <b class="font-semibold tabular-nums text-(--text-primary)" aria-hidden="true"
+                >{{ u.rating_overall }}</b
+              >
             </span>
             <span class="flex items-center gap-1.5">
               <span i18n="@@products.detail.reviews.update.onboarding">New onboarding rating</span>
               <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
+              <b class="font-semibold tabular-nums text-(--text-primary)" aria-hidden="true"
+                >{{ u.rating_onboarding }}</b
+              >
             </span>
           </div>
           }
@@ -261,7 +335,7 @@
           data-testid="vendor-response"
         >
           <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h4
+            <h5
               [id]="replyLabelId(r, i)"
               class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
             >
@@ -276,7 +350,7 @@
               />
               <span class="break-words">{{ responseLabel(resp.vendor_name) }}</span>
               <span class="sr-only">&ngsp;{{ responseContext(r.title) }}</span>
-            </h4>
+            </h5>
             <time
               class="shrink-0 text-xs text-(--text-secondary)"
               [attr.datetime]="resp.published_at"
