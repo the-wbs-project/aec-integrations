@@ -28,6 +28,7 @@ const FULL: ProductUsefulness = {
 function setup(data: ProductUsefulness, caption: FieldCaption | null = null) {
   const fixture = TestBed.createComponent(ProductUsefulnessSection);
   fixture.componentRef.setInput('data', data);
+  fixture.componentRef.setInput('productName', 'Bluebeam Revu');
   fixture.componentRef.setInput('caption', caption);
   fixture.componentRef.setInput('page', {
     surface: 'product_detail',
@@ -166,5 +167,17 @@ describe('ProductUsefulnessSection', () => {
     const tags = Array.from(el.querySelectorAll('h2, h3')).map((h) => h.tagName);
     expect(tags[0]).toBe('H2');
     expect(tags.slice(1).every((t) => t === 'H3')).toBe(true);
+  });
+
+  it('heads the section with the hidden label and "How teams use {product}", and no intro line (AECI-1720)', () => {
+    const el = setup(FULL).nativeElement as HTMLElement;
+    const h2 = el.querySelector('h2#usefulness-title')!;
+    expect(h2.textContent?.trim()).toBe('How teams use Bluebeam Revu');
+    const kicker = h2.previousElementSibling!;
+    expect(kicker.getAttribute('aria-hidden')).toBe('true');
+    expect(kicker.textContent?.trim()).toBe('How teams use it');
+    // The mock-up's intro can read as "written by users", which the caption contradicts.
+    expect(h2.nextElementSibling).toBeNull();
+    expect(el.textContent).not.toContain('by the people who use it');
   });
 });

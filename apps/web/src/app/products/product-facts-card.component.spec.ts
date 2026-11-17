@@ -195,7 +195,7 @@ describe('ProductFactsCard (AECI-1779)', () => {
   describe('the top row', () => {
     const columnHeadings = (card: HTMLElement) => [...card.querySelectorAll('h2')].map((h) => h.id);
 
-    it('reads stat, Vendor, Categories, Resources, Actions in DOM order', () => {
+    it('reads stat, Vendor, Categories, Resources, then the actions in DOM order', () => {
       const { card } = setup(
         buildProduct({ categories: [category], api_docs_url: 'https://dev.procore.com' }),
       );
@@ -205,8 +205,15 @@ describe('ProductFactsCard (AECI-1779)', () => {
         'vendor-card-title',
         'categories-label',
         'resources-label',
-        'actions-label',
       ]);
+      // Mock-up 6 .f-acts (AECI-1720 restore): the buttons sit under Resources with no
+      // heading of their own.
+      expect(card.textContent).not.toContain('Actions');
+      const resources = card.querySelector('[aria-labelledby=resources-label]')!;
+      const actions = card.querySelector('[data-testid=product-facts-actions]')!;
+      expect(
+        resources.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
 
     it('takes the four mock-up columns with Categories and three without', () => {
@@ -270,7 +277,7 @@ describe('ProductFactsCard (AECI-1779)', () => {
 
     it('keeps the claim and correction entries and the claiming link', () => {
       const { card } = setup(buildProduct());
-      const actions = card.querySelector('[aria-labelledby=actions-label]')!;
+      const actions = card.querySelector('[data-testid=product-facts-actions]')!;
       const hrefs = [...actions.querySelectorAll('a')].map((a) => a.getAttribute('href'));
       expect(hrefs).toEqual([
         '/products/procore/claim',
@@ -280,6 +287,32 @@ describe('ProductFactsCard (AECI-1779)', () => {
       expect(text(actions)).toContain('Claim Procore Technologies');
       expect(text(actions)).toContain('Suggest a correction');
       expect(text(actions)).toContain('Learn more about claiming');
+      // "Claim" stays before "Suggest a correction" (ruled 2026-11-16).
+      expect(hrefs[0]).toContain('/claim');
+    });
+
+    it('carries the group glyph on each category chip (AECI-1720 restore)', () => {
+      const { card } = setup(buildProduct({ categories: [category] }));
+      const chip = card.querySelector('[aria-labelledby=categories-label] .aec-chip')!;
+      expect(chip.hasAttribute('data-icon')).toBe(true);
+      expect(chip.querySelector('svg')).not.toBeNull();
+    });
+
+    it('points to the Integrations section with "Know of one?" only at zero', () => {
+      const zero = setup(buildProduct({ integration_count: 0 })).card;
+      const link = zero.querySelector<HTMLAnchorElement>('[data-testid=product-facts-know-of-one]');
+      expect(link?.textContent?.trim()).toBe('Know of one?');
+      expect(link?.getAttribute('href')).toBe('/products/procore#integrations');
+      TestBed.resetTestingModule();
+      const some = setup(buildProduct({ integration_count: 4 })).card;
+      expect(some.querySelector('[data-testid=product-facts-know-of-one]')).toBeNull();
+    });
+
+    it('drops "Know of one?" while the reach line reports pairs, as the Integrations section does', () => {
+      // At a stored zero with a §13.7 reach count, the Integrations section keeps its plain
+      // empty state and has no "Know of one?" block, so the link would point at nothing.
+      const reach = setup(buildProduct({ integration_count: 0, reachable_pair_count: 3 })).card;
+      expect(reach.querySelector('[data-testid=product-facts-know-of-one]')).toBeNull();
     });
   });
 

@@ -28,6 +28,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -174,8 +175,9 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
     // The section is a `region` landmark named by its <h2> — scope label
     // assertions to it so the audience facet chip (same "General Contracting"
     // text) elsewhere on the page doesn't double-match.
-    const section = page.getByRole('region', { name: 'How teams use it' });
-    await expect(section.getByRole('heading', { name: 'How teams use it' })).toBeVisible();
+    // AECI-1720: the heading names the product ("How teams use {product}").
+    const section = page.getByRole('region', { name: /^How teams use / });
+    await expect(section.getByRole('heading', { level: 2, name: /^How teams use / })).toBeVisible();
     await expect(section.getByRole('heading', { name: 'By audience' })).toBeVisible();
     await expect(section.getByRole('heading', { name: 'By phase' })).toBeVisible();
     await expect(section.getByText('General Contracting')).toBeVisible();
@@ -189,7 +191,7 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
 
     await page.goto(`/products/${NULL_SLUG}`);
     await expect(page.locator('app-root')).toBeAttached();
-    await expect(page.getByRole('heading', { name: 'How teams use it' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /^How teams use / })).toHaveCount(0);
   });
 });
 
@@ -466,6 +468,36 @@ test.describe('product About band (AECI-1780)', () => {
       const card = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
       expect(ground).not.toBe(card);
       expect(card).toBe(white);
+    });
+  }
+});
+
+// AECI-1720 restore: a long product name wraps at word boundaries beside the mark, at
+// every width from 320px. The e2e seed has no long name, so the test sets one in place
+// on the rendered page and reads where each word's letters land.
+test.describe('product hero name wraps at word boundaries (AECI-1720)', () => {
+  for (const width of [320, 360, 390, 768, 1024, 1440]) {
+    test(`no word of a long name breaks mid-word at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      await page.evaluate(() => document.fonts.ready);
+      const broken = await page.locator('h1 > span').evaluate((span) => {
+        span.textContent = 'Construction Management Platform Enterprise';
+        const text = span.firstChild!;
+        const out: string[] = [];
+        for (const m of text.textContent!.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(text, m.index!);
+          range.setEnd(text, m.index! + m[0].length);
+          const tops = new Set(
+            [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
+          );
+          if (tops.size > 1) out.push(m[0]);
+        }
+        return out;
+      });
+      expect(broken).toEqual([]);
+      await expectNoSidewaysScroll(page);
     });
   }
 });

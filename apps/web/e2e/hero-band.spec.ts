@@ -136,9 +136,14 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect(band.backgroundImage).not.toMatch(/linear-gradient|blur/);
   });
 
-  test('puts Display on the inner span, 45.7px at 320 and 72px at 1440', async ({ page }) => {
+  // AECI-1720 restore: below md the title steps to --t-statement, and below 360px to
+  // --t-fig, so a long word fits beside the 68px mark.
+  test('puts the title on the inner span: 28px at 320, 37px at 390, 72px at 1440', async ({
+    page,
+  }) => {
     for (const [width, size] of [
-      [320, 45.68],
+      [320, 28],
+      [390, 37.02],
       [1440, 72],
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
@@ -147,8 +152,8 @@ test.describe('hero band rendered (AECI-1766)', () => {
       const span = await style(h1.locator('span').first());
       expect(span.fontSize).toBeCloseTo(size, 0);
       expect(span.fontWeight).toBe('400');
-      // The unlayered h1 rule keeps the heading size: Display is not on the h1.
-      expect((await style(h1)).fontSize).toBeLessThan(span.fontSize);
+      // The unlayered h1 rule keeps the heading size: the title size is not on the h1.
+      expect((await style(h1)).fontSize).toBeLessThanOrEqual(span.fontSize);
     }
   });
 

@@ -29,6 +29,7 @@ import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import { integrationNoun } from './integration-stat';
+import { hasNoIntegrationsOnRecord } from './integrations-on-record';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin } from './product-extensions';
 
@@ -112,7 +113,24 @@ const FOCUS_RING =
             [label]="countNoun()"
             zero="integrations-not-on-record"
             [product]="p.name"
-          />
+          >
+            <!-- Mock-up 8 .f-stat: at zero the figure's projected slot points to the
+                 Integrations section's own "Know of one?" block, where the reader can
+                 suggest one. A plain link, no promise (AECI-1720 restore). It shows on the
+                 same test as that block, so it never points at a section without one. -->
+            @if (showKnowOfOne()) {
+              <a
+                [href]="'/products/' + p.slug + '#integrations'"
+                data-smooth-scroll
+                data-testid="product-facts-know-of-one"
+                class="mt-2 inline-flex min-h-6 w-fit items-center text-t-13 text-(--text-secondary) underline decoration-(--border-underline) underline-offset-4 hover:text-(--text-primary) hover:decoration-(--text-secondary) {{
+                  focusRing
+                }}"
+                i18n="@@products.detail.metadata.knowOfOne"
+                >Know of one?</a
+              >
+            }
+          </aec-figure>
         </div>
 
         <div [class]="column" class="space-y-6">
@@ -178,7 +196,7 @@ const FOCUS_RING =
             @if (p.categories.length > 0) {
               <div class="flex flex-wrap gap-2">
                 @for (c of p.categories; track c.slug) {
-                  <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
+                  <aec-taxonomy-badge kind="category" icon="tag" [slug]="c.slug" [name]="c.name" />
                 }
               </div>
             }
@@ -302,11 +320,9 @@ const FOCUS_RING =
             <aec-field-caption data-testid="managed-caption" [caption]="c" [page]="captionPage()" />
           }
 
-          <section aria-labelledby="actions-label" class="space-y-3">
-            <h2 id="actions-label" [class]="groupHeading">
-              <aec-icon name="hand" decorative [size]="4" />
-              <span i18n="@@products.detail.metadata.actions">Actions</span>
-            </h2>
+          <!-- Mock-up 6 .f-acts: the two buttons sit under Resources with no heading of their
+               own (AECI-1720 restore). "Claim" stays first (ruled 2026-11-16). -->
+          <div class="space-y-3" data-testid="product-facts-actions">
             <div class="flex flex-wrap gap-2">
               <a
                 aecButton
@@ -319,7 +335,7 @@ const FOCUS_RING =
                 [contextProduct]="p.name"
                 [href]="'/products/' + p.slug + '/claim'"
               >
-                <aec-icon name="flag" decorative [size]="4" />
+                <aec-icon name="seal" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md section 3),
                      so the button names the product's vendor. -->
                 @if (p.vendor?.name; as company) {
@@ -341,7 +357,7 @@ const FOCUS_RING =
                 [slug]="p.slug"
                 [href]="'/products/' + p.slug + '/correction'"
               >
-                <aec-icon name="pen" decorative [size]="4" />
+                <aec-icon name="flag" decorative [size]="4" />
                 <ng-container i18n="@@products.detail.metadata.correction"
                   >Suggest a correction</ng-container
                 >
@@ -358,14 +374,14 @@ const FOCUS_RING =
               target="_blank"
               rel="noopener"
               data-testid="product-vendor-program-link"
-              class="inline-flex items-center gap-1 text-t-14 font-semibold text-(--accent-primary) underline-offset-4 hover:text-(--accent-primary-hover) hover:underline {{
+              class="inline-flex items-center gap-1 text-t-13 text-(--text-secondary) underline decoration-(--border-underline) underline-offset-4 hover:text-(--text-primary) hover:decoration-(--text-secondary) {{
                 focusRing
               }}"
               ><ng-container i18n="@@products.detail.metadata.vendorProgram"
                 >Learn more about claiming</ng-container
               ><aec-new-tab-icon
             /></a>
-          </section>
+          </div>
         </div>
       </div>
     </div>
@@ -429,6 +445,17 @@ export class ProductFactsCard {
   protected readonly count = computed(() => {
     const stored = this.product().integration_count;
     return stored === 0 ? this.pageRowCount() : stored;
+  });
+
+  /**
+   * Whether the stat panel shows "Know of one?". The Integrations section shows its own
+   * "Know of one?" block only in the true zero state: no integrations on record and no
+   * §13.7 reach line (`ProductIntegrationsSection.zero`). The link takes the same test,
+   * so it never points at a section that lacks the block.
+   */
+  protected readonly showKnowOfOne = computed(() => {
+    const p = this.product();
+    return hasNoIntegrationsOnRecord(p) && (p.reachable_pair_count ?? 0) === 0;
   });
 
   /** The printed count. `aec-figure` never formats. */
