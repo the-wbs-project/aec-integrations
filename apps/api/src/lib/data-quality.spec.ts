@@ -14,6 +14,7 @@ import { LEGAL_IN_FORCE_MAPS, type LegalInForceMaps } from '@aeci/shared';
 import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import type { AlgoliaLogoReader, IndexedLogo, LogoEntity } from './algolia-unclaimed-logo';
 import {
   billingAccounts,
   connectorEvidencedPairs,
@@ -41,9 +42,14 @@ import {
 import { makeTestDb, type TestDb } from '../test/d1';
 import { ARRIVAL_CF_COVERAGE_MIN } from './arrival-coverage';
 import {
+  BROWSER_EVIDENCE_COVERAGE_MIN,
+  BROWSER_EVIDENCE_COVERAGE_MIN_ROWS,
+  browserEvidenceCaptureEnabled,
   CHECKS,
   checkAlgoliaDrift,
+  checkAlgoliaUnclaimedLogo,
   checkArrivalCfCoverage,
+  checkBrowserEvidenceCoverage,
   checkDefaultMetaDescription,
   checkDuplicatePageTitles,
   checkDuplicateProducts,
@@ -622,6 +628,86 @@ describe('checkAlgoliaDrift', () => {
   });
 });
 
+// ── algolia_unclaimed_logo (AECI-1867) ────────────────────────────────────────
+
+describe('checkAlgoliaUnclaimedLogo', () => {
+  /** A fake index: `records[entity][id]` is the stored `logo_url`; absent = no record. */
+  function fakeReader(records: Record<LogoEntity, Record<string, string | null>>) {
+    const asked: Record<LogoEntity, string[]> = { products: [], vendors: [] };
+    const reader: AlgoliaLogoReader = {
+      indexName: (entity) => `production_${entity}`,
+      async logos(entity, ids) {
+        asked[entity].push(...ids);
+        return ids
+          .filter((id) => id in records[entity])
+          .map((id): IndexedLogo => ({ objectID: id, logoUrl: records[entity][id] ?? null }));
+      },
+    };
+    return { reader, asked };
+  }
+
+  it('flags an unclaimed product and an unclaimed vendor whose record carries a logo', async () => {
+    await seedVendor({ id: 'v-open', slug: 'open-co' });
+    await seedProduct({ id: 'p-open', slug: 'open-tool' });
+    await linkProductVendor('p-open', 'v-open');
+    const { reader } = fakeReader({
+      products: { 'p-open': 'https://cdn.example/p.png' },
+      vendors: { 'v-open': 'https://cdn.example/v.png' },
+    });
+
+    const { lines, skipped } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(skipped).toBeFalsy();
+    expect(lines).toEqual([
+      'production_products: open-tool carries a logo',
+      'production_vendors: open-co carries a logo',
+    ]);
+  });
+
+  it('never reads a claimed listing, and treats a product claimed through a second vendor as claimed', async () => {
+    await seedVendor({ id: 'v-claimed', ownedAt: OLD });
+    await seedVendor({ id: 'v-open' });
+    await seedProduct({ id: 'p-shared' });
+    await linkProductVendor('p-shared', 'v-open');
+    await linkProductVendor('p-shared', 'v-claimed');
+    const { reader, asked } = fakeReader({
+      products: { 'p-shared': 'https://cdn.example/p.png' },
+      vendors: { 'v-claimed': 'https://cdn.example/c.png', 'v-open': null },
+    });
+
+    const { lines } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(lines).toEqual([]);
+    expect(asked.products).toEqual([]);
+    expect(asked.vendors).toEqual(['v-open']);
+  });
+
+  it('counts a vendor whose claim ended as unclaimed', async () => {
+    await seedVendor({ id: 'v-ended', slug: 'ended-co', ownedAt: OLD });
+    await t.db.update(vendors).set({ claimEndedAt: RECENT }).where(eq(vendors.id, 'v-ended'));
+    const { reader } = fakeReader({
+      products: {},
+      vendors: { 'v-ended': 'https://cdn.example/e.png' },
+    });
+
+    const { lines } = await checkAlgoliaUnclaimedLogo(t.db, reader);
+    expect(lines).toEqual(['production_vendors: ended-co carries a logo']);
+  });
+
+  it('is clean when the records hold no logo or do not exist', async () => {
+    await seedVendor({ id: 'v-open', logoUrl: 'https://cdn.example/stored.png' });
+    await seedProduct({ id: 'p-unindexed' });
+    await linkProductVendor('p-unindexed', 'v-open');
+    const { reader } = fakeReader({ products: {}, vendors: { 'v-open': null } });
+
+    expect((await checkAlgoliaUnclaimedLogo(t.db, reader)).lines).toEqual([]);
+  });
+
+  it('skips when no reader is provided (no creds)', async () => {
+    const finding = await checkAlgoliaUnclaimedLogo(t.db, undefined);
+    expect(finding.skipped).toBe(true);
+    expect(finding.lines).toEqual([]);
+  });
+});
+
 // ── license_mirror_drift (AECI-1354) ─────────────────────────────────────────
 
 describe('checkLicenseMirrorDrift', () => {
@@ -1133,6 +1219,140 @@ describe('checkLandingCfCoverage', () => {
     // legitimate NULL on the smallest measurable window must still pass.
     const oneNullAtMinimum = (LANDING_CF_COVERAGE_MIN_ROWS - 1) / LANDING_CF_COVERAGE_MIN_ROWS;
     expect(oneNullAtMinimum).toBeGreaterThanOrEqual(LANDING_CF_COVERAGE_MIN);
+  });
+});
+
+// ── browser_evidence_coverage (AECI-1715) ────────────────────────────────────
+
+describe('checkBrowserEvidenceCoverage', () => {
+  // `NOW` is 2026-06-24T04:00Z, so the measured day is 2026-06-23, [00:00, 24:00).
+  const YESTERDAY = '2026-06-23T12:00:00.000Z';
+  const TODAY = '2026-06-24T01:00:00.000Z';
+  const DAY_BEFORE = '2026-06-22T23:59:59.000Z';
+
+  type Row = Partial<typeof pageViews.$inferInsert>;
+
+  /** One counted arrival: SSR writer, Turnstile pass, no privacy signal, a US visitor. */
+  const base = (overrides: Row = {}): typeof pageViews.$inferInsert => ({
+    path: '/products/procore',
+    navigation: 'arrival',
+    writerProvenance: 'ssr-arrival',
+    turnstileVerdict: 'pass',
+    privacySignal: false,
+    cfCountry: 'US',
+    createdAt: YESTERDAY,
+    ...overrides,
+  });
+
+  async function seed(withEvidence: number, without: number, overrides: Row = {}): Promise<void> {
+    const rows = [
+      ...Array.from({ length: withEvidence }, (_, i) =>
+        base({ browserEvidence: i % 2 === 0 ? 'ran' : 'interacted', ...overrides }),
+      ),
+      ...Array.from({ length: without }, () => base({ browserEvidence: null, ...overrides })),
+    ];
+    for (const row of rows) await t.db.insert(pageViews).values(row);
+  }
+
+  it('passes a healthy day: 22 of 25 reported', async () => {
+    await seed(22, 3);
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.lines).toEqual([]);
+    expect(finding.skipped).toBeUndefined();
+    expect(finding.note).toContain('22/25');
+    expect(finding.note).toContain('2026-06-23');
+    expect(finding.note).toContain('88.0%');
+  });
+
+  it('fails a broken day: 10 of 25 reported, with the share, counts, day and runbook', async () => {
+    await seed(10, 15);
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.lines).toEqual([
+      'Only 40.0% of Turnstile-pass arrivals on 2026-06-23 carried a browser report ' +
+        '(10 of 25), below the 80.0% floor. ' +
+        'See "Browser evidence coverage" in docs/runbooks/alerts.md.',
+    ]);
+    expect(finding.note).toContain('10/25');
+  });
+
+  it('does not fire under the 20-row minimum, even with no reports at all', async () => {
+    await seed(0, 19);
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.lines).toEqual([]);
+    expect(finding.skipped).toBeUndefined();
+    expect(finding.note).toContain('19 Turnstile-pass arrivals');
+    expect(finding.note).toContain('nothing to measure');
+  });
+
+  it('reports skipped, not a pass, when capture is off for the tier', async () => {
+    await seed(0, 25); // would fail if measured
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, false);
+    expect(finding.lines).toEqual([]);
+    expect(finding.skipped).toBe(true);
+    expect(finding.note).toContain('BROWSER_EVIDENCE_ENABLED');
+  });
+
+  it('is skipped through the registry when the deps carry no capture flag', async () => {
+    await seed(0, 25);
+    const results = await runDataQualityChecks({ db: t.db, now: NOW });
+    const result = results.find((r) => r.id === 'browser_evidence_coverage');
+    expect(result?.skipped).toBe(true);
+    expect(result?.count).toBe(0);
+
+    const on = await runDataQualityChecks({ db: t.db, now: NOW, browserEvidenceEnabled: true });
+    expect(on.find((r) => r.id === 'browser_evidence_coverage')?.count).toBe(1);
+  });
+
+  it('keeps held-region, privacy, non-pass and other-writer rows out of both numbers', async () => {
+    await seed(22, 3); // the counted population: 22 of 25
+    // Each excluded group would drag the ratio under the floor if it were counted.
+    await seed(0, 30, { cfCountry: 'DE' }); // EU member state
+    await seed(0, 30, { cfCountry: 'GB' }); // held beyond the EU
+    await seed(0, 30, { cfCountry: null }); // unknown country fails closed
+    await seed(0, 30, { cfCountry: 'XX' });
+    await seed(0, 30, { privacySignal: true });
+    await seed(0, 30, { turnstileVerdict: 'fail' });
+    await seed(0, 30, { turnstileVerdict: 'unknown' });
+    await seed(0, 30, { turnstileVerdict: null });
+    await seed(0, 30, { writerProvenance: 'browser-spa', navigation: 'spa' });
+    // And excluded groups that DID report must not lift the numerator either.
+    await seed(30, 0, { cfCountry: 'FR' });
+    await seed(30, 0, { privacySignal: true });
+    await seed(30, 0, { turnstileVerdict: 'fail' });
+
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('22/25');
+  });
+
+  it('counts a lowercase or padded non-held country, as the hold rule does', async () => {
+    await seed(0, 25, { cfCountry: 'de' }); // held, whatever the case
+    await seed(20, 0, { cfCountry: 'us' });
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.note).toContain('20/20');
+  });
+
+  it('measures the previous UTC day only', async () => {
+    await seed(0, 30, { createdAt: TODAY });
+    await seed(0, 30, { createdAt: DAY_BEFORE });
+    await seed(22, 3);
+    const finding = await checkBrowserEvidenceCoverage(t.db, NOW, true);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('22/25');
+  });
+
+  it('is registered at `warn`, with the starting values', () => {
+    const spec = CHECKS.find((c) => c.id === 'browser_evidence_coverage');
+    expect(spec?.severity).toBe('warn');
+    expect(BROWSER_EVIDENCE_COVERAGE_MIN).toBe(0.8);
+    expect(BROWSER_EVIDENCE_COVERAGE_MIN_ROWS).toBe(20);
+  });
+
+  it('reads the tier flag as on only for the exact string "true"', () => {
+    expect(browserEvidenceCaptureEnabled({ BROWSER_EVIDENCE_ENABLED: 'true' })).toBe(true);
+    expect(browserEvidenceCaptureEnabled({ BROWSER_EVIDENCE_ENABLED: 'false' })).toBe(false);
+    expect(browserEvidenceCaptureEnabled({ BROWSER_EVIDENCE_ENABLED: 'TRUE' })).toBe(false);
+    expect(browserEvidenceCaptureEnabled({})).toBe(false);
   });
 });
 

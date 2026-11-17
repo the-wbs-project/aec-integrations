@@ -322,6 +322,17 @@ describe('VendorProgramPage', () => {
       expect(text(after)).toMatch(/^Vendor maintained · Updated [A-Z][a-z]+ \d{1,2}, \d{4}$/);
     });
 
+    // AECI-1666: the listing's record line is plain text now, not a chip, and this page
+    // draws it through the same component, so it shows what a listing shows.
+    it('draws the record line as plain text, the way a listing does', async () => {
+      const { host } = await setup({ plan: stub() });
+      for (const id of ['vp-before', 'vp-after']) {
+        const line = host.querySelector(`[data-testid="${id}"] [data-testid="maintenance-marker"]`);
+        expect(line, id).not.toBeNull();
+        expect(line!.className, id).not.toMatch(/\bborder\b|\bbg-|rounded/);
+      }
+    });
+
     // Ruling 2026-10-12: every docs link opens in a new tab
     // with the drawn cue and the sr-only note. Conversion links stay in the tab.
     it('opens every docs link in a new tab with the new-tab cue', async () => {

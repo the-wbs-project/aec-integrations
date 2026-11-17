@@ -345,6 +345,8 @@ In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so t
 >   `maintenance-marker.ts`. The company is never in the visible label. Where the page can
 >   prove who wrote (product and vendor pages), an sr-only suffix names it: "Vendor maintained:
 >   Procore Technologies keeps this up to date". The pair page passes no name and no date.
+>   *Since AECI-1666 (2026-11-17) the chip is retired. Its wording is the record line that opens
+>   the page's "About this listing" panel, as plain text (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8).*
 ---
 
 ## 4. Review app (bamako) — authoring & re-curation

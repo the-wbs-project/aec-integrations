@@ -34,6 +34,7 @@ import {
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminLegalAcceptanceStatus } from './legal-acceptance-status';
+import { AdminLitigationHolds } from './litigation-holds';
 import { AdminLegalApi } from './admin-legal-api';
 
 /** A Yes/No answer. `null` until the operator picks one: neither question has a default. */
@@ -194,6 +195,7 @@ export function humanBytes(bytes: number): string {
   selector: 'aec-admin-legal-versions',
   imports: [
     AdminLegalAcceptanceStatus,
+    AdminLitigationHolds,
     AecSelect,
     BrnDialog,
     BrnDialogContent,

@@ -348,6 +348,39 @@ production Cloudflare, Supabase, GitHub or PostHog access.
 >
 > The Linear issue for this matter is [AECI-N].
 
+**Place the hold in the app the same day (AECI-1638).** The legal retention prune deletes audit
+records four years after the action and acceptance records six years after a vendor account ends
+(ADR 0058). A litigation hold is its off switch, and the only one any job has.
+
+1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
+2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
+   `/admin/vendors`. **Everything (global)** when the matter is wider, or you do not yet know its
+   scope.
+3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
+4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
+   released four years ago. A vendor hold also keeps that
+   vendor's agreement acceptances and subscription grants. A global hold keeps everything: the
+   nightly run records `skipped`. Check the next morning: `/admin/system` shows the
+   `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
+5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose
+   **Release hold**, give the reason, and the prune resumes on its next run.
+
+The hold stops this one job. It does not stop the jobs in the next table.
+
+**When the "Litigation hold open for N days" email arrives.** The legal retention job sends
+`litigation-hold-reminder` to the support inbox for every hold open more than 90 days, and
+again every 30 days while it stays open (AECI-1638). A hold nobody remembers keeps personal
+data past the Privacy Policy period, so answer every one.
+
+1. Open the Linear issue named as the matter, or ask the attorney, whether the matter is still
+   open.
+2. **Closed:** release the hold on `/admin/legal` with the reason, and follow "Ending a hold"
+   below. The prune resumes on its next run.
+3. **Still open:** keep the hold. Add a dated comment to the matter's Linear issue saying who
+   confirmed it is still needed. The reminder comes back in 30 days.
+4. **Unsure of the scope:** a global hold that only needs one vendor can be replaced. Place the
+   vendor hold first, then release the global one, so no night runs unprotected.
+
 **Routine deletes the hold must work around.** None of these has an off switch. Export the affected
 records before they run, rather than stopping the job:
 
@@ -369,8 +402,10 @@ indefinite lock, and their ledger tables have no delete path. They hold fingerpr
 they prove an acceptance row was not edited but cannot restore it. Export the acceptance rows
 themselves for the hold.
 
-**Ending a hold.** Only when the attorney says the matter is closed. Record the end date on the Linear
-issue and tell everyone who got the notice.
+**Ending a hold.** Only when the attorney says the matter is closed. Release the hold on
+`/admin/legal`, record the end date on the Linear issue and tell everyone who got the notice.
+Four years after the release, the legal retention prune deletes the hold record and its audit
+rows, because the reason can name a person. Copy anything the matter file needs before then.
 
 ## Pull the ranking evidence for a product
 

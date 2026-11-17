@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyDeferCut,
+  countLaneUnderReview,
   routeIntegrationLane,
   splitIntegrationLanes,
 } from './connector-lane-grouping';
@@ -355,50 +356,41 @@ describe('applyDeferCut — the FLATTENED §13.3 cut', () => {
   });
 });
 
-// AECI-1614: a collapsed Via row has one caption line, so it takes the newest.
-describe('splitIntegrationLanes: captions (AECI-1614)', () => {
-  const at = (name: string, date: string) => ({
-    form: 'updated' as const,
-    vendor_names: [name],
-    date,
-  });
-
-  it('carries a direct row and an evidenced Via row through unchanged', () => {
-    const caption = at('Procore', '2026-01-01T00:00:00.000Z');
+// AECI-1666 ruling 2: a row carries no caption line any more, so the lane split no longer
+// merges captions or corrections. The pair page's panel holds them.
+describe('splitIntegrationLanes: no caption plumbing (AECI-1666)', () => {
+  it('leaves caption and corrections off a row', () => {
+    const caption = { form: 'updated' as const, vendor_names: ['Procore'], date: '2026-01-01' };
     const direct = edge({ source: procore, target: sage, caption });
-    const evidenced = edge({ source: procore, target: acumatica, via: agave, caption });
-    const view = splitIntegrationLanes([direct, evidenced], []);
-    expect(view.direct[0]!.caption).toEqual(caption);
-    expect(view.via[0]!.rows[0]!.caption).toEqual(caption);
+    const row = splitIntegrationLanes([direct], []).direct[0]!;
+    expect('caption' in row).toBe(false);
+    expect('corrections' in row).toBe(false);
+  });
+});
+
+// AECI-1666: the provenance panel's count must equal the row markers the section renders.
+describe('countLaneUnderReview (AECI-1666)', () => {
+  it('counts each row marker across both lanes', () => {
+    const view = splitIntegrationLanes(
+      [
+        edge({ source: procore, target: sage, under_review: ['description', 'mechanism_url'] }),
+        edge({ source: procore, target: acumatica, via: agave, under_review: ['description'] }),
+      ],
+      [edge({ source: vista, target: procore })],
+    );
+    expect(countLaneUnderReview(view)).toBe(3);
   });
 
-  it('merges a collapsed Via row: newest caption, every correction', () => {
-    const early = at('Agave', '2026-01-01T00:00:00.000Z');
-    const late = at('Procore', '2026-02-01T00:00:00.000Z');
-    const one = edge({
-      source: procore,
-      target: sage,
-      via: agave,
-      caption: early,
-      corrections: [{ field: 'name', date: '2026-01-02', source_url: null, cleared: false }],
-    });
-    const two = edge({
-      source: procore,
-      target: sage,
-      via: agave,
-      caption: late,
-      corrections: [{ field: 'docs_url', date: '2026-01-03', source_url: null, cleared: false }],
-    });
-    const row = splitIntegrationLanes([one, two], []).via[0]!.rows[0]!;
-    expect(row.edgeCount).toBe(2);
-    expect(row.caption).toEqual(late);
-    expect(row.corrections.map((c) => c.field)).toEqual(['name', 'docs_url']);
-  });
-
-  it('reads an absent caption as none', () => {
-    const row = splitIntegrationLanes([edge({ source: procore, target: sage })], []).direct[0]!;
-    expect(row.caption).toBeNull();
-    expect(row.corrections).toEqual([]);
+  it('counts a collapsed Via row by its representative edge only', () => {
+    const view = splitIntegrationLanes(
+      [
+        edge({ source: procore, target: sage, via: agave, name: 'A', under_review: ['x'] }),
+        edge({ source: procore, target: sage, via: agave, name: 'B', under_review: ['y', 'z'] }),
+      ],
+      [],
+    );
+    expect(view.rowCount).toBe(1);
+    expect(countLaneUnderReview(view)).toBe(1);
   });
 });
 

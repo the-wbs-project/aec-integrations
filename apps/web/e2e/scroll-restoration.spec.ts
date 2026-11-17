@@ -1129,7 +1129,7 @@ test.describe('section-nav jumps clear the sticky nav', () => {
 });
 
 // AECI-1752. Smooth scrolling is scoped to in-page section links (clash 38 of
-// ADR 0058): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
+// ADR 0059): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
 // (core/in-page-smooth-scroll.ts) puts `html.aeci-smooth-scroll` on for the span
 // of a jump from an `<a data-smooth-scroll>` link. These tests sample `scrollY`
 // on every animation frame. A smooth scroll passes through intermediate

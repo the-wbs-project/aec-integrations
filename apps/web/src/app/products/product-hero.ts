@@ -10,16 +10,14 @@ import { ReviewStars } from '../reviews/review-stars';
 import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 import { AecButton } from '../shared/button/button';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import { isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { HeroBand } from '../shared/hero-band/hero-band';
 import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
-import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { categoryHub } from './category-hub';
 import { connectedProductCount } from './powered-hub-grouping';
@@ -36,17 +34,18 @@ import { RoleBadge } from './role-badge';
  * for every visitor:
  *
  *   - the breadcrumb, Bone on Forest;
- *   - the kicker row: the role chip and the maintenance chip with
- *     its "Reviewed" or "Updated" date (ruling R3, decision 12);
+ *   - the kicker row: the role chip, for a connector or hybrid only. The maintenance
+ *     chip is retired (AECI-1666). Its words open "About this listing";
  *   - the mark and the name. The band renders the page's only `h1`. An unclaimed product's
  *     104px mark is the initial tile (the logo rule, AECI-1769, until counsel answers
  *     AECI-1826), and its small sourced logo with the "not affiliated" note sits under the
  *     name, as on the shipped page;
- *   - the vendor line, the connector reach line and the logo correction caption;
+ *   - the vendor line and the connector reach line;
  *   - the ratings panel: the two averages kept apart, each shown only when the API sends
  *     it (it nulls them under five reviews), at one decimal, then the review count;
  *   - "Visit website" (the one filled button, `on-brand`) and "Write a review"
- *     (`on-brand-secondary`), with the website's correction and under-review lines.
+ *     (`on-brand-secondary`), with the website's under-review line. Every correction and
+ *     caption is in "About this listing" (AECI-1666).
  *
  * The `heroPanel` slot holds the visual of ruling R3 decision 1 (AECI-1787): the category
  * hub (`aec-product-category-hub`), when any integration's partner has a category, with
@@ -64,10 +63,8 @@ import { RoleBadge } from './role-badge';
     AecIcon,
     Chip,
     ExternalLinkTracker,
-    FieldCaptionLine,
     HeroBand,
     LogoOrInitial,
-    MaintenanceMarker,
     NewTabIcon,
     ProductCategoryHub,
     ProductPairFinder,
@@ -84,18 +81,17 @@ import { RoleBadge } from './role-badge';
     <aec-hero-band>
       <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
-      <!-- The role chip renders nothing for the default "application" role, so most
-           products show the maintenance chip alone. A connector or hybrid is flagged where
-           the visitor first looks (Stage 1.5 Addendum B). No "Product" eyebrow: the
-           breadcrumb already says Products, and mock-up 6 drops it (AECI-1778). -->
-      <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
-        <aec-role-badge [role]="p.product_role" />
-        <aec-maintenance-marker
-          [maintainedBy]="p.maintenance.maintained_by"
-          [reviewedAt]="p.maintenance.last_reviewed_at"
-          [ownerName]="p.vendor?.name ?? null"
-        />
-      </div>
+      <!-- A connector or hybrid is flagged where the visitor first looks (Stage 1.5
+           Addendum B). The role chip renders nothing for the default "application" role,
+           so the row renders only for the other two. No "Product" eyebrow: the breadcrumb
+           already says Products, and mock-up 6 drops it (AECI-1778). The maintenance chip
+           that shared this row is retired (AECI-1666): its words open "About this
+           listing". -->
+      @if (p.product_role !== 'application') {
+        <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
+          <aec-role-badge [role]="p.product_role" />
+        </div>
+      }
 
       <!-- The logo rule decides the mark (AECI-1769): a claimed product's logo, or the
            initial tile. An unclaimed product is the tile at this size whatever the payload
@@ -144,17 +140,6 @@ import { RoleBadge } from './role-badge';
             />
             <aec-unclaimed-note tone="on-brand" />
           </div>
-        }
-        <!-- AECI-1628: AECi replaced or removed the logo a vendor holds. The mark sits
-             beside this column, so the line names it. -->
-        @if (slotCorrection('logo_url', !!p.logo_url); as c) {
-          <aec-field-caption
-            data-testid="logo-correction"
-            tone="on-brand"
-            [correction]="c"
-            [label]="logoLabel"
-            [page]="captionPage()"
-          />
         }
       </div>
 
@@ -244,18 +229,6 @@ import { RoleBadge } from './role-badge';
         </p>
       }
 
-      <!-- Below sm the line holds two lines' height: the fallback font wraps it to two and
-           the web font often to one, and the swap moved the actions and facts card up 20px
-           (layout shift 0.0675 on a corrected website at 390px, 0.0058 with the reserve). -->
-      @if (slotCorrection('website', !!p.website); as c) {
-        <aec-field-caption
-          class="mt-4 max-sm:min-h-10"
-          tone="on-brand"
-          [correction]="c"
-          [label]="websiteLabel"
-          [page]="captionPage()"
-        />
-      }
       <!-- AECI-1238 (§11d.7): AECi hid the website while it checks it. -->
       @if (underReview('website')) {
         <aec-under-review
@@ -263,17 +236,6 @@ import { RoleBadge } from './role-badge';
           tone="on-brand"
           data-testid="website-under-review"
           [label]="websiteLabel"
-        />
-      }
-      <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
-           With no categories, it sits here with the website. -->
-      @if (p.categories.length === 0 && p.captions?.profile; as c) {
-        <aec-field-caption
-          class="mt-4"
-          tone="on-brand"
-          data-testid="profile-caption"
-          [caption]="c"
-          [page]="captionPage()"
         />
       }
 
@@ -343,21 +305,13 @@ export class ProductHero {
     const p = this.product();
     return categoryHub(p.integrations_as_source, p.integrations_as_target);
   });
-  protected readonly websiteLabel = fieldOverrideLabel('website');
-  protected readonly logoLabel = fieldOverrideLabel('logo_url');
+  protected readonly websiteLabel = correctionLabel('website');
 
   protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
     homeCrumb(),
     { label: $localize`:@@products.detail.breadcrumbs.products:Products`, link: '/products' },
     { label: this.product().name },
   ]);
-
-  /** The page, for each caption's source link click. */
-  protected readonly captionPage = computed<FieldCaptionPage>(() => ({
-    surface: 'product_detail',
-    entityType: 'product',
-    entityId: this.product().id,
-  }));
 
   /**
    * Ownership facts for the "Visit website" click (AECI-933). The owner is the product's
@@ -373,11 +327,6 @@ export class ProductHero {
       link_purpose: 'website',
     };
   });
-
-  /** AECi's correction in one value's slot (AECI-1628). */
-  protected slotCorrection(field: string, present: boolean) {
-    return correctionInSlot(this.product().captions?.corrections, field, present);
-  }
 
   /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
   protected underReview(field: string): boolean {

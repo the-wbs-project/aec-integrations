@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 import type { ProductDetail } from '@aeci/shared';
 
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 
@@ -32,21 +31,21 @@ export function descriptionParagraphs(
  * AECI-1720 restore: the left column of the product page's About band (mock-up 6
  * `.about-copy`). The small "About" label, the heading "About {product}", then the
  * description with its paragraph breaks kept: the first paragraph as the serif lead at
- * `--t-24`, the rest at `--t-16` in secondary ink. The description caption follows, 24px
- * below. With no description the column shows AECi's under-review line when AECi hid it.
+ * `--t-24`, the rest at `--t-16` in secondary ink. With no description the column shows
+ * AECi's under-review line when AECi hid it. The description's caption is in "About this
+ * listing" (AECI-1666).
  *
  * The label repeats the heading's first word, so it is hidden from assistive technology:
  * a screen reader hears the heading once. The heading keeps its id, `description-title`,
  * which the page's `#about` section is labelled by.
  *
  * Every value is a static product field, so the cached SSR HTML is the same for every
- * visitor. The caption keeps its words and conditions (`STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §4.5.8).
+ * visitor.
  */
 @Component({
   selector: 'aec-product-about',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FieldCaptionLine, UnderReviewMarker],
+  imports: [UnderReviewMarker],
   host: { class: 'block min-w-0' },
   template: `
     @let p = product();
@@ -80,9 +79,6 @@ export function descriptionParagraphs(
           </p>
         }
       </div>
-      @if (p.captions?.description; as c) {
-        <aec-field-caption class="mt-6" [caption]="c" [page]="page()" />
-      }
     } @else if (underReview()) {
       <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
       <div class="mt-6">
@@ -93,8 +89,6 @@ export function descriptionParagraphs(
 })
 export class ProductAbout {
   readonly product = input.required<ProductDetail>();
-  /** The product page, for the caption's source link click. */
-  readonly page = input.required<FieldCaptionPage>();
 
   /** The first paragraph: the serif lead (mock-up 6 `.about-copy .first`). */
   protected readonly leadClass =

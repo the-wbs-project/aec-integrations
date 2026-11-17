@@ -239,7 +239,7 @@ describe('LogoOrInitial', () => {
     expect(avatar.root.querySelector('img')!.getAttribute('referrerpolicy')).toBe('no-referrer');
   });
 
-  // ── the logo rule (AECI-1769, ADR 0058 floor 3, counsel's ruling 9) ──────
+  // ── the logo rule (AECI-1769, ADR 0059 floor 3, counsel's ruling 9) ──────
   // An unclaimed listing shows the initial tile everywhere except the slot on its
   // own page where the "not affiliated" note sits beside it.
 

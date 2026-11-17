@@ -4,12 +4,10 @@ import { RouterLink } from '@angular/router';
 
 import { AecCard } from '../shared/card/card';
 import { Chip } from '../shared/chip/chip';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { newestCorrection } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
@@ -17,7 +15,11 @@ import {
 } from '../search/mechanism-labels';
 
 import { AgreementBadge } from './agreement-badge';
-import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-grouping';
+import {
+  routeIntegrationLane,
+  rowUnderReviewFields,
+  type IntegrationLaneRow,
+} from './connector-lane-grouping';
 
 /**
  * AECI-1782: one integration as a card, the default view of the product page's
@@ -29,7 +31,7 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
  * The card says what the table row says, and a little more the row has no room
  * for. Content parity with `ProductIntegrationRow` is the rule: the partner and its
  * link, the direction with its "Direction:" prefix, the mechanism kinds and name,
- * the field caption, the corrections and the "Under review" markers, and the
+ * the "Under review" markers, and the
  * pair-page link with the same words. What the card adds is data the API
  * already sends (AECI-1781, AECI-1720): the partner's vendor and categories, the
  * names of the data objects the integration moves, and the agreement state.
@@ -57,7 +59,6 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
     AecIcon,
     AgreementBadge,
     Chip,
-    FieldCaptionLine,
     LogoOrInitial,
     NgTemplateOutlet,
     RouterLink,
@@ -228,16 +229,11 @@ import { routeIntegrationLane, type IntegrationLaneRow } from './connector-lane-
         </div>
       }
 
-      @if (rowCaption() || rowCorrection() || rowUnderReview().length > 0) {
+      <!-- AECI-1666 ruling 2: no "Maintained by" or correction line on an integration.
+           The pair page's "About this listing" panel carries them, and this page's panel
+           says so. The "Under review" markers stay in the card. -->
+      @if (rowUnderReview().length > 0) {
         <div class="relative z-10 flex flex-col gap-1">
-          @if (rowCaption() || rowCorrection()) {
-            <aec-field-caption
-              [caption]="rowCaption()"
-              [correction]="rowCorrection()"
-              [label]="rowCorrectionLabel()"
-              [page]="captionPage()"
-            />
-          }
           @for (entry of rowUnderReview(); track entry.field) {
             <aec-under-review [label]="entry.label" />
           }
@@ -341,30 +337,12 @@ export class ProductIntegrationCard {
     () => routeIntegrationLane(this.row().integration).lane === 'via',
   );
 
-  protected readonly rowCaption = computed(() => this.row().caption);
-
-  protected readonly rowCorrection = computed(() => newestCorrection(this.row().corrections));
-
-  protected readonly rowCorrectionLabel = computed(() => {
-    const correction = this.rowCorrection();
-    return correction?.cleared ? fieldOverrideLabel(correction.field) : null;
-  });
-
   protected readonly rowUnderReview = computed(() =>
-    (this.row().integration.under_review ?? []).map((field) => ({
+    rowUnderReviewFields(this.row().integration).map((field) => ({
       field,
-      label: fieldOverrideLabel(field),
+      label: correctionLabel(field),
     })),
   );
-
-  protected readonly captionPage = computed<FieldCaptionPage>(() => {
-    const { source, target } = this.row().integration;
-    return {
-      surface: 'product_detail',
-      entityType: 'product',
-      entityId: source.id === this.row().other.id ? target.id : source.id,
-    };
-  });
 
   // Built in TS, as on the row. The same message id as the row's chevron name, so the
   // two links read alike. On the card it is the link's visible text.

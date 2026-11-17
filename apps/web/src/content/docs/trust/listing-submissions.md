@@ -3,7 +3,7 @@ title: Listing submissions
 description: How to suggest a product, the three conditions a product must meet to be listed, how a new listing reads, and how suggesting differs from claiming.
 section: trust
 order: 3
-last_updated: November 12, 2026
+last_updated: November 17, 2026
 ---
 
 AEC Integrations lists products, vendors and integrations compiled from public information. Anyone can suggest a product. This page says what we list, how we decide, and what happens next. Corrections and removals follow our [Listing Accuracy Policy](/legal/listing-accuracy), which this page does not repeat.
@@ -32,7 +32,7 @@ If we decline, we say which condition was not met and what would change the answ
 
 ## How a new listing reads
 
-We write the listing from public material and place it in our [taxonomy](/docs/getting-started/taxonomy). Its page reads "AEC Integrations maintained". Once we have reviewed it, the page also shows the date of that review.
+We write the listing from public material and place it in our [taxonomy](/docs/getting-started/taxonomy). We maintain it until its vendor claims it and acts on it. Until then the "About this listing" panel on its page reads "AEC Integrations maintained". Once we have reviewed it, the panel also shows the date of that review.
 
 Nothing on a listing rates how mature a product is. The integrations it has, the reviews it has and the date of its last update speak for themselves.
 

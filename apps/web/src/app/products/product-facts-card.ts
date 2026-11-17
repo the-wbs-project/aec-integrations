@@ -17,15 +17,14 @@ import { RequestTrigger } from '../requests/request-trigger';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import { isUnderReview } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { AecFigure } from '../shared/figure/figure';
 import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import { integrationNoun } from './integration-stat';
@@ -62,12 +61,12 @@ const FOCUS_RING =
  *      the row count instead (`count`);
  *   2. Vendor, with its size and ownership line (the §6.23 display rule is applied by the
  *      API, which nulls a hidden fact), and "Built within" under it;
- *   3. Categories, with AECi's correction and the profile caption;
+ *   3. Categories;
  *   4. Resources, then the claim and correction entries and "Learn more about claiming".
  *
  * Audiences, Trades and Project phases are not here. AECI-1780 moved them into the About
- * band (`product-who-it-is-for.ts`) with their corrections and their copy of the Managed
- * caption. The card keeps the Managed caption for the two Resources links.
+ * band (`product-who-it-is-for.ts`). No caption or correction renders here: every one is
+ * in the page's "About this listing" panel (AECI-1666). The "Under review" markers stay.
  *
  * Not here: the reach line. `STAGE_1_5_SPEC.md` §13.7 places "N more pairs reachable via
  * connectors" under the Integrations section, and the payload contract says
@@ -86,7 +85,6 @@ const FOCUS_RING =
     AecFigure,
     AecIcon,
     ExternalLinkTracker,
-    FieldCaptionLine,
     LogoOrInitial,
     NewTabIcon,
     ProductBuiltWithin,
@@ -193,24 +191,11 @@ const FOCUS_RING =
               <aec-icon name="tag" decorative [size]="4" />
               <span i18n="@@products.detail.metadata.categories">Categories</span>
             </h2>
-            @if (p.categories.length > 0) {
-              <div class="flex flex-wrap gap-2">
-                @for (c of p.categories; track c.slug) {
-                  <aec-taxonomy-badge kind="category" icon="tag" [slug]="c.slug" [name]="c.name" />
-                }
-              </div>
-            }
-            <aec-field-caption
-              [correction]="slotCorrection('category_slugs', p.categories.length > 0)"
-              [page]="captionPage()"
-            />
-            @if (p.captions?.profile; as c) {
-              <aec-field-caption
-                data-testid="profile-caption"
-                [caption]="c"
-                [page]="captionPage()"
-              />
-            }
+            <div class="flex flex-wrap gap-2">
+              @for (c of p.categories; track c.slug) {
+                <aec-taxonomy-badge kind="category" icon="tag" [slug]="c.slug" [name]="c.name" />
+              }
+            </div>
           </section>
         }
 
@@ -220,8 +205,6 @@ const FOCUS_RING =
           @if (
             p.tool_integrations_url ||
             p.api_docs_url ||
-            slotCorrection('tool_integrations_url', false) ||
-            slotCorrection('api_docs_url', false) ||
             underReview('tool_integrations_url') ||
             underReview('api_docs_url')
           ) {
@@ -251,23 +234,12 @@ const FOCUS_RING =
                       >
                       <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                     </a>
-                    @if (slotCorrection('tool_integrations_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
                   </li>
                 } @else if (underReview('tool_integrations_url')) {
                   <li>
                     <aec-under-review
                       data-testid="tool-integrations-under-review"
                       [label]="correctionLabel('tool_integrations_url')"
-                    />
-                  </li>
-                } @else if (slotCorrection('tool_integrations_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('tool_integrations_url')"
-                      [page]="captionPage()"
                     />
                   </li>
                 }
@@ -289,9 +261,6 @@ const FOCUS_RING =
                       >
                       <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
                     </a>
-                    @if (slotCorrection('api_docs_url', true); as c) {
-                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
-                    }
                   </li>
                 } @else if (underReview('api_docs_url')) {
                   <li>
@@ -300,24 +269,9 @@ const FOCUS_RING =
                       [label]="correctionLabel('api_docs_url')"
                     />
                   </li>
-                } @else if (slotCorrection('api_docs_url', false); as c) {
-                  <li>
-                    <aec-field-caption
-                      [correction]="c"
-                      [label]="correctionLabel('api_docs_url')"
-                      [page]="captionPage()"
-                    />
-                  </li>
                 }
               </ul>
             </section>
-          }
-
-          <!-- AECI-1614: the Managed group's line for the two Resources links, a sibling of
-               Resources. The group's audiences, trades and phases moved to the About band
-               (AECI-1780), which carries its own copy of the line beside them. -->
-          @if (managedCaption(); as c) {
-            <aec-field-caption data-testid="managed-caption" [caption]="c" [page]="captionPage()" />
           }
 
           <!-- Mock-up 6 .f-acts: the two buttons sit under Resources with no heading of their
@@ -393,7 +347,7 @@ export class ProductFactsCard {
   private readonly locale = inject(LOCALE_ID);
 
   protected readonly logoAlt = logoAlt;
-  protected readonly correctionLabel = fieldOverrideLabel;
+  protected readonly correctionLabel = correctionLabel;
   protected readonly column = COLUMN;
   protected readonly groupHeading = GROUP_HEADING;
   protected readonly focusRing = FOCUS_RING;
@@ -406,10 +360,9 @@ export class ProductFactsCard {
   protected readonly resourceTileClass =
     'grid size-8 shrink-0 place-items-center rounded-control bg-(--accent-primary-soft) text-(--accent-primary)';
 
-  /** Whether the Categories column renders. */
-  protected readonly hasCategories = computed(
-    () => this.product().categories.length > 0 || !!this.slotCorrection('category_slugs', false),
-  );
+  /** Whether the Categories column renders. A removal that emptied it takes the column
+   *  away, and "About this listing" lists the removal (AECI-1666). */
+  protected readonly hasCategories = computed(() => this.product().categories.length > 0);
 
   /**
    * The top row's grid. From `xl` it takes mock-up 6's ratios (line 114): the stat panel
@@ -476,13 +429,6 @@ export class ProductFactsCard {
     return parts.length > 0 ? parts.join(' · ') : null;
   });
 
-  /** The page, for each caption's source link click. */
-  protected readonly captionPage = computed<FieldCaptionPage>(() => ({
-    surface: 'product_detail',
-    entityType: 'product',
-    entityId: this.product().id,
-  }));
-
   /**
    * The "Resources" links (AECI-1309): the integrations page is `listing`, the API docs
    * are `docs`. The owner is the product's primary vendor, the same rule as the hero's
@@ -499,28 +445,8 @@ export class ProductFactsCard {
     };
   }
 
-  /**
-   * AECi's correction in one value's slot (AECI-1628): a value-setting one while the
-   * value shows, a removal while it does not.
-   */
-  protected slotCorrection(field: string, present: boolean) {
-    return correctionInSlot(this.product().captions?.corrections, field, present);
-  }
-
   /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
   protected underReview(field: string): boolean {
     return isUnderReview(this.product().under_review, field);
   }
-
-  /**
-   * The Managed group's caption beside the Resources links, while one of them shows. A
-   * vendor can clear both, and a caption under nothing says nothing. The group's facets
-   * carry their own copy in the About band (`ProductWhoItIsFor`). Categories and the
-   * website are not in the group (`field-captions.ts`).
-   */
-  protected readonly managedCaption = computed(() => {
-    const p = this.product();
-    const hasValues = !!p.tool_integrations_url || !!p.api_docs_url;
-    return hasValues ? (p.captions?.managed ?? null) : null;
-  });
 }

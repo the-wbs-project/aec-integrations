@@ -53,8 +53,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1620 added `legal-terms-change`: 95.
  * AECI-1690 added `entitlement-expiring-operator-copy`: 96.
  * AECI-1637 added `legal-account-change`: 97.
+ * AECI-1638 added `litigation-hold-reminder`: 98.
  */
-const EXPECTED_COUNT = 97;
+const EXPECTED_COUNT = 98;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -108,8 +109,9 @@ describe('notification registry shape', () => {
       // `portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`, then
       // `portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci`. AECI-1615
       // added `license-grant-pending` and `license-grant-pending-reminder`. AECI-1620 added
-      // `legal-terms-change`. AECI-1637 added `legal-account-change`.
-      email: 58,
+      // `legal-terms-change`. AECI-1637 added `legal-account-change`. AECI-1638 added
+      // `litigation-hold-reminder`.
+      email: 59,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 33,
@@ -242,6 +244,8 @@ const ALWAYS_ON = [
   'entitlement-expiring',
   'legal-account-change',
   'legal-terms-change',
+  // AECI-1638: a forgotten hold keeps personal data past its period.
+  'litigation-hold-reminder',
   // AECI-1705: the only record of a listing request.
   'listing-request-alert',
   'mailing-list-welcome-operator-copy',

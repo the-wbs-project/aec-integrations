@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Guard (AECI-1769): every `<aec-logo-or-initial>` caller is classified, so no caller can
- * show an unclaimed listing's logo off its own page by accident (ADR 0058 floor 3,
+ * show an unclaimed listing's logo off its own page by accident (ADR 0059 floor 3,
  * counsel's ruling 9).
  *
  * `claimStatus` is a required input (AECI-1851), so every tag passes it. The kind decides

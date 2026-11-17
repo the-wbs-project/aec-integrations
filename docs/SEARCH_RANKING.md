@@ -103,6 +103,16 @@ counted in the D1 membership and were absent from the index, which is the drift 
 reported: `production_integrations`, 950 indexed against 972 promoted. The check was right and
 the index was short. See `scripts/ops/2026-09-algolia-integration-watermark-reset/README.md`.
 
+**The second worked case (AECI-1867, 2026-11-17).** The same path also repairs records that are
+present but **stale**. Since AECI-1618 both builders null `logo_url` for an unclaimed listing, but
+records built before that kept their logos, because their rows' `updated_at` never moved. `/search`
+trusts the record, so it showed unclaimed logos. The audit found 434 such records in production and
+421 in staging, and none in demo. A reset of the `products` and `vendors` fields swept them at the
+next 08:00 UTC run, with `updateObject` replacing each record whole, and the audit then read 0 on
+both tiers. The run record is in the watermark-reset README. The audit is
+`scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`, and the daily `algolia_unclaimed_logo`
+data-quality check now watches for a recurrence (`ADMIN_PANEL_SPEC.md` §14.1).
+
 ---
 
 ---
@@ -508,7 +518,7 @@ The Terms say ranking is never influenced by payment. Under Florida's unfair tra
 | Tests for "plans do not affect ranking, placement or review publication" | `packages/shared/src/entitlements.spec.ts` (the seven assertions, `STAGE_2_PAID_TIERS_SPEC.md` §3.2), `algolia.spec.ts`, `apps/api/src/lib/ranking-firewall.spec.ts`, `review-reply-ranking-firewall.spec.ts` | git. The tests can be re-run at any commit. GitHub keeps CI run logs for its own retention period, not four years |
 | The paid-plan capability list | `CAPABILITIES` and `TIER_CAPABILITIES` in `packages/shared/src/entitlements.ts` | git |
 | Each version of the Terms and the paid-plan agreement | `/legal/*` and its archives, `legal_versions` (`ADMIN_PANEL_SPEC.md` §5.22, ADR 0054) | Versioned pages and the published-version table. Never deleted |
-| Manual ranking and moderation actions, with actor and reason | `audit_log` (`STAGE_1_SPEC.md` §26) | Indefinite (§26.6). The retention prune never touches it. An account deletion nulls the actor id, and the action stays |
+| Manual ranking and moderation actions, with actor and reason | `audit_log` (`STAGE_1_SPEC.md` §26) | Four years after the action, longer while a litigation hold is open (§26.6, AECI-1638). The legal retention prune deletes it after that. An account deletion nulls the actor id, and the action stays |
 | Moderation records, the same standard for every vendor | `reviews` and its moderation columns, the moderation audit rows | D1, with the audit rows above |
 | Ranking snapshots before and after a plan starts or ends | `plan_change_snapshots` (`DATABASE_SCHEMA.md` §9.16) and the JSON objects under `evidence/plan-snapshots/` in each `UPLOADS` bucket (`ANALYTICS.md` §11d, ADR 0056) | 4-year R2 bucket lock on `evidence/`. Nobody can delete or overwrite an object |
 | The public ranking page, every version | `/docs/trust/how-ranking-works` and its archive `/docs/trust/how-ranking-works/v<version>` | Each version is a file in git and an archived page. A change bumps the version (§7) |

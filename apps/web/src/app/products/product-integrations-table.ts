@@ -89,8 +89,6 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               [mergedMechanismKinds]="row.mechanismKinds"
               [mergedDirection]="row.direction"
               [mergedDataObjectSlugs]="row.dataObjectSlugs"
-              [mergedCaption]="row.caption"
-              [mergedCorrections]="row.corrections"
               [mergedAgreement]="row.agreement"
             ></tr>
           }
@@ -105,8 +103,6 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
                   [mergedMechanismKinds]="row.mechanismKinds"
                   [mergedDirection]="row.direction"
                   [mergedDataObjectSlugs]="row.dataObjectSlugs"
-                  [mergedCaption]="row.caption"
-                  [mergedCorrections]="row.corrections"
                   [mergedAgreement]="row.agreement"
                 ></tr>
               }

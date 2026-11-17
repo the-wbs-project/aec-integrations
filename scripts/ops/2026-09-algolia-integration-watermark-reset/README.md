@@ -126,6 +126,14 @@ succeeded, and the operator then re-runs a mutation they already applied. The sc
 `meta.changed_db` as the "something was written" signal and a verification **read** as the
 authority on what.
 
+## Run record: AECI-1867 (2026-11-17)
+
+Reset `products` and `vendors` on staging and production, about 04:10 UTC, so the 08:00 UTC sync
+rebuilds every product and vendor record. The goal was stale `logo_url` values on unclaimed
+listings (434 records in production, 421 in staging). Demo was already clean and was not reset.
+Every write reported `changes=1 changed_db=true` and verified. `integrations` kept its timestamp.
+Before and after counts are in `scripts/ops/2026-11-algolia-unclaimed-logo-audit/README.md`.
+
 ## Closing
 
 Not closed by this script. AECI-880 closes when the `algolia_index_drift` check reports zero

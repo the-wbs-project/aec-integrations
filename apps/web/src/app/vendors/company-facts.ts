@@ -21,6 +21,21 @@ interface FactRow {
 }
 
 /**
+ * The company fields the facts panel renders a row for, in its order. A hidden one keeps
+ * its row with the "Under review" marker in it, so the vendor page counts these
+ * (AECI-1666).
+ */
+export const COMPANY_FACT_FIELDS = [
+  'headquarters',
+  'founded_year',
+  'company_size',
+  'ownership_type',
+  'parent_company',
+  'funding_stage',
+] as const;
+export type CompanyFactField = (typeof COMPANY_FACT_FIELDS)[number];
+
+/**
  * `CompanyFacts` (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): the Company facts
  * cell of the vendor page's facts card (AECI-1797). The API has already applied the
  * display rule, so a null fact is simply
@@ -102,7 +117,7 @@ export class CompanyFacts {
       label: string,
       fact: { source: CompanyFactSource } | null,
       value: string | undefined,
-      field: string,
+      field: CompanyFactField,
     ): void => {
       if (hidden.includes(field)) {
         rows.push({ key, label, value: null, note: '', url: null });

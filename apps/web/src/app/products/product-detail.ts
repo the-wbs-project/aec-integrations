@@ -10,11 +10,22 @@ import { Analytics } from '../analytics/analytics';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
-import { type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import type { FieldCaptionPage } from '../shared/field-caption/field-caption';
+import {
+  correctionsInSlots,
+  countUnderReview,
+  isUnderReview,
+} from '../shared/field-caption/field-caption-facts';
+import {
+  ListingProvenance,
+  type ProvenanceCorrection,
+  type ProvenanceGroup,
+} from '../shared/listing-provenance/listing-provenance';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 
+import { countLaneUnderReview, splitIntegrationLanes } from './connector-lane-grouping';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductAbout } from './product-about';
 import { ProductExtensionsSection } from './product-extensions';
@@ -26,6 +37,36 @@ import { ProductReviews } from './product-reviews';
 import { ProductSimilarProducts } from './product-similar-products';
 import { ProductUsefulnessSection } from './product-usefulness';
 import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
+
+/** A product field group, as the provenance panel names it (AECI-1666). */
+type ProductCaptionGroup = 'description' | 'profile' | 'usefulness' | 'managed';
+
+/** The panel's name for each product field group: the page's own section names. */
+function groupLabel(group: ProductCaptionGroup): string {
+  switch (group) {
+    case 'description':
+      return $localize`:@@products.detail.provenance.group.description:About`;
+    case 'profile':
+      return $localize`:@@products.detail.provenance.group.profile:Website and categories`;
+    case 'usefulness':
+      return $localize`:@@products.detail.provenance.group.usefulness:How teams use it`;
+    case 'managed':
+      return $localize`:@@products.detail.provenance.group.managed:Audiences, trades, phases and resources`;
+  }
+}
+
+/**
+ * Every field this page marks "Under review" in its slot (AECI-1238): the website in the
+ * hero, the two Resources links in the facts card and the description in the About band.
+ * The panel's count reads this list (AECI-1666). The children mount the markers, so a new
+ * marker in one of them must be added here too.
+ */
+const UNDER_REVIEW_MARKED_FIELDS = [
+  'website',
+  'tool_integrations_url',
+  'api_docs_url',
+  'description',
+] as const;
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -74,6 +115,7 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
   selector: 'aec-product-detail',
   imports: [
     DetailLayout,
+    ListingProvenance,
     MailingListSignup,
     NgTemplateOutlet,
     NotFound,
@@ -131,9 +173,9 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               [class]="aboutColumns()"
             >
               <!-- The label, "About {product}" and the description (AECI-1720 restore). -->
-              <aec-product-about [product]="p" [page]="captionPage()" />
+              <aec-product-about [product]="p" />
               @if (hasWhoItIsFor()) {
-                <aec-product-who-it-is-for class="min-w-0" [product]="p" [page]="captionPage()" />
+                <aec-product-who-it-is-for class="min-w-0" [product]="p" />
               }
             </section>
           </div>
@@ -156,8 +198,6 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               class="scroll-mt-20"
               [data]="u"
               [productName]="p.name"
-              [caption]="p.captions?.usefulness"
-              [page]="captionPage()"
             />
           }
 
@@ -240,6 +280,38 @@ import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
               [products]="p.related_products"
             ></section>
           }
+
+          <!-- AECI-1666: "About this listing", the page's one provenance panel, as the last
+               band. The band shell has no sidebar, so both copies sit here: the card from
+               lg, the closed disclosure below it. Only the card copy carries the test id.
+               One wrapper, so the pair is one band of the divided body. -->
+          <div data-testid="listing-provenance-band">
+            <aec-listing-provenance
+              data-testid="listing-provenance"
+              variant="card"
+              [maintainedBy]="p.maintenance.maintained_by"
+              [reviewedAt]="p.maintenance.last_reviewed_at"
+              [ownerName]="p.vendor?.name ?? null"
+              [claimed]="p.claim_status !== 'unclaimed'"
+              [groups]="provenance().groups"
+              [corrections]="provenance().corrections"
+              [underReviewCount]="provenance().underReviewCount"
+              [integrationsNote]="provenance().integrationsNote"
+              [page]="captionPage()"
+            />
+            <aec-listing-provenance
+              variant="disclosure"
+              [maintainedBy]="p.maintenance.maintained_by"
+              [reviewedAt]="p.maintenance.last_reviewed_at"
+              [ownerName]="p.vendor?.name ?? null"
+              [claimed]="p.claim_status !== 'unclaimed'"
+              [groups]="provenance().groups"
+              [corrections]="provenance().corrections"
+              [underReviewCount]="provenance().underReviewCount"
+              [integrationsNote]="provenance().integrationsNote"
+              [page]="captionPage()"
+            />
+          </div>
         </div>
       </aec-detail-layout>
 
@@ -276,12 +348,76 @@ export class ProductDetailPage {
     });
   }
 
-  /** The page, for the About caption's source link click. */
+  /** The page, for a correction's source link click in "About this listing". */
   protected readonly captionPage = computed<FieldCaptionPage>(() => ({
     surface: 'product_detail',
     entityType: 'product',
     entityId: this.product()?.id ?? '',
   }));
+
+  /**
+   * What "About this listing" holds (AECI-1666). Each group's caption shows while the
+   * group shows anything, because a caption on a group the page does not render says
+   * nothing. A correction is listed only where the page has its slot (§4.5.8): one that
+   * set a value while the value renders, one that cleared it while the slot is empty. The
+   * under-review count is every marker the page mounts: the product fields it marks, plus
+   * each Integrations row's markers (`countLaneUnderReview`). The integrations note shows
+   * when any row carried a caption or a correction, since the rows no longer say so
+   * themselves.
+   */
+  protected readonly provenance = computed<{
+    groups: readonly ProvenanceGroup[];
+    corrections: readonly ProvenanceCorrection[];
+    underReviewCount: number;
+    integrationsNote: boolean;
+  }>(() => {
+    const p = this.product();
+    if (!p) return { groups: [], corrections: [], underReviewCount: 0, integrationsNote: false };
+    const captions = p.captions;
+    // `managed` covers the two Resources links, audiences, trades and phases; `profile`
+    // covers the website and categories (`apps/api/src/lib/field-captions.ts`).
+    const shown = {
+      description: !!p.description,
+      profile: !!p.website || p.categories.length > 0,
+      usefulness: this.hasUsefulness(),
+      managed:
+        p.audiences.length > 0 ||
+        p.trades.length > 0 ||
+        p.phases.length > 0 ||
+        !!p.tool_integrations_url ||
+        !!p.api_docs_url,
+    };
+    const groups: ProvenanceGroup[] = [];
+    const add = (caption: ProvenanceGroup['caption'] | null | undefined, label: string) => {
+      if (caption) groups.push({ label, caption });
+    };
+    if (shown.description) add(captions?.description, groupLabel('description'));
+    if (shown.profile) add(captions?.profile, groupLabel('profile'));
+    if (shown.usefulness) add(captions?.usefulness, groupLabel('usefulness'));
+    if (shown.managed) add(captions?.managed, groupLabel('managed'));
+    const rows = [...p.integrations_as_source, ...p.integrations_as_target];
+    return {
+      groups,
+      corrections: correctionsInSlots(captions?.corrections, {
+        logo_url: !!p.logo_url,
+        website: !!p.website,
+        tool_integrations_url: !!p.tool_integrations_url,
+        api_docs_url: !!p.api_docs_url,
+        category_slugs: p.categories.length > 0,
+        audience_slugs: p.audiences.length > 0,
+        trade_slugs: p.trades.length > 0,
+        phase_slugs: p.phases.length > 0,
+      }).map((correction) => ({ correction, label: correctionLabel(correction.field) })),
+      // The page's own markers plus one per row marker, from the same lane split the
+      // Integrations section renders, so the two cannot drift.
+      underReviewCount:
+        countUnderReview(p.under_review, UNDER_REVIEW_MARKED_FIELDS) +
+        countLaneUnderReview(
+          splitIntegrationLanes(p.integrations_as_source, p.integrations_as_target),
+        ),
+      integrationsNote: rows.some((row) => !!row.caption || (row.corrections?.length ?? 0) > 0),
+    };
+  });
 
   /** Whether the About band's "Who it is for" column renders (AECI-1780). */
   protected readonly hasWhoItIsFor = computed(() => {
