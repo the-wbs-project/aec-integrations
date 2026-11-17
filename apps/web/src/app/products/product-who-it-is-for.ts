@@ -59,11 +59,22 @@ export function hasWhoItIsFor(p: ProductDetail): boolean {
       class="space-y-6 p-6 md:p-8"
       data-testid="product-who-it-is-for"
     >
-      <h3 id="who-it-is-for-title">
-        <span class="font-display text-t-24 font-semibold" i18n="@@products.detail.about.whoItIsFor"
-          >Who it is for</span
+      <div>
+        <h3 id="who-it-is-for-title">
+          <span
+            class="font-display text-t-24 font-semibold"
+            i18n="@@products.detail.about.whoItIsFor"
+            >Who it is for</span
+          >
+        </h3>
+        <!-- Mock-up 6 .who .sub (AECI-1720 restore): a neutral line on what the chips are. -->
+        <p
+          class="mt-1 text-t-14 text-(--text-secondary)"
+          i18n="@@products.detail.about.whoItIsFor.intro"
         >
-      </h3>
+          The teams, project phases and trades it is listed for.
+        </p>
+      </div>
 
       @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
         <section aria-labelledby="audiences-label" class="min-w-0 space-y-3">
@@ -74,7 +85,7 @@ export function hasWhoItIsFor(p: ProductDetail): boolean {
           @if (p.audiences.length > 0) {
             <div class="flex flex-wrap gap-2">
               @for (d of p.audiences; track d.slug) {
-                <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
+                <aec-taxonomy-badge kind="audience" icon="users" [slug]="d.slug" [name]="d.name" />
               }
             </div>
           }
@@ -98,7 +109,12 @@ export function hasWhoItIsFor(p: ProductDetail): boolean {
           @if (p.trades.length > 0) {
             <div class="flex flex-wrap gap-2">
               @for (tr of p.trades; track tr.slug) {
-                <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
+                <aec-taxonomy-badge
+                  kind="trade"
+                  icon="hard-hat"
+                  [slug]="tr.slug"
+                  [name]="tr.name"
+                />
               }
             </div>
           }
@@ -117,7 +133,7 @@ export function hasWhoItIsFor(p: ProductDetail): boolean {
           @if (p.phases.length > 0) {
             <div class="flex flex-wrap gap-2">
               @for (ph of p.phases; track ph.slug) {
-                <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
+                <aec-taxonomy-badge kind="phase" icon="gantt" [slug]="ph.slug" [name]="ph.name" />
               }
             </div>
           }

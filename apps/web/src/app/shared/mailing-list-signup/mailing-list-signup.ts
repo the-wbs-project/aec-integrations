@@ -52,6 +52,12 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
  * card's padding. The headline is the Section role on an inner span, because the
  * unlayered `h2` rule beats a size utility on the element. The field, the button, the
  * words, the validation, the POST and the analytics event are unchanged.
+ *
+ * **Two columns (AECI-1720 restore).** From `lg` the card splits: the words on the left,
+ * the form on the right, so the card never leaves its right half blank. The halves are
+ * equal at `lg` and the form takes a 32rem column from `xl`: a 32rem form at 1024px left
+ * the words a 240px column and a three-line headline. Below `lg` they stack as before.
+ * The Subscribe button is enabled until a submit is in flight or done.
  */
 @Component({
   selector: 'aec-mailing-list-signup',
@@ -61,26 +67,32 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
   template: `
     <section [class]="groundClass()">
       <div [class]="wrap">
-        <div aecCard class="p-8 lg:p-12">
-          <p class="aec-overline text-(--text-secondary)" i18n="@@mailing-list-signup.eyebrow">
-            Directory updates
-          </p>
-          <h2 class="mt-3 max-w-2xl text-(--text-primary)">
-            <span
-              class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
-              i18n="@@mailing-list-signup.headline"
-              >Know when new tools and reviews land</span
+        <div
+          aecCard
+          class="p-8 lg:grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-center lg:gap-x-12 lg:p-12"
+          data-testid="mailing-list-card"
+        >
+          <div class="min-w-0">
+            <p class="aec-overline text-(--text-secondary)" i18n="@@mailing-list-signup.eyebrow">
+              Directory updates
+            </p>
+            <h2 class="mt-3 max-w-2xl text-(--text-primary)">
+              <span
+                class="block text-t-36 leading-[1.1] tracking-[-0.02em] text-balance"
+                i18n="@@mailing-list-signup.headline"
+                >Know when new tools and reviews land</span
+              >
+            </h2>
+            <p
+              class="mt-4 max-w-xl text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@mailing-list-signup.body"
             >
-          </h2>
-          <p
-            class="mt-4 max-w-xl text-t-16 leading-relaxed text-(--text-secondary)"
-            i18n="@@mailing-list-signup.body"
-          >
-            AEC Integrations is live and still growing. Add your email for occasional updates as we
-            expand the directory with new tools, integrations, and reviews.
-          </p>
+              AEC Integrations is live and still growing. Add your email for occasional updates as
+              we expand the directory with new tools, integrations, and reviews.
+            </p>
+          </div>
 
-          <form class="mt-8 max-w-xl" novalidate (submit)="onSubmit($event)">
+          <form class="mt-8 max-w-xl min-w-0 lg:mt-0" novalidate (submit)="onSubmit($event)">
             <div class="flex flex-wrap gap-3">
               <label
                 class="sr-only"
@@ -104,7 +116,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                 aecButton
                 type="submit"
                 [variant]="subscribed() ? 'secondary' : 'primary'"
-                [disabled]="submitDisabled() || subscribed()"
+                [disabled]="form().submitting() || subscribed()"
               >
                 @if (subscribed()) {
                   <aec-icon name="check" decorative [size]="4" />
@@ -185,8 +197,11 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
             </div>
           </form>
 
-          <!-- Optional trailing content (e.g. the home page's "suggest a tool" prompt). -->
-          <ng-content />
+          <!-- Optional trailing content (e.g. the home page's "suggest a tool" prompt). It
+               spans both columns from lg. -->
+          <div class="empty:hidden lg:col-span-2">
+            <ng-content />
+          </div>
         </div>
       </div>
     </section>
@@ -242,41 +257,51 @@ export class MailingListSignup {
     const email = this.form.email();
     return (
       email.touched() &&
-      email.value().trim().length > 0 &&
+      (email.value().trim().length > 0 || this.submitAttempted()) &&
       Boolean(email.getError('standardSchema'))
     );
   });
 
-  protected readonly submitDisabled = computed(
-    () => this.form().invalid() || this.form().submitting(),
-  );
+  /**
+   * Set by a submit. The button stays enabled while the email is empty or invalid, so it
+   * never reads as switched off (AECI-1720 restore: the pale disabled button read as
+   * broken). A submit with a bad email shows the inline error and posts nothing.
+   */
+  private readonly submitAttempted = signal(false);
 
   protected async onSubmit(event: Event): Promise<void> {
     if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     this.status.set('idle');
-    await submit(this.form, async (f) => {
-      try {
-        const result = await this.api.subscribe(this.buildSubscribe(f().value()));
-        // Keep the entered email in the field. Clearing it to '' would leave the
-        // still-touched field invalid, re-firing the "enter a valid email" error
-        // right next to the success message. The confirmed button + live region
-        // carry the result; onEmailEdit resets the state if the address changes.
-        this.status.set(result.created ? 'subscribed' : 'exists');
-        if (result.created) {
-          // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
-          // no-ops without consent and never throws into the submit. Only a genuine
-          // new signup counts — an already-listed email (created:false) is not.
-          this.analytics.mailingListSignup({
-            source: this.source(),
-            found_via: f().value().found_via || null,
-          });
+    this.submitAttempted.set(true);
+    await submit(this.form, {
+      // A submit with an empty or invalid email posts nothing. Focus moves to the field,
+      // so a screen reader hears its error through aria-describedby even on a second
+      // try, when the role="alert" line is already on the page and stays silent.
+      onInvalid: (f) => f.email().focusBoundControl(),
+      action: async (f) => {
+        try {
+          const result = await this.api.subscribe(this.buildSubscribe(f().value()));
+          // Keep the entered email in the field. Clearing it to '' would leave the
+          // still-touched field invalid, re-firing the "enter a valid email" error
+          // right next to the success message. The confirmed button + live region
+          // carry the result; onEmailEdit resets the state if the address changes.
+          this.status.set(result.created ? 'subscribed' : 'exists');
+          if (result.created) {
+            // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
+            // no-ops without consent and never throws into the submit. Only a genuine
+            // new signup counts — an already-listed email (created:false) is not.
+            this.analytics.mailingListSignup({
+              source: this.source(),
+              found_via: f().value().found_via || null,
+            });
+          }
+        } catch {
+          // Retryable notice, not a ValidationError (which would disable submit).
+          this.status.set('error');
         }
-      } catch {
-        // Retryable notice, not a ValidationError (which would disable submit).
-        this.status.set('error');
-      }
-      return undefined;
+        return undefined;
+      },
     });
   }
 
@@ -284,6 +309,7 @@ export class MailingListSignup {
    *  subscribed and the button returns to its default "Subscribe" state. */
   protected onEmailEdit(): void {
     if (this.status() !== 'idle') this.status.set('idle');
+    this.submitAttempted.set(false);
   }
 
   private buildSubscribe(v: SubscribeModel): SubscribeSubmit {

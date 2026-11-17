@@ -989,7 +989,7 @@ describe('ProductDetailPage claim CTA', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const actions = (el: HTMLElement) =>
-    el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
+    el.querySelector('[data-testid="product-facts-actions"]') as HTMLElement;
 
   it("always offers to claim the product's company, with no note", () => {
     const { el } = setup(buildProduct());
@@ -1788,6 +1788,22 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     expect(stars).toHaveLength(2);
   });
 
+  it('puts the review count in its own cell with a down arrow, a full row below sm (AECI-1720)', () => {
+    const { el } = setup(
+      buildProduct({ review_count: 12, rating_overall_avg: 4.25, rating_onboarding_avg: 3 }),
+    );
+    const ratings = el.querySelector('[data-testid=product-hero-ratings]')!;
+    // Two scores side by side on a phone, the count on its own row under a rule.
+    expect(ratings.classList).toContain('grid-cols-2');
+    expect(ratings.querySelectorAll('[data-testid=product-hero-rating-cell]')).toHaveLength(2);
+    const count = ratings.querySelector('[data-testid=product-hero-review-count]')!;
+    expect(count.classList).toContain('col-span-2');
+    expect(count.classList).toContain('border-t');
+    const link = count.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('/products/procore#reviews');
+    expect(link.querySelector('svg')).not.toBeNull();
+  });
+
   it('fills the hero panel slot with the visual of ruling R3 (AECI-1787)', () => {
     const { el } = setup(buildProduct());
     const panel = el.querySelector('.aec-hero-panel')!;
@@ -1839,6 +1855,41 @@ describe('ProductDetailPage About band (AECI-1780)', () => {
     for (const id of ['audiences-label', 'trades-label', 'phases-label']) {
       expect(facts.querySelector(`#${id}`), id).toBeNull();
     }
+  });
+
+  it('heads About with the hidden label and "About {product}", and keeps paragraph breaks (AECI-1720)', () => {
+    const { el } = setup(
+      buildProduct({
+        description:
+          'First paragraph.\n\nSecond paragraph,\nwith a line break.\n \nThird <b>x</b>.',
+        audiences: [t('a')],
+      }),
+    );
+    const about = el.querySelector('#about')!;
+    const h2 = about.querySelector('h2#description-title')!;
+    expect(h2.textContent?.trim()).toBe('About Procore');
+    const kicker = h2.previousElementSibling!;
+    expect(kicker.getAttribute('aria-hidden')).toBe('true');
+    expect(kicker.textContent?.trim()).toBe('About');
+    const paragraphs = Array.from(
+      about.querySelectorAll('[data-testid=product-description] > p'),
+    ) as HTMLElement[];
+    expect(paragraphs.map((p) => p.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'First paragraph.',
+      'Second paragraph, with a line break.',
+      'Third <b>x</b>.',
+    ]);
+    // The first is the serif lead, the rest the smaller secondary size.
+    expect(paragraphs[0]!.getAttribute('data-testid')).toBe('product-description-lead');
+    expect(paragraphs[0]!.className).toContain('text-t-24');
+    expect(paragraphs[1]!.className).toContain('text-t-16');
+    // A single line break is a <br>, and stored markup stays text.
+    expect(paragraphs[1]!.querySelectorAll('br')).toHaveLength(1);
+    expect(paragraphs[2]!.querySelector('b')).toBeNull();
+    // "Who it is for" carries its intro line and a glyph on each chip.
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(panel.textContent).toContain('The teams, project phases and trades it is listed for.');
+    expect(panel.querySelector('a.aec-chip svg')).not.toBeNull();
   });
 
   it('keeps heading order h2, h3, h4 inside About (axe heading-order)', () => {

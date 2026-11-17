@@ -1,5 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { Chip } from '../chip/chip';
+import type { AecIconName } from '../icon/icon-registry';
 
 /**
  * Phase 2 §11.2 — `TaxonomyBadge`. A chip-style link to a category /
@@ -36,7 +37,7 @@ export type TaxonomyKind = 'category' | 'audience' | 'phase' | 'trade';
   selector: 'aec-taxonomy-badge',
   imports: [Chip],
   template: `
-    <aec-chip [link]="routerLink()" [ariaLabel]="ariaLabel()">
+    <aec-chip [link]="routerLink()" [ariaLabel]="ariaLabel()" [icon]="icon()">
       <span>{{ name() }}</span>
       @if (count() !== undefined) {
         <span class="tabular-nums text-(--text-secondary)">{{ count() }}</span>
@@ -55,6 +56,12 @@ export class TaxonomyBadge {
   readonly name = input.required<string>();
   /** Optional product count rendered inside the chip (AECI-184 home grids). */
   readonly count = input<number | undefined>(undefined);
+  /**
+   * Optional leading glyph, decorative (AECI-1720 restore, mock-up 6 `.tagchip` and
+   * `.aud`): the product page's facts card and "Who it is for" chips carry their group's
+   * glyph. Null, the default, renders none, so the home browse grid is unchanged.
+   */
+  readonly icon = input<AecIconName | null>(null);
 
   /**
    * Explicit link accessible name when a count is shown ("{name} {n} products"),

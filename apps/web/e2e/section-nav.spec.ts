@@ -167,8 +167,13 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     const path = await openProduct(page);
     await hydrated(page, path);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    // At 720px the hero can push the bar just below the fold (AECI-1720's taller ratings
+    // panel), and Playwright's own scroll to the link would then read as a first step.
+    // Bring the link into view before sampling, so only the jump itself is measured.
+    const link = page.locator('aec-section-nav a[data-section-id="integrations"]');
+    await link.scrollIntoViewIfNeeded();
     await startSampler(page);
-    await page.locator('aec-section-nav a[data-section-id="integrations"]').click();
+    await link.click();
     const offsets = await settledOffsets(page);
     expect(offsets).toHaveLength(2);
     expect(offsets[1]).toBeGreaterThan(0);

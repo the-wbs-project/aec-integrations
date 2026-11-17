@@ -110,7 +110,7 @@ describe('ProductExtensionsSection', () => {
 
   it('says in plain words that these run inside the host, not connect to it', () => {
     const el = setup([], EXTENSIONS);
-    const lead = el.querySelector('#extensions p')!.textContent!;
+    const lead = el.querySelector('#extensions [data-testid="extensions-lead"]')!.textContent!;
 
     expect(lead).toContain('run inside Autodesk Revit');
     expect(lead).toContain('rather than connecting to it');
@@ -159,6 +159,29 @@ describe('ProductExtensionsSection', () => {
     expect(ul.classList).toContain('aec-card-grid');
     expect(ul.getAttribute('data-columns')).toBe(columns);
     expect(ul.querySelectorAll(':scope > li')).toHaveLength(n);
+  });
+
+  it('labels each tile "by {vendor}" and "Runs inside {host}", with the label hidden from AT (AECI-1720)', () => {
+    const el = setup([], EXTENSIONS);
+    const kicker = el.querySelector('#extensions p[aria-hidden="true"]')!;
+    expect(kicker.textContent!.trim()).toBe('Extensions');
+    expect(kicker.classList).toContain('aec-overline');
+    const first = el.querySelector('#extensions li a')!;
+    expect(first.textContent).toContain('by Augmenta Inc.');
+    expect(first.textContent).toContain('Runs inside Autodesk Revit');
+    // No vendor: no "by" line at all, never "by " over nothing.
+    const second = el.querySelectorAll('#extensions li a')[1]!;
+    expect(second.textContent).not.toContain('by ');
+  });
+
+  it('shows a tile rating only at five reviews or more, the shared card rule', () => {
+    const rated = { ...item('rated', 'Rated', 'V'), review_count: 9, rating_overall_avg: 4.3 };
+    const thin = { ...item('thin', 'Thin', 'V'), review_count: 2, rating_overall_avg: null };
+    const el = setup([], [rated, thin]);
+    const tiles = el.querySelectorAll('#extensions li a');
+    expect(tiles[0]!.querySelector('aec-rating-summary [role="img"]')).not.toBeNull();
+    expect(tiles[0]!.textContent).toContain('4.3');
+    expect(tiles[1]!.querySelector('aec-rating-summary [role="img"]')).toBeNull();
   });
 
   it('is a list of tiles, never a table: an extension is not an integration row', () => {
