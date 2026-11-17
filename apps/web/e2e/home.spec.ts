@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { untilHydrated } from './hydration';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // The home browse block (`home-browse-block.ts`): one "Browse the directory"
 // section with four labelled count-chip rows (category, trade, project phase,
@@ -330,13 +331,7 @@ test.describe('/ — printed citations (AECI-1846, AECI-1792)', () => {
       // Mock-up 9 prints the citation: no tooltip, nothing to hover.
       await expect(figures.locator('[role="tooltip"]')).toHaveCount(0);
 
-      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      }));
-      // On Linux CI the root's scrollWidth excludes the classic scrollbar and
-      // clientWidth does not, so compare with <=.
-      expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
+      await expectNoSidewaysScroll(page, 'no horizontal page scroll');
 
       for (let i = 0; i < 3; i++) {
         const citation = citations.nth(i);

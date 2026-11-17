@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 import { untilHydrated } from './hydration';
 
@@ -440,10 +441,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       /monogram-light\.svg/,
     );
 
-    const page_overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
-    );
-    expect(page_overflow, 'the page itself never scrolls sideways').toBeLessThanOrEqual(0);
+    await expectNoSidewaysScroll(page, 'the page itself never scrolls sideways');
 
     const dims = await row.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
     test.skip(dims.sw <= dims.cw, 'this product has too few sections to overflow at 390px');
@@ -470,9 +468,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       await page.setViewportSize({ width, height: 720 });
       const path = await openProduct(page);
       await hydrated(page, path);
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-      ).toBeLessThanOrEqual(0);
+      await expectNoSidewaysScroll(page);
       const last = page.locator('aec-section-nav nav li:last-child a');
       await last.focus();
       await expect(last).toBeInViewport();
