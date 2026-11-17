@@ -891,7 +891,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   Now: one bordered card per hub, header = logo + hub name as a plain **noun-phrase** heading
   (linked to the hub product) + the group size; body = full-width partner rows carrying logo,
   partner name, **hub-relative direction** (`integrationDirectionForContext`, mirrored when the hub
-  is endpoint B — the same `→ Outbound / ← Inbound / ⇄ Both` vocabulary the endpoint table frames
+  is endpoint B — the same vocabulary the endpoint table frames, since AECI-1720 restore C `→ Sends to {partner} / ← Receives from {partner} / ⇄ Syncs both ways` (was `Outbound / Inbound / Both`), framed
   relative to _its_ page product), the mechanism badge, and a chevron. **Amended 2026-09-10
   (AECI-853): direction is no longer a slot on the right of the row.** It moved into a muted meta
   line under the partner name, present at every width, with the mechanism joining that same line
@@ -1052,8 +1052,9 @@ and the render condition are unchanged.
    direction word and the mechanism badge were never announced. The name is now built in
    `ProductPoweredHub.rowAriaLabel()` as "View the {A} and {B} integration", then, each only when the
    row shows it: the direction, the mechanism summary, and the AECI-1080 object count. Example:
-   "View the Procore and Sage integration, direction Outbound, API, 2 data objects".
-   - **A hub row** says the hub-relative word it shows ("direction Outbound"). The name opens with
+   "View the Procore and Sage integration, direction Sends to Sage, API, 2 data objects" (the
+   words since AECI-1720 restore C; "direction Outbound" before).
+   - **A hub row** says the hub-relative words it shows ("direction Sends to Sage"). The name opens with
      the hub, which is what that word is relative to.
    - **A flat "Other connections" row** says which way a one-way pair flows: "direction One-way from
      Fieldwire to Bluebeam". "One-way" alone would drop the half the `A → B` glyph carries, and below

@@ -52,6 +52,7 @@ import { editFieldLabel } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { editValueMessage } from './vendor-integration-ownership-labels';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
@@ -241,6 +242,7 @@ function emptyDraft(): Draft {
           } @else if (mode() === 'request') {
             <!-- AECI-1377: the request form swaps in for step 1. -->
             <form
+              method="dialog"
               class="space-y-4"
               novalidate
               (submit)="onRequestSubmit($event)"
@@ -346,6 +348,7 @@ function emptyDraft(): Draft {
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              method="dialog"
               class="space-y-6"
               novalidate
               (submit)="onSubmit($event)"
@@ -1081,6 +1084,7 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   protected async onRequestSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.requestSaving()) return;
     this.requestAttempted.set(true);
@@ -1155,6 +1159,7 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.saving()) return;
     this.attempted.set(true);

@@ -136,7 +136,7 @@ for (const pageDef of PAGES) {
       await expect(page.locator('app-root')).toBeAttached();
 
       const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();
 
       expect(results.violations).toEqual([]);
@@ -214,7 +214,7 @@ test.describe('/legal/terms/v1.0 — archived version (AECI-1361)', () => {
     await page.goto(ARCHIVE);
     await expect(page.locator('app-root')).toBeAttached();
     const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();
     expect(results.violations).toEqual([]);
   });

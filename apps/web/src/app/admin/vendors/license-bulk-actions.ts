@@ -17,6 +17,7 @@ import { ADMIN_REASON_MAX, type UpdateLicenseBody } from '@aeci/shared';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
 import { licenseErrorMessage, licenseMinEndDay, licenseRowActions } from './license-row-actions';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type Mode = 'extend' | 'revoke';
 
@@ -51,6 +52,7 @@ export interface LicenseBulkFailure {
  */
 @Component({
   selector: 'aec-license-bulk-actions',
+  imports: [AecFormSubmit],
   templateUrl: './license-bulk-actions.html',
 })
 export class LicenseBulkActions {

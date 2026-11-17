@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: November 17, 2026
+last_updated: November 18, 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -32,9 +32,9 @@ A card is one way the two products connect.
 
 **The chips** beside the heading say which way data moves, from the left-hand product's side:
 
-- **Outbound**: it sends data to the other product.
-- **Inbound**: it receives data from the other product.
-- **Both**: data moves both ways.
+- **Sends to**, then the other product's name: it sends data to the other product.
+- **Receives from**, then the other product's name: it receives data from the other product.
+- **Syncs both ways**: data moves both ways.
 
 When a page has more than one card, a chip such as "3 types of data" says how many each card covers.
 

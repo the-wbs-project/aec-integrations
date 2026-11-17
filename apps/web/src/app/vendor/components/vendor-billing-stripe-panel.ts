@@ -50,6 +50,7 @@ import { formatPlanPrice } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { billedIntervalLabel, stripeBillingErrorMessage } from './vendor-billing-stripe-errors';
 import { VendorBillingStripeWatch, liveLicenseCount } from './vendor-billing-stripe-watch';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** Per-license price in cents, by interval. Display only: Stripe bills from its own
  *  prices, resolved by lookup key on the API (`managed_annual`, `managed_monthly`). */
@@ -226,6 +227,7 @@ function parseQuantity(text: string): number | null {
         <brn-dialog (closed)="onAddClosed()">
           <ng-template brnDialogContent>
             <form
+              method="dialog"
               novalidate
               class="max-h-[85vh] w-[min(92vw,30rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
               data-testid="stripe-add-dialog"
@@ -335,7 +337,7 @@ function parseQuantity(text: string): number | null {
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
           subscription puts one product on Managed.
         </p>
-        <form novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
+        <form method="dialog" novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
           <fieldset>
             <legend [class]="labelClass" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period
@@ -666,6 +668,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async checkout(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     this.panelError.set(null);
@@ -722,6 +725,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async add(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const quantity = parseQuantity(this.addQuantity());

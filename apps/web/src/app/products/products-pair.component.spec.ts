@@ -431,14 +431,34 @@ describe('ProductsPairPage', () => {
 
   it('suppresses the standalone mechanism arrow when the mechanism has claims', () => {
     const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
-    // "Sends to Revit" appears exactly once — as the lane heading, not also as a
-    // duplicate standalone mechanism arrow.
-    const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
+    // "Sends to Revit" is the lane heading and, since AECI-1720 restore C, the header
+    // chip's words too (mock-up 12 draws both). It is never also the standalone
+    // mechanism arrow line, so outside the chip it appears exactly once.
+    const chipText = el.querySelector('[data-testid="pair-depth-direction"]')?.textContent ?? '';
+    const occurrences =
+      (el.textContent ?? '').split('Sends to Revit').length -
+      chipText.split('Sends to Revit').length;
     expect(occurrences).toBe(1);
     const laneHeadings = Array.from(el.querySelectorAll('h4.aec-overline')).map(
       (h) => h.textContent ?? '',
     );
     expect(laneHeadings.some((t) => t.includes('Sends to Revit'))).toBe(true);
+  });
+
+  // AECI-1720 restore C (mock-up 12, .rows): a lane's claim rows are one column, each
+  // the full lane wide, whether the card has one lane or two.
+  it('lays every claim row across the full lane, one per line', () => {
+    // One lane is the case that used to split its rows in two columns from sm.
+    const { el } = setup(
+      buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'outbound'),
+      ]),
+    );
+    const lists = [...el.querySelectorAll('[data-testid="pair-lane-rows"]')];
+    expect(lists).toHaveLength(1);
+    expect(lists[0]!.className).not.toMatch(/grid-cols-2/);
+    expect(lists[0]!.querySelectorAll(':scope > li')).toHaveLength(2);
   });
 
   describe('depth axis in the mechanism card header (AECI-711)', () => {
@@ -465,7 +485,9 @@ describe('ProductsPairPage', () => {
       expect(chip!.querySelector('.sr-only')?.textContent).toContain('Direction:');
       const glyph = chip!.querySelector('[aria-hidden="true"]');
       expect(glyph?.textContent).toBe('\u2192');
-      expect(chip!.textContent).toContain('Outbound');
+      // Mock-up 6's words, naming the partner (AECI-1720 restore C).
+      expect(chip!.textContent).toContain('Sends to Revit');
+      expect(chip!.textContent).not.toContain('Outbound');
     });
 
     it('renders the chips in Basic view too', () => {
@@ -540,7 +562,7 @@ describe('ProductsPairPage', () => {
       });
       const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
       expect(chip?.querySelector('[aria-hidden="true"]')?.textContent).toBe('\u21C4');
-      expect(chip?.textContent).not.toContain('Outbound');
+      expect(chip?.textContent).toContain('Syncs both ways');
     });
 
     it('leaves the direction to the Layer-A line in Detailed view when there are no claims', () => {
@@ -936,7 +958,6 @@ describe('ProductsPairPage', () => {
         h.textContent?.trim(),
       );
       expect(h4s).toEqual(['At a glance']);
-      expect(el.textContent).not.toContain('Sends to Revit');
       expect(el.textContent).not.toContain('Receives from Revit');
       // The Overview essentials remain.
       expect(el.textContent).toContain('2 types of data shared');
@@ -952,7 +973,13 @@ describe('ProductsPairPage', () => {
       const { el } = setup(buildPair(), { view: 'basic' });
       // buildPair()'s mechanism has a direction but no claims → the Layer-A arrow
       // is Detailed-only, so Basic drops it while keeping the description.
-      expect(el.textContent).not.toContain('Sends to Revit');
+      // The header chip still names the direction in Basic (AECI-711), so the Layer-A
+      // line is the one statement left out.
+      const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
+      expect(occurrences).toBe(1);
+      expect(el.querySelector('[data-testid="pair-depth-direction"]')!.textContent).toContain(
+        'Sends to Revit',
+      );
       expect(el.textContent).toContain('The marketplace connector.');
       expect(el.querySelector('[role="group"]')).toBeTruthy();
     });

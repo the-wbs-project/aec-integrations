@@ -26,9 +26,10 @@
   </button>
   } @else {
   <form
+    method="dialog"
     novalidate
     class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-    (submit)="$event.preventDefault(); confirm()"
+    (aecSubmit)="confirm()"
   >
     <p
       class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"

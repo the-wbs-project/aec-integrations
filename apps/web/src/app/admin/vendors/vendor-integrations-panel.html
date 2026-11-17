@@ -148,9 +148,10 @@
       <tr class="border-b border-(--border-default)">
         <td colspan="4" class="pb-4">
           <form
+            method="dialog"
             [id]="formId(row, 'form')"
             [attr.aria-labelledby]="formId(row, 'title')"
-            (submit)="$event.preventDefault(); submit(row, formFor()!.mode)"
+            (aecSubmit)="submit(row, formFor()!.mode)"
             class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
             novalidate
           >

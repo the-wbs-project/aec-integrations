@@ -223,8 +223,9 @@
         <!-- Reject form (optional reason) -->
         @if (rejectingId() === r.id) {
         <form
+          method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirmReject(r.id)"
+          (aecSubmit)="confirmReject(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
         >
           <label

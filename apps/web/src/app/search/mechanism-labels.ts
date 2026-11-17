@@ -20,6 +20,8 @@
  */
 import { type ContextDirection } from '@aeci/shared';
 
+import { directionGlyph, directionHeading } from '../products/pair-direction-labels';
+
 /** Localized label for an integration `mechanism_kind`, or `''` when absent/unknown. */
 export function mechanismKindLabel(kind: string | null | undefined): string {
   switch (kind) {
@@ -123,25 +125,79 @@ export type ContextDirectionLabel = {
   token: ContextDirection | null;
 };
 
-/** Presentation for a precomputed context-relative direction. See `ContextDirectionLabel`. */
-export function contextDirectionLabel(direction: ContextDirection | null): ContextDirectionLabel {
+/**
+ * Presentation for a precomputed context-relative direction. See `ContextDirectionLabel`.
+ *
+ * AECI-1720 restore C: the words are mock-up 6's and the pair page's, through
+ * `directionHeading()`, so the card, the table row and the pair page print one
+ * wording: `outbound` is "Sends to {partner}", `inbound` is "Receives from {partner}"
+ * and `both` is "Syncs both ways". `otherName` is the counterpart product, never this
+ * page's. The token is passed through unchanged and never inferred: a `null` direction
+ * stays empty, and the caller keeps its own empty state.
+ */
+export function contextDirectionLabel(
+  direction: ContextDirection | null,
+  otherName: string,
+): ContextDirectionLabel {
   switch (direction) {
     case 'outbound':
-      return {
-        label: $localize`:@@integrations.direction.outbound:Outbound`,
-        glyph: '→',
-        token: 'outbound',
-      };
     case 'inbound':
-      return {
-        label: $localize`:@@integrations.direction.inbound:Inbound`,
-        glyph: '←',
-        token: 'inbound',
-      };
     case 'both':
-      return { label: $localize`:@@integrations.direction.both:Both`, glyph: '⇄', token: 'both' };
+      return {
+        label: directionHeading(direction, otherName),
+        glyph: directionGlyph(direction),
+        token: direction,
+      };
     default:
       return { label: '', glyph: '', token: null };
+  }
+}
+
+/**
+ * What "How it connects" prints for one row (AECI-1720 restore C): the kind chips and
+ * the mechanism's name, each fact once. A name that only repeats a kind ("Native" under
+ * a "Native" chip) is dropped. A name that contains its row's one kind as a whole word
+ * ("REST API" for "API", "Native integration" for "Native") is the more specific of
+ * the two, so it takes the kind's chip and the kind is not printed. A name that says
+ * something the kind does not ("Revu Studio" for "Native") keeps both. A row with
+ * several kinds (a collapsed Via row) keeps every chip.
+ */
+export function mechanismDisplay(
+  kindLabels: readonly string[],
+  mechanismName: string | null | undefined,
+): { readonly labels: readonly string[]; readonly name: string | null } {
+  const name = mechanismName?.trim() || null;
+  if (!name) return { labels: kindLabels, name: null };
+  const lower = name.toLocaleLowerCase();
+  if (kindLabels.some((label) => label.toLocaleLowerCase() === lower)) {
+    return { labels: kindLabels, name: null };
+  }
+  if (kindLabels.length === 1 && containsWord(lower, kindLabels[0]!.toLocaleLowerCase())) {
+    return { labels: [name], name: null };
+  }
+  return { labels: kindLabels, name };
+}
+
+function containsWord(text: string, word: string): boolean {
+  if (!word) return false;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, 'u').test(text);
+}
+
+/**
+ * The direction filter's chip words (mock-up 6, `#dirSeg`): "{product} sends",
+ * "{product} receives" and "Both ways", where `{product}` is this page's product. A
+ * chip covers every partner at once, so it names the page's product, not a partner.
+ * The filter's "Any direction" chip is the section's own message.
+ */
+export function directionFilterLabel(direction: ContextDirection, productName: string): string {
+  switch (direction) {
+    case 'outbound':
+      return $localize`:@@products.detail.integrations.filter.direction.outbound:${productName}:PRODUCT: sends`;
+    case 'inbound':
+      return $localize`:@@products.detail.integrations.filter.direction.inbound:${productName}:PRODUCT: receives`;
+    case 'both':
+      return $localize`:@@products.detail.integrations.filter.direction.both:Both ways`;
   }
 }
 

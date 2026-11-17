@@ -35,6 +35,7 @@ import { VendorLockedNote } from './vendor-locked-note';
 
 import { editFieldLabel } from './vendor-contest-labels';
 import { editSaveErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
@@ -113,6 +114,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
   styles: [':host { display: block; }'],
   template: `
     <form
+      method="dialog"
       [id]="fieldId('form')"
       class="mt-4 space-y-6"
       novalidate
@@ -392,6 +394,7 @@ export class VendorIntegrationEditForm implements OnInit {
   }
 
   protected async onSave(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.saving()) return;
     this.saveNotice.set(null);

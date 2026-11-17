@@ -174,6 +174,32 @@ describe('aec-hero-band (AECI-1766)', () => {
     expect(grid.innerHTML).not.toContain('--aec-hero-held:');
   });
 
+  // AECI-1720 restore C (mock-ups 6 and 12, .crumbs before .hero-grid): the breadcrumb
+  // sits above the grid, so a tall panel never pushes it down.
+  it('renders the breadcrumb above the two-column grid, not inside the text column', () => {
+    const crumbs = q('[data-testid="crumbs"]')!;
+    const grid = q('[data-testid="hero-band-grid"]')!;
+    expect(grid.contains(crumbs)).toBe(false);
+    expect(crumbs.parentElement).toBe(grid.parentElement);
+    expect(crumbs.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The kicker still opens the text column.
+    expect(q('[data-testid="hero-band-text"]')!.firstElementChild).toBe(
+      q('[data-testid="kicker"]'),
+    );
+  });
+
+  it('centres the text column by default and pins it to the top with align="start"', async () => {
+    const text = q('[data-testid="hero-band-text"]')!;
+    expect(text.classList).not.toContain('lg:self-start');
+    const ref = TestBed.createComponent(HeroBand);
+    ref.componentRef.setInput('align', 'start');
+    await ref.whenStable();
+    const pinned = (ref.nativeElement as HTMLElement).querySelector(
+      '[data-testid="hero-band-text"]',
+    )!;
+    expect(pinned.classList).toContain('lg:self-start');
+  });
+
   it('holds both columns at their measured offsets, then releases them (item 82)', async () => {
     const band = fixture.debugElement.query((d) => d.componentInstance instanceof HeroBand)
       .componentInstance as HeroBand;

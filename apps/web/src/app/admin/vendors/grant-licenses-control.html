@@ -59,9 +59,10 @@
   </button>
   } @else {
   <form
+    method="dialog"
     novalidate
     class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-    (submit)="$event.preventDefault(); submit()"
+    (aecSubmit)="submit()"
   >
     <!-- AECI-738: warns, never disables. product_role is curated upstream. -->
     @if (isPureConnectorVendor()) {

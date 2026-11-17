@@ -10,6 +10,7 @@ import type {
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { SeatProvisionApi } from './seat-provision-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** `ProvisionVendorSeatSchema.reason`'s cap, mirrored so the textarea can stop an
  *  over-long note before the round trip. A 400 from this endpoint covers BOTH the
@@ -64,6 +65,7 @@ const REASON_MAX_LENGTH = 500;
  */
 @Component({
   selector: 'aec-provision-seat-control',
+  imports: [AecFormSubmit],
   templateUrl: './provision-seat-control.html',
 })
 export class ProvisionSeatControl {

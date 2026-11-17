@@ -27,6 +27,7 @@ import { AdminConnectorsApi } from './admin-connectors-api';
 import { mappingStatusLabel } from './connector-labels';
 import { ManagedByControl } from './managed-by-control';
 import { MappingEditControl } from './mapping-edit-control';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 const STUB_PAGE_SIZE = 25;
 const PAIR_PAGE_SIZE = 25;
@@ -66,6 +67,7 @@ type StubState =
 @Component({
   selector: 'aec-connector-detail',
   imports: [
+    AecFormSubmit,
     DatePipe,
     AecSelect,
     AdminNotes,

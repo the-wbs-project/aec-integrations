@@ -46,6 +46,24 @@ export interface SourceConstraintViolation {
 export const RULES: readonly SourceConstraintRule[];
 
 /**
+ * A rule that reads a whole opening tag, which can span several lines
+ * (AECI-1919). `check` returns true when the tag is fine.
+ */
+export interface SourceConstraintTagRule {
+  readonly id: string;
+  readonly extensions: readonly string[];
+  /** Path suffixes this rule skips, such as `.spec.ts`. */
+  readonly exclude?: readonly string[];
+  /** The element name, without the `<`. */
+  readonly tag: string;
+  readonly check: (tag: string) => boolean;
+  readonly label: string;
+  readonly hint: string;
+}
+
+export const TAG_RULES: readonly SourceConstraintTagRule[];
+
+/**
  * Scan one file's contents. Pure — the CLI and the spec call the same function,
  * so the tests exercise the real matching rather than a copy of it.
  *

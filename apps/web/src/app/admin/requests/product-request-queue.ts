@@ -14,6 +14,7 @@ import {
 } from '../../shared/product-combobox/product-combobox';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -206,6 +207,7 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                   </p>
                 } @else if (openId() === r.id && decision(); as kind) {
                   <form
+                    method="dialog"
                     class="mt-5 space-y-3 border-t border-(--border-default) pt-4"
                     novalidate
                     (submit)="submit($event, r)"
@@ -465,6 +467,7 @@ export class ProductRequestQueue {
   }
 
   protected async submit(event: Event, row: AdminProductRequest): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     const kind = this.decision();
     if (!kind || this.pending()) return;

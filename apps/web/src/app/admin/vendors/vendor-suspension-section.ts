@@ -36,6 +36,7 @@ import {
   isStaleError,
   suspensionErrorMessage,
 } from './vendor-suspension-model';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * How long after Terminate the page re-reads the state. The API answers once the D1 batch
@@ -68,7 +69,7 @@ type SuspensionAction = 'suspend' | 'resend' | 'stage2' | 'lift' | 'retry';
  */
 @Component({
   selector: 'aec-vendor-suspension-section',
-  imports: [DatePipe, SuspensionCostLog, SuspensionStatement, SuspensionTerminate],
+  imports: [AecFormSubmit, DatePipe, SuspensionCostLog, SuspensionStatement, SuspensionTerminate],
   templateUrl: './vendor-suspension-section.html',
 })
 export class VendorSuspensionSection {

@@ -382,8 +382,9 @@
     </h3>
 
     <form
+      method="dialog"
       novalidate
-      (submit)="$event.preventDefault(); saveNote()"
+      (aecSubmit)="saveNote()"
       class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
     >
       <label

@@ -25,8 +25,9 @@ function render(
   return fixture.nativeElement as HTMLElement;
 }
 
+// The full meaning is visually hidden text (AECI-1720 restore C), not an aria-label.
 const ariaOf = (el: HTMLElement) =>
-  el.querySelector('span[aria-label]')?.getAttribute('aria-label');
+  el.querySelector('[data-testid="agreement-badge-meaning"]')?.textContent?.trim();
 const chipOf = (el: HTMLElement) => el.querySelector('.aec-chip')!;
 const toneOf = (el: HTMLElement) => chipOf(el).getAttribute('data-tone');
 
@@ -150,9 +151,21 @@ describe('AgreementBadge', () => {
     }
   });
 
-  it('keeps the accessible name on the chip itself', () => {
-    expect(chipOf(render('confirmed')).getAttribute('aria-label')).toBe(
-      'Confirmed by both companies.',
-    );
+  // records/10 §2 and records/11 §8: an aria-label on a plain span is not reliably read.
+  it('carries its full meaning as visually hidden text, read once, with no aria-label', () => {
+    for (const state of AGREEMENT_STATES) {
+      const el = render(state, 'Acme Software');
+      const chip = chipOf(el);
+      expect(chip.hasAttribute('aria-label')).toBe(false);
+      const meaning = chip.querySelector('[data-testid="agreement-badge-meaning"]')!;
+      expect(meaning.className).toContain('sr-only');
+      expect(meaning.textContent!.trim().length).toBeGreaterThan(0);
+      // Every other text node in the chip is hidden, so the label is not heard twice.
+      const heard = [...chip.querySelectorAll('span')].filter(
+        (span) => span !== meaning && !span.closest('[aria-hidden="true"]'),
+      );
+      expect(heard.every((span) => span.contains(meaning))).toBe(true);
+    }
+    expect(ariaOf(render('confirmed'))).toBe('Confirmed by both companies.');
   });
 });

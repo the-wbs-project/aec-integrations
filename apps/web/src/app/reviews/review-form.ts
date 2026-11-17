@@ -41,6 +41,23 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ReviewsApi } from './reviews-api';
 import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
+import { AecIcon } from '../shared/icon/icon';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FORM_FOOTER_CLASS,
+} from '../shared/form-field/form-field-classes';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
+
+/**
+ * One "would you recommend" segment (AECI-1807): the segmented control recipe of the
+ * Cards/Table toggle (DESIGN.md "Inputs / Fields"), 36px segments in a 44px frame.
+ */
+const SEGMENT_CLASS =
+  'inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-3.5 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
 type RoleValue = NonNullable<SubmitReviewInput['role_at_company']>;
 type RecommendValue = NonNullable<SubmitReviewInput['would_recommend']>;
@@ -104,7 +121,10 @@ interface ReviewModel {
 @Component({
   selector: 'aec-review-form',
   imports: [
+    AecFormSubmit,
     AecButton,
+    AecCard,
+    AecIcon,
     FormField,
     Listbox,
     Option,
@@ -139,6 +159,23 @@ export class ReviewForm {
   protected readonly product = this.route.snapshot.data['product'] as ProductDetail | null;
 
   protected readonly backRouterLink = computed(() => ['/products', this.product?.slug ?? '']);
+
+  // The shared field recipe (`shared/form-field/form-field-classes.ts`), as the claim
+  // dialog, `/welcome` and `/account` use it (AECI-1807).
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** The years field keeps its short width. */
+  protected readonly yearsInputClass = FIELD_INPUT_CLASS.replace('w-full', 'w-28');
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly footerClass = FORM_FOOTER_CLASS;
+  /** A standalone link: the in-text link look with a 44px target (AECI-1808). */
+  protected readonly inlineLinkClass =
+    'inline-flex min-h-11 items-center gap-1.5 text-t-14 font-semibold text-(--accent-primary) ' +
+    'underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 ' +
+    'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The rail's guide link, on the same recipe. */
+  protected readonly docsLinkClass = `mt-2 ${this.inlineLinkClass}`;
 
   /** Absolute path to this (auth-gated) review form — the `?return=` target the
    *  sign-in pop-up threads into `/auth/login` so the visitor lands back here
@@ -430,6 +467,13 @@ export class ReviewForm {
       ...(recommend ? { would_recommend: recommend } : {}),
       ...(firm ? { reviewer_firm: firm } : {}),
     };
+  }
+
+  /** The chosen segment is solid Forest with a tick, the others plain (AECI-1807). */
+  protected recommendClass(value: RecommendValue): string {
+    return this.recommendSel()[0]?.value === value
+      ? `${SEGMENT_CLASS} bg-(--accent-primary) text-(--surface-base)`
+      : `${SEGMENT_CLASS} text-(--text-primary) hover:bg-(--surface-sunken) data-[active=true]:bg-(--surface-sunken)`;
   }
 
   /** Accessible name for a star option (e.g. "1 star" / "4 stars"). Built in TS

@@ -108,7 +108,7 @@
       @if (voidingId() === entry.id) {
       <tr class="border-b border-(--border-default)">
         <td colspan="6" class="bg-(--surface-sunken) px-3 py-3">
-          <form novalidate (submit)="$event.preventDefault(); confirmVoid(entry.id)">
+          <form method="dialog" novalidate (aecSubmit)="confirmVoid(entry.id)">
             <label
               class="block text-sm font-medium text-(--text-primary)"
               [attr.for]="idPrefix() + '-void-reason-' + entry.id"
@@ -177,9 +177,10 @@
 </button>
 } @else {
 <form
+  method="dialog"
   novalidate
   class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-  (submit)="$event.preventDefault(); submit()"
+  (aecSubmit)="submit()"
 >
   <fieldset>
     <legend

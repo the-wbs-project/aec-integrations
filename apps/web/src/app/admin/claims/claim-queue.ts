@@ -22,6 +22,7 @@ import { AdminSummaryStore } from '../admin-summary.store';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -96,7 +97,14 @@ type FormMode = 'approve' | 'reject';
  */
 @Component({
   selector: 'aec-claim-queue',
-  imports: [ClaimAccountConflict, DatePipe, DomainMatchSignal, NewTabIcon, RouterLink],
+  imports: [
+    AecFormSubmit,
+    ClaimAccountConflict,
+    DatePipe,
+    DomainMatchSignal,
+    NewTabIcon,
+    RouterLink,
+  ],
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {

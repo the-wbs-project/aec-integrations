@@ -38,6 +38,7 @@ import {
   catalogueStatusHelp,
   catalogueStatusLabel,
 } from './vendor-catalogue-labels';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** What a save told the host. `changed: false` is the server's 200 no-op. */
 export interface CatalogueMappingSaved {
@@ -99,14 +100,15 @@ export function catalogueSaveErrorMessage(err: unknown): string {
  */
 @Component({
   selector: 'aec-vendor-connector-mapping-form',
-  imports: [AecSelect, ProductCombobox],
+  imports: [AecFormSubmit, AecSelect, ProductCombobox],
   host: { class: 'block' },
   template: `
     <form
+      method="dialog"
       novalidate
       class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
       [attr.aria-label]="formLabel()"
-      (submit)="$event.preventDefault(); submit()"
+      (aecSubmit)="submit()"
     >
       <div>
         <aec-select

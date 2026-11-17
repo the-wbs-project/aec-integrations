@@ -9,6 +9,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * The API's rule for a ban-term `ends_at` (`createBanTermLicensesHandler`): the value
@@ -153,6 +154,7 @@ export function uncoveredBanTermCandidates(
  */
 @Component({
   selector: 'aec-ban-term-licenses-control',
+  imports: [AecFormSubmit],
   templateUrl: './ban-term-licenses-control.html',
 })
 export class BanTermLicensesControl {

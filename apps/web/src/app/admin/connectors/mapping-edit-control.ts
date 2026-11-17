@@ -30,6 +30,7 @@ import {
 } from '../../shared/product-combobox/product-combobox';
 import { mappingConfidenceLabel, mappingStatusLabel } from './connector-labels';
 import { MappingEditApi } from './mapping-edit-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * Edit one mapping on a VENDOR-MANAGED catalogue (AECI-724 — `ADMIN_PANEL_SPEC.md`
@@ -56,7 +57,7 @@ import { MappingEditApi } from './mapping-edit-api';
  */
 @Component({
   selector: 'aec-mapping-edit-control',
-  imports: [AecSelect, ProductCombobox],
+  imports: [AecFormSubmit, AecSelect, ProductCombobox],
   templateUrl: './mapping-edit-control.html',
 })
 export class MappingEditControl {

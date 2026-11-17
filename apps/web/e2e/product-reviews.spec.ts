@@ -151,10 +151,10 @@ test.describe('product reviews — reviewer updates (AECI-1613)', () => {
     await expect(update).toHaveCount(1);
     await expect(update).toContainText(APPROVED_UPDATE_TEXT);
     await expect(update.locator('time')).toHaveAttribute('datetime', '2026-09-20T10:00:00.000Z');
-    await expect(update.getByRole('img', { name: 'Overall rating 4 out of 5' })).toBeVisible();
+    await expect(update.getByRole('img', { name: 'Product quality 4 out of 5' })).toBeVisible();
     // The original card keeps its own ratings.
     await expect(
-      review.getByRole('img', { name: 'Overall rating 2 out of 5' }).first(),
+      review.getByRole('img', { name: 'Product quality 2 out of 5' }).first(),
     ).toBeVisible();
     await expect(page.getByText(REJECTED_UPDATE_TEXT)).toHaveCount(0);
   });

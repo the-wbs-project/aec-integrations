@@ -23,6 +23,7 @@ import {
 
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReviewResponsesApi } from './admin-review-responses-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -74,7 +75,7 @@ type DecisionWithoutVersion =
  */
 @Component({
   selector: 'aec-review-response-queue',
-  imports: [DatePipe, RouterLink],
+  imports: [AecFormSubmit, DatePipe, RouterLink],
   templateUrl: './review-response-queue.html',
 })
 export class ReviewResponseQueue {

@@ -121,4 +121,16 @@ describe('DocsHomeComponent', () => {
       expect(list?.classList, id).toContain('lg:grid-cols-2');
     }
   });
+
+  // AECI-1803: every link on the home is a 44px target with the 3px ring.
+  it('gives every section and page link a 44px target and the 3px focus ring', () => {
+    const { host } = render();
+    const links = Array.from(host.querySelectorAll<HTMLAnchorElement>('a'));
+    expect(links.length).toBeGreaterThan(5);
+    for (const link of links) {
+      expect(link.classList, link.textContent ?? '').toContain('min-h-11');
+      expect(link.classList).toContain('focus-visible:outline-3');
+      expect(link.classList).toContain('focus-visible:outline-offset-3');
+    }
+  });
 });
