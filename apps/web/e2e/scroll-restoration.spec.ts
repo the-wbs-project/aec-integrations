@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Response } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
 import { FAKE_PRODUCTS, FAKE_VENDORS, routeFakeAlgolia } from './fake-algolia';
@@ -53,19 +53,30 @@ const RESTORE_TOLERANCE_PX = 50;
  * Waits in the page until `scrollY` and the document height both hold still for
  * ten frames, and returns `scrollY`. A restore that lands before the rows render
  * and then drifts as they arrive does not count as settled until the drift ends.
+ *
+ * Nor does a page the footer is loading (AECI-1909). A scroll can bring the
+ * footer's sentinel within its 600px margin, and the footer then loads the next
+ * page by itself. The page holds still while that runs, and on `/search` the
+ * fake Algolia answers 300ms later, so ten still frames passed first. The test
+ * recorded the rows without the new page, left, and on Back the store rightly
+ * restored the page the reader really left with. The footer's control carries
+ * `aria-busy` while it loads, so a settle also waits for that to clear.
  */
 function layoutSettled(page: Page): Promise<number> {
   return page.evaluate(
     () =>
       new Promise<number>((resolve) => {
-        const read = () => `${Math.round(window.scrollY)}:${document.documentElement.scrollHeight}`;
+        const busy = () =>
+          document.querySelectorAll('aec-pagination-footer [aria-busy="true"]').length;
+        const read = () =>
+          `${Math.round(window.scrollY)}:${document.documentElement.scrollHeight}:${busy()}`;
         let last = read();
         let still = 0;
         const tick = () => {
           const now = read();
           still = now === last ? still + 1 : 0;
           last = now;
-          if (still >= 10) resolve(Math.round(window.scrollY));
+          if (still >= 10 && busy() === 0) resolve(Math.round(window.scrollY));
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -621,10 +632,30 @@ const FILTER_PLANS: { name: string; plan: (page: Page) => Promise<FilterPlan | n
   },
 ];
 
+/** The listing's own requests: its rows and its filter panel's counts. */
+const LISTING_REQUESTS = ['/api/products', '/api/products/facets'];
+
+/** Whether a response URL answers the filter state in `pageUrl` (every `*_id` param matches). */
+function answersFilterState(responseUrl: string, path: string, pageUrl: string): boolean {
+  const response = new URL(responseUrl);
+  if (response.pathname !== path) return false;
+  const filters = [...new URL(pageUrl).searchParams].filter(([key]) => key.endsWith('_id'));
+  return filters.every(([key, value]) => response.searchParams.get(key) === value);
+}
+
 /**
  * Brings one filter checkbox to the middle of the viewport and clicks it with a
  * DOM click, as a reader ticking a filter. Returns the position at the click:
  * what the router saves for a later Back to the state being left.
+ *
+ * Then waits until the new filter state's rows and counts have both arrived
+ * (AECI-1909). A filter click is a client navigation, so `waitForLoadState`
+ * returns at once: the document reached `networkidle` long before. And the
+ * page holds still while the request runs, because the previous state's rows
+ * stay on screen, dimmed. So a settle alone let the test count, scroll and
+ * leave a state whose rows had not arrived. The listing stores nothing for
+ * such a state, on purpose, so the Back that followed fetched and landed short.
+ * Measured: the rows took 190 to 560ms on the local stack.
  */
 async function clickFilter(page: Page, click: FilterClick): Promise<number> {
   const group = page.locator('aec-facet-sidebar fieldset', {
@@ -635,12 +666,35 @@ async function clickFilter(page: Page, click: FilterClick): Promise<number> {
   });
   if ((await box.count()) === 0) await group.getByRole('button').first().click();
   await untilHydrated(page.locator('aec-facet-sidebar'));
-  return box.evaluate((input) => {
-    input.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
-    const y = Math.round(window.scrollY);
-    (input as HTMLInputElement).click();
+
+  const answered: string[] = [];
+  const onResponse = (response: Response) => {
+    if (response.ok()) answered.push(response.url());
+  };
+  page.on('response', onResponse);
+  try {
+    const before = page.url();
+    const y = await box.evaluate((input) => {
+      input.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+      const y = Math.round(window.scrollY);
+      (input as HTMLInputElement).click();
+      return y;
+    });
+    await expect.poll(() => page.url()).not.toBe(before);
+    const after = page.url();
+    await expect
+      .poll(
+        () =>
+          LISTING_REQUESTS.every((path) =>
+            answered.some((url) => answersFilterState(url, path, after)),
+          ),
+        { message: `the rows and counts for ${after} arrive`, timeout: 15_000 },
+      )
+      .toBe(true);
     return y;
-  });
+  } finally {
+    page.off('response', onResponse);
+  }
 }
 
 test.describe('Back and Forward between filter states on one page (AECI-1900)', () => {
@@ -656,7 +710,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
       for (const click of steps!.clicks) {
         clickedAt = await clickFilter(page, click);
         await expect(page).toHaveURL(new RegExp(click.group === 'Phases' ? 'phase_id=' : '_id='));
-        await page.waitForLoadState('networkidle');
         await layoutSettled(page);
       }
       await expect(page).toHaveURL(urlEndingWith(steps!.end));
@@ -699,7 +752,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
 
     const clickedAt = await clickFilter(page, { group: 'Phases', name: phase!.name });
     await expect(page).toHaveURL(/phase_id=/);
-    await page.waitForLoadState('networkidle');
     const filteredAt = await layoutSettled(page);
     const filteredCards = await cards.count();
 
@@ -736,7 +788,6 @@ test.describe('Back and Forward between filter states on one page (AECI-1900)', 
     await expect(page).toHaveURL(/phase_id=/);
     // The filter starts at its own page 1: the panel drops `?page=`.
     await expect(page).not.toHaveURL(/[?&]page=/);
-    await page.waitForLoadState('networkidle');
     await layoutSettled(page);
 
     await page.goBack();

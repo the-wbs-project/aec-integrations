@@ -1008,6 +1008,22 @@ IntelliBid").
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
 
+  **`waitForLoadState` does not wait for a client navigation (AECI-1909).** A
+  load state belongs to the document. Once the first load reached `networkidle`,
+  every later `waitForLoadState('networkidle')` returns at once, so after a
+  filter click it waits for nothing. A listing keeps the previous rows on screen,
+  dimmed, while it refetches, so a "layout held still" check passes then too.
+  The `e2e/scroll-restoration.spec.ts` filter tests counted, scrolled and left
+  filter states whose rows had not arrived (190 to 560ms on the local stack),
+  and failed 15 of 165 runs. `clickFilter` there now waits for the new state's
+  rows and counts responses, then the caller waits for the layout to settle.
+  The footer's auto-load is the same trap. A scroll that brings the sentinel
+  within its 600px margin loads the next page, and the page holds still until
+  it lands. On `/search` the fake Algolia answers 300ms later, so the `/search`
+  restore tests recorded the rows without that page and failed 6 of 72 runs.
+  `layoutSettled` in that spec now also waits until no footer control carries
+  `aria-busy`.
+
 **(c) A visible overlay is not yet listening (AECI-1672).** A Spartan popover or
 dialog (`BrnPopover`, `BrnDialog`) renders its panel inside the click handler
 that opens it. It subscribes to the overlay's outside-click and Escape streams
