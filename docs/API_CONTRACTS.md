@@ -363,6 +363,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
 | `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
+| `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a subscription that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the subscription ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
@@ -4582,6 +4583,8 @@ AdminUserDetail = {
     seat_invites_sent: number,
     licenses_granted: number,                             // licenses.granted_by = this user, any state (AECI-1358; was entitlements_granted)
     requests_by_email: number | null,                     // best effort — see below
+    dmca_takedowns: number,                               // AECI-1665: removed or disabled copyright notices, less any restored after a counter-notice
+    dmca_counter_notices: number,                         // AECI-1665: counter-notices this account filed
   },
   repeat_offender: boolean,
   about: {                             // AECI-1296, the onboarding answers
@@ -7154,6 +7157,117 @@ binding, and the browser on an in-app navigation and in the claim box
 with `legalVersionsInForce` (`packages/shared/src/api/legal-in-force.ts`; `legalReaderVersionInForce` for `terms` and `privacy`), the rule the API
 stamps by, using this `now`, never the browser's clock. Errors: none of its own; a D1 failure is
 the central `500`.
+
+#### Copyright notices: `GET /api/admin/dmca-notices`, `POST /api/admin/dmca-notices`, `PATCH /api/admin/dmca-notices/:id` (AECI-1665)
+
+The copyright notice log (counsel Q38, `ADMIN_PANEL_SPEC.md` §5.23). Table `dmca_notices`
+(`DATABASE_SCHEMA.md` §8.14). `requireAdmin()` on all three. The POST and the PATCH add
+`rateLimit('write')` after the guard. The GET is a read: no audit row, no limiter. Contract in
+`packages/shared/src/api/dmca-notices.ts`. There is no delete route. The log is never public,
+so no write purges a cache.
+
+```typescript
+// One row as every route returns it.
+export const DmcaNoticeSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['notice', 'counter_notice']),
+  notice_id: z.string().nullable(),          // a counter-notice's notice. Null on a notice
+  received_at: z.string(),                   // ISO
+  submitter_name: z.string().nullable(),     // null when the notice did not give it
+  submitter_contact: z.string().nullable(),  // null when the notice did not give it
+  content_identified: z.string().nullable(), // null when not identified. Never null on a takedown
+  work_claimed: z.string().nullable(),       // notice only
+  account_id: z.string().nullable(),         // a profiles.id. Nulled by account deletion
+  account_name: z.string().nullable(),       // profiles.display_name, joined
+  vendor_id: z.string().nullable(),
+  vendor_name: z.string().nullable(),        // vendors.company_name, joined
+  action: z.enum(['pending', 'removed', 'disabled', 'no_action']),
+  action_at, forwarded_at, court_action_at: z.string().nullable(),
+  restore_outcome: z.enum(['restored', 'not_restored']).nullable(), // counter-notice only
+  restore_outcome_at, closed_at, notes: z.string().nullable(),
+  created_by, created_at, updated_by, updated_at: z.string(),
+  // Counter-notice only, computed by the API (`lib/dmca-notices.ts` restoreClock). Null on a notice.
+  restore_clock: z.object({
+    earliest: z.string(),   // ISO, 05:00 UTC of business day 10 after received_at (never early)
+    latest: z.string(),     // ISO, businessWindowEnd(received_at, 14)
+    opens_on: z.string(),   // YYYY-MM-DD, the New York date of business day 10
+    due_on: z.string(),     // YYYY-MM-DD, the New York date of business day 14
+    state: z.enum(['awaiting_forward', 'waiting', 'restore_window_open', 'overdue',
+      'court_action', 'restored', 'not_restored']),
+  }).nullable(),
+});
+
+// GET /api/admin/dmca-notices?account_id=&kind=notice|counter_notice&open=true|false
+export const DmcaNoticesResponseSchema = z.object({
+  generated_at: z.string(),
+  // Every matching row, unpaginated: the log gets a handful of rows a year.
+  notices: z.array(DmcaNoticeSchema),  // most urgent clock, then received_at DESC, then id
+  // Only with ?account_id=. The same two statements GET /api/admin/users/:id runs.
+  account_counts: z.object({ dmca_takedowns: z.number(), dmca_counter_notices: z.number() }).nullable(),
+});
+
+// POST /api/admin/dmca-notices. Strict. 201 { notice }.
+export const CreateDmcaNoticeRequestSchema = z.object({
+  kind, notice_id?,                // notice_id required on a counter_notice, refused on a notice
+  received_at,                     // ISO
+  submitter_name?, submitter_contact?, content_identified?,  // trimmed, nullable, optional
+                                   // content_identified required when action is removed or disabled
+  work_claimed?,                   // notice only
+  account_id?, vendor_id?, action?, action_at?, forwarded_at?,
+  court_action_at?, restore_outcome?, restore_outcome_at?,  // counter-notice only
+  closed_at?, notes?,
+}).strict();
+
+// PATCH /api/admin/dmca-notices/:id. Strict. 200 { notice, changed }.
+export const UpdateDmcaNoticeRequestSchema = z.object({
+  expected_updated_at: z.string(), // the row's updated_at as the page read it
+  // every field of the POST but kind and notice_id, all optional. null clears a nullable one
+}).strict();
+```
+
+**The restore clock.** Business days are Monday to Friday, less observed US federal holidays,
+counted on New York dates (`apps/api/src/lib/business-days.ts`). The receipt day never counts.
+`state` is the outcome when one is recorded, else `court_action` when `court_action_at` is set,
+else `awaiting_forward` until `forwarded_at` is set, else `waiting` before `earliest`,
+`restore_window_open` before `latest`, and `overdue` after it.
+
+**The counts.** `dmca_takedowns` counts notices with this `account_id` whose `action` is
+`removed` or `disabled`, with no counter-notice to them whose `restore_outcome` is `restored`.
+`dmca_counter_notices` counts counter-notices with this `account_id`. Both are
+`AdminUserCounts` fields too (`GET /api/admin/users/:id`).
+
+**Refusals, in order.** The POST: `400 MALFORMED_REQUEST` for a body that is not JSON. `400
+VALIDATION_FAILED` for the shape, including a counter-notice without `notice_id`, a notice with
+one, a field the kind does not carry, and a `removed` or `disabled` action with no
+`content_identified` (the takedown rule). A notice missing its name, contact or material is
+still logged: every notice is logged on receipt, complete or not. `400 VALIDATION_FAILED` with `field` set to
+`notice_id` when it names no notice (a counter-notice cannot answer a counter-notice), to
+`account_id` when no profile has that id, or to `vendor_id` when no vendor does. The PATCH:
+the body, then `404 NOT_FOUND`, then `409 DMCA_NOTICE_CHANGED` for a stale
+`expected_updated_at`, then `400 VALIDATION_FAILED` for a field the row's kind does not carry, then `400
+VALIDATION_FAILED` with `field: 'content_identified'` when the row the edit would leave is
+`removed` or `disabled` with no material, then the same reference checks for a changed
+`account_id` or `vendor_id`. A body that changes
+nothing answers `200 { notice, changed: false }`. A refusal writes nothing.
+
+**The write.** One `db.batch`. The POST: an `INSERT … SELECT … WHERE (account_id IS NULL OR
+EXISTS (SELECT 1 FROM profiles WHERE id = account_id))` and its `dmca_notice.created` audit row,
+written by `auditInsertWhere` so it lands only when the row did. The PATCH: a sentinel that
+aborts when `updated_at` moved since the read, then the `dmca_notice.updated` audit row and the
+UPDATE under one predicate: `id` and `updated_at`, plus the same `EXISTS` when the edit sets a
+non-null `account_id`. A sentinel abort is the same 409. The reference check above is the early,
+friendly answer. The in-batch `EXISTS` is the one that counts: with no FK, it stops a write that
+lands after the account-deletion batch from keeping a dead `account_id`. D1 gives no reliable
+change count here, so the batch reads its own outcome: its last two statements select the row and
+this write's audit row by id. A D1 batch is one serialized transaction, so they see the state just
+after the write. A read after the batch could see a later edit or an account deletion and misjudge
+a write that committed. No audit row on the POST, or on a PATCH whose sentinel passed, is `400
+VALIDATION_FAILED` with `field: 'account_id'`, and nothing was written or forwarded. A write that
+landed answers 201 or 200 with the row as it wrote it, and is forwarded. The audit states carry `kind`, `notice_id`, `received_at`, `vendor_id`, `action` and the
+dates and outcome that changed. Names, contact details, the material, the work, the notes and
+the account id are named in `metadata.fields` and never copied, because `audit_log` is never
+pruned. `audit_log.vendor_id` is the row's `vendor_id`. The forward to PostHog Logs runs after
+commit.
 
 #### Legal acceptances: `GET /api/admin/legal-acceptances` (AECI-1677)
 

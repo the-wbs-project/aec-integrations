@@ -153,6 +153,7 @@ Tables grouped by domain:
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 - `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
+- `dmca_notices` — one copyright notice or counter-notice we received, with what we did and the restore window; kept three years after it closes, even after account deletion (§8.14, AECI-1665)
 
 **Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
 - `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
@@ -3562,6 +3563,40 @@ Indexes: `field_hides_active_key`, UNIQUE on `(entity_type, entity_id, field) WH
 - **Never public.** A public read selects `entity_id` and `field` only. The portal reads `field`, `reason`, `set_at` and `source_url` (`HiddenFieldSchema`).
 - **Retention.** Kept, like `audit_log`. It is the record of when AECi received the request, when it hid the value and what it decided.
 
+### 8.14 `dmca_notices` (AECI-1665, migration 0124)
+
+The copyright notice log (counsel Q38, `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice that reached our designated agent. The Terms' "Copyright complaints" section says "we keep a log of every notice and counter-notice we receive", and this table is that log. The operator works it on `/admin/dmca`. The steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice".
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid |
+| `kind` | text NOT NULL | `notice` or `counter_notice` |
+| `notice_id` | text | on a counter-notice, the `dmca_notices.id` of the notice it answers. NULL on a notice. No FK |
+| `received_at` | text NOT NULL | when the agent received it. On a counter-notice the restore window, business day 10 to business day 14 (`lib/business-days.ts`), is computed from it, never stored |
+| `submitter_name` | text | the person who sent the notice, or the counter-notice. NULL when the notice did not give it |
+| `submitter_contact` | text | email, postal address and phone, as given. NULL when the notice did not give it |
+| `content_identified` | text | the URLs or a description of the material. NULL when the notice did not identify it. Required when `action` is `removed` or `disabled` (the takedown rule below) |
+| `work_claimed` | text | on a notice, the copyrighted work claimed |
+| `account_id` | text | the `profiles.id` of the account that posted the material. No FK. Nulled by account deletion, and the row stays |
+| `vendor_id` | text | set when the material is a vendor's logo, screenshot or text. No FK |
+| `action` | text NOT NULL DEFAULT `pending` | `pending`, `removed`, `disabled` or `no_action`. `no_action` is an incomplete notice, or material that is not ours |
+| `action_at` | text | when the action was taken |
+| `forwarded_at` | text | on a notice, when the poster was notified. On a counter-notice, when it was forwarded to the person who sent the notice |
+| `court_action_at` | text | on a counter-notice, when that person told us a court action was filed |
+| `restore_outcome`, `restore_outcome_at` | text | on a counter-notice, `restored` or `not_restored`, and when. NULL while open |
+| `closed_at` | text | when nothing more will happen. The retention period counts from it |
+| `notes` | text | operator notes, including the repeat-infringer decision |
+| `created_by`, `created_at`, `updated_by`, `updated_at` | text NOT NULL | the admin and when. `updated_at` is the race sentinel of the PATCH (`expected_updated_at`) |
+
+Indexes: `dmca_notices_account_kind_idx` on `(account_id, kind) WHERE account_id IS NOT NULL` (the per-account count), `dmca_notices_notice_id_idx` on `(notice_id)`, and `dmca_notices_received_at_idx` on `(received_at)`.
+
+- **Every notice is logged on receipt, complete or not.** The name, the contact details and the material are nullable, so an incomplete notice is still a row, usually with `action` `no_action`. One rule holds: a `removed` or `disabled` row names the material it took down. Zod applies it on create (`dmcaTakedownLacksContent` in `packages/shared/src/api/dmca-notices.ts`), and the PATCH applies it to the row as the edit would leave it. There is no CHECK.
+- **No FK and no CHECK**, on the `legal_versions` (§8.6i) and `field_hides` (§8.13) precedent. The migration is a plain `CREATE TABLE` and three `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/dmca-notices.ts`.
+- **The takedown count** on `/admin/users/:id` is `takedownCountWhere` in `lib/dmca-notices.ts`: notices on the account with `action` `removed` or `disabled`, less any whose counter-notice ended `restored`. A `no_action` or `pending` notice never counts. Counter-notices the account filed are a second number. The list and the user detail share the predicate, so they cannot drift.
+- **Writers.** `routes/admin-dmca-notices.ts` inserts and updates rows. Each write carries its `dmca_notice.created` or `dmca_notice.updated` audit row in the same `db.batch`, written by `auditInsertWhere` so it lands only when the row change does. The POST is an `INSERT … SELECT … WHERE (account_id IS NULL OR EXISTS (SELECT 1 FROM profiles WHERE id = account_id))`. The PATCH is a guarded `UPDATE … WHERE id = ? AND updated_at = ?`, plus the same `EXISTS` when it sets `account_id`. With no FK, that in-batch check is what stops a write landing after the account-deletion batch and keeping a dead `account_id`. A guard that wrote nothing is a 400 on `account_id`. There is no delete route. The account-deletion batch (`routes/account.ts`) nulls `account_id` (`AUTH_AND_RLS.md` §8).
+- **Never public.** Only the admin routes read it, behind `requireAdmin()`. No page renders it, so no cache tag applies.
+- **Retention.** Three years after `closed_at`, the limitation period for a copyright claim (17 U.S.C. 507(b)), kept after account deletion (Privacy Policy "Retention"). Counsel has not been asked (`LEGAL_COUNSEL_RECORD.md`, open items). **Not enforced yet.** The deletion job is AECI-1905, not built. No row can fall due before late 2029. A row with no `closed_at` is kept until it is closed.
+
 ---
 
 ## 9. Analytics and caching tables
@@ -6109,7 +6144,7 @@ cascade (`apps/api/src/test/migration-0123.spec.ts`).
 
 ### 9.17 `acceptance_chain_exports` and `acceptance_chain_rows`
 
-The ledger of the acceptance chain (AECI-1680, ADR 0057, migration `0124_silky_lila_cheney.sql`).
+The ledger of the acceptance chain (AECI-1680, ADR 0057, migration `0125_clammy_the_stranger.sql`).
 Each night the `acceptance-chain` cron (`0 18 * * *`, on `RECONCILE_QUEUE`) writes one JSON file to
 the `UPLOADS` R2 bucket at `evidence/acceptance-chain/<seq, 6 digits>.json`
 (`ANALYTICS.md` §11e). The file holds the SHA-256 fingerprint of every `agreement_acceptances` (§8.6d)
@@ -6170,8 +6205,8 @@ their own `audit_log` rows. These writes carry none (`CODE_REVIEW_EXEMPTIONS.md`
 **Retention: indefinite.** No delete path. The R2 files are under an indefinite bucket lock on
 `evidence/acceptance-chain/` that the operator applies (`docs/environments.md`).
 
-**Migration `0124`** is two plain `CREATE TABLE`s and one `CREATE INDEX`. It recreates nothing and cannot
-cascade (`apps/api/src/test/migration-0124.spec.ts`).
+**Migration `0125`** is two plain `CREATE TABLE`s and one `CREATE INDEX`. It recreates nothing and cannot
+cascade (`apps/api/src/test/migration-0125.spec.ts`).
 
 ---
 

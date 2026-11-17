@@ -2439,6 +2439,82 @@ export const legalVersions = sqliteTable(
 );
 
 /**
+ * The copyright notice log (AECI-1665, counsel Q38, `DATABASE_SCHEMA.md` §8.14,
+ * `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice we
+ * received. The Terms "Copyright complaints" section promises this log exists, and the
+ * repeat-infringer count on `/admin/users/:id` reads it (`lib/dmca-notices.ts`).
+ *
+ * `kind` is `notice` or `counter_notice`. A counter-notice names the notice it answers in
+ * `notice_id`. A notice has none. `action` is `pending`, `removed`, `disabled` or
+ * `no_action`. The restore clock of a counter-notice is computed by the API from
+ * `received_at`, never stored. `closed_at` starts the three-year retention, whose sweep is
+ * the named follow-up AECI-1905.
+ *
+ * No CHECK on `kind`, `action` or `restore_outcome`, the house rule for enum-like text
+ * (`legal_versions.document` above): Zod owns the vocabulary, and a CHECK change on D1 is a
+ * table recreate (`docs/migrations.md` §0). No FK. `account_id` is a `profiles.id` that the
+ * account-deletion batch nulls and the row stays (`AUTH_AND_RLS.md` §8, ruling 1A of
+ * 2026-11-17). `vendor_id`, `notice_id`, `created_by` and `updated_by` are plain ids too.
+ * The one writer is `routes/admin-dmca-notices.ts`: each insert and update carries its
+ * `dmca_notice.*` audit row in the same `db.batch`. Nothing deletes a row yet. Never public.
+ */
+export const dmcaNotices = sqliteTable(
+  'dmca_notices',
+  {
+    id: uuidPk(),
+    /** `DMCA_NOTICE_KINDS`: `notice` | `counter_notice`. No CHECK. */
+    kind: text('kind').notNull(),
+    /** On a counter-notice: the `dmca_notices.id` of the notice it answers. NULL on a notice. */
+    noticeId: text('notice_id'),
+    /** ISO-8601. The restore clock of a counter-notice counts from it. */
+    receivedAt: text('received_at').notNull(),
+    /** NULL when the notice did not give it: every notice is logged on receipt. */
+    submitterName: text('submitter_name'),
+    /** Email, postal address and phone, as given. NULL when the notice did not give it. */
+    submitterContact: text('submitter_contact'),
+    /** URLs or a description of the material. NULL when the notice did not identify it.
+     *  Required when `action` is `removed` or `disabled` (Zod and the route, no CHECK). */
+    contentIdentified: text('content_identified'),
+    /** On a notice: the copyrighted work claimed. */
+    workClaimed: text('work_claimed'),
+    /** A `profiles.id`, NO FK. Nulled by account deletion; the row stays. */
+    accountId: text('account_id'),
+    /** A `vendors.id`, NO FK. Set when the material is a vendor's logo or screenshot. */
+    vendorId: text('vendor_id'),
+    /** `DMCA_ACTIONS`: `pending` | `removed` | `disabled` | `no_action`. No CHECK. */
+    action: text('action').notNull().default('pending'),
+    /** ISO-8601. When the action was taken. */
+    actionAt: text('action_at'),
+    /** ISO-8601. Notice: the uploader was told. Counter-notice: sent on to the complainant. */
+    forwardedAt: text('forwarded_at'),
+    /** ISO-8601. Counter-notice: the complainant reported a court action. */
+    courtActionAt: text('court_action_at'),
+    /** `DMCA_RESTORE_OUTCOMES`: `restored` | `not_restored`. Counter-notice only. No CHECK. */
+    restoreOutcome: text('restore_outcome'),
+    /** ISO-8601. */
+    restoreOutcomeAt: text('restore_outcome_at'),
+    /** ISO-8601. Nothing more will happen. Retention counts three years from it. */
+    closedAt: text('closed_at'),
+    /** Operator notes. Never public. */
+    notes: text('notes'),
+    /** A `profiles.id`, NO FK. */
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    /** A `profiles.id`, NO FK. */
+    updatedBy: text('updated_by').notNull(),
+    /** The race sentinel of the PATCH (`expected_updated_at`). */
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('dmca_notices_account_kind_idx')
+      .on(t.accountId, t.kind)
+      .where(sql`"account_id" IS NOT NULL`),
+    index('dmca_notices_notice_id_idx').on(t.noticeId),
+    index('dmca_notices_received_at_idx').on(t.receivedAt),
+  ],
+);
+
+/**
  * Where each company's change notice stands (AECI-1620, `DATABASE_SCHEMA.md` §8.6j). One row
  * per published version and company, written by `lib/legal-notice.ts`: `queued` just before
  * the company's message is sent to `aeci-legal-notice-{env}`, then `delivered` when the
@@ -6225,6 +6301,7 @@ export const schema = {
   licenseGrants,
   agreementAcceptances,
   legalVersions,
+  dmcaNotices,
   legalNoticeDeliveries,
   vendorSeatInvites,
   workflowInstances,

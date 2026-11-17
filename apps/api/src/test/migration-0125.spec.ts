@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeTestDb, migrationFiles, statementsForMigration } from './d1';
 
 /**
- * AECI-1680: `0124_silky_lila_cheney.sql` adds `acceptance_chain_exports` and
+ * AECI-1680: `0125_clammy_the_stranger.sql` adds `acceptance_chain_exports` and
  * `acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17, ADR 0057). This file is the
  * tripwire on the body.
  *
@@ -12,7 +12,7 @@ import { makeTestDb, migrationFiles, statementsForMigration } from './d1';
  * DELETE fires `ON DELETE CASCADE` into the children (`docs/migrations.md` §0). Neither
  * table has an FK: the ledger must outlive any row it fingerprints.
  */
-const MIGRATION = '0124_silky_lila_cheney.sql';
+const MIGRATION = '0125_clammy_the_stranger.sql';
 const NOW = '2026-11-17T00:00:00.000Z';
 
 describe(`${MIGRATION}: additive: two CREATE TABLEs and one CREATE INDEX`, () => {

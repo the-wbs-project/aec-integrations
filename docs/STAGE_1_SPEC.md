@@ -2267,7 +2267,7 @@ This decision is intentionally deferred — easier to introduce retention later 
 
 ## 27. Legal Document Lifecycle
 
-Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy, and since AECI-1359/1360 the Vendor Terms and the Managed Plan Agreement from `docs/VENDOR_SIGNUP_PROCESS.md` §4) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow. The accessibility statement at `/accessibility` is a public promise too, but it is not versioned. It is built and hidden until AECI-1687 (§27.6).
+Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy, and since AECI-1359/1360 the Vendor Terms and the Managed Plan Agreement from `docs/VENDOR_SIGNUP_PROCESS.md` §4) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow. The accessibility statement at `/accessibility` is a public promise too, but it is not versioned. It is built and hidden until AECI-1687 (§27.6). The copyright notice log the Terms promise is `/admin/dmca` (AECI-1665), and the operator steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice".
 
 ### 27.1 Source of truth
 
