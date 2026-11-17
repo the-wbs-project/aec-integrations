@@ -534,7 +534,7 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 **Unclaimed note** (`<aec-unclaimed-note>`, `shared/unclaimed-note/unclaimed-note.ts`, AECI-1618, ADR 0051): the sentence "Unclaimed · not affiliated with or endorsed by this vendor", word for word as counsel gave it. It is plain muted text in `text-secondary`, 13px. It is never a chip, a badge or a header, and no public label says Claimed.
 
 - **Placement.** An unclaimed vendor, product or pair page keeps its subject's logo, smaller. The 64px header logo gives way to a 32px logo under the `h1`, with the note directly beside it, so a screen reader hears the two together. On the pair page the two subjects are centred, and below `sm` the note sits under the logo instead of beside it, because beside it the sentence would wrap to a sliver. It shows even when the listing has no logo.
-- **Elsewhere.** Lists, cards, rows and search show the initial tile for an unclaimed listing, never the logo and never the note. The API returns `logo_url: null` there, so no client has to decide.
+- **Elsewhere.** Lists, cards, rows and search show the initial tile for an unclaimed listing, never the logo and never the note. The API returns `logo_url: null` there, so no client has to decide. Search records follow the same rule: the index builders null `logo_url` for an unclaimed listing, and the daily `algolia_unclaimed_logo` check reports a record that still carries one (AECI-1867).
 - **Cached pages.** `claim_status` is listing state, not visitor state, so the note is safe on cached SSR routes.
 
 ### Company facts

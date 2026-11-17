@@ -1224,7 +1224,7 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
+Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
 telemetry tripwires —
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
@@ -1267,6 +1267,15 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > is failing, the day's traffic figures, human/bot split, swarm ratios and visitor counts are all
 > unusable: say so in the health report rather than charting across the gap
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
+
+> **`algolia_unclaimed_logo` means search shows a logo counsel's ruling 9 keeps off it** (AECI-1867).
+> Each line names an index and the slug of an unclaimed product or vendor whose record still
+> carries a `logo_url`. The record builders already null the field, so the record is stale: the
+> nightly sync only re-pushes rows whose `updated_at` moved. Do not edit D1 to bump `updated_at`.
+> Reset that entity's watermark (`SEARCH_RANKING.md` §1.2) and let the next 08:00 UTC sync rebuild
+> the records without emptying the index. Check the repair with
+> `scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`. If it recurs after a sweep, a write
+> path changed a claim without stamping `updated_at` on the vendor and its products. Find that writer.
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).

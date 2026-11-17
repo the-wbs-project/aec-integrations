@@ -170,6 +170,7 @@ import {
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest, shouldSendDataQualityDigest } from './lib/data-quality-email';
 import { createReviewMirrorDriftDeps } from './lib/review-mirror-drift-deps';
+import { createUnclaimedLogoReader } from './lib/algolia-unclaimed-logo';
 import {
   parseRecipients,
   recordEmailSend,
@@ -1880,6 +1881,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
       db,
       now: new Date(),
       runDrift,
+      unclaimedLogoReader: createUnclaimedLogoReader(env),
       reviewMirror: createReviewMirrorDriftDeps(env),
     });
   } catch (error) {
