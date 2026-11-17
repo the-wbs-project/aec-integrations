@@ -1204,6 +1204,62 @@ async function sectionClickThen(
 }
 
 /**
+ * AECI-1907: starts a section jump, waits in the page until the glide is in flight
+ * (`scrollY` strictly between 1 and the target), then does `then`: clicks the link
+ * that selector names, presses Enter in the field it names, or goes back two entries. Returns where the glide was when
+ * `then` ran, or `at: -1` when no glide started within three seconds. Waiting on the
+ * glide, not on a fixed gap, makes the race happen on every run.
+ */
+async function glideThen(
+  page: Page,
+  sectionLink: string,
+  then: { click: string } | { enterIn: string } | 'back-two',
+): Promise<{ at: number; goal: number }> {
+  // A request still loading can hold the page's height, and the glide's target with it.
+  await page.waitForLoadState('networkidle');
+  return page.evaluate(
+    ({ sectionLink, then }) =>
+      new Promise<{ at: number; goal: number }>((resolve) => {
+        const link = document.querySelector<HTMLAnchorElement>(sectionLink)!;
+        const target = document.getElementById(decodeURIComponent(link.hash.slice(1)))!;
+        const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const goal = Math.round(
+          Math.min(max, target.getBoundingClientRect().top + window.scrollY - margin),
+        );
+        const act = () => {
+          if (then === 'back-two') history.go(-2);
+          else if ('click' in then) document.querySelector<HTMLAnchorElement>(then.click)!.click();
+          else
+            document
+              .querySelector(then.enterIn)!
+              .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        };
+        const started = performance.now();
+        const wait = () => {
+          const y = window.scrollY;
+          if (y > 1 && y < goal - 1) {
+            act();
+            resolve({ at: Math.round(y), goal });
+          } else if (performance.now() - started > 3000) {
+            resolve({ at: -1 - Math.round(y), goal });
+          } else {
+            requestAnimationFrame(wait);
+          }
+        };
+        // Two frames first, so the test's own instant scroll to the top has landed.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            link.click();
+            requestAnimationFrame(wait);
+          }),
+        );
+      }),
+    { sectionLink, then },
+  );
+}
+
+/**
  * Waits in the page until `scrollY` holds still for five frames, and returns it.
  * Counting frames in the page, not polling from the test, keeps it independent
  * of how slow the round trip is under parallel load.
@@ -1433,6 +1489,9 @@ test.describe('the docs "On this page" rail', () => {
 //   `RouterScroller` itself, so the second test passes with or without the
 //   guard. It pins the outcome, not the guard.
 test.describe('a router scroll during a smooth in-page jump stays instant', () => {
+  // AECI-1907: the click lands while the glide is in flight, on every run. Before the
+  // fix the glide ran on into /products and the page ended partway down (seen: 24,
+  // 39, 153) or the reset itself glided to the top.
   test('a route change clicked mid-jump opens the new page at the top', async ({ page }) => {
     await openProductWithIntegrationsJump(page);
     await untilHydrated(page.locator('aec-section-nav'));
@@ -1441,7 +1500,10 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
 
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await startScrollSampler(page);
-    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'click-products');
+    const { at, goal } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', {
+      click: 'header a[href="/products"]',
+    });
+    expect(at, `the click must land mid-glide (target ${goal})`).toBeGreaterThan(1);
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await scrollSettled(page)).toBe(0);
 
@@ -1449,6 +1511,87 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
     expect(before.length, `the reset must not glide, saw ${before.join(', ')}`).toBeLessThanOrEqual(
       2,
     );
+  });
+
+  test('a second section link clicked mid-glide lands on the second section', async ({ page }) => {
+    await openProductWithIntegrationsJump(page);
+    const nav = page.locator('aec-section-nav');
+    await untilHydrated(nav);
+    test.skip(
+      (await nav.locator('a[href$="#reviews"]').count()) === 0,
+      'no Reviews link in this section nav',
+    );
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await markDocument(page);
+
+    const { at, goal } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', {
+      click: 'aec-section-nav a[href$="#reviews"]',
+    });
+    expect(at, `the second click must land mid-glide (target ${goal})`).toBeGreaterThan(1);
+    await expect(page).toHaveURL(/#reviews$/);
+    await scrollSettled(page);
+    expect(await documentMarked(page), 'a section jump stays in the document').toBe(true);
+    await expect(page.locator('#reviews-title')).toBeInViewport();
+    const gap = await page.evaluate(
+      () =>
+        document.getElementById('reviews-title')!.getBoundingClientRect().top -
+        document.querySelector('aec-section-nav')!.getBoundingClientRect().bottom,
+    );
+    expect(gap, 'the second section lands below the bar').toBeGreaterThanOrEqual(0);
+  });
+
+  test('under reduced motion a route change right after a section click opens at the top', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openProductWithIntegrationsJump(page);
+    await untilHydrated(page.locator('aec-section-nav'));
+    await untilHydrated(page.locator('header a[href="/products"]').first());
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await startScrollSampler(page);
+    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'click-products');
+    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
+    expect(await scrollSettled(page)).toBe(0);
+    const before = await offsetsBeforeRestingOn(page, '/products');
+    expect(before.length, `the reset must not glide, saw ${before.join(', ')}`).toBeLessThanOrEqual(
+      2,
+    );
+  });
+
+  // The docs search routes with `router.navigate([path], { fragment })`, a client
+  // navigation to another page with a fragment. Enter in the field picks the first hit.
+  test('a route to another page with a fragment, taken mid-glide, lands on that fragment', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/docs/vendors/plans');
+    await waitForHydrationSettle(page);
+    await untilHydrated(page.locator('app-docs-toc').first());
+    const search = page.locator('aec-docs-search input[type="search"]').first();
+    test.skip((await search.count()) === 0, 'docs search is not available in this environment');
+    await search.fill('paying by card');
+    await expect(page.getByRole('option').first()).toContainText('Paying by card');
+    const railHref = (await page
+      .getByRole('navigation', { name: 'On this page' })
+      .getByRole('link')
+      .last()
+      .getAttribute('href'))!;
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await markDocument(page);
+
+    const { at, goal } = await glideThen(page, `a[href="${railHref}"][data-smooth-scroll]`, {
+      enterIn: 'aec-docs-search input[type="search"]',
+    });
+    expect(at, `Enter must land mid-glide (target ${goal})`).toBeGreaterThan(1);
+    await expect(page).toHaveURL(/\/docs\/vendors\/billing#paying-by-card$/, { timeout: 15_000 });
+    expect(await documentMarked(page), 'the search must route in the same document').toBe(true);
+    await scrollSettled(page);
+    const top = await page.evaluate(() =>
+      Math.round(document.getElementById('paying-by-card')!.getBoundingClientRect().top),
+    );
+    expect(top, 'the heading sits at its scroll margin').toBeGreaterThanOrEqual(0);
+    expect(top).toBeLessThan(48);
   });
 
   test('Back pressed mid-jump restores the previous page without a glide', async ({ page }) => {
@@ -1476,7 +1619,9 @@ test.describe('a router scroll during a smooth in-page jump stays instant', () =
     await untilHydrated(page.locator('aec-section-nav'));
 
     await startScrollSampler(page);
-    await sectionClickThen(page, 'aec-section-nav a[href$="#integrations"]', 'back-two');
+    // AECI-1907: Back is pressed while the glide is in flight, on every run.
+    const { at } = await glideThen(page, 'aec-section-nav a[href$="#integrations"]', 'back-two');
+    expect(at, 'Back must land mid-glide').toBeGreaterThan(1);
     await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
     expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(0);
