@@ -14,17 +14,23 @@
 --     review in review-response-fixtures.sql, so they sort last on the product
 --     page and never push that file's replies off the first page.
 --   * …1110 belongs to the e2e test admin (519f…, auth-fixtures.sql) when that
---     profile exists, and is anonymous otherwise, so this file also runs on its
---     own. It carries a REJECTED update and an APPROVED update that re-rates it
---     2/2 → 4/4. That review therefore averages at 4/4, not 2/2.
---   * …1111 is anonymous and carries one PENDING update (…1162) that re-rates it.
+--     profile exists. Otherwise it has no reviewer and is stamped
+--     `anonymized_at`, so this file also runs on its own. It carries a REJECTED
+--     update and an APPROVED update that re-rates it 2/2 → 4/4. That review
+--     therefore averages at 4/4, not 2/2.
+--   * …1111 has no reviewer and carries one PENDING update (…1162) that re-rates it.
 --     No test decides it: product-reviews.spec.ts asserts it never reaches the
 --     public read. A pending update counts nowhere.
---   * …1112 is anonymous and carries one PENDING update (…1163) that
+--   * …1112 has no reviewer and carries one PENDING update (…1163) that
 --     admin-review-updates.spec.ts APPROVES. It is a separate review because a
 --     review holds at most one pending update (review_updates_one_pending_key),
 --     and because the admin test must not decide the update the public test
 --     checks stays hidden. Playwright runs the admin spec first.
+--   * A review with no reviewer is stamped `anonymized_at` 2026-10-20, as if its
+--     author deleted the account after writing the update. `DELETE /api/account`
+--     sets the pair in one statement, and the daily `reviews_missing_anonymized_at`
+--     check (error severity) flags a NULL pair (AECI-1920). Nothing public reads
+--     the column, so pages, counts and ratings are unchanged.
 --   * Dynamo's counts and averages are recomputed at the end with the effective
 --     rating rule (`effectiveReviewRatingSql` in @aeci/shared/seed-reviews).
 --
@@ -37,14 +43,16 @@
 -- =============================================================================
 
 INSERT OR IGNORE INTO "reviews"
-  ("id","product_id","reviewer_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at") VALUES
+  ("id","product_id","reviewer_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at","anonymized_at") VALUES
   ('d0000000-0000-4000-8000-000000001110','c0000000-0000-4000-8000-000000000710',
     (SELECT "id" FROM "profiles" WHERE "id" = '519f1e77-6e60-440e-81a9-3354d06be0b6'),
-    2,2,'Graphs broke on every Revit upgrade','Each Revit release broke half our graphs, and the fixes took our BIM team most of a week every time.','manager',3,'maybe','approved','2026-08-20T10:00:00.000Z','2026-08-20T09:00:00.000Z','2026-08-20T10:00:00.000Z'),
+    2,2,'Graphs broke on every Revit upgrade','Each Revit release broke half our graphs, and the fixes took our BIM team most of a week every time.','manager',3,'maybe','approved','2026-08-20T10:00:00.000Z','2026-08-20T09:00:00.000Z','2026-08-20T10:00:00.000Z',
+    CASE WHEN (SELECT "id" FROM "profiles" WHERE "id" = '519f1e77-6e60-440e-81a9-3354d06be0b6') IS NULL
+      THEN '2026-10-20T00:00:00.000Z' END),
   ('d0000000-0000-4000-8000-000000001111','c0000000-0000-4000-8000-000000000710',NULL,
-    3,3,'Fine for small scripts','Good for small automation. Bigger graphs get slow and hard to read, so we keep them short.','practitioner',1,'maybe','approved','2026-08-21T10:00:00.000Z','2026-08-21T09:00:00.000Z','2026-08-21T10:00:00.000Z'),
+    3,3,'Fine for small scripts','Good for small automation. Bigger graphs get slow and hard to read, so we keep them short.','practitioner',1,'maybe','approved','2026-08-21T10:00:00.000Z','2026-08-21T09:00:00.000Z','2026-08-21T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
   ('d0000000-0000-4000-8000-000000001112','c0000000-0000-4000-8000-000000000710',NULL,
-    3,2,'Package conflicts slow us down','Two packages we rely on fight over the same library, so some graphs only run on half our machines.','IT',2,'maybe','approved','2026-08-22T10:00:00.000Z','2026-08-22T09:00:00.000Z','2026-08-22T10:00:00.000Z');
+    3,2,'Package conflicts slow us down','Two packages we rely on fight over the same library, so some graphs only run on half our machines.','IT',2,'maybe','approved','2026-08-22T10:00:00.000Z','2026-08-22T09:00:00.000Z','2026-08-22T10:00:00.000Z','2026-10-20T00:00:00.000Z');
 
 INSERT OR IGNORE INTO "review_updates"
   ("id","review_id","body","rating_overall","rating_onboarding","status","rejection_reason","moderated_by","moderated_at","published_at","toxicity_score","created_at","updated_at") VALUES
@@ -64,6 +72,12 @@ Our graphs came through the last two Revit releases with no rework.',4,4,'approv
   ('d0000000-0000-4000-8000-000000001163','d0000000-0000-4000-8000-000000001112',
     'The package manager now pins versions, and the conflicts are gone.',4,3,'pending',NULL,NULL,NULL,NULL,NULL,
     '2026-10-02T09:00:00.000Z','2026-10-02T09:00:00.000Z');
+
+-- AECI-1920: a local DB seeded before the stamp keeps its rows (INSERT OR IGNORE),
+-- so stamp them here too. Only these fixture ids, and only while still unstamped.
+UPDATE "reviews" SET "anonymized_at" = '2026-10-20T00:00:00.000Z'
+WHERE "id" IN ('d0000000-0000-4000-8000-000000001110','d0000000-0000-4000-8000-000000001111','d0000000-0000-4000-8000-000000001112')
+  AND "reviewer_id" IS NULL AND "anonymized_at" IS NULL;
 
 -- Reset …1162 and …1163 to pending on every seed run, so the admin e2e that decides …1163 can run again.
 UPDATE "review_updates" SET
