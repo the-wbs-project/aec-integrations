@@ -13,6 +13,11 @@ onlyBuiltDependencies:
 # the v4.13.16 security fixes (mount prefix, RegExpRouter wildcard middleware,
 # validator('form'), css, csrf). Flue 2.2+ declares ^4.12.32; drop this
 # override when apps/agent moves to it.
+#
+# posthog-js@1.393.0 (apps/web) declares dompurify ^3.3.2,
+# and the lockfile held 3.4.11, which misses the fixes for GHSA-cg2g-xh64-v4q7
+# and GHSA-mrv2-3pqr-j5jr (AECI-1932). Drop this override once posthog-js
+# declares dompurify ^3.4.17 or higher.
 overrides:
   '@flue/runtime>hono': 4.13.16
   # AECI-1854: @angular/build and @angular/ssr 22.2.x pin beasties to exactly
@@ -22,6 +27,7 @@ overrides:
   # no colour, font, radius or shadow token. 0.5.5 fixes it
   # (rule.nodes === undefined guard). Drop this when Angular pins >= 0.5.5.
   beasties: 0.5.5
+  'posthog-js>dompurify': ^3.4.17
 # AECI-1854: beasties 0.5.5 still drops any rule whose selector is wholly
 # `:where(...)` or `:is(...)`. Its normaliser strips pseudo-classes and the
 # selector becomes empty. Tailwind v4 writes space-*, divide-* and similar that

@@ -188,10 +188,22 @@
                 // utilities generated from the band and demo templates.
                 // The `aec-hero-band` and `aec-bone-band` components are lazy
                 // (no initial route uses them yet) and add no initial bytes.
+                //
+                // AECI-1932 (2026-11-18): raised 1.08MB -> 1.20MB, ruled by Chris.
+                // zod 4.4.3 -> 4.6.x patches GHSA-mrhx-c7xc-m3w5 (memory
+                // exhaustion in the API Worker's request validation). zod 4.6
+                // changed its package.json `sideEffects` from `false` to
+                // `["./compile.js"]`, so esbuild can no longer drop unused zod
+                // modules, and the eager zod chunk grows ~310 kB -> ~428 kB.
+                // Measured: base 1.07MB, base + zod 4.6 alone 1.19MB (109 kB over
+                // the old line). No app code entered the initial set; the growth
+                // is all zod. Recovering it (pinning `sideEffects` back, or a
+                // narrower zod import) is follow-up work; lower this line when
+                // that lands.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.11MB"
+                  "maximumError": "1.20MB"
                 },
                 {
                   "type": "anyComponentStyle",

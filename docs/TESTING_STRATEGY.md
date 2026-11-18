@@ -29,7 +29,7 @@ Two guards, and they are different in kind:
 | Guard | What it is | When it runs |
 |---|---|---|
 | `apps/web/e2e/ssr-listing-crawlability.spec.ts` | Playwright, using the **`request`** fixture (raw HTTP, no JavaScript) to assert product links exist in the server HTML | every e2e run |
-| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages. Exit **1** on any dead end, including a non-200; exit **2** if a page never answered; exit **0** only when all five were seen and all five shipped links | manually, against a deployed env |
+| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages. Exit **1** on any dead end, including a non-200; exit **2** if a page never answered; exit **0** only when all five were seen and all five shipped links. Sends the Access service token when `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` are set, and fails a page that redirects off-host. Fixture-tested by `scripts/check-ssr-listings.test.mjs` (`pnpm test:scripts`) | every promote, against the host just deployed: the blocking post-smoke step in `promote-to-demo.yml` and `promote-to-prod.yml` (AECI-840). Also by hand, against any deployed env |
 
 **The e2e spec must keep using `request`, never `page`.** Rewriting it onto the
 `page` fixture would make it pass unconditionally and test nothing.

@@ -18,7 +18,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { THREAD_ACK_TEXT_VERSION } from '@aeci/shared';
+import { THREAD_ACK_MATERIAL_SINCE, THREAD_ACK_TEXT_VERSION } from '@aeci/shared';
 import type {
   ThreadCompany,
   VendorThread,
@@ -412,9 +412,12 @@ describe('counsel gates (AECI-1616, §15.17)', () => {
 
   // Legal read, 2026-11-06: the acknowledgment row records only the version, so the
   // words of each version are pinned here. Git history plus this test reconstruct what
-  // a company saw. Change the words only with a new THREAD_ACK_TEXT_VERSION.
+  // a company saw. Change the words only with a new THREAD_ACK_TEXT_VERSION, and add a
+  // pin for the new version's words. A material bump also moves
+  // THREAD_ACK_MATERIAL_SINCE, which asks every company again (AECI-1641).
   it('pins the exact words of acknowledgment version "1"', async () => {
     expect(THREAD_ACK_TEXT_VERSION).toBe('1');
+    expect(THREAD_ACK_MATERIAL_SINCE).toBe('1');
     const { fixture } = await mount(makeApi(null, PROCORE, false));
     const words = el(fixture)
       .querySelector(testid('thread-ack'))

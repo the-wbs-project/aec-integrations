@@ -52,6 +52,19 @@ import {
   type SendThreadHelpAlert,
 } from './vendor-threads';
 
+// AECI-1641: the non-material bump spec moves the material version below the
+// current one. Every other spec reads the real constant.
+const ackPolicy = vi.hoisted(() => ({ materialSince: undefined as string | undefined }));
+vi.mock('@aeci/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@aeci/shared')>();
+  return {
+    ...actual,
+    get THREAD_ACK_MATERIAL_SINCE() {
+      return ackPolicy.materialSince ?? actual.THREAD_ACK_MATERIAL_SINCE;
+    },
+  };
+});
+
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 // A owns the SOURCE product, B the TARGET. BOTH owns both ends of its own pair.
@@ -1017,6 +1030,67 @@ describe('first-use acknowledgment (AECI-1616, counsel Q9, §15.17)', () => {
       acknowledgedAt: '2026-11-01T00:00:00.000Z',
     });
     expect((await postUnacknowledged(AUTH_A)).status).toBe(409);
+  });
+
+  // AECI-1641: '0' stands for a version older than THREAD_ACK_MATERIAL_SINCE.
+  const seedOldAck = () =>
+    t.db.insert(claimThreadAcknowledgments).values({
+      id: uuid(61),
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_B,
+      profileId: SEAT_A,
+      textVersion: '0',
+      acknowledgedAt: '2026-11-01T00:00:00.000Z',
+    });
+
+  describe('a material version bump (AECI-1641)', () => {
+    it('asks a company that acknowledged an older version again', async () => {
+      await seedOldAck();
+      expect((await call('GET', threadUrl(C_MAIN), AUTH_A)).body.acknowledged).toBe(false);
+      const res = await postUnacknowledged(AUTH_A);
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('THREAD_ACK_REQUIRED');
+      expect(await t.db.select().from(claimThreadMessages)).toEqual([]);
+    });
+
+    it('records a new row beside the old one, and the version it supersedes', async () => {
+      await seedOldAck();
+      expect((await post(AUTH_A)).status).toBe(201);
+      const rows = await acks();
+      expect(rows.map((r) => r.textVersion).sort()).toEqual(['0', THREAD_ACK_TEXT_VERSION]);
+      const fresh = rows.find((r) => r.textVersion === THREAD_ACK_TEXT_VERSION)!;
+      const audits = (await auditRows()).filter((r) => r.action === 'thread.acknowledged');
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({ entityId: fresh.id });
+      expect(audits[0]!.afterState).toEqual({
+        vendorId: VENDOR_A,
+        integrationId: I_MAIN,
+        otherVendorId: VENDOR_B,
+        textVersion: THREAD_ACK_TEXT_VERSION,
+        supersedesVersion: '0',
+      });
+      expect((await call('GET', threadUrl(C_MAIN), AUTH_A)).body.acknowledged).toBe(true);
+      expect((await postUnacknowledged(AUTH_A)).status).toBe(201);
+      expect(await acks()).toHaveLength(2);
+    });
+  });
+
+  describe('a non-material version bump (AECI-1641)', () => {
+    beforeEach(() => {
+      ackPolicy.materialSince = '0';
+    });
+    afterEach(() => {
+      ackPolicy.materialSince = undefined;
+    });
+
+    it('does not ask again, and writes no new acknowledgment', async () => {
+      await seedOldAck();
+      expect((await call('GET', threadUrl(C_MAIN), AUTH_A)).body.acknowledged).toBe(true);
+      expect((await postUnacknowledged(AUTH_A)).status).toBe(201);
+      expect(await acks()).toHaveLength(1);
+      expect((await auditRows()).filter((r) => r.action === 'thread.acknowledged')).toEqual([]);
+    });
   });
 
   it('reports acknowledged on the claim read, before and after', async () => {
