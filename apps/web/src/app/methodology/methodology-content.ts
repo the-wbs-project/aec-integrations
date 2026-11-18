@@ -28,7 +28,9 @@
 import { marked } from 'marked';
 
 import methodologyMd from '../../content/methodology.md';
+import { type DocsBlock, type DocsHeading, renderDocsBody } from '../docs/docs-markdown';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
+import { PROSE_PAGE_RESERVED_IDS } from '../legal/legal-render';
 
 /** Frontmatter fields surfaced in the page header. */
 export interface MethodologyFrontmatter {
@@ -42,6 +44,10 @@ export interface MethodologyFrontmatter {
 export interface MethodologyDoc {
   readonly frontmatter: MethodologyFrontmatter;
   readonly html: string;
+  /** The body cut at each `h2` and `h3`, so the page binds heading ids (AECI-1720). */
+  readonly blocks: readonly DocsBlock[];
+  /** Every `h2`, in order: the "On this page" list reads it. */
+  readonly headings: readonly DocsHeading[];
 }
 
 function buildDoc(source: string): MethodologyDoc {
@@ -51,12 +57,15 @@ function buildDoc(source: string): MethodologyDoc {
   // registry: the agreement-state table is a GFM table, and without the flag it
   // renders as literal pipe characters.
   const html = marked.parse(body, { async: false, gfm: true });
+  const blocks = renderDocsBody(body, PROSE_PAGE_RESERVED_IDS);
   return {
     frontmatter: {
       title: data['title'] ?? '',
       lastUpdated: data['last_updated'] ?? '',
     },
     html,
+    blocks: blocks.blocks,
+    headings: blocks.h2s,
   };
 }
 

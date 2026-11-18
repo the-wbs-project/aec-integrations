@@ -38,8 +38,11 @@
  * Layout mirrors `/about` (AECI-1800): the hero on `aec-bone-band`, the page's
  * one Bone band, with the h1 at the Headline role (the global h1 size). The body
  * is a white band on the 1328px page wrap (`BAND_WRAP_CLASS`), the article capped
- * at 70ch. The prose styles are the shared `.aec-prose`, which AECI-1804 owns for
- * `/legal/*` too, so this page does not restyle them. Light theme only (Stage 1).
+ * at 70ch. From `lg` the "On this page" list (`aec-page-toc`) fills the column
+ * beside it, so the page has no empty right half (AECI-1720 layout pass); the
+ * headings carry ids for it (`aec-prose-blocks`). The prose styles are the
+ * shared `.aec-prose`, which AECI-1804 owns for `/legal/*` too, so this page does
+ * not restyle them. Light theme only (Stage 1).
  */
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
@@ -47,12 +50,15 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { BoneBand } from '../shared/bone-band/bone-band';
+import { AecPageToc } from '../shared/page-toc/page-toc';
+import { PROSE_PAGE_GRID_CLASS, PROSE_PAGE_TOC_CLASS } from '../shared/page-toc/page-toc';
+import { AecProseBlocks } from '../shared/prose-blocks/prose-blocks';
 import { METHODOLOGY_DOC, type MethodologyDoc } from './methodology-content';
 
 @Component({
   selector: 'app-methodology',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BoneBand],
+  imports: [AecPageToc, AecProseBlocks, BoneBand],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Hero: the page's one Bone band, as on /about. -->
@@ -75,10 +81,16 @@ import { METHODOLOGY_DOC, type MethodologyDoc } from './methodology-content';
 
       <!-- Body: rendered Markdown (sanitized by Angular; no bypassSecurityTrust).
            Styled globally via .aec-prose, shared with /legal/*. White band on
-           the page wrap; the article keeps its 70ch measure. -->
+           the page wrap; the article keeps its 70ch measure, and from lg the
+           "On this page" list fills the column beside it. -->
       <div class="py-16 md:py-24">
-        <div [class]="wrap">
-          <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
+        <div [class]="body">
+          <article
+            aec-prose-blocks
+            class="aec-prose max-w-[70ch] min-w-0"
+            [blocks]="doc.blocks"
+          ></article>
+          <aec-page-toc [class]="toc" [headings]="doc.headings" />
         </div>
       </div>
     </div>
@@ -89,8 +101,12 @@ export class MethodologyPage {
 
   protected readonly doc: MethodologyDoc = METHODOLOGY_DOC;
 
-  /** The 1328px page wrap the header, footer and bands share. */
-  protected readonly wrap = BAND_WRAP_CLASS;
+  /**
+   * The body on the 1328px page wrap the header, footer and bands share: the
+   * article, then the "On this page" column from `lg`.
+   */
+  protected readonly body = `${BAND_WRAP_CLASS} ${PROSE_PAGE_GRID_CLASS}`;
+  protected readonly toc = PROSE_PAGE_TOC_CLASS;
 
   constructor() {
     this.meta.setStaticPageMeta({

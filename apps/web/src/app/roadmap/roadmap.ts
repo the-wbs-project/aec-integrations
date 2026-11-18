@@ -25,8 +25,9 @@
  * **Layout (AECI-1801, the `/about` recipe of AECI-1800).** Three bands on the
  * 1328px page wrap (`BAND_WRAP_CLASS`): the hero on `aec-bone-band`, the page's
  * one Bone band, with the h1 at the Headline role (the global h1 size); a white
- * band whose one section puts its heading left and its prose right from `lg`
- * (the 5:7 split); and the signup on its white ground (`ground="white"`), so the
+ * band whose one section is its heading over its prose at the 70ch measure (the
+ * 5:7 split left a short heading about 200px from its text, so the AECI-1720
+ * layout pass stacked them); and the signup on its white ground (`ground="white"`), so the
  * page no longer carries a second Bone band. The words and their order are
  * unchanged.
  */
@@ -61,10 +62,12 @@ import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-si
         </div>
       </aec-bone-band>
 
-      <!-- 2. White: one short section, heading left and prose right from lg. -->
+      <!-- 2. White: one short section. The heading sits over its two lines, so they
+           read as one block (AECI-1720 layout pass): a 5:7 split put the short
+           heading about 200px from its text. -->
       <div class="py-16 md:py-24">
         <div [class]="wrap">
-          <section [class]="row">
+          <section [class]="block">
             <h2 class="text-(--text-primary)">
               <span [class]="sectionTitle" i18n="@@app.roadmap.meantime.heading"
                 >In the meantime</span
@@ -93,8 +96,11 @@ export class RoadmapPage {
   /** The 1328px page wrap the header, footer and bands share. */
   protected readonly wrap = BAND_WRAP_CLASS;
 
-  /** One section row: heading left and content right from `lg` (5:7, as `/about`). */
-  protected readonly row = 'grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16';
+  /**
+   * The one section: the heading over its prose, both at the 70ch measure. Two
+   * lines of prose are too short for `/about`'s heading-left split.
+   */
+  protected readonly block = 'grid max-w-[70ch] gap-6';
 
   /** The Section role on an inner span, so the unlayered h2 rule cannot beat it. */
   protected readonly sectionTitle = 'block text-t-36 leading-[1.1] tracking-[-0.02em]';

@@ -98,6 +98,9 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
             novalidate
             (submit)="onSubmit($event)"
           >
+            <!-- The input keeps a 14rem basis, so on a narrow card the button wraps
+                 under it instead of squeezing it to a few characters (AECI-1720
+                 layout pass: it was 65px wide at 320px). -->
             <div class="flex flex-wrap gap-3">
               <label
                 class="sr-only"
@@ -115,7 +118,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                 placeholder="you@yourfirm.com"
                 [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                 [attr.aria-describedby]="emailErrorShown() ? 'mailing-list-email-error' : null"
-                class="aec-field-control min-w-0 flex-1 rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-field-control min-w-0 flex-[1_1_14rem] rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
               <button
                 aecButton

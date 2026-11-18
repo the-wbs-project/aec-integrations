@@ -61,13 +61,18 @@ describe('RoadmapPage', () => {
     expect(signup.classList).toContain('bg-(--surface-base)');
   });
 
-  it('puts the section heading at the Section role on an inner span, in a 5:7 row', () => {
+  it('puts the section heading at the Section role on an inner span, over its prose', () => {
     const { host } = setup();
     const h2 = [...host.querySelectorAll('h2')].find((h) =>
       h.textContent?.includes('In the meantime'),
     )!;
     expect(h2.querySelector('span')!.className).toContain('text-t-36');
-    expect(h2.parentElement!.className).toContain('lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]');
+    // One block (AECI-1720 layout pass): the heading sits over its text, never in a
+    // split that leaves the short heading far from its two lines.
+    const section = h2.parentElement!;
+    expect(section.className).not.toContain('lg:grid-cols');
+    expect(section.className).toContain('max-w-[70ch]');
+    expect(h2.nextElementSibling?.tagName).toBe('P');
   });
 
   it('is noindex — a placeholder must not compete in the index', () => {

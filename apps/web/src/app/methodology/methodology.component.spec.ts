@@ -73,6 +73,19 @@ describe('MethodologyPage', () => {
     expect(host.querySelector('h1')?.className).not.toMatch(/text-\d?xl/);
   });
 
+  // AECI-1720 layout pass: the "On this page" list beside the 70ch article.
+  it('lists the page headings beside the article, linked to their ids', () => {
+    const { host } = setup();
+    const article = host.querySelector('article.aec-prose')!;
+    const h2s = Array.from(article.querySelectorAll('h2'));
+    const toc = host.querySelector('aec-page-toc')!;
+    expect(toc.parentElement).toBe(article.parentElement);
+    const links = Array.from(toc.querySelectorAll('nav a'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(h2s.map((h) => h.textContent?.trim()));
+    expect(links[0]?.getAttribute('href')).toMatch(/^\/.*#what-we-list-and-why$/);
+    expect(article.querySelector('#what-we-list-and-why')?.tagName).toBe('H2');
+  });
+
   it('describes all four agreement states using the labels the badge actually renders', () => {
     const { host } = setup();
     const text = host.textContent ?? '';

@@ -129,12 +129,20 @@ function widgetOf(token: Token): DocsWidget | undefined {
 const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Renders a Markdown body (frontmatter already removed) into blocks. */
-export function renderDocsBody(body: string): DocsBody {
+/**
+ * Renders a Markdown body (frontmatter already removed) into blocks. `reservedIds`
+ * are the ids the page already carries outside the body; a heading slug never
+ * takes one. The `/legal/*` and `/methodology` pages pass their own list
+ * (AECI-1720 layout pass), so their headings get ids too.
+ */
+export function renderDocsBody(
+  body: string,
+  reservedIds: readonly string[] = DOCS_RESERVED_IDS,
+): DocsBody {
   const tokens = marked.lexer(body, { gfm: true });
   const links: string[] = [];
   collectLinks(tokens, links);
-  const used = new Set(DOCS_RESERVED_IDS);
+  const used = new Set(reservedIds);
   const blocks: DocsBlock[] = [];
   const h2s: DocsHeading[] = [];
   let heading: DocsBlock['heading'];

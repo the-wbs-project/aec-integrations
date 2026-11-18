@@ -24,6 +24,7 @@ import { AecCard, cardClass, type AecCardStripe, type AecCardTone } from './card
       >Link</a
     >
     <div aecCard nested data-testid="nested">Nested</div>
+    <form method="dialog" aecCard phoneFlush class="p-6 sm:p-8" data-testid="form">Form</form>
   `,
 })
 class Host {
@@ -115,6 +116,25 @@ describe('aecCard (AECI-1765)', () => {
     fixture.componentInstance.stripe.set('clay');
     fixture.detectChanges();
     expect(el('link').classList.contains('aec-card-stripe-clay')).toBe(true);
+  });
+
+  // AECI-1720 layout pass: a form card spends no input width on a phone. Below sm
+  // it loses its frame and pulls out over the 24px gutter its own p-6 replaces.
+  it('a form card drops its frame below sm and spans the page gutter', () => {
+    const c = el('form').classList;
+    for (const name of [
+      'max-sm:-mx-6',
+      'max-sm:rounded-none',
+      'max-sm:border-0',
+      'max-sm:shadow-none',
+    ])
+      expect(c.contains(name), name).toBe(true);
+    // From sm it is the normal card.
+    for (const name of ['aec-card', 'rounded-card', 'shadow-card', 'p-6', 'sm:p-8'])
+      expect(c.contains(name), name).toBe(true);
+    // Only a form card pulls out: a plain card keeps its frame on a phone.
+    expect(el('plain').className).not.toContain('max-sm:');
+    expect(cardClass({ phoneFlush: true })).toContain('max-sm:-mx-6');
   });
 
   it('cardClass is what the directive renders', () => {

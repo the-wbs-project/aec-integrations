@@ -22,6 +22,8 @@ export interface AecCardOptions {
   /** A card inside another card: tint, 16px radius, no shadow. */
   readonly nested?: boolean;
   readonly stripe?: AecCardStripe | null;
+  /** A form card: below `sm` the frame drops and the card spans the page gutter. */
+  readonly phoneFlush?: boolean;
 }
 
 /**
@@ -73,12 +75,29 @@ const CARD_STRIPE: Record<AecCardStripe, string> = {
   clay: 'aec-card-stripe aec-card-stripe-clay',
 };
 
+/**
+ * THE FORM CARD ON A PHONE (AECI-1720 layout pass). A card that holds a form
+ * costs its fields the card's padding inside the page gutter: 48px of input
+ * width at 390px, against a form with no card. So below `sm` a form card drops
+ * its frame (no radius, no edge, no shadow) and pulls out over the page gutter
+ * with a negative margin. Its own 24px padding then sits where the gutter was,
+ * and the fields are as wide as they were before the card existed. From `sm`
+ * the card is the normal card.
+ *
+ * The pull is 24px, so the card must sit in a 24px gutter below `sm`: the 7xl
+ * form canvas (`px-6`), the page wrap (`BAND_WRAP_CLASS`) and the sign-in
+ * column all have one. The caller's padding below `sm` must be 24px (`p-6`),
+ * so the text lines up with the page edge above and below it.
+ */
+const CARD_PHONE_FLUSH = 'max-sm:-mx-6 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none';
+
 /** The class recipe behind `aecCard`. Use the directive in templates. */
 export function cardClass(options: AecCardOptions = {}): string {
   const surface = options.nested ? CARD_NESTED : CARD_TONE[options.tone ?? 'base'];
   const parts = [CARD_BASE, surface];
   if (options.interactive) parts.push(CARD_INTERACTIVE);
   if (options.stripe) parts.push(CARD_STRIPE[options.stripe]);
+  if (options.phoneFlush) parts.push(CARD_PHONE_FLUSH);
   return parts.join(' ');
 }
 
@@ -108,6 +127,8 @@ export class AecCard {
   readonly interactive = input(false, { transform: booleanAttribute });
   readonly nested = input(false, { transform: booleanAttribute });
   readonly stripe = input<AecCardStripe | null>(null);
+  /** A form card: frameless and gutter-wide below `sm` (see THE FORM CARD ON A PHONE). */
+  readonly phoneFlush = input(false, { transform: booleanAttribute });
 
   protected readonly classes = computed(() =>
     cardClass({
@@ -115,6 +136,7 @@ export class AecCard {
       interactive: this.interactive(),
       nested: this.nested(),
       stripe: this.stripe(),
+      phoneFlush: this.phoneFlush(),
     }),
   );
 }

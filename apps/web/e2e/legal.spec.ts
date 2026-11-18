@@ -261,3 +261,35 @@ test.describe('the current Vendor Terms at their own address (AECI-1610)', () =>
     await expect(page.getByTestId('legal-fixed-current')).toHaveCount(0);
   });
 });
+
+// AECI-1720 layout pass: from lg an "On this page" list of the page's own h2s fills
+// the column beside the 42rem article. The article keeps its measure, and a link
+// jumps in place to the heading's id.
+test.describe('/legal "On this page" (AECI-1720)', () => {
+  test('lists the h2s beside the article and jumps in place', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/legal/terms');
+    const article = page.locator('article.aec-prose');
+    const toc = page.locator('aec-page-toc nav');
+    await expect(toc).toBeVisible();
+    const h2s = await article.locator('h2').allTextContents();
+    await expect(toc.getByRole('link')).toHaveText(h2s.map((t) => t.trim()));
+    const a = (await article.boundingBox())!;
+    const t = (await toc.boundingBox())!;
+    expect(a.width).toBeLessThanOrEqual(42 * 16 + 1);
+    expect(t.x).toBeGreaterThan(a.x + a.width);
+    // The host owns the click listener (highlight only); wait for it to hydrate.
+    await untilHydrated(page.locator('aec-page-toc'));
+    const link = toc.getByRole('link', { name: 'Disputes' });
+    await expect(link).toHaveAttribute('href', '/legal/terms#disputes');
+    await link.click();
+    await expect(page).toHaveURL(/\/legal\/terms#disputes$/);
+    await expect(article.locator('#disputes')).toBeInViewport();
+  });
+
+  test('is not rendered below lg', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/legal/terms');
+    await expect(page.locator('aec-page-toc')).toBeHidden();
+  });
+});

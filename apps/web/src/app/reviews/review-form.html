@@ -15,7 +15,7 @@
       @if (submitted()) {
       <!-- ── Confirmation ──────────────────────────────────────────────────────
            AECI-1807: one shared card, as the request and claim receipt pages. -->
-      <div aecCard class="p-6 sm:p-8">
+      <div aecCard phoneFlush class="p-6 sm:p-8">
         <p class="aec-overline text-(--text-secondary)" i18n="@@reviews.success.eyebrow">
           Thank you
         </p>
@@ -127,7 +127,7 @@
       <!-- Not signed in: a notice + sign-in link instead of the form. The pop-up
        below auto-opens over this; if it's dismissed this notice remains, so an
        unauthenticated visitor is never shown a fillable form. -->
-      <div aecCard class="mt-10 p-6 sm:p-8">
+      <div aecCard phoneFlush class="mt-10 p-6 sm:p-8">
         <p
           class="text-t-16 font-semibold text-(--text-primary)"
           i18n="@@reviews.signIn.notice.title"
@@ -164,7 +164,7 @@
       <!-- Already reviewed: a notice + links instead of the form (AECI-260). The
        copy is status-agnostic: a rejected review still blocks re-submission;
        its reason lives on /account. -->
-      <div aecCard class="mt-10 p-6 sm:p-8">
+      <div aecCard phoneFlush class="mt-10 p-6 sm:p-8">
         <p
           class="text-t-16 font-semibold text-(--text-primary)"
           i18n="@@reviews.alreadyReviewed.title"
@@ -195,7 +195,14 @@
       <!-- ── Form ──────────────────────────────────────────────────────────── -->
       <!-- AECI-1807: the form is the shared card, its fields padded inside it and the
            submit in the form footer, as /welcome does. -->
-      <form method="dialog" aecCard class="mt-10 max-w-2xl" novalidate (aecSubmit)="onSubmit()">
+      <form
+        method="dialog"
+        aecCard
+        phoneFlush
+        class="mt-10 max-w-2xl"
+        novalidate
+        (aecSubmit)="onSubmit()"
+      >
         <div class="space-y-8 p-6 sm:p-8">
           <!-- Overall rating (required) -->
           <div class="space-y-2">
