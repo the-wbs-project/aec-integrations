@@ -152,18 +152,37 @@ describe('aecCard (AECI-1765)', () => {
   });
 });
 
-/** AECI-1937: see the `aecButton` creation-pass specs. The same gap left a card without its frame. */
+/**
+ * AECI-1937: see the `aecButton` creation-pass specs. The same gap left a card
+ * without its frame. These hosts are client-created.
+ */
 @Component({
   imports: [AecCard],
   template: `
-    <li aecCard class="p-6" data-testid="static">Static</li>
-    <div aecCard interactive tone="warm" stripe="clay" class="p-6" data-testid="attrs">Attrs</div>
-    <section aecCard class="p-8" [tone]="tone()" data-testid="bound">Bound</section>
+    <li aecCard class="p-6" data-testid="unknown">Unknown surface</li>
+    <div
+      aecCard
+      interactive
+      tone="warm"
+      stripe="clay"
+      nested="false"
+      class="p-6"
+      data-testid="attrs"
+    >
+      Attrs
+    </div>
+    <a aecCard interactive [nested]="nested()" href="/x" data-testid="bound">Bound</a>
+    @if (late()) {
+      <div aecCard [nested]="nested()" class="p-4" data-testid="late">Late</div>
+    }
   `,
 })
 class CreationHost {
-  readonly tone = signal<AecCardTone>('warm');
+  readonly nested = signal(true);
+  readonly late = signal(false);
 }
+
+const BASE_SURFACE = ['rounded-card', 'bg-(--surface-base)', 'shadow-card'];
 
 describe('aecCard at the creation pass (AECI-1937)', () => {
   const tokens = (value: string) => value.split(' ');
@@ -178,33 +197,60 @@ describe('aecCard at the creation pass (AECI-1937)', () => {
   };
   afterEach(() => TestBed.resetTestingModule());
 
-  it('has the whole frame beside the static class before the first update', () => {
-    const { el } = create('browser');
-    for (const cls of ['p-6', ...tokens(cardClass())]) {
-      expect(el('static').classList.contains(cls), cls).toBe(true);
-    }
+  it('adds the frame but no surface when no attribute fixes the tone and nesting', async () => {
+    const { fixture, el } = create('browser');
+    const c = el('unknown').classList;
+    for (const cls of ['p-6', 'aec-card', 'border']) expect(c.contains(cls), cls).toBe(true);
+    for (const cls of BASE_SURFACE) expect(c.contains(cls), cls).toBe(false);
+    await fixture.whenStable();
+    for (const cls of tokens(cardClass())) expect(c.contains(cls), cls).toBe(true);
   });
 
-  it('reads static tone, interactive and stripe attributes before inputs are set', () => {
+  it('reads static tone, interactive, stripe and nested attributes before inputs are set', () => {
     const { el } = create('browser');
     const recipe = cardClass({ tone: 'warm', interactive: true, stripe: 'clay' });
     for (const cls of tokens(recipe)) expect(el('attrs').classList.contains(cls), cls).toBe(true);
   });
 
-  it('drops a wrong guess for a bound tone in the first update, keeping the static class', async () => {
+  it('never shows the base surface on a bound nested card, at creation or after', async () => {
+    const seen = new Map<string, string[]>();
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class'],
+      attributeOldValue: true,
+    });
+    const note = (node: Element, value: string | null) => {
+      const id = node.getAttribute('data-testid');
+      if (id) seen.set(id, [...(seen.get(id) ?? []), value ?? '']);
+    };
     const { fixture, el } = create('browser');
-    expect(el('bound').classList.contains('bg-(--surface-base)')).toBe(true);
+    note(el('bound'), el('bound').getAttribute('class'));
     await fixture.whenStable();
-    const settled = el('bound').classList;
-    expect(settled.contains('p-8')).toBe(true);
-    for (const cls of tokens(cardClass({ tone: 'warm' }))) {
-      expect(settled.contains(cls), cls).toBe(true);
+    fixture.componentInstance.late.set(true);
+    await fixture.whenStable();
+    for (const r of observer.takeRecords()) {
+      if (r.type === 'attributes') note(r.target as Element, r.oldValue);
+      for (const n of Array.from(r.addedNodes)) {
+        if (n instanceof Element) note(n, n.getAttribute('class'));
+      }
     }
-    expect(settled.contains('bg-(--surface-base)')).toBe(false);
+    observer.disconnect();
+    for (const id of ['bound', 'late']) {
+      note(el(id), el(id).getAttribute('class'));
+      for (const state of seen.get(id) ?? []) {
+        for (const cls of BASE_SURFACE) expect(tokens(state), `${id}: ${state}`).not.toContain(cls);
+      }
+      for (const cls of tokens(cardClass({ nested: true }))) {
+        expect(el(id).classList.contains(cls), `${id} ${cls}`).toBe(true);
+      }
+    }
   });
 
   it('adds nothing in the server render', () => {
     const { el } = create('server');
-    expect(el('static').getAttribute('class')).toBe('p-6');
+    expect(el('unknown').getAttribute('class')).toBe('p-6');
   });
 });

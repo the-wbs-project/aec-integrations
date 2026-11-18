@@ -16,7 +16,14 @@ import {
 } from '@angular/core';
 
 import { isReplayedEvent } from '../../core/event-replay';
-import { applyHostRecipe, dropStaleRecipe, staticHostAttribute } from '../host-recipe';
+import {
+  type HostRecipe,
+  ServerHostClasses,
+  applyHostRecipe,
+  dropStaleRecipe,
+  hostRecipe,
+  staticHostAttribute,
+} from '../host-recipe';
 
 /**
  * The six button looks (DESIGN.md §5 "Buttons").
@@ -130,10 +137,11 @@ export function buttonClass(
  * caller that writes `aria-disabled` by hand gets the dimmed look only: the link
  * still takes focus and still navigates.
  *
- * FIRST PAINT
+ * FIRST RENDER
  * The recipe is on the element from the first client render (AECI-1937, see
  * `shared/host-recipe.ts`). Without that, hydration left a button with only its
- * layout classes for a frame, so it painted with no fill and faded back in.
+ * layout classes until the next update pass. A style read or a frame in that gap
+ * saw no fill, and the fill then faded back in.
  *
  * ACCESSIBILITY
  * An `iconOnly` button has no visible text, so it needs `aria-label`,
@@ -163,6 +171,7 @@ export class AecButton implements OnInit {
   private readonly renderer = inject(Renderer2);
   private readonly destroyRef = inject(DestroyRef);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly serverClasses = inject(ServerHostClasses);
   protected readonly isButton = this.host.tagName === 'BUTTON';
 
   /** The recipe tokens the constructor put back, until the first update settles them. */
@@ -193,17 +202,18 @@ export class AecButton implements OnInit {
       this.renderer.setAttribute(this.host, 'type', 'button');
     }
 
-    // Inputs are not set yet. A static attribute gives the value, and a bound
-    // `[variant]` on a server node left its value in `data-variant`. A bound
-    // variant on a client-created button has neither, so it starts as primary
-    // and `ngOnInit` corrects it in the first update pass.
+    // Inputs are not set yet. A server node gets back the recipe the server
+    // wrote. A client-created button gets only the classes every still-possible
+    // input value shares: a bound `[variant]` adds no fill until its binding
+    // does, so a bound secondary button is never Forest.
     this.recipeAtCreate = applyHostRecipe(
       this.host,
-      'aec-btn',
-      buttonClass(variantAtCreate(this.host, staticHostAttribute('variant')), {
-        compact: booleanAttribute(staticHostAttribute('compact')),
-        iconOnly: booleanAttribute(staticHostAttribute('iconOnly')),
-      }),
+      recipeAtCreate(
+        staticHostAttribute('variant'),
+        staticHostAttribute('compact'),
+        staticHostAttribute('iconOnly'),
+      ),
+      this.serverClasses,
       this.isBrowser,
     );
 
@@ -250,12 +260,50 @@ export class AecButton implements OnInit {
   }
 }
 
-/** The variant before inputs are set: the static attribute, else the server's `data-variant`. */
-function variantAtCreate(host: HTMLElement, staticVariant: string | null): AecButtonVariant {
-  const value = staticVariant ?? host.getAttribute('data-variant');
-  return value !== null && Object.hasOwn(BUTTON_VARIANT, value)
-    ? (value as AecButtonVariant)
-    : 'primary';
+const VARIANTS = Object.keys(BUTTON_VARIANT) as AecButtonVariant[];
+const recipesAtCreate = new Map<string, HostRecipe>();
+
+const BOTH = [false, true] as const;
+
+/**
+ * The recipe the static attributes allow before inputs are set, memoised per
+ * attribute set. With no `variant` attribute every variant is possible (the app
+ * binds `[variant]`), so no fill is certain. `compact` and `iconOnly` are only
+ * ever static, so a missing attribute means `false`. A bound one would get its
+ * padding corrected by `ngOnInit`.
+ */
+function recipeAtCreate(
+  variant: string | null,
+  compact: string | null,
+  iconOnly: string | null,
+): HostRecipe {
+  const key = `${variant}|${compact}|${iconOnly}`;
+  let recipe = recipesAtCreate.get(key);
+  if (!recipe) {
+    const known = variant !== null && Object.hasOwn(BUTTON_VARIANT, variant);
+    recipe = hostRecipe(
+      'aec-btn',
+      buttonRecipes(
+        known ? [variant as AecButtonVariant] : VARIANTS,
+        [booleanAttribute(compact)],
+        [booleanAttribute(iconOnly)],
+      ),
+      buttonRecipes(VARIANTS, BOTH, BOTH),
+    );
+    recipesAtCreate.set(key, recipe);
+  }
+  return recipe;
+}
+
+/** One recipe per combination of the given variants and flags. */
+function buttonRecipes(
+  variants: readonly AecButtonVariant[],
+  compacts: readonly boolean[],
+  iconOnlys: readonly boolean[],
+): string[] {
+  return variants.flatMap((v) =>
+    compacts.flatMap((c) => iconOnlys.map((i) => buttonClass(v, { compact: c, iconOnly: i }))),
+  );
 }
 
 /**

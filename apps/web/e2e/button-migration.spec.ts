@@ -23,9 +23,10 @@ const BORDER_STRONG = 'rgb(212, 212, 216)';
  * Read the settled value only. Wait for hydration, move the pointer off the page
  * (a hover is a different fill), and let every transition finish. AECI-1922 added
  * these waits for a fade that hydration caused. Hydration wrote the template's
- * static class (`mt-12`) alone, a frame painted without the fill, and the
- * `background-color` transition faded Forest back in. A read mid-fade got
- * rgb(31, 58, 47). AECI-1937 removed the fade at its source
+ * static class (`mt-12`) alone until the next update pass. A style read in that
+ * gap resolved the link with no fill, and the `background-color` transition then
+ * faded Forest back in. A read mid-fade got rgb(31, 58, 47). AECI-1937 removed
+ * the gap at its source
  * (`shared/host-recipe.ts`). The waits stay because they are sound on their own.
  * `watchRecipe` below fails the test if the fade's cause comes back, so the waits
  * cannot hide it.
@@ -58,11 +59,11 @@ async function style(loc: Locator) {
 }
 
 /**
- * AECI-1937: records every moment an `aecButton` could paint without its recipe.
- * A MutationObserver callback runs between scripts, which is where a frame can
- * paint. So a class list read there that lacks `aec-btn` is one a reader could
- * see. `e2e/hydration-class-recipe.spec.ts` is the full guard. This keeps the
- * three buttons here honest on their own.
+ * AECI-1937: records every observer state in which an `aecButton` lacks its
+ * recipe. A MutationObserver callback runs between scripts, which is where a
+ * style read or a frame can land. So a class list there that lacks `aec-btn` is
+ * one the browser could style. `e2e/hydration-class-recipe.spec.ts` is the full
+ * guard. This keeps the three buttons here honest on their own.
  */
 function watchRecipe(): void {
   const lost: string[] = [];

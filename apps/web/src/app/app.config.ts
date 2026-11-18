@@ -18,6 +18,7 @@ import { routes } from './app.routes';
 import { reloadOnChunkLoadError } from './core/app-update/app-update.service';
 import { provideScrollMarginViewportScroller } from './core/scroll-margin-viewport-scroller';
 import { serverApiInterceptor } from './core/server-api-interceptor';
+import { provideServerHostClasses } from './shared/host-recipe';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -76,6 +77,10 @@ export const appConfig: ApplicationConfig = {
     // winner; this sits next to `provideRouter(...)` only because that is what it
     // affects. See `core/scroll-margin-viewport-scroller.ts`.
     provideScrollMarginViewportScroller(),
+    // AECI-1937: reads the server's class list of every `aecButton` and `aecCard`
+    // before hydration rewrites it, so each directive can put its recipe back in
+    // the same creation pass. See `shared/host-recipe.ts`. Browser only.
+    provideServerHostClasses(['aecbutton', 'aeccard']),
     provideClientHydration(
       // `withI18nSupport()` is load-bearing (AECI-1655). Without it Angular
       // stamps `ngSkipHydration` on every component whose template uses `i18n`,
