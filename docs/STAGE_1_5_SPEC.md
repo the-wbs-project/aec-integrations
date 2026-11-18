@@ -908,7 +908,9 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   for both chips at every width. `DESIGN.md` §5 "Open values (components)" carries the values.
   **Amended 2026-11-18 (AECI-1924): Cards or Table.** One Cards and Table toggle in the section's
   filter panel, the Integrations section's control, sets every hub card and the hubless card to
-  cards or a table, as that section's one toggle sets every Via lane. Each group card's table is
+  cards or a table, as that section's one toggle sets every Via lane. One toggle rather than one
+  per hub is the builder's choice under the Same-Behavior Rule, awaiting Chris's ruling
+  (2026-11-18, `DESIGN.md` §5). Each group card's table is
   named by its heading and takes the Integrations table's recipe and header words. The table lists
   the same rows in the same order as the cards, under the same filter and counts. Cards are the
   default and the only view in the server HTML. The choice is component state, not the URL.

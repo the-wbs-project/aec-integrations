@@ -161,7 +161,8 @@ const SURFACES: readonly Surface[] = [
     key: 'connector-powered-hub',
     status: 'covered',
     spec: 'web',
-    order: 'Partner count, then hub name (kept under R1); partners and flat pairs A to Z',
+    order:
+      'Partner count, then hub name (kept under R1); partners and flat pairs A to Z; cards and table share the order (AECI-1924)',
   },
   {
     key: 'pair-page-mechanisms',
