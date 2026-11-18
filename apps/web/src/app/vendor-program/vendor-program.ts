@@ -279,8 +279,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     class="mt-3 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.whatChanges.after.body"
                   >
-                    Save a change, or confirm a page is right, and the label moves to your company
-                    with the date. Buyers can see you stand behind it, and when you last checked.
+                    Save a change, or confirm a page is right, and the "About this listing" panel
+                    names your company and the date. Buyers can see you stand behind it, and when
+                    you last checked.
                   </p>
                 </li>
               </ul>

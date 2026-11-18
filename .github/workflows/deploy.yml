@@ -524,7 +524,9 @@ jobs:
     # guard fails open the same way: only an explicit `lite` skips.
     needs: [changes, build-web]
     if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' && needs.build-web.outputs.lane != 'lite' }}
-    timeout-minutes: 20
+    # 30, not 20: the redesign's suite runs about 18 minutes of Playwright alone, so
+    # setup plus the report uploads crossed the old 20 minute cap with every test green.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Install pnpm
