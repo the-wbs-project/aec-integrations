@@ -786,6 +786,71 @@ export async function checkAlgoliaUnclaimedLogo(
   return { lines, note: `read ${checked} unclaimed record(s)` };
 }
 
+/** "Some joined vendor owns this product" as SQL, the owned test of `loadOwnedProductIds`. */
+const PRODUCT_HAS_OWNER_SQL = sql`EXISTS (SELECT 1 FROM product_vendors opv JOIN vendors ov ON ov.id = opv.vendor_id WHERE opv.product_id = ${products.id} AND ov.owned_at IS NOT NULL)`;
+
+/**
+ * Vendor-maintained records that no vendor owns (AECI-1908, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13.9). Every write that sets `maintained_by = 'vendor'` on a product or vendor needs a
+ * seat, and a seat means `owned_at` is set. The return to AECi and Terminate clear
+ * `owned_at` and reset the marker in the same batch (a ban of the last seat is refused
+ * since AECI-1623). So a finding is a vendor save that committed just after one of those
+ * (vendor writes carry no commit-time seat sentinel), or a hand edit. A product counts as
+ * owned when any joined vendor owns it, which is the return's own co-owner rule.
+ *
+ * A claim end is not a finding. A last-seat revoke or an erasure sets `claim_ended_at`
+ * and keeps `owned_at` and the marker on purpose (ADR 0042 decision 3, ADR 0051
+ * decision 1), and the promote fence keys on the marker. Those rows are counted in the
+ * note only. The public record line already reads the AECi form on an unclaimed
+ * listing (AECI-1666). Severity `warn`. The fix is an ops script that sets
+ * `maintained_by = 'aeci'` on the row, with its audit row.
+ */
+export async function checkMaintainedByWithoutOwner(db: Db): Promise<CheckFinding> {
+  const unownedVendors = await db
+    .select({ slug: vendors.slug, name: vendors.companyName })
+    .from(vendors)
+    .where(and(eq(vendors.maintainedBy, 'vendor'), isNull(vendors.ownedAt)))
+    .orderBy(textAsc(vendors.companyName), asc(vendors.slug));
+  const unownedProducts = await db
+    .select({ slug: products.slug, name: products.name })
+    .from(products)
+    .where(and(eq(products.maintainedBy, 'vendor'), sql`NOT ${PRODUCT_HAS_OWNER_SQL}`))
+    .orderBy(textAsc(products.name), asc(products.slug));
+
+  const [frozenVendors] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(vendors)
+    .where(
+      and(
+        eq(vendors.maintainedBy, 'vendor'),
+        isNotNull(vendors.ownedAt),
+        isNotNull(vendors.claimEndedAt),
+      ),
+    );
+  const [frozenProducts] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(products)
+    .where(
+      and(
+        eq(products.maintainedBy, 'vendor'),
+        PRODUCT_HAS_OWNER_SQL,
+        sql`NOT EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id WHERE cpv.product_id = ${products.id} AND ${CLAIMED_CV_SQL})`,
+      ),
+    );
+
+  return {
+    lines: [
+      ...unownedVendors.map(
+        (r) => `vendor ${r.name} (${r.slug}) is vendor-maintained but not owned`,
+      ),
+      ...unownedProducts.map(
+        (r) => `product ${r.name} (${r.slug}) is vendor-maintained but no vendor owns it`,
+      ),
+    ],
+    note: `${frozenVendors?.n ?? 0} vendor(s) and ${frozenProducts?.n ?? 0} product(s) frozen by a claim end (by design, ADR 0051)`,
+  };
+}
+
 /**
  * The license half of the mirror: `vendors.verified = 1` XOR a LIVE license
  * (`ended_at IS NULL`) on any of the vendor's billing accounts (AECI-1354,
@@ -1612,7 +1677,8 @@ interface CheckSpec {
 
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
- *  AECI-1455 review-app mirror drift, and the AECI-1715 browser report tripwire). Severity
+ *  AECI-1455 review-app mirror drift, the AECI-1715 browser report tripwire and the
+ *  AECI-1908 maintenance-marker guard). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -1695,6 +1761,14 @@ export const CHECKS: CheckSpec[] = [
     // (AECI-1867). Skipped without Algolia creds, so a seeded database is clean.
     severity: 'error',
     run: ({ db, unclaimedLogoReader }) => checkAlgoliaUnclaimedLogo(db, unclaimedLogoReader),
+  },
+  {
+    id: 'maintained_by_without_owner',
+    label: 'Vendor-maintained products and vendors that no vendor owns',
+    // `warn`: the public record line already reads the AECi form on an unclaimed
+    // listing (AECI-1666), so a finding is stored drift, not a wrong page (AECI-1908).
+    severity: 'warn',
+    run: ({ db }) => checkMaintainedByWithoutOwner(db),
   },
   {
     id: 'license_mirror_drift',

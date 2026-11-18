@@ -1224,7 +1224,7 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
+Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1908 `maintained_by_without_owner` check on the maintenance marker, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
 telemetry tripwires —
 AECI-868's `arrival_cf_coverage`, AECI-876's `landing_cf_coverage` and AECI-1715's
 `browser_evidence_coverage`). *(The count is deliberately not
@@ -1277,6 +1277,14 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > the records without emptying the index. Check the repair with
 > `scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`. If it recurs after a sweep, a write
 > path changed a claim without stamping `updated_at` on the vendor and its products. Find that writer.
+
+> **`maintained_by_without_owner` means a record says "vendor maintained" and no vendor owns it**
+> (AECI-1908). Each line names a vendor with no `owned_at`, or a product no joined vendor owns. The
+> public page already reads the AECi form, so nothing a reader sees is wrong. Check the audit log for
+> the row: a vendor save just after a return to AECi or Terminate is the known race, and anything
+> else is a hand edit. Reset `maintained_by` to `'aeci'` by an ops script with its audit row, not a
+> migration. Do not act on the note's claim-end count: a seat lapse keeps the marker on purpose
+> (ADR 0051).
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
