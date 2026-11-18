@@ -56,6 +56,17 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'layout/account-identity.ts': { person: 1 },
   'preview/integration-pair/concept-flow-canvas.ts': { preview: 2 },
   'products/integration-group-card.ts': { group: 1 },
+  // AECI-1827, AECI-1835: the empty pair body's marks, each by its subject's own
+  // claim_status: the ledger head, a single-product chip's mark (one per side) and the
+  // vendor card head. A chip both products carry says "Both" and has no mark. An
+  // unclaimed product is its initial tile in all of them.
+  // AECI-1829 / AECI-1830: the pair's own two products (moving groups, keep toggle) by
+  // their claim_status, and each match card from the server-filtered ProductLink.
+  'products/pair-empty-alternatives.ts': { subject: 2, link: 1 },
+  'products/pair-empty-sections.ts': { subject: 4 },
+  // AECI-1835: the empty pair hero's two cards: the 64px mark, and the 32px sourced logo
+  // beside the Unclaimed note.
+  'products/pair-empty-stage.ts': { subject: 2 },
   'products/product-card-grid.ts': { link: 2 },
   'products/product-card.ts': { link: 1 },
   'products/product-facts-card.ts': { link: 1 },
@@ -175,8 +186,8 @@ describe('aec-logo-or-initial callers (AECI-1769)', () => {
         expect(after.startsWith('<aec-unclaimed-note'), file).toBe(true);
       }
     }
-    // Product page, vendor page, and the pair page's one side template, which renders
-    // for both subjects (AECI-1798).
-    expect(seen).toBe(3);
+    // Product page, vendor page, the pair page's one side template, which renders for
+    // both subjects (AECI-1798), and the empty pair hero's card template (AECI-1835).
+    expect(seen).toBe(4);
   });
 });

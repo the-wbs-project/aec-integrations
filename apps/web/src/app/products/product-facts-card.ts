@@ -27,6 +27,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
+import { integrationsOnRecordCount } from './integrations-on-record';
 import { integrationNoun } from './integration-stat';
 import { hasNoIntegrationsOnRecord } from './integrations-on-record';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
@@ -291,10 +292,12 @@ const FOCUS_RING =
               >
                 <aec-icon name="seal" decorative [size]="4" />
                 <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md section 3),
-                     so the button names the product's vendor. -->
+                     so the button names the product's vendor. AECI-1925: the label reads
+                     "Claim Vendor" (Chris, 2026-11-18) and the name stays in the accessible
+                     name, after the visible words. -->
                 @if (p.vendor?.name; as company) {
-                  <ng-container i18n="@@products.detail.metadata.claimCompany"
-                    >Claim {{ company }}</ng-container
+                  <ng-container i18n="@@products.detail.metadata.claimVendor"
+                    >Claim Vendor<span class="sr-only"> {{ company }}</span></ng-container
                   >
                 } @else {
                   <ng-container i18n="@@products.detail.metadata.claimYourCompany"
@@ -395,10 +398,9 @@ export class ProductFactsCard {
    * after each write, so it can lag the rows. A stored zero never wins over listed rows:
    * the card must not say "We have no integrations on record" above a list of them.
    */
-  protected readonly count = computed(() => {
-    const stored = this.product().integration_count;
-    return stored === 0 ? this.pageRowCount() : stored;
-  });
+  protected readonly count = computed(() =>
+    integrationsOnRecordCount(this.product().integration_count, this.pageRowCount()),
+  );
 
   /**
    * Whether the stat panel shows "Know of one?". The Integrations section shows its own

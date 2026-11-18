@@ -44,6 +44,18 @@ export function showsNoIntegrationsDirectory(p: ProductDetail): boolean {
 }
 
 /**
+ * The figure "integrations on record" prints for a product (AECI-1827): the stored
+ * `integration_count`, unless it is 0. That column is recomputed after each write, so it
+ * can lag the rows, and a stored zero never wins over listed rows. The product page's
+ * facts card passes the rows its page lists. The empty pair page passes the API's
+ * `listed_integration_count`, the same rows counted on the server
+ * (`countListedIntegrationRows`). One function, so the two pages cannot disagree.
+ */
+export function integrationsOnRecordCount(stored: number, listed: number): number {
+  return stored === 0 ? listed : stored;
+}
+
+/**
  * A name with one trailing full stop removed, for a message that ends in its own
  * ("…published by {vendor}."). "SiteLedger Inc." becomes "SiteLedger Inc", and the
  * message's stop completes it, so the sentence ends "Inc." and never "Inc..". A name

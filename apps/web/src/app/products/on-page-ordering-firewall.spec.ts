@@ -13,7 +13,8 @@
  *  - the connector page's "Integrations it powers" hubs and their filter;
  *  - the product hero's category hub (`category-hub.ts`, AECI-1787);
  *  - `topByCount`, the taxonomy term ranking behind the one tolerated exception;
- *  - the header's Browse menu (`core/taxonomy/browse-menu-model.ts`, AECI-1774).
+ *  - the header's Browse menu (`core/taxonomy/browse-menu-model.ts`, AECI-1774);
+ *  - the empty pair page's closest-matches filter (`pair-matches-filter.ts`, AECI-1829).
  *
  * How the flips are built, because a flip that agrees with today's order proves
  * nothing:
@@ -35,10 +36,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  PairAlternativeMatchSchema,
   PoweredIntegrationItemSchema,
   ProductIntegrationItemSchema,
   TaxonomyResponseSchema,
   TaxonomyTermWithCountSchema,
+  type PairAlternativeLane,
+  type PairAlternativeMatch,
   type PoweredIntegrationItem,
   type ProductIntegrationItem,
   type ProductLink,
@@ -85,6 +89,7 @@ import {
   partnerCategoryOptions,
   rowsWithoutDataObjects,
 } from './integration-filter';
+import { filterPairMatches } from './pair-matches-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
 // ─── The registry ─────────────────────────────────────────────────────────────
@@ -1391,5 +1396,243 @@ describe('on-page ordering firewall: the Browse menu', () => {
     expect(audiences).not.toEqual(base.audiences);
     const byName = [...fixture.audiences].sort((a, b) => compareText(a.name, b.name));
     expect(audiences).toEqual(topByCount(byName, BROWSE_COLUMN_LENGTH).map((t) => t.slug));
+  });
+});
+
+// ─── The empty pair page's closest matches (AECI-1829) ─────────────────────────
+
+describe('on-page ordering firewall: the empty pair page closest-matches filter', () => {
+  /** The fields the reader's filter reads: the category toggles and the data-object picks. */
+  const FILTER_INPUTS = new Set(['shared_categories', 'data_objects']);
+  /**
+   * Text the search matches (with `product.name`). Flipping it would change what a query
+   * matches, which is the search working, not an order reading a paid input, so it is
+   * never flipped (the Integrations section's `FILTER_TEXT_FIELDS` rule).
+   */
+  const FILTER_TEXT = new Set(['vendor_name']);
+  /** Every other match field. None may move the list. */
+  const NOT_INPUTS = [
+    'review_count',
+    'rating_overall_avg',
+    'rating_onboarding_avg',
+    'direction',
+    'confirmed',
+  ] as const;
+  /**
+   * Fields the payload does not carry today, planted on every match: what a plan, a
+   * license, a count or the claim would add. `product.logo_url` is flipped too: it is
+   * withheld while a match is unclaimed (AECI-1618), so it is the claim state as the
+   * browser sees it.
+   */
+  const PLANTED = [
+    'plan',
+    'license',
+    'tier',
+    'entitlements',
+    'claim_status',
+    'integration_count',
+    'listed_integration_count',
+  ] as const;
+
+  const NAMES = [
+    'Alpha',
+    'Bravo',
+    'Charlie',
+    'Delta',
+    'Delta',
+    'Echo',
+    'Foxtrot',
+    'Golf',
+    'Hotel',
+    'India',
+    'Juliet',
+    'Kilo',
+  ];
+
+  /** Match `i` of the fixture's 12, A to Z with a tie on "Delta", as the API sends them. */
+  function match(i: number): PairAlternativeMatch {
+    return {
+      product: {
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        slug: `match-${i}`,
+        name: NAMES[i]!,
+        logo_url: null,
+      },
+      vendor_name: null,
+      review_count: 0,
+      rating_overall_avg: null,
+      rating_onboarding_avg: null,
+      // Three category shapes, so every filter state keeps rows on both sides of its cut.
+      shared_categories:
+        i % 3 === 0
+          ? [{ slug: 'accounting', name: 'Accounting' }]
+          : i % 3 === 1
+            ? [{ slug: 'estimating', name: 'Estimating' }]
+            : [
+                { slug: 'accounting', name: 'Accounting' },
+                { slug: 'erp', name: 'ERP' },
+              ],
+      data_objects:
+        i % 2 === 0
+          ? [
+              { slug: 'invoice', name: 'Invoices' },
+              { slug: 'cost-code', name: 'Cost codes' },
+            ]
+          : [{ slug: 'invoice', name: 'Invoices' }],
+      direction: null,
+      confirmed: false,
+    };
+  }
+
+  const lane = (matches: PairAlternativeMatch[]): PairAlternativeLane => ({
+    anchors: [
+      { id: '10000000-0000-4000-8000-000000000001', slug: 'accounting', name: 'Accounting' },
+      { id: '10000000-0000-4000-8000-000000000002', slug: 'erp', name: 'ERP' },
+      { id: '10000000-0000-4000-8000-000000000003', slug: 'estimating', name: 'Estimating' },
+    ],
+    matches,
+  });
+
+  /** Every kind of reader state the deck offers, from nothing touched to the narrowest. */
+  const STATES: readonly { off: string[]; picked: string[]; query?: string }[] = [
+    { off: [], picked: [] },
+    { off: ['estimating'], picked: [] },
+    { off: ['accounting'], picked: [] },
+    { off: ['accounting', 'erp'], picked: [] },
+    { off: [], picked: ['cost-code'] },
+    { off: ['estimating'], picked: ['invoice', 'cost-code'] },
+    // The search (AECI-1835): a product name substring, alone and with the other filters.
+    { off: [], picked: [], query: 'O' },
+    { off: ['estimating'], picked: ['invoice'], query: 'delta' },
+  ];
+
+  const ids = (l: PairAlternativeLane) =>
+    STATES.map((st) => filterPairMatches(l, st.off, st.picked, st.query).map((m) => m.product.id));
+
+  /** A paid or count-like value at `level`, 0 being none. Higher is "more". */
+  function notInputValue(field: string, level: number): unknown {
+    switch (field) {
+      case 'review_count':
+      case 'integration_count':
+      case 'listed_integration_count':
+        return level * 7;
+      case 'rating_overall_avg':
+      case 'rating_onboarding_avg':
+        return level === 0 ? null : Math.min(5, 1 + level / 3);
+      case 'direction':
+        return level === 0 ? null : level % 2 === 0 ? 'both' : 'outbound';
+      case 'confirmed':
+        return level % 2 === 1;
+      case 'plan':
+      case 'tier':
+        return level === 0 ? 'free' : 'managed';
+      case 'license':
+        return level === 0 ? null : { tier: 'managed', seats: level };
+      case 'entitlements':
+        return level === 0 ? [] : [...MANAGED_ONLY];
+      case 'claim_status':
+        return level === 0 ? 'unclaimed' : 'claimed';
+      default:
+        throw new Error(`No value for ${field}`);
+    }
+  }
+
+  function withLevels(
+    rows: readonly PairAlternativeMatch[],
+    level: (i: number) => number,
+  ): PairAlternativeMatch[] {
+    return rows.map((row, i) => ({
+      ...row,
+      ...Object.fromEntries(
+        [...NOT_INPUTS, ...PLANTED].map((f) => [f, notInputValue(f, level(i))]),
+      ),
+      product: {
+        ...row.product,
+        logo_url: level(i) === 0 ? null : `https://cdn.example.com/logo-${i}.png`,
+      },
+    })) as PairAlternativeMatch[];
+  }
+
+  const rows = Array.from({ length: 12 }, (_, i) => match(i));
+  const base = ids(lane(rows));
+
+  it('classifies every match field as a filter input or a field the filter may not read', () => {
+    for (const f of Object.keys(PairAlternativeMatchSchema.shape)) {
+      const known =
+        FILTER_INPUTS.has(f) ||
+        FILTER_TEXT.has(f) ||
+        f === 'product' ||
+        (NOT_INPUTS as readonly string[]).includes(f);
+      expect(known, f).toBe(true);
+    }
+  });
+
+  it('[surface:pair-page-closest-matches] the reader filter removes and never reorders', () => {
+    const whole = base[0]!;
+    expect(whole).toEqual(rows.map((m) => m.product.id));
+    for (const subset of base.slice(1)) {
+      // Each state cuts some and keeps some, so the subsequence check is not vacuous.
+      expect(subset.length).toBeGreaterThan(0);
+      expect(subset.length).toBeLessThan(whole.length);
+      expect(whole.filter((id) => subset.includes(id))).toEqual(subset);
+    }
+    // Every category off empties the list. It never falls back to another order.
+    expect(filterPairMatches(lane(rows), ['accounting', 'erp', 'estimating'], [])).toEqual([]);
+  });
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it(`[surface:pair-page-closest-matches] plan, license, ratings, counts and claim state move nothing (${dir})`, () => {
+      const flipped = withLevels(rows, (i) => (dir === 'rising' ? i : rows.length - 1 - i));
+      expect(ids(lane(flipped))).toEqual(base);
+    });
+  }
+
+  it('[surface:pair-page-closest-matches] paid inputs loaded onto any one match move nothing', () => {
+    for (let k = 0; k < rows.length; k++) {
+      expect(ids(lane(withLevels(rows, (i) => (i === k ? 9 : 0)))), `match ${k}`).toEqual(base);
+    }
+  });
+
+  it('sees a move when a filter input changes (the comparison is not vacuous)', () => {
+    const moved = rows.map((m, i) =>
+      i === 0 ? { ...m, shared_categories: [{ slug: 'estimating', name: 'Estimating' }] } : m,
+    );
+    expect(ids(lane(moved))).not.toEqual(base);
+  });
+
+  it('[surface:pair-page-closest-matches] the search matches product or vendor names and never reorders', () => {
+    const named = rows.map((m, i) => (i === 7 ? { ...m, vendor_name: 'Quill Software' } : m));
+    const all = filterPairMatches(lane(named), [], []).map((m) => m.product.id);
+    // A vendor name match keeps its row; a product name match keeps its rows; case and
+    // accents fold as in the Integrations section.
+    expect(filterPairMatches(lane(named), [], [], 'quill').map((m) => m.product.id)).toEqual([
+      named[7]!.product.id,
+    ]);
+    const byName = filterPairMatches(lane(named), [], [], 'DÉLTA').map((m) => m.product.id);
+    expect(byName).toEqual([named[3]!.product.id, named[4]!.product.id]);
+    expect(all.filter((id) => byName.includes(id))).toEqual(byName);
+    // Whitespace is no query.
+    expect(filterPairMatches(lane(named), [], [], '   ').map((m) => m.product.id)).toEqual(all);
+  });
+
+  it('[surface:pair-page-closest-matches] the filter and the section hold no comparator and name no paid input', () => {
+    const filter = readFileSync(
+      join(process.cwd(), 'src/app/products/pair-matches-filter.ts'),
+      'utf8',
+    )
+      // The doc comment names what the filter never reads.
+      .replace(/\/\*\*[\s\S]*?\*\//g, '');
+    expect(filter).not.toMatch(/\.sort\(|toSorted|localeCompare|compareText/);
+    // `vendor_name` is search text (FILTER_TEXT), so the filter may read it.
+    expect(filter).not.toMatch(
+      /plan|license|tier|entitle|rating|review_count|integration_count|claim|logo_url|confirmed/,
+    );
+    const section = readFileSync(
+      join(process.cwd(), 'src/app/products/pair-empty-alternatives.ts'),
+      'utf8',
+    );
+    expect(section).not.toMatch(/\.sort\(|toSorted|localeCompare/);
+    // The section's list is the pure filter's output, rendered in the order it is given.
+    expect(section).toMatch(/filterPairMatches\(/);
   });
 });

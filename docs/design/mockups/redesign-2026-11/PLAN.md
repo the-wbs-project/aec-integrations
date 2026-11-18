@@ -517,7 +517,7 @@ The pair payload today carries, for each product: id, slug, name, logo, product 
 | Category anchors | The swapped product's categories | No | Comes with the row above |
 | Facts table | Integration count, reviews, ratings, claim state | Yes | None |
 | Who each is for | Audiences, phases, trades of both | Yes, since AECI-1822 | Delivered by AECI-1822 |
-| Look it up yourself | `api_docs_url`, `tool_integrations_url` | Yes, since AECI-1822, `null` while AECi has a link hidden | Delivered by AECI-1822 |
+| Look it up yourself | `api_docs_url`, `tool_integrations_url`, and each link's caption | Yes, since AECI-1822, `null` while AECi has a link hidden. Captions and `under_review` since AECI-1827 | Delivered by AECI-1822 and AECI-1827 |
 
 **The correction entry needs a contract.** `docs/STAGE_1_5_SPEC.md` §11.5 requires the report to carry both product slugs "with distinguishable type/metadata so per-pair report counts are queryable". Today `RequestKindSchema` allows only `claim` and `correction`, and a request targets a product or a vendor. A correction records no product beyond its target. The pair page has no request trigger. (Corrected 2026-11-14. This paragraph first said one context product id was available.) The build must add a way to record both products, with its Zod schema, its API contract row and its audit row in the same batch. The request dialog can already pre-fill a body and a context product.
 

@@ -81,13 +81,9 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
   host: { class: 'block' },
   template: `
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
-      <div [class]="wrap">
+      <div [class]="wrap()">
         <ng-content select="[heroCrumbs]" />
-        <div
-          #grid
-          class="grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]"
-          data-testid="hero-band-grid"
-        >
+        <div #grid [class]="gridClass()" data-testid="hero-band-grid">
           <div
             [class]="textClass()"
             [attr.data-held]="held() ? '' : null"
@@ -137,9 +133,17 @@ export class HeroBand {
   /**
    * The title's size. `display` is the default: the product name, and the vendor name.
    * `statement` is the pair page's h1 (DESIGN.md §3, `--t-statement`, AECI-1798), the
-   * pair page's one display-scale line. The size sits on the inner span either way.
+   * pair page's one display-scale line. `statement-wide` is mock-up 5's statement on the
+   * empty pair page (AECI-1835), sized for a text column beside a 540px diagram. The size
+   * sits on the inner span either way.
    */
-  readonly titleSize = input<'display' | 'statement'>('display');
+  readonly titleSize = input<'display' | 'statement' | 'statement-wide'>('display');
+  /**
+   * The bottom padding. `overlap` is the default: 128px from `md`, room for a card that
+   * pulls up over the band. `band` is a plain band's 64px, 96px from `md`, for a hero
+   * that nothing overlaps (the empty pair page while its interest card is held, AECI-1835).
+   */
+  readonly bottom = input<'overlap' | 'band'>('overlap');
   /**
    * The right column's ground. `surface` is the default: the `--surface-hero-panel`
    * panel with its padding. `bare` draws no panel, for a caller whose projected content
@@ -156,7 +160,27 @@ export class HeroBand {
    */
   readonly align = input<'center' | 'start'>('center');
 
-  protected readonly wrap = `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`;
+  /**
+   * Where the right column starts. `lg` is the default: 400px from `lg`, 540px from `xl`.
+   * `wide` gives the panel a fixed 540px column from 1040px, as mock-up 5 does for the
+   * empty pair page's diagram (AECI-1835), and stacks it under the text below that. The
+   * `wide` columns are top-aligned, as the mock-up draws them: a centred text column beside
+   * a taller diagram moved whole when the web font swapped in and re-wrapped a long name
+   * (layout shift 0.068 at 1280).
+   */
+  readonly panelFrom = input<'lg' | 'wide'>('lg');
+
+  protected readonly gridClass = computed(() =>
+    this.panelFrom() === 'wide'
+      ? 'grid gap-8 min-[1040px]:items-start min-[1040px]:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]'
+      : 'grid gap-8 lg:items-center lg:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_400px] xl:has-[.aec-hero-panel>*]:grid-cols-[minmax(0,1fr)_540px]',
+  );
+
+  protected readonly wrap = computed(() =>
+    this.bottom() === 'band'
+      ? `${BAND_WRAP_CLASS} pt-4 pb-16 md:pt-6 md:pb-24`
+      : `${BAND_WRAP_CLASS} pt-4 pb-24 md:pt-6 md:pb-32`,
+  );
 
   /**
    * Below `md` the display title steps down to `--t-statement` (37px at 390, 36px at 320),
@@ -168,11 +192,17 @@ export class HeroBand {
    * The `h1` keeps `break-words`, so a word still
    * breaks only when it cannot fit on a line of its own (AECI-1720 restore).
    */
-  protected readonly titleClass = computed(() =>
-    this.titleSize() === 'statement'
-      ? 'font-display text-t-statement font-normal tracking-[-0.02em]'
-      : 'font-display text-t-display font-normal tracking-[-0.02em] max-md:text-t-statement max-[360px]:text-t-fig!',
-  );
+  protected readonly titleClass = computed(() => {
+    switch (this.titleSize()) {
+      case 'statement':
+        return 'font-display text-t-statement font-normal tracking-[-0.02em]';
+      case 'statement-wide':
+        // Balanced, as mock-up 5's `.statement` is, so the lines break as it draws them.
+        return 'block font-display text-t-statement-wide font-normal tracking-[-0.02em] text-balance';
+      default:
+        return 'font-display text-t-display font-normal tracking-[-0.02em] max-md:text-t-statement max-[360px]:text-t-fig!';
+    }
+  });
 
   protected readonly textClass = computed(
     () =>

@@ -34,6 +34,7 @@ const productListItem = (n: number, slug: string, name: string) => ({
   trades: [],
   api_docs_url: null,
   tool_integrations_url: null,
+  listed_integration_count: 0,
   claim_status: 'claimed' as const,
 });
 

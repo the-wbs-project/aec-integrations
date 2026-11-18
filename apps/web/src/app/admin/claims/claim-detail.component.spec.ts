@@ -59,6 +59,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     target_type: 'product',
     target_id: 't-1',
     target: { id: 't-1', name: 'Procore', slug: 'procore' },
+    pair_product: null,
     submitter_email: 'submitter@vendor.test',
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',

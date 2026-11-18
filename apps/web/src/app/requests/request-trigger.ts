@@ -40,6 +40,8 @@ export class RequestTrigger {
   readonly company = input<string | null>(null);
   /** AECI-1364: the product page a claim is opened from ("from the <Product> page"). */
   readonly contextProduct = input<string | null>(null);
+  /** AECI-1828: the empty pair page's other product, so the correction names both. */
+  readonly pairSlug = input<string | null>(null);
 
   protected onClick(event: MouseEvent): void {
     if (isReplayedEvent(event)) return; // the native default already ran
@@ -57,6 +59,7 @@ export class RequestTrigger {
       bodyPrefill: this.bodyPrefill() ?? undefined,
       company: this.company() ?? undefined,
       contextProduct: this.contextProduct() ?? undefined,
+      pairSlug: this.pairSlug() ?? undefined,
     });
   }
 }
