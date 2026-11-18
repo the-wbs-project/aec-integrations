@@ -22,10 +22,11 @@ const BORDER_STRONG = 'rgb(212, 212, 216)';
  *
  * Read the settled value only (AECI-1922). Hydration rewrites the button's class
  * attribute in two steps: it first writes the template's static class (`mt-12`),
- * which drops the fill, and the host binding adds the recipe back on the next
- * pass. When a frame paints between the two, the fill goes transparent for that
- * frame, then the recipe's `background-color` transition fades Forest back in
- * over `--duration-fast`. A read during the fade gets a part-transparent Forest,
+ * which drops the fill, and the host binding adds the recipe back in the update
+ * pass. No frame paints between the two (AECI-1937), but a style read from a
+ * script in that gap, such as this test polling the element, resolves the button
+ * with no fill. The recipe's `background-color` transition then fades Forest back
+ * in over `--duration-fast`. A read during the fade gets a part-transparent Forest,
  * and the canvas readback rounds a channel one step off: CI saw rgb(31, 58, 47),
  * a local run 2 failures in 50. The token itself is exact: oklch(32.24% 0.0397
  * 166.73) is rgb(30.03, 58.00, 47.01). So wait for hydration, move the pointer
