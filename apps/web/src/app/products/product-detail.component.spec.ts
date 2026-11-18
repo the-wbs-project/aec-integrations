@@ -21,6 +21,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +37,8 @@ import type {
 import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
+
+import { SectionNav } from '../shared/section-nav/section-nav';
 
 import { ProductDetailPage } from './product-detail';
 import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
@@ -1450,6 +1453,52 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
     // Bone-secondary on Forest, never the light-ground grey.
     expect(note.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
     expect(note.classList.contains('text-(--text-secondary)')).toBe(false);
+  });
+});
+
+// Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): the sticky bar carries an "Unclaimed" tag on
+// an unclaimed listing. The page hands the bar the same `claim_status` the hero note reads. The
+// bar draws the tag only once stuck, so the page's server HTML is unchanged (the bar's own spec
+// covers the tag itself and the stuck render).
+describe('ProductDetailPage sticky bar claim status (ruling 41)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const barClaim = (product: ProductDetail) => {
+    const { fixture, el } = setup(product);
+    const nav = fixture.debugElement.query(By.directive(SectionNav));
+    expect(nav).not.toBeNull();
+    return {
+      claim: (nav.componentInstance as SectionNav).claimStatus(),
+      note: el.querySelector('aec-unclaimed-note') !== null,
+      tag: el.querySelector('[data-testid="section-nav-unclaimed"]') !== null,
+    };
+  };
+
+  it('passes unclaimed to the bar on an unclaimed listing, as the hero note does', () => {
+    const r = barClaim(
+      buildProduct({ claim_status: 'unclaimed', description: 'Construction management.' }),
+    );
+    expect(r).toEqual({ claim: 'unclaimed', note: true, tag: false });
+  });
+
+  it('passes claimed on a claimed listing, so the bar is unchanged', () => {
+    const r = barClaim(
+      buildProduct({ claim_status: 'claimed', description: 'Construction management.' }),
+    );
+    expect(r).toEqual({ claim: 'claimed', note: false, tag: false });
+  });
+
+  // A product with no vendor record is unclaimed (no joined vendor holds it), and the hero
+  // shows the note. The bar follows the hero.
+  it('follows the hero for a product with no vendor record', () => {
+    const r = barClaim(
+      buildProduct({
+        vendor: null,
+        claim_status: 'unclaimed',
+        description: 'Construction management.',
+      }),
+    );
+    expect(r).toEqual({ claim: 'unclaimed', note: true, tag: false });
   });
 });
 

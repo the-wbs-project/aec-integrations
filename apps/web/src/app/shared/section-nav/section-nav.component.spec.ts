@@ -9,6 +9,8 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ClaimStatus } from '@aeci/shared';
+
 import { SectionNav, type SectionNavItem } from './section-nav';
 
 const sections: SectionNavItem[] = [
@@ -20,12 +22,18 @@ const sections: SectionNavItem[] = [
 
 @Component({
   imports: [SectionNav],
-  template: `<aec-section-nav [sections]="items()" [pageName]="name()" [rest]="rest()" />`,
+  template: `<aec-section-nav
+    [sections]="items()"
+    [pageName]="name()"
+    [rest]="rest()"
+    [claimStatus]="claim()"
+  />`,
 })
 class Host {
   items = signal<readonly SectionNavItem[]>(sections);
   name = signal<string | null>('Bluebeam Revu');
   rest = signal<'solid' | 'clear'>('solid');
+  claim = signal<ClaimStatus | null>(null);
 }
 
 const Stub = class {};
@@ -70,6 +78,7 @@ async function setup(
     items?: readonly SectionNavItem[];
     name?: string | null;
     rest?: 'solid' | 'clear';
+    claim?: ClaimStatus | null;
   } = {},
 ): Promise<ComponentFixture<Host>> {
   TestBed.resetTestingModule();
@@ -95,6 +104,7 @@ async function setup(
   if (opts.items) fixture.componentInstance.items.set(opts.items);
   if (opts.name !== undefined) fixture.componentInstance.name.set(opts.name);
   if (opts.rest) fixture.componentInstance.rest.set(opts.rest);
+  if (opts.claim !== undefined) fixture.componentInstance.claim.set(opts.claim);
   fixture.detectChanges();
   await fixture.whenStable();
   return fixture;
@@ -170,8 +180,19 @@ describe('SectionNav', () => {
       expect(html[0]).not.toContain('utm_');
     });
 
+    it('renders an unclaimed listing byte-identical to a claimed one, with no tag (ruling 41)', async () => {
+      const html: string[] = [];
+      for (const claim of ['unclaimed', 'claimed', null] as const) {
+        const fixture = await setup({ platform: 'server', claim });
+        html.push((fixture.nativeElement as HTMLElement).innerHTML);
+      }
+      expect(new Set(html).size).toBe(1);
+      expect(html[0]).not.toContain('section-nav-unclaimed');
+    });
+
     it('never renders the stuck brand cluster or builds the stuck observer on the server', async () => {
-      const el = (await setup({ platform: 'server' })).nativeElement as HTMLElement;
+      const el = (await setup({ platform: 'server', claim: 'unclaimed' }))
+        .nativeElement as HTMLElement;
       expect(el.querySelector('[data-testid="section-nav-brand"]')).toBeNull();
       expect(el.querySelector('aec-section-nav')!.hasAttribute('data-stuck')).toBe(false);
       // The stuck observer is gated on the platform. (The scroll-spy is an `afterRenderEffect`,
@@ -321,6 +342,65 @@ describe('SectionNav', () => {
       const srcs = [...host.querySelectorAll('img')].map((i) => i.getAttribute('src'));
       expect(srcs.length).toBeGreaterThan(0);
       for (const src of srcs) expect(src).toMatch(/^\/branding\/(wordmark|monogram-light)\.svg$/);
+    });
+
+    // Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): a short "Unclaimed" tag beside the name.
+    describe('the Unclaimed tag (ruling 41)', () => {
+      async function stuckWith(claim: ClaimStatus | null, name: string | null = 'Bluebeam Revu') {
+        const fixture = await setup({ claim, name });
+        stuckObserver().fire({
+          intersectionRatio: 0.98,
+          boundingClientRect: { top: 0 } as DOMRect,
+        });
+        fixture.detectChanges();
+        await fixture.whenStable();
+        return fixture.nativeElement as HTMLElement;
+      }
+      const tagOf = (el: HTMLElement) =>
+        el.querySelector<HTMLElement>('[data-testid="section-nav-unclaimed"]');
+
+      it('shows "Unclaimed" as static text after the name on an unclaimed listing', async () => {
+        const el = await stuckWith('unclaimed');
+        const tag = tagOf(el)!;
+        expect(tag).not.toBeNull();
+        expect(tag.textContent!.trim()).toBe('Unclaimed');
+        // Inside the brand cluster, after the name, outside the "On this page" landmark.
+        const brand = el.querySelector('[data-testid="section-nav-brand"]')!;
+        expect(brand.contains(tag)).toBe(true);
+        expect(brand.lastElementChild).toBe(tag);
+        expect(tag.closest('nav')).toBeNull();
+        // Information, not a control: no link, no button, no focus stop, no live region.
+        expect(tag.querySelector('a, button, [tabindex]')).toBeNull();
+        expect(tag.querySelector('[aria-live], [role="status"]')).toBeNull();
+        expect(brand.closest('[aria-live]')).toBeNull();
+        // The hero's status chip recipe, never shrunk (the name truncates first).
+        expect(tag.querySelector('.aec-chip')!.getAttribute('data-tone')).toBe('quiet');
+        expect(tag.className).toContain('shrink-0');
+        // Not a claim sentence: the hero's full note is not repeated here.
+        expect(brand.textContent).not.toContain('not affiliated');
+      });
+
+      it('shows the tag with no name too, beside the phone monogram', async () => {
+        const el = await stuckWith('unclaimed', null);
+        expect(tagOf(el)!.textContent!.trim()).toBe('Unclaimed');
+      });
+
+      it('adds nothing for a claimed listing', async () => {
+        const el = await stuckWith('claimed');
+        expect(tagOf(el)).toBeNull();
+        expect(el.querySelector('[data-testid="section-nav-brand"]')!.textContent).not.toContain(
+          'Unclaimed',
+        );
+      });
+
+      it('adds nothing when the caller passes no claim status', async () => {
+        expect(tagOf(await stuckWith(null))).toBeNull();
+      });
+
+      it('never shows before the bar sticks', async () => {
+        const el = (await setup({ claim: 'unclaimed' })).nativeElement as HTMLElement;
+        expect(tagOf(el)).toBeNull();
+      });
     });
 
     it('omits the name when the page gives none', async () => {

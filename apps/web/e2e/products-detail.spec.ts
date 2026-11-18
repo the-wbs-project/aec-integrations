@@ -540,3 +540,51 @@ test.describe('product facts card claim button (AECI-1925)', () => {
     });
   }
 });
+
+/**
+ * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): once the hero has scrolled away, the stuck
+ * bar keeps the unclaimed status on screen with an "Unclaimed" tag. The bar follows the hero:
+ * the tag shows exactly where the hero shows the Unclaimed note. `fixture-acme-connector` is the
+ * product with no vendor record, `revit` an unclaimed one with a vendor, `fixture-procore` the
+ * claimed one. `e2e/section-nav.spec.ts` covers the tag's fit at 320, 390 and 1440px.
+ */
+test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
+  for (const width of [1440, 390]) {
+    for (const slug of ['revit', 'fixture-acme-connector', 'fixture-procore']) {
+      test(`${slug} at ${width}px: the tag shows only where the hero note does`, async ({
+        page,
+        request,
+      }) => {
+        const res = await request.get(`/api/products/${slug}`);
+        test.skip(!res.ok(), `seed missing: ${slug}`);
+        const claim = ((await res.json()) as { claim_status?: string }).claim_status;
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/products/${slug}`);
+        const nav = page.locator('aec-section-nav');
+        test.skip((await nav.count()) === 0, `${slug} has too few sections for the bar`);
+        await untilHydrated(nav);
+        const note = page.locator('aec-unclaimed-note');
+        await expect(note).toHaveCount(claim === 'unclaimed' ? 1 : 0);
+
+        // Scroll the bar to the top and past it, so the hero leaves the screen.
+        await page.evaluate(() => {
+          const bar = document.querySelector('aec-section-nav')!;
+          window.scrollTo({
+            top: bar.getBoundingClientRect().top + window.scrollY + 600,
+            behavior: 'instant',
+          });
+        });
+        await expect(nav).toHaveAttribute('data-stuck', '');
+        const tag = nav.getByTestId('section-nav-unclaimed');
+        if (claim === 'unclaimed') {
+          await expect(note).not.toBeInViewport();
+          await expect(tag).toBeVisible();
+          await expect(tag).toHaveText('Unclaimed');
+        } else {
+          await expect(tag).toHaveCount(0);
+        }
+        await expectNoSidewaysScroll(page);
+      });
+    }
+  }
+});

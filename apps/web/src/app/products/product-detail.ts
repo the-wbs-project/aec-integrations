@@ -155,7 +155,14 @@ const UNDER_REVIEW_MARKED_FIELDS = [
           wrapper to inherit spacing from. See DetailLayout.
         -->
         @if (sectionNav().length >= 2) {
-          <aec-section-nav slot="nav" rest="clear" [pageName]="p.name" [sections]="sectionNav()" />
+          <!-- claimStatus: the same listing field the hero's Unclaimed note reads (ruling 41). -->
+          <aec-section-nav
+            slot="nav"
+            rest="clear"
+            [pageName]="p.name"
+            [claimStatus]="p.claim_status"
+            [sections]="sectionNav()"
+          />
         }
 
         <!--
