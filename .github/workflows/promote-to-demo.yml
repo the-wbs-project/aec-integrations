@@ -1017,10 +1017,12 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
+          # The runner's shell is `bash -e`, and `set -uo` does not turn -e off. A bare
+          # call would end the step on exit 2 before the retry below could read it.
           set -uo pipefail
           for attempt in 1 2 3; do
-            bash scripts/check-ssr-listings.sh "$HOST"
-            rc=$?
+            rc=0
+            bash scripts/check-ssr-listings.sh "$HOST" || rc=$?
             if [ "$rc" -eq 0 ]; then
               exit 0
             fi
