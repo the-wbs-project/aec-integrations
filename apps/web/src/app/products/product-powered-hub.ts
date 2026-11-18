@@ -23,13 +23,18 @@ import {
   INTEGRATION_SEARCH_INPUT_CLASS,
   INTEGRATION_STATUS_CLASS,
 } from './integration-filter-recipe';
+import {
+  MATCH_CARD_COMPACT_BODY_CLASS,
+  MATCH_CARD_GO_CLASS,
+  MATCH_CHIP_CLASS,
+  MATCH_CHIP_ROW_CLASS,
+} from './match-card-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
 import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
 import { AecCard } from '../shared/card/card';
 import { AecIcon } from '../shared/icon/icon';
-import { Chip } from '../shared/chip/chip';
 
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" section on a
@@ -110,15 +115,7 @@ import { Chip } from '../shared/chip/chip';
   // different element.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-powered-hub]',
-  imports: [
-    AecCard,
-    AecIcon,
-    RouterLink,
-    LogoOrInitial,
-    IntegrationGroupCard,
-    RequestTrigger,
-    Chip,
-  ],
+  imports: [AecCard, AecIcon, RouterLink, LogoOrInitial, IntegrationGroupCard, RequestTrigger],
   template: `
     <h2 id="powered-integrations-title" class="text-balance">
       <span [class]="headingClass">{{ heading() }}</span>
@@ -234,7 +231,7 @@ import { Chip } from '../shared/chip/chip';
                   nested
                   [routerLink]="pairLink(partner)"
                   [attr.aria-label]="hubRowAriaLabel(group.hub.name, partner)"
-                  class="flex h-full flex-col gap-4 p-6 text-(--text-primary) no-underline"
+                  [class]="cardClass"
                   data-testid="powered-card"
                 >
                   <span class="flex items-start gap-3">
@@ -252,9 +249,7 @@ import { Chip } from '../shared/chip/chip';
                     >
                     <!-- Navigation affordance, not direction (DESIGN.md "The Arrow
                          Rule"): the chevron the integration card draws. -->
-                    <span
-                      class="inline-flex size-6 shrink-0 items-center justify-center text-(--text-tertiary)
-                        transition-colors group-hover/card:text-(--text-secondary)"
+                    <span [class]="goClass" aria-hidden="true"
                       ><aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true"
                     /></span>
                   </span>
@@ -283,16 +278,16 @@ import { Chip } from '../shared/chip/chip';
                     }
                   </span>
                   @if (mechanismSummary(partner) || dataObjectLabel(partner)) {
-                    <span class="flex flex-wrap items-center gap-1.5">
+                    <span [class]="chipRowClass">
                       @if (mechanismSummary(partner); as summary) {
-                        <aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip>
+                        <span [class]="chipClass">{{ summary }}</span>
                       }
                       <!-- AECI-1080: the depth chip beside the mechanism badge, at the
                            same weight. Depth is orthogonal to mechanism. -->
                       @if (dataObjectLabel(partner); as objects) {
-                        <aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
+                        <span [class]="chipClass" data-testid="hub-data-objects">{{
                           objects
-                        }}</aec-chip>
+                        }}</span>
                       }
                     </span>
                   }
@@ -328,7 +323,7 @@ import { Chip } from '../shared/chip/chip';
                   nested
                   [routerLink]="pairLink(pair)"
                   [attr.aria-label]="flatRowAriaLabel(pair)"
-                  class="flex h-full flex-col gap-4 p-6 text-(--text-primary) no-underline"
+                  [class]="cardClass"
                   data-testid="powered-card"
                 >
                   <span class="flex items-start gap-3">
@@ -362,9 +357,7 @@ import { Chip } from '../shared/chip/chip';
                         <span class="min-w-0 break-words">{{ pair.b.name }}</span>
                       </span>
                     </span>
-                    <span
-                      class="inline-flex size-6 shrink-0 items-center justify-center text-(--text-tertiary)
-                        transition-colors group-hover/card:text-(--text-secondary)"
+                    <span [class]="goClass" aria-hidden="true"
                       ><aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true"
                     /></span>
                   </span>
@@ -372,14 +365,14 @@ import { Chip } from '../shared/chip/chip';
                     <span class="text-sm text-(--text-secondary)">{{ label }}</span>
                   }
                   @if (mechanismSummary(pair) || dataObjectLabel(pair)) {
-                    <span class="flex flex-wrap items-center gap-1.5">
+                    <span [class]="chipRowClass">
                       @if (mechanismSummary(pair); as summary) {
-                        <aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip>
+                        <span [class]="chipClass">{{ summary }}</span>
                       }
                       @if (dataObjectLabel(pair); as objects) {
-                        <aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
+                        <span [class]="chipClass" data-testid="hub-data-objects">{{
                           objects
-                        }}</aec-chip>
+                        }}</span>
                       }
                     </span>
                   }
@@ -455,6 +448,15 @@ export class ProductPoweredHub {
   // The mock-up 6 recipe, shared with the Integrations section (AECI-1788).
   protected readonly headingClass = INTEGRATION_LIST_HEADING_CLASS;
   protected readonly panelClass = INTEGRATION_FILTER_PANEL_CLASS;
+  /**
+   * The integration card recipe's compact variant (match-card-recipe.ts): these cards sit
+   * inside a group card, three across from lg, so they keep 24px padding and 16px between
+   * blocks, with the recipe's chips and its 34px round chevron button.
+   */
+  protected readonly cardClass = `${MATCH_CARD_COMPACT_BODY_CLASS} text-(--text-primary) no-underline`;
+  protected readonly chipRowClass = MATCH_CHIP_ROW_CLASS;
+  protected readonly chipClass = MATCH_CHIP_CLASS;
+  protected readonly goClass = MATCH_CARD_GO_CLASS;
   protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
   protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
   protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;

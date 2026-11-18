@@ -3,7 +3,6 @@ import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AecCard } from '../shared/card/card';
-import { Chip } from '../shared/chip/chip';
 import { correctionLabel } from '../shared/field-caption/correction-labels';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { AecIcon } from '../shared/icon/icon';
@@ -16,6 +15,17 @@ import {
 } from '../search/mechanism-labels';
 
 import { AgreementBadge } from './agreement-badge';
+import {
+  MATCH_CARD_BLOCK_CLASS,
+  MATCH_CARD_BODY_CLASS,
+  MATCH_CARD_FOOT_CLASS,
+  MATCH_CARD_GO_CLASS,
+  MATCH_CARD_NAME_TEXT_CLASS,
+  MATCH_CHIP_CLASS,
+  MATCH_CHIP_ICON_CLASS,
+  MATCH_CHIP_ROW_CLASS,
+  matchChipIcon,
+} from './match-card-recipe';
 import {
   routeIntegrationLane,
   rowUnderReviewFields,
@@ -51,6 +61,12 @@ import {
  *
  * Attribute selector on `<li>`: the lane renders its cards as one named list, the
  * card view's version of §13.3's one table per lane.
+ *
+ * **The integration card recipe** (`match-card-recipe.ts`, DESIGN.md "The integration
+ * card"), shared with the empty pair page's closest-match card since AECI-1720: 24px
+ * padding on a phone and 32px from md, 20px between blocks, the name at the Title
+ * role, the recipe's 31px chips with a glyph where the icon map has one, and the 34px
+ * round button with the chevron at the foot.
  */
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
@@ -59,7 +75,6 @@ import {
     AecCard,
     AecIcon,
     AgreementBadge,
-    Chip,
     LogoOrInitial,
     NgTemplateOutlet,
     RouterLink,
@@ -71,7 +86,7 @@ import {
       aecCard
       interactive
       [nested]="nested()"
-      class="flex h-full flex-col gap-4 p-6 text-(--text-primary) has-[.aec-partner-link:focus-visible]:outline-0"
+      [class]="cardClass"
       data-testid="integration-card"
     >
       <!-- Mock-up 6, .card .top: a 48px mark beside the partner name, with the
@@ -121,21 +136,22 @@ import {
            takes the same words as its accessible name, so a screen reader hears it as
            the name of the chip group; the visible label is aria-hidden to say it once. -->
       @if (row().integration.partner_categories.length > 0) {
-        <div>
+        <div [class]="blockClass">
           <span
-            class="aec-overline mb-2 block text-(--text-secondary)"
+            class="aec-overline block text-(--text-secondary)"
             aria-hidden="true"
             data-testid="integration-card-categories-label"
             >{{ categoriesLabel }}</span
           >
           <ul
-            class="flex flex-wrap gap-1.5"
+            [class]="chipRowClass"
             [attr.aria-label]="categoriesLabel"
             data-testid="integration-card-categories"
           >
             @for (category of row().integration.partner_categories; track category.slug) {
-              <li>
-                <aec-chip density="dense">{{ category.name }}</aec-chip>
+              <li [class]="chipClass">
+                <aec-icon name="tag" [class]="chipIconClass" decorative [size]="3.5" />
+                {{ category.name }}
               </li>
             }
           </ul>
@@ -144,7 +160,7 @@ import {
 
       <!-- Mock-up 6's "What moves": the direction, then the types of data. The data
            list keeps "Types of data" as its accessible name, the filter's words. -->
-      <div class="space-y-2" data-testid="integration-card-moves">
+      <div [class]="blockClass" data-testid="integration-card-moves">
         <span
           class="aec-overline block text-(--text-secondary)"
           data-testid="integration-card-moves-label"
@@ -175,28 +191,29 @@ import {
 
         @if (row().dataObjects.length > 0) {
           <ul
-            class="flex flex-wrap gap-1.5"
+            [class]="chipRowClass"
             [attr.aria-label]="dataTypesLabel"
             data-testid="integration-card-data-objects"
           >
             @for (object of row().dataObjects; track object.slug) {
-              <li>
-                <aec-chip density="dense" tone="neutral">{{ object.name }}</aec-chip>
+              <li [class]="chipClass">
+                @if (icon(object.slug); as glyph) {
+                  <aec-icon [name]="glyph" [class]="chipIconClass" decorative [size]="3.5" />
+                }
+                {{ object.name }}
               </li>
             }
           </ul>
         } @else if (dataObjectLabel(); as objects) {
           <!-- Slugs with no names on the wire: the row's count label, never nothing. -->
           <p>
-            <aec-chip density="dense" tone="neutral" data-testid="row-data-objects">{{
-              objects
-            }}</aec-chip>
+            <span [class]="chipClass" data-testid="row-data-objects">{{ objects }}</span>
           </p>
         }
       </div>
 
       <!-- Mock-up 6's "How it connects": the mechanism kinds, then its name. -->
-      <div class="space-y-2" data-testid="integration-card-connects">
+      <div [class]="blockClass" data-testid="integration-card-connects">
         <span
           class="aec-overline block text-(--text-secondary)"
           data-testid="integration-card-connects-label"
@@ -205,9 +222,9 @@ import {
         >
         <div class="flex flex-col items-start gap-1 text-t-14 text-(--text-secondary)">
           @if (mechanism().labels.length > 0) {
-            <span class="flex flex-wrap items-center gap-1">
+            <span [class]="chipRowClass">
               @for (label of mechanism().labels; track label) {
-                <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
+                <span [class]="chipClass">{{ label }}</span>
               }
             </span>
           } @else if (!isViaLane()) {
@@ -246,16 +263,9 @@ import {
            the name and the label match (WCAG 2.5.3). Stretched over the card, so a click
            anywhere on it opens the pair page. The glyph is a chevron, never an arrow:
            an arrow on this page means data-flow direction (the Arrow Rule). -->
-      <a
-        [routerLink]="pairLink()"
-        class="mt-auto flex min-h-11 items-center justify-between gap-3 text-t-14 font-semibold text-(--text-secondary) transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary) focus-visible:outline-0"
-        data-testid="integration-card-pair-link"
-      >
+      <a [routerLink]="pairLink()" [class]="footClass" data-testid="integration-card-pair-link">
         <span class="min-w-0 break-words">{{ pairLabel() }}</span>
-        <span
-          class="grid size-9 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)"
-          aria-hidden="true"
-        >
+        <span [class]="goClass" aria-hidden="true" data-testid="integration-card-go">
           <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
         </span>
       </a>
@@ -267,11 +277,9 @@ import {
            link draws its own ring, and the article's has-[.aec-partner-link] rule
            drops the card ring meanwhile: the card ring means the pair-page link, so
            showing both drew two rings around two different destinations. -->
-      <a
-        [routerLink]="['/products', row().other.slug]"
-        class="aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 font-display text-t-20 leading-tight font-semibold transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
-        >{{ row().other.name }}</a
-      >
+      <a [routerLink]="['/products', row().other.slug]" [class]="partnerLinkClass">{{
+        row().other.name
+      }}</a>
     </ng-template>
   `,
 })
@@ -287,6 +295,18 @@ export class ProductIntegrationCard {
   readonly headingLevel = input<3 | 4 | 5>(4);
   /** Inside a lane card: the nested card surface (tint, no shadow). */
   readonly nested = input(false);
+
+  // The integration card recipe (match-card-recipe.ts). The card is `interactive`, so
+  // the card surface owns its hover and focus ring; the body takes the recipe's room.
+  protected readonly cardClass = `${MATCH_CARD_BODY_CLASS} text-(--text-primary) has-[.aec-partner-link:focus-visible]:outline-0`;
+  protected readonly blockClass = MATCH_CARD_BLOCK_CLASS;
+  protected readonly chipRowClass = MATCH_CHIP_ROW_CLASS;
+  protected readonly chipClass = MATCH_CHIP_CLASS;
+  protected readonly chipIconClass = MATCH_CHIP_ICON_CLASS;
+  protected readonly footClass = `${MATCH_CARD_FOOT_CLASS} focus-visible:outline-0`;
+  protected readonly goClass = MATCH_CARD_GO_CLASS;
+  protected readonly partnerLinkClass = `aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 ${MATCH_CARD_NAME_TEXT_CLASS} transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)`;
+  protected readonly icon = matchChipIcon;
 
   // The chip-row labels, in TS so one string is both the visible label and the list's
   // name. The same message ids as the filter panel's "Categories" and "Types of data".
