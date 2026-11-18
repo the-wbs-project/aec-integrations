@@ -206,7 +206,9 @@
          Source Serif 4 has an optical-size axis: it narrows as it grows (about 9% from 20
          to 60px, flat above 60). One size-adjust cannot fit every size, so the serif has
          one fallback family per size band, named by the size it is tuned for. styles.css
-         picks the band for each type role and viewport ("Fallback faces by role"). Uppercase
+         picks the band for each type role and viewport ("Fallback faces by role"). The
+         display-scale roles draw the opsz 60 cut at every size (AECI-1927), so they all use
+         the 60 face, and the 48 and 56 bands they used to need were removed. Uppercase
          overlines get their own sans face: capitals run narrower against Arial than mixed
          case. Each face covers only the latin subset's range, so a character the web font
          lacks (an arrow, a star) falls through to the same font as before. A device without
@@ -278,54 +280,6 @@
         size-adjust: 83.69%;
         ascent-override: 123.79%;
         descent-override: 40.03%;
-        line-gap-override: 0%;
-        unicode-range:
-          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
-          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-      }
-      @font-face {
-        font-family: 'Source Serif 4 Fallback 48';
-        src: local('Georgia');
-        font-weight: 100 500;
-        size-adjust: 94.02%;
-        ascent-override: 110.19%;
-        descent-override: 35.63%;
-        line-gap-override: 0%;
-        unicode-range:
-          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
-          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-      }
-      @font-face {
-        font-family: 'Source Serif 4 Fallback 48';
-        src: local('Georgia Bold'), local('Georgia-Bold');
-        font-weight: 600 900;
-        size-adjust: 82.15%;
-        ascent-override: 126.1%;
-        descent-override: 40.78%;
-        line-gap-override: 0%;
-        unicode-range:
-          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
-          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-      }
-      @font-face {
-        font-family: 'Source Serif 4 Fallback 56';
-        src: local('Georgia');
-        font-weight: 100 500;
-        size-adjust: 92.2%;
-        ascent-override: 112.36%;
-        descent-override: 36.33%;
-        line-gap-override: 0%;
-        unicode-range:
-          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
-          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-      }
-      @font-face {
-        font-family: 'Source Serif 4 Fallback 56';
-        src: local('Georgia Bold'), local('Georgia-Bold');
-        font-weight: 600 900;
-        size-adjust: 80.62%;
-        ascent-override: 128.51%;
-        descent-override: 41.55%;
         line-gap-override: 0%;
         unicode-range:
           U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,

@@ -449,4 +449,86 @@ describe('design tokens', () => {
       }
     });
   });
+
+  // AECI-1927: glyphs are drawn as the approved mock-ups draw them, from one shared rule
+  // per role in styles.css (DESIGN.md §3 "How glyphs are drawn").
+  describe('how glyphs are drawn (AECI-1927, DESIGN.md §3)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    /** Every innermost rule: its selector list and its declarations. */
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selectors: m[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim()),
+      body: m[2],
+    }));
+    /** The `font-variation-settings` a selector's own rules declare. */
+    function variationOf(selector: string): string[] {
+      return rules
+        .filter((r) => r.selectors.includes(selector))
+        .flatMap((r) => [...r.body.matchAll(/font-variation-settings:\s*([^;]+);/g)])
+        .map((m) => m[1].trim());
+    }
+    function valueOf(name: string): string | undefined {
+      return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
+    }
+
+    it('sets grayscale smoothing and optimizeLegibility on body, for every ground', () => {
+      const body = rules.find((r) => r.selectors.length === 1 && r.selectors[0] === 'body');
+      expect(body?.body).toMatch(/-webkit-font-smoothing:\s*antialiased;/);
+      // Firefox on macOS: the same grayscale smoothing.
+      expect(body?.body).toMatch(/-moz-osx-font-smoothing:\s*grayscale;/);
+      expect(body?.body).toMatch(/text-rendering:\s*optimizeLegibility;/);
+    });
+
+    it('pins the display-scale roles at opsz 60 and leaves the smaller roles at the default', () => {
+      for (const sel of [
+        '.text-t-36',
+        '.text-3xl',
+        '.text-4xl',
+        '.text-t-48',
+        '.text-t-statement',
+        '.text-t-display',
+        '.aec-docs-title',
+        '.aec-plan-price',
+        '.md\\:text-t-36',
+      ]) {
+        expect(variationOf(sel), sel).toEqual(["'opsz' 60"]);
+      }
+      for (const sel of ['.text-t-20', '.text-t-24', '.text-t-fig', 'h1', 'h2[class]', 'h3']) {
+        expect(variationOf(sel), sel).toEqual(['normal']);
+      }
+    });
+
+    it('gives every role pinned at opsz 60 the opsz 60 fallback face at every width', () => {
+      for (const stack of [
+        'font-display-36',
+        'font-display-48',
+        'font-display-statement',
+        'font-display-display',
+      ]) {
+        const declared = [...css.matchAll(new RegExp(`--${stack}\\s*:\\s*([^;]+);`, 'g'))];
+        expect(declared, `--${stack} is declared once, outside any width band`).toHaveLength(1);
+        expect(valueOf(stack), `--${stack}`).toContain("'Source Serif 4 Fallback 60'");
+      }
+    });
+
+    it('sets optical size, smoothing and text rendering nowhere but styles.css', () => {
+      const offenders: string[] = [];
+      for (const file of walk(SRC_DIR)) {
+        if (file === STYLES_PATH || file === SELF || /\.spec\.ts$/.test(file)) continue;
+        const text = readFileSync(file, 'utf8');
+        if (
+          /font-variation-settings|font-optical-sizing|font-smoothing|text-rendering|\b(?:subpixel-)?antialiased\b/.test(
+            text,
+          )
+        ) {
+          offenders.push(file.slice(SRC_DIR.length + 1));
+        }
+      }
+      expect(offenders, 'move a local rendering rule onto the shared rule in styles.css').toEqual(
+        [],
+      );
+    });
+  });
 });

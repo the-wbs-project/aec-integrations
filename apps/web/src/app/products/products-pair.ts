@@ -600,12 +600,6 @@ function writePairViewCookie(mode: PairViewMode): void {
  */
 @Component({
   selector: 'aec-products-pair',
-  // AECI-1835: the empty pair page renders as mock-up 5 does, with grayscale smoothing and
-  // the font's kerning and ligatures (`body` in the mock-up). Only on the empty pair.
-  host: {
-    '[class.antialiased]': 'emptyPair()',
-    '[style.text-rendering]': "emptyPair() ? 'optimizeLegibility' : null",
-  },
   imports: [
     AecBreadcrumb,
     AecCard,
@@ -1589,9 +1583,6 @@ export class ProductsPairPage {
   protected statementName(name: string): string {
     return name.length <= 16 ? 'font-semibold md:whitespace-nowrap' : 'font-semibold';
   }
-
-  /** Whether this is the empty pair page (no mechanism on record). */
-  protected readonly emptyPair = computed(() => this.pair()?.mechanisms.length === 0);
 
   protected readonly view = computed<PairView | null>(() => {
     const pair = this.pair();
