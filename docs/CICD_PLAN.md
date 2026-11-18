@@ -1053,6 +1053,7 @@ If the smoke check fails, the deployment is marked failed and:
 
 - **Blocking.** Exit 1 is a finding and fails the promote at once. Exit 2 means a page never answered, so the step retries 3 times, 10 s apart, before it fails. There is no `continue-on-error`.
 - **Not a rollback trigger.** The rollback step keys on the smoke step, so a red crawler check leaves the new Workers live. The likeliest red is a Cloudflare zone setting that 403s the runner (`waf-rate-limits.md` §3b), and a Worker rollback cannot fix that. The failure runbook in the run summary says which message means what.
+- **The probe comes from the workflow's revision, not the promoted SHA.** A sparse checkout loads `scripts/check-ssr-listings.sh` from the dispatched ref (`main`), the same way `resolve-promote-sha.sh` is loaded. A release cut before AECI-840 carries the old probe, which sends no Access token and would fail every demo page.
 - **Demo needs the Access service token.** Without it the pages redirect to the Access login host, and the script reports `redirected off-host`.
 - **Trial 2026-11-18:** 45 of 45 pages answered 200 from a GitHub runner on staging, demo and production.
 

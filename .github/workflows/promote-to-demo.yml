@@ -1010,6 +1010,16 @@ jobs:
       #
       # Exit 1 is a finding and fails at once. Exit 2 means a page never answered,
       # so it is retried before it fails. Demo is behind Access (AECI-1530), so it needs the service token.
+      # The probe comes from the workflow's own revision (the dispatched ref, main),
+      # not from the SHA being promoted. A release that predates AECI-840 carries the
+      # old probe, which sends no Access token and would fail every demo page. Same
+      # sparse-checkout pattern as scripts/resolve-promote-sha.sh above.
+      - name: Fetch the crawler probe from the workflow revision
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/check-ssr-listings.sh
+          sparse-checkout-cone-mode: false
+          path: probe
       - name: Crawler check, listing pages ship product links (demo)
         id: crawler
         env:
@@ -1022,7 +1032,7 @@ jobs:
           set -uo pipefail
           for attempt in 1 2 3; do
             rc=0
-            bash scripts/check-ssr-listings.sh "$HOST" || rc=$?
+            bash probe/scripts/check-ssr-listings.sh "$HOST" || rc=$?
             if [ "$rc" -eq 0 ]; then
               exit 0
             fi
