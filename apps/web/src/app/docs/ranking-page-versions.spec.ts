@@ -8,6 +8,7 @@
  * `title` / `version` / `recorded_on` frontmatter. So any edit to the page
  * fails here until the version is bumped. No hash: no acceptance stores it.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -101,6 +102,66 @@ describe('How ranking works versions', () => {
       known: RANKING_PAGE_KNOWN_VERSIONS,
       recordedOn: RANKING_PAGE_RECORDED_ON,
     });
+  });
+});
+
+/**
+ * AECI-1720: every recorded version file is frozen. A merge once left git conflict
+ * markers in the published v1.1 archive, and the check above reads only the current
+ * version, so nothing failed. Each file must exist, parse, hold no conflict markers and,
+ * once frozen, keep the exact bytes recorded here.
+ *
+ * 1.2 is provisional (AECI-1894): its hash is recorded here when Chris approves it.
+ * Until then it is checked for existence, frontmatter and markers only, and the
+ * byte-for-byte check against the live page above holds it.
+ */
+const PROVISIONAL: ReadonlySet<string> = new Set(['1.2']);
+
+const FROZEN_SHA256: Readonly<Record<string, string>> = {
+  '1.0': '4dadf22cd0b341bb6338479202979ae4df099a7d9d5b61f0aa10a6160147868d',
+  '1.1': '98f381219dcf5f586ead12f94f09e73ea162632e1422765d6067404f55e0d2f4',
+};
+
+/** A git conflict: a line opening with seven `<` closed by a later one with seven `>`. */
+const CONFLICT_RE = /^<{7}(?: .*)?$[\s\S]*?^>{7}(?: .*)?$/m;
+
+describe('How ranking works version files are frozen (AECI-1720)', () => {
+  it.each([...RANKING_PAGE_KNOWN_VERSIONS])(
+    'v%s exists, parses and holds no conflict markers',
+    (version) => {
+      const path = versionFile(version);
+      expect(existsSync(path), `${path} is missing`).toBe(true);
+      const text = readFileSync(path, 'utf8');
+      expect(FRONTMATTER_RE.test(text), `${path} has no frontmatter`).toBe(true);
+      expect(parseFrontmatter(text).data['version']).toBe(version);
+      expect(CONFLICT_RE.test(text), `${path} holds git conflict markers`).toBe(false);
+    },
+  );
+
+  it.each(Object.entries(FROZEN_SHA256))('v%s keeps its recorded bytes', (version, hash) => {
+    const actual = createHash('sha256')
+      .update(readFileSync(versionFile(version)))
+      .digest('hex');
+    expect(
+      actual,
+      `versions/how-ranking-works/v${version}.md changed. A recorded version is never edited ` +
+        '(apps/web/src/content/README.md, "Versioned pages"). Restore it from git.',
+    ).toBe(hash);
+  });
+
+  it('records a hash for every known version but the provisional ones', () => {
+    expect(Object.keys(FROZEN_SHA256)).toEqual(
+      RANKING_PAGE_KNOWN_VERSIONS.filter((v) => !PROVISIONAL.has(v)),
+    );
+  });
+
+  it('the conflict check finds markers and ignores a setext heading', () => {
+    const lt = '<'.repeat(7);
+    const gt = '>'.repeat(7);
+    const eq = '='.repeat(7);
+    expect(CONFLICT_RE.test(['a', `${lt} HEAD`, 'x', eq, 'y', `${gt} main`].join('\n'))).toBe(true);
+    expect(CONFLICT_RE.test(['Heading', eq, '', 'Body'].join('\n'))).toBe(false);
+    expect(CONFLICT_RE.test([`${lt} HEAD`, 'x', eq].join('\n'))).toBe(false);
   });
 });
 
