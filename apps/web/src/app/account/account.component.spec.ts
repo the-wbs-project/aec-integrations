@@ -514,12 +514,23 @@ describe('AccountPage', () => {
   it('says, before the confirmation, that private messages stay for 2 years without the name', async () => {
     const { fixture, el } = await setup();
     const section = el.querySelector('[data-testid="account-delete-messages"]');
-    expect(section?.textContent).toContain(
+    expect(section?.textContent?.replace(/\s+/g, ' ')).toContain(
       'If you sent messages to another company in a private conversation, they stay with the conversation for 2 years after its last message, with your name removed. The text may still identify you.',
     );
-    const link = section?.querySelector('a');
+    // Legal branch 6 (ruling 45): the rest of the Privacy Policy's "Deletion" list, then the
+    // Retention link. AECI-1915: a space separates the sentence from the link.
+    const kept = el.querySelector('[data-testid="account-delete-kept"]');
+    expect(kept?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'We also keep the record of what you submitted or changed, any agreement you accepted for a company, and what the law requires us to keep, such as a record tied to a legal request. Read the Retention',
+    );
+    const link = kept?.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/legal/privacy');
     expect(link?.textContent).toContain('Retention section of our Privacy Policy');
+    // AECI-1915 (ruling 3): the body promises only that the link to the account is cut.
+    const deleteSection = el.querySelector('#delete-account');
+    expect(deleteSection?.textContent?.replace(/\s+/g, ' ')).toContain(
+      "Reviews you've published stay online, but they are no longer linked to your account.",
+    );
 
     // The confirmation dialog repeats it, above "Delete my account".
     const trigger = Array.from(el.querySelectorAll('button')).find(
@@ -539,6 +550,16 @@ describe('AccountPage', () => {
     expect(confirm.getAttribute('data-variant')).toBe('danger');
     expect(confirm.getAttribute('type')).toBe('button');
     expect(confirm.className).toContain('bg-(--status-error)');
+    // Ruling 3 reaches the dialog, and it lists the same kept records as the page.
+    const description = document.querySelector('[brnDialogDescription]');
+    expect(description?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Your published reviews stay online, but are no longer linked to your account.',
+    );
+    expect(description?.textContent).not.toContain('anonymized');
+    const dialogKept = document.querySelector('[data-testid="account-delete-dialog-kept"]');
+    expect(dialogKept?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'what the law requires us to keep, such as a record tied to a legal request.',
+    );
   });
 
   // ── AECI-1637: the sign-in Terms acceptance record is kept ────────────

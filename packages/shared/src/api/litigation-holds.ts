@@ -45,7 +45,10 @@ export const LITIGATION_HOLD_REMINDER_EVERY_DAYS = 30;
  * 2026-11-17). Exact actions first, then prefixes. `retention.pruned` rows are read with no
  * date bound by the acceptance chain verify (ADR 0057). The others prove an acceptance
  * record, so they follow it: an `agreement.*` row whose acceptance the legal prune deletes
- * goes in the same batch.
+ * goes in the same batch. One more action is exempt on a condition, so it is not in these
+ * lists (AECI-1914): `vendor.deleted`, while its vendor row is gone and an acceptance or grant
+ * still names that vendor. `auditPrunePredicate` in `apps/api/src/lib/legal-retention-prune.ts`
+ * holds that test, and {@link isAuditLogPruneExempt} does not.
  */
 export const AUDIT_LOG_PRUNE_EXEMPT_ACTIONS = ['retention.pruned', 'account.deleted'] as const;
 export const AUDIT_LOG_PRUNE_EXEMPT_PREFIXES = [

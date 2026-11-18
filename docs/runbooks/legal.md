@@ -104,9 +104,11 @@ deadline at all. Spur's is unread. Listed on AECI-310.
 "Without undue delay" is the standard term in self-serve DPAs, and none of these vendors negotiates it
 at our size. What to do about the gap is a decision for Chris and counsel, tracked on AECI-310.
 
-**The Privacy Policy "stop working within days" sentence.** The "Edge request log" and "Debugging
-record" bullets say single-use links, "such as a sign-in or confirmation link", "stop working within
-days". The lifetimes behind that sentence:
+**The Privacy Policy single-use link sentence.** The "Edge request log" and "Debugging record"
+bullets used to say single-use links "stop working within days". Since Privacy Policy 1.1 (legal
+branch 6, AECI-1363, 2026-11-18) they name three links and their lifetimes: "A sign-in link stops
+working within a day, a confirmation link after 7 days, and a seat invite 14 days after it was last
+sent." The lifetimes behind that sentence:
 
 | Link | Lifetime | Source |
 |---|---|---|
@@ -114,11 +116,11 @@ days". The lifetimes behind that sentence:
 | Claim and listing confirmation | 7 days | `request_confirmations.expires_at`, swept by `cron-schedules.ts` |
 | Seat invite | 14 days, reset on a re-send | `INVITE_TTL_DAYS` in `apps/api/src/lib/vendor-seat-invites.ts` |
 
-**Verdict.** The sentence holds for sign-in and confirmation links, the two it names: one hour and 7
-days. The seat invite is the weak case. It lives 14 days
-and moves forward on every re-send, which is a stretch for "within days". It also needs a sign-in to the
-invited mailbox to use, so a leaked invite link alone opens nothing. Raised as a text item for Chris to
-rule: AECI-1681.
+**Verdict.** The sentence now holds for all three. It names each lifetime, and the seat invite is
+counted from the last send, so a re-send moves the date and the text says so. This was the open text item AECI-1681.
+A seat invite also needs a sign-in to the invited mailbox to use, so a leaked invite link alone opens
+nothing. Check the sentence again if `INVITE_TTL_DAYS`, the confirmation expiry or the Supabase
+OTP expiry changes. A longer lifetime makes the text false.
 
 ## Accessibility barrier report (AECI-1673)
 
@@ -350,7 +352,10 @@ production Cloudflare, Supabase, GitHub or PostHog access.
 
 **Place the hold in the app the same day (AECI-1638).** The legal retention prune deletes audit
 records four years after the action and acceptance records six years after a vendor account ends
-(ADR 0058). A litigation hold is its off switch, and the only one any job has.
+(ADR 0058). Since AECI-1914 it also deletes an acceptance of a claim never approved six years
+after the claim was rejected, an acceptance with no company or claim six years after it was given,
+and the acceptances of a deleted company six years after the deletion. A litigation hold is its
+off switch, and the only one any job has.
 
 1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
 2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
@@ -359,7 +364,10 @@ records four years after the action and acceptance records six years after a ven
 3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
 4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
    released four years ago. A vendor hold also keeps that
-   vendor's agreement acceptances and subscription grants. A global hold keeps everything: the
+   vendor's agreement acceptances and subscription grants, including the acceptances of a
+   rejected claim on that company and of a deleted company with that id. An acceptance with no
+   company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
+   it. A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the
    `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
 5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose

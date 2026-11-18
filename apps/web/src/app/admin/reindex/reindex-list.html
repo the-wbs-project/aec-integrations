@@ -1,12 +1,30 @@
 <section aria-labelledby="admin-reindex-heading">
   <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-reindex-heading"
-      class="text-xl font-bold text-(--text-primary)"
-      i18n="@@admin.reindex.heading"
-    >
-      Re-index queue
-    </h2>
+    <div>
+      <h2
+        id="admin-reindex-heading"
+        class="text-xl font-bold text-(--text-primary)"
+        i18n="@@admin.reindex.heading"
+      >
+        Re-index queue
+      </h2>
+      <!-- The count of rows matching the current filter, across every page, not
+           just the 25 shown. Hidden while loading so it never flashes a 0. -->
+      @if (!loading() && !loadFailed()) {
+      <p class="mt-1 text-sm text-(--text-secondary)" data-testid="admin-reindex-total">
+        @if (priority() === null) {
+        <span i18n="@@admin.reindex.total.all"
+          >{total(), plural, =1 {1 URL in the queue} other {{{ total() }} URLs in the queue}}</span
+        >
+        } @else {
+        <span i18n="@@admin.reindex.total.priority"
+          >{total(), plural, =1 {1 URL at priority {{ priority() }}} other {{{ total() }} URLs at
+          priority {{ priority() }}}}</span
+        >
+        }
+      </p>
+      }
+    </div>
 
     <div class="flex flex-wrap items-center gap-2">
       <span
