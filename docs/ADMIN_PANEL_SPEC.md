@@ -752,8 +752,12 @@ Three IA notes:
 
 > **Claimed filter and Claimed on column (AECI-1934, 2026-11-18).** The operator could not see which vendors are claimed. Account active is the paid mirror (`vendors.verified`), and most claimed vendors are on the Free plan, so it missed them. Chris ruled that "claimed" here means `vendors.owned_at IS NOT NULL` (ADR 0042). It is not "holds a live seat". The list does not read `claim_ended_at`, so a vendor whose claim ended but which still owns its records shows as claimed. Two additions:
 >
-> - **A Claimed filter** (All vendors / Claimed / Unclaimed), sent as `?claimed=true|false`. It is the same `<aec-select>` and the same state rule as the Banned filter on `/admin/users` (§5.8). It seeds one way from `?claimed=` on load and is never written back to the URL. A change discards the loaded rows and refetches from the first chunk. So `/admin/vendors?claimed=true` arrives filtered, but a filter picked on screen does not survive a reload.
+> - **A Claimed filter** (All vendors / Claimed / Unclaimed), sent as `?claimed=true|false`. It is the same `<aec-select>` as the Banned filter on `/admin/users` (§5.8). A change discards the loaded rows and refetches from the first chunk.
 > - **A sortable Claimed on column**, between Slug and Account active. It shows the `owned_at` date, or a dash read as "Not claimed". The `claimed` sort key puts the most recent claim first. Unclaimed vendors sort last in both directions, A to Z by name.
+>
+> **This list keeps its filter, search and sort in the URL** (`claimed`, `search`, `sort`, `order`), as `/admin/audit` does. Each change pushes a history entry, so reload, Back and a shared link restore the list. Defaults are left out, so the bare `/admin/vendors` is the default view. `/admin/users` does not do this yet: it reads its filters from the URL once on load and keeps its sort in memory.
+>
+> **Follow-up:** the `/admin/users` divergence is tracked as its own issue.
 
 > **Tabs — the detail screen is a tabbed menu.** A horizontal row — **Vendor** / **Billing** / **Products** / **Integrations** / **Audit Trail** — over one panel, with the tab held in `?tab=` (absent = Vendor, which keeps the bare URL canonical). It shipped with three tabs. Integrations (AECI-1046) and Billing (AECI-1372) came later. Four notes:
 >
