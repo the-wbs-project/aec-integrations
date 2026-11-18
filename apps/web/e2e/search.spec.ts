@@ -166,7 +166,11 @@ test.describe('/search keeps every checked filter on screen (AECI-1899)', () => 
       await openEmpty(page);
       const box = filterBox(page, group, value);
       await untilHydrated(box);
-      await box.uncheck();
+      // A click, not `uncheck()` (AECI-1923). `uncheck()` reads the box again
+      // after its click. An unchecked value whose group has nothing left is
+      // removed, so a box gone by then made Playwright wait for it to come back
+      // until the test timed out. The rendered results below are the gate.
+      await box.click();
       await expect(page.locator('aec-search-product-card').first()).toBeVisible();
       await expect(page.locator('aec-empty-state')).toHaveCount(0);
       await expect(filterBox(page, leftGroup, left)).toBeChecked();

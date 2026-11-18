@@ -1027,6 +1027,21 @@ IntelliBid").
   `layoutSettled` in that spec now also waits until no footer control carries
   `aria-busy`.
 
+  **`check()` and `uncheck()` read the box again after the click (AECI-1923).**
+  Playwright clicks, waits for the navigation the click scheduled, then reads
+  the box's state. If the box has left the DOM by then, the action starts over
+  and waits for a box that matches the locator. On `/search` an unchecked value
+  whose group has no other values is removed, with its group, on the next
+  render. For Trades › Roofing on `/search?trades=Roofing&categories=…` that is
+  the render InstantSearch runs while the search is in flight, about 50ms after
+  the click and before Algolia answers. So `uncheck()` on such a box waited out the test timeout. It failed
+  3 of 200 runs on an idle machine. With the CPU slowed 4x and Algolia answering
+  in 150 to 750ms, the Roofing case failed 25 of 25. The app
+  was right: the box never read checked again. Use `click()` on a filter box,
+  then gate on what the new state renders (rows, the URL, a count). Use
+  `check()` or `uncheck()` only on a control that stays in the DOM, such as a
+  form's terms box.
+
 **(c) A visible overlay is not yet listening (AECI-1672).** A Spartan popover or
 dialog (`BrnPopover`, `BrnDialog`) renders its panel inside the click handler
 that opens it. It subscribes to the overlay's outside-click and Escape streams

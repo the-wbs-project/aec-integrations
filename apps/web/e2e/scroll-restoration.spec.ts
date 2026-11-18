@@ -941,7 +941,9 @@ test.describe('Back and Forward return the reader to their place on /search', ()
           .filter({ has: page.locator('legend', { hasText: 'Categories' }) })
           .getByRole('checkbox', { name: 'Field Management' });
         await untilHydrated(box);
-        await box.check();
+        // A click, not `check()`, which reads the box again while the list
+        // re-renders (AECI-1923). The URL and the footer below are the gate.
+        await box.click();
         await expect(page).toHaveURL(/categories=Field/);
         // The filtered answer is on screen. "Load more" pressed while a filter
         // search is in flight loses that answer's first page (seen here, not fixed).
