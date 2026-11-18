@@ -757,7 +757,7 @@ Three IA notes:
 >
 > **This list keeps its filter, search and sort in the URL** (`claimed`, `search`, `sort`, `order`), as `/admin/audit` does. Each change pushes a history entry, so reload, Back and a shared link restore the list. Defaults are left out, so the bare `/admin/vendors` is the default view. `/admin/users` does not do this yet: it reads its filters from the URL once on load and keeps its sort in memory.
 >
-> **Follow-up:** the `/admin/users` divergence is tracked as its own issue.
+> **Follow-up:** the `/admin/users` divergence is tracked as AECI-1935.
 
 > **Tabs — the detail screen is a tabbed menu.** A horizontal row — **Vendor** / **Billing** / **Products** / **Integrations** / **Audit Trail** — over one panel, with the tab held in `?tab=` (absent = Vendor, which keeps the bare URL canonical). It shipped with three tabs. Integrations (AECI-1046) and Billing (AECI-1372) came later. Four notes:
 >
