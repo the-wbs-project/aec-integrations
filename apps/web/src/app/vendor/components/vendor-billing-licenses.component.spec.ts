@@ -6,12 +6,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { VendorBillingLicense } from '@aeci/shared';
 
 import { VENDOR_BILLING_FIXTURE } from '../vendor-fixtures';
-import { VendorBillingLicenses } from './vendor-billing-licenses';
+import { VendorBillingLicenses, toVendorBillingLicenseRow } from './vendor-billing-licenses';
 
 /**
  * The vendor licenses table (AECI-1390, E5.4): source words, calendar dates that
  * never shift a day, the reference or a dash, the status and its flags, live
- * first, and an empty state with no buy button.
+ * first, and an empty state with no buy button. AECI-1866: the status chip tones,
+ * the real end date on an ended row, and ended rows in a closed group.
  */
 const [ASSIGNED, POOL, ENDED] = VENDOR_BILLING_FIXTURE.licenses as [
   VendorBillingLicense,
@@ -63,7 +64,9 @@ describe('VendorBillingLicenses', () => {
       'Live',
       'PO-2026-0412',
     ]);
-    expect(ended![4]).toBe('Ended Aug 31, 2026, term ended');
+    // AECI-1866: Ends is the day it ended, and the chip carries no date.
+    expect(ended![3]).toBe('Aug 31, 2026');
+    expect(ended![4]).toBe('Ended, lapsed');
     expect(ended![5]).toBe('INV-1043');
   });
 
@@ -107,7 +110,21 @@ describe('VendorBillingLicenses', () => {
   it('has no Actions column until E5.5 passes row actions', () => {
     const fixture = render(VENDOR_BILLING_FIXTURE.licenses);
 
-    expect((fixture.nativeElement as HTMLElement).querySelectorAll('th')).toHaveLength(6);
+    const [main] = (fixture.nativeElement as HTMLElement).querySelectorAll('table');
+    expect(main!.querySelectorAll('th')).toHaveLength(6);
+  });
+
+  it('keeps a minimum table width so a narrow screen scrolls, not crushes (AECI-1866 review)', () => {
+    const el = render(VENDOR_BILLING_FIXTURE.licenses).nativeElement as HTMLElement;
+    const tables = [...el.querySelectorAll('table')];
+
+    expect(tables).toHaveLength(2);
+    for (const t of tables) {
+      expect(t.classList).toContain('min-w-[58rem]');
+      expect(t.closest('.overflow-x-auto')).not.toBeNull();
+      // Rem widths, never percentages: a percentage column shrinks with the screen.
+      expect([...t.querySelectorAll('col')].some((c) => c.className.includes('%'))).toBe(false);
+    }
   });
 
   it('shows an empty state that no longer promises buying "later" (AECI-1502)', () => {
@@ -126,5 +143,120 @@ describe('VendorBillingLicenses', () => {
     const el = render([POOL], true).nativeElement as HTMLElement;
 
     expect(el.textContent).toContain('Showing the first 500 subscriptions.');
+  });
+  describe('ended rows (AECI-1866)', () => {
+    const RELEASED: VendorBillingLicense = {
+      ...ENDED,
+      id: 'l-released',
+      ends_at: '2027-11-16',
+      ended_at: '2026-11-16T10:00:00.000Z',
+      end_reason: 'released',
+    };
+
+    const el = (fixture: ComponentFixture<VendorBillingLicenses>) =>
+      fixture.nativeElement as HTMLElement;
+
+    it('keeps live rows in the main table and ended rows in a closed group', () => {
+      const root = el(render([ASSIGNED, ENDED, RELEASED]));
+      const group = root.querySelector(
+        'details[data-testid="licenses-ended"]',
+      ) as HTMLDetailsElement;
+
+      expect(group).not.toBeNull();
+      expect(group.open).toBe(false);
+      expect(group.querySelector('summary')?.textContent?.trim()).toBe('Ended subscriptions (2)');
+      expect(group.querySelectorAll('[data-testid="license-row"]')).toHaveLength(2);
+
+      const mainRows = [...root.querySelectorAll('[data-testid="license-row"]')].filter(
+        (r) => !group.contains(r),
+      );
+      expect(mainRows).toHaveLength(1);
+      expect(mainRows[0]!.getAttribute('data-tone')).toBe('live');
+    });
+
+    it('uses the same columns in the ended group', () => {
+      const root = el(render([ASSIGNED, ENDED]));
+      const [main, ended] = [...root.querySelectorAll('table')];
+      const heads = (t: Element) => [...t.querySelectorAll('th')].map((h) => h.textContent?.trim());
+
+      expect(heads(ended!)).toEqual(heads(main!));
+    });
+
+    it('renders no group when nothing has ended', () => {
+      const root = el(render([ASSIGNED, POOL]));
+
+      expect(root.querySelector('details')).toBeNull();
+    });
+
+    it('shows the day it actually ended, not the term end', () => {
+      const [row] = rows(render([RELEASED]));
+
+      expect(row![3]).toBe('Nov 16, 2026');
+      expect(row![3]).not.toContain('2027');
+      expect(row![4]).toBe('Ended, released');
+    });
+
+    it('says there is no live subscription when every row has ended', () => {
+      const root = el(render([ENDED]));
+
+      expect(root.querySelector('[data-testid="licenses-none-live"]')?.textContent?.trim()).toBe(
+        'No live subscriptions.',
+      );
+      expect(root.querySelector('details')).not.toBeNull();
+    });
+  });
+
+  describe('status chips (AECI-1866)', () => {
+    const chip = (fixture: ComponentFixture<VendorBillingLicenses>) =>
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="license-status"]')!;
+    const soon = (days: number) =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+
+    it('gives a live subscription the Forest chip', () => {
+      const c = chip(render([POOL]));
+
+      expect(c.classList).toContain('aec-status-chip--live');
+      expect(c.textContent).toBe('Live');
+    });
+
+    it('gives a subscription that will not renew the warning chip, and says so in words', () => {
+      const fixture = render([{ ...POOL, cancel_at_term_end: true }]);
+      const [row] = rows(fixture);
+
+      expect(chip(fixture).classList).toContain('aec-status-chip--warning');
+      expect(chip(fixture).textContent).toBe('Live');
+      expect(row![4]).toContain('Cancels at term end');
+    });
+
+    it('says "Ends soon" in the warning chip inside the renewal window', () => {
+      const c = chip(render([{ ...POOL, ends_at: soon(10) }]));
+
+      expect(c.classList).toContain('aec-status-chip--warning');
+      expect(c.textContent).toBe('Ends soon');
+    });
+
+    it('never calls a card subscription "Ends soon": Stripe renews it', () => {
+      const c = chip(render([{ ...POOL, source: 'stripe', ends_at: soon(10) }]));
+
+      expect(c.classList).toContain('aec-status-chip--live');
+      expect(c.textContent).toBe('Live');
+    });
+
+    it('gives an ended subscription the neutral chip', () => {
+      const c = chip(render([ENDED]));
+
+      expect(c.classList).toContain('aec-status-chip--ended');
+    });
+
+    it('draws the window edge at 45 days', () => {
+      const now = Date.UTC(2026, 10, 18);
+      const at = (iso: string) =>
+        toVendorBillingLicenseRow({ ...POOL, ends_at: iso }, 'en-US', now).tone;
+
+      expect(at('2027-01-02')).toBe('warning');
+      expect(at('2027-01-03')).toBe('live');
+      // A past end on a live row is not "ending soon"; the term sweep owns it.
+      expect(at('2026-11-17')).toBe('live');
+    });
   });
 });

@@ -10,10 +10,14 @@ import { z } from 'zod';
  * One locked field on a vendor read (`locked_fields`): which field, AECi's
  * vendor-visible reason, and when. Never the internal note. `field` is the wire
  * name the record's own PATCH uses.
+ *
+ * `reason` is set only for the vendor holding the lock, its `vendor_id` (AECI-1668,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). Any other vendor that sees the record gets
+ * `null`, as for a value hide (§11d.7). `source_url` reaches every viewer.
  */
 export const LockedFieldSchema = z.object({
   field: z.string(),
-  reason: z.string(),
+  reason: z.string().nullable(),
   set_at: z.string(),
   /** Where AECi read the value (AECI-1614). `null` on an older correction. The public
    *  page shows it too, so the vendor sees what readers see. Optional for deploy skew. */

@@ -290,7 +290,14 @@
       </thead>
       <tbody>
         @for (row of rows(); track row.license.id) {
-        <tr class="border-b border-(--border-default) align-top" data-testid="billing-license-row">
+        <!-- AECI-1866: an ended row is dimmed so the live rows stand out. The admin table keeps
+             one list (no chips, no ended group): bulk select spans it and operators read
+             the whole history at once. -->
+        <tr
+          class="border-b border-(--border-default) align-top"
+          data-testid="billing-license-row"
+          [attr.data-ended]="row.license.live ? null : ''"
+        >
           @if (bulkActions()) {
           <td class="w-10 py-2.5 pe-3 text-start">
             @if (row.license.live) {
@@ -306,7 +313,11 @@
             }
           </td>
           }
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+          <th
+            scope="row"
+            class="py-2.5 pe-4 text-start font-bold"
+            [class]="row.license.live ? 'text-(--text-primary)' : 'text-(--text-secondary)'"
+          >
             @if (row.license.assigned_product; as p) { {{ p.name }}
             <span class="block text-xs font-normal text-(--text-tertiary)">{{ p.slug }}</span>
             } @else {
@@ -328,7 +339,10 @@
 
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
 
-          <td class="py-2.5 pe-4 text-(--text-primary)">
+          <td
+            class="py-2.5 pe-4"
+            [class]="row.license.live ? 'text-(--text-primary)' : 'text-(--text-secondary)'"
+          >
             {{ row.statusLabel }} @if (row.cancelLabel) {
             <span
               class="mt-1 block text-xs font-bold text-(--text-primary)"

@@ -1287,8 +1287,10 @@ export function createListVendorIntegrationsHandler(
     ];
     const pairIds = ownedRows.filter((row) => row.anchor === 'evidenced_pair').map((row) => row.id);
     const [integrationLocks, pairLocks, integrationHides, pairHides] = await Promise.all([
-      lockedFieldsByEntity(db, 'integration', integrationIds),
-      lockedFieldsByEntity(db, 'connector_evidenced_pair', pairIds),
+      // A lock's reason goes to the holder only (AECI-1668, §11d.5). Its source is
+      // public, so every viewer gets it.
+      lockedFieldsByEntity(db, 'integration', integrationIds, vendorId),
+      lockedFieldsByEntity(db, 'connector_evidenced_pair', pairIds, vendorId),
       // The reason and source go to the holder only (§11d.7): the other endpoint's
       // vendor sees that a value is under review, not why.
       hiddenFieldsByEntity(db, 'integration', integrationIds, vendorId),

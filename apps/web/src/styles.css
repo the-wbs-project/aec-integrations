@@ -881,6 +881,32 @@ h1.aec-docs-title,
   border-color: var(--status-error);
 }
 
+/* Subscription status chips on the vendor Billing tab (AECI-1866,
+   `vendor-billing-licenses.ts`). Same trap as `.aec-nav-tab`: a layered
+   `border-(--accent-primary)` never beats the unlayered `*` rule, which is why
+   every chip came out the same grey. Existing tokens only (DESIGN.md allows no new
+   status colour). Live is the Forest wash with its Forest boundary (the wash alone
+   is 1.14:1 on white, so the border carries the edge). Warning is Clay deep text,
+   the system's warning hue, text-only so the Clay-Restriction Rule holds. Ended is
+   neutral. The chip's words always name the state. */
+.aec-status-chip--live {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-primary-soft);
+  color: var(--accent-primary);
+}
+
+.aec-status-chip--warning {
+  border-color: var(--border-strong);
+  background-color: var(--surface-raised);
+  color: var(--accent-secondary-deep);
+}
+
+.aec-status-chip--ended {
+  border-color: var(--border-strong);
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
 /* The vendor overview's Views period toggle (AECI-983). The pressed state is an
    attribute, and a utility toggled by state loses to the resting and hover
    utilities, so the pressed colours live on an unlayered class. */

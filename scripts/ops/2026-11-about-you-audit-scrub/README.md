@@ -1,12 +1,12 @@
 # About-you audit scrub (AECI-1869)
 
-**Status: not run.** Update this table at each step.
+**Status: done on all three environments (2026-11-17 to 2026-11-18).** The staging and demo bookmarks and the deploy checks were not recorded here.
 
 | Environment | Deployed with the AECI-1869 code | Bookmark | Count before | Count after |
 |---|---|---|---|---|
-| `aeci-app-staging` | | | | |
-| `aeci-app-demo` | | | | |
-| `aeci-app-production-us` | | | | |
+| `aeci-app-staging` | Not recorded | Not recorded | 1 | 0 |
+| `aeci-app-demo` | Not recorded | Not recorded | 3 | 0 |
+| `aeci-app-production-us` | Not recorded | `00001b85-00000350-00005127-1e99fbb18894bea3c214e75fcc3e7622` | 4 | 0 |
 
 ## What this changes
 

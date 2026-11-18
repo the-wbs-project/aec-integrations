@@ -3391,7 +3391,7 @@ AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` 
 | `source_url` | text | where AECi read the value (AECI-1614, migration 0104). Public, beside the "Corrected" caption. Required on a new correction by `AdminSetFieldOverrideSchema` (https, at most 2,048 characters). NULL on an older row, which renders the date alone |
 | `reason` | text NOT NULL | shown to the vendor |
 | `internal_note` | text | never shown to a vendor |
-| `vendor_id` | text | the vendor holding the record at set time, which was told. No FK |
+| `vendor_id` | text | the vendor holding the record at set time, which was told. No FK. The vendor reads give `reason` only to this vendor (AECI-1668); any other viewer gets `null` |
 | `set_by`, `set_at` | text | the admin and when. `set_at` NOT NULL |
 | `lifted_by`, `lifted_at`, `lift_reason` | text | NULL while the lock stands. `lift_reason` is shown to the vendor. A record-only row (AECI-1628) is born with `lifted_at = set_at`, `lifted_by = set_by` and `lift_reason = 'record-only'` |
 

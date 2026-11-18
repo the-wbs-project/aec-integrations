@@ -492,7 +492,7 @@ and give it an `activeFrom`:
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-Seven entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
+These entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `2026-10-12T18:00:00Z`. Delete it once `aeci.gsc_inspect.run` appears in production.
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
@@ -506,9 +506,6 @@ production promote. Move it to the real promote plus a day, and delete it once
 `acceptance-evidence-removal` (AECI-1636) carries `2026-11-24T18:00:00Z`, a placeholder past the
 expected production promote. Move it to the real promote plus a day, and delete it once
 `aeci.agreement.evidence_removal.run` appears in production.
-`plan-snapshot` (AECI-1621) carries `2026-11-24T00:00:00Z`, a placeholder past the expected
-production promote. Move it to the real promote plus an hour, and delete it once
-`aeci.plan_snapshot.run` appears in production.
 `acceptance-chain` (AECI-1680) carries `2026-11-25T19:00:00Z`, a placeholder past the expected
 production promote. Move it to the real promote plus a day, and delete it once
 `aeci.acceptance_chain.run` appears in production.
