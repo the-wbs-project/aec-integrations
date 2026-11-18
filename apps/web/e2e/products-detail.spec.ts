@@ -511,3 +511,32 @@ test.describe('product hero name wraps at word boundaries (AECI-1720)', () => {
     });
   }
 });
+
+// AECI-1925: the claim button reads "Claim Vendor" (Chris, 2026-11-18). The company name
+// stays in the accessible name as visually hidden text, so several claim buttons can be
+// told apart, and the name still starts with the visible words (WCAG 2.5.3).
+/** The label a sighted reader sees: the element's text without its `.sr-only` parts. */
+const visibleLabel = (el: Element): string => {
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll('.sr-only').forEach((n) => n.remove());
+  return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+};
+test.describe('product facts card claim button (AECI-1925)', () => {
+  for (const width of [320, 1440]) {
+    test(`reads "Claim Vendor" and names the company at ${width}px`, async ({ page, request }) => {
+      const res = await request.get('/api/products/fixture-procore');
+      const body = res.ok() ? ((await res.json()) as { vendor?: { name?: string } | null }) : null;
+      const name = body?.vendor?.name;
+      test.skip(!name, 'seed missing: fixture-procore has no vendor');
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/products/fixture-procore');
+      const claim = page
+        .getByTestId('product-facts-actions')
+        .getByRole('link', { name: `Claim Vendor ${name}`, exact: true });
+      await expect(claim).toBeVisible();
+      await expect(claim).toHaveAccessibleName(`Claim Vendor ${name}`);
+      expect(await claim.evaluate(visibleLabel)).toBe('Claim Vendor');
+      await expectNoSidewaysScroll(page);
+    });
+  }
+});

@@ -21,6 +21,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+/** The label a sighted reader sees: the element's text without its `.sr-only` parts. */
+const visibleLabel = (el: Element): string => {
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll('.sr-only').forEach((n) => n.remove());
+  return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+};
+
 test.describe('vendor detail — 404 path', () => {
   test('GET /vendors/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
     const res = await request.get('/vendors/no-such-slug-aeci-59', {
@@ -153,7 +160,11 @@ test.describe('vendor detail — band shell (AECI-1797)', () => {
     const card = page.getByTestId('vendor-facts');
     await expect(card.getByRole('heading', { name: 'At a glance' })).toBeVisible();
     await expect(card.getByRole('heading', { name: 'Actions' })).toBeVisible();
-    await expect(card.getByRole('link', { name: `Claim ${v!.company_name}` })).toBeVisible();
+    // AECI-1925: the label reads "Claim Vendor"; the name stays in the accessible name.
+    const claim = card.getByRole('link', { name: `Claim Vendor ${v!.company_name}`, exact: true });
+    await expect(claim).toBeVisible();
+    await expect(claim).toHaveAccessibleName(`Claim Vendor ${v!.company_name}`);
+    expect(await claim.evaluate(visibleLabel)).toBe('Claim Vendor');
     await expect(card.locator('aec-company-facts-note')).toBeVisible();
 
     // The caption states the API's order, and the rows follow it.

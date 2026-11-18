@@ -165,7 +165,7 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 
 ## 3. The process
 
-1. **Claim.** Vendor clicks "Claim <Company>" on a company or product page. Form: name, title (it replaced role, AECI-1649),
+1. **Claim.** Vendor clicks "Claim Vendor" on a company or product page (it read "Claim <Company>" until AECI-1925). Form: name, title (it replaced role, AECI-1649),
    company legal name, work email, LinkedIn (optional), note (optional), the terms box. On send: on-screen receipt,
    email receipt, alert to AECi. Record: claim request plus terms acceptance.
    *As built 2026-10-21 (AECI-1435):* unless the vendor is signed in with the typed address, the
