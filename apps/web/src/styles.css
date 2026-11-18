@@ -246,6 +246,10 @@
     'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-display-statement:
     'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
+  /* The wide statement is pinned at opsz 60 too ("Optical size by role"), so its fallback
+     is the face tuned for opsz 60 at every width. */
+  --font-display-statement-wide:
+    'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-display-display:
     'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-body-caps:
@@ -281,6 +285,11 @@
   --t-48: 3rem;
   /* 34 to 56px, 222 to 1440px wide (35.8px at 320). */
   --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
+  /* AECI-1835: mock-up 5's statement beside its 540px diagram, 34 to 51px: the mock-up's
+     34px on a phone, 47.4px at 1180, 51px from 1280. The 51px cap is the price of the
+     34px floor: a fluid size doubles by 300% zoom at every width only while 3 x floor is at
+     least 2 x the cap (102px = 2 x 51). The mock-up's 56px at 1440 would need a 37.4px floor. */
+  --t-statement-wide: clamp(2.125rem, 3vw + 0.75rem, 3.1875rem);
   /* 40 to 72px, 83 to 1440px wide (45.7px at 320). */
   --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
 
@@ -587,6 +596,8 @@
   --text-t-48--line-height: 1;
   --text-t-statement: var(--t-statement);
   --text-t-statement--line-height: 1.1;
+  --text-t-statement-wide: var(--t-statement-wide);
+  --text-t-statement-wide--line-height: 1.1;
   --text-t-display: var(--t-display);
   --text-t-display--line-height: 1;
 
@@ -724,6 +735,12 @@ h3 {
   --font-display: var(--font-display-statement);
 }
 
+/* Mock-up 5's statement (AECI-1835): a Statement role, so it draws the opsz 60 cut
+   ("Optical size by role" below) with the opsz 60 fallback face. */
+.text-t-statement-wide {
+  --font-display: var(--font-display-statement-wide);
+}
+
 .text-t-display,
 .text-6xl,
 .text-7xl,
@@ -794,6 +811,7 @@ h3[class] {
 .text-4xl,
 .text-t-48,
 .text-t-statement,
+.text-t-statement-wide,
 .text-t-display,
 .text-6xl,
 .text-7xl,

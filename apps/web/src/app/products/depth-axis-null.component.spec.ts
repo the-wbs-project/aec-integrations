@@ -113,6 +113,7 @@ const listItem = (slug: string, name: string) => ({
   trades: [],
   api_docs_url: null,
   tool_integrations_url: null,
+  listed_integration_count: 0,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,

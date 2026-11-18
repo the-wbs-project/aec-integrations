@@ -223,4 +223,51 @@ test.describe('logo rule (AECI-1769)', () => {
     // The claimed side keeps its logo, so the injection reached the page.
     await expect(page.locator(`img[src="${CLAIMED_LOGO}"]`).first()).toBeVisible();
   });
+
+  // AECI-1827: the empty pair body adds two more marks per side (the side-by-side table
+  // and the "Look it up yourself" card). The seed's pair has an integration, so the
+  // client-side read drops its mechanisms to reach the empty state.
+  test('the empty pair page shows an unclaimed logo only in its subject slot', async ({ page }) => {
+    const CLAIMED_LOGO = 'https://logos.e2e.invalid/procore.png';
+    await page.route('https://logos.e2e.invalid/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    await page.route(`**/api/products/${CLAIMED}/integrations/${UNCLAIMED}**`, async (route) => {
+      const res = await route.fetch();
+      const body = (await res.json()) as Record<string, Record<string, unknown>>;
+      await route.fulfill({
+        response: res,
+        json: {
+          ...body,
+          context_product: { ...body['context_product'], logo_url: CLAIMED_LOGO },
+          other_product: { ...body['other_product'], logo_url: LOGO },
+          mechanisms: [],
+          moved_to: null,
+        },
+      });
+    });
+
+    await page.goto(`/products/${CLAIMED}`);
+    const link = page.locator(`a[href$="/products/${CLAIMED}/integrations/${UNCLAIMED}"]`).first();
+    await untilHydrated(link);
+    await link.click();
+    await expect(page.getByTestId('pair-empty-statement')).toBeVisible();
+
+    const body = page.locator('aec-pair-empty-sections');
+    await expect(body.locator(`img[src="${LOGO}"]`)).toHaveCount(0);
+    // AECI-1835: the claimed side's logo shows in each mark the body draws for it (the
+    // ledger head, its vendor card head, and any "Who" chip). The unclaimed side shows none.
+    expect(await body.locator(`img[src="${CLAIMED_LOGO}"]`).count()).toBeGreaterThan(1);
+    const unclaimed = page.locator(`img[src="${LOGO}"]`);
+    await expect(unclaimed).toHaveCount(1);
+    await expect(unclaimed).toHaveAttribute('width', '32');
+    const widths = await page.locator('aec-logo-or-initial img').evaluateAll((imgs) =>
+      imgs
+        .filter((i) => (i as HTMLImageElement).src.endsWith('acme-connector.png'))
+        // The layout width: the hero cards are tilted, and a rotated box's bounding
+        // rectangle is wider than the image itself (AECI-1835).
+        .map((i) => (i as HTMLElement).offsetWidth),
+    );
+    for (const w of widths) expect(w).toBeLessThanOrEqual(32);
+  });
 });

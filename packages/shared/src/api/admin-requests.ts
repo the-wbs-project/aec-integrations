@@ -62,6 +62,13 @@ export const AdminVendorRequestSchema = z.object({
   target_type: z.enum(['product', 'vendor']),
   target_id: z.string().uuid(),
   target: LinkRefSchema.nullable(),
+  /**
+   * AECI-1828: on a correction sent from an empty pair page, the pair's other product
+   * (`vendor_requests.context_product_id`), shown as "Pair with". `null` on every other
+   * request, and on a claim, whose product is its "Came from" on `/admin/claims`.
+   * Defaulted for deploy skew: an older API reads as none.
+   */
+  pair_product: LinkRefSchema.nullable().default(null),
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),

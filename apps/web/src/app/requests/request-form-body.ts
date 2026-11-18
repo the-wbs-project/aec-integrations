@@ -172,6 +172,8 @@ export class RequestFormBody implements OnInit {
    * ships today and stays correct.
    */
   readonly bodyPrefill = input<string | null>(null);
+  /** AECI-1828: the other product of an empty pair, sent as `pair_slug` on a correction. */
+  readonly pairSlug = input<string | null>(null);
 
   /** Emitted from the drawer-variant dismiss actions ("Done", the help link). The
    *  drawer listens to close the overlay; the routed page ignores it. */
@@ -429,11 +431,15 @@ export class RequestFormBody implements OnInit {
               found_via: v.found_via,
               found_via_detail: v.found_via_detail.trim(),
             })
-          : await this.api.submitCorrection(target, {
-              body: v.body,
-              source_url: v.source_url,
-              submitter_email: v.submitter_email,
-            });
+          : await this.api.submitCorrection(
+              target,
+              {
+                body: v.body,
+                source_url: v.source_url,
+                submitter_email: v.submitter_email,
+              },
+              this.pairSlug(),
+            );
       this.sentTo.set(v.submitter_email.trim());
       this.submitted.set(res);
       this.sentRouted.emit(this.kind() === 'claim' && this.routed());

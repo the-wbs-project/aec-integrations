@@ -35,6 +35,9 @@ export interface RequestDrawerTarget {
   /** AECI-1364: the product page a claim was opened from, for "from the <Product>
    *  page". Absent on a company page. Display only: the API resolves the company. */
   readonly contextProduct?: string;
+  /** AECI-1828: the other product of an empty pair, by slug. A correction then records
+   *  both products. Only the empty pair page sets it. */
+  readonly pairSlug?: string;
 }
 
 /**

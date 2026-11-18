@@ -78,7 +78,7 @@ export function vendorCorrectionsQuery(db: Db, scope: SQL | undefined) {
 }
 
 /** Corrections on the products `scope` selects. */
-export function productCorrectionsQuery(db: Db, scope: SQL) {
+export function productCorrectionsQuery(db: Db, scope: SQL | undefined) {
   return correctionsQuery(db, 'product', products, products.id, CAPTION_COLUMNS.product, scope);
 }
 

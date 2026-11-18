@@ -652,12 +652,11 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 
 **What the module is.**
 
-- One lane shows at a time. A two-option button group picks it: "Keep {A}" and "Keep {B}".
-- The default is the first product, "Keep {A}". The lane lists products that the kept product connects to.
-- The lane heading restates the choice in plain words. Example: "Construction accounting or ERP products that Bluebeam Revu connects to".
-- The categories of the product that is swapped out appear as toggle chips. All are on by default. Turning one off narrows what "similar" means.
+- One lane shows at a time. The lane switch picks it, directly under the intro: a two-option control named for the lanes, "{A} integrations" and "{B} integrations" (AECI-1835, the owner's ruling of 2026-11-18; it was "Keep {A}" and "Keep {B}"). It is the lane's heading too: a visually hidden `h3` repeats the selected lane's name.
+- The default is the first product's lane, "{A} integrations". The lane lists products that the kept product connects to.
+- Under the switch, one filter panel: the search (product and vendor names), then the categories of the product that is swapped out as toggle chips. All are on by default. Turning one off narrows what "similar" means. The long lane heading that restated the categories ("Construction accounting or ERP products that Bluebeam Revu connects to") is gone.
 - A product appears when it shares a category that is on and has an integration on record with the kept product.
-- A live count shows. Each empty result has its own message.
+- The list row sits under the panel, immediately above the cards: the live count ("Showing {n} of {total}") and "Clear filters" at the start, the Cards and Table toggle at the end, as on the product page's Integrations section. Each empty result has its own message.
 - Cards are the default view. A table is the alternative.
 - Each card shows the product, vendor, both ratings, review count, shared categories, the data objects moved, the direction, and the agreement state where there is one. It links to that pair page.
 
@@ -675,13 +674,14 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 **Position and data object filter (ruling R6, AECI-1737, Chris, 2026-11-14: "However the mockup had it. I liked the mockup").**
 
 - Closest matches sit where mock-up 5 puts them. That is after the hero, the interest card and "What you would be moving", and before the side-by-side facts. They do not move up under the hero.
-- The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Nothing picked. Matches can move any data."
-- When chips are on, a product must move every picked data object to appear. The lane shows "must move {objects}" with a Clear control.
+- The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Showing every match. Pick the data you need to narrow the list." (AECI-1835, the owner's wording of 2026-11-18; it was "Nothing picked. Matches can move any data.").
+- When chips are on, a product must move every picked data object to appear. The caption reads "Showing only matches that move {objects}." with Clear, and the lane shows "must move {objects}" with a Clear control.
+- A search box filters the list by product and vendor name (AECI-1835), with the Integrations section's recipe and rules: it removes and never reorders, it never reaches the URL, and "Clear filters" clears it with the categories and the picked data. The web ordering firewall registers it under `pair-page-closest-matches`.
 - The AECI-1816 measurement ran on 2026-11-14 against production. Production has 0 Managed integrations. All 2,227 data-object rows are AECi seeds. 509 of 1,572 live integrations (32.4%) have no data object. The filter cannot hide Free vendors' rows unevenly today, and it is cleared to build.
 - The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
 - Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
 
-**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (owned by AECI-1822, which is not merged yet). The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. API shape lands in `API_CONTRACTS.md`. Suggested products join the pair page's embedded cache tags.
+**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (AECI-1822, merged), and since AECI-1827 each side's captions and `under_review`. The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. AECI-1829 and AECI-1830 built it as `GET /api/products/:slug/integrations/:otherSlug/alternatives` (`API_CONTRACTS.md`): both lanes and "What you would be moving" in one response, read by the SSR resolver for an empty pair only, so the first lane is in the cached HTML. Every match joins the pair page's embedded cache tags. The "How ranking works" page still needs its sentence for this list (AECI-1815).
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 
@@ -701,8 +701,8 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 3. **Interest card.** The look-up count, "I need this too" and "Watch this pair".
 4. **What you would be moving.** Data objects in three groups: only {A}, both, only {B}. They come from each product's other integrations on record.
 5. **Closest matches.** See §11.3.
-6. **The two products, side by side.** A facts table and "Who each product is for". The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
-7. **Look it up yourself.** Each vendor's API docs and integrations directory links.
+6. **Side by side ("How the two products compare").** A facts table and "Who each product is for", each the full row. The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
+7. **Look it up yourself.** Each vendor's API docs and integrations directory links, and its own list on AEC Integrations. Only what we have: no line says something is missing, and a vendor with nothing to list has no card.
 
 **Exact copy, fixed by the legal review (`docs/design/mockups/redesign-2026-11/records/legal-review-2026-11-12.md`) and PLAN.md §5.1.** Use these strings exactly. Do not reword them.
 
@@ -721,7 +721,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 | Watch promise | One email if we add an integration for this pair. Nothing else. |
 | Look it up intro | Linked as each vendor publishes them. What they say about building a connection is theirs, not ours. |
 | API sentence | An API is not an integration. We list an integration only when we can show that one exists. |
-| No directory page | We have not found an integrations page published by {vendor}. |
+| No directory page | Retired on the empty pair page (AECI-1835, the owner's ruling of 2026-11-18: list only what we have for each vendor). The product page's zero state still uses: We have not found an integrations page published by {vendor}. |
 | Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
 | Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
 | Under review flag | Under review (source: Chris's ruling of 2026-11-14, asked on AECI-343, not the legal review) |
@@ -741,7 +741,9 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 - **Shipping (R7).** The captures ship separately from the empty pair page. They do not ship before the Privacy Policy text is live (AECI-1825). Cached HTML is the same for every visitor. A visitor's own click or watch state is reconciled in the browser after hydration.
 - **Unclaimed products (R7).** They get no brand colours. An unclaimed product shows an initial tile.
 
-**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822, not merged yet). A corrected link must show AECi's "Corrected by" caption, or the row links to the product page instead (see the comment on AECI-1827). The "Corrected by" caption data is not in the pair payload, so AECI-1827 must add it or link to the product page. Never write that an API means a connection could be built.
+**Look it up yourself.** The links come from `api_docs_url` and `tool_integrations_url` on each side. The payload masks either link to null when AECi has hidden it (AECI-1822). AECI-1827 added each side's corrections, its Managed "Maintained by" caption and its `under_review` list to the pair payload (`docs/API_CONTRACTS.md`). A link shows exactly as on the product page's facts card: a corrected link with "Corrected by", a hidden link as "Under review", a removed link as "Removed by" with no link. Never write that an API means a connection could be built.
+
+**Title and description (AECI-1827, ruling 97 of 2026-11-17).** The `<title>` is "{A} and {B}: " followed by the caveat, word for word. It runs past the 60-character title budget on purpose: truncation cuts from the end, so a cut title still reads "{A} and {B}: Not on record…". The description is the statement and the caveat while both fit 155 characters, then the title's wording, then the caveat alone. The app never cuts a rung, so no tag carries the statement without the full caveat. `og:` and Twitter tags copy both.
 
 **States.**
 
@@ -773,7 +775,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 The entry point reads "Know of one?" with the button "It does exist". The exact copy is in §11.4. The button opens the **existing** correction request. It is not a new pipeline.
 
 - The report carries **both** products. A request must identify the pair, with distinguishable type or metadata, so per-pair report counts are queryable.
-- A correction request does not carry both products today. `context_product_id` is for claims only. A correction passes `contextProduct: null` (`apps/api/src/routes/requests.ts`). `RequestKindSchema` allows only `claim` and `correction`. The schema change is AECI-343. This section does not design it.
+- **Built by AECI-1828.** The button sends the pair's other product as `pair_slug` on the existing correction request (`docs/API_CONTRACTS.md`). The request keeps the product target and records the other product in `vendor_requests.context_product_id`. The audit row carries `pair_product_id` and `pair_product_slug`. `/admin/requests` and the Linear issue show it as "Pair with". `RequestKindSchema` still allows only `claim` and `correction`, so a pair correction is told apart by `kind = 'correction'` with a non-null `context_product_id`.
 - The dialog opens with a prefilled body that names both products. It asks for a public source, as the Listing Accuracy Policy requires.
 - A report through this button is a correction request. The Listing Accuracy Policy sets its response time. A value is hidden or flagged within two business days of receiving a source. The build must not create a second, slower route. **Ruling 2026-11-14 (Chris, asked on AECI-343): "A".** The "No integration on record" statement on that pair page is flagged. It shows "Under review" beside it until AECi adds the integration or declines the report. The policy's two-business-day clock applies. The policy already says "we hide or flag that value within two business days of receiving" a public source, so the flag uses its existing words. The page says "Under review" and never says the statement is false.
 - The report count doubles as a coverage-gap demand signal that feeds the §11.4 scoring.

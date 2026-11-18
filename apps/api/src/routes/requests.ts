@@ -194,6 +194,19 @@ interface ContextProduct {
   slug: string;
 }
 
+/**
+ * AECI-1828: the other product of an empty pair, for a correction sent from the pair
+ * page. A slug that resolves to no listed product records nothing extra: the request
+ * still lands on its target, as a plain correction.
+ */
+async function resolvePairProduct(db: Db, slug: string): Promise<ContextProduct | null> {
+  const row = await db.query.products.findFirst({
+    columns: { id: true, name: true, slug: true },
+    where: and(eq(products.slug, slug), visibleProductWhere),
+  });
+  return row ?? null;
+}
+
 /** The company a claim is stored against (`resolveClaimTarget`). */
 export interface ClaimTarget {
   id: string;
@@ -421,6 +434,10 @@ async function createRequest(
     slug,
     domain_match: domainMatch,
     duplicate_of_request_id: duplicate?.id ?? null,
+    // AECI-1828: a correction from an empty pair page records the pair's other product.
+    ...(kind === 'correction' && contextProduct
+      ? { pair_product_id: contextProduct.id, pair_product_slug: contextProduct.slug }
+      : {}),
     // AECI-1364: the product page a claim came from. Claims only: a correction's
     // audit row leaves the keys out rather than recording them as null.
     ...(kind === 'claim'
@@ -755,13 +772,19 @@ export function createCorrectionSubmitHandler(
     const payload = await parseJsonBody(c, CorrectionRequestSchema);
     const { db } = writeDb(c, dbFor);
     const target = await resolveTarget(db, payload.target_type, payload.slug);
+    // AECI-1828: a correction from an empty pair page names the pair's other product.
+    // Products only, never the target itself, and only a listed product.
+    const pairProduct =
+      payload.pair_slug && payload.target_type === 'product' && payload.pair_slug !== payload.slug
+        ? await resolvePairProduct(db, payload.pair_slug)
+        : null;
 
     const requestId = await createRequest(c, db, 'correction', {
       targetType: payload.target_type,
       targetId: target.id,
       targetName: target.name,
       slug: payload.slug,
-      contextProduct: null,
+      contextProduct: pairProduct,
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: null,
