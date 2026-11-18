@@ -37,7 +37,7 @@ import { ProductIntegrationCard } from './product-integration-card';
   host: { class: 'block' },
   template: `
     <ul
-      class="aec-card-grid aec-one-list"
+      class="aec-integration-grid aec-one-list"
       role="list"
       [attr.aria-label]="ariaLabel()"
       [attr.data-columns]="columns()"

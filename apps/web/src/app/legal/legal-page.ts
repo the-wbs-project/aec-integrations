@@ -56,14 +56,18 @@
  * head AND refreshes on an in-app navigation.
  *
  * The body is rendered via `[innerHTML]` — Angular's sanitizer runs (the content
- * is trusted/in-repo, but we don't bypass it), and the body is *content*, not UI
+ * is trusted/in-repo, but we don't bypass it). Since the AECI-1720 layout pass it
+ * arrives cut at each heading (`aec-prose-blocks`), so each `h2` and `h3` carries a
+ * slug `id` the sanitizer would otherwise strip; the words are unchanged. The body is *content*, not UI
  * strings, so it is not `$localize`-extracted. Only the chrome (eyebrow, title,
  * metadata labels, meta) is i18n-wrapped. Body prose is styled by the global
  * `.aec-prose` block in `styles.css`. Layout mirrors `/methodology` (AECI-1804):
  * the hero on `aec-bone-band`, the page's one Bone band, the body a white band
  * on the 1328px page wrap, both capped at 42rem, the docs article measure. The
  * measure is in rem, not `ch`, so the web font's swap does not re-wrap the text
- * (DESIGN.md §3 "How the fonts load"). Light theme only.
+ * (DESIGN.md §3 "How the fonts load"). From `lg` the "On this page" list
+ * (`aec-page-toc`) fills the column beside the article, so the page has no empty
+ * right half; the article keeps its 42rem. Light theme only.
  */
 import { ChangeDetectionStrategy, Component, InjectionToken, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -72,6 +76,12 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { BoneBand } from '../shared/bone-band/bone-band';
+import {
+  AecPageToc,
+  PROSE_PAGE_GRID_CLASS,
+  PROSE_PAGE_TOC_CLASS,
+} from '../shared/page-toc/page-toc';
+import { AecProseBlocks } from '../shared/prose-blocks/prose-blocks';
 import { type LegalDoc, type LegalSlug, getLegalDoc, getLegalVersion } from './legal-content';
 import {
   type LegalAnnouncement,
@@ -136,7 +146,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
 @Component({
   selector: 'app-legal-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BoneBand, RouterLink],
+  imports: [AecPageToc, AecProseBlocks, BoneBand, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Hero: the page's one Bone band, as on /methodology (AECI-1804), with
@@ -224,8 +234,12 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
       <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose.
            White band on the page wrap; the article keeps the prose measure. -->
       <div class="py-16 md:py-24">
-        <div [class]="wrap">
-          <article class="aec-prose max-w-[42rem]" [innerHTML]="doc.html"></article>
+        <div [class]="body">
+          <article
+            aec-prose-blocks
+            class="aec-prose max-w-[42rem] min-w-0"
+            [blocks]="doc.blocks"
+          ></article>
           <!-- AECI-1610: the body ends with "## Change history" (the registry
              checks it is the last section), and the current files promise that
              every version is listed there. So an upcoming version is listed here,
@@ -240,6 +254,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
               }
             </ul>
           }
+          <aec-page-toc [class]="toc" [headings]="doc.headings" />
         </div>
       </div>
     </div>
@@ -250,8 +265,12 @@ export class LegalPage {
   private readonly meta = inject(MetaService);
   private readonly lookup = inject(LEGAL_DOC_LOOKUP);
 
-  /** The 1328px page wrap the header, footer and bands share. */
-  protected readonly wrap = BAND_WRAP_CLASS;
+  /**
+   * The body on the 1328px page wrap the header, footer and bands share: the
+   * article, then the "On this page" column from `lg`.
+   */
+  protected readonly body = `${BAND_WRAP_CLASS} ${PROSE_PAGE_GRID_CLASS}`;
+  protected readonly toc = PROSE_PAGE_TOC_CLASS;
   /** The in-text link recipe (DESIGN.md "The Link Treatment Rule"). */
   protected readonly inTextLink =
     'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover)';

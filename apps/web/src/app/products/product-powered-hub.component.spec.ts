@@ -391,7 +391,8 @@ describe('ProductPoweredHub', () => {
       expect(el.querySelector('[data-testid="hub-data-objects-sublabel"]')).toBeNull();
       // The mechanism badge comes first, then the count, as on the row.
       const row = chips[0]!.parentElement!;
-      expect([...row.querySelectorAll('aec-chip')].map((c) => c.textContent?.trim())).toEqual([
+      // The integration card recipe's chips (match-card-recipe.ts): spans in one wrapping row.
+      expect([...row.children].map((c) => c.textContent?.trim())).toEqual([
         'API',
         '3 types of data',
       ]);

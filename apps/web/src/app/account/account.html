@@ -111,6 +111,7 @@
       <!-- ── Onboarding prompt (AECI-1296) ───────────────────────────────────── -->
       <div
         aecCard
+        phoneFlush
         class="p-6 md:p-8"
         role="region"
         aria-labelledby="account-onboarding-heading"
@@ -145,7 +146,7 @@
       }
 
       <!-- ── Profile ─────────────────────────────────────────────────────────── -->
-      <div id="profile" aecCard class="scroll-mt-8 p-6 md:p-8">
+      <div id="profile" aecCard phoneFlush class="scroll-mt-8 p-6 md:p-8">
         <h2 i18n="@@account.profile.heading">Profile</h2>
 
         <!-- The controls keep a form measure; the panel takes the column. -->
@@ -283,7 +284,7 @@
       </div>
 
       <!-- ── Your reviews ────────────────────────────────────────────────────── -->
-      <div id="your-reviews" aecCard class="scroll-mt-8 p-6 md:p-8">
+      <div id="your-reviews" aecCard phoneFlush class="scroll-mt-8 p-6 md:p-8">
         <h2 i18n="@@account.reviews.heading">Your reviews</h2>
 
         @if (reviewsLoading()) {
@@ -411,7 +412,7 @@
       </div>
 
       <!-- ── Delete account ──────────────────────────────────────────────────── -->
-      <div id="delete-account" aecCard class="scroll-mt-8 p-6 md:p-8">
+      <div id="delete-account" aecCard phoneFlush class="scroll-mt-8 p-6 md:p-8">
         <h2 i18n="@@account.delete.heading">Delete account</h2>
         <p
           class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"

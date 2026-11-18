@@ -473,10 +473,9 @@
         "metric": "aeci.plan_snapshot.run",
         "maxAgeMinutes": 90,
         "trigger": "cron",
-        "activeFrom": "2026-11-24T00:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1621. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many with nothing due. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
+        "_note": "AECI-1621. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many with nothing due."
       },
       {
         "job": "vendor-claim-nudge",

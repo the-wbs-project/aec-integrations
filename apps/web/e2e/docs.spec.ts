@@ -407,3 +407,21 @@ test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', (
     }
   });
 });
+
+// AECI-1720 layout pass: the tree rows touch. Every link is still a 44px target, with
+// no gap between rows or between sections.
+test('the docs tree rows are 44px targets with no gap between them', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/docs/vendors/claiming-your-listing');
+  const tops = await page.locator('#docs-nav-panel nav[data-guide] a').evaluateAll((els) =>
+    els.map((a) => {
+      const r = a.getBoundingClientRect();
+      return { top: r.top, height: r.height };
+    }),
+  );
+  expect(tops.length).toBeGreaterThan(5);
+  for (let i = 1; i < tops.length; i++) {
+    expect(tops[i - 1].height).toBeGreaterThanOrEqual(44);
+    expect(tops[i].top - (tops[i - 1].top + tops[i - 1].height)).toBeLessThan(1);
+  }
+});

@@ -47,3 +47,15 @@ test.describe(`${PATH} (AECI-1801)`, () => {
     });
   }
 });
+
+// AECI-1720 layout pass: "In the meantime" sits over its two lines, one block.
+test('the "In the meantime" heading sits directly over its text at 1440px', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PATH);
+  const heading = page.getByRole('heading', { level: 2, name: 'In the meantime' });
+  const text = heading.locator('xpath=following-sibling::p[1]');
+  const [h, t] = [(await heading.boundingBox())!, (await text.boundingBox())!];
+  expect(Math.abs(h.x - t.x)).toBeLessThan(2);
+  expect(t.y - (h.y + h.height)).toBeGreaterThanOrEqual(0);
+  expect(t.y - (h.y + h.height)).toBeLessThan(40);
+});

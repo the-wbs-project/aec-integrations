@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 
@@ -22,8 +23,12 @@ import { AecCard } from '../shared/card/card';
  * (useful 404 — recovery links to top entry points). Phase 3 will replace
  * the static search hint with the live Algolia search input.
  *
- * **Design (AECI-1799).** A focused flow (DESIGN.md "The Page-Width Rule"), so it
- * stays a narrow centred column on white. The eyebrow and the recovery heading are
+ * **Design (AECI-1799).** White, no Bone band. Since the AECI-1720 layout pass it
+ * sits on the 1328px page wrap (`BAND_WRAP_CLASS`), not a narrow centred column:
+ * in a 768px column the five tiles were about 224px wide and every description
+ * wrapped, with 40% of the desktop width empty. The prose keeps its `max-w-2xl`
+ * measure, and the tiles take the whole wrap in three columns, then two, so each
+ * description fits on one line at 1440px. The eyebrow and the recovery heading are
  * the overline role. The h1 is the Headline role, the global h1 size. Each recovery
  * link is a card that is itself the link (`<a aecCard interactive>`, in a
  * `group/card` list item), in the shared three-column `aec-card-grid`. The links,
@@ -33,10 +38,7 @@ import { AecCard } from '../shared/card/card';
   selector: 'aec-not-found',
   imports: [AecButton, AecCard, RouterLink],
   template: `
-    <section
-      class="mx-auto w-full max-w-3xl px-6 py-16 text-(--text-primary) md:py-24"
-      aria-labelledby="not-found-title"
-    >
+    <section [class]="shell" aria-labelledby="not-found-title">
       <p class="aec-overline text-(--text-secondary)" i18n="@@notFound.eyebrow">404: Not found</p>
       <h1 id="not-found-title" class="mt-4 text-(--text-primary)" i18n="@@notFound.title">
         We couldn't find that page.
@@ -171,4 +173,7 @@ import { AecCard } from '../shared/card/card';
     </section>
   `,
 })
-export class NotFound {}
+export class NotFound {
+  /** The 1328px page wrap, so the recovery tiles take the whole width. */
+  protected readonly shell = `${BAND_WRAP_CLASS} py-16 text-(--text-primary) md:py-24`;
+}

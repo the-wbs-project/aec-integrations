@@ -18,7 +18,8 @@
  *
  * AECI-1924 (2026-11-18) re-recorded the powered hub snapshot for its filter panel only:
  * the panel gained the Cards and Table toggle. Everything from the list row on, every
- * card included, is byte for byte the same.
+ * card included, is byte for byte the same. Recorded again when it met the shared card
+ * recipe (#1392): the recording differs from the hold branch's in the toggle alone.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';

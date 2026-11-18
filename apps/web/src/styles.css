@@ -881,6 +881,32 @@ h1.aec-docs-title,
   border-color: var(--status-error);
 }
 
+/* Subscription status chips on the vendor Billing tab (AECI-1866,
+   `vendor-billing-licenses.ts`). Same trap as `.aec-nav-tab`: a layered
+   `border-(--accent-primary)` never beats the unlayered `*` rule, which is why
+   every chip came out the same grey. Existing tokens only (DESIGN.md allows no new
+   status colour). Live is the Forest wash with its Forest boundary (the wash alone
+   is 1.14:1 on white, so the border carries the edge). Warning is Clay deep text,
+   the system's warning hue, text-only so the Clay-Restriction Rule holds. Ended is
+   neutral. The chip's words always name the state. */
+.aec-status-chip--live {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-primary-soft);
+  color: var(--accent-primary);
+}
+
+.aec-status-chip--warning {
+  border-color: var(--border-strong);
+  background-color: var(--surface-raised);
+  color: var(--accent-secondary-deep);
+}
+
+.aec-status-chip--ended {
+  border-color: var(--border-strong);
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
 /* The vendor overview's Views period toggle (AECI-983). The pressed state is an
    attribute, and a utility toggled by state loses to the resting and hover
    utilities, so the pressed colours live on an unlayered class. */
@@ -1274,6 +1300,32 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The integration card grid (DESIGN.md "The integration card", `match-card-recipe.ts`):
+   the product page's Integrations section, its lane cards, and the empty pair page's
+   closest matches. One column below `md` and two from `md`. A third column would need
+   every card at least 400px wide, a 1,248px list, and the page wrap caps a list at
+   1,232px, so the grid stops at two. The product card grids keep `.aec-card-grid`. */
+.aec-integration-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .aec-integration-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A set column count, as on `.aec-card-grid`: equal rows, and one card takes the row. */
+.aec-integration-grid[data-columns] {
+  grid-auto-rows: 1fr;
+}
+
+.aec-integration-grid[data-columns='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
    the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
    gradients in a single colour, Forest hover at 75% and 45%, taken from the
@@ -1655,6 +1707,29 @@ html[data-consent-reserve]
   }
 }
 
+/* The "On this page" list on `/legal/*` and `/methodology` (`aec-page-toc`, AECI-1720
+   layout pass) follows the same rule. A stuck box does not scroll, so a list taller than
+   the space under its 2rem offset hides its last links, and Tab lands on one out of sight
+   (WCAG 2.4.11). The banner's scroll-margin reserve cannot help a box that does not move.
+   The tallest list, the Vendor Terms' 20 links at 1024px wide, measured 655px
+   (2026-11-18), so the list sticks only from a 46rem (736px) tall viewport: 32px offset,
+   655px list, room to spare. While the consent banner shows it also covers the foot of the
+   window, so then the list sticks only from 54rem (864px). Below that it scrolls with the
+   page. `e2e/legal.spec.ts` tabs to the last link at 1024 by 600 and by 768 with the
+   banner, and checks the threshold still holds for the tallest list. Unlayered, so it
+   beats the `lg:sticky` utility. */
+@media (min-width: 64rem) and (max-height: 45.99rem) {
+  aec-page-toc {
+    position: static;
+  }
+}
+
+@media (min-width: 64rem) and (max-height: 53.99rem) {
+  html[data-consent-reserve] aec-page-toc {
+    position: static;
+  }
+}
+
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
@@ -1731,10 +1806,10 @@ html[data-consent-reserve]
   margin-block: 2rem 0;
 }
 
-/* Fragment jumps (the docs rail, `/docs/...#id` links) land with air above the
-   heading. The legal and methodology headings carry no ids today, so this only
-   matters there if their renderer starts emitting them. Nothing above the body
-   is sticky: the site header scrolls away, and so does the docs top bar. */
+/* Fragment jumps (the docs rail, `/docs/...#id` links, and since the AECI-1720
+   layout pass the "On this page" list on `/legal/*` and `/methodology`, whose
+   headings now carry ids) land with air above the heading. Nothing above the
+   body is sticky: the site header scrolls away, and so does the docs top bar. */
 .aec-prose h2,
 .aec-prose h3 {
   scroll-margin-top: 1.5rem;
@@ -1961,7 +2036,7 @@ html[data-consent-reserve]
   text-transform: uppercase;
 }
 
-/* "On this page" rail (`docs-toc.ts`). Closed: one dash per heading, the label
+/* "On this page" rail (`shared/page-toc/page-toc.ts`, `variant="rail"`). Closed: one dash per heading, the label
    visually hidden but still the link's name. Open on hover or when a link has
    focus: a bordered panel with the headings beside their dashes. The list is
    absolutely placed so opening it overlays the article and never reflows it. */

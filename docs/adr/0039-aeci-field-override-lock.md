@@ -73,3 +73,13 @@ Two AECi writes change a vendor-held value and wrote no `field_overrides` row: t
 ## Cross-reference 2026-11-09 (AECI-1238 PR 2): the value hide
 
 A value on a vendor-held record can now be **hidden** while AECi checks it, as well as corrected. The hide lives in its own table, `field_hides`, not in `field_overrides`, so no lock reader, lock sentinel or `field_overrides_active_key` changes. The descriptions stay unlockable under rule 4, and are hideable instead. An AECi correction of a hidden field clears the hide in the correction's batch (`clear_kind 'corrected'`). ADR 0052's 2026-11-09 amendment and `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7 hold the contract.
+
+## Amendment 2026-11-18 (AECI-1668): the reason goes only to the holder
+
+Rule 5, "the reason is the vendor's to read", now names which vendor. Chris ruled on 2026-11-18.
+
+- **Only the lock's `vendor_id` reads the reason.** That is the vendor AECi told. Any other vendor that sees the record gets `reason: null` in `locked_fields`. That covers the other endpoint of an integration and a co-owner of a shared product. This is the value hide's rule (ADR 0052, 2026-11-09 amendment).
+- **The source goes to every viewer.** A lock's `source_url` is already public on the "Corrected by" line, so hiding it from a counterpart protects nothing. A hide's source is never public, so the two rules differ here on purpose.
+- **The non-holder's portal note** says "Set by AEC Integrations." and links the source. It has no reason and no dispute line, because the dispute is the holder's.
+
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5 holds the contract. The read is `lockedFieldsByEntity` in `apps/api/src/lib/field-overrides.ts`.

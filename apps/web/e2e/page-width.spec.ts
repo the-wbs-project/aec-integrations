@@ -153,7 +153,21 @@ function formPageSuite(name: string, path: string, prose: string, needsSession: 
         await page.goto(path);
         const form = await box(page, '[data-testid="page-canvas"] form');
         const rail = await box(page, '[data-testid="context-rail"]');
-        expect(Math.abs(rail.x - form.x), 'rail and form share a left edge').toBeLessThan(2);
+        if (width < 640) {
+          // AECI-1720 layout pass: below sm the form is a form card. It drops its
+          // frame and spans the 24px gutter, so its fields, not its box, line up
+          // with the rail, and they are as wide as a form with no card.
+          const canvas = await box(page, '[data-testid="page-canvas"]');
+          expect(Math.abs(form.x - canvas.x), 'form card spans the gutter').toBeLessThan(2);
+          const field = await box(page, '[data-testid="page-canvas"] form input:visible');
+          expect(Math.abs(rail.x - field.x), 'rail and fields share a left edge').toBeLessThan(2);
+          expect(
+            field.width,
+            'fields as wide as the canvas less its gutters',
+          ).toBeGreaterThanOrEqual(canvas.width - 48 - 2);
+        } else {
+          expect(Math.abs(rail.x - form.x), 'rail and form share a left edge').toBeLessThan(2);
+        }
         await noHorizontalScroll(page);
         await proseWithinMeasure(page, prose);
       });

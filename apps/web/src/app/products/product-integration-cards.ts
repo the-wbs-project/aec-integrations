@@ -19,9 +19,10 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
  * server, so a crawler sees every card. A `@defer` block emits no element, so the
  * deferred cards are grid items of the same list.
  *
- * The grid is the shared `aec-card-grid`: one column, two from `md`, three from
- * `lg`, never more (clash 18). No wide lead card (ruling R3). One or two cards share
- * the full row equally (`data-columns`, ruled 2026-11-16), so no third column sits blank.
+ * The grid is the integration card grid (`aec-integration-grid`, DESIGN.md "The
+ * integration card"): one column, two from `md`. A third column would need every card
+ * at least 400px wide, which the page wrap never allows. No wide lead card (ruling R3).
+ * One card takes the full row (`data-columns`, ruled 2026-11-16).
  */
 @Component({
   selector: 'aec-product-integration-cards',
@@ -29,7 +30,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
   host: { class: 'block' },
   template: `
     <ul
-      class="aec-card-grid"
+      class="aec-integration-grid"
       role="list"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-labelledby]="ariaLabelledby()"
