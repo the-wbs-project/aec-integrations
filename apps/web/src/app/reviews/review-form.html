@@ -127,7 +127,7 @@
       <!-- Not signed in: a notice + sign-in link instead of the form. The pop-up
        below auto-opens over this; if it's dismissed this notice remains, so an
        unauthenticated visitor is never shown a fillable form. -->
-      <div aecCard phoneFlush class="mt-10 p-6 sm:p-8">
+      <div aecCard phoneFlush class="mt-6 p-6 sm:mt-10 sm:p-8">
         <p
           class="text-t-16 font-semibold text-(--text-primary)"
           i18n="@@reviews.signIn.notice.title"
@@ -164,7 +164,7 @@
       <!-- Already reviewed: a notice + links instead of the form (AECI-260). The
        copy is status-agnostic: a rejected review still blocks re-submission;
        its reason lives on /account. -->
-      <div aecCard phoneFlush class="mt-10 p-6 sm:p-8">
+      <div aecCard phoneFlush class="mt-6 p-6 sm:mt-10 sm:p-8">
         <p
           class="text-t-16 font-semibold text-(--text-primary)"
           i18n="@@reviews.alreadyReviewed.title"
@@ -199,7 +199,7 @@
         method="dialog"
         aecCard
         phoneFlush
-        class="mt-10 max-w-2xl"
+        class="mt-6 max-w-2xl sm:mt-10"
         novalidate
         (aecSubmit)="onSubmit()"
       >

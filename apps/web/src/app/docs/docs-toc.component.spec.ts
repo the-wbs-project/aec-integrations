@@ -1,5 +1,6 @@
 /**
- * AECI-1259 — the "On this page" rail on its own: the heading threshold and the
+ * AECI-1259 — the "On this page" rail on its own (`AecPageToc` with `variant="rail"`
+ * since the AECI-1720 layout pass): the heading threshold and the
  * fragment links. Its place on a real article is pinned in
  * `docs-shell.component.spec.ts`.
  */
@@ -9,7 +10,7 @@ import { Router, provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import type { DocsHeading } from './docs-markdown';
-import { DOCS_TOC_MIN_HEADINGS, DocsTocComponent } from './docs-toc';
+import { AecPageToc, DOCS_TOC_MIN_HEADINGS } from '../shared/page-toc/page-toc';
 
 const Stub = class {};
 
@@ -28,7 +29,8 @@ async function mount(
     ],
   });
   await TestBed.inject(Router).navigateByUrl(url);
-  const fixture = TestBed.createComponent(DocsTocComponent);
+  const fixture = TestBed.createComponent(AecPageToc);
+  fixture.componentRef.setInput('variant', 'rail');
   fixture.componentRef.setInput('headings', headings);
   fixture.detectChanges();
   return fixture;
@@ -48,7 +50,7 @@ const hrefs = (host: HTMLElement) =>
 const ONE: readonly DocsHeading[] = [{ id: 'search', text: 'Search' }];
 const TWO: readonly DocsHeading[] = [...ONE, { id: 'browsing-lists', text: 'Browsing lists' }];
 
-describe('DocsTocComponent', () => {
+describe('AecPageToc, the docs rail', () => {
   // One heading is one place; a rail pointing at it is noise.
   it(`renders nothing below ${DOCS_TOC_MIN_HEADINGS} headings`, async () => {
     expect(DOCS_TOC_MIN_HEADINGS).toBe(2);

@@ -44,7 +44,7 @@ import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
-import { AecCard, cardClass } from '../shared/card/card';
+import { AecCard, FORM_CARD_GAP_CLASS, cardClass } from '../shared/card/card';
 import { AecIcon } from '../shared/icon/icon';
 import {
   FIELD_ERROR_CLASS,
@@ -203,7 +203,9 @@ export class RequestFormBody implements OnInit {
   /** AECI-1807: on the routed page the form is the shared card. The drawer panel is
    *  already the surface, so there the form stays bare. */
   protected readonly formClass = computed(() =>
-    this.variant() === 'page' ? `${cardClass({ phoneFlush: true })} mt-10` : 'space-y-6',
+    this.variant() === 'page'
+      ? `${cardClass({ phoneFlush: true })} ${FORM_CARD_GAP_CLASS}`
+      : 'space-y-6',
   );
   protected readonly fieldsClass = computed(() =>
     this.variant() === 'page' ? 'space-y-6 p-6 sm:p-8' : 'space-y-6',

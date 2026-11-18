@@ -7,7 +7,13 @@ import { Component, provideZonelessChangeDetection, signal } from '@angular/core
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AecCard, cardClass, type AecCardStripe, type AecCardTone } from './card';
+import {
+  AecCard,
+  FORM_CARD_GAP_CLASS,
+  cardClass,
+  type AecCardStripe,
+  type AecCardTone,
+} from './card';
 
 @Component({
   imports: [AecCard],
@@ -135,6 +141,8 @@ describe('aecCard (AECI-1765)', () => {
     // Only a form card pulls out: a plain card keeps its frame on a phone.
     expect(el('plain').className).not.toContain('max-sm:');
     expect(cardClass({ phoneFlush: true })).toContain('max-sm:-mx-6');
+    // Its own top padding is blank space on a phone, so the gap above it shrinks.
+    expect(FORM_CARD_GAP_CLASS).toBe('mt-6 sm:mt-10');
   });
 
   it('cardClass is what the directive renders', () => {

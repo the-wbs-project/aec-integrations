@@ -293,3 +293,74 @@ test.describe('/legal "On this page" (AECI-1720)', () => {
     await expect(page.locator('aec-page-toc')).toBeHidden();
   });
 });
+
+// AECI-1720 review, WCAG 2.4.11: a stuck box does not scroll, so the list sticks only
+// on a viewport tall enough to show all of it (`aec-page-toc` in styles.css). Tab to
+// the last link of the tallest list and check it is in view and clear of the banner.
+test.describe('/legal "On this page" never hides a focused link (AECI-1720)', () => {
+  for (const [height, banner] of [
+    [768, true],
+    [600, false],
+    [900, true],
+  ] as const) {
+    test(`Tab reaches the last link in view at 1024x${height}, banner ${banner ? 'shown' : 'dismissed'}`, async ({
+      page,
+    }) => {
+      if (!banner) {
+        await page.addInitScript(() =>
+          globalThis.localStorage.setItem('aeci_analytics_consent', 'denied'),
+        );
+      }
+      await page.setViewportSize({ width: 1024, height });
+      await page.goto('/legal/vendor-terms');
+      await untilHydrated(page.locator('aec-page-toc'));
+      const links = page.locator('aec-page-toc nav a');
+      const count = await links.count();
+      expect(count).toBeGreaterThanOrEqual(20);
+      // Read well down the page first, where a stuck list would be the one in view.
+      await page.evaluate(() => window.scrollTo({ top: 2500, behavior: 'instant' }));
+      await links.first().focus();
+      for (let i = 1; i < count; i++) await page.keyboard.press('Tab');
+      const last = links.last();
+      await expect(last).toBeFocused();
+      await expect(last).toBeInViewport({ ratio: 1 });
+      const box = (await last.boundingBox())!;
+      const reserve = await page.evaluate(() =>
+        parseFloat(document.documentElement.style.getPropertyValue('--aec-consent-reserve') || '0'),
+      );
+      if (banner) expect(reserve).toBeGreaterThan(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(height - reserve);
+    });
+  }
+
+  // The thresholds in styles.css (46rem, 54rem with the banner) must still clear the
+  // tallest list. A new heading that makes a list taller fails here first.
+  test('the sticky thresholds clear every legal list at 1024px', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    let banner = 0;
+    for (const slug of [
+      'terms',
+      'privacy',
+      'review-guidelines',
+      'listing-accuracy',
+      'vendor-terms',
+      'managed-plan-agreement',
+    ]) {
+      await page.goto(`/legal/${slug}`);
+      const toc = (await page.locator('aec-page-toc').boundingBox())!;
+      banner = Math.max(
+        banner,
+        await page.evaluate(() =>
+          parseFloat(
+            document.documentElement.style.getPropertyValue('--aec-consent-reserve') || '0',
+          ),
+        ),
+      );
+      expect(32 + toc.height, `${slug} list fits under 46rem`).toBeLessThanOrEqual(46 * 16);
+      expect(
+        32 + toc.height + banner,
+        `${slug} list fits under 54rem with the banner`,
+      ).toBeLessThanOrEqual(54 * 16);
+    }
+  });
+});

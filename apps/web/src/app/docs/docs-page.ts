@@ -8,7 +8,7 @@
  * Anchor site: **Devin (DeepWiki)**, Mobbin screen c3936cdb. The article is a
  * compact centred column with a small Source Serif `h1`, one muted lede line,
  * then the body in `.aec-prose`. From `xl` the "On this page"
- * rail (`docs-toc.ts`) sits at the far right. A quiet previous / next pager
+ * rail (`shared/page-toc/page-toc.ts`, `variant="rail"`) sits at the far right. A quiet previous / next pager
  * closes the article. No overline, no hero, no cards (the Plans page's
  * pricing widget is the one exception).
  *
@@ -49,7 +49,7 @@ import { type DocsBlock, type DocsPage, docsNeighbours, getDocsPage } from './do
 import { pathForcesNoindex } from './docs-indexing';
 import type { DocsWidget } from './docs-markdown';
 import { DocsPlansComparisonComponent } from './docs-plans-comparison';
-import { DocsTocComponent } from './docs-toc';
+import { AecPageToc } from '../shared/page-toc/page-toc';
 import { VENDOR_PROGRAM_PATH, plansVendorProgramPointer } from './plans-actions-copy';
 import {
   PlanCtaActionsComponent,
@@ -87,7 +87,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
   selector: 'app-docs-page',
   imports: [
     RouterLink,
-    DocsTocComponent,
+    AecPageToc,
     DocsPlansComparisonComponent,
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
@@ -161,7 +161,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:flex xl:flex-col xl:items-end xl:gap-8 xl:self-start xl:justify-self-end"
         >
           <aec-plan-cta-rail class="hidden w-44 min-[90rem]:block" page="docs_plans" />
-          <app-docs-toc class="block w-10" [headings]="page.headings" />
+          <app-docs-toc class="block w-10" [variant]="rail" [headings]="page.headings" />
         </div>
         <aec-plan-cta-mobile-bar page="docs_plans" />
         <!-- One claim dialog for every claim control (AECI-1293), loaded on first use. -->
@@ -169,6 +169,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
       } @else {
         <app-docs-toc
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"
+          [variant]="rail"
           [headings]="page.headings"
         />
       }
@@ -217,6 +218,8 @@ export class DocsPageComponent {
   private readonly meta = inject(MetaService);
 
   protected readonly page: DocsPage;
+  /** The "On this page" component's docs look: the dash rail. */
+  protected readonly rail = 'rail' as const;
   protected readonly segments: readonly DocsSegment[];
   protected readonly neighbours: { readonly prev?: DocsPage; readonly next?: DocsPage };
   /** The Plans page's pointer to the vendor program (`plans-actions-copy.ts`, AECI-1619). */

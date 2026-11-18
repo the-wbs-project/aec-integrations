@@ -91,6 +91,13 @@ const CARD_STRIPE: Record<AecCardStripe, string> = {
  */
 const CARD_PHONE_FLUSH = 'max-sm:-mx-6 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none';
 
+/**
+ * The gap above a form card. Below `sm` the card has no frame, so its own 24px top
+ * padding is already blank space: 24px of margin on top of it puts the first field
+ * where it sat before the card existed. From `sm` the framed card stands 40px clear.
+ */
+export const FORM_CARD_GAP_CLASS = 'mt-6 sm:mt-10';
+
 /** The class recipe behind `aecCard`. Use the directive in templates. */
 export function cardClass(options: AecCardOptions = {}): string {
   const surface = options.nested ? CARD_NESTED : CARD_TONE[options.tone ?? 'base'];

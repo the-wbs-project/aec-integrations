@@ -61,8 +61,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
       <div class="pt-8 pb-16 md:pt-12 md:pb-24">
         <div
           [class]="
-            wrap +
-            ' grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-16'
+            wrap + ' grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-16'
           "
         >
           <!-- The column stretches to the row, so the list can stick inside it once
@@ -73,19 +72,19 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                 Ask us to list your product
               </h1>
               <p
-                class="mt-6 text-t-20 leading-normal text-(--text-secondary)"
+                class="mt-4 text-t-20 leading-normal text-(--text-secondary) lg:mt-6"
                 i18n="@@listYourProduct.lede"
               >
                 Listing is free. Tell us the product and its website, and we take it from there.
               </p>
             </div>
-            <div class="mt-12 lg:sticky lg:top-8">
+            <div class="mt-8 lg:sticky lg:top-8 lg:mt-12">
               <h2 id="list-your-product-next-heading" class="text-(--text-primary)">
                 <span [class]="sectionTitle" i18n="@@listYourProduct.next.heading"
                   >What happens next</span
                 >
               </h2>
-              <ol class="mt-8 space-y-5" aria-labelledby="list-your-product-next-heading">
+              <ol class="mt-6 space-y-5 lg:mt-8" aria-labelledby="list-your-product-next-heading">
                 <li class="flex gap-4">
                   <span [class]="stepNumber" aria-hidden="true">1</span>
                   <div>

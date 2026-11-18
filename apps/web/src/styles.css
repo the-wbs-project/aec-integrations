@@ -1681,6 +1681,29 @@ html[data-consent-reserve]
   }
 }
 
+/* The "On this page" list on `/legal/*` and `/methodology` (`aec-page-toc`, AECI-1720
+   layout pass) follows the same rule. A stuck box does not scroll, so a list taller than
+   the space under its 2rem offset hides its last links, and Tab lands on one out of sight
+   (WCAG 2.4.11). The banner's scroll-margin reserve cannot help a box that does not move.
+   The tallest list, the Vendor Terms' 20 links at 1024px wide, measured 655px
+   (2026-11-18), so the list sticks only from a 46rem (736px) tall viewport: 32px offset,
+   655px list, room to spare. While the consent banner shows it also covers the foot of the
+   window, so then the list sticks only from 54rem (864px). Below that it scrolls with the
+   page. `e2e/legal.spec.ts` tabs to the last link at 1024 by 600 and by 768 with the
+   banner, and checks the threshold still holds for the tallest list. Unlayered, so it
+   beats the `lg:sticky` utility. */
+@media (min-width: 64rem) and (max-height: 45.99rem) {
+  aec-page-toc {
+    position: static;
+  }
+}
+
+@media (min-width: 64rem) and (max-height: 53.99rem) {
+  html[data-consent-reserve] aec-page-toc {
+    position: static;
+  }
+}
+
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
@@ -1987,7 +2010,7 @@ html[data-consent-reserve]
   text-transform: uppercase;
 }
 
-/* "On this page" rail (`docs-toc.ts`). Closed: one dash per heading, the label
+/* "On this page" rail (`shared/page-toc/page-toc.ts`, `variant="rail"`). Closed: one dash per heading, the label
    visually hidden but still the link's name. Open on hover or when a link has
    focus: a bordered panel with the headings beside their dashes. The list is
    absolutely placed so opening it overlays the article and never reflows it. */

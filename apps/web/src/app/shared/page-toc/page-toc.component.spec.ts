@@ -10,7 +10,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { DocsHeading } from '../../docs/docs-markdown';
 import { PROSE_PAGE_RESERVED_IDS } from '../../legal/legal-render';
-import { AecPageToc, PAGE_TOC_HEADING_ID, PAGE_TOC_MIN_HEADINGS } from './page-toc';
+import {
+  AecPageToc,
+  PAGE_TOC_HEADING_ID,
+  PAGE_TOC_MIN_HEADINGS,
+  PROSE_PAGE_TOC_CLASS,
+} from './page-toc';
 
 const Stub = class {};
 
@@ -92,6 +97,43 @@ describe('AecPageToc', () => {
     const link = (await render(THREE)).querySelector('nav a[aria-current="location"]')!;
     expect(link.className).toContain('aria-[current=location]:font-semibold');
     expect(link.className).toContain('min-h-6');
+  });
+
+  // One component, two looks (AECI-1720 review): the list is the default, and the
+  // docs rail is the same links with the dash markup the docs styles key off.
+  it('is the list by default and the docs dash rail with variant="rail"', async () => {
+    const list = await render(THREE);
+    expect(list.querySelector('nav.aec-docs-toc')).toBeNull();
+    expect(list.querySelector('nav p')?.textContent?.trim()).toBe('On this page');
+    const listHrefs = [...list.querySelectorAll('nav a')].map((a) => a.getAttribute('href'));
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([{ path: '**', component: Stub }]),
+      ],
+    });
+    await TestBed.inject(Router).navigateByUrl('/legal/terms');
+    const fixture = TestBed.createComponent(AecPageToc);
+    fixture.componentRef.setInput('variant', 'rail');
+    fixture.componentRef.setInput('headings', THREE);
+    fixture.detectChanges();
+    const rail = fixture.nativeElement as HTMLElement;
+    const nav = rail.querySelector('nav.aec-docs-toc')!;
+    expect(nav.getAttribute('aria-label')).toBe('On this page');
+    expect(nav.querySelectorAll('.aec-docs-toc-dash[aria-hidden="true"]')).toHaveLength(3);
+    // Same links, same behaviour.
+    expect([...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(listHrefs);
+    for (const a of nav.querySelectorAll('a'))
+      expect(a.hasAttribute('data-smooth-scroll')).toBe(true);
+  });
+
+  // On paper a list of in-page links points nowhere.
+  it('never prints and shows only from lg', () => {
+    expect(PROSE_PAGE_TOC_CLASS.split(' ')).toEqual(
+      expect.arrayContaining(['hidden', 'lg:block', 'lg:sticky', 'print:hidden']),
+    );
   });
 
   it('moves the mark to a clicked heading', async () => {

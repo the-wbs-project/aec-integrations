@@ -166,7 +166,7 @@ export function welcomeNextPath(raw: string | null): string {
               method="dialog"
               aecCard
               phoneFlush
-              class="mt-10"
+              class="mt-6 sm:mt-10"
               novalidate
               (aecSubmit)="onSave()"
             >
