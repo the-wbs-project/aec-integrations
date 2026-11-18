@@ -1547,7 +1547,7 @@ Worker; it does not apply when the whole Worker goes.
 #### 10.6 Seeding, if you build one again
 
 `pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
-`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` → `long-list-fixtures` is the pattern. `seed/catalog.sql` and
+`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` → `long-list-fixtures` → `connector-lists-fixtures` is the pattern. `seed/catalog.sql` and
 `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
 applying them to a throwaway tier is a deliberate exception. Four things they give you
 that a bare catalog does not:
@@ -1561,6 +1561,7 @@ that a bare catalog does not:
 | `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
 | `review-response-fixtures.sql` | Seven reviews on Dynamo for Revit (six approved, one pending) and five Autodesk replies, one per status (AECI-1175, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
 | `long-list-fixtures.sql` | `fixture-long-list` with 14 integrations, its 14 partners and three fixture-only categories (AECI-1868), so the grouped integration list renders. Idempotent. Ids `00000000-…-0000000018xx`. |
+| `connector-lists-fixtures.sql` | `fixture-hybrid-via` (a Via lane past 20 rows, and it powers 21 pairs) and `fixture-connector-hub` (powers 39 pairs), with two hubs and 25 partners (AECI-1788), so `products-connector-lists.spec.ts` runs every case. One unverified vendor, no category or review, so the data-quality run adds no finding (`src/test/seed-data-quality.spec.ts`). Idempotent. Ids `00000000-…-0000000019xx` to `21xx`. |
 
 Four things they do **not** cover, all of which had to be applied by hand:
 

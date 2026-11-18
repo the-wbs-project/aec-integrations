@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 
 import type {
   ContextDirection,
@@ -52,6 +52,16 @@ import {
   toggleFacetValue,
   type IntegrationFilterState,
 } from './integration-filter';
+import {
+  INTEGRATION_CLEAR_CLASS,
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_LIST_ROW_END_CLASS,
+  INTEGRATION_SEARCH_ICON_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+  INTEGRATION_STATUS_CLASS,
+} from './integration-filter-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
 import {
   hasNoIntegrationsOnRecord,
@@ -150,7 +160,8 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * chrome with a button on it.
  *
  * ── THE `@defer` CUT ────────────────────────────────────────────────────────────
- * Past 20 rows the remainder ships as deferred `<tr>`s in an
+ * Table view only since AECI-1891: the card view renders every row eagerly (see
+ * `laneCut`). In the table, past 20 rows the remainder ships as deferred `<tr>`s in an
  * `@defer (on viewport; hydrate on viewport)` block, and the budget is spent
  * across the FLATTENED lane order so it lands after 20 visible rows rather than
  * 20 rows into every lane. Under v22 incremental hydration those rows are
@@ -397,10 +408,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             Integrations on record
           </p>
           <h2 id="integrations-title" class="text-balance">
-            <span
-              class="font-display text-t-24 leading-tight font-semibold tracking-[-0.02em] text-(--text-primary) md:text-t-36"
-              >{{ heading() }}</span
-            >
+            <span [class]="headingClass">{{ heading() }}</span>
           </h2>
           <!-- The order line (approved 2026-11-16). Only where it is true of every row: a
                page with a Via lane orders its connector groups by row count (R1), so it
@@ -435,7 +443,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
       <div
         role="group"
         aria-labelledby="integrations-filters-title"
-        class="mt-4 grid gap-4 rounded-card bg-(--accent-warm) p-4"
+        [class]="panelClass"
         data-testid="integrations-filter-panel"
       >
         <span id="integrations-filters-title" class="sr-only" i18n="@@listing.filters.title"
@@ -445,10 +453,9 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center lg:gap-4"
           data-testid="integrations-filter-top"
         >
-          <!-- The search box (mock-up 6, .sfield): the field recipe of the shared List
-               filter, with a search glyph inside it, filling its column. The status it
-               would print lives in the list row below, so the panel holds no count. The
-               shared List filter is unchanged for its other callers. -->
+          <!-- The search box (mock-up 6, .sfield): the field recipe with a search glyph
+               inside it, filling its column. The status lives in the list row below, so
+               the panel holds no count. "Integrations it powers" uses the same recipe. -->
           <div class="relative min-w-0" data-testid="integrations-filter-search">
             <label
               for="integrations-filter"
@@ -456,13 +463,11 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               i18n="@@products.detail.body.integrations.filter.label"
               >Search these integrations</label
             >
-            <span
-              class="pointer-events-none absolute inset-y-0 start-4 flex items-center text-(--text-secondary)"
-              aria-hidden="true"
-            >
+            <span [class]="searchIconClass" aria-hidden="true">
               <aec-icon name="search" decorative [size]="4" />
             </span>
             <input
+              #filterInput
               id="integrations-filter"
               type="search"
               autocomplete="off"
@@ -470,7 +475,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
               placeholder="Filter by product or connection"
               (input)="onQuery($event)"
-              class="aec-field-control w-full rounded-control border bg-(--surface-base) py-2 ps-11 pe-3 text-t-16 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+              [class]="searchInputClass"
             />
           </div>
 
@@ -619,10 +624,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
            as a status message, and "Clear filters" while anything filters. On a page with
            a Via lane each lane card carries its own heading, so the row keeps only the
            count. -->
-      <div
-        class="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2"
-        data-testid="integrations-list-row"
-      >
+      <div [class]="listRowClass" data-testid="integrations-list-row">
         @if (lanes().via.length === 0) {
           <h3 class="min-w-0" data-testid="integrations-list-heading">
             <span
@@ -631,18 +633,14 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             >
           </h3>
         }
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 sm:ms-auto">
-          <p
-            role="status"
-            class="text-t-14 text-(--text-secondary)"
-            data-testid="integrations-status"
-          >
+        <div [class]="listRowEndClass">
+          <p role="status" [class]="statusClass" data-testid="integrations-status">
             {{ statusLabel() }}
           </p>
           @if (filterActive()) {
             <button
               type="button"
-              class="inline-flex min-h-6 items-center gap-1 rounded-(--radius-sm) text-t-14 font-semibold text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+              [class]="clearClass"
               (click)="clearFilters()"
               data-testid="integrations-filter-clear"
             >
@@ -1041,10 +1039,18 @@ export class ProductIntegrationsSection {
    * The filtered view with the `@defer (on viewport)` boundary applied, over the
    * FLATTENED render order (§13.3). A filter raises the limit to the whole
    * filtered set — see the class note.
+   *
+   * **The card view has no cut (AECI-1891).** The server always renders cards, and
+   * every card is already in its HTML, so the cut only deferred hydration. A filter
+   * typed before the reader scrolled left the still-dehydrated tail in the DOM: stale
+   * unfiltered cards under the filtered list. AECI-1783 removed the same cut from the
+   * grouped list for the same reason. The table is only ever rendered in the browser,
+   * so it keeps the cut.
    */
   protected readonly laneCut = computed(() => {
     const view = this.filteredLanes();
-    const limit = this.filterActive() ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
+    const whole = this.filterActive() || this.view() === 'cards';
+    const limit = whole ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
     return applyDeferCut(view, limit);
   });
 
@@ -1150,12 +1156,20 @@ export class ProductIntegrationsSection {
     this.dataObjects.update((current) => toggleFacetValue(current, slug));
   }
 
-  /** "Clear filters": every facet and the query, back to the whole section. */
+  /** The panel's search field, so "Clear filters" can hand focus back to it. */
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+
+  /**
+   * "Clear filters": every facet and the query, back to the whole section. The button
+   * goes with the filter, so focus moves to the search field rather than falling to
+   * the page body (AECI-1788, the same hand-off as "Integrations it powers").
+   */
   protected clearFilters(): void {
     this.query.set('');
     this.directions.set([]);
     this.categories.set([]);
     this.dataObjects.set([]);
+    this.filterInput()?.nativeElement.focus();
   }
 
   /**
@@ -1205,6 +1219,16 @@ export class ProductIntegrationsSection {
 
   // AECI-1720: the filter panel's row recipes (mock-up 6, .deck-row and .deck .lead).
   /** A labelled chip row: the label above below md, in its own 8.5rem column from md. */
+  // The mock-up 6 recipe, shared with "Integrations it powers" (AECI-1788).
+  protected readonly headingClass = INTEGRATION_LIST_HEADING_CLASS;
+  protected readonly panelClass = INTEGRATION_FILTER_PANEL_CLASS;
+  protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
+  protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
+  protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;
+  protected readonly listRowEndClass = INTEGRATION_LIST_ROW_END_CLASS;
+  protected readonly statusClass = INTEGRATION_STATUS_CLASS;
+  protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
+
   protected readonly rowClass =
     'grid gap-2 md:grid-cols-[8.5rem_minmax(0,1fr)] md:items-start md:gap-4';
   /** The row label: an overline, centred on the first line of 44px chips from md. */
@@ -1227,8 +1251,8 @@ export class ProductIntegrationsSection {
 
   /**
    * "Showing 4 of 14", the list row's status while anything filters. The filter box's
-   * own message id and rule: empty while nothing filters, as on the connector page's
-   * shared List filter (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
+   * own message id and rule: empty while nothing filters, as on "Integrations it
+   * powers" (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
    * the section's row count, which can differ from the facts card's figure, the count
    * the heading was ruled not to carry (2026-11-16). The region stays in the DOM so
    * the first change is announced.

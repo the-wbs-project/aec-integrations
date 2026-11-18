@@ -898,6 +898,12 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   direction as a column in one section and a sublabel in the other. §13.3a carries the measured
   reasoning. One link per row (the pair page), so no stretched-link overlay: the partner's own
   product page is one hop further, from the pair page.
+  **Amended 2026-11-17 (AECI-1788): the rows are cards.** The endpoint section became cards in
+  AECI-1782, so this section followed it. Each partner row is now a nested card in the shared card
+  grid inside its hub card, as the Via lane cards are, and the head, filter panel and list row take the Integrations section's mock-up 6 recipe (ruled 2026-11-17, "align them"). Each card is still the row's one link to the pair page with the same
+  accessible name. The content, the hub-relative direction, the order and the counts are
+  unchanged. The mechanism badge and the data-object count no longer fold at `md`: a card has room
+  for both chips at every width. `DESIGN.md` §5 "Open values (components)" carries the values.
 - **A full compatibility-matrix page archetype** (platforms × ERPs grid) was considered and is
   noted as a possible **Stage 2** evolution; the hub view is the Stage 1.5 answer.
 - **Render condition:** `product_role !== 'application' || integrations_as_connector.length > 0`.
@@ -1017,7 +1023,11 @@ grouping, counting or render-condition rules.
 threshold, and this section became a component.** Presentation and composition only; the grouping,
 counting and render-condition rules above are all still in force.
 
-1. **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
+1. ⚠️ **Superseded by AECI-1788 (2026-11-17).** Both product-page sections now put the search box
+   in a Bone filter panel under the `<h2>`, with the status line and "Clear filters" in a row under
+   the panel (`integration-filter-recipe.ts`). The heading-row filter component is deleted.
+   `DESIGN.md` §5 "Open values (components)" carries the values. The text below is the history.
+   **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
    a band beneath it. Below `sm` it drops to a full-width second line. It stays right-aligned when a
    long `<h2>` wraps it onto a second line at `sm` and above, via `sm:ms-auto` on its host — the
    row's `justify-between` would otherwise place a lone wrapped item at flex-start. The
@@ -1054,9 +1064,11 @@ and the render condition are unchanged.
    words since AECI-1720 restore C; "direction Outbound" before).
    - **A hub row** says the hub-relative words it shows ("direction Sends to Sage"). The name opens with
      the hub, which is what that word is relative to.
-   - **A flat "Other connections" row** says which way a one-way pair flows: "direction One-way from
-     Fieldwire to Bluebeam". "One-way" alone would drop the half the `A → B` glyph carries, and below
-     `md` that glyph is the only direction cue on screen.
+   - **A flat "Other connections" row** says which way a one-way pair flows. Since AECI-1788 it uses
+     the shared words read from endpoint A, the name it prints first: "direction Receives from
+     Fieldwire" on the Bluebeam and Fieldwire card ("direction One-way from Fieldwire to Bluebeam"
+     before). The visible card prints the same words, so a bare "One-way" never drops the half the
+     `A → B` glyph carries.
    - **An unknown direction** reads "direction not listed", because the row shows a dash for it.
    - The separator is its own `$localize` message (`@@products.detail.body.powers.row.aria.part`),
      so a translation can change it. The AECI-1080 id `…row.aria.objects` is retired.
@@ -1445,7 +1457,8 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
   entry, the sitemap and the cache tags are all unchanged.
 
 ⚠️ **Amended again by AECI-848 (2026-09-10):** the filter moved into this section's heading row,
-right-aligned opposite the `<h2>`, and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
+right-aligned opposite the `<h2>` (superseded by AECI-1720 and AECI-1788: the filter is now a Bone
+panel under the `<h2>`, `DESIGN.md` §5), and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
 that renders rows renders a filter**, including the single-lane page above. Both changes and the
 reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
 same component shape there.
@@ -1464,8 +1477,8 @@ filter did not.
 
 - **The placeholder is now "Filter by product or connection"**, in both this section and §12.3's.
   The `sr-only` labels ("Search these integrations" / "Search these connections") were already
-  field-agnostic and are unchanged. `DESIGN.md` records the placeholder as the justification for the
-  input's `w-96` width; the longer string still reads in full at that width.
+  field-agnostic and are unchanged. The `w-96` width this string once justified went with the heading-row filter
+  (superseded by AECI-1788). The search box now fills its column in the filter panel, `DESIGN.md` §5.
 - **A collapsed Via row is matched on its REPRESENTATIVE edge's label, not on every collapsed
   edge's.** The row renders exactly one label (`ProductIntegrationRow` binds
   `integration().mechanism_name`), so testing the representative is what keeps the filter and the

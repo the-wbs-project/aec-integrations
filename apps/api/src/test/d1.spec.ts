@@ -28,6 +28,7 @@ import {
 } from '../db/schema';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { productListConfig } from '../lib/drizzle-helpers';
+import { findProductCountDrift } from '../lib/recompute-counts';
 import {
   endLicensesStatements,
   grantLicensesStatements,
@@ -1796,5 +1797,35 @@ describe('self-reported attribution columns (AECI-1063)', () => {
       expect(statement).toMatch(/^ALTER TABLE `\w+` ADD `found_via(_detail)?` text;$/);
     }
     expect(sqlText).not.toMatch(/__new_|DROP TABLE/i);
+  });
+});
+
+// AECI-1788: the connector-lists fixture. It seeds the shapes
+// `products-connector-lists.spec.ts` asserts against, so the e2e never skips.
+// Its stored counts must follow the canonical rule, or the count-drift check and the
+// facts card would disagree with what the page lists.
+describe('seed/connector-lists-fixtures.sql (AECI-1788)', () => {
+  it('applies to a fresh database with counts that match the recompute rule, twice', async () => {
+    const t = await makeTestDb();
+    try {
+      applySeedFile(t, 'connector-lists-fixtures.sql');
+      expect(await findProductCountDrift(t.db)).toEqual([]);
+      const count = (query: string) => (t.raw.prepare(query).get() as { n: number }).n;
+      expect(count(`SELECT COUNT(*) AS n FROM products WHERE slug LIKE 'fixture-%'`)).toBe(29);
+      // The two shapes the e2e needs: more than 20 powered pairs, and a Via lane past 20 rows.
+      expect(
+        count(`SELECT COUNT(*) AS n FROM connector_evidenced_pairs e JOIN products c
+                 ON c.id = e.connector_product_id WHERE c.slug = 'fixture-connector-hub'`),
+      ).toBe(39);
+      expect(
+        count(`SELECT integration_count AS n FROM products WHERE slug = 'fixture-hybrid-via'`),
+      ).toBe(46);
+      applySeedFile(t, 'connector-lists-fixtures.sql');
+      expect(count(`SELECT COUNT(*) AS n FROM products WHERE slug LIKE 'fixture-%'`)).toBe(29);
+      expect(count(`SELECT COUNT(*) AS n FROM connector_evidenced_pairs`)).toBe(60);
+      expect(await findProductCountDrift(t.db)).toEqual([]);
+    } finally {
+      t.dispose();
+    }
   });
 });
