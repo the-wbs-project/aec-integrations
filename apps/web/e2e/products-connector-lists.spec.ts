@@ -225,3 +225,123 @@ test.describe('product page: "Integrations it powers" past 20 pairs (AECI-1788)'
     await expect(page.locator('#powered-integrations [role=status]').first()).toHaveText('');
   });
 });
+
+// AECI-1924: "Integrations it powers" offers the Integrations section's Cards and Table
+// toggle. One toggle sets every hub. The table lists the same rows in the same order as
+// the cards, under the same filter and "Showing n of m". Cards render on the server.
+for (const slug of ['fixture-connector-hub', 'fixture-hybrid-via']) {
+  test.describe(`"Integrations it powers" Cards and Table on ${slug} (AECI-1924)`, () => {
+    const section = '#powered-integrations';
+    const viewButton = (page: Page, name: 'Cards' | 'Table') =>
+      page.locator(`${section} [aria-label="Choose a view"] button`, { hasText: name });
+    const cardNames = (page: Page) =>
+      page
+        .locator(`${section} a[data-testid="powered-card"]`)
+        .evaluateAll((as) => as.map((a) => a.getAttribute('aria-label')));
+    const tableNames = (page: Page) =>
+      page
+        .locator(`${section} a[data-testid="powered-table-link"]`)
+        .evaluateAll((as) => as.map((a) => a.getAttribute('aria-label')));
+
+    test.beforeAll(async ({ request }) => {
+      const d = await fixture(request, slug);
+      expect((d.integrations_as_connector ?? []).length, `${slug} powers pairs`).toBeGreaterThan(0);
+    });
+
+    test('the server renders cards and no table, the same for every visitor', async ({
+      request,
+    }) => {
+      const html = await (await request.get(`/products/${slug}`)).text();
+      const start = html.search(/<section[^>]*id="powered-integrations"/);
+      expect(start).toBeGreaterThan(-1);
+      const body = html.slice(start, html.indexOf('</section>', start));
+      expect(body).toContain('data-testid="powered-card"');
+      expect(body).not.toContain('<table');
+      expect(body).toContain('aria-label="Choose a view"');
+    });
+
+    test('Table shows the same rows in the same order, named by each hub', async ({ page }) => {
+      await page.goto(`/products/${slug}`);
+      await untilHydrated(page.locator('#powers-filter'));
+      const cards = await cardNames(page);
+      expect(cards.length).toBeGreaterThan(0);
+      await expect(viewButton(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+
+      const table = viewButton(page, 'Table');
+      await table.click();
+      await expect(table).toHaveAttribute('aria-pressed', 'true');
+      await expect(table).toBeFocused();
+      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
+        cards.length,
+      );
+      expect(await tableNames(page)).toEqual(cards);
+      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
+
+      // One table per group card, named by that card's heading (the hub).
+      const tables = page.locator(`${section} table`);
+      const n = await tables.count();
+      expect(n).toBeGreaterThan(0);
+      for (let i = 0; i < n; i++) {
+        const id = (await tables.nth(i).getAttribute('aria-labelledby'))!;
+        const heading = page.locator(`[id="${id}"]`);
+        await expect(heading).toHaveCount(1);
+        // The heading's accessible name, as the browser computes it.
+        const snapshot = await heading.ariaSnapshot();
+        const name = /"([^"]+)"/.exec(snapshot)?.[1] ?? '';
+        expect(name.length, snapshot).toBeGreaterThan(0);
+        await expect(tables.nth(i)).toHaveAccessibleName(name);
+      }
+      expect(await duplicateIds(page)).toEqual([]);
+
+      // Back to cards: the same rows again, and focus stays on the toggle.
+      const cardsButton = viewButton(page, 'Cards');
+      await cardsButton.click();
+      await expect(cardsButton).toBeFocused();
+      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(
+        cards.length,
+      );
+      expect(await cardNames(page)).toEqual(cards);
+    });
+
+    test('the filter and "Showing n of m" are the same in both views', async ({ page }) => {
+      await page.goto(`/products/${slug}`);
+      const search = page.locator('#powers-filter');
+      await untilHydrated(search);
+      const word = (
+        (await page.locator(`${section} [data-testid="powered-card-name"]`).last().textContent()) ??
+        ''
+      ).trim();
+      expect(word.length).toBeGreaterThan(0);
+      await search.fill(word);
+      const shownInCards = await shownCount(page, section);
+      const cards = await cardNames(page);
+      expect(cards).toHaveLength(shownInCards);
+
+      await viewButton(page, 'Table').click();
+      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
+        shownInCards,
+      );
+      expect(await shownCount(page, section)).toBe(shownInCards);
+      expect(await tableNames(page)).toEqual(cards);
+
+      // Clearing the filter in the table brings every row back, still as a table.
+      await page.getByTestId('powers-filter-clear').click();
+      await expect(search).toBeFocused();
+      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).not.toHaveCount(
+        shownInCards,
+      );
+      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
+    });
+
+    for (const width of [320, 390]) {
+      test(`the table never scrolls the page sideways at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/products/${slug}`);
+        await untilHydrated(page.locator('#powers-filter'));
+        await viewButton(page, 'Table').click();
+        await expect(page.locator(`${section} table`).first()).toBeVisible();
+        await expectNoSidewaysScroll(page, `${slug} table at ${width}px`);
+      });
+    }
+  });
+}

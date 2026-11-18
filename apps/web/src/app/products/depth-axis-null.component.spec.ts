@@ -15,6 +15,10 @@
  * One re-record, and it is not a depth-axis change. AECI-1079 (2026-09-24) gave
  * the row's partner-name link a 24px target (`-my-0.5 min-w-6 py-0.5`). The two
  * row snapshots changed in that `class` attribute and nowhere else.
+ *
+ * AECI-1924 (2026-11-18) re-recorded the powered hub snapshot for its filter panel only:
+ * the panel gained the Cards and Table toggle. Everything from the list row on, every
+ * card included, is byte for byte the same.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';

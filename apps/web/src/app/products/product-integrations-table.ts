@@ -1,5 +1,14 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
+import {
+  INTEGRATION_TABLE_BODY_CLASS,
+  INTEGRATION_TABLE_CLASS,
+  INTEGRATION_TABLE_FRAME_CLASS,
+  INTEGRATION_TABLE_HEAD_CLASS,
+  INTEGRATION_TABLE_TH_CLASS,
+  INTEGRATION_TABLE_TH_LINK_CLASS,
+  INTEGRATION_TABLE_TH_MD_CLASS,
+} from './integration-table-recipe';
 import { ProductIntegrationRow } from './product-integration-row';
 
 import type { IntegrationLaneRow } from './connector-lane-grouping';
@@ -37,23 +46,17 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
          re-breaks that dock into a horizontal scroll. -->
     <!-- AECI-1720 (mock-up 6, .table-wrap): the table sits in a white card with a Bone
          header row. -->
-    <div
-      class="overflow-x-auto rounded-card bg-(--surface-base) shadow-card"
-      data-testid="integrations-table-frame"
-    >
+    <div [class]="frameClass" data-testid="integrations-table-frame">
       <table
-        class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
+        [class]="tableClass"
         [attr.aria-label]="ariaLabel()"
         [attr.aria-labelledby]="ariaLabelledby()"
       >
-        <thead
-          class="border-b border-(--border-default) bg-(--accent-warm) text-start text-xs
-            font-semibold tracking-wide text-(--text-secondary)"
-        >
+        <thead [class]="headClass">
           <tr>
             <th
               scope="col"
-              class="px-4 py-3 text-start font-semibold"
+              [class]="thClass"
               i18n="@@products.detail.body.integrations.col.product"
             >
               Integrates with
@@ -67,19 +70,19 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
             </th>
             <th
               scope="col"
-              class="hidden px-4 py-3 text-start font-semibold md:table-cell"
+              [class]="thMdClass"
               i18n="@@products.detail.body.integrations.col.connection"
             >
               Connection
             </th>
-            <th scope="col" class="px-4 py-3">
+            <th scope="col" [class]="thLinkClass">
               <span class="sr-only" i18n="@@products.detail.body.integrations.col.details"
                 >Details</span
               >
             </th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-(--border-default)">
+        <tbody [class]="bodyClass">
           @for (row of above(); track row.key) {
             <tr
               aec-product-integration-row
@@ -134,4 +137,13 @@ export class ProductIntegrationsTable {
   readonly ariaLabel = input<string | null>(null);
   /** …or the id of the group's `<h3>`, for a named lane. */
   readonly ariaLabelledby = input<string | null>(null);
+
+  // The table recipe, shared with the hub tables of "Integrations it powers" (AECI-1924).
+  protected readonly frameClass = INTEGRATION_TABLE_FRAME_CLASS;
+  protected readonly tableClass = INTEGRATION_TABLE_CLASS;
+  protected readonly headClass = INTEGRATION_TABLE_HEAD_CLASS;
+  protected readonly thClass = INTEGRATION_TABLE_TH_CLASS;
+  protected readonly thMdClass = INTEGRATION_TABLE_TH_MD_CLASS;
+  protected readonly thLinkClass = INTEGRATION_TABLE_TH_LINK_CLASS;
+  protected readonly bodyClass = INTEGRATION_TABLE_BODY_CLASS;
 }
