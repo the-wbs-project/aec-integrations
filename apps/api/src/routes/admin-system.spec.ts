@@ -346,6 +346,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'legal_agreement_unpublished',
       // AECI-1689 review — a published agreement row whose date the entry no longer names.
       'legal_agreement_date_moved',
+      // AECI-1914 — acceptances and grants of a deleted vendor with no deletion record.
+      'acceptance_without_retention_date',
       // AECI-1621 — a plan-change ranking snapshot unwritten 24 hours after it was due.
       'plan_snapshot_overdue',
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live

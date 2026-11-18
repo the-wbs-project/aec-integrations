@@ -1847,7 +1847,9 @@ Every state-changing event in the platform. Rows are never updated. They are del
 the legal retention prune four years after the action, outside a fixed list of exempt actions
 and while no litigation hold is open (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0058). The exempt
 `agreement.*` rows go with their acceptance (§8.6d), the `litigation_hold.*` rows four years
-after their hold's release (§8.15), and `retention.pruned` rows are kept.
+after their hold's release (§8.15), and `retention.pruned` rows are kept. A `vendor.deleted` row
+is exempt on a condition (AECI-1914): while its vendor row is gone and an acceptance or grant
+still names that vendor. It goes with the last of them (§8.6d).
 
 ```sql
 create table audit_log (
@@ -2513,15 +2515,29 @@ create unique index agreement_acceptances_stripe_session_key
   ruling 1 of 2026-11-17 defines the account end. A vendor's account has ended when
   `vendors.claim_ended_at` is set and it holds no live license. The end instant is the later of
   `claim_ended_at` and the latest `licenses.ended_at` on its billing account. A reclaim or a new
-  license restarts the clock. A row goes when:
-  - its vendor's account ended at least six calendar years ago, and it was accepted before that;
-  - and, when it names a grant, that grant ended at least five calendar years ago. A grant ends
-    at its last license's `ended_at` (lapse, revoke, release or Terminate, whichever comes first,
-    so the scheduled `ends_at` alone does not set it), or at `decided_at` when it was withdrawn or
-    expired before any acceptance;
-  - and no open litigation hold covers its vendor (§8.15).
+  license restarts the clock. No row is kept forever (Chris's ruling 48 and its extension,
+  AECI-1914). A row goes when it was accepted at least six calendar years ago, no global hold is
+  open, and one of four arms holds:
+  - **A, the vendor exists.** Its vendor's account ended at least six calendar years ago. A
+    legacy checkout row with a NULL `vendor_id` takes its billing account's vendor. When the row
+    names a grant, that grant ended at least five calendar years ago. A grant ends at its last
+    license's `ended_at` (lapse, revoke, release or Terminate, whichever comes first, so the
+    scheduled `ends_at` alone does not set it), or at `decided_at` when it was withdrawn or
+    expired before any acceptance. No open hold covers its vendor (§8.15).
+  - **B, a claim never approved.** `vendor_id`, `billing_account_id` and `license_grant_id` are
+    NULL, and the claim in `vendor_request_id` is `rejected` with `resolved_at` at least six
+    calendar years ago. An open, in-review or approved claim keeps it. A vendor hold on the
+    company the claim targeted keeps it: the vendor itself, or, on a legacy `target_type =
+    'product'` claim, any vendor joined to that product.
+  - **C, no date but the acceptance.** All four links are NULL: a listing-request acceptance
+    (AECI-1366, a closed set since AECI-1705), or one whose claim row was deleted. Six years
+    after `accepted_at`. Only a global hold keeps it.
+  - **D, the vendor row is gone.** The latest `vendor.deleted` audit row for its `vendor_id`
+    (`lib/retract-vendor.ts`) is at least six calendar years old, and the grant test of arm A
+    holds. A vendor hold on that id keeps it. With no `vendor.deleted` row it is kept, and the
+    `acceptance_without_retention_date` data-quality check reports it.
 
-  A row with a NULL `vendor_id`, or whose vendor row is gone, is never deleted. At most 200 ids
+  A `license_grants` row goes on arm A or arm D for its vendor, plus the grant-end test. At most 200 ids
   go per run. They are listed in the run's `retention.pruned` audit row
   (`metadata.tables[] = { table, ids }`), so the acceptance chain verify accepts each tombstone
   (§9.17, ADR 0057). Its audit rows go in the same batch, after the acceptance delete (Chris's
@@ -2530,7 +2546,10 @@ create unique index agreement_acceptances_stripe_session_key
   (approver and profile id) goes once none of the ids in `after_state.acceptance_ids` is left,
   for the vendors the run prunes. `agreement.evidence_removed` goes once none of the ids in
   `metadata.acceptance_ids` is left, for rows older than the acceptance cutoff, chunked. Both
-  columns are JSON text. A malformed value, or one with no non-empty array, is kept. The 90-day
+  columns are JSON text. A `vendor.deleted` row of an arm-D vendor goes once no acceptance and no
+  grant names that vendor, after the acceptance and grant deletes and before the four-year part.
+  The four-year audit prune skips a `vendor.deleted` row while its vendor row is gone and an
+  acceptance or grant still names it. A malformed value, or one with no non-empty array, is kept. The 90-day
   IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete.
 - **IP and user agent removed after 90 days (AECI-1636 — 2026-11-10, ruling 11, counsel Q27b;
   migration `0116_aromatic_doctor_octopus`, a plain `ADD COLUMN`).** The Privacy Policy
@@ -2551,7 +2570,8 @@ create unique index agreement_acceptances_stripe_session_key
 - **A replayed checkout fails.** The partial unique index on `stripe_checkout_session_id`
   makes a second acceptance for one session trip the batch, which rolls back whole.
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
-  the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
+  the link cleared. A row with no other link then falls under arm C of the retention prune
+  (above), six years after `accepted_at`. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
 - **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0078).** The typed-in listing
   path ("Not listed? Type it in", now "Ask us to add it") has no claim row, so its acceptance names the
@@ -3633,7 +3653,7 @@ The switch that stops the legal retention prune (counsel Q23a, ADR 0058, `ADMIN_
 
 Indexes: `litigation_holds_open_global_idx`, unique on `(scope) WHERE released_at IS NULL AND scope = 'global'` (one open global hold), `litigation_holds_open_vendor_idx`, unique on `(vendor_id) WHERE released_at IS NULL AND vendor_id IS NOT NULL` (one open hold per vendor), and `litigation_holds_placed_at_idx` on `(placed_at)`.
 
-- **What an open hold stops** (Chris's ruling 3 of 2026-11-17). Any open hold, global or vendor, pauses the whole four-year `audit_log` prune (§8.4). A vendor hold keeps that vendor's `agreement_acceptances` and `license_grants` rows (§8.6d). A global hold keeps everything: the run deletes nothing and reports `skipped`. The prune reads the open holds before it plans, and its batch opens with a sentinel that aborts when a hold landed after the read.
+- **What an open hold stops** (Chris's ruling 3 of 2026-11-17). Any open hold, global or vendor, pauses the whole four-year `audit_log` prune (§8.4). A vendor hold keeps that vendor's `agreement_acceptances` and `license_grants` rows, including the rows of a rejected claim on that company and of a deleted vendor with that id (§8.6d). An acceptance with no company or claim has no vendor to hold, so only a global hold keeps it. A global hold keeps everything: the run deletes nothing and reports `skipped`. The prune reads the open holds before it plans, and its batch opens with a sentinel that aborts when a hold landed after the read.
 - **No FK and no CHECK**, on the `dmca_notices` (§8.14) precedent. The migration is one `CREATE TABLE` and three `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/litigation-holds.ts`.
 - **Writers.** `routes/admin-litigation-holds.ts` only. The place inserts a row with its `litigation_hold.placed` audit row in one `db.batch`. A second open hold of the same scope is refused with `409 LITIGATION_HOLD_EXISTS`, by an early read and by the partial unique index. The release is a guarded `UPDATE … WHERE id = ? AND released_at IS NULL` behind a sentinel, with its `litigation_hold.released` audit row in the same batch. A second release is `409 LITIGATION_HOLD_RELEASED`. There is no delete route.
 - **Never public.** Only the admin routes read it, behind `requireAdmin()`. No page renders it, so no cache tag applies.
@@ -6500,7 +6520,7 @@ Backup policy is deferred to a dedicated operational document — `docs/runbooks
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: **four years** after the action, enforced since AECI-1638 by the legal retention prune, queued from the same 03:00 tick (`STAGE_1_SPEC.md` §26.6, ADR 0058). Exempt actions and open litigation holds keep rows longer (§8.4, §8.15). No R2 copy is made first: the deletion is the promise
-- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). `terms_acceptances` is not pruned yet (a follow-up)
+- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). Since AECI-1914 no acceptance is kept forever: a claim never approved goes six years after its rejection, a row with no company or claim six years after acceptance, and a row of a deleted company six years after its `vendor.deleted` audit row. `terms_acceptances` is not pruned yet (a follow-up)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11

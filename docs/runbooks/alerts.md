@@ -1224,7 +1224,7 @@ read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_sta
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
 (`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1908 `maintained_by_without_owner` check on the maintenance marker, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
+Algolia drift, the AECI-1867 `algolia_unclaimed_logo` check on stale search logos, the AECI-1908 `maintained_by_without_owner` check on the maintenance marker, the AECI-1914 `acceptance_without_retention_date` check on undatable acceptance records, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the three
 telemetry tripwires —
 AECI-868's `arrival_cf_coverage`, AECI-876's `landing_cf_coverage` and AECI-1715's
 `browser_evidence_coverage`). *(The count is deliberately not
@@ -1285,6 +1285,16 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > else is a hand edit. Reset `maintained_by` to `'aeci'` by an ops script with its audit row, not a
 > migration. Do not act on the note's claim-end count: a seat lapse keeps the marker on purpose
 > (ADR 0051).
+
+> **`acceptance_without_retention_date` means acceptance records the legal prune can never delete**
+> (AECI-1914). Each line names a vendor id that acceptances or grants still name, with no `vendors`
+> row and no `vendor.deleted` audit row. The prune dates a deleted company's records from that audit
+> row, so without it they are kept forever, which breaks the Privacy Policy. `ops:retract-vendor`
+> always writes the row, so look for a hand delete in D1. Write the missing `vendor.deleted` row by an
+> ops script, with the best known deletion date and `entity_type = 'vendor'`, not a migration. The
+> note counts acceptances of an approved claim with no vendor linked. The approval links them
+> (`linkClaimAcceptanceStatements`), so find the claim and link them the same way, by an ops script
+> with its audit row. Until then the prune keeps them.
 
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
@@ -1694,8 +1704,12 @@ If step 2 returns any rows, the prune will skip — backfill those days first (F
 The same 03:00 tick enqueues a second job, `legal-retention-prune`, on `RECONCILE_QUEUE`
 (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). It deletes `audit_log` rows older than four
 years, except the exempt actions (`retention.pruned`, `litigation_hold.*`, `agreement.*`, `terms.*`,
-`account.deleted`). It also deletes agreement acceptances and subscription grants six years after the
-vendor account ends, or five years after a grant ends if later. It writes one `retention.pruned` row
+`account.deleted`, and a `vendor.deleted` row while an acceptance or grant of that gone vendor
+remains). It also deletes agreement acceptances and subscription grants six years after the
+vendor account ends, or five years after a grant ends if later. Since AECI-1914 no acceptance is
+kept forever: one of a claim never approved goes six years after the claim was rejected, one with
+no company and no claim six years after it was given, and one of a deleted company six years
+after its `vendor.deleted` row, which goes in the same batch as the last of them. It writes one `retention.pruned` row
 per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
 Nothing falls due before about 2030.
 

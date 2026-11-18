@@ -16,6 +16,8 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import type { AlgoliaLogoReader, IndexedLogo, LogoEntity } from './algolia-unclaimed-logo';
 import {
+  agreementAcceptances,
+  auditLog,
   billingAccounts,
   connectorEvidencedPairs,
   integrations,
@@ -35,6 +37,8 @@ import {
   taxonomyDataObjects,
   taxonomyPhases,
   taxonomyTrades,
+  licenseGrants,
+  vendorRequests,
   vendors,
   vendorSuspensions,
   vendorTerminationRefunds,
@@ -47,6 +51,7 @@ import {
   browserEvidenceCaptureEnabled,
   CHECKS,
   checkAlgoliaDrift,
+  checkAcceptanceWithoutRetentionDate,
   checkAlgoliaUnclaimedLogo,
   checkMaintainedByWithoutOwner,
   checkArrivalCfCoverage,
@@ -779,6 +784,92 @@ describe('checkMaintainedByWithoutOwner', () => {
     const { lines, note } = await checkMaintainedByWithoutOwner(t.db);
     expect(lines).toEqual([]);
     expect(note).toBe('0 vendor(s) and 0 product(s) frozen by a claim end (by design, ADR 0051)');
+  });
+});
+
+// ── acceptance_without_retention_date (AECI-1914) ────────────────────────────
+
+describe('checkAcceptanceWithoutRetentionDate', () => {
+  async function seedAcceptance(
+    id: string,
+    over: { vendorId?: string | null; vendorRequestId?: string | null } = {},
+  ): Promise<void> {
+    await t.db.insert(agreementAcceptances).values({
+      id,
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email: 'signer@example.test',
+      vendorId: over.vendorId ?? null,
+      vendorRequestId: over.vendorRequestId ?? null,
+      acceptedAt: OLD,
+    });
+  }
+  async function seedClaim(id: string, status: string): Promise<void> {
+    await t.db.insert(vendorRequests).values({
+      id,
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: 'v-any',
+      submitterEmail: 'claimant@example.test',
+      body: 'Claim',
+      status,
+      resolvedAt: status === 'resolved' || status === 'rejected' ? OLD : null,
+    });
+  }
+
+  it('is clean on an empty database', async () => {
+    expect(await checkAcceptanceWithoutRetentionDate(t.db)).toEqual({
+      lines: [],
+      note: '0 acceptance(s) of an approved claim with no vendor linked (kept until linked)',
+    });
+  });
+
+  it('flags a gone vendor with no vendor.deleted row, and counts an approved claim with no vendor in the note', async () => {
+    // Gone, no record: flagged, with its acceptance and its grant.
+    await seedVendor({ id: 'v-host' });
+    await t.db.insert(billingAccounts).values({ id: 'ba-host', vendorId: 'v-host', name: 'Host' });
+    await seedAcceptance('acc-gone', { vendorId: 'v-gone' });
+    await t.db.insert(licenseGrants).values({
+      id: 'g-gone',
+      billingAccountId: 'ba-host',
+      vendorId: 'v-gone',
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 1,
+      endsAt: OLD,
+      termsVersion: '1.0',
+      status: 'withdrawn',
+    });
+    // Gone, with its record: the prune dates it, not a finding.
+    await seedAcceptance('acc-dated', { vendorId: 'v-dated' });
+    await t.db.insert(auditLog).values({
+      actorType: 'system',
+      action: 'vendor.deleted',
+      entityType: 'vendor',
+      entityId: 'v-dated',
+      createdAt: OLD,
+    });
+    // A live vendor: not a finding.
+    await seedAcceptance('acc-live', { vendorId: 'v-host' });
+    // NULL-vendor claim acceptances: only the approved one is a linking defect.
+    await seedClaim('claim-resolved', 'resolved');
+    await seedClaim('claim-rejected', 'rejected');
+    await seedClaim('claim-open', 'open');
+    await seedAcceptance('acc-resolved', { vendorRequestId: 'claim-resolved' });
+    await seedAcceptance('acc-rejected', { vendorRequestId: 'claim-rejected' });
+    await seedAcceptance('acc-open', { vendorRequestId: 'claim-open' });
+
+    expect(await checkAcceptanceWithoutRetentionDate(t.db)).toEqual({
+      lines: [
+        'vendor id v-gone has no vendor row and no vendor.deleted record: 1 acceptance(s) and 1 grant(s) can never be pruned',
+      ],
+      note: '1 acceptance(s) of an approved claim with no vendor linked (kept until linked)',
+    });
+  });
+
+  it('is registered as a warn check', () => {
+    expect(CHECKS.find((c) => c.id === 'acceptance_without_retention_date')?.severity).toBe('warn');
   });
 });
 

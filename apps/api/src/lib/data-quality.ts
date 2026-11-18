@@ -66,6 +66,7 @@ import { businessWindowEnd } from './business-days';
 import { fieldHideDues } from './field-hide-dues';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
+import { VENDOR_DELETED_ACTION } from './legal-retention-prune';
 import { liveLicenseCountSql } from './license';
 import { liveEvidencedPairOn, liveIntegrationOn } from './live-integration';
 import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
@@ -1666,6 +1667,60 @@ export async function checkLegalAgreementDateMoved(
   return { lines };
 }
 
+/**
+ * `acceptance_without_retention_date` (AECI-1914, ruling 48 and its extension): agreement
+ * acceptances and license grants the legal retention prune can never date, so would keep
+ * forever. Each line is one vendor id with no `vendors` row and no `vendor.deleted` audit
+ * row (`VENDOR_DELETED_ACTION`), the record arm D of `lib/legal-retention-prune.ts` dates
+ * the six years from. Only `lib/retract-vendor.ts` deletes a vendor, and it writes that
+ * row in the same batch, so a finding is a hand delete or an audit row lost another way.
+ * The fix is an ops script that writes the missing `vendor.deleted` row with the best
+ * known deletion date, never a migration.
+ *
+ * The note counts NULL-vendor claim acceptances whose claim was approved (`resolved`). The
+ * approval batch links the vendor (`linkClaimAcceptanceStatements`), so such a row is a
+ * linking defect. Arm B keeps it, because only a rejected claim dates it. `warn`, and a
+ * seeded database is clean: the seed deletes no vendor and links every approved claim.
+ */
+export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<CheckFinding> {
+  const undated = sql`NOT EXISTS (SELECT 1 FROM "vendors" "rd_v" WHERE "rd_v"."id" = "rd"."vendor_id")
+    AND NOT EXISTS (
+      SELECT 1 FROM "audit_log" "rd_a"
+      WHERE "rd_a"."entity_type" = 'vendor'
+        AND "rd_a"."entity_id" = "rd"."vendor_id"
+        AND "rd_a"."action" = ${VENDOR_DELETED_ACTION}
+    )`;
+  const rows = await db.all<{ vendor_id: string; acceptances: number; grants: number }>(sql`
+    SELECT "rd"."vendor_id" AS "vendor_id",
+           sum("rd"."is_acceptance") AS "acceptances",
+           sum(1 - "rd"."is_acceptance") AS "grants"
+    FROM (
+      SELECT "vendor_id", 1 AS "is_acceptance" FROM "agreement_acceptances"
+      WHERE "vendor_id" IS NOT NULL
+      UNION ALL
+      SELECT "vendor_id", 0 AS "is_acceptance" FROM "license_grants"
+    ) "rd"
+    WHERE ${undated}
+    GROUP BY "rd"."vendor_id"
+    ORDER BY "rd"."vendor_id"
+  `);
+  const [unlinked] = await db.all<{ n: number }>(sql`
+    SELECT count(*) AS "n" FROM "agreement_acceptances" "ul_a"
+    JOIN "vendor_requests" "ul_r" ON "ul_r"."id" = "ul_a"."vendor_request_id"
+    WHERE "ul_a"."vendor_id" IS NULL
+      AND "ul_a"."billing_account_id" IS NULL
+      AND "ul_r"."kind" = 'claim'
+      AND "ul_r"."status" = 'resolved'
+  `);
+  return {
+    lines: rows.map(
+      (r) =>
+        `vendor id ${r.vendor_id} has no vendor row and no vendor.deleted record: ${Number(r.acceptances)} acceptance(s) and ${Number(r.grants)} grant(s) can never be pruned`,
+    ),
+    note: `${Number(unlinked?.n ?? 0)} acceptance(s) of an approved claim with no vendor linked (kept until linked)`,
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -1678,7 +1733,7 @@ interface CheckSpec {
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
  *  AECI-1455 review-app mirror drift, the AECI-1715 browser report tripwire and the
- *  AECI-1908 maintenance-marker guard). Severity
+ *  AECI-1908 maintenance-marker guard and the AECI-1914 retention-date guard). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -1858,6 +1913,14 @@ export const CHECKS: CheckSpec[] = [
     // obligation: a seeded database has no upcoming entry.
     severity: 'warn',
     run: ({ db }) => checkLegalAgreementDateMoved(db),
+  },
+  {
+    id: 'acceptance_without_retention_date',
+    label: 'Acceptances and grants of a deleted vendor with no record of the deletion',
+    // `warn`: nothing is deleted early, a row is only kept too long. Not a seed
+    // obligation: the seed deletes no vendor (AECI-1914).
+    severity: 'warn',
+    run: ({ db }) => checkAcceptanceWithoutRetentionDate(db),
   },
   {
     id: 'plan_snapshot_overdue',
