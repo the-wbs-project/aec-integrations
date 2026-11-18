@@ -945,6 +945,16 @@ it, so the first link was not focused (AECI-1675, 7 of 80 runs without the gate,
 0 of 1,120 with it). Gate on `untilHydrated` even when the listener seems to
 answer already.
 
+A computed colour read is a race too (AECI-1922). Hydration rewrites an element's
+`class` attribute in two steps: it first writes the template's static classes,
+then the host binding adds the rest on the next pass. An `aecButton` with a static
+`class` loses its fill for one frame when a frame paints between the two, and its
+`background-color` transition fades the fill back in. A read during the fade gets
+a part-transparent colour, and the canvas readback is one step off
+(`rgb(31, 58, 47)` for Forest, 2 of 50 local runs). Before reading a colour, move
+the pointer off, `untilHydrated` the element, and await `el.getAnimations()`
+(`e2e/button-migration.spec.ts`, `style()`).
+
   **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
   then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and
   the `updates.spec.ts` signup question are the worked examples. Do not wrap a
