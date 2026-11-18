@@ -77,11 +77,15 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  * it could order by seven: a header that renders an arrow and no-ops on the
  * second click is a worse lie than the one that rule was avoiding.
  *
+ * `claimed` (AECI-1934) orders by `vendors.owned_at`, the record-ownership stamp
+ * (ADR 0042). An unclaimed vendor has no date, so it sorts LAST in both
+ * directions.
+ *
  * Defaults to `name`: this is a lookup surface, and an operator arriving to find
  * one vendor starts by scanning names.
  */
 export const AdminVendorSortSchema = z
-  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated'])
+  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated', 'claimed'])
   .default('name');
 export type AdminVendorSort = z.infer<typeof AdminVendorSortSchema>;
 
@@ -103,11 +107,20 @@ export const ADMIN_VENDOR_SORT_DEFAULT_ORDER: Record<AdminVendorSort, SortOrder>
   licenses: 'desc',
   products: 'desc',
   updated: 'desc',
+  // Most recently claimed first (AECI-1934). Unclaimed vendors trail either way.
+  claimed: 'desc',
 };
 
 /**
  * List filter. AECI-1375 retired the `verified` filter: the Live licenses column
  * and its sort answer "who is paying" from the license rows themselves.
+ *
+ * `claimed` (AECI-1934): `true` = `vendors.owned_at IS NOT NULL`, `false` = the
+ * exact complement, absent = every vendor. Ruled 2026-11-18: "claimed" here means
+ * the vendor owns its record (ADR 0042), not "holds a live seat" and not the paid
+ * `verified` mirror. It does not read `claim_ended_at`. The `'true'|'false'` enum
+ * form, never `z.coerce.boolean()`, for the AECI-691 reason `admin-users.ts`
+ * records: `Boolean("false") === true`.
  *
  * `search` matches company name OR slug, substring, case-insensitively (SQLite
  * `LIKE` is case-insensitive for ASCII). Wildcards in the operator's box are
@@ -118,6 +131,10 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   /** Absent = the key's natural direction. See `SortOrderSchema`. */
   order: SortOrderSchema.optional(),
   search: z.string().optional(),
+  claimed: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
 });
 export type AdminVendorsListQuery = z.infer<typeof AdminVendorsListQuerySchema>;
 
@@ -152,6 +169,9 @@ export const AdminVendorRowSchema = z.object({
   live_license_count: z.number().int().nonnegative(),
   product_count: z.number().int().min(0),
   updated_at: z.string(),
+  /** `vendors.owned_at` (AECI-1934): when the vendor came to own its record, or
+   *  `null` when it does not. Required-nullable (R10). */
+  owned_at: z.string().nullable(),
 });
 export type AdminVendorRow = z.infer<typeof AdminVendorRowSchema>;
 

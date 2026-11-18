@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ADMIN_VENDOR_SORT_DEFAULT_ORDER,
   AdminRevokeSeatSchema,
   AdminReturnRecordsResponseSchema,
   AdminReturnRecordsSchema,
@@ -37,7 +38,7 @@ describe('AdminVendorsListQuerySchema', () => {
   });
 
   it('accepts a sort key for every column the operator table renders', () => {
-    for (const key of ['name', 'slug', 'verified', 'licenses', 'products', 'updated']) {
+    for (const key of ['name', 'slug', 'verified', 'licenses', 'products', 'updated', 'claimed']) {
       expect(AdminVendorSortSchema.safeParse(key).success, key).toBe(true);
     }
   });
@@ -61,6 +62,22 @@ describe('AdminVendorsListQuerySchema', () => {
   it('no longer carries a verified filter (AECI-1375)', () => {
     expect(AdminVendorsListQuerySchema.parse({ verified: 'true' })).not.toHaveProperty('verified');
   });
+
+  it('parses the claimed filter as a real boolean, never coercing "false" to true (AECI-1934)', () => {
+    expect(AdminVendorsListQuerySchema.parse({ claimed: 'true' }).claimed).toBe(true);
+    expect(AdminVendorsListQuerySchema.parse({ claimed: 'false' }).claimed).toBe(false);
+    expect(AdminVendorsListQuerySchema.parse({}).claimed).toBeUndefined();
+  });
+
+  it('rejects a claimed value that is not true or false', () => {
+    for (const claimed of ['yes', '1', '', 'TRUE']) {
+      expect(AdminVendorsListQuerySchema.safeParse({ claimed }).success, claimed).toBe(false);
+    }
+  });
+
+  it('sorts claimed most recent first by default', () => {
+    expect(ADMIN_VENDOR_SORT_DEFAULT_ORDER.claimed).toBe('desc');
+  });
 });
 
 describe('AdminVendorRowSchema', () => {
@@ -72,10 +89,20 @@ describe('AdminVendorRowSchema', () => {
     live_license_count: 2,
     product_count: 3,
     updated_at: '2026-08-20T00:00:00.000Z',
+    owned_at: '2026-11-01T09:30:00.000Z',
   };
 
   it('accepts a fully populated row', () => {
     expect(AdminVendorRowSchema.parse(base).slug).toBe('acme-corp');
+  });
+
+  it('accepts a null owned_at for an unclaimed vendor', () => {
+    expect(AdminVendorRowSchema.parse({ ...base, owned_at: null }).owned_at).toBeNull();
+  });
+
+  it('rejects a MISSING owned_at (R10 — required-nullable, never optional)', () => {
+    const { owned_at: _owned, ...without } = base;
+    expect(AdminVendorRowSchema.safeParse(without).success).toBe(false);
   });
 
   it('accepts zero live licenses', () => {

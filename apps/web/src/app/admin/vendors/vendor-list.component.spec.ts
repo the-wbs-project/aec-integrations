@@ -29,7 +29,7 @@
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminVendorSortSchema } from '@aeci/shared';
@@ -49,6 +49,7 @@ function makeRow(over: Partial<AdminVendorRow> = {}): AdminVendorRow {
     live_license_count: 2,
     product_count: 4,
     updated_at: '2026-08-20T00:00:00.000Z',
+    owned_at: null,
     ...over,
   };
 }
@@ -70,13 +71,25 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(api: ApiMock) {
+/** `queryParams` stubs the route snapshot, the way `user-list.component.spec.ts`
+ *  does, so the one-way `?claimed=` seed can be driven. */
+async function setup(api: ApiMock, queryParams?: Record<string, string>) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([]),
       { provide: AdminVendorsApi, useValue: api },
+      ...(queryParams
+        ? [
+            {
+              provide: ActivatedRoute,
+              useValue: {
+                snapshot: { queryParamMap: { get: (key: string) => queryParams[key] ?? null } },
+              },
+            },
+          ]
+        : []),
     ],
   });
   const fixture = TestBed.createComponent(VendorList);
@@ -149,8 +162,95 @@ describe('VendorList', () => {
     const { el } = await setup(makeApiMock([makeRow()]));
     expect(header(el, 'Entitlement')).toBeFalsy();
     expect(header(el, 'Term ends')).toBeFalsy();
-    expect(el.querySelector('aec-select')).toBeNull();
+    // The only select is the Claimed filter (AECI-1934).
+    expect(el.querySelectorAll('aec-select')).toHaveLength(1);
     expect(el.textContent).not.toContain('Account status');
+  });
+
+  describe('claimed (AECI-1934)', () => {
+    it('renders the claim date from owned_at, and "Not claimed" for null', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeRow({ owned_at: '2026-10-05T14:00:00.000Z' }),
+          makeRow({ id: '00000000-0000-4000-8000-000000000011', slug: 'bluebeam' }),
+        ]),
+      );
+      expect(header(el, 'Claimed on')).toBeTruthy();
+      const [claimed, unclaimed] = bodyRows(el);
+      expect(claimed!.textContent).toContain('Oct 5, 2026');
+      expect(claimed!.textContent).not.toContain('Not claimed');
+      expect(unclaimed!.textContent).toContain('Not claimed');
+    });
+
+    it('shows a claimed vendor with no live subscription as claimed, not inactive-only', async () => {
+      // The reason the column exists: Account active is the paid mirror, and most
+      // claimed vendors are on the Free plan.
+      const { el } = await setup(
+        makeApiMock([
+          makeRow({ verified: false, live_license_count: 0, owned_at: '2026-10-05T00:00:00.000Z' }),
+        ]),
+      );
+      const row = bodyRows(el)[0]!;
+      expect(row.textContent).toContain('Oct 5, 2026');
+      expect(row.querySelector('[aria-label="Account inactive"]')).toBeTruthy();
+    });
+
+    it('omits the filter while it is at "All vendors"', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]));
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('seeds claimed=true from the query string, one way', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]), { claimed: 'true' });
+      expect(lastQuery(api)['claimed']).toBe('true');
+    });
+
+    it('seeds claimed=false too', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]), { claimed: 'false' });
+      expect(lastQuery(api)['claimed']).toBe('false');
+    });
+
+    it('ignores a junk query value rather than narrowing to nothing', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]), { claimed: 'yes' });
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('sends the filter, resets to chunk 1 and discards the accumulation on change', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeRow()], 200));
+      fixture.componentInstance['loadMore']();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['page']).toBe(2);
+      expect(bodyRows(el)).toHaveLength(2);
+
+      fixture.componentInstance['onClaimedChange']('true');
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['claimed']).toBe('true');
+      expect(lastQuery(api)['page']).toBe(1);
+      expect(bodyRows(el)).toHaveLength(1);
+
+      fixture.componentInstance['onClaimedChange']('any');
+      await settle();
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('sorts Claimed on by the `claimed` key, most recent first', async () => {
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()]));
+      header(el, 'Claimed on')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('claimed');
+      expect(lastQuery(api)['order']).toBe('desc');
+      expect(header(el, 'Claimed on')?.getAttribute('aria-sort')).toBe('descending');
+    });
+
+    it('labels the Claimed filter', async () => {
+      const { el } = await setup(makeApiMock([makeRow()]));
+      const select = el.querySelector('aec-select')!;
+      expect(select.textContent).toContain('Claimed');
+      expect(select.textContent).toContain('All vendors');
+    });
   });
 
   it('renders the per-row product count, and no integration column at all', async () => {
@@ -277,12 +377,13 @@ describe('VendorList', () => {
     it('gives EVERY column a control, and each sends a key the API accepts', async () => {
       // The rule is unchanged — a header the server cannot honour would reorder
       // only what is loaded and present it as a ranking. What changed is that
-      // `resolveAdminVendorOrderBy` now orders by all six columns, so parsing
+      // `resolveAdminVendorOrderBy` now orders by all seven columns, so parsing
       // each emitted key against the real schema is what keeps them honest.
       const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
       const labels = [
         'Vendor',
         'Slug',
+        'Claimed on',
         'Account active',
         'Live subscriptions',
         'Products',

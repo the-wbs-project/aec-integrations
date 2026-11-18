@@ -1,10 +1,11 @@
 import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ADMIN_VENDOR_SORT_DEFAULT_ORDER } from '@aeci/shared';
 import type { AdminVendorRow, AdminVendorSort, SortOrder } from '@aeci/shared';
 
+import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -14,6 +15,10 @@ import { isReplayedEvent } from '../../core/event-replay';
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
 const PAGE_SIZE = 25;
+
+/** A tri-state, never a toggle, for the reason `user-list.ts` gives for its Banned
+ *  filter: "claimed", "unclaimed" and "don't filter" are three questions. */
+type TriFilter = 'any' | 'true' | 'false';
 
 /**
  * `/admin/vendors` — the operator's vendor list (AECI-652 /
@@ -64,7 +69,7 @@ const PAGE_SIZE = 25;
  * header that reordered the rows already loaded while leaving the rest of the
  * catalog alone would be worse than no control, because under scroll paging the
  * operator cannot even see where the reordered set ends. What changed is the API:
- * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` order by all six of this
+ * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` order by all seven of this
  * table's columns, including the two that are SELECT aliases rather than columns
  * (`licenses`, the live license count, and `products`). AECI-1375 dropped the
  * entitlement and term columns with the entitlement screen. Add a column here and
@@ -79,14 +84,23 @@ const PAGE_SIZE = 25;
  * licenses and seats; the integration count is a catalog fact they act on at
  * `/admin/vendors/:id`, and dropping it also dropped a correlated subquery per
  * row from the query.
+ *
+ * ── CLAIMED (AECI-1934) ─────────────────────────────────────────────────────
+ * A Claimed filter and a sortable Claimed on column, both over
+ * `vendors.owned_at` (ADR 0042). Account active is the paid mirror and misses
+ * every claimed vendor on the Free plan, which is most of them. The filter is
+ * built the way `/admin/users` builds its Banned filter: the same `<aec-select>`,
+ * seeded ONE WAY from `?claimed=` on construction and never written back, and a
+ * change resets to chunk 1.
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
+  imports: [AecSelect, BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {
   private readonly api = inject(AdminVendorsApi);
+  private readonly route = inject(ActivatedRoute);
 
   /** Every row loaded so far — chunk 1 plus whatever scroll has appended. */
   protected readonly vendors = signal<readonly AdminVendorRow[]>([]);
@@ -133,15 +147,37 @@ export class VendorList {
    */
   protected readonly order = signal<SortOrder>(ADMIN_VENDOR_SORT_DEFAULT_ORDER['name']);
 
+  /** `owned_at` set (`'true'`), not set (`'false'`), or no filter. */
+  protected readonly claimed = signal<TriFilter>('any');
+
+  protected readonly claimedOptions: readonly AecSelectOption[] = [
+    { value: 'any', label: $localize`:@@admin.vendors.filter.claimed.any:All vendors` },
+    { value: 'true', label: $localize`:@@admin.vendors.filter.claimed.yes:Claimed` },
+    { value: 'false', label: $localize`:@@admin.vendors.filter.claimed.no:Unclaimed` },
+  ];
+
   protected readonly isEmpty = computed(() => !this.loading() && this.vendors().length === 0);
 
   /** More rows exist behind what is on screen. Drives the sentinel + the button. */
   protected readonly hasMore = computed(() => this.vendors().length < this.total());
 
   constructor() {
+    this.seedFromQueryParams();
     afterNextRender(() => {
       void this.load();
     });
+  }
+
+  /** One-way, on construction only, as on `/admin/users`. An unknown value falls
+   *  through to `'any'`: a hand-edited URL should narrow nothing, not 400. */
+  private seedFromQueryParams(): void {
+    const claimed = this.route.snapshot.queryParamMap.get('claimed');
+    if (claimed === 'true' || claimed === 'false') this.claimed.set(claimed);
+  }
+
+  protected onClaimedChange(value: string | null): void {
+    this.claimed.set((value as TriFilter | null) ?? 'any');
+    this.refilter();
   }
 
   protected onSearchInput(event: Event): void {
@@ -220,12 +256,14 @@ export class VendorList {
     this.loadFailed.set(false);
     try {
       const search = this.search();
+      const claimed = this.claimed();
       const response = await this.api.listVendors({
         page: this.page(),
         perPage: PAGE_SIZE,
         sort: this.sort(),
         order: this.order(),
         ...(search ? { search } : {}),
+        ...(claimed === 'any' ? {} : { claimed }),
       });
       this.vendors.update((rows) => (append ? [...rows, ...response.data] : response.data));
       this.total.set(response.total);

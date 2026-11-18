@@ -158,9 +158,13 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
  *    It replaced the `entitlement` and `term` keys, which read the retired
  *    entitlement join.
  *
+ * **`claimed`** (AECI-1934) orders by `vendors.owned_at`. Most vendors have none,
+ * so a leading `owned_at IS NULL` term (0/1, always ascending) keeps the unclaimed
+ * ones LAST in both directions, and company name orders that tail.
+ *
  * Every case ends in the AECI-99 `id ASC` tiebreaker; the ones whose primary key
- * is low-cardinality (`verified`, `licenses`, `products`) sort by company name in
- * between, so the page inside a tie is still scannable.
+ * is low-cardinality (`verified`, `licenses`, `products`, `claimed`) sort by
+ * company name in between, so the page inside a tie is still scannable.
  */
 export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrder): SQL[] {
   // The requested direction applies to the PRIMARY term directly, so a header
@@ -189,6 +193,15 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
       return [dir(sql`product_count`), textAsc(vendors.companyName), asc(vendors.id)];
     case 'updated':
       return [dir(vendors.updatedAt), asc(vendors.id)];
+    case 'claimed':
+      // The NULL guard never flips: an unclaimed vendor trails in both directions.
+      // `owned_at` is ISO-8601 text, so a BINARY order is chronological.
+      return [
+        asc(sql`(${vendors.ownedAt} IS NULL)`),
+        dir(vendors.ownedAt),
+        textAsc(vendors.companyName),
+        asc(vendors.id),
+      ];
     default:
       return sort satisfies never;
   }
