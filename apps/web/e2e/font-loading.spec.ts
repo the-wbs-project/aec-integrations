@@ -53,7 +53,9 @@ test.describe('self-hosted web fonts (AECI-1892)', () => {
           ),
         ].map((m) => m[1]),
       );
-      expect(named.size, 'the stacks name fallback faces').toBeGreaterThanOrEqual(8);
+      // Serif 24, 32, 40 and 60, the Atkinson face and its caps face. AECI-1927 moved the
+      // display-scale roles onto the 60 face and removed the 48 and 56 bands.
+      expect(named.size, 'the stacks name fallback faces').toBeGreaterThanOrEqual(6);
       for (const family of named) expect(families.has(family), `${family} is declared`).toBe(true);
     }
   });
