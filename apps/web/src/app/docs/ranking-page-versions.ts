@@ -19,10 +19,10 @@
 export const RANKING_PAGE_PATH = '/docs/trust/how-ranking-works';
 
 /** The version the live page shows. The last of `RANKING_PAGE_KNOWN_VERSIONS`. */
-export const RANKING_PAGE_CURRENT_VERSION = '1.0';
+export const RANKING_PAGE_CURRENT_VERSION = '1.1';
 
 /** Every recorded version, oldest first. */
-export const RANKING_PAGE_KNOWN_VERSIONS: readonly string[] = ['1.0'];
+export const RANKING_PAGE_KNOWN_VERSIONS: readonly string[] = ['1.0', '1.1'];
 
 /**
  * The day each version was recorded, as its file's `recorded_on` and the live
@@ -31,6 +31,7 @@ export const RANKING_PAGE_KNOWN_VERSIONS: readonly string[] = ['1.0'];
  */
 export const RANKING_PAGE_RECORDED_ON: Readonly<Record<string, string>> = {
   '1.0': 'November 16, 2026',
+  '1.1': 'November 18, 2026',
 };
 
 /** One version's archive page: `/docs/trust/how-ranking-works/v<version>`. */

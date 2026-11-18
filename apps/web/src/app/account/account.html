@@ -434,24 +434,17 @@
           i18n="@@account.delete.body"
         >
           Permanently delete your account. This can't be undone. Reviews you've published stay
-          online but are anonymized — they'll no longer be linked to you.
+          online, but they are no longer linked to your account.
         </p>
         <!-- AECI-1616 (counsel Q10): what a deletion keeps, before the confirmation. -->
         <p
           class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
           data-testid="account-delete-messages"
+          i18n="@@account.delete.messages"
         >
-          <ng-container i18n="@@account.delete.messages"
-            >If you sent messages to another company in a private conversation, they stay with the
-            conversation for 2 years after its last message, with your name removed. The text may
-            still identify you.</ng-container
-          >
-          <a
-            routerLink="/legal/privacy"
-            class="font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@account.delete.messagesLink"
-            >Read the Retention section of our Privacy Policy.</a
-          >
+          If you sent messages to another company in a private conversation, they stay with the
+          conversation for 2 years after its last message, with your name removed. The text may
+          still identify you.
         </p>
         <!-- AECI-1637: the record that signing in accepted the Terms survives deletion. -->
         <p
@@ -471,6 +464,23 @@
         >
           If we received a copyright notice or counter-notice that names your account, we keep it
           for 3 years after we close the matter. It is no longer linked to your account.
+        </p>
+        <!-- Legal branch 6 (AECI-1363, ruling 45): the rest of the Privacy Policy's "Deletion"
+           list, so the screen names everything kept before the confirmation. -->
+        <p
+          class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          data-testid="account-delete-kept"
+        >
+          <ng-container i18n="@@account.delete.kept"
+            >We also keep the record of what you submitted or changed, any agreement you accepted
+            for a company, and what the law requires us to keep, such as a record tied to a legal
+            request.</ng-container
+          >&ngsp;<a
+            routerLink="/legal/privacy"
+            class="font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@account.delete.messagesLink"
+            >Read the Retention section of our Privacy Policy.</a
+          >
         </p>
         <button
           brnDialogTrigger
@@ -503,8 +513,8 @@
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
                 i18n="@@account.delete.dialog.description"
               >
-                This permanently deletes your account and personal data. Your published reviews are
-                kept but anonymized. This can't be undone.
+                This permanently deletes your account and personal data. Your published reviews stay
+                online, but are no longer linked to your account. This can't be undone.
               </p>
               <p
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
@@ -530,6 +540,15 @@
               >
                 We keep copyright notices and counter-notices that name your account for 3 years
                 after we close the matter.
+              </p>
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="account-delete-dialog-kept"
+                i18n="@@account.delete.dialog.kept"
+              >
+                We also keep the record of what you submitted or changed, any agreement you accepted
+                for a company, and what the law requires us to keep, such as a record tied to a
+                legal request.
               </p>
 
               @if (deleteFailed()) {

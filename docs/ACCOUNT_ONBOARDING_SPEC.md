@@ -378,6 +378,13 @@ check.
   with your name removed. The text may still identify you." The section links the Privacy Policy. Every account sees it, worded
   conditionally (ruled 2026-11-06). The Privacy Policy draft promises this screen ("The deletion
   screen tells you what is kept before you confirm"). `STAGE_2_ATTESTATIONS_SPEC.md` §15.17.
+  *Since legal branch 6 (AECI-1363, 2026-11-18):* the Privacy Policy link moved to a last line,
+  on the page and in the dialog, that covers the rest of the "Deletion" list: "We also keep the
+  record of what you submitted or changed, any agreement you accepted for a company, and what the
+  law requires us to keep, such as a record tied to a legal request." The page's line ends with
+  "Read the Retention section of our Privacy Policy." Reviews now "stay online, but are no longer
+  linked to your account" on the page and in the dialog (ruling 3). "Anonymized" is gone, because
+  a review's text can still identify its author.
 - **The Terms acceptance record is kept (AECI-1637, ruling 1 of 2026-11-13).** The same screen
   says that signing in records your acceptance of the Terms of Service, and that the record is
   kept for 6 years after deletion. It holds the

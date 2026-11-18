@@ -3,8 +3,8 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-version: 1.0
-last_updated: November 16, 2026
+version: 1.1
+last_updated: November 18, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -51,6 +51,14 @@ Filters change which products you see, not their order.
 - **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row names the five categories with the most products instead. That fallback counts products, not views.
 - **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
 
+## A product page
+
+- **Integrations** lists the products this one integrates with, A to Z by partner name, ignoring capital letters, then by the integration's name.
+- Integrations that run through a connector tool are grouped by connector. The connector with the most integrations comes first, then A to Z by connector name. Integrations whose connector is not named come last. Inside each group, the order is the same as above.
+- **Integrations it powers**, on a connector's own page, groups the pairs it connects around the products they share. The group with the most partners comes first, then A to Z by product name. Partners inside a group, and pairs that share no product, are listed A to Z.
+- **Extensions built within** a product, and the products an extension is **Built within**, are listed A to Z by name.
+- **Categories**, **phases** and **trades** beside the description follow a fixed order we set, the same on every product page. Phases follow project order. Where we have set no order, they are listed A to Z. **Audiences** are listed A to Z.
+
 ## What does not count
 
 None of these changes where a listing appears in search:
@@ -64,7 +72,7 @@ None of these changes where a listing appears in search:
 
 ## What a plan does not buy
 
-No plan, at any price, changes a listing's position in search or in any list. There is no sponsored placement and no promoted tier. Completeness reads only what the listing says, never the vendor's plan. A vendor can fill in every detail that counts towards it on the free plan.
+No plan, at any price, changes a listing's position in search or in any list. There is no sponsored placement and no promoted tier. A paid plan lets a vendor edit more of its own listing. It changes what a page says, never where it appears. Completeness reads only what the listing says, never the vendor's plan. A vendor can fill in every detail that counts towards it on the free plan.
 
 We hold ourselves to this with automated checks, not only a promise. [How we research listings](/methodology) sets out the rule and how we test it.
 
@@ -76,7 +84,8 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
 
-- [Version 1.0](/docs/trust/how-ranking-works/v1.0) (this version): recorded November 16, 2026. The first recorded version.
+- [Version 1.1](/docs/trust/how-ranking-works/v1.1) (this version): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
+- [Version 1.0](/docs/trust/how-ranking-works/v1.0): recorded November 16, 2026. The first recorded version.
 
 ## Related
 
