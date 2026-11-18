@@ -4,7 +4,8 @@
  *
  * The cases that lose data if they regress are the ones that must stay: an exempt audit
  * action, a claimed vendor, a vendor with a live license, a grant not five years past its
- * end, a NULL or missing vendor, and anything under a hold. Row counts are read back with
+ * end, a claim not closed six years ago, a gone vendor with no `vendor.deleted` record,
+ * and anything under a hold. Row counts are read back with
  * `select`, never from a batch return value (the harness's batch shim answers from
  * better-sqlite3, not D1).
  */
@@ -19,7 +20,11 @@ import {
   billingAccounts,
   licenseGrants,
   licenses,
+  listingRequests,
   litigationHolds,
+  products,
+  productVendors,
+  vendorRequests,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -105,7 +110,13 @@ async function seedVendor(
 async function seedAcceptance(
   id: string,
   vendorId: string | null,
-  opts: { acceptedAt?: string; grantId?: string; billingAccountId?: string } = {},
+  opts: {
+    acceptedAt?: string;
+    grantId?: string;
+    billingAccountId?: string;
+    vendorRequestId?: string;
+    listingRequestId?: string;
+  } = {},
 ) {
   await t.db.insert(agreementAcceptances).values({
     id,
@@ -116,18 +127,56 @@ async function seedAcceptance(
     vendorId,
     billingAccountId: opts.billingAccountId ?? null,
     licenseGrantId: opts.grantId ?? null,
+    vendorRequestId: opts.vendorRequestId ?? null,
+    listingRequestId: opts.listingRequestId ?? null,
     acceptedAt: opts.acceptedAt ?? '2025-02-01T00:00:00.000Z',
   });
+}
+
+/** A claim (`vendor_requests`, kind `claim`) on a company or, the legacy shape, a product. */
+async function seedClaim(
+  id: string,
+  opts: {
+    status: 'open' | 'in_review' | 'resolved' | 'rejected';
+    resolvedAt?: string | null;
+    targetType?: 'vendor' | 'product';
+    targetId?: string;
+  },
+) {
+  await t.db.insert(vendorRequests).values({
+    id,
+    kind: 'claim',
+    targetType: opts.targetType ?? 'vendor',
+    targetId: opts.targetId ?? 'v-target',
+    submitterEmail: 'claimant@example.test',
+    body: 'Claim',
+    status: opts.status,
+    resolvedAt: opts.resolvedAt ?? null,
+  });
+}
+
+/** The `vendor.deleted` row `lib/retract-vendor.ts` writes when it deletes a vendor. */
+async function seedVendorDeleted(vendorId: string, createdAt: string, id = `vd-${vendorId}`) {
+  await t.db.insert(auditLog).values({
+    id,
+    actorType: 'system',
+    action: 'vendor.deleted',
+    entityType: 'vendor',
+    entityId: vendorId,
+    vendorId,
+    createdAt,
+  });
+  return id;
 }
 
 async function seedGrant(
   id: string,
   vendorId: string,
-  opts: { status: string; decidedAt?: string | null },
+  opts: { status: string; decidedAt?: string | null; billingAccountId?: string },
 ) {
   await t.db.insert(licenseGrants).values({
     id,
-    billingAccountId: `ba-${vendorId}`,
+    billingAccountId: opts.billingAccountId ?? `ba-${vendorId}`,
     vendorId,
     kind: 'grant',
     source: 'complimentary',
@@ -361,11 +410,30 @@ describe('the acceptance part', () => {
     expect(await grantIds()).toEqual([]);
   });
 
-  it('never prunes a row with a NULL vendor_id or a vendor row that is gone', async () => {
-    await seedAcceptance('acc-null', null, { acceptedAt: yearsAgo(15) });
+  it('keeps a gone vendor with no vendor.deleted record, and a NULL-vendor row of an open claim', async () => {
+    await seedClaim('claim-open', { status: 'open' });
+    await seedAcceptance('acc-null', null, {
+      acceptedAt: yearsAgo(15),
+      vendorRequestId: 'claim-open',
+    });
     await seedAcceptance('acc-gone', 'v-gone', { acceptedAt: yearsAgo(15) });
     await runLegalRetentionPrune(t.db, NOW);
     expect(await acceptanceIds()).toEqual(['acc-gone', 'acc-null']);
+  });
+
+  it('dates a legacy checkout row with no vendor_id by its billing account’s vendor', async () => {
+    await seedVendor('v-ended', { claimEndedAt: yearsAgo(7) });
+    await seedVendor('v-live', { claimEndedAt: null });
+    await seedAcceptance('acc-ended', null, {
+      acceptedAt: yearsAgo(10),
+      billingAccountId: 'ba-v-ended',
+    });
+    await seedAcceptance('acc-live', null, {
+      acceptedAt: yearsAgo(10),
+      billingAccountId: 'ba-v-live',
+    });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-live']);
   });
 
   it('deletes an acceptance’s agreement.* audit rows in the same batch, and keeps the rest', async () => {
@@ -441,6 +509,292 @@ describe('the acceptance part', () => {
       truncated: true,
     });
     expect(await acceptanceIds()).toHaveLength(5);
+  });
+});
+
+describe('arm B: a claim never approved (ruling 48)', () => {
+  it('deletes the row and its agreement.accepted row once the rejected claim closed six years and a day ago', async () => {
+    await seedClaim('claim-old', { status: 'rejected', resolvedAt: shift(CUT.acceptance, -1) });
+    await seedAcceptance('acc-b', null, { acceptedAt: yearsAgo(7), vendorRequestId: 'claim-old' });
+    await t.db.insert(auditLog).values({
+      id: 'au-b',
+      actorType: 'user',
+      action: 'agreement.accepted',
+      entityType: 'agreement_acceptance',
+      entityId: 'acc-b',
+      createdAt: yearsAgo(7),
+    });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual([]);
+    expect((await auditRows()).map((r) => r.id)).not.toContain('au-b');
+    expect(result.tables.find((x) => x.table === 'agreement_acceptances')).toMatchObject({
+      rowsDeleted: 1,
+    });
+    const [run] = await pruneRows();
+    expect(
+      (run!.metadata as { tables: { table: string; ids?: string[] }[] }).tables,
+    ).toContainEqual(expect.objectContaining({ table: 'agreement_acceptances', ids: ['acc-b'] }));
+  });
+
+  it('keeps a claim closed six years less a day ago, and a row accepted inside the window', async () => {
+    await seedClaim('claim-young', { status: 'rejected', resolvedAt: shift(CUT.acceptance, 1) });
+    await seedAcceptance('acc-young', null, {
+      acceptedAt: yearsAgo(7),
+      vendorRequestId: 'claim-young',
+    });
+    // The claim closed long ago, but this acceptance is inside the six years.
+    await seedClaim('claim-late', { status: 'rejected', resolvedAt: yearsAgo(8) });
+    await seedAcceptance('acc-late', null, {
+      acceptedAt: shift(CUT.acceptance, 1),
+      vendorRequestId: 'claim-late',
+    });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-late', 'acc-young']);
+  });
+
+  it('keeps the row of an open, in-review or approved claim, however old', async () => {
+    await seedClaim('claim-open', { status: 'open' });
+    await seedClaim('claim-review', { status: 'in_review' });
+    await seedClaim('claim-resolved', { status: 'resolved', resolvedAt: yearsAgo(9) });
+    for (const id of ['claim-open', 'claim-review', 'claim-resolved']) {
+      await seedAcceptance(`acc-${id}`, null, { acceptedAt: yearsAgo(10), vendorRequestId: id });
+    }
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual([
+      'acc-claim-open',
+      'acc-claim-resolved',
+      'acc-claim-review',
+    ]);
+  });
+
+  it('a vendor hold on the claimed company keeps it, by vendor or legacy product target; a hold on another vendor does not', async () => {
+    await seedVendor('v-target', { claimEndedAt: null });
+    await seedVendor('v-other', { claimEndedAt: null });
+    await t.db.insert(products).values({ id: 'p-target', slug: 'p-target', name: 'Target' });
+    await t.db.insert(productVendors).values({ productId: 'p-target', vendorId: 'v-target' });
+    await seedClaim('claim-v', { status: 'rejected', resolvedAt: yearsAgo(7) });
+    await seedClaim('claim-p', {
+      status: 'rejected',
+      resolvedAt: yearsAgo(7),
+      targetType: 'product',
+      targetId: 'p-target',
+    });
+    await seedClaim('claim-x', {
+      status: 'rejected',
+      resolvedAt: yearsAgo(7),
+      targetId: 'v-other',
+    });
+    for (const id of ['claim-v', 'claim-p', 'claim-x']) {
+      await seedAcceptance(`acc-${id}`, null, { acceptedAt: yearsAgo(8), vendorRequestId: id });
+    }
+    await seedHold('vendor', 'v-target');
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-claim-p', 'acc-claim-v']);
+  });
+});
+
+describe('arm C: no date but the acceptance', () => {
+  it('deletes a listing-request row and an unlinked row six years and a day after acceptance, and keeps a younger one', async () => {
+    await t.db.insert(listingRequests).values({
+      id: 'lr-1',
+      listingName: 'Example',
+      website: 'https://example.test',
+      submitterEmail: 'lister@example.test',
+    });
+    await seedAcceptance('acc-listing', null, {
+      acceptedAt: shift(CUT.acceptance, -1),
+      listingRequestId: 'lr-1',
+    });
+    await seedAcceptance('acc-orphan', null, { acceptedAt: shift(CUT.acceptance, -1) });
+    await seedAcceptance('acc-young', null, { acceptedAt: shift(CUT.acceptance, 1) });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-young']);
+  });
+
+  it('is not arm C when a billing account is set: the account’s live vendor keeps it', async () => {
+    await seedVendor('v-live', { claimEndedAt: null });
+    await seedAcceptance('acc-billed', null, {
+      acceptedAt: yearsAgo(10),
+      billingAccountId: 'ba-v-live',
+    });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-billed']);
+  });
+});
+
+describe('arm D: the vendor row is gone', () => {
+  it('deletes the acceptance and its vendor.deleted row in one batch, six years and a day after the deletion', async () => {
+    const vd = await seedVendorDeleted('v-gone', shift(CUT.acceptance, -1));
+    await seedAcceptance('acc-gone', 'v-gone', { acceptedAt: yearsAgo(10) });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual([]);
+    expect((await auditRows()).map((r) => r.id)).not.toContain(vd);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      companionRowsDeleted: 1,
+    });
+  });
+
+  it('keeps the vendor.deleted row while another acceptance or grant of that vendor remains', async () => {
+    // The second acceptance is held by the grant floor: its grant ended four years ago.
+    await seedVendor('v-host', { claimEndedAt: null });
+    await seedGrant('g-floor', 'v-gone', {
+      status: 'expired',
+      decidedAt: yearsAgo(4),
+      billingAccountId: 'ba-v-host',
+    });
+    const vd = await seedVendorDeleted('v-gone', yearsAgo(7));
+    await seedAcceptance('acc-due', 'v-gone', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-floor', 'v-gone', { acceptedAt: yearsAgo(10), grantId: 'g-floor' });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-floor']);
+    expect(await grantIds()).toEqual(['g-floor']);
+    expect((await auditRows()).map((r) => r.id)).toContain(vd);
+
+    // Two years on the grant floor has passed: the grant, the last acceptance and the
+    // vendor.deleted row go together.
+    await runLegalRetentionPrune(t.db, new Date('2036-06-15T03:00:00.000Z'));
+    expect(await acceptanceIds()).toEqual([]);
+    expect(await grantIds()).toEqual([]);
+    expect((await auditRows()).map((r) => r.id)).not.toContain(vd);
+  });
+
+  it('keeps a deletion under six years old, a gone vendor with no record, and a gone vendor under hold', async () => {
+    await seedVendorDeleted('v-young', shift(CUT.acceptance, 1));
+    await seedAcceptance('acc-young', 'v-young', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-norecord', 'v-norecord', { acceptedAt: yearsAgo(10) });
+    await seedVendorDeleted('v-held', yearsAgo(8));
+    await seedAcceptance('acc-held', 'v-held', { acceptedAt: yearsAgo(10) });
+    await seedHold('vendor', 'v-held');
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-held', 'acc-norecord', 'acc-young']);
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toEqual(expect.arrayContaining(['vd-v-young', 'vd-v-held']));
+  });
+
+  it('dates the deletion from the latest vendor.deleted row', async () => {
+    await seedVendorDeleted('v-twice', yearsAgo(9), 'vd-first');
+    await seedVendorDeleted('v-twice', shift(CUT.acceptance, 1), 'vd-second');
+    await seedAcceptance('acc-twice', 'v-twice', { acceptedAt: yearsAgo(10) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-twice']);
+  });
+
+  it('deletes a grant of a gone vendor by the same rule', async () => {
+    await seedVendor('v-host', { claimEndedAt: null });
+    await seedGrant('g-old', 'v-gone', {
+      status: 'withdrawn',
+      decidedAt: yearsAgo(6),
+      billingAccountId: 'ba-v-host',
+    });
+    await seedGrant('g-young', 'v-young', {
+      status: 'withdrawn',
+      decidedAt: yearsAgo(6),
+      billingAccountId: 'ba-v-host',
+    });
+    await seedGrant('g-norecord', 'v-norecord', {
+      status: 'withdrawn',
+      decidedAt: yearsAgo(6),
+      billingAccountId: 'ba-v-host',
+    });
+    const vd = await seedVendorDeleted('v-gone', yearsAgo(7));
+    await seedVendorDeleted('v-young', yearsAgo(5));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await grantIds()).toEqual(['g-norecord', 'g-young']);
+    expect((await auditRows()).map((r) => r.id)).not.toContain(vd);
+    const [run] = await pruneRows();
+    expect(
+      (run!.metadata as { tables: { table: string; ids?: string[] }[] }).tables,
+    ).toContainEqual(expect.objectContaining({ table: 'license_grants', ids: ['g-old'] }));
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      companionRowsDeleted: 1,
+    });
+  });
+});
+
+describe('the vendor.deleted row in the four-year part', () => {
+  it('keeps one older than four years while an acceptance names its vendor, and deletes one no acceptance names', async () => {
+    // Deleted five years ago: past the four-year cutoff, inside the six-year one.
+    const named = await seedVendorDeleted('v-named', yearsAgo(5));
+    await seedAcceptance('acc-named', 'v-named', { acceptedAt: yearsAgo(10) });
+    const bare = await seedVendorDeleted('v-bare', yearsAgo(5));
+    // The same id promoted back: its rows are dated by its account, so the old row is an
+    // ordinary four-year row.
+    await seedVendor('v-back', { claimEndedAt: null });
+    await seedAcceptance('acc-back', 'v-back', { acceptedAt: yearsAgo(10) });
+    const back = await seedVendorDeleted('v-back', yearsAgo(5));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toContain(named);
+    expect(ids).not.toContain(bare);
+    expect(ids).not.toContain(back);
+    expect(await acceptanceIds()).toEqual(['acc-back', 'acc-named']);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({ rowsDeleted: 2 });
+  });
+});
+
+describe('every arm under a global hold', () => {
+  async function seedEveryArm() {
+    await seedVendor('v-a', { claimEndedAt: yearsAgo(7) });
+    await seedAcceptance('acc-a', 'v-a', { acceptedAt: yearsAgo(10) });
+    await seedClaim('claim-b', { status: 'rejected', resolvedAt: yearsAgo(7) });
+    await seedAcceptance('acc-b', null, { acceptedAt: yearsAgo(10), vendorRequestId: 'claim-b' });
+    await seedAcceptance('acc-c', null, { acceptedAt: yearsAgo(10) });
+    await seedVendorDeleted('v-d', yearsAgo(7));
+    await seedAcceptance('acc-d', 'v-d', { acceptedAt: yearsAgo(10) });
+  }
+
+  it('deletes nothing in any arm', async () => {
+    await seedEveryArm();
+    await seedHold('global', null);
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    expect(result).toMatchObject({ status: 'skipped', rowsDeleted: 0 });
+    expect(await acceptanceIds()).toEqual(['acc-a', 'acc-b', 'acc-c', 'acc-d']);
+  });
+
+  it('without the hold every arm goes, and the ids round-trip through the chain verify parser', async () => {
+    await seedEveryArm();
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual([]);
+    const [run] = await pruneRows();
+    const [raw] = t.raw.prepare('SELECT metadata FROM audit_log WHERE id = ?').all(run!.id) as {
+      metadata: string;
+    }[];
+    expect([...pruneAuditIds([raw!.metadata])].sort()).toEqual([
+      'agreement_acceptances:acc-a',
+      'agreement_acceptances:acc-b',
+      'agreement_acceptances:acc-c',
+      'agreement_acceptances:acc-d',
+    ]);
+  });
+
+  it('a global hold placed after planning aborts the batch for every arm', async () => {
+    await seedEveryArm();
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await seedHold('global', null);
+      return batch(stmts);
+    });
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+    spy.mockRestore();
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    expect(await acceptanceIds()).toEqual(['acc-a', 'acc-b', 'acc-c', 'acc-d']);
+    expect((await auditRows()).map((r) => r.id)).toContain('vd-v-d');
   });
 });
 

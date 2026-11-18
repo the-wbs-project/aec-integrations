@@ -621,7 +621,8 @@ every delete, with `metadata.source = 'legal-retention-prune'` and the acceptanc
 **The audit table deleting its own rows.** The rule above still holds, because the run's own row is
 written in the batch and the prune never deletes a `retention.pruned` row. The fact of each
 deletion therefore survives the deletion. So do the `litigation_hold.*` rows that record why a
-prune was paused.
+prune was paused. Since AECI-1914 the same batch also deletes the `vendor.deleted` row of a gone
+vendor once the last acceptance or grant naming it is deleted, and counts it in the same row.
 
 **`litigation_holds` is domain state.** It is a legal record an operator writes on `/admin/legal`,
 so each place and release audits in its own batch. It is not on the exemption list.

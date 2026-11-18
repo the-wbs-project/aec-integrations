@@ -352,7 +352,10 @@ production Cloudflare, Supabase, GitHub or PostHog access.
 
 **Place the hold in the app the same day (AECI-1638).** The legal retention prune deletes audit
 records four years after the action and acceptance records six years after a vendor account ends
-(ADR 0058). A litigation hold is its off switch, and the only one any job has.
+(ADR 0058). Since AECI-1914 it also deletes an acceptance of a claim never approved six years
+after the claim was rejected, an acceptance with no company or claim six years after it was given,
+and the acceptances of a deleted company six years after the deletion. A litigation hold is its
+off switch, and the only one any job has.
 
 1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
 2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
@@ -361,7 +364,10 @@ records four years after the action and acceptance records six years after a ven
 3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
 4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
    released four years ago. A vendor hold also keeps that
-   vendor's agreement acceptances and subscription grants. A global hold keeps everything: the
+   vendor's agreement acceptances and subscription grants, including the acceptances of a
+   rejected claim on that company and of a deleted company with that id. An acceptance with no
+   company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
+   it. A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the
    `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
 5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose
