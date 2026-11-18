@@ -169,7 +169,7 @@ the job.
 symmetry is superficial: the two tables differ in whether a dropped row is recoverable, and
 that difference is the whole design.
 
-**An alert on queue depth.** Declined, and recorded in `docs/RUNBOOKS.md` rather than left
+**An alert on queue depth.** Declined, and recorded in `docs/runbooks/alerts.md` rather than left
 unmentioned. A healthy queue is a non-empty queue, because every write appends and tier 4 may
 never be reached. Depth cannot separate a busy catalogue from a neglected queue, so an alert on
 it fires on ordinary days. **Re-open trigger:** the nav badge proves ignorable. The signal to
@@ -312,5 +312,5 @@ above are unchanged.
 - `docs/API_CONTRACTS.md` §6.10 (the two endpoints)
 - `docs/DATABASE_SCHEMA.md` §9.6a, §9.6b (the submission log the `requested` clear writes)
 - `docs/environments.md` → "Request indexing by hand (Google)" (the operator procedure)
-- `docs/RUNBOOKS.md` → "There is no runbook for an unworked Google queue" (the declined alert); "gsc-inspect halted on quota or failed" (AECI-1236)
+- `docs/runbooks/alerts.md` → "There is no runbook for an unworked Google queue" (the declined alert); "gsc-inspect halted on quota or failed" (AECI-1236)
 - ADR 0025 (the IndexNow buffer), ADR 0022 (why the INSERTs are audit-exempt)

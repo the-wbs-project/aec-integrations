@@ -117,6 +117,8 @@ import {
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
+  PLAN_SNAPSHOT_CRON,
+  ACCEPTANCE_CHAIN_CRON,
   VENDOR_CLAIM_NUDGE_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
@@ -165,9 +167,15 @@ import {
   EXPIRY_JOB_METRIC,
   type EntitlementExpiryMetricSink,
 } from './lib/entitlement-expiry-metrics';
-import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
+import {
+  browserEvidenceCaptureEnabled,
+  hasErrors,
+  runDataQualityChecks,
+  type DataQualityCheckResult,
+} from './lib/data-quality';
 import { buildDataQualityDigest, shouldSendDataQualityDigest } from './lib/data-quality-email';
 import { createReviewMirrorDriftDeps } from './lib/review-mirror-drift-deps';
+import { createUnclaimedLogoReader } from './lib/algolia-unclaimed-logo';
 import {
   parseRecipients,
   recordEmailSend,
@@ -224,12 +232,19 @@ import {
   RETENTION_RUN_METRIC,
   type RetentionMetricSink,
 } from './lib/retention-prune';
+import {
+  emitLegalRetentionPruneMetrics,
+  LEGAL_RETENTION_RUN_METRIC,
+  LEGAL_RETENTION_SOURCE,
+  runLegalRetentionPruneWithReplan,
+} from './lib/legal-retention-prune';
+import { runLitigationHoldReminders } from './lib/litigation-hold-reminder';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
 import { deliverOwnershipSync, isOwnershipSyncQueue } from './lib/ownership-sync';
 import {
   deliverLegalNotice,
   isLegalNoticeQueue,
-  type LegalNoticeMessage,
+  type LegalNoticeQueueMessage,
 } from './lib/legal-notice';
 import {
   runVendorSnapshot,
@@ -254,6 +269,17 @@ import {
   ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
   runAcceptanceEvidenceRemoval,
 } from './lib/acceptance-evidence-removal';
+import {
+  PLAN_SNAPSHOT_RUN_METRIC,
+  PLAN_SNAPSHOT_SOURCE,
+  runPlanSnapshotSweep,
+} from './lib/plan-snapshot-sweep';
+import {
+  ACCEPTANCE_CHAIN_RUN_METRIC,
+  ACCEPTANCE_CHAIN_SOURCE,
+  ACCEPTANCE_CHAIN_TSA_FAILED,
+  runAcceptanceChainExport,
+} from './lib/acceptance-chain-export';
 import { auditVendorLogFields } from './lib/moderation-forward';
 import { enqueueOwnershipSync } from './lib/ownership-sync';
 import {
@@ -1430,6 +1456,124 @@ async function runAcceptanceEvidenceRemovalJob(
 }
 
 /**
+ * The 15-minute plan-change snapshot sweep (AECI-1621, ADR 0056). The logic lives in
+ * `./lib/plan-snapshot-sweep`; this shell supplies the DB, the `UPLOADS` bucket, the
+ * commit SHA and the PostHog sink. `aeci.plan_snapshot.run` fires on every run, so it
+ * doubles as the liveness heartbeat. A row that fails is recorded on the row and
+ * retried next run, so the run stays `ok`. A crash rethrows so the queue retries. No
+ * `UPLOADS` binding is `skipped`: every deployed tier binds it.
+ */
+async function runPlanSnapshotJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/plan-snapshot');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  if (!env.UPLOADS) {
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'plan-snapshot', reason: 'no_bucket' } };
+  }
+  try {
+    const { db } = cronDb(env);
+    const result = await runPlanSnapshotSweep(db, env.UPLOADS, {
+      now: new Date(),
+      commitSha: env.COMMIT_SHA ?? 'unknown',
+    });
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    if (result.due > 0) {
+      logToPosthog(ctx, env, req, {
+        level: result.failed > 0 ? 'warn' : 'info',
+        message: `aeci.plan_snapshot due=${result.due} written=${result.written} adopted=${result.adopted} failed=${result.failed}`,
+        source: PLAN_SNAPSHOT_SOURCE,
+      });
+    }
+    return {
+      outcome: 'ok',
+      detail: { job: 'plan-snapshot', durationMs: Date.now() - started, ...result },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, PLAN_SNAPSHOT_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.plan_snapshot.crashed',
+      source: PLAN_SNAPSHOT_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. Each row's stamp is guarded, so a retry
+    // redoes only the rows still due.
+    throw error;
+  }
+}
+
+/**
+ * The nightly acceptance chain export (AECI-1680, ADR 0057). The logic lives in
+ * `./lib/acceptance-chain-export`; this shell supplies the DB, the `UPLOADS` bucket and
+ * the PostHog sink. `aeci.acceptance_chain.run` fires on every run, so it doubles as the
+ * liveness heartbeat. A failed DigiCert timestamp never fails the run (ruling 2A): each
+ * one is logged as `aeci.acceptance_chain.timestamp_failed` and the run stays `ok`. A
+ * crash rethrows so the queue retries; a retry adopts a file already in R2. No `UPLOADS`
+ * binding is `skipped`: every deployed tier binds it.
+ */
+async function runAcceptanceChainJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/acceptance-chain');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  if (!env.UPLOADS) {
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'acceptance-chain', reason: 'no_bucket' } };
+  }
+  try {
+    const { db } = cronDb(env);
+    const result = await runAcceptanceChainExport(db, env.UPLOADS, { now: new Date() });
+    // ONE warning per run, however many seqs failed. A DigiCert outage fails the night's
+    // file and every backfilled one together; a log per seq would fan out up to ten
+    // concurrent PostHog requests against the Worker's connection limit (CLAUDE.md
+    // "Release every fetch body… and batch fan-out").
+    if (result.tsaFailures.length > 0) {
+      logToPosthog(ctx, env, req, {
+        level: 'warn',
+        message: ACCEPTANCE_CHAIN_TSA_FAILED,
+        source: ACCEPTANCE_CHAIN_SOURCE,
+        reason: result.tsaFailures.map((f) => `seq=${f.seq} ${f.reason}`).join('; '),
+      });
+    }
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.acceptance_chain seq=${result.seq} entries=${result.entries} rows=${result.rows} adopted=${result.adopted} tsa=${result.tsa} backfilled=${result.backfilled}`,
+      source: ACCEPTANCE_CHAIN_SOURCE,
+    });
+    const { tsaFailures, ...counts } = result;
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'acceptance-chain',
+        durationMs: Date.now() - started,
+        ...counts,
+        tsaFailed: tsaFailures.length,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, ACCEPTANCE_CHAIN_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.acceptance_chain.crashed',
+      source: ACCEPTANCE_CHAIN_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. A file already in R2 is adopted, and the
+    // ledger's seq primary key refuses a second row for one file.
+    throw error;
+  }
+}
+
+/**
  * The §7.4 retention prune (AECI-584 / Phase 8.3 P3.2).
  *
  * Everything load-bearing lives in `./lib/retention-prune`; this is the shell
@@ -1556,6 +1700,129 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
       rowsDeleted: result.rowsDeleted,
       tables: result.tables,
       archive: archiveDetail,
+    },
+  };
+}
+
+/**
+ * The legal retention prune (AECI-1638, ADR 0058). The logic lives in
+ * `./lib/legal-retention-prune`; this shell supplies the DB, the clock, the PostHog sink
+ * and the §26.5 forward, in the shape of {@link runRetentionPruneJob}.
+ *
+ *   - **Queued, unlike the 400-day prune.** The 03:00 tick enqueues it on
+ *     `RECONCILE_QUEUE`. A retry is safe: each run is one atomic batch bounded by its
+ *     cutoff, and its sentinels abort the batch when the state moved after planning.
+ *   - **A lost race replans, never fails.** A sentinel abort means the state moved after
+ *     planning: a concurrent run of this job (the queued run beside an inline fallback after
+ *     an accepted but failed `queue.send`), or a hold, a reclaim or a license. The library
+ *     replans once at once (`runLegalRetentionPruneWithReplan`), and a second loss is
+ *     `skipped` with `reason: concurrent_run`. Neither throws, so a lost race never fails the
+ *     `job_runs` row or sends `cron-job-failed-alert`.
+ *   - **A crash rethrows** so the queue retries with a fresh plan.
+ *   - **A global hold is a skip**, logged at warn. It is the operator's choice, not a fault.
+ *   - **The hold reminder runs first** (`./lib/litigation-hold-reminder`): one email per
+ *     hold open more than 90 days, at most every 30 days. It never throws, so it cannot
+ *     stop the prune, and a queue retry the same day is a ledger `duplicate`.
+ */
+async function runLegalRetentionPruneJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/legal-retention-prune');
+  const trigger = message?.trigger ?? 'cron';
+  const started = Date.now();
+  const now = new Date();
+  let result: Awaited<ReturnType<typeof runLegalRetentionPruneWithReplan>>;
+  let reminders: Awaited<ReturnType<typeof runLitigationHoldReminders>>;
+  try {
+    const { db } = cronDb(env);
+    reminders = await runLitigationHoldReminders(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      now,
+    );
+    if (reminders.error) {
+      logToPosthog(ctx, env, req, {
+        level: 'warn',
+        message: 'aeci.legal_retention.hold_reminder_failed',
+        source: LEGAL_RETENTION_SOURCE,
+        reason: reminders.error,
+      });
+    }
+    // A plan that loses a race is replanned once; a second loss is `concurrent_run`.
+    result = await runLegalRetentionPruneWithReplan(db, now);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    submitCount(ctx, env, req, LEGAL_RETENTION_RUN_METRIC, 1, [
+      `trigger:${trigger}`,
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.legal_retention.crashed',
+      source: LEGAL_RETENTION_SOURCE,
+      reason,
+    });
+    // Rethrow so the queue consumer retries. The batch is atomic, so nothing was deleted.
+    throw error;
+  }
+
+  const durationMs = Date.now() - started;
+  emitLegalRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs, trigger);
+
+  if (result.status === 'skipped') {
+    logToPosthog(ctx, env, req, {
+      level: 'warn',
+      message: `aeci.legal_retention.skipped reason=${result.reason}`,
+      source: LEGAL_RETENTION_SOURCE,
+      reason: result.reason,
+    });
+    return {
+      outcome: 'skipped',
+      detail: {
+        job: 'legal-retention-prune',
+        reason: result.reason,
+        vendorHolds: result.vendorHolds,
+        tables: result.tables,
+        reminders,
+      },
+    };
+  }
+
+  const truncated = result.tables.filter((t) => t.truncated);
+  logToPosthog(ctx, env, req, {
+    level: truncated.length > 0 ? 'warn' : 'info',
+    message: `aeci.legal_retention.pruned rows_deleted=${result.rowsDeleted}`,
+    source: LEGAL_RETENTION_SOURCE,
+    rows_deleted: result.rowsDeleted,
+    tables: result.tables.map((t) => `${t.table}=${t.rowsDeleted}`).join(','),
+    truncated: truncated.map((t) => t.table).join(','),
+    vendor_holds: result.vendorHolds,
+  });
+
+  if (result.auditEntry) {
+    const forward: AuditLogForwarder = (e) => {
+      logToPosthog(ctx, env, req, {
+        level: 'info',
+        message: `audit ${e.action}`,
+        source: 'audit_log',
+        audit: e,
+      });
+    };
+    ctx.waitUntil(forwardAuditLog(result.auditEntry, forward));
+  }
+
+  return {
+    outcome: 'ok',
+    detail: {
+      job: 'legal-retention-prune',
+      durationMs,
+      rowsDeleted: result.rowsDeleted,
+      vendorHolds: result.vendorHolds,
+      tables: result.tables,
+      reminders,
+      ...(result.replanned ? { replanned: true } : {}),
     },
   };
 }
@@ -1749,7 +2016,9 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
       db,
       now: new Date(),
       runDrift,
+      unclaimedLogoReader: createUnclaimedLogoReader(env),
       reviewMirror: createReviewMirrorDriftDeps(env),
+      browserEvidenceEnabled: browserEvidenceCaptureEnabled(env),
     });
   } catch (error) {
     // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a
@@ -2997,6 +3266,20 @@ function queueForJob(
       // AECI-1505: rides the reconcile queue. The consumer dispatches on
       // `message.job`, so the two never mix, and nothing new is provisioned.
       return env.RECONCILE_QUEUE;
+    case 'plan_snapshot':
+      // AECI-1621: rides the reconcile queue, the `sitemap_rebuild` precedent. A retry is
+      // safe: a written row is no longer due, and an object already in R2 is adopted.
+      return env.RECONCILE_QUEUE;
+    case 'acceptance_chain':
+      // AECI-1680: rides the reconcile queue, the `plan_snapshot` precedent. A retry is
+      // safe: a file already in R2 is adopted, never overwritten.
+      return env.RECONCILE_QUEUE;
+    case 'legal_retention':
+      // AECI-1638: rides the reconcile queue, the `acceptance_chain` precedent. Destructive,
+      // yet queued, unlike `retention` below: each run is one atomic batch bounded by its
+      // cutoff, and its sentinels abort the batch when the state moved after planning. A
+      // retry re-plans against the current state, so it cannot over-delete (ADR 0058).
+      return env.RECONCILE_QUEUE;
     case 'vendor_claim_nudge':
       // AECI-1305: rides the attestation queue, the `sitemap_rebuild` precedent. The
       // consumer dispatches on `message.job`, and nothing new is provisioned.
@@ -3239,6 +3522,27 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
     };
   }
+  if (job === 'plan_snapshot') {
+    return {
+      path: '/cron/plan-snapshot',
+      message: 'aeci.plan_snapshot.enqueue_failed',
+      source: PLAN_SNAPSHOT_SOURCE,
+    };
+  }
+  if (job === 'acceptance_chain') {
+    return {
+      path: '/cron/acceptance-chain',
+      message: 'aeci.acceptance_chain.enqueue_failed',
+      source: ACCEPTANCE_CHAIN_SOURCE,
+    };
+  }
+  if (job === 'legal_retention') {
+    return {
+      path: '/cron/legal-retention-prune',
+      message: 'aeci.legal_retention.enqueue_failed',
+      source: LEGAL_RETENTION_SOURCE,
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3398,6 +3702,12 @@ async function dispatchScheduledJob(
       return runGscInspectJob(env, ctx, message);
     case 'sitemap_rebuild':
       return runSitemapRebuildJob(env, ctx);
+    case 'plan_snapshot':
+      return runPlanSnapshotJob(env, ctx, message);
+    case 'acceptance_chain':
+      return runAcceptanceChainJob(env, ctx, message);
+    case 'legal_retention':
+      return runLegalRetentionPruneJob(env, ctx, message);
     case 'vendor_claim_nudge':
       return runVendorClaimNudgeJob(env, ctx);
   }
@@ -3461,7 +3771,13 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'asn_registry');
       return;
     case RETENTION_CRON:
-      await enqueueOrRun(env, ctx, 'retention');
+      try {
+        await enqueueOrRun(env, ctx, 'retention');
+      } finally {
+        // AECI-1638: the same tick queues the legal prune (`lib/cron-schedules.ts`), even
+        // when the 400-day prune throws, so one job's fault never drops the other's run.
+        await enqueueOrRun(env, ctx, 'legal_retention');
+      }
       return;
     case ALGOLIA_SYNC_CRON:
       await enqueueOrRun(env, ctx, 'sync');
@@ -3520,6 +3836,12 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case SITEMAP_REBUILD_CRON:
       await enqueueOrRun(env, ctx, 'sitemap_rebuild');
+      return;
+    case PLAN_SNAPSHOT_CRON:
+      await enqueueOrRun(env, ctx, 'plan_snapshot');
+      return;
+    case ACCEPTANCE_CHAIN_CRON:
+      await enqueueOrRun(env, ctx, 'acceptance_chain');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');
@@ -3595,7 +3917,7 @@ export function normalizeJobMessage(
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,
-  ScheduledJobMessageInput | OwnershipSyncMessage | LegalNoticeMessage
+  ScheduledJobMessageInput | OwnershipSyncMessage | LegalNoticeQueueMessage
 > = async (batch, env, ctx) => {
   // AECI-1418: the ownership queue is not a scheduled-job queue. Routed by queue NAME
   // before the job path, so its messages never reach `normalizeJobMessage` and a job

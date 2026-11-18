@@ -138,13 +138,13 @@ migration.
 - **One new failure class: an `errored` job that DID write.** If a ledger row is present but
   unreadable (corrupt JSON, or a future envelope version), the ingest fails the job rather
   than re-planning — re-planning is the duplicate. This breaks the otherwise clean "an
-  errored promote wrote nothing" invariant, so `docs/RUNBOOKS.md` carries the exception.
+  errored promote wrote nothing" invariant, so `docs/runbooks/alerts.md` carries the exception.
   Near-zero probability; we write the row ourselves and it is versioned.
 - **The AECI-562 veto is untouched.** `job_id` is AECi's own job id, not an Airtable record
   id. The ruling was about curation-tool keys in the public schema; a workflow-job ledger is
   not one.
 - **No pruner shipped.** ~10 KB a row at a handful of promotes a day. The `created_at` index
-  is there so a later sweep is a one-line range delete; `docs/RUNBOOKS.md` carries the
+  is there so a later sweep is a one-line range delete; `docs/runbooks/alerts.md` carries the
   manual statement and the 90-day floor.
 - **Not done, deliberately:** wiring `GET /api/promote/jobs/:id` to read the ledger as a
   third, never-expiring result source behind the instance and the KV mirror. Attractive and

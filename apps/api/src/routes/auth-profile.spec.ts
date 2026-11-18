@@ -8,16 +8,18 @@
  * that sign-in intact. See the handler's NO-CLOBBER CONTRACT header block.
  */
 
+import { LEGAL_IN_FORCE_MAPS, legalEffectiveAtMs, type LegalInForceMaps } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, profiles, vendors } from '../db/schema';
+import { auditLog, legalVersions, profiles, termsAcceptances, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import type { UserAuthVariables } from '../lib/user-auth';
-import { createEnsureProfileHandler } from './auth-profile';
+import { createEnsureProfileHandler, type EnsureProfileDeps } from './auth-profile';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const USER = u(900);
@@ -29,17 +31,17 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function post() {
+function post(opts: { deps?: EnsureProfileDeps; headers?: Record<string, string> } = {}) {
   const a = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('user', { userId: USER, email: undefined });
+    c.set('user', { userId: USER, email: 'reader@example.com' });
     await next();
   });
-  a.post('/api/auth/profile/ensure', createEnsureProfileHandler(t.factory));
+  a.post('/api/auth/profile/ensure', createEnsureProfileHandler(t.factory, opts.deps));
   return a.request(
     '/api/auth/profile/ensure',
-    { method: 'POST' },
+    { method: 'POST', headers: opts.headers ?? {} },
     TEST_ENV,
     fakeExecutionContext(),
   );
@@ -102,5 +104,78 @@ describe('POST /api/auth/profile/ensure', () => {
     expect((await res.json()) as { created: boolean }).toEqual({ created: false });
     // No row was created, so no `profile.created` audit either.
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+// AECI-1637 (ruling of 2026-11-13): signing in is the Terms acceptance.
+describe('POST /api/auth/profile/ensure: the sign-in Terms acceptance (AECI-1637)', () => {
+  const DAY = '2027-01-15';
+  const MOMENT = legalEffectiveAtMs(DAY);
+  const AFTER = new Date(MOMENT + 86_400_000);
+  const MAPS: LegalInForceMaps = {
+    ...LEGAL_IN_FORCE_MAPS,
+    readerUpcoming: { terms: { version: '1.2', effectiveOn: DAY } },
+  };
+  const deps: EnsureProfileDeps = { maps: MAPS, now: () => AFTER };
+  const HEADERS = { 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'Mozilla/5.0 Test' };
+
+  beforeEach(async () => {
+    await t.db.insert(legalVersions).values({
+      id: 'lv12',
+      document: 'terms',
+      version: '1.2',
+      effectiveAt: MOMENT,
+      summaryJson: '["The disputes section changes."]',
+      material: true,
+      requiresAcceptance: true,
+      pdfKey: 'legal/terms/v1.2.pdf',
+      pdfSha256: 'b'.repeat(64),
+      pdfBytes: 10,
+      publishedBy: 'admin',
+      publishedAt: '2026-12-01T00:00:00.000Z',
+    });
+  });
+
+  it('records the version in force with the IP address and browser of the request', async () => {
+    const res = await post({ deps, headers: HEADERS });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: true });
+    const rows = await t.db.select().from(termsAcceptances);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      profileId: USER,
+      email: 'reader@example.com',
+      version: '1.2',
+      ip: '203.0.113.7',
+      userAgent: 'Mozilla/5.0 Test',
+      acceptedAt: AFTER.toISOString(),
+    });
+    expect(
+      await t.db.select().from(auditLog).where(eq(auditLog.action, 'terms.accepted')),
+    ).toHaveLength(1);
+  });
+
+  it('a second sign-in on the same version writes nothing more', async () => {
+    await post({ deps, headers: HEADERS });
+    await post({ deps, headers: HEADERS });
+    expect(await t.db.select().from(termsAcceptances)).toHaveLength(1);
+  });
+
+  it('with no Terms version in force (today) it writes nothing', async () => {
+    await post({ headers: HEADERS });
+    expect(await t.db.select().from(termsAcceptances)).toHaveLength(0);
+  });
+
+  it('a failed acceptance write never fails the ensure', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Every batch fails: the ensure's own insert is not a batch, so the profile is made.
+    const batch = vi.spyOn(t.db, 'batch').mockRejectedValue(new Error('D1 is down'));
+    const res = await post({ deps, headers: HEADERS });
+    batch.mockRestore();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: true });
+    expect(await t.db.select().from(termsAcceptances)).toHaveLength(0);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });

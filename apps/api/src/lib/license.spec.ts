@@ -21,6 +21,7 @@ import {
   auditLog,
   billingAccounts,
   licenses,
+  planChangeSnapshots,
   productVendors,
   products,
   profiles,
@@ -1133,13 +1134,18 @@ describe('the mirror reconcile', () => {
 
   it('every builder emits exactly one audit row per license statement', async () => {
     for (const batch of await everyBuilder()) {
-      // license statements + audit rows + product mirrors + 1 reconcile. The product
-      // mirrors go in front of the reconcile (AECI-1614) and only name `products`.
-      const mirrors = batch.stmts
+      // license statements + audit rows + product mirrors + evidence rows + 1 reconcile.
+      // The product mirrors (AECI-1614) and the plan-change evidence rows (AECI-1621) go
+      // in front of the reconcile, and name only `products` or `plan_change_snapshots`.
+      const between = batch.stmts
         .slice(batch.auditEntries.length * 2, -1)
         .map((stmt) => sqlOf(stmt).sql);
-      for (const sql of mirrors) expect(sql).toMatch(/^update "products" set "managed_ended_at"/);
-      expect(batch.stmts).toHaveLength(batch.auditEntries.length * 2 + mirrors.length + 1);
+      for (const sql of between) {
+        expect(sql).toMatch(
+          /^(update "products" set "managed_ended_at"|insert into "plan_change_snapshots")/,
+        );
+      }
+      expect(batch.stmts).toHaveLength(batch.auditEntries.length * 2 + between.length + 1);
     }
   });
 
@@ -1542,5 +1548,165 @@ describe('the plan-end mirrors (AECI-1614)', () => {
       cancelReason: 'vendor-cancelled',
     });
     expect(batch.stmts).toHaveLength(3);
+  });
+});
+
+describe('the plan-change evidence ledger (AECI-1621)', () => {
+  const FOLLOWUP = '2026-11-13T12:00:00.000Z';
+  const ledger = async () =>
+    (await t.db.select().from(planChangeSnapshots)).sort(
+      (a, b) =>
+        (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0) ||
+        (a.phase < b.phase ? -1 : a.phase > b.phase ? 1 : 0),
+    );
+  const pairOf = (productId: string, kind: 'start' | 'end', licenseId: string, cause: string) => [
+    expect.objectContaining({
+      productId,
+      kind,
+      licenseId,
+      cause,
+      eventAt: NOW,
+      phase: 'event',
+      dueAt: NOW,
+      r2Key: null,
+      attempts: 0,
+    }),
+    expect.objectContaining({
+      productId,
+      kind,
+      licenseId,
+      cause,
+      eventAt: NOW,
+      phase: 'followup',
+      dueAt: FOLLOWUP,
+      r2Key: null,
+    }),
+  ];
+
+  it('a grant onto a product writes a start event and a follow-up 30 days later', async () => {
+    const batch = grantLicensesStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      count: 1,
+      licenseSource: 'complimentary',
+      endsAt: null,
+      productIds: [P1],
+    });
+    await run(batch);
+    const [license] = await t.db.select().from(licenses);
+    expect(await ledger()).toEqual(pairOf(P1, 'start', license!.id, 'license.granted'));
+  });
+
+  it('a grant into the pool moves no product, so it writes no row', async () => {
+    await run(
+      grantLicensesStatements(t.db, {
+        ...(await ctx()),
+        billingAccountId: ACCOUNT_ID,
+        count: 1,
+        licenseSource: 'complimentary',
+        endsAt: null,
+      }),
+    );
+    expect(await ledger()).toEqual([]);
+  });
+
+  it('an assign writes a start pair, and an unassign an end pair', async () => {
+    await seedLicense('l1');
+    await run(assignLicenseStatements(t.db, { ...(await ctx()), licenseId: 'l1', productId: P1 }));
+    expect(await ledger()).toEqual(pairOf(P1, 'start', 'l1', 'license.assigned'));
+
+    await t.db.delete(planChangeSnapshots);
+    await run(unassignLicenseStatements(t.db, { ...(await ctx()), licenseId: 'l1' }));
+    expect(await ledger()).toEqual(pairOf(P1, 'end', 'l1', 'license.unassigned'));
+  });
+
+  it('an end names its own cause', async () => {
+    await setVerified(true);
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    await run(
+      endLicensesStatements(t.db, {
+        ...(await ctx()),
+        target: { licenseIds: ['l1'] },
+        endReason: 'revoked',
+      }),
+    );
+    expect(await ledger()).toEqual(pairOf(P1, 'end', 'l1', 'license.revoked'));
+  });
+
+  it('a term-end carry-over keeps the plan on the carried product: no row for it', async () => {
+    const PAST = '2026-10-01T00:00:00.000Z';
+    await setVerified(true);
+    await seedLicense('l-old', { endsAt: PAST, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-new', { endsAt: PAST, assignedProductId: P2, assignedAt: NOW });
+    await seedLicense('pool', { endsAt: null, createdAt: '2025-01-01T00:00:00.000Z' });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      actorId: null,
+      actorType: 'system',
+      billingAccountId: ACCOUNT_ID,
+      endsAt: PAST,
+    });
+    expect(batch.carried.map((c) => c.productId)).toEqual([P1]);
+    await run(batch);
+    // P1 carried onto the pool license. Only P2 lost its plan.
+    expect(await ledger()).toEqual(pairOf(P2, 'end', 'l-new', 'license.lapsed'));
+  });
+
+  it('a Stripe terminal sync writes an end pair', async () => {
+    await setVerified(true);
+    const sub = { stripeSubscriptionId: 'sub_1', source: 'stripe' as const };
+    await seedLicense('l1', { ...sub, assignedProductId: P1, assignedAt: OLD_TS, endsAt: null });
+    await run(
+      syncStripeLicensesStatements(t.db, {
+        ...(await ctx()),
+        billingAccountId: ACCOUNT_ID,
+        stripeSubscriptionId: 'sub_1',
+        quantity: 1,
+        endsAt: null,
+        termsVersion: null,
+        cancelAtPeriodEnd: null,
+        mode: 'terminal',
+        grantLicenseIds: [],
+      }),
+    );
+    const rows = await ledger();
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(pairOf(P1, 'end', 'l1', rows[0]!.cause));
+    expect(rows[0]!.cause).toMatch(/^license\./);
+  });
+
+  it('a write that moves no license on or off a product writes no row', async () => {
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    const c = await ctx();
+    await run(
+      setCancelAtTermEndStatements(t.db, {
+        ...c,
+        licenseIds: ['l1'],
+        cancel: true,
+        cancelReason: 'vendor-cancelled',
+      }),
+    );
+    await run(setLicensesTermStatements(t.db, { ...c, licenseIds: ['l1'], endsAt: '2028-01-01' }));
+    expect(await ledger()).toEqual([]);
+  });
+
+  it('the rows commit or roll back with the license change: a refused batch writes none', async () => {
+    // A product already holding a live license refuses a second assign (the partial
+    // unique index), so the whole batch, ledger rows included, rolls back.
+    // `held` is another vendor's, so this vendor's pre-read sees a start and adds rows.
+    await seedLicense('held', {
+      billingAccountId: OTHER_ACCOUNT_ID,
+      assignedProductId: P1,
+      assignedAt: OLD_TS,
+    });
+    await seedLicense('l2');
+    const batch = assignLicenseStatements(t.db, {
+      ...(await ctx()),
+      licenseId: 'l2',
+      productId: P1,
+    });
+    expect(batch.stmts.some((stmt) => /plan_change_snapshots/.test(sqlOf(stmt).sql))).toBe(true);
+    await expect(run(batch)).rejects.toThrow();
+    expect(await ledger()).toEqual([]);
   });
 });

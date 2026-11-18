@@ -1,0 +1,1006 @@
+/**
+ * The legal retention prune (AECI-1638, ADR 0058) against the in-memory D1 harness. Time
+ * travel goes through the `now` argument, so every cutoff is computed from {@link NOW}.
+ *
+ * The cases that lose data if they regress are the ones that must stay: an exempt audit
+ * action, a claimed vendor, a vendor with a live license, a grant not five years past its
+ * end, a NULL or missing vendor, and anything under a hold. Row counts are read back with
+ * `select`, never from a batch return value (the harness's batch shim answers from
+ * better-sqlite3, not D1).
+ */
+
+import { AUDIT_LOG_PRUNE_EXEMPT_ACTIONS } from '@aeci/shared';
+import { eq, sql } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  agreementAcceptances,
+  auditLog,
+  billingAccounts,
+  licenseGrants,
+  licenses,
+  litigationHolds,
+  vendors,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { pruneAuditIds } from './acceptance-chain';
+import {
+  emitLegalRetentionPruneMetrics,
+  isLegalRetentionRaceError,
+  LEGAL_RETENTION_IDS_PER_TABLE,
+  LEGAL_RETENTION_ROWS_METRIC,
+  LEGAL_RETENTION_RUN_METRIC,
+  legalCutoffs,
+  runLegalRetentionPrune,
+  runLegalRetentionPruneWithReplan,
+  shiftYears,
+} from './legal-retention-prune';
+import { MAX_CHUNKS_PER_TABLE, PRUNE_CHUNK_ROWS } from './retention-prune';
+
+/** A fixed "now", far enough out that every period has fallen due for some row. */
+const NOW = new Date('2034-06-15T03:00:00.000Z');
+const CUT = legalCutoffs(NOW);
+
+const DAY = 86_400_000;
+const iso = (ms: number) => new Date(ms).toISOString();
+/** `n` days before (negative) or after an ISO instant. */
+const shift = (at: string, days: number) => iso(Date.parse(at) + days * DAY);
+/** `years` calendar years before NOW's midnight, then `days` more. */
+const yearsAgo = (years: number, days = 0) =>
+  shift(`${shiftYears('2034-06-15', -years)}T00:00:00.000Z`, -days);
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const auditRows = () => t.db.select().from(auditLog);
+const acceptanceIds = async () =>
+  (await t.db.select({ id: agreementAcceptances.id }).from(agreementAcceptances))
+    .map((r) => r.id)
+    .sort();
+const grantIds = async () =>
+  (await t.db.select({ id: licenseGrants.id }).from(licenseGrants)).map((r) => r.id).sort();
+const pruneRows = async () =>
+  (await auditRows()).filter(
+    (r) =>
+      r.action === 'retention.pruned' &&
+      (r.metadata as { source?: string } | null)?.source === 'legal-retention-prune',
+  );
+
+async function seedAudit(action: string, createdAt: string, id = crypto.randomUUID()) {
+  await t.db.insert(auditLog).values({ id, actorType: 'system', action, createdAt });
+  return id;
+}
+
+/** A vendor, its billing account, and optional licenses. */
+async function seedVendor(
+  id: string,
+  opts: {
+    claimEndedAt: string | null;
+    licenses?: { id: string; endedAt: string | null; grantId?: string }[];
+  },
+) {
+  await t.db.insert(vendors).values({
+    id,
+    slug: id,
+    companyName: `Company ${id}`,
+    ownedAt: '2025-01-01T00:00:00.000Z',
+    claimEndedAt: opts.claimEndedAt,
+  });
+  await t.db.insert(billingAccounts).values({ id: `ba-${id}`, vendorId: id, name: id });
+  for (const l of opts.licenses ?? []) {
+    await t.db.insert(licenses).values({
+      id: l.id,
+      billingAccountId: `ba-${id}`,
+      source: 'complimentary',
+      startsAt: '2025-01-01T00:00:00.000Z',
+      endedAt: l.endedAt,
+      licenseGrantId: l.grantId ?? null,
+    });
+  }
+}
+
+async function seedAcceptance(
+  id: string,
+  vendorId: string | null,
+  opts: { acceptedAt?: string; grantId?: string; billingAccountId?: string } = {},
+) {
+  await t.db.insert(agreementAcceptances).values({
+    id,
+    document: 'vendor_terms',
+    version: '1.0',
+    source: opts.grantId ? 'grant' : 'claim',
+    email: 'signer@example.test',
+    vendorId,
+    billingAccountId: opts.billingAccountId ?? null,
+    licenseGrantId: opts.grantId ?? null,
+    acceptedAt: opts.acceptedAt ?? '2025-02-01T00:00:00.000Z',
+  });
+}
+
+async function seedGrant(
+  id: string,
+  vendorId: string,
+  opts: { status: string; decidedAt?: string | null },
+) {
+  await t.db.insert(licenseGrants).values({
+    id,
+    billingAccountId: `ba-${vendorId}`,
+    vendorId,
+    kind: 'grant',
+    source: 'complimentary',
+    quantity: 1,
+    endsAt: '2026-01-01T00:00:00.000Z',
+    termsVersion: '1.0',
+    status: opts.status,
+    decidedAt: opts.decidedAt ?? null,
+  });
+}
+
+async function seedHold(scope: 'global' | 'vendor', vendorId: string | null, released = false) {
+  await t.db.insert(litigationHolds).values({
+    scope,
+    vendorId,
+    reason: 'Matter pending',
+    placedBy: 'admin-1',
+    placedAt: '2034-01-01T00:00:00.000Z',
+    releasedAt: released ? '2034-02-01T00:00:00.000Z' : null,
+    releasedBy: released ? 'admin-1' : null,
+    releaseReason: released ? 'Matter closed' : null,
+  });
+}
+
+describe('cutoffs', () => {
+  it('shifts calendar years, and a Feb 29 lands on Feb 28, the earlier day', () => {
+    expect(shiftYears('2034-06-15', -6)).toBe('2028-06-15');
+    expect(shiftYears('2032-02-29', -6)).toBe('2026-02-28');
+    expect(shiftYears('2032-02-29', -4)).toBe('2028-02-29');
+  });
+
+  it('puts the audit cutoff 1461 days before UTC midnight, and the others on calendar years', () => {
+    expect(CUT).toEqual({
+      audit: iso(Date.parse('2034-06-15T00:00:00.000Z') - 1461 * DAY),
+      acceptance: '2028-06-15T00:00:00.000Z',
+      grant: '2029-06-15T00:00:00.000Z',
+    });
+  });
+});
+
+describe('the four-year audit part', () => {
+  it('deletes a row one day past the cutoff and keeps one a day inside it', async () => {
+    const old = await seedAudit('vendor.updated', shift(CUT.audit, -1));
+    const atCutoff = await seedAudit('vendor.updated', CUT.audit);
+    const young = await seedAudit('vendor.updated', shift(CUT.audit, 1));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain(old);
+    expect(ids).toContain(atCutoff);
+    expect(ids).toContain(young);
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: 1,
+      truncated: false,
+      cutoff: CUT.audit,
+    });
+  });
+
+  it('keeps every exempt action whatever its age, and escapes the underscore in a prefix', async () => {
+    const ancient = shift(CUT.audit, -900);
+    const kept = [
+      ...AUDIT_LOG_PRUNE_EXEMPT_ACTIONS,
+      'litigation_hold.placed',
+      'litigation_hold.released',
+      'agreement.accepted',
+      'agreement.linked',
+      'agreement.evidence_removed',
+      'terms.accepted',
+      'terms.evidence_removed',
+    ];
+    const keptIds = await Promise.all(kept.map((action) => seedAudit(action, ancient)));
+    // `_` is a LIKE wildcard. Unescaped, this lookalike would be exempt too.
+    const lookalike = await seedAudit('litigationXhold.placed', ancient);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of keptIds) expect(ids).toContain(id);
+    expect(ids).not.toContain(lookalike);
+  });
+
+  it('pages the (created_at, id) row value across a chunk boundary with a tie', async () => {
+    // Every row shares one created_at, so only the id breaks the tie at the boundary.
+    const at = shift(CUT.audit, -10);
+    const n = PRUNE_CHUNK_ROWS + 7;
+    t.raw
+      .prepare(
+        `WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?)
+         INSERT INTO audit_log (id, actor_type, action, created_at)
+         SELECT printf('a-%06d', i), 'system', 'vendor.updated', ? FROM s`,
+      )
+      .run(n, at);
+    const young = await seedAudit('vendor.updated', shift(CUT.audit, 1));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const left = await auditRows();
+    expect(left.map((r) => r.id).filter((id) => id.startsWith('a-'))).toEqual([]);
+    expect(left.map((r) => r.id)).toContain(young);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: n,
+      truncated: false,
+    });
+  });
+
+  it('stops at MAX_CHUNKS_PER_TABLE chunks and reports truncated; the next run continues', async () => {
+    const cap = PRUNE_CHUNK_ROWS * MAX_CHUNKS_PER_TABLE;
+    t.raw
+      .prepare(
+        `WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?)
+         INSERT INTO audit_log (id, actor_type, action, created_at)
+         SELECT printf('b-%06d', i), 'system', 'vendor.updated',
+                strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-' || (i % 50) || ' seconds') FROM s`,
+      )
+      .run(cap + 3, shift(CUT.audit, -1));
+
+    const first = await runLegalRetentionPrune(t.db, NOW);
+    expect(first.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: cap,
+      truncated: true,
+    });
+    // The run's own retention.pruned row is exempt, so only the three seeded rows remain.
+    expect((await auditRows()).filter((r) => r.id.startsWith('b-'))).toHaveLength(3);
+
+    const second = await runLegalRetentionPrune(t.db, NOW);
+    expect(second.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: 3,
+      truncated: false,
+    });
+  });
+
+  it('writes no audit row when nothing was deleted', async () => {
+    await seedAudit('vendor.updated', shift(CUT.audit, 1));
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 0 });
+    expect(result.status === 'pruned' && result.auditEntry).toBeFalsy();
+    expect(await pruneRows()).toEqual([]);
+  });
+});
+
+describe('the acceptance part', () => {
+  it('never touches a claimed vendor', async () => {
+    await seedVendor('v-claimed', { claimEndedAt: null });
+    await seedAcceptance('acc-claimed', 'v-claimed', { acceptedAt: yearsAgo(12) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-claimed']);
+  });
+
+  it('never touches a vendor that holds a live license', async () => {
+    await seedVendor('v-live', {
+      claimEndedAt: yearsAgo(9),
+      licenses: [{ id: 'l-live', endedAt: null }],
+    });
+    await seedAcceptance('acc-live', 'v-live', { acceptedAt: yearsAgo(12) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-live']);
+  });
+
+  it('keeps an account that ended under six years ago and deletes one six years and a day ago', async () => {
+    await seedVendor('v-young', { claimEndedAt: shift(CUT.acceptance, 30) });
+    await seedVendor('v-old', { claimEndedAt: shift(CUT.acceptance, -1) });
+    await seedAcceptance('acc-young', 'v-young', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-old', 'v-old', { acceptedAt: yearsAgo(10) });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-young']);
+    expect(result.tables.find((x) => x.table === 'agreement_acceptances')).toMatchObject({
+      rowsDeleted: 1,
+      cutoff: CUT.acceptance,
+    });
+  });
+
+  it('dates the account end from the later of the claim end and the last license end', async () => {
+    // The claim ended nine years ago, but a license ran until five years ago.
+    await seedVendor('v-license', {
+      claimEndedAt: yearsAgo(9),
+      licenses: [{ id: 'l-late', endedAt: yearsAgo(5) }],
+    });
+    await seedAcceptance('acc-license', 'v-license', { acceptedAt: yearsAgo(10) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-license']);
+  });
+
+  it('restarts the clock on a reclaim', async () => {
+    // Accepted long ago, claim ended long ago, then reclaimed and ended again last year.
+    await seedVendor('v-reclaimed', { claimEndedAt: yearsAgo(1) });
+    await seedAcceptance('acc-reclaimed', 'v-reclaimed', { acceptedAt: yearsAgo(12) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-reclaimed']);
+  });
+
+  it('keeps a grant and its acceptance until five years after the grant ends', async () => {
+    await seedVendor('v-grant', { claimEndedAt: yearsAgo(8) });
+    // Expired four years ago: under five.
+    await seedGrant('g-young', 'v-grant', { status: 'expired', decidedAt: yearsAgo(4) });
+    // Withdrawn five years and a day ago.
+    await seedGrant('g-old', 'v-grant', { status: 'withdrawn', decidedAt: yearsAgo(5, 1) });
+    // Still waiting for acceptance: it has not ended.
+    await seedGrant('g-pending', 'v-grant', { status: 'pending_acceptance' });
+    await seedAcceptance('acc-g-young', 'v-grant', { grantId: 'g-young', acceptedAt: yearsAgo(9) });
+    await seedAcceptance('acc-g-old', 'v-grant', { grantId: 'g-old', acceptedAt: yearsAgo(9) });
+    await seedAcceptance('acc-claim', 'v-grant', { acceptedAt: yearsAgo(9) });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-g-young']);
+    expect(await grantIds()).toEqual(['g-pending', 'g-young']);
+    expect(result.tables.find((x) => x.table === 'license_grants')).toMatchObject({
+      rowsDeleted: 1,
+      cutoff: CUT.grant,
+    });
+  });
+
+  it('dates an accepted grant from its last license end, and keeps it while one is live', async () => {
+    await seedVendor('v-lic', {
+      claimEndedAt: yearsAgo(8),
+      licenses: [
+        { id: 'l-g1a', endedAt: yearsAgo(9), grantId: 'g-1' },
+        { id: 'l-g1b', endedAt: yearsAgo(7), grantId: 'g-1' },
+      ],
+    });
+    await seedGrant('g-1', 'v-lic', { status: 'accepted', decidedAt: yearsAgo(10) });
+    await seedAcceptance('acc-g1', 'v-lic', { grantId: 'g-1', acceptedAt: yearsAgo(10) });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual([]);
+    expect(await grantIds()).toEqual([]);
+  });
+
+  it('never prunes a row with a NULL vendor_id or a vendor row that is gone', async () => {
+    await seedAcceptance('acc-null', null, { acceptedAt: yearsAgo(15) });
+    await seedAcceptance('acc-gone', 'v-gone', { acceptedAt: yearsAgo(15) });
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-gone', 'acc-null']);
+  });
+
+  it('deletes an acceptance’s agreement.* audit rows in the same batch, and keeps the rest', async () => {
+    await seedVendor('v-old', { claimEndedAt: yearsAgo(7) });
+    await seedVendor('v-young', { claimEndedAt: yearsAgo(1) });
+    await seedAcceptance('acc-old', 'v-old', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-young', 'v-young', { acceptedAt: yearsAgo(10) });
+    const ancient = yearsAgo(10);
+    await t.db.insert(auditLog).values([
+      {
+        id: 'au-old',
+        actorType: 'user',
+        action: 'agreement.accepted',
+        entityType: 'agreement_acceptance',
+        entityId: 'acc-old',
+        createdAt: ancient,
+      },
+      {
+        id: 'au-young',
+        actorType: 'user',
+        action: 'agreement.accepted',
+        entityType: 'agreement_acceptance',
+        entityId: 'acc-young',
+        createdAt: ancient,
+      },
+      {
+        // No `acceptance_ids` array, so it can never be matched: kept.
+        id: 'au-linked',
+        actorType: 'admin',
+        action: 'agreement.linked',
+        entityType: 'vendor_request',
+        entityId: 'claim-1',
+        createdAt: ancient,
+      },
+      {
+        id: 'au-evidence',
+        actorType: 'system',
+        action: 'agreement.evidence_removed',
+        entityType: 'agreement_acceptance',
+        entityId: null,
+        metadata: { acceptance_ids: ['acc-old'] },
+        createdAt: ancient,
+      },
+    ]);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain('au-old');
+    // Its only acceptance went in this batch, so the evidence row goes too.
+    expect(ids).not.toContain('au-evidence');
+    expect(ids).toEqual(expect.arrayContaining(['au-young', 'au-linked']));
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: 2,
+      companionRowsDeleted: 2,
+    });
+  });
+
+  it('caps each table at LEGAL_RETENTION_IDS_PER_TABLE ids and reports truncated', async () => {
+    await seedVendor('v-many', { claimEndedAt: yearsAgo(7) });
+    t.raw
+      .prepare(
+        `WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?)
+         INSERT INTO agreement_acceptances (id, document, version, source, email, vendor_id, accepted_at, created_at)
+         SELECT printf('acc-%04d', i), 'vendor_terms', '1.0', 'claim', 'x@example.test', 'v-many', ?, ? FROM s`,
+      )
+      .run(LEGAL_RETENTION_IDS_PER_TABLE + 5, yearsAgo(10), yearsAgo(10));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(result.tables.find((x) => x.table === 'agreement_acceptances')).toMatchObject({
+      rowsDeleted: LEGAL_RETENTION_IDS_PER_TABLE,
+      truncated: true,
+    });
+    expect(await acceptanceIds()).toHaveLength(5);
+  });
+});
+
+describe('the audit row', () => {
+  it('is one retention.pruned row whose ids round-trip through the chain verify parser', async () => {
+    await seedVendor('v-old', { claimEndedAt: yearsAgo(7) });
+    await seedGrant('g-old', 'v-old', { status: 'withdrawn', decidedAt: yearsAgo(6) });
+    await seedAcceptance('acc-a', 'v-old', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-b', 'v-old', { grantId: 'g-old', acceptedAt: yearsAgo(9) });
+    await seedAudit('vendor.updated', shift(CUT.audit, -1));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const rows = await pruneRows();
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row).toMatchObject({ actorType: 'system', entityType: 'retention' });
+    expect(row.id).toBe(result.status === 'pruned' ? result.auditEntry?.id : undefined);
+    expect(row.metadata).toMatchObject({
+      rowsDeleted: 4,
+      tables: [
+        { table: 'audit_log', cutoff: CUT.audit, rowsDeleted: 1 },
+        {
+          table: 'agreement_acceptances',
+          cutoff: CUT.acceptance,
+          rowsDeleted: 2,
+          ids: ['acc-a', 'acc-b'],
+        },
+        { table: 'license_grants', cutoff: CUT.grant, rowsDeleted: 1, ids: ['g-old'] },
+      ],
+    });
+    // AECI-1680's verify reads the stored JSON text, so feed it the raw column.
+    const [raw] = t.raw.prepare('SELECT metadata FROM audit_log WHERE id = ?').all(row.id) as {
+      metadata: string;
+    }[];
+    expect([...pruneAuditIds([raw!.metadata])].sort()).toEqual([
+      'agreement_acceptances:acc-a',
+      'agreement_acceptances:acc-b',
+      'license_grants:g-old',
+    ]);
+  });
+});
+
+describe('the audit row holds no personal data', () => {
+  it('carries exactly the allowed keys at every level, no actor and no vendor', async () => {
+    await seedVendor('v-old', { claimEndedAt: yearsAgo(7) });
+    await seedGrant('g-old', 'v-old', { status: 'withdrawn', decidedAt: yearsAgo(6) });
+    await seedAcceptance('acc-a', 'v-old', { acceptedAt: yearsAgo(10) });
+    await t.db.insert(auditLog).values({
+      id: 'au-companion',
+      actorType: 'user',
+      action: 'agreement.accepted',
+      entityType: 'agreement_acceptance',
+      entityId: 'acc-a',
+      createdAt: yearsAgo(10),
+    });
+    await seedAudit('vendor.updated', shift(CUT.audit, -1));
+    // A hold released more than four years ago, whose reason names a person.
+    await t.db.insert(litigationHolds).values({
+      id: 'h-released',
+      scope: 'global',
+      reason: 'Jane Doe v. Example Corp',
+      placedBy: 'admin-1',
+      placedAt: '2025-01-01T00:00:00.000Z',
+      releasedAt: shift(CUT.audit, -2),
+      releasedBy: 'admin-1',
+      releaseReason: 'Settled with Jane Doe',
+    });
+    await t.db.insert(auditLog).values({
+      id: 'au-hold',
+      actorId: null,
+      actorType: 'admin',
+      action: 'litigation_hold.placed',
+      entityType: 'litigation_hold',
+      entityId: 'h-released',
+      metadata: { reason: 'Jane Doe v. Example Corp' },
+      createdAt: '2025-01-01T00:00:00.000Z',
+    });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    const entry = result.status === 'pruned' ? result.auditEntry : undefined;
+    expect(entry).toBeDefined();
+
+    // A key added to the run record must be added here on purpose, after asking whether it
+    // is personal. The record outlives every row it names.
+    const keys = (o: object) => Object.keys(o).sort();
+    expect(keys(entry!)).toEqual(['action', 'actorType', 'entityType', 'id', 'metadata']);
+    expect(entry!.actorId ?? null).toBeNull();
+    expect(entry!).not.toHaveProperty('vendorId');
+    const metadata = entry!.metadata as Record<string, unknown>;
+    expect(keys(metadata)).toEqual(['rowsDeleted', 'source', 'tables']);
+    const allowed: Record<string, string[]> = {
+      audit_log: ['companionRowsDeleted', 'cutoff', 'holdAuditRowsDeleted', 'rowsDeleted', 'table'],
+      agreement_acceptances: ['cutoff', 'ids', 'rowsDeleted', 'table'],
+      license_grants: ['cutoff', 'ids', 'rowsDeleted', 'table'],
+      // Not chained, so no ids: the hold's free-text reason never reaches the run record.
+      litigation_holds: ['cutoff', 'rowsDeleted', 'table'],
+    };
+    const tables = metadata.tables as Record<string, unknown>[];
+    expect(tables.map((x) => x.table)).toEqual(Object.keys(allowed));
+    for (const table of tables) {
+      expect(keys(table)).toEqual(allowed[table.table as string]);
+      if ('ids' in table) {
+        for (const id of table.ids as unknown[]) expect(typeof id).toBe('string');
+      }
+    }
+
+    // The stored row matches the entry: no actor, no vendor, no plan stamps.
+    const [row] = await t.db.select().from(auditLog).where(eq(auditLog.id, entry!.id!));
+    expect(row).toMatchObject({
+      actorId: null,
+      entityId: null,
+      vendorId: null,
+      productId: null,
+      vendorTier: null,
+      vendorEntitlementStatus: null,
+      beforeState: null,
+      afterState: null,
+    });
+    const text = JSON.stringify(row?.metadata);
+    // No address and no personal key anywhere in the stored JSON.
+    expect(text).not.toMatch(/@|"(ip|email|name|signer_\w+|user_agent|profile_id|reason)"/i);
+    expect(text).not.toContain('Jane Doe');
+  });
+});
+
+describe('the agreement.* rows that list acceptance ids', () => {
+  /** A vendor whose claim acceptance is due and whose grant acceptance is held by the grant
+   *  floor (expired four years ago). */
+  async function seedTwoAcceptances() {
+    await seedVendor('v-two', { claimEndedAt: yearsAgo(8) });
+    await seedGrant('g-floor', 'v-two', { status: 'expired', decidedAt: yearsAgo(4) });
+    await seedAcceptance('acc-claim', 'v-two', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-grant', 'v-two', { grantId: 'g-floor', acceptedAt: yearsAgo(9) });
+  }
+  const ancient = yearsAgo(10);
+  const linkedRow = (id: string, acceptanceIds: unknown) => ({
+    id,
+    actorId: null,
+    actorType: 'admin',
+    action: 'agreement.linked',
+    entityType: 'vendor_request',
+    entityId: 'claim-1',
+    vendorId: 'v-two',
+    afterState: { acceptance_ids: acceptanceIds, profile_id: 'p-1', vendor_id: 'v-two' },
+    createdAt: ancient,
+  });
+  const evidenceRow = (id: string, acceptanceIds: unknown) => ({
+    id,
+    actorType: 'system',
+    action: 'agreement.evidence_removed',
+    entityType: 'agreement_acceptance',
+    entityId: null,
+    metadata: { acceptance_ids: acceptanceIds, count: 1 },
+    createdAt: ancient,
+  });
+
+  it('keeps agreement.linked while one of its acceptances remains, and deletes it with the last', async () => {
+    await seedTwoAcceptances();
+    await t.db
+      .insert(auditLog)
+      .values([
+        linkedRow('au-linked-both', ['acc-claim', 'acc-grant']),
+        linkedRow('au-linked-claim', ['acc-claim']),
+      ]);
+
+    // Run 1: the claim acceptance goes, the grant acceptance is under the five-year floor.
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await acceptanceIds()).toEqual(['acc-grant']);
+    let ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toContain('au-linked-both');
+    expect(ids).not.toContain('au-linked-claim');
+
+    // Run 2, two years on: the grant floor has passed, the last acceptance goes, and the
+    // linked row goes in the same batch.
+    const later = new Date('2036-06-15T03:00:00.000Z');
+    const result = await runLegalRetentionPrune(t.db, later);
+    expect(await acceptanceIds()).toEqual([]);
+    ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain('au-linked-both');
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      companionRowsDeleted: 1,
+    });
+  });
+
+  it('keeps agreement.evidence_removed while one of its acceptances remains, and deletes it with the last', async () => {
+    await seedTwoAcceptances();
+    await t.db
+      .insert(auditLog)
+      .values([
+        evidenceRow('au-ev-both', ['acc-claim', 'acc-grant']),
+        evidenceRow('au-ev-claim', ['acc-claim']),
+      ]);
+
+    await runLegalRetentionPrune(t.db, NOW);
+    let ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toContain('au-ev-both');
+    expect(ids).not.toContain('au-ev-claim');
+
+    await runLegalRetentionPrune(t.db, new Date('2036-06-15T03:00:00.000Z'));
+    ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain('au-ev-both');
+  });
+
+  it('never matches a row whose acceptance list is missing, empty, not an array or malformed', async () => {
+    await seedVendor('v-two', { claimEndedAt: yearsAgo(8) });
+    await seedAcceptance('acc-claim', 'v-two', { acceptedAt: yearsAgo(10) });
+    await t.db
+      .insert(auditLog)
+      .values([
+        linkedRow('au-l-empty', []),
+        linkedRow('au-l-string', 'acc-claim'),
+        evidenceRow('au-e-empty', []),
+      ]);
+    // A malformed JSON value, written raw: the guard must keep it and not abort the batch.
+    t.raw
+      .prepare(
+        `INSERT INTO audit_log (id, actor_type, action, vendor_id, after_state, created_at)
+         VALUES ('au-l-bad', 'admin', 'agreement.linked', 'v-two', '{not json', ?)`,
+      )
+      .run(ancient);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual([]);
+    // Read raw: Drizzle's JSON column would refuse to parse the malformed row.
+    const left = (t.raw.prepare('SELECT id FROM audit_log').all() as { id: string }[]).map(
+      (r) => r.id,
+    );
+    expect(left).toEqual(
+      expect.arrayContaining(['au-l-empty', 'au-l-string', 'au-e-empty', 'au-l-bad']),
+    );
+  });
+});
+
+describe('released litigation holds', () => {
+  const DAY = 86_400_000;
+  /** The UTC midnight four years (1,461 days) before NOW, the audit cutoff. */
+  const releasedDaysBeforeCutoff = (days: number) =>
+    new Date(Date.parse(CUT.audit) - days * DAY).toISOString();
+
+  async function seedReleasedHold(id: string, releasedAt: string | null) {
+    await t.db.insert(litigationHolds).values({
+      id,
+      scope: 'vendor',
+      vendorId: `v-${id}`,
+      reason: 'A person named in the matter',
+      placedBy: 'admin-1',
+      placedAt: '2025-01-01T00:00:00.000Z',
+      releasedAt,
+      releasedBy: releasedAt ? 'admin-1' : null,
+      releaseReason: releasedAt ? 'Matter closed' : null,
+    });
+    for (const action of ['litigation_hold.placed', 'litigation_hold.released']) {
+      await t.db.insert(auditLog).values({
+        id: `${id}-${action}`,
+        actorType: 'admin',
+        action,
+        entityType: 'litigation_hold',
+        entityId: id,
+        createdAt: '2025-01-01T00:00:00.000Z',
+      });
+    }
+  }
+  const holdIds = async () =>
+    (await t.db.select({ id: litigationHolds.id }).from(litigationHolds)).map((r) => r.id).sort();
+  const holdAuditFor = async (id: string) =>
+    (await auditRows()).filter((r) => r.entityId === id).length;
+
+  it('keeps an open hold and its audit rows', async () => {
+    await seedReleasedHold('h-open', null);
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await holdIds()).toEqual(['h-open']);
+    expect(await holdAuditFor('h-open')).toBe(2);
+  });
+
+  it('keeps a hold released 3 years 364 days ago, and deletes one released 4 years and a day ago', async () => {
+    // 1,460 days before NOW's midnight is one day inside the cutoff.
+    await seedReleasedHold('h-young', releasedDaysBeforeCutoff(-1));
+    await seedReleasedHold('h-old', releasedDaysBeforeCutoff(1));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await holdIds()).toEqual(['h-young']);
+    expect(await holdAuditFor('h-young')).toBe(2);
+    expect(await holdAuditFor('h-old')).toBe(0);
+    expect(result.tables.find((x) => x.table === 'litigation_holds')).toMatchObject({
+      rowsDeleted: 1,
+    });
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: 2,
+      holdAuditRowsDeleted: 2,
+    });
+    const [run] = await pruneRows();
+    expect((run!.metadata as { tables: { table: string }[] }).tables).toContainEqual({
+      table: 'litigation_holds',
+      cutoff: CUT.audit,
+      rowsDeleted: 1,
+    });
+  });
+
+  it('a new open hold pauses the cleanup of old released holds', async () => {
+    await seedReleasedHold('h-old', releasedDaysBeforeCutoff(1));
+    await seedHold('vendor', 'v-new');
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    expect(await holdIds()).toContain('h-old');
+    expect(await holdAuditFor('h-old')).toBe(2);
+    expect(result.tables.find((x) => x.table === 'litigation_holds')).toMatchObject({
+      paused: true,
+      rowsDeleted: 0,
+    });
+  });
+});
+
+describe('litigation holds', () => {
+  async function seedDue() {
+    await seedVendor('v-held', { claimEndedAt: yearsAgo(7) });
+    await seedVendor('v-free', { claimEndedAt: yearsAgo(7) });
+    await seedAcceptance('acc-held', 'v-held', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-free', 'v-free', { acceptedAt: yearsAgo(10) });
+    await seedGrant('g-held', 'v-held', { status: 'expired', decidedAt: yearsAgo(6) });
+    return seedAudit('vendor.updated', shift(CUT.audit, -1));
+  }
+
+  it('a global hold deletes nothing and reports skipped', async () => {
+    const old = await seedDue();
+    await seedHold('global', null);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'litigation_hold', rowsDeleted: 0 });
+    expect(await acceptanceIds()).toEqual(['acc-free', 'acc-held']);
+    expect(await grantIds()).toEqual(['g-held']);
+    expect((await auditRows()).map((r) => r.id)).toEqual([old]);
+  });
+
+  it('a vendor hold keeps that vendor and pauses the whole audit prune; others are pruned', async () => {
+    const old = await seedDue();
+    await seedHold('vendor', 'v-held');
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual(['acc-held']);
+    expect(await grantIds()).toEqual(['g-held']);
+    expect((await auditRows()).map((r) => r.id)).toContain(old);
+    expect(result).toMatchObject({ status: 'pruned', vendorHolds: 1 });
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      paused: true,
+      rowsDeleted: 0,
+    });
+  });
+
+  it('a released hold no longer stops anything', async () => {
+    const old = await seedDue();
+    await seedHold('global', null, true);
+    await seedHold('vendor', 'v-held', true);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await acceptanceIds()).toEqual([]);
+    expect(await grantIds()).toEqual([]);
+    expect((await auditRows()).map((r) => r.id)).not.toContain(old);
+  });
+
+  it('a hold placed after planning aborts the batch, and nothing is deleted', async () => {
+    const old = await seedDue();
+    // Place the hold between the reads and the batch, as a concurrent admin would.
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db.insert(litigationHolds).values({
+        scope: 'global',
+        reason: 'Late hold',
+        placedBy: 'admin-1',
+        placedAt: '2034-06-15T02:59:00.000Z',
+      });
+      return batch(stmts);
+    });
+
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    spy.mockRestore();
+    expect(await acceptanceIds()).toEqual(['acc-free', 'acc-held']);
+    expect((await auditRows()).map((r) => r.id)).toEqual([old]);
+  });
+
+  it('a reclaim after planning aborts the batch too', async () => {
+    await seedVendor('v-race', { claimEndedAt: yearsAgo(7) });
+    await seedAcceptance('acc-race', 'v-race', { acceptedAt: yearsAgo(10) });
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db.update(vendors).set({ claimEndedAt: null }).where(eq(vendors.id, 'v-race'));
+      return batch(stmts);
+    });
+
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    spy.mockRestore();
+    expect(await acceptanceIds()).toEqual(['acc-race']);
+    expect(await pruneRows()).toEqual([]);
+  });
+});
+
+describe('two runs at once (a queued run beside an inline fallback)', () => {
+  /** An old audit row, and a hold released four years and a day ago with its audit row. */
+  async function seedDueAuditAndHold() {
+    const old = await seedAudit('vendor.updated', shift(CUT.audit, -1));
+    await t.db.insert(litigationHolds).values({
+      id: 'h-old',
+      scope: 'global',
+      reason: 'Old matter',
+      placedBy: 'admin-1',
+      placedAt: '2025-01-01T00:00:00.000Z',
+      releasedAt: shift(CUT.audit, -1),
+      releasedBy: 'admin-1',
+      releaseReason: 'Closed',
+    });
+    await t.db.insert(auditLog).values({
+      id: 'au-h-old',
+      actorType: 'admin',
+      action: 'litigation_hold.released',
+      entityType: 'litigation_hold',
+      entityId: 'h-old',
+      createdAt: '2025-01-01T00:00:00.000Z',
+    });
+    return old;
+  }
+
+  /**
+   * Hold the first batch until the second run reaches its own batch, then commit the first,
+   * then let the second commit. Both plans are read before either commit, which is the
+   * interleaving a duplicate delivery produces.
+   */
+  function interleave() {
+    const realBatch = t.db.batch.bind(t.db);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first: Promise<unknown> | null = null;
+    let calls = 0;
+    return vi.spyOn(t.db, 'batch').mockImplementation((async (stmts: never) => {
+      calls += 1;
+      if (calls === 1) {
+        first = gate.then(() => realBatch(stmts));
+        return first;
+      }
+      if (calls === 2) {
+        release();
+        await first;
+      }
+      return realBatch(stmts);
+    }) as never);
+  }
+
+  it('commits once: the loser aborts, replans, finds nothing and writes no audit row', async () => {
+    const old = await seedDueAuditAndHold();
+    const spy = interleave();
+
+    const [winner, loser] = await Promise.all([
+      runLegalRetentionPruneWithReplan(t.db, NOW),
+      runLegalRetentionPruneWithReplan(t.db, NOW),
+    ]);
+    spy.mockRestore();
+
+    const runs = await pruneRows();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.metadata).toMatchObject({
+      rowsDeleted: 3,
+      tables: [
+        { table: 'audit_log', rowsDeleted: 2, holdAuditRowsDeleted: 1 },
+        { table: 'litigation_holds', rowsDeleted: 1 },
+      ],
+    });
+    expect((await auditRows()).map((r) => r.id)).not.toContain(old);
+    expect(await t.db.select().from(litigationHolds)).toEqual([]);
+
+    expect(winner).toMatchObject({ status: 'pruned', rowsDeleted: 3 });
+    expect(winner.status === 'pruned' && winner.replanned).toBeFalsy();
+    // The loser's first batch aborted on a sentinel. Its replan read the state the winner
+    // left, found nothing due, and wrote nothing.
+    expect(loser).toMatchObject({ status: 'pruned', rowsDeleted: 0, replanned: true });
+    expect(loser.status === 'pruned' && loser.auditEntry).toBeFalsy();
+  });
+
+  it('without the replan, the losing batch throws a race error and deletes nothing', async () => {
+    await seedDueAuditAndHold();
+    const spy = interleave();
+    const results = await Promise.allSettled([
+      runLegalRetentionPrune(t.db, NOW),
+      runLegalRetentionPrune(t.db, NOW),
+    ]);
+    spy.mockRestore();
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1].status).toBe('rejected');
+    expect(isLegalRetentionRaceError((results[1] as PromiseRejectedResult).reason)).toBe(true);
+    expect(await pruneRows()).toHaveLength(1);
+  });
+
+  it('the four-year sentinel alone stops a second claim of the same audit rows', async () => {
+    // No hold and no acceptance: the four-year chunks are the only deletes, which had no
+    // sentinel before this fix.
+    await seedAudit('vendor.updated', shift(CUT.audit, -1));
+    const spy = interleave();
+    await Promise.allSettled([
+      runLegalRetentionPrune(t.db, NOW),
+      runLegalRetentionPrune(t.db, NOW),
+    ]);
+    spy.mockRestore();
+    const runs = await pruneRows();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.metadata).toMatchObject({ rowsDeleted: 1 });
+  });
+
+  it('a second race in a row is reported as skipped: concurrent_run, not thrown', async () => {
+    await seedDueAuditAndHold();
+    const spy = vi
+      .spyOn(t.db, 'batch')
+      .mockRejectedValue(new Error('D1_ERROR: malformed JSON') as never);
+    const result = await runLegalRetentionPruneWithReplan(t.db, NOW);
+    spy.mockRestore();
+    expect(result).toMatchObject({ status: 'skipped', reason: 'concurrent_run', rowsDeleted: 0 });
+    expect(await pruneRows()).toEqual([]);
+  });
+
+  it('any other error still throws', async () => {
+    await seedDueAuditAndHold();
+    const spy = vi.spyOn(t.db, 'batch').mockRejectedValue(new Error('D1_ERROR: network') as never);
+    await expect(runLegalRetentionPruneWithReplan(t.db, NOW)).rejects.toThrow('network');
+    spy.mockRestore();
+  });
+});
+
+describe('metrics', () => {
+  it('emits rows_deleted for every table, zeros included, and tags a skip and a pause', async () => {
+    const counts: { metric: string; value: number; tags: string[] }[] = [];
+    const sink = {
+      count: (metric: string, value: number, tags: string[]) =>
+        counts.push({ metric, value, tags }),
+      distribution: () => undefined,
+    };
+    await seedHold('vendor', 'v-x');
+    const paused = await runLegalRetentionPrune(t.db, NOW);
+    emitLegalRetentionPruneMetrics(sink, paused, 5);
+    expect(counts.filter((c) => c.metric === LEGAL_RETENTION_ROWS_METRIC)).toHaveLength(4);
+    expect(counts.find((c) => c.metric === LEGAL_RETENTION_RUN_METRIC)?.tags).toEqual([
+      'trigger:cron',
+      'outcome:ok',
+      'audit:paused',
+    ]);
+
+    counts.length = 0;
+    await t.db.run(sql`DELETE FROM litigation_holds`);
+    await seedHold('global', null);
+    emitLegalRetentionPruneMetrics(sink, await runLegalRetentionPrune(t.db, NOW), 5);
+    expect(counts.find((c) => c.metric === LEGAL_RETENTION_RUN_METRIC)?.tags).toEqual([
+      'trigger:cron',
+      'outcome:skipped',
+      'reason:litigation_hold',
+    ]);
+  });
+});

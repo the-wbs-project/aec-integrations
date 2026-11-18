@@ -2595,6 +2595,11 @@ audit row (§26.1):
 > maintained`, each with an optional ` · Reviewed <date>` / ` · Updated <date>` clause. The
 > company name appears only in an sr-only suffix, and only on product and vendor pages. The pair
 > page shows neither a name nor a date. `STAGE_1_5_SPEC.md` §3.5 carries the full note.
+>
+> **Since AECI-1666 (2026-11-17) the marker is not a header chip.** Its wording is the record line
+> that opens each page's "About this listing" panel (`aec-listing-provenance`), as plain text. An
+> unclaimed listing always reads the AECi form. The wire shape and the fold below are unchanged.
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 holds the panel's contract.
 
 `MaintenanceSchema` (`packages/shared/src/api/common.ts`) is `{ maintained_by, last_reviewed_at }`,
 carried as a `maintenance` object on `ProductDetail`, `VendorDetail`, and `ProductPairResponse`.
@@ -2616,8 +2621,8 @@ The pair page is the interesting one — N mechanisms, one header marker. `compu
 They answer different questions at different grains and both render: the marker is a **page-header**
 attribution ("who is on the hook for this page"), the `unverified` ("Listed by AEC Integrations") pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
-keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
-chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
+keeps their wording and tones distinct. The marker and agreement state were both `rounded.sm`
+chips until AECI-1666 made the marker the panel's plain-text record line. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
 2026-09-24):** `aec-vendor-account-badge` no longer renders on the pair page at all — a reader
 comparing products gains nothing from a vendor's plan state — so the badge is no longer a third
 signal to keep distinct here. AECI-1264 deleted the component on 2026-10-09.
@@ -2785,6 +2790,20 @@ Four consequences worth stating, because each is a thing someone will otherwise
    that is to write the stale value back. That would make the row's last-modified
    wrong for every other reader to save one upsert. A test pins the restamp as a
    fact so a later change to it is deliberate.
+
+#### The invariant and its check (AECI-1908 — 2026-11-17)
+
+**`maintained_by = 'vendor'` on a vendor or product implies an owner.** A vendor row needs its own
+`owned_at`; a product needs at least one joined vendor with `owned_at` set. Every write in the table
+above needs a seat, and a seat implies `owned_at`. The return to AECi and Terminate clear `owned_at`
+and reset the marker in one batch. **A claim end does not break the invariant.** The last-seat revoke
+and an erasure set `claim_ended_at` and keep both `owned_at` and the marker (ADR 0042 decision 3,
+ADR 0051 decision 1), and the promote fence below keys on the marker. The public record line reads
+the AECi form on any unclaimed listing (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8), so a frozen row
+shows nothing wrong. The 04:00 data-quality check `maintained_by_without_owner` (severity `warn`)
+reports a breach. The one known path is a vendor save that read the seat before a concurrent return
+or Terminate, because vendor writes carry no commit-time seat sentinel. Attestations never write
+the product or vendor marker (§13.4).
 
 #### The promote fence
 

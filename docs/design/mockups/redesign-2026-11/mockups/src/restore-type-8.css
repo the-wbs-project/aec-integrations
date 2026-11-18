@@ -1,0 +1,41 @@
+/* Type and spacing: as first designed (Options). The original values, over the limited ramp. */
+html.r-type-orig .stage-note { font-size: 12.5px; }
+html.r-type-orig .f-stat .know-link { gap: 6px; margin-top: 4px; font-size: 14px; font-weight: 600; }
+html.r-type-orig .f-stat .q { font-size: 13.5px; }
+html.r-type-orig .none-head { gap: 56px; }
+html.r-type-orig .none-head .intro { margin-top: 0; font-size: 18px; }
+html.r-type-orig .none-head .intro strong { font-weight: 700; }
+html.r-type-orig .none-grid { gap: 22px; }
+html.r-type-orig .know { gap: 18px; padding: 30px 32px 30px; }
+html.r-type-orig .know h3 { font-size: 30px; line-height: 1.1; }
+html.r-type-orig .know p { font-size: 16px; line-height: 1.5; }
+html.r-type-orig .know .acts { margin-top: auto; gap: 14px; }
+html.r-type-orig .know .acts span { font-size: 13.5px; }
+html.r-type-orig .side { gap: 16px; padding: 28px 30px; }
+html.r-type-orig .side .f-h { margin-bottom: 2px; }
+html.r-type-orig .side .lead2 { font-size: 15px; line-height: 1.5; }
+html.r-type-orig .side .reslist a { font-size: 15.5px; }
+html.r-type-orig .vnote { gap: 8px; font-size: 14.5px; line-height: 1.5; padding: 14px 16px; }
+html.r-type-orig .vnote .ico { margin-top: 2px; }
+html.r-type-orig .bars { margin: 0; padding: 0; gap: 12px; }
+html.r-type-orig .bars li { gap: 6px 10px; font-size: 14.5px; font-weight: 600; }
+html.r-type-orig .bars li b { font-size: 14px; }
+html.r-type-orig .bars li b small { font-weight: 600; font-size: 12.5px; }
+html.r-type-orig .side .foot-note { margin-top: auto; font-size: 13px; gap: 6px; }
+html.r-type-orig .sim-head { gap: 24px; margin: 56px 0 22px; }
+html.r-type-orig .sim-head h3 { font-size: 28px; line-height: 1.15; letter-spacing: -.01em; }
+html.r-type-orig .sim-head p { font-size: 15.5px; margin-top: 6px; }
+html.r-type-orig .icount { gap: 8px; padding: 0; }
+html.r-type-orig .icount b { font-family: var(--sans); font-weight: 600; font-size: 16px; line-height: 1.4; letter-spacing: 0; }
+html.r-type-orig .icount span { font-size: 14px; font-weight: 400; }
+@media (max-width: 760px) {
+  html.r-type-orig .pname { font-size: 46px; }
+  html.r-type-orig .hero { padding-bottom: 150px; }
+  html.r-type-orig .stage { margin-bottom: 40px; }
+  html.r-type-orig .none-head { gap: 14px; }
+  html.r-type-orig .know { padding: 24px 22px; }
+  html.r-type-orig .know h3 { font-size: 26px; }
+  html.r-type-orig .side { padding: 22px 20px; }
+  html.r-type-orig .sim-head { margin-top: 40px; gap: 10px; }
+  html.r-type-orig .sim-head h3 { font-size: 23px; }
+}

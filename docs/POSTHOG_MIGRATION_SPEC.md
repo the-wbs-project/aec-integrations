@@ -62,7 +62,7 @@ EV's Datadog was code-complete but never provisioned — a code-only migration. 
 **live and operated**: 5 applied dashboards + 26 applied monitors on us5 (notifications
 to the operator), a ~50-metric custom catalog (`docs/OBSERVABILITY.md`), browser RUM
 capturing prod Core Web Vitals, and two operating procedures on top
-(`docs/POST_LAUNCH_MONITORING.md`, `docs/RUNBOOKS.md`). Hence D1.
+(`docs/POST_LAUNCH_MONITORING.md`, `docs/runbooks/alerts.md`). Hence D1.
 
 ### Datadog touchpoints
 
@@ -77,7 +77,7 @@ capturing prod Core Web Vitals, and two operating procedures on top
 | Secrets/vars | `DD_API_KEY` (both Workers, all envs, manually provisioned), `DD_APPLICATION_ID`+`DD_CLIENT_TOKEN` (web, CI-pushed by 4 workflows), `DD_SITE` vars (~12 env blocks), `DD_APP_KEY` (operator), `.dev.vars.example` both apps, `RECOMMENDED_SECRETS` lists |
 | CI | `deploy.yml`, `pr-preview.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`, `refresh-staging.yml` + comments in others |
 | WAF poll | `apps/api/src/lib/waf-metrics.ts` + `packages/shared/src/cloudflare-analytics.ts` (`CF_ZONE_ID`/`CF_ANALYTICS_API_TOKEN` stay — vendor-independent) |
-| Docs naming Datadog | `OBSERVABILITY.md`, `RUNBOOKS.md`, `POST_LAUNCH_MONITORING.md`, `ANALYTICS_BASELINE.md`, `POST_LAUNCH_HEALTH_REPORT.md`, `environments.md`, `CICD_PLAN.md`, `email.md`, `local-tracing.md`, `CODE_REVIEW_CHECKLIST.md`, `ADMIN_PANEL_SPEC.md` §7.2, `STAGE_1_SPEC.md` §26.5/§14, ADR 0022, `CLAUDE.md`, phase-completion docs |
+| Docs naming Datadog | `OBSERVABILITY.md`, `docs/runbooks/alerts.md`, `POST_LAUNCH_MONITORING.md`, `ANALYTICS_BASELINE.md`, `POST_LAUNCH_HEALTH_REPORT.md`, `environments.md`, `CICD_PLAN.md`, `email.md`, `local-tracing.md`, `CODE_REVIEW_CHECKLIST.md`, `ADMIN_PANEL_SPEC.md` §7.2, `STAGE_1_SPEC.md` §26.5/§14, ADR 0022, `CLAUDE.md`, phase-completion docs |
 | Admin panel prose | `apps/web/src/app/admin/system/system-status.ts`, `admin-notes.ts` |
 
 ### Existing PostHog state
@@ -350,7 +350,7 @@ cannot read the GitHub secret).
 | Moderation queue backlog *(dual)* | Dashboard/digest (backlog) + sweep (liveness half) |
 
 Every monitor that lands anywhere other than a PostHog alert is recorded in
-`RUNBOOKS.md`'s alert table **with its old threshold**, so re-promotion is a config
+`docs/runbooks/alerts.md`'s alert table **with its old threshold**, so re-promotion is a config
 change, not archaeology.
 
 ## §6 Verification (do, don't assert)

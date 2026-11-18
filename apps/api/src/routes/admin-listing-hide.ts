@@ -10,7 +10,7 @@
  *   POST /api/admin/products/:id/restore  — put it back (200).
  *
  * Why it exists: the Listing Accuracy Policy promises "when we remove a listing, we
- * hide it", and counsel's removal-request table (`docs/RUNBOOKS.md`) needs an
+ * hide it", and counsel's removal-request table (`docs/runbooks/alerts.md`) needs an
  * interim hide while a complaint is reviewed. Before this nothing could be hidden:
  * every D1 row was public, and `promotion_status` cannot serve because promote
  * resets it.

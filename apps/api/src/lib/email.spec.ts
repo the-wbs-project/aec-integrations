@@ -4854,7 +4854,49 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
 
   it('names the attachment from the document slug', () => {
     expect(legalNoticeAttachmentName('vendor_terms', '1.4')).toBe('aeci-vendor-terms-v1.4.pdf');
+    expect(legalNoticeAttachmentName('terms', '1.2')).toBe('aeci-terms-v1.2.pdf');
   });
+
+  // AECI-1637: the account notice of a Terms of Service or Privacy Policy version.
+  it.each([
+    [
+      'terms',
+      'reader-terms',
+      'If you keep using the service after January 15, 2027, the new version applies to you.',
+    ],
+    [
+      'terms',
+      'reader-terms-accept',
+      'Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before January 15, 2027.',
+    ],
+    ['privacy', 'reader-privacy', 'The new version applies from January 15, 2027.'],
+  ] as const)(
+    '%s, %s: the closing, the account note and the PDF, sent as legal-account-change',
+    async (document, closing, line) => {
+      const { body, text, html } = await render({
+        document,
+        closing,
+        vendorSlug: null,
+        dedupeKey: `legal-account-change:${document}:1.4:u1`,
+      });
+      const title = document === 'terms' ? 'Terms of Service' : 'Privacy Policy';
+      expect(body.subject).toBe(`Version 1.4 of the ${title} takes effect on January 15, 2027`);
+      expect(text).toContain(line);
+      expect(text).toContain(
+        'You are receiving this notice because you have an account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.',
+      );
+      expect(text).toContain(`/legal/${document}/v1.4?`);
+      expect(text).toContain('A PDF copy is attached so you can save it.');
+      expect(body.attachments[0]!.filename).toBe(`aeci-${document}-v1.4.pdf`);
+      expect(text).not.toContain('Open the vendor portal');
+      expect(text).not.toContain("your company's account");
+      expect((body.tags as { name: string; value: string }[]) ?? []).toContainEqual({
+        name: 'notification_id',
+        value: 'legal-account-change',
+      });
+      expect(`${text}${html}${String(body.subject)}`).not.toMatch(/—/);
+    },
+  );
 });
 
 // ─── AECI-1690: a new agreement version in the 45-day renewal notice ─────────

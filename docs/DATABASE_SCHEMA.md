@@ -142,8 +142,10 @@ Tables grouped by domain:
 - `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
-- `legal_versions` — one announced version of the Vendor Terms or the Managed plan agreement: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688)
+- `legal_versions` — one announced version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy Policy: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688, AECI-1637)
 - `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
+- `legal_notice_reader_deliveries` — where each account's change notice for a published Terms of Service or Privacy Policy version stands (§8.6l, AECI-1637)
+- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion (§8.6k, AECI-1637)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -151,6 +153,7 @@ Tables grouped by domain:
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 - `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
+- `dmca_notices` — one copyright notice or counter-notice we received, with what we did and the restore window; kept three years after it closes, even after account deletion (§8.14, AECI-1665)
 
 **Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
 - `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
@@ -296,7 +299,7 @@ flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor kee
 `verified: true` on its Algolia record indefinitely. And **`vendors_verified_idx` is an index over a cache**. The
 authoritative predicate is a live subscription (`licenses`, §8.6c).
 
-**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
+**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. Since AECI-1623 (2026-11-05) that ban is refused (`409 VENDOR_LAST_SEAT_USE_SUSPEND`), and Terminate clears `owned_at` instead (`lib/vendor-termination.ts`). The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). A vendor-maintained vendor or product with no owner is a defect that the `maintained_by_without_owner` data-quality check reports (AECI-1908). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
 **The claim end and the brand asset columns (AECI-1618, migration `0105_nebulous_starhawk.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
 
@@ -390,7 +393,7 @@ create index products_hidden_idx on products(id) where hidden_at is not null; --
 
 It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
 
-`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `AEC Integrations maintained · Reviewed <date>` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, `integrations`, and `connector_evidenced_pairs` alike. Three rules, all load-bearing:
+`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `AEC Integrations maintained · Reviewed <date>` label on product detail, vendor detail, and the pair page. It was a header chip until AECI-1666 (2026-11-17). Now it is the record line that opens each page's "About this listing" panel. They exist on `vendors`, `products`, `integrations`, and `connector_evidenced_pairs` alike. Three rules, all load-bearing:
 
 1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly four paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5), **any vendor-authorized catalog write** since AECI-981 (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9: the vendor profile PATCH, the vendor product PATCH, and the three product-version writes), and since AECI-1216 the three **"Looks right"** routes (`STAGE_2_PAID_TIERS_SPEC.md` §13.8). The company and product routes stamp their own row. The integration-list route stamps only `integrations` / `connector_evidenced_pairs` rows touching the product that the caller built and already maintains (§13.9 there). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked. The promote path additionally **refuses** a supplied value on a row where `maintained_by = 'vendor'`, reporting it as a `kind: 'review-signal'` entry in `skipped[]`: the marker renders this one column as `Reviewed <date>` in the AECi branch and `Updated <date>` in the vendor branch, so an AECi review date on a vendor-maintained row credits AECi's work to the vendor.
 2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
@@ -757,7 +760,7 @@ rename, not a retirement: the rows stay and only the slug changes. An ops script
 (raw SQL skips `$onUpdate`, and the Algolia sync is a delta on it), and writes a
 `vendor.updated` / `product.updated` audit row with the slug in `before_state` /
 `after_state`. It is not a migration because a migration only changes data migrations
-created. The procedure is `docs/RUNBOOKS.md`, "Rename a live slug". Consumers besides
+created. The procedure is `docs/runbooks/catalog.md`, "Rename a live slug". Consumers besides
 the resolvers are the three discovery channels, which all withhold a `from_slug` because a
 URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
 the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for
@@ -1241,6 +1244,11 @@ create index profile_audiences_audience_idx on profile_audiences(audience_id);
   (`packages/shared/src/api/profile-details.ts`). A list changes without a migration.
 - **Domain state.** Every write goes through `PATCH /api/account` with its `profile.updated`
   audit row in the same batch. `ensureProfileRow` never writes here.
+- **No values in the audit record (AECI-1869).** The `profile.updated` row names the touched
+  answers in `metadata.about_you_fields` and never holds their values. Erasure keeps audit rows,
+  and the Privacy Policy says the answers go with the account. Older rows require
+  `scripts/ops/2026-11-about-you-audit-scrub/` after deployment to each environment.
+  Its README tracks completion (`AUTH_AND_RLS.md` §8).
 - **Private.** No search, ranking, Algolia or public read. The admin user detail is the one
   reader besides the user's own `/account`.
 - **Erasure** is by cascade (`AUTH_AND_RLS.md` §8).
@@ -1835,7 +1843,11 @@ create index workflow_transitions_workflow_idx on workflow_transitions(workflow_
 
 ### 8.4 `audit_log`
 
-Every state-changing event in the platform. Append-only.
+Every state-changing event in the platform. Rows are never updated. They are deleted only by
+the legal retention prune four years after the action, outside a fixed list of exempt actions
+and while no litigation hold is open (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0058). The exempt
+`agreement.*` rows go with their acceptance (§8.6d), the `litigation_hold.*` rows four years
+after their hold's release (§8.15), and `retention.pruned` rows are kept.
 
 ```sql
 create table audit_log (
@@ -1973,6 +1985,8 @@ is invisible rather than a constraint violation:
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
 | `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. Since AECI-1305 the vendor claim nudge does the same for the accounts it is about to email (`metadata.source` `vendor-claim-nudge`). `metadata` holds no token. |
 | `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`, or `{ marketingMuted }` for the marketing opt-out (AECI-1305). `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. AECI-1305 also writes it, actor `system` and `metadata.marketingTokenMinted`, when the claim nudge mints a marketing token on an existing row. Marketing rows carry `vendor_id` null: they are about the account, not a listing. No token is ever audited. |
+| `profile.updated` | `profile` | AECI-202, AECI-1296 — `routes/account.ts` | Every `PATCH /api/account`. `entity_id` is the profile id. `before_state` and `after_state` hold the touched keys among `display_name`, `listing_view_preference` and `onboarding`, or are NULL when none was touched. The About-you answers are named in `metadata.about_you_fields` and their values are never stored (AECI-1869, `AUTH_AND_RLS.md` §8). Rows the 2026-11 scrub changed carry `metadata.about_you_scrubbed`. |
+| `audit_log.about_you_scrubbed` | `audit_log` | AECI-1869 — `scripts/ops/2026-11-about-you-audit-scrub/apply.sql` | Actor `system`. One row per environment, written by the one-time scrub that removed About-you values from earlier `profile.updated` rows. `entity_id` is NULL. `metadata.rows` is the number of rows changed. |
 | `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
@@ -2493,16 +2507,31 @@ create unique index agreement_acceptances_stripe_session_key
   has nothing to null and leaves the row, email, IP and user agent included
   (`AUTH_AND_RLS.md` §8). The IP and user agent still go at 90 days (AECI-1636, below). No FK to `vendors` either, so a vendor retraction never cascades
   into it. `retract-vendor-fk-coverage.spec.ts` sees no new key.
-- **Never pruned (AECI-1615, counsel Q5(c)).** No prune deletes a row of this table or of
-  `license_grants`. `NEVER_PRUNED` in `lib/retention-prune.ts` names both, and
-  `retention-prune.spec.ts` asserts the prune plan never does. A grant acceptance is kept at
-  least five years from the day the grant's last subscription ends. A subscription ends at
-  its lapse, revoke, release or Terminate, whichever comes first, so the scheduled `ends_at`
-  alone does not set the floor. A grant never accepted is kept five years from its withdraw
-  or expiry. That floor sits inside the Privacy Policy's "life of the vendor account plus six
-  years", because Terminate ends every subscription by the time the account ends. Nothing
-  computes this floor, because nothing prunes these rows. The 90-day IP and user agent removal
-  (AECI-1636, below) is an UPDATE, never a row delete.
+- **Retention: the legal prune (AECI-1638, ADR 0058; was "never pruned", AECI-1615).** The 400-day
+  prune (`lib/retention-prune.ts`) never deletes a row of this table or of `license_grants`.
+  The legal retention prune (`lib/legal-retention-prune.ts`) is the one job that does. Chris's
+  ruling 1 of 2026-11-17 defines the account end. A vendor's account has ended when
+  `vendors.claim_ended_at` is set and it holds no live license. The end instant is the later of
+  `claim_ended_at` and the latest `licenses.ended_at` on its billing account. A reclaim or a new
+  license restarts the clock. A row goes when:
+  - its vendor's account ended at least six calendar years ago, and it was accepted before that;
+  - and, when it names a grant, that grant ended at least five calendar years ago. A grant ends
+    at its last license's `ended_at` (lapse, revoke, release or Terminate, whichever comes first,
+    so the scheduled `ends_at` alone does not set it), or at `decided_at` when it was withdrawn or
+    expired before any acceptance;
+  - and no open litigation hold covers its vendor (§8.15).
+
+  A row with a NULL `vendor_id`, or whose vendor row is gone, is never deleted. At most 200 ids
+  go per run. They are listed in the run's `retention.pruned` audit row
+  (`metadata.tables[] = { table, ids }`), so the acceptance chain verify accepts each tombstone
+  (§9.17, ADR 0057). Its audit rows go in the same batch, after the acceptance delete (Chris's
+  ruling of 2026-11-17, so the code matches the Privacy Policy's "for as long as the acceptance
+  record they belong to"). `agreement.accepted` is matched on `entity_id`. `agreement.linked`
+  (approver and profile id) goes once none of the ids in `after_state.acceptance_ids` is left,
+  for the vendors the run prunes. `agreement.evidence_removed` goes once none of the ids in
+  `metadata.acceptance_ids` is left, for rows older than the acceptance cutoff, chunked. Both
+  columns are JSON text. A malformed value, or one with no non-empty array, is kept. The 90-day
+  IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete.
 - **IP and user agent removed after 90 days (AECI-1636 — 2026-11-10, ruling 11, counsel Q27b;
   migration `0116_aromatic_doctor_octopus`, a plain `ADD COLUMN`).** The Privacy Policy
   "Retention" and Vendor Terms "Accepting these terms" promise it. The daily
@@ -2549,6 +2578,14 @@ create unique index agreement_acceptances_stripe_session_key
   receipt. Nothing deletes a row. Two writes update one: the claim-approval link
   (`linkClaimAcceptanceStatements`, which fills the ids) and the 90-day evidence removal
   (AECI-1636, which nulls `ip` and `user_agent`). No `relations()` entry.
+- **Tamper-evident since AECI-1680 (2026-11-17, ADR 0057).** "Append-only" was a convention
+  until then. Each night at 18:00 UTC the acceptance chain export (§9.17) writes the SHA-256
+  fingerprint of every new or changed row to a hash-chained file in R2 under a bucket lock, and
+  DigiCert timestamps the file. `ip` and `user_agent` are left out of the fingerprint, so the
+  90-day removal above does not change it. `evidence_removed_at` is in it, so that removal shows
+  in the chain as one new fingerprint. `ops:verify-acceptance-chain` reports any row whose D1
+  value no longer matches its last fingerprint as `CHANGED`. R2 holds fingerprints, not rows, so
+  it shows an edit but cannot restore the row.
 
 ### 8.6e `license_release_requests` (AECI-1373, migration 0079)
 
@@ -2874,28 +2911,32 @@ create index license_grants_account_idx on license_grants(billing_account_id);
   `notes`, `granted_by` or `ended_license_id`), `GET /api/admin/vendors/:id/billing`
   (`grants[]`), the sweep, and the `entitlement` cursor of `/api/vendor/updates`
   (`max(updated_at)` per vendor, `STAGE_2_REALTIME_SPEC.md`).
-- **Never pruned** (§8.6d, `NEVER_PRUNED`).
+- **Retention: the legal prune** (§8.6d, AECI-1638). A grant row goes when its vendor's account ended six calendar years ago and the grant ended five, with no hold on the vendor. Its id is in the run's `retention.pruned` audit row.
+- **Fingerprinted nightly (AECI-1680, ADR 0057).** Grants are updated in place, so each night's
+  acceptance chain export (§9.17) writes a new fingerprint for every grant that changed since
+  the last file. The status, kind, dates, terms version and `updated_at` are copied into the
+  entry as plain fields. `notes`, `reference` and the actor ids are only in the hash.
 - **Grandfathered (ruling R3).** Grants live before AECI-1615 have no row here and stay live.
 
 ### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
 
-One version of the Vendor Terms or the Managed plan agreement that an operator published on
-`/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
+One version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy
+Policy that an operator published on `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
 ADR 0054). A row is the record that the version was announced: its summary, the operator's two
 answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
-its change-notice email (AECI-1620) and records the fan-out here. The acceptance screen
-(AECI-1677) and reader accounts
-(AECI-1637) read the row later.
+its change-notice email (AECI-1620, and for the two reader documents the account email,
+AECI-1637) and records the fan-out here. The portal acceptance screen (AECI-1677) and the
+sign-in Terms acceptance (AECI-1637, §8.6k) read the row later.
 
 ```sql
 create table legal_versions (
   id text primary key,
-  document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
-  version text not null,           -- the LEGAL_AGREEMENT_UPCOMING_VERSIONS entry, e.g. '1.4'
+  document text not null,          -- 'vendor_terms' | 'managed_plan' | 'terms' | 'privacy' (LegalPublishableDocument); NO CHECK
+  version text not null,           -- the upcoming-version map entry (LEGAL_AGREEMENT_ or LEGAL_READER_UPCOMING_VERSIONS), e.g. '1.4'
   effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
   summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
   material integer not null,       -- 0/1: the change is summarised and noticed
-  requires_acceptance integer not null, -- 0/1: an owner seat must accept before it applies; implies material
+  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only from its next sign-in; implies material; never 1 for 'privacy'
   expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
   pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
   pdf_sha256 text not null,        -- of the exact bytes read at publish
@@ -2903,7 +2944,7 @@ create table legal_versions (
   published_by text not null,      -- a profiles.id; NO FK
   published_at text not null,      -- ISO-8601
   notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
-  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620)
+  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620); ACCOUNTS on a terms or privacy row (AECI-1637)
 );
 
 create unique index legal_versions_document_version_key on legal_versions(document, version);
@@ -2926,8 +2967,17 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
   message arrives after `effective_at`, because it then sends nothing. What was actually
   sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
+- **Reader rows (AECI-1637).** `notice_vendor_count` keeps its name and holds the number of
+  accounts queued when `document` is `terms` or `privacy`. No rename, because it is a D1 column
+  rename and the shared response field is the same. The per-account outcome lives in
+  `legal_notice_reader_deliveries` (§8.6l). `/admin/legal` says "accounts" on a reader card and
+  "companies" on an agreement card. A Privacy row always has `requires_acceptance = 0`: the
+  publish refuses it (`PublishLegalVersionRequestSchema`), and there is no expedite for either
+  reader document. On a Terms row, `requires_acceptance = 1` means the version reduces rights:
+  it binds an account holder only from their next sign-in (§8.6k), never on continued use, and
+  the change email says so.
 - **Not typed by the operator.** `version` and `effective_at` come from
-  `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, and `pdf_key` is built from them, never from the request.
+  `LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or `LEGAL_READER_UPCOMING_VERSIONS`), and `pdf_key` is built from them, never from the request.
 - **The two flags are the operator's answers.** `material` and `requires_acceptance` have no
   default on the page. `requires_acceptance = 1` with `material = 0` is refused by Zod
   (`PublishLegalVersionRequestSchema`).
@@ -3003,6 +3053,99 @@ create unique index legal_notice_deliveries_version_vendor_key
   Not in `PRUNABLE`.
 - **Migration.** One `CREATE TABLE` and one `CREATE UNIQUE INDEX`, nothing else
   (`src/test/migration-0120.spec.ts`), so no existing table is recreated (`docs/migrations.md` §0).
+
+### 8.6k `terms_acceptances` (AECI-1637, migration `0122_clever_roughhouse`)
+
+One account holder signing in while one Terms of Service version was in force. Signing in is
+the acceptance (Chris's ruling of 2026-11-13, `STAGE_1_SPEC.md` §27.4, `AUTH_AND_RLS.md`
+§3.1b). The login page shows one line beside the sign-in buttons: "By signing in, you agree to
+our Terms of Service and Privacy Policy." The row is written for every Terms version in force,
+whatever its `requires_acceptance` flag (§8.6i). For a version published with the flag, the row
+is the moment the version starts to apply to that account. The reader twin of
+`agreement_acceptances` (§8.6d).
+
+```sql
+create table terms_acceptances (
+  id text primary key,
+  document text not null,                -- 'terms' only; NO CHECK
+  version text not null,                 -- e.g. '1.2'
+  legal_version_id text,                 -- a legal_versions.id; NO FK; NULL for a version with no row
+  profile_id text not null,              -- a profiles.id; NO FK, so the row survives deletion
+  email text not null,                   -- from the verified session; '' if the token has none
+  accepted_at text not null,             -- ISO-8601, the sign-in
+  ip text,                               -- CF-Connecting-IP; nulled at 90 days
+  user_agent text,                       -- cut to 512; nulled at 90 days
+  checkbox_label text not null,          -- the exact sign-in line (SIGN_IN_TERMS_LINE); there is no box
+  checkbox_label_sha256 text not null,
+  checkbox_default_unticked integer not null, -- always 0: no box was shown (see below)
+  pdf_sha256 text,                       -- the legal_versions row's hash; NULL with legal_version_id
+  evidence_removed_at text,              -- when the sweep nulled ip and user_agent
+  created_at text not null
+);
+
+create unique index terms_acceptances_profile_document_version_key
+  on terms_acceptances (profile_id, document, version);
+```
+
+- **The one writer.** `POST /api/auth/profile/ensure` (`routes/auth-profile.ts`), which the SSR
+  `/auth/callback` calls on every sign-in, calls `recordSignInTermsAcceptance`
+  (`lib/reader-legal-acceptance.ts`) after the profile exists. It inserts the row and a
+  `terms.accepted` audit row (`entity_type = 'terms_acceptance'`, no email, IP or user agent in
+  it) in one `db.batch`. Once per account per version: a row already held writes nothing, and a
+  racing second sign-in trips the unique index, which fails that batch whole. A failure is logged
+  and never fails the sign-in. The `GET /api/account` self-heal does not write it.
+- **Evidence.** `ip` and `user_agent` are the browser's. The callback forwards the eyeball
+  request's `CF-Connecting-IP` and `User-Agent` on the ensure call (`signInEvidenceHeaders`).
+- **Which version.** The version `legalReaderVersionInForce` names, only when code dates it: a
+  dated `LEGAL_READER_EFFECTIVE_ON` entry whose day has come, or the upcoming version once a
+  `legal_versions` row published it and its moment has come. A draft is never in force, so today
+  a sign-in reads and writes nothing.
+- **The column names are the vendor table's.** `checkbox_label` holds the sign-in line, and
+  `checkbox_default_unticked` is always 0 because no box is shown. A 1 would mean an unticked box
+  was shown. That is kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34): one unticked
+  box on the sign-in page after a rights-reducing change. No migration was needed.
+- **Retention (ruling 1, 2026-11-13).** Email, version and time are kept for the life of the
+  account plus 6 years, even after the account is deleted. There is no FK to `profiles`, so
+  deleting the account does not delete the row. The IP address and browser are nulled 90 days
+  after `accepted_at` by `lib/acceptance-evidence-removal.ts`, which stamps `evidence_removed_at`
+  and writes its own `terms.evidence_removed` audit rows. In `NEVER_PRUNED`
+  (`lib/retention-prune.ts`). The account deletion screen says so.
+- **No CHECK and no FK**, the house rule (§8.6d). The migration is two `CREATE TABLE`s and two
+  `CREATE UNIQUE INDEX`es with nothing recreated (`src/test/migration-0122.spec.ts`,
+  `docs/migrations.md` §0).
+
+### 8.6l `legal_notice_reader_deliveries` (AECI-1637, migration `0122_clever_roughhouse`)
+
+Where each account's change notice for a published Terms of Service or Privacy Policy version
+stands. The account twin of `legal_notice_deliveries` (§8.6j): one row per version and
+`profiles.id`, same statuses (`LEGAL_NOTICE_DELIVERY_STATUSES`) and reasons, written only by
+`apps/api/src/lib/legal-notice.ts` (`fanOutReaderLegalNotice` and the consumer).
+
+```sql
+create table legal_notice_reader_deliveries (
+  id integer primary key autoincrement,
+  legal_version_id text not null,   -- a legal_versions.id; NO FK
+  profile_id text not null,         -- a profiles.id; NO FK
+  status text not null,             -- LEGAL_NOTICE_DELIVERY_STATUSES; NO CHECK
+  attempts integer not null default 0,
+  last_reason text,
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index legal_notice_reader_deliveries_version_profile_key
+  on legal_notice_reader_deliveries (legal_version_id, profile_id);
+```
+
+- **A table of its own** because making `legal_notice_deliveries.vendor_id` nullable is a D1
+  table recreate (`docs/migrations.md` §0).
+- **Audience and messages.** Every unbanned `profiles` row in this tier. The queue message is
+  `{ kind: 'reader', legalVersionId, profileIds }` in chunks of 25. The ledger key is
+  `legal-account-change:{document}:{version}:{profileId}` (`notification_sends`, §9.9). The
+  states, write guard and re-send skip are those of §8.6j.
+- **Log-class** (ADR 0022, amendment 2026-11-13): the publish and each fan-out outcome carry
+  their own `audit_log` rows. Writer is `lib/legal-notice.ts` only. No CHECK, no FK, not in
+  `PRUNABLE`.
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 
@@ -3236,7 +3379,7 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 **Public read (AECI-1614).** The product, pair and vendor reads select `field`, `value`, `source_url` and `set_at` for the page's records, one statement per entity table inside the page's existing batch (`lib/field-corrections.ts`). The newest row per field, lifted or not, shows as "Corrected" while its `value` equals the live value (facets compare as sets), or as "Removed" when that value is `null` or `[]` (`FieldCorrection.cleared`, AECI-1628). The live value comes from a read-only `CAPTION_COLUMNS` map, separate from the lock maps: those columns plus `logo_url` on a company or product, and `website` and `mechanism_url` on an integration or pair. `reason`, `internal_note`, `lift_reason`, `set_by` and `vendor_id` are not selected, so no public mapper can read them.
 
-**Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
+**Retention.** Kept: no prune deletes a row. A lock row is part of the record of what AECi changed on a vendor's listing. Its `audit_log` rows go after four years (§8.4), and the lock row stays.
 
 ### 8.10 `claim_threads`, `claim_thread_messages`, `claim_thread_reads` (Pilot — AECI-1534)
 
@@ -3409,7 +3552,7 @@ Indexes: `listing_hides_entity_idx` on `(entity_type, entity_id, set_at)`, and `
 - **Writers.** The admin hide and restore routes (`routes/admin-listing-hide.ts`), and `POST /api/vendor/products` and the proposal accept, which write a child row for a new product under a hidden company. Every write audits in its batch.
 - **A company restore** stamps the company row and its child rows. A child product still joined to another hidden company gets a new child row under that company's hide.
 - **Never public.** No public read carries any column. The portal reads `kind` and `reason` only, beside the record's `hidden_at` (`VendorListingHiddenSchema`).
-- **Retention.** Kept, like `audit_log`. It is the record of what AECi took down and when.
+- **Retention.** Kept: no prune deletes a row. It is the record of what AECi took down and when. Its `audit_log` rows go after four years (§8.4), and this row stays.
 
 ### 8.13 `field_hides` (AECI-1238 PR 2, migration 0114)
 
@@ -3437,7 +3580,64 @@ Indexes: `field_hides_active_key`, UNIQUE on `(entity_type, entity_id, field) WH
 - **No FK and no CHECK**, on the `field_overrides` precedent (§8.9). The migration is a plain `CREATE TABLE` and two `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/field-hides.ts`.
 - **Writers.** The admin hide, restore and correction routes (`routes/admin-field-hides.ts`, `routes/admin-field-overrides.ts`), the AECi contest accept, and every vendor writer of a hideable field, which clears a hide in its batch when it changes the field (`vendorEditHideClears` in `lib/field-hides.ts`). Every clear is a guarded `UPDATE … WHERE cleared_at IS NULL`, with its audit row in the same batch. The status reply writes an audit row only.
 - **Never public.** A public read selects `entity_id` and `field` only. The portal reads `field`, `reason`, `set_at` and `source_url` (`HiddenFieldSchema`).
-- **Retention.** Kept, like `audit_log`. It is the record of when AECi received the request, when it hid the value and what it decided.
+- **Retention.** Kept: no prune deletes a row. It is the record of when AECi received the request, when it hid the value and what it decided. Its `audit_log` rows go after four years (§8.4), and this row stays.
+
+### 8.14 `dmca_notices` (AECI-1665, migration 0124)
+
+The copyright notice log (counsel Q38, `ADMIN_PANEL_SPEC.md` §5.23). One row is one DMCA notice or one counter-notice that reached our designated agent. The Terms' "Copyright complaints" section says "we keep a log of every notice and counter-notice we receive", and this table is that log. The operator works it on `/admin/dmca`. The steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice".
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid |
+| `kind` | text NOT NULL | `notice` or `counter_notice` |
+| `notice_id` | text | on a counter-notice, the `dmca_notices.id` of the notice it answers. NULL on a notice. No FK |
+| `received_at` | text NOT NULL | when the agent received it. On a counter-notice the restore window, business day 10 to business day 14 (`lib/business-days.ts`), is computed from it, never stored |
+| `submitter_name` | text | the person who sent the notice, or the counter-notice. NULL when the notice did not give it |
+| `submitter_contact` | text | email, postal address and phone, as given. NULL when the notice did not give it |
+| `content_identified` | text | the URLs or a description of the material. NULL when the notice did not identify it. Required when `action` is `removed` or `disabled` (the takedown rule below) |
+| `work_claimed` | text | on a notice, the copyrighted work claimed |
+| `account_id` | text | the `profiles.id` of the account that posted the material. No FK. Nulled by account deletion, and the row stays |
+| `vendor_id` | text | set when the material is a vendor's logo, screenshot or text. No FK |
+| `action` | text NOT NULL DEFAULT `pending` | `pending`, `removed`, `disabled` or `no_action`. `no_action` is an incomplete notice, or material that is not ours |
+| `action_at` | text | when the action was taken |
+| `forwarded_at` | text | on a notice, when the poster was notified. On a counter-notice, when it was forwarded to the person who sent the notice |
+| `court_action_at` | text | on a counter-notice, when that person told us a court action was filed |
+| `restore_outcome`, `restore_outcome_at` | text | on a counter-notice, `restored` or `not_restored`, and when. NULL while open |
+| `closed_at` | text | when nothing more will happen. The retention period counts from it |
+| `notes` | text | operator notes, including the repeat-infringer decision |
+| `created_by`, `created_at`, `updated_by`, `updated_at` | text NOT NULL | the admin and when. `updated_at` is the race sentinel of the PATCH (`expected_updated_at`) |
+
+Indexes: `dmca_notices_account_kind_idx` on `(account_id, kind) WHERE account_id IS NOT NULL` (the per-account count), `dmca_notices_notice_id_idx` on `(notice_id)`, and `dmca_notices_received_at_idx` on `(received_at)`.
+
+- **Every notice is logged on receipt, complete or not.** The name, the contact details and the material are nullable, so an incomplete notice is still a row, usually with `action` `no_action`. One rule holds: a `removed` or `disabled` row names the material it took down. Zod applies it on create (`dmcaTakedownLacksContent` in `packages/shared/src/api/dmca-notices.ts`), and the PATCH applies it to the row as the edit would leave it. There is no CHECK.
+- **No FK and no CHECK**, on the `legal_versions` (§8.6i) and `field_hides` (§8.13) precedent. The migration is a plain `CREATE TABLE` and three `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/dmca-notices.ts`.
+- **The takedown count** on `/admin/users/:id` is `takedownCountWhere` in `lib/dmca-notices.ts`: notices on the account with `action` `removed` or `disabled`, less any whose counter-notice ended `restored`. A `no_action` or `pending` notice never counts. Counter-notices the account filed are a second number. The list and the user detail share the predicate, so they cannot drift.
+- **Writers.** `routes/admin-dmca-notices.ts` inserts and updates rows. Each write carries its `dmca_notice.created` or `dmca_notice.updated` audit row in the same `db.batch`, written by `auditInsertWhere` so it lands only when the row change does. The POST is an `INSERT … SELECT … WHERE (account_id IS NULL OR EXISTS (SELECT 1 FROM profiles WHERE id = account_id))`. The PATCH is a guarded `UPDATE … WHERE id = ? AND updated_at = ?`, plus the same `EXISTS` when it sets `account_id`. With no FK, that in-batch check is what stops a write landing after the account-deletion batch and keeping a dead `account_id`. A guard that wrote nothing is a 400 on `account_id`. There is no delete route. The account-deletion batch (`routes/account.ts`) nulls `account_id` (`AUTH_AND_RLS.md` §8).
+- **Never public.** Only the admin routes read it, behind `requireAdmin()`. No page renders it, so no cache tag applies.
+- **Retention.** Three years after `closed_at`, the limitation period for a copyright claim (17 U.S.C. 507(b)), kept after account deletion (Privacy Policy "Retention"). Counsel has not been asked (`LEGAL_COUNSEL_RECORD.md`, open items). **Not enforced yet.** The deletion job is AECI-1905, not built. No row can fall due before late 2029. A row with no `closed_at` is kept until it is closed.
+
+### 8.15 `litigation_holds` (AECI-1638, migration `0126_curious_micromacro`)
+
+The switch that stops the legal retention prune (counsel Q23a, ADR 0058, `ADMIN_PANEL_SPEC.md` §5.22b). One row is one hold an admin placed on `/admin/legal`. The operator steps are in `docs/runbooks/legal.md` "Litigation hold notice".
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid |
+| `scope` | text NOT NULL | `global` or `vendor`. No CHECK |
+| `vendor_id` | text | the `vendors.id` a vendor hold covers. NULL on a global hold. No FK |
+| `reason` | text NOT NULL | why the hold was placed. Internal |
+| `matter_reference` | text | the matter it serves, a Linear issue id or a case number |
+| `placed_by`, `placed_at` | text NOT NULL | the admin and when |
+| `released_at`, `released_by`, `release_reason` | text | set together by the release. NULL while open |
+| `created_at` | text NOT NULL | |
+
+Indexes: `litigation_holds_open_global_idx`, unique on `(scope) WHERE released_at IS NULL AND scope = 'global'` (one open global hold), `litigation_holds_open_vendor_idx`, unique on `(vendor_id) WHERE released_at IS NULL AND vendor_id IS NOT NULL` (one open hold per vendor), and `litigation_holds_placed_at_idx` on `(placed_at)`.
+
+- **What an open hold stops** (Chris's ruling 3 of 2026-11-17). Any open hold, global or vendor, pauses the whole four-year `audit_log` prune (§8.4). A vendor hold keeps that vendor's `agreement_acceptances` and `license_grants` rows (§8.6d). A global hold keeps everything: the run deletes nothing and reports `skipped`. The prune reads the open holds before it plans, and its batch opens with a sentinel that aborts when a hold landed after the read.
+- **No FK and no CHECK**, on the `dmca_notices` (§8.14) precedent. The migration is one `CREATE TABLE` and three `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/litigation-holds.ts`.
+- **Writers.** `routes/admin-litigation-holds.ts` only. The place inserts a row with its `litigation_hold.placed` audit row in one `db.batch`. A second open hold of the same scope is refused with `409 LITIGATION_HOLD_EXISTS`, by an early read and by the partial unique index. The release is a guarded `UPDATE … WHERE id = ? AND released_at IS NULL` behind a sentinel, with its `litigation_hold.released` audit row in the same batch. A second release is `409 LITIGATION_HOLD_RELEASED`. There is no delete route.
+- **Never public.** Only the admin routes read it, behind `requireAdmin()`. No page renders it, so no cache tag applies.
+- **Retention.** Four years after `released_at`, the legal retention prune deletes the row and its `litigation_hold.*` audit rows in one batch (Chris's ruling of 2026-11-17): `reason` is free text that can name a person. Never while the hold is open, and not while any other hold is open. The run's `retention.pruned` row counts the rows, with no ids: the table is not chained.
 
 ---
 
@@ -3480,6 +3680,7 @@ All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/
 | `sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol` | request-shape facts |
 | `dedupe_key` | needs the UA hash |
 | `turnstile_verdict` | no Turnstile script loads, so there is no token (AECI-1457) |
+| `browser_evidence`, `browser_evidence_at` | no report is collected, so the row reads "not collected", never `ran` (AECI-1713) |
 
 The verdicts are still computed at ingest, in memory, from the inputs that are then dropped. `created_at` is cut to the start of the UTC hour, in the same ISO text shape. The row writes no R2 raw envelope (ADR 0041, 2026-10-23 amendment). Four consequences for a reader:
 
@@ -3513,6 +3714,19 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 - **`ssr-arrival` rows, by a later UPDATE.** The gateway has no token, so the browser posts `{ cf_ray, token }` to `POST /api/page-views/turnstile` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance = 'ssr-arrival'`, `turnstile_verdict IS NULL`, `privacy_signal = 0` and `created_at` within the last 10 minutes. First verdict wins. Zero rows changed earns one retry after 2 s.
 
 NULL means no check: the tier has no `TURNSTILE_SITE_KEY` (every deployed tier requires one), the visitor sent DNT/GPC (the column is privacy-nulled, above), the visitor's region is excluded until the AECI-1458 ruling (AECI-1581), a beacon carried no token, a landing verdict post never arrived, or the row predates `0095`. Never backfilled. No CHECK, for the two reasons `client_verdict` records. No index on it or on `cf_ray`: the `created_at` bound lets the UPDATE ride `page_views_created_at_idx` instead of adding an index row to every insert on the hottest write path.
+
+**Browser evidence (AECI-1713, migration `0127`, epic AECI-1711).** `browser_evidence` is the browser's own report about one page load: `ran` (our page script ran) or `interacted` (a person then touched the page). `BROWSER_EVIDENCE_VALUES` in `@aeci/shared` holds the two words. `browser_evidence_at` is the ISO server time of the last accepted report, never the browser's clock. Only `interacted` is the planned human floor. **`ran` is not human evidence:** the AECI-1710 Phase 0 run found crawlers and a residential proxy pool that run our bundle. Nothing reads either column yet. Reading them is AECI-1716. Two writers set them, and **both stay off while the API Worker's `BROWSER_EVIDENCE_ENABLED` is not `"true"`**. Production holds it at `"false"` until Privacy Policy 1.1 is in force (counsel Q37 and Q43), so every production row is NULL in both columns until then. Off, the insert writes NULL and the endpoint answers `204` without an UPDATE:
+
+- **`browser-spa` rows, at insert.** The row comes from our tracker's own `POST /api/page-views`, so the insert is itself proof the script ran. `capturePageView` writes `ran` and the insert time, unless the row is a privacy-signal row or a held-region row (below).
+- **Any row, by a later UPDATE.** The browser posts `{ cf_ray, evidence }` to `POST /api/page-views/browser-evidence` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance IN ('ssr-arrival', 'browser-spa')`, `privacy_signal = 0`, a `cf_country` that is present and outside the held list, and `created_at` within the last 10 minutes. A landing view's ray is its `ssr-arrival` row's. An in-app view's ray is its own beacon POST's, stored on its `browser-spa` row. One ray names one request, so it names at most one of the two. A report of either word that changed nothing retries, once, after 2 s, because its row's write may still be in flight.
+
+**Upgrade only.** NULL becomes `ran` or `interacted`. `ran` becomes `interacted`. Nothing moves back. A `ran` report needs `browser_evidence IS NULL`. An `interacted` report needs NULL or `ran`. A replay or a downgrade matches nothing and changes nothing, the timestamp included.
+
+**Never on a privacy or held-region row, by either writer.** The Privacy Policy promises that the report is not collected for a visitor who sends DNT or GPC, or for one in the EEA, the UK or Switzerland (ruling 21). So a privacy-signal row is always NULL in both columns (the table above). So is a held-region row: one whose `cf_country` is in `HELD_REGION_COUNTRIES` (`@aeci/shared`, the 27 EU member states, IS, LI, NO, GB, CH, `XX`, `T1` and seven EU territories) or is NULL or blank. `isHeldRegionCountry` fails closed on an unknown country. The insert checks it before writing `ran`. The UPDATE refuses those rows in SQL, so a forged or stale post cannot mark one. The browser's own gate (AECI-1714) is the primary hold, and these two checks are the server's. The SSR gateway's `geo` stamp reads the same list.
+
+NULL means no report arrived, or none was collected. Rows written before `0127` stay NULL and are **never backfilled**, old `browser-spa` rows included: the column records a report, and none was made for them. A missing report is never automation evidence on a privacy row or a held-region row. Those are "not collected", a separate state from "no report arrived". The report is the browser's claim, like `navigation`. A client that reads its own ray can post `interacted` without a person. Phase 0 found no crawler that did.
+
+**Never anonymous.** On counsel's read, the non-DNT `page_views` row is personal information, and this report is part of it. Nothing calls the row, the report or a count built on it anonymous or aggregate. The report is never a PostHog event (`ANALYTICS.md` §5). No CHECK and no index, for the reasons `client_verdict` records. A CHECK was tried and made drizzle-kit emit a full `__new_page_views` recreate (`docs/migrations.md` §0), so `BrowserEvidencePostSchema` and the handler hold the two words.
 
 ```sql
 create table page_views (
@@ -3733,6 +3947,17 @@ create table page_views (
   -- no token, no verdict post, pre-0095). No CHECK, no index.
   turnstile_verdict text,
 
+  -- AECI-1713, migration 0127 (epic AECI-1711). 'ran' | 'interacted', the browser's
+  -- report. Written 'ran' at insert on a browser-spa row; set later by
+  -- POST /api/page-views/browser-evidence on the row its cf_ray names (ssr-arrival or
+  -- browser-spa). Upgrade only: NULL -> 'ran' -> 'interacted'. Only 'interacted' is
+  -- the planned human floor; 'ran' is not human evidence. NULL = no report, or not
+  -- collected (DNT/GPC, held region, pre-0127). Neither writer ever sets it on a
+  -- privacy_signal row or a held-region cf_country (isHeldRegionCountry, NULL
+  -- country included). Never backfilled. No CHECK, no index.
+  browser_evidence text,
+  browser_evidence_at text, -- ISO server time of the last accepted report
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
@@ -3833,6 +4058,8 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 **Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate. AECI-1348 retired `cf_verified_bot` without a migration. The column was NULL on every row, because Cloudflare sends `botManagement` only to a Bot Management zone. Dropping it would be a recreate (`docs/migrations.md` §0), so it stays and nothing writes it.
 
 **Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
+
+**Migration `0127` (AECI-1713) is two plain `ADD`s**: `browser_evidence` and `browser_evidence_at`. The first generate carried a CHECK on `browser_evidence` and drizzle-kit emitted a full `__new_page_views` recreate. That file was discarded, the CHECK dropped, and the regenerate is additive. `apps/api/src/test/migration-0127.spec.ts` fails if the file ever grows a recreate, a CHECK or an index. It was generated as `0122` on the batch branch and renumbered twice: to `0126` when `main` took `0122` to `0125`, then to `0127` when `main` took `0126`. Each time the snapshot was regenerated, not renamed.
 
 **Raw twin outside D1 (AECI-1384, ADR 0041, 2026-10-16).** Every capture that reaches the API also writes one raw JSON envelope to R2 through a Cloudflare Pipelines stream (bucket `aeci-page-views-raw-<env>`, Parquet, 400-day lifecycle). It is not a table and has no migration. It joins to this table on `page_view_id` (this table's `id`, set only for outcome `inserted`) and on `cf.ray` (this table's `cf_ray`). Outcomes `conflict`, `deduped`, `sampled_out` and `failed` have no `page_view_id`, so join those on the ray. The store holds the IP only as a monthly-keyed hash. This table still holds no IP. Read recipe: `docs/ANALYTICS.md`.
 
@@ -4597,7 +4824,7 @@ The shadow runner and the writer share one population builder, `buildClassificat
 
 **History backfill (AECI-1444).** Older days are classified by the same `classifyDay`, through the
 same queue. An operator sends one `traffic_classify` message carrying `trafficClassify: { day,
-through }` (`ops:backfill-traffic-classifications`, runbook in `RUNBOOKS.md`). The consumer
+through }` (`ops:backfill-traffic-classifications`, runbook in `docs/runbooks/alerts.md`). The consumer
 classifies that one day, then sends `day + 1` with the same `through` until the two are equal. One
 day per invocation keeps each run the size of a nightly run. The next message is sent after the
 insert, so a failed send retries the same day and the chain cannot skip one. The consumer refuses a
@@ -5017,7 +5244,7 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
 
 ### 9a.6 `connector_evidenced_pairs`
 
-**`vendor_edited_at` (AECI-1614, migration 0104)** is on this table and on `integrations` (§4.3), with one rule. It is when the row's holder last changed its content: an owner edit, an owner contest accept, a vendor create (`integrations` only), or a publicly rendered per-side link (`integrations` only, and only the holder's own). A plain nullable `ADD COLUMN`, so it gains no CHECK. An AECi write, promote, "Looks right", an attestation and a claim never stamp. A return to AECi and an AECi owner reassign clear it, because the new holder has written nothing. It feeds the row's "Maintained by" caption (`lib/field-captions.ts`), and the §13.4 firewall bars ranking from it.
+**`vendor_edited_at` (AECI-1614, migration 0104)** is on this table and on `integrations` (§4.3), with one rule. It is when the row's holder last changed its content: an owner edit, an owner contest accept, a vendor create (`integrations` only), or a publicly rendered per-side link (`integrations` only, and only the holder's own). A plain nullable `ADD COLUMN`, so it gains no CHECK. An AECi write, promote, "Looks right", an attestation and a claim never stamp. A return to AECi and an AECi owner reassign clear it, because the new holder has written nothing. It feeds the row's "Maintained by" caption (`lib/field-captions.ts`), and the §13.4 firewall bars ranking from it. Since AECI-1666 that caption renders in the pair page's "About this listing" panel only. The product page's integration rows show no caption.
 
 The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
 review-side counterpart, and the destination AECI-721 migrates the connector-powered
@@ -5923,8 +6150,132 @@ unchanged.
 
 **Migration `0099`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
 
-**Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
+**Re-archiving a day.** Delete its row by hand (`docs/runbooks/alerts.md` "Retention prune skipped"). The
 next run copies the day again and overwrites both objects.
+
+### 9.16 `plan_change_snapshots`
+
+The ledger of the plan-change ranking evidence (AECI-1621, ADR 0056, migration
+`0123_outstanding_mulholland_black.sql`). Each row schedules one ranking snapshot of one product,
+taken because a live license reached it (`start`) or left it (`end`). The snapshot itself is a JSON
+object in the `UPLOADS` R2 bucket under `evidence/plan-snapshots/` (`ANALYTICS.md` §11d). Why it
+exists: `SEARCH_RANKING.md` §7a.
+
+```sql
+create table plan_change_snapshots (
+  id text primary key not null,      -- crypto.randomUUID()
+  product_id text not null,          -- products.id, NO FK: evidence outlives a retracted product
+  kind text not null,                -- 'start' | 'end'. No CHECK (a new value would need a recreate)
+  license_id text not null,          -- licenses.id, NO FK
+  cause text not null,               -- the license write's audit action, e.g. 'license.lapsed'
+  event_at text not null,            -- ISO-8601, the license write's now
+  phase text not null,               -- 'event' | 'followup'. No CHECK
+  due_at text not null,              -- event: event_at. followup: event_at + 30 days
+  r2_key text,                       -- NULL until the sweep confirms the object
+  written_at text,                   -- when the sweep confirmed it
+  attempts integer default 0 not null,  -- failed sweep attempts
+  last_error text                    -- the last failure, truncated to 500. Cleared on success
+);
+create index plan_change_snapshots_r2_key_due_at_idx on plan_change_snapshots (r2_key, due_at);
+create index plan_change_snapshots_product_event_at_idx on plan_change_snapshots (product_id, event_at);
+```
+
+**Written in the license batch.** `assemble()` in `lib/license.ts` is the one choke point for every
+license write: grant, assign, unassign, end, term lapse with carry-over, and the Stripe sync. It diffs
+the vendor's license set before and after the batch (`planChangeMoves`, `lib/plan-change-ledger.ts`)
+and inserts two rows per product whose live license appeared or disappeared, in the same `db.batch`.
+So no plan start or end can commit without its rows, and a refused batch writes none. A product that
+loses one live license and gains another in the same batch (a carry-over) did not change plan and gets
+no row. The diff reads the caller's pre-read, so a lost race can add rows for a move the guarded SQL
+dropped. That costs one extra snapshot and is not guarded. The ops retraction lane
+(`lib/retract-product.ts`) writes none: it deletes the product, so nothing is left to rank.
+
+**Stamped by the sweep.** The `plan-snapshot` cron (`11-59/15`, on `RECONCILE_QUEUE`) reads up to 25
+rows with `r2_key IS NULL AND due_at <= now`, fewest `attempts` first, then oldest `due_at`. It writes
+each object, confirms it with `head`, then sets `r2_key` and `written_at`, guarded on `r2_key IS NULL`.
+A failure bumps `attempts` and `last_error` and the row stays due. An object already at the key is
+adopted, because the bucket lock refuses an overwrite. The `plan_snapshot_overdue` data-quality check
+reports a row unwritten 24 hours after `due_at`.
+
+**Log-class, not domain state** (ADR 0022). The license write's own `audit_log` row records the event.
+The insert and the sweep's bookkeeping UPDATEs write no `audit_log` row (`CODE_REVIEW_EXEMPTIONS.md`
+EX-002 for the UPDATEs).
+
+**Retention: indefinite.** No delete path. The R2 objects are under a 4-year bucket lock on
+`evidence/`, and this table is how an operator finds them (`runbooks/legal.md` "Pull the ranking
+evidence for a product").
+
+**Firewalled from ranking.** `apps/api/src/lib/ranking-firewall.spec.ts` forbids every ranking, search,
+sort, listing and home-stats module from naming this table.
+
+**Migration `0123`** is a plain `CREATE TABLE` and two `CREATE INDEX`es. It recreates nothing and cannot
+cascade (`apps/api/src/test/migration-0123.spec.ts`).
+
+### 9.17 `acceptance_chain_exports` and `acceptance_chain_rows`
+
+The ledger of the acceptance chain (AECI-1680, ADR 0057, migration `0125_clammy_the_stranger.sql`).
+Each night the `acceptance-chain` cron (`0 18 * * *`, on `RECONCILE_QUEUE`) writes one JSON file to
+the `UPLOADS` R2 bucket at `evidence/acceptance-chain/<seq, 6 digits>.json`
+(`ANALYTICS.md` §11e). The file holds the SHA-256 fingerprint of every `agreement_acceptances` (§8.6d)
+and `license_grants` (§8.6h) row that is new or changed since the last file, and a tombstone for every
+exported row now gone from D1. It names the SHA-256 of the previous file, so changing an old file breaks
+every later link. DigiCert's RFC 3161 token for the file sits beside it as `.tsr`.
+
+```sql
+create table acceptance_chain_exports (
+  seq integer primary key not null,  -- 1, 2, 3, ...; a second row for one file trips the PK
+  day text not null,                 -- YYYY-MM-DD, UTC
+  object_key text not null,          -- evidence/acceptance-chain/000001.json
+  sha256 text not null,              -- of the file bytes; the next file's prev_sha256
+  prev_sha256 text,                  -- NULL at seq 1
+  state_sha256 text not null,        -- over every live row's table:id:fingerprint line, sorted
+  entries integer not null,          -- changed rows plus tombstones; 0 on a quiet night
+  tsa_status text not null,          -- 'pending' | 'granted' | 'failed'. No CHECK
+  tsa_key text,                      -- the .tsr key once DigiCert granted a token
+  exported_at text not null
+);
+create index acceptance_chain_exports_tsa_status_idx on acceptance_chain_exports (tsa_status, seq);
+
+create table acceptance_chain_rows (
+  table_name text not null,          -- 'agreement_acceptances' | 'license_grants'
+  row_id text not null,
+  fingerprint text not null,         -- the last fingerprint exported for the row
+  seq integer not null,              -- the file that last carried it
+  deleted integer default false not null,  -- 1 once a tombstone was written
+  primary key (table_name, row_id)
+);
+```
+
+**The fingerprint.** `sha256(canonicalJson(the row's hashed columns))`, `rowFingerprint` in
+`lib/acceptance-chain.ts`. `COLUMN_MANIFEST` classifies every column of both tables, and a spec fails on
+an unclassified one. `ip` and `user_agent` are excluded from the hash input (Chris's ruling 1A), so
+nulling those fields alone never changes a fingerprint. The 90-day sweep also stamps
+`evidence_removed_at`, which does change it (§8.6d). A handful of columns that are not personal (ids, versions,
+dates, statuses, `text_sha256`) are also copied into the entry as plain fields. R2 never holds an
+email, a name, an IP address or a browser.
+
+**Written after R2.** The job reads both tables in full, diffs them against `acceptance_chain_rows`,
+`head`s the next key, `put`s the file and confirms it with `head`, then writes the export row and the
+row upserts in one `db.batch`, the export row first. An object already at the key was written by an
+earlier attempt and is adopted. Then it asks DigiCert for the timestamp and updates `tsa_status`. The
+Worker verifies the reply's signature and pinned issuer before it stores the `.tsr` (ADR 0057). A
+failed request or a reply that fails the check leaves `failed`, and each run retries up to 7
+earlier files.
+
+**R2 supplies the evidence.** `ops:verify-acceptance-chain` reconstructs fingerprints and links from
+the files in R2. It reads only `MAX(seq)` from `acceptance_chain_exports` as a minimum walk length,
+so a missing file below that seq cannot silently end verification. It never reads
+`acceptance_chain_rows`. Ledger damage can cause re-exports or verification failures; neither table
+should be edited to repair evidence.
+
+**Log-class, not domain state** (ADR 0022, 2026-11-17 amendment). The acceptance and grant writes carry
+their own `audit_log` rows. These writes carry none (`CODE_REVIEW_EXEMPTIONS.md` EX-002).
+
+**Retention: indefinite.** No delete path. The R2 files are under an indefinite bucket lock on
+`evidence/acceptance-chain/` that the operator applies (`docs/environments.md`).
+
+**Migration `0125`** is two plain `CREATE TABLE`s and one `CREATE INDEX`. It recreates nothing and cannot
+cascade (`apps/api/src/test/migration-0125.spec.ts`).
 
 ---
 
@@ -6145,10 +6496,11 @@ Production starts empty at launch. The initial bulk load happens once during Pha
 
 ## 15. Backups and retention
 
-Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
+Backup policy is deferred to a dedicated operational document — `docs/runbooks/alerts.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
-- Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
+- Audit log retention: **four years** after the action, enforced since AECI-1638 by the legal retention prune, queued from the same 03:00 tick (`STAGE_1_SPEC.md` §26.6, ADR 0058). Exempt actions and open litigation holds keep rows longer (§8.4, §8.15). No R2 copy is made first: the deletion is the promise
+- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). `terms_acceptances` is not pruned yet (a follow-up)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
@@ -6157,6 +6509,7 @@ Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS
 - `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
 - Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
+- `agreement_acceptances` and `license_grants`: the acceptance chain in R2 (§9.17, ADR 0057) is **not a backup** of them. It holds fingerprints, not rows, so it proves a row was or was not edited but cannot restore one. Recovery of these rows is D1 Time Travel, within its window
 
 ---
 

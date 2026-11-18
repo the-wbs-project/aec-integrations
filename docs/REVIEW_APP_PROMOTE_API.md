@@ -1946,7 +1946,7 @@ measured. Both checks stay: a set difference cannot say *why* a record went away
 can. Entries on the script's `HELD_RETRACTIONS` list are reported but do not fail the run; a
 hold names the issue that clears it. It has **no skip-green branch**: a missing credential exits 2 and goes red, because
 an unchecked audit is not a pass. Read the next paragraph before trusting any run of it dated
-before that. Triage: `docs/RUNBOOKS.md` §"Promote strand audit is red"; the repair recipes are
+before that. Triage: `docs/runbooks/catalog.md` §"Promote strand audit is red"; the repair recipes are
 still `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing, a retired lane kept for
 that section.
 
@@ -1987,7 +1987,7 @@ merge note on the survivor. This one had nothing — the edge was seeded in a 20
 removed with no trace in either system. Its shape (`mechanism_name: Zapier connector`, a
 `zapier.com` per-pair evidence URL) matches the AECI-700/701 convention change, and the review
 app **declined to assert that**, because it cannot be proven from the data. So the exit was an
-**operator ruling taken after escalating to the catalog owner** — the path `docs/RUNBOOKS.md`
+**operator ruling taken after escalating to the catalog owner** — the path `docs/runbooks/alerts.md`
 prescribes for a stray with no recorded ruling — and the `audit_log` row carries
 `no_upstream_ruling: true` so the absence stays queryable rather than merely narrated. **That
 absence, not the size of the backlog, is the argument for AECI-811.**
@@ -2062,7 +2062,7 @@ the served ID map and were never written back. AECI-889 batch 3 then deleted bot
 records, journalling nothing, while the 20 sibling Aquifer records in the same batch — which
 did carry pointers — journalled and were consumed hours earlier. **Why the write-back did not
 land is not known and is recorded in the ruling file as an absence**, per the AECI-795 rule
-about not promoting a hypothesis to a cause. `docs/RUNBOOKS.md` §"Promote strand audit is red"
+about not promoting a hypothesis to a cause. `docs/runbooks/catalog.md` §"Promote strand audit is red"
 has the two routes; the lane README §"Operator-ruling mode" has the file format and the
 refusals.
 

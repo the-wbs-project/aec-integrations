@@ -11,7 +11,7 @@ first Logpush day; see "Final pull 2026-10-24" below. Logpush only captures traf
 on (2026-10-22, ADR 0045), so these files are the only source for anything earlier.
 
 **No more pulls are due.** The edge request log covers every day from 2026-10-22. Run `pull.mjs` again only
-to fill a Logpush outage (`docs/RUNBOOKS.md` "Logpush job disabled").
+to fill a Logpush outage (`docs/runbooks/alerts.md` "Logpush job disabled").
 
 No client IP addresses were requested. User agents, networks (ASN) and countries are kept.
 

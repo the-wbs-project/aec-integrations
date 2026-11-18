@@ -110,10 +110,18 @@ const EMITTED_ACTIONS = [
   'profile.created',
   'profile.updated',
   'account.deleted',
+  // AECI-1665, routes/admin-dmca-notices.ts.
+  'dmca_notice.created',
+  'dmca_notice.updated',
+  // AECI-1638, routes/admin-litigation-holds.ts.
+  'litigation_hold.placed',
+  'litigation_hold.released',
   'notification.sent',
   'retention.pruned',
   // AECI-1636, lib/acceptance-evidence-removal.ts.
   'agreement.evidence_removed',
+  'terms.accepted',
+  'terms.evidence_removed',
   'indexnow.drained',
   'vendor_plan_pricing.set',
   'vendor_plan_pricing.cleared',
@@ -170,7 +178,7 @@ describe('describeAuditAction', () => {
 
   it('still describes the taxonomy-mint actions nothing writes any more (AECI-1048)', () => {
     // Promote minted terms until AECI-1048 and production holds those rows.
-    // `audit_log` is never pruned, so the labels must outlive the writer.
+    // `audit_log` rows are kept four years (AECI-1638), so the labels must outlive the writer.
     for (const entity of ['category', 'audience', 'phase']) {
       expect(isKnownAuditAction(`${entity}.created`)).toBe(true);
     }

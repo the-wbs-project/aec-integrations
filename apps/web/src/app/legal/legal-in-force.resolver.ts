@@ -8,8 +8,9 @@
  *     today's empty manifest every legal page takes this branch, so it renders as before.
  *   - The entry's moment has not come (the SSR clock): `false`. Nothing is read: a
  *     publish before the moment changes nothing before it.
- *   - It has come, and the document is not an agreement: `true`. Its date alone decides.
- *   - It has come, and it is an agreement: ask `GET /api/legal/published` over the
+ *   - It has come, and the document is a policy: `true`. Its date alone decides.
+ *   - It has come, and it is publishable (an agreement, or since AECI-1637 the Terms of
+ *     Service or the Privacy Policy): ask `GET /api/legal/published` over the
  *     service binding. Its row decides. If the read FAILS, fail safe: `false` (the old
  *     version stays current) and mark the request context, so the SSR Worker caches the
  *     page briefly instead of for a day (`server-runtime.ts`, `CACHE_STRATEGY.md` §4).
@@ -36,9 +37,9 @@ import type { LegalPublishedResponse } from '@aeci/shared/api/legal-versions';
 
 import type { AeciRequestContext } from '../../server/request-context';
 import {
-  agreementOfSlug,
   legalEntryMomentReached,
   legalEntrySwitched,
+  publishableOfSlug,
 } from './legal-in-force-state';
 import type { LegalSlug, LegalUpcomingEntry } from './legal-manifest';
 import { LEGAL_UPCOMING_ENTRIES } from './legal-upcoming-token';
@@ -97,7 +98,7 @@ export async function decideOnServer(
   ctx: AeciRequestContext | null,
 ): Promise<boolean> {
   if (!legalEntryMomentReached(entry, nowMs)) return false;
-  if (agreementOfSlug(entry.slug as LegalSlug) === undefined) return true;
+  if (publishableOfSlug(entry.slug as LegalSlug) === undefined) return true;
   if (!ctx) return false;
   let published: LegalPublishedLite[];
   try {

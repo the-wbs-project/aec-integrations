@@ -1,6 +1,6 @@
 # ADR 0051: Publish the plan end through mirrors, and date captions from per-group edit stamps
 
-- Status: Accepted, amended 2026-11-09 (ruling 14, AECI-1663)
+- Status: Accepted, amended 2026-11-09 (ruling 14, AECI-1663) and 2026-11-17 (AECI-1666)
 - Date: 2026-11-05
 - Issue: AECI-1614 (ruling 5 on AECI-1363)
 - Relates to: ADR 0033 (the usefulness fence), ADR 0039 (field corrections), ADR 0042 (record ownership), ADR 0048 (a plan is a product with a live license); `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8; `STAGE_2_PAID_TIERS_SPEC.md` §2.5, §7.8, §13.4
@@ -42,3 +42,14 @@ Product and pair pages are edge-cached, so the answer has to be a stored fact, w
 - A vendor-written group with no stamp shows no caption until `scripts/ops/2026-11-field-caption-backfill/` has run. It fills the stamps from `audit_log` and the mirrors from `licenses`, dry run first. Until then a vendor's usefulness block on production loses "Written by" with no replacement.
 - A plan end is now public on any product whose vendor wrote a Managed group. That is the promise the Terms make.
 - A flip of `verified` purges more pages: `vendorPurgeTags` now covers the vendor's edited connector-powered rows (`CACHE_STRATEGY.md`). *Reversed 2026-11-09 by AECI-1663: with no `until` on rows, those tags went.*
+
+## Amendment 2026-11-17 (AECI-1666): the captions move into one panel per page
+
+The decisions above stand. Only where the captions render changed. Counsel asked for attribution on the page, not one line per block (Q4, Q12, Q19).
+
+- **One panel per page.** The product, vendor and pair pages each carry one "About this listing" panel, `aec-listing-provenance`. It lists every group caption with its group's label, then every correction with its field's label.
+- **Every listing shows the panel (ruled 2026-11-17).** It opens with the record line. A listing that AECi maintains alone shows that line only: "AEC Integrations maintained", plus a review date when there is one.
+- **Nothing inline.** No "Maintained by", "Corrected by" or "Removed by" line sits under a group, beside a value or on an integration row any more. The header chip is retired, and the panel opens with its wording as plain text.
+- **The server still picks the form.** `lib/field-captions.ts`, the API and the shared schemas are unchanged. The web renders the same answer in a new place.
+
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 holds the contract.

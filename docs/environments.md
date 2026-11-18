@@ -21,7 +21,7 @@ AECi runs three deployed tiers plus local. The per-PR preview tier was retired o
 
 > **Supabase is auth-only** (app data is on D1 — ADR 0016). Per **[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md)** a single shared auth project (`ktuhnlypztujpsseujzx`) backs **every** tier; per-environment isolation is provided by Cloudflare Access, not project separation. (The retained legacy Supabase-Postgres `public`-schema gate still lives on the old `dmbygwupskttzsvfzluq` / `jgxebjufabtwkcgxjqvk` projects until AECI-256/257 retire it — that's what the `SUPABASE_*_PROJECT_REF` repo variables below point at, unrelated to auth.)
 
-> The **production** tier serves the apex `aecintegrations.com` + `www.aecintegrations.com` (the public home, `ALLOW_INDEXING="true"`, indexable) **and nothing else** — it also served an internal `prod.aecintegrations.com` until **AECI-807** retired that hostname (ADR 0017 had assumed it was Access-gated; it was verified public on 2026-08-14, which made it an indexable, self-canonicalising duplicate of `www.`, and it was also the host the promote smoke gate polled — that gate now polls `www.`). The **demo** tier serves `demo.aecintegrations.com` (the public showcase, still **no-index** `ALLOW_INDEXING="false"`). The **apex cutover** (AECI-247/277) binds `aecintegrations.com` + `www.` to `aeci-web-production` in the web wrangler config and folds the bare apex→`www.` with a 301 in the SSR Worker (`www.` is the canonical served host — ADR 0011 amendment 2026-07-05, reversing the original www→apex direction); the retired `apps/landing` Worker no longer serves them. The DNS reassignment (off the old landing Worker onto the app) executes on the next `promote-to-prod` deploy after the cutover PR merges — see `docs/launch-cutover-runbook.md`.
+> The **production** tier serves the apex `aecintegrations.com` + `www.aecintegrations.com` (the public home, `ALLOW_INDEXING="true"`, indexable) **and nothing else** — it also served an internal `prod.aecintegrations.com` until **AECI-807** retired that hostname (ADR 0017 had assumed it was Access-gated; it was verified public on 2026-08-14, which made it an indexable, self-canonicalising duplicate of `www.`, and it was also the host the promote smoke gate polled — that gate now polls `www.`). The **demo** tier serves `demo.aecintegrations.com` (the public showcase, still **no-index** `ALLOW_INDEXING="false"`). The **apex cutover** (AECI-247/277) binds `aecintegrations.com` + `www.` to `aeci-web-production` in the web wrangler config and folds the bare apex→`www.` with a 301 in the SSR Worker (`www.` is the canonical served host — ADR 0011 amendment 2026-07-05, reversing the original www→apex direction); the retired `apps/landing` Worker no longer serves them. The DNS reassignment (off the old landing Worker onto the app) executes on the next `promote-to-prod` deploy after the cutover PR merges — see `docs/runbooks/launch-cutover.md`.
 >
 > **All tiers share one Supabase auth project** (ADR 0017; auth-only — the app DB is Cloudflare D1 per ADR 0016), so one admin login works everywhere. Demo and Production still have **independent** D1, KV, Cloudflare Queues, and Algolia index sets: production keeps `aeci-app-production` / `aeci-*-production` / `production_*`; demo has its own `aeci-app-demo` / `aeci-*-demo` / `demo_*`. **One exception: the docs search index (AECI-1270).** Demo reads `production_docs` and never writes it. There is no `demo_docs` (`CICD_PLAN.md` §7.5). The `ENV` var (and therefore Algolia prefix + the PostHog `env` dimension) is `production` vs `demo`; the two are the audience-facing tiers recognised by `isPublicSite()` (`@aeci/shared/deploy-env`) — both block `/preview/*`, strip per-request response validation, and bound per-render log volume.
 
@@ -117,7 +117,7 @@ three workflows and the four wrangler var blocks in step.
 | --- | --- | --- | --- |
 | **Local** | aeci-staging sandbox | none: `.dev.vars`, webhook secret from `stripe listen` (`local-dev.md` §8) | `"true"` |
 | **Staging** | aeci-staging sandbox | `STRIPE_SECRET_KEY_STAGING`, `STRIPE_WEBHOOK_SECRET_STAGING` (`deploy.yml`) | `"true"` |
-| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"false"` while demo mirrors production (2026-10-31). `"true"` again before the switch-on rehearsal |
+| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"true"` for sandbox checkout |
 | **Production** | live account | `STRIPE_SECRET_KEY_PRODUCTION`, `STRIPE_WEBHOOK_SECRET_PRODUCTION` (`promote-to-prod.yml`) | `"false"` |
 
 The Customer Portal configuration ids are committed vars (`STRIPE_PORTAL_CONFIG_ANNUAL`,
@@ -131,7 +131,7 @@ ruled 2026-10-27).
 unsuffixed names `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. No workflow reads those
 names. Re-set them as `STRIPE_SECRET_KEY_STAGING` and `STRIPE_WEBHOOK_SECRET_STAGING`, then
 delete the unsuffixed pair. Until then every staging deploy warns and skips both pushes. It is
-step 1 of `RUNBOOKS.md` "Turning on Stripe in production".
+step 1 of `docs/runbooks/subscriptions.md` "Turning on Stripe in production".
 
 ### Private row threads per tier (AECI-1553)
 
@@ -194,6 +194,28 @@ runs in the `<env>` GitHub environment, so a production run waits for the `produ
 It needs `CLOUDFLARE_API_TOKEN` with `Workers R2 Storage: Edit` and `CLOUDFLARE_ACCOUNT_ID`, the
 pair `deploy.yml` uses. It refuses to overwrite an object that exists.
 
+### Browser report check per tier (AECI-1715)
+
+The committed API var `BROWSER_EVIDENCE_ENABLED` is the server's half of the browser report
+switch. It does two things. It turns on both API writers: the `ran` on a `browser-spa` insert
+and the `POST /api/page-views/browser-evidence` UPDATE (AECI-1713). With it off, the endpoint
+still answers 204 and writes nothing. It also tells the `browser_evidence_coverage` data-quality
+check that this tier captures the report (`docs/runbooks/alerts.md` "Browser evidence
+coverage"). The browser's half is the SSR Worker's var of the same name (AECI-1714). The API
+cannot read the web var, so it carries its own copy. Only `"true"` counts. Absent or any other
+value writes nothing and reports the check *Skipped*. It is a plain var: no secret, no preflight.
+
+| Tier | API `BROWSER_EVIDENCE_ENABLED` |
+| --- | --- |
+| **Local** | `"true"` |
+| **Staging** | `"true"` |
+| **Demo** | `"true"` |
+| **Production** | `"false"` |
+
+Production stays `"false"` until Privacy Policy 1.1 is in force. Flip it in the same change as
+the web var. `apps/api/src/wrangler-browser-evidence.spec.ts` pins the four API blocks, and fails
+any block where the web Worker declares the var with a different value.
+
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app
@@ -253,7 +275,7 @@ The next production promote pushes them. Then confirm the Worker holds both name
 pnpm exec wrangler secret list --env production
 ```
 
-To re-send vendors after a rotation, use the production form in `RUNBOOKS.md`
+To re-send vendors after a rotation, use the production form in `docs/runbooks/catalog.md`
 "Ownership records not reaching the review app". It needs Chris's go-ahead on the day.
 
 ## Promotion model
@@ -400,7 +422,7 @@ What happens, in order:
 
 | The promoted range… | Run, before the next 04:00 UTC data-quality run |
 | --- | --- |
-| changes what `buildOwnershipRecordV2` puts in the ownership record, or how its `recordHash` is computed (`REVIEW_APP_PROMOTE_API.md` §4d) | The full ownership re-send, dry run then `--apply`: `RUNBOOKS.md` "Turning on the v2 ownership mirror". Then check the newest `ownership_sync_deliveries` rows are `delivered` / `200`. |
+| changes what `buildOwnershipRecordV2` puts in the ownership record, or how its `recordHash` is computed (`REVIEW_APP_PROMOTE_API.md` §4d) | The full ownership re-send, dry run then `--apply`: `docs/runbooks/catalog.md` "Turning on the v2 ownership mirror". Then check the newest `ownership_sync_deliveries` rows are `delivered` / `200`. |
 
 Skipping the re-send leaves every owned vendor counted by `review_mirror_drift`, which is `error` severity and pages. Nothing re-sends on its own: syncs are queued only by vendor and admin writes and the brand-asset cron. AECI-1633 shipped on 2026-11-06 without the re-send, and the check read 4 for two days until AECI-1650 ran it on 2026-11-09.
 
@@ -457,7 +479,7 @@ API about each row and deletes the ones Google re-crawled after the page last ch
 rest, and the screen shows what Google said in the **Google says** column. Every cleared row is
 listed in one `reindex.auto_cleared` audit row per batch. It needs `GSC_SA_KEY_JSON` on the
 production API Worker. Without the key it skips and the list is as long as before.
-[`docs/gsc-reindex-playbook.md`](gsc-reindex-playbook.md) is the operational runbook. Its step 0
+[`docs/runbooks/gsc-reindex.md`](./runbooks/gsc-reindex.md) is the operational runbook. Its step 0
 runs `scripts/gsc-reindex-triage.mjs`, a manual fallback that does the same check on demand, or
 when the cron has not run. It clears through the same audited Done call as the screen. The steps
 below are what is left.
@@ -508,7 +530,7 @@ ordering exists.** Ranking a list only matters when you cannot finish it.
 **The failure mode this step carries.** It is undelegated and unmonitored. Nothing but a person
 does the Search Console half, and nothing goes red if they stop. What has changed is that the
 omission is now *visible*: the Re-index badge in the Operations panel climbs, and `/admin/reindex` shows how old the
-oldest row is. There is deliberately no alert on queue depth, and `docs/RUNBOOKS.md` records why
+oldest row is. There is deliberately no alert on queue depth, and `docs/runbooks/alerts.md` records why
 that was declined rather than forgotten. The slow, indirect signal is still the Googlebot
 sitemap-coverage figure in
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3a-bis, which the weekly read (§2a of
@@ -952,8 +974,8 @@ Secrets are stored in three places:
 | `STRIPE_SECRET_KEY` (Stripe API) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499 (epic AECI-1339). Secret key of the tier's Stripe account (`sk_test_…` from the staging and demo sandboxes, `sk_live_…` on production), read by `apps/api/src/lib/stripe.ts`. **Recommended + warn-and-skip on every tier, production included**, and never in `REQUIRED_WORKER_SECRETS`. Absent → `stripeCheckoutAvailable` is false and the buy, add and portal routes answer 503. Production is held off by `STRIPE_CHECKOUT_ENABLED="false"`, not by the secret. **Never on the web Worker.** ⚠️ **Operator step:** the staging value sits under the unsuffixed name today. Re-set it as `STRIPE_SECRET_KEY_STAGING` (§Stripe secrets per tier). |
 | `STRIPE_WEBHOOK_SECRET` (inbound Stripe webhook) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499. Signing secret (`whsec_…`) of the tier's Stripe webhook endpoint, for `POST /api/webhooks/stripe`. **Fails closed:** absent → every delivery 401s. Recommended + warn-and-skip on every tier, never in `REQUIRED_WORKER_SECRETS`. Locally it is the secret `stripe listen` prints, not a dashboard endpoint's (`local-dev.md` §8). **Never on the web Worker.** ⚠️ **Operator step:** same unsuffixed staging value; re-set it as `STRIPE_WEBHOOK_SECRET_STAGING`. |
 | `REVIEW_APP_OWNERSHIP_URL` + `REVIEW_APP_OWNERSHIP_TOKEN` (ownership receiver) | ❌ **leave unset**: no staging receiver exists (warn-and-skip) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ suffixed per tier: `REVIEW_APP_OWNERSHIP_{URL,TOKEN}_{STAGING,DEMO,PRODUCTION}` | AECI-1418 → **AECI-1427**. Base URL and bearer for the review app's `PUT /vendors/{vendorId}` receiver (`REVIEW_APP_PROMOTE_API.md` §4d). Production base is `https://review.aecintegrations.com/api/ownership`. Required on production in preflight and postflight (ruling D4). Demo stays unset by ruling D5. See "Ownership receiver per tier". |
-| `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/RUNBOOKS.md` "gsc-inspect halted on quota or failed" |
-| `INDEXNOW_RUNNER_TOKEN` (IndexNow runner routes) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `INDEXNOW_RUNNER_TOKEN_PRODUCTION` (suffixed, production only), also read by `.github/workflows/indexnow-send.yml` | AECI-1476. Bearer token for `POST /api/internal/indexnow/batch` and `…/batch/:batchId/result`, which the GitHub Actions runner calls to send the daily IndexNow request from a non-Cloudflare IP. **Recommended, not required**: without it both routes answer 401 (fail-closed), the `indexnow-send` run goes red and the `aeci.indexnow.batch` heartbeat stops, so the liveness sweep reports it. The same GH secret feeds both the Worker push and the runner, so they cannot drift. A CI spec (`apps/api/src/indexnow-runner-secrets-ci.spec.ts`) keeps the push step, the recommended list and the workflow in step. Generate with `openssl rand -hex 32`. Runbook: `docs/RUNBOOKS.md` "The runner is red, or its heartbeat is missing" |
+| `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/runbooks/alerts.md` "gsc-inspect halted on quota or failed" |
+| `INDEXNOW_RUNNER_TOKEN` (IndexNow runner routes) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `INDEXNOW_RUNNER_TOKEN_PRODUCTION` (suffixed, production only), also read by `.github/workflows/indexnow-send.yml` | AECI-1476. Bearer token for `POST /api/internal/indexnow/batch` and `…/batch/:batchId/result`, which the GitHub Actions runner calls to send the daily IndexNow request from a non-Cloudflare IP. **Recommended, not required**: without it both routes answer 401 (fail-closed), the `indexnow-send` run goes red and the `aeci.indexnow.batch` heartbeat stops, so the liveness sweep reports it. The same GH secret feeds both the Worker push and the runner, so they cannot drift. A CI spec (`apps/api/src/indexnow-runner-secrets-ci.spec.ts`) keeps the push step, the recommended list and the workflow in step. Generate with `openssl rand -hex 32`. Runbook: `docs/runbooks/alerts.md` "The runner is red, or its heartbeat is missing" |
 | `TURNSTILE_SECRET_KEY` (Turnstile siteverify) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ on **API Worker only** (CI-pushed), **required** | ✅ **suffixed per tier**: `TURNSTILE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1457 / ADR 0049, **ruling 2026-10-29**. The secret of that tier's Invisible Turnstile widget, read by `lib/turnstile.ts` to verify the browser's token. **Required on every tier**: `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml` list it in `REQUIRED_SECRETS`, so a missing GH secret fails the deploy before anything ships. Each pushes it to the API Worker as `TURNSTILE_SECRET_KEY` and fails the step if it is empty. Staging and production re-assert it on the live Worker through `REQUIRED_WORKER_SECRETS`; demo has no postflight check. The pins are `apps/api/src/turnstile-secrets-ci.spec.ts`. **The on/off switch is the web Worker's public `TURNSTILE_SITE_KEY`**, a committed var required on staging, demo and production (`apps/web/src/turnstile-site-key.spec.ts`). EU, EEA, UK and Swiss visitors skip the check until the AECI-1458 ruling (AECI-1581). A secret with no site key stays dark but counts every in-app view as `verdict:absent`. Never set it by hand on a deployed Worker: the next deploy overwrites it. **Never on the web Worker.** Runbook: "Turnstile per tier" below. A wrong secret reads as about 100% `unknown` and fires `pageviews-turnstile-unknown` |
 | `TOOL_TOKEN` (agent Worker) | ❌ no staging tier | ✅ on **agent Worker only**, set BY HAND | ❌ — no GH secret, nothing in CI pushes it | AECI-1030 / ADR 0034. Shared-secret bearer fallback for `apps/agent`'s in-Worker gate (`src/access.ts`, the byte-for-byte copy of `apps/datatool`'s). The gate **fails closed**: with neither this token nor a verifiable Cloudflare Access assertion, every route 403s, the agent mounts and the test chat page included. Set per tier with `wrangler secret put TOOL_TOKEN -c dist/aeci_agent/wrangler.json` after the matching build — the emitted config is what names the Worker, so build `production` first to target `aeci-agent-production`. A browser on the Access allowlist needs no token; a `curl` needs **both** this token and the `aeci-gh-actions` service-token headers, because Access gates the edge and this gates the Worker. |
 | `TYPESAFE_API_KEY` (agent Worker) — **optional and UNSET** | ❌ | ❌ **deliberately unset** | ❌ | AECI-1030 / ADR 0034. TypeSafe AI key for the optional Jev relevance filter (`apps/agent/src/lib/jev.ts`). **Unset is the default and the supported state**, and it is unset on every tier today — no request has ever been sent to TypeSafe from this repo. It needs **two** switches, not one: this key AND a per-conversation `initialData.jevFilter` toggle recorded when the conversation is created. With either absent the filter returns its input unchanged and opens no connection. Setting it means passage text (public catalog data) and the user's question leave Cloudflare for `api.typesafe.ai`; no user identity, session id, conversation id, IP, D1 row or internal column goes with them. |
@@ -1155,7 +1177,7 @@ Since AECI-714 that binding carries **two job kinds**, not one: the product bund
 - [ ] **CLI gotcha:** because the top-level (local) entries carry both `id` and `preview_id` (mirroring `TAXONOMY_KV`), `wrangler kv key …` against them needs an explicit `--preview false` (or `--preview`) or it errors with "has both an `id` and a `preview_id` configured".
 - [x] **Release ordering (cleared 2026-08-13):** the hard cutover meant a review app on the old synchronous `200` contract would break on every promote. Ordering was respected — the review app's AECI-567 (async kick-off/poll/collect) merged 2026-08-12, and prod was promoted to the async API afterwards. Keep the rule in mind for any future promote-contract change: **the review app ships first, then `promote-to-prod`.**
 
-Operating a stuck or failed job: `docs/RUNBOOKS.md` → "Promote job errored or stuck".
+Operating a stuck or failed job: `docs/runbooks/catalog.md` → "Promote job errored or stuck".
 
 ### 3. Cloudflare Access
 
@@ -1346,7 +1368,7 @@ The demo tier (`demo.aecintegrations.com`) is the showcase, inserted between sta
 - [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `demo.aecintegrations.com` on the first demo deploy (reassigning the hostname off the old production Worker). No manual zone edits.
 - [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` keeps serving the existing production data on the apex + `www.`. (Historical: it also picked up an internal `prod.aecintegrations.com` here until AECI-807 retired that hostname.)
 
-> **Apex cutover — wired in config (AECI-247/277); executes at launch.** The web/api wrangler configs now carry the cutover: `aecintegrations.com` + `www` are `custom_domain: true` on `aeci-web-production` (reassigned off the retired landing Worker on the next `promote-to-prod`), the production web Worker's `ALLOW_INDEXING="true"`, and the API Worker's `PUBLIC_SITE_URL` is the apex. The remaining launch-day steps are **ops, not code**: provision the launch-only SEO secret so the post-promote IndexNow ping fires — `gh secret set INDEXNOW_KEY_PRODUCTION` (AECI-236); `promote-to-prod.yml` pushes it to the prod API Worker (recommended/warn-and-skip — it stays a graceful no-op until set) — then run the ordered ceremony in `docs/launch-cutover-runbook.md` (verify on the tier's existing served host — this was `prod.` at the time; that hostname is retired since AECI-807, so a re-run verifies on demo — promote, confirm the apex serves the app, send the Resend broadcast). *(The Google Indexing service-account secrets that used to sit here were removed in AECI-747 — that API accepts only `JobPosting`/`BroadcastEvent`, so the ping never did anything for our pages. Delete `GOOGLE_INDEXING_SA_EMAIL*` / `GOOGLE_INDEXING_SA_PRIVATE_KEY*` from GitHub Actions and from the production API Worker.)*
+> **Apex cutover — wired in config (AECI-247/277); executes at launch.** The web/api wrangler configs now carry the cutover: `aecintegrations.com` + `www` are `custom_domain: true` on `aeci-web-production` (reassigned off the retired landing Worker on the next `promote-to-prod`), the production web Worker's `ALLOW_INDEXING="true"`, and the API Worker's `PUBLIC_SITE_URL` is the apex. The remaining launch-day steps are **ops, not code**: provision the launch-only SEO secret so the post-promote IndexNow ping fires — `gh secret set INDEXNOW_KEY_PRODUCTION` (AECI-236); `promote-to-prod.yml` pushes it to the prod API Worker (recommended/warn-and-skip — it stays a graceful no-op until set) — then run the ordered ceremony in `docs/runbooks/launch-cutover.md` (verify on the tier's existing served host — this was `prod.` at the time; that hostname is retired since AECI-807, so a re-run verifies on demo — promote, confirm the apex serves the app, send the Resend broadcast). *(The Google Indexing service-account secrets that used to sit here were removed in AECI-747 — that API accepts only `JobPosting`/`BroadcastEvent`, so the ping never did anything for our pages. Delete `GOOGLE_INDEXING_SA_EMAIL*` / `GOOGLE_INDEXING_SA_PRIVATE_KEY*` from GitHub Actions and from the production API Worker.)*
 
 ### 10. Throwaway tiers — the `stage2` pattern (AECI-637 / AECI-808)
 
@@ -1632,7 +1654,7 @@ deploy resolves the binding against the account.
 - **Secret.** `PAGE_VIEW_IP_HASH_SECRET` is a random string set by hand with `wrangler secret put`. It is
   not CI-pushed. Rotating it breaks IP-hash continuity inside a month and nothing else.
 - **A missing production binding is alarmed.** The alert `pageviews-raw-unsent` fires on `outcome:skipped`.
-  Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture".
+  Runbook: `docs/runbooks/alerts.md` "Raw page-view store missed a capture".
 
 ## `page_views` archive per tier (AECI-1228, ADR 0050)
 
@@ -1654,7 +1676,7 @@ before the PR merges, because a deploy fails when a bound bucket does not exist.
   purpose. `apps/api/src/wrangler-uploads.spec.ts` checks all four blocks.
 - **Production fails closed.** With no binding in production the archive step reports
   `archive_unbound` and the prune refuses every `page_views` day it would delete. The alert
-  `pageviews-archive-failed` fires. Runbook: `RUNBOOKS.md` "page_views archive failed".
+  `pageviews-archive-failed` fires. Runbook: `docs/runbooks/alerts.md` "page_views archive failed".
 - **Staging archives at 2 days old.** So the path runs every night now, not first in June 2027. The
   first nights drain the staging backlog, 7 days a run.
 - **Create the buckets** on The WBS Project account, with no lifecycle rule, before the deploy that
@@ -1722,9 +1744,17 @@ Open a detail page on `www.aecintegrations.com`, then click to a second page.
 
 **Lifting the exclusion after AECI-1458 (AECI-1529).** Remove these together, in one PR:
 
-- **The stamp.** `isTurnstileExcludedRegion`, `TURNSTILE_EXCLUDED_COUNTRIES` and the `geo` append in
-  `withGatewayServerTiming` (`apps/web/src/server-runtime.ts`).
-- **The region check.** `regionAllowsTurnstile` in `apps/web/src/app/core/turnstile-config.ts`.
+- **Not the stamp.** Keep `isTurnstileExcludedRegion` and the `geo` append in `withGatewayServerTiming`
+  (`apps/web/src/server-runtime.ts`) while ruling 21 stands. They are the browser report's hold too
+  (`CACHE_STRATEGY.md` §4a.1): without the stamp the browser would post the report from a held region.
+  The server would refuse the write, but the device access counsel called an Article 5(3) event would
+  already have happened. Rename the function if its Turnstile name misleads, and keep its behaviour.
+  The country list is `HELD_REGION_COUNTRIES` (alias `TURNSTILE_EXCLUDED_COUNTRIES`) with
+  `isHeldRegionCountry`, in `packages/shared/src/api/held-region.ts`. **Do not delete the list.**
+  `routes/page-views.ts` reads it directly. Lifting Turnstile's hold does not lift the report's.
+- **The region check.** Remove the `regionAllowsCollection()` call from `turnstileSiteKey()` in
+  `apps/web/src/app/core/turnstile-config.ts`. Keep the function itself: the browser report's gate
+  (`browser-evidence-config.ts`, AECI-1714) still calls it.
 - **The policy sentences.** The exclusion sentence in the bot-check bullet and in "Cookies and similar
   technologies" (`apps/web/src/content/legal/privacy-policy.md`). This text goes through counsel
   (`STAGE_1_SPEC.md` §27.2).
@@ -1736,6 +1766,36 @@ Then grep for `AECI-1581` and `geo;desc` and correct what is left, including the
 **The CSP is already open on every tier.** `script-src` and `frame-src` allow
 `https://challenges.cloudflare.com` everywhere (`CACHE_STRATEGY.md` §7). Enabling a tier needs no
 header change.
+
+## Browser report per tier (AECI-1714, epic AECI-1711)
+
+The page tracker's browser report (`ran` / `interacted`, `docs/ANALYTICS.md` §5) runs only where the
+web Worker's committed var `BROWSER_EVIDENCE_ENABLED` is `"true"`. The SSR Worker then injects
+`window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` into every page. Any other value, or none,
+injects nothing, and the browser sends no report. It needs no secret. The endpoint is always
+deployed, but the API stores a report only where its own `BROWSER_EVIDENCE_ENABLED` is `"true"`
+too ("Browser report check per tier" above). Flip both in the same change.
+
+| Tier | `BROWSER_EVIDENCE_ENABLED` (committed web var) |
+| --- | --- |
+| **Local** | `"true"`, the top-level `vars` block |
+| **Staging** | `"true"`, `env.staging.vars` |
+| **Demo** | `"true"`, `env.demo.vars` |
+| **Production** | `"false"`, `env.production.vars` |
+
+**Production stays `"false"` until Privacy Policy 1.1 is in force.** The 1.1 sentence that describes
+the report (AECI-1712) is a promise only from its effective date. AECI-1715 flips the var in the same
+PR that changes the pin. `apps/web/src/browser-evidence-enabled.spec.ts` pins all four values, so a
+flip without that PR fails CI.
+
+The flag is per tier, not per visitor. A visitor with DNT or GPC, or one the gateway stamps with
+`Server-Timing: geo;desc="eu"`, sends nothing on any tier. The script is stored with the cached page,
+like the Turnstile config. That is safe because the value depends only on the tier, and a flip takes a
+deploy, which starts a new cache namespace (`CACHE_STRATEGY.md` §4a). Staging and demo sit behind
+Cloudflare Access, so their reports come from allowlisted visitors and are a functional test.
+
+Local dev sends `ran` and `interacted` only when the request carries a `cf-ray` header, because
+`wrangler dev` adds none and the gateway stamps no ray without one (`docs/local-dev.md` §4.4).
 
 ## Edge request log (AECI-1196, ADR 0045)
 
@@ -1776,7 +1836,7 @@ these resources on 2026-10-22 on The WBS Project account. Both jobs were created
   about 43 hours.
 - **`ClientRequestHost` keeps a non-default port.** Rows such as `www.aecintegrations.com:2082` are separate
   values. Strip the port before grouping by host. Found in the day-two check of 2026-10-23, run 2026-10-24 (AECI-1447).
-- **Read recipe:** `ANALYTICS.md` §11a. **Runbook:** `RUNBOOKS.md` "Logpush job disabled".
+- **Read recipe:** `ANALYTICS.md` §11a. **Runbook:** `docs/runbooks/alerts.md` "Logpush job disabled".
 
 ## What lives where
 
@@ -1807,6 +1867,68 @@ Cross-references:
 The API Worker declares `UPLOADS` in root plus staging, demo and production. Root is the local-dev block and uses `aeci-uploads-preview` as a local-only bucket name since AECI-1268; the deployed tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision the three deployed private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. The remote `aeci-uploads-preview` bucket is deleted in the operator checklist.
 
 **The deploy token needs `Workers R2 Storage: Edit`, and that is the first thing that breaks.** `wrangler deploy` resolves every `r2_buckets` entry against the Cloudflare API before it uploads, so a token without R2 access fails the deploy rather than degrading. The symptom is `A request to the Cloudflare API (/accounts/…/r2/buckets/aeci-uploads-preview) failed` with `Authentication error [code: 10000]` — and **10000 is the token, not the bucket**: a bucket that does not exist reports a not-found error naming it, so creating the bucket will not clear a 10000. Full provisioning steps and the `wrangler r2 bucket create` lines are in `CICD_PLAN.md` "Logo storage deployment".
+
+**The `evidence/` prefix is locked for 4 years (AECI-1621, ADR 0056).** Since AECI-1621 the API Worker also writes the plan-change ranking snapshots into `UPLOADS`, under `evidence/plan-snapshots/` (`ANALYTICS.md` §11d). An R2 bucket lock on the `evidence/` prefix keeps them for 1461 days (4 years): R2 refuses any delete or overwrite of an object under it until then. The lock covers only that prefix. Logos and the legal PDFs under `legal/` stay deletable. One consequence: while any lock rule exists, the bucket cannot be emptied, so retiring a tier's bucket means removing the rule first, after its objects have aged out.
+
+**Operator step after the AECI-1621 deploy: add the lock, once per tier.** Chris runs these by hand from the repo root, logged in to the WBS Project account. An agent never runs them. Each asks for confirmation. Staging first, after the deploy that carries migration `0123`:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-staging --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Demo, after the promote to demo:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-demo --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Production, after the promote to production:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-production --name evidence-4y --prefix evidence/ --retention-days 1461
+```
+
+Check each with the next command. It should list one rule, `evidence-4y`, prefix `evidence/`, 1461 days.
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-production
+```
+
+The rule protects objects written before it too, so a snapshot written between the deploy and the lock is covered once the rule exists. Do not add a lifecycle rule on `evidence/`. A lock wins over a lifecycle rule anyway, and nothing should ever expire these objects.
+
+### Acceptance chain lock (AECI-1680, ADR 0057)
+
+Since AECI-1680 a nightly job (`acceptance-chain`, 18:00 UTC, on `RECONCILE_QUEUE`) writes the agreement acceptance chain into `UPLOADS` under `evidence/acceptance-chain/`: one hash-chained JSON file of row fingerprints a night, and DigiCert's RFC 3161 token beside it as `.tsr`. These files must never change. The 4-year `evidence/` rule above already covers them, but acceptance retention is the life of the account plus six years, which has no fixed end, so they get their own rule held indefinitely. When two rules cover a key, the longer one wins. The rule protects files written before it too. `ops:verify-acceptance-chain` reports `LOCK MISSING` as a failure when no rule covers the prefix, and `LOCK NOT INDEFINITE`, also a failure, when only the 4-year rule does (legal ruling 2026-11-17).
+
+**Operator step right after the AECI-1680 deploy reaches each tier: add the lock, then run the verify.** Do it before that tier's first 18:00 UTC export if you can. Until the rule exists, a chain file can be overwritten. The DigiCert token stays the backstop, because an account admin can remove a lock rule. Chris runs these by hand from the repo root, logged in to the WBS Project account. An agent never runs them. Each asks for confirmation. An indefinite rule cannot lapse, and a bucket with it can never be emptied while it exists. Legal ruled for the indefinite rule on 2026-11-17, so do not swap in a fixed term. Staging first, after the deploy that carries migration `0125`:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-staging --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Demo, after the promote to demo:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-demo --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Production, after the promote to production:
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock add aeci-uploads-production --name acceptance-chain --prefix evidence/acceptance-chain/ --retention-indefinite
+```
+
+Check each with the next command. It should list `evidence-4y` and `acceptance-chain`, the second with prefix `evidence/acceptance-chain/` and condition `indefinitely`.
+
+```
+pnpm --filter @aeci/api exec wrangler r2 bucket lock list aeci-uploads-production
+```
+
+Then run the verify on that tier. It must print `LOCK:  LOCKED`. `LOCK MISSING` and `LOCK NOT INDEFINITE` are both failures.
+
+```
+pnpm --filter @aeci/api ops:verify-acceptance-chain -- --env production
+```
 
 Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.
 

@@ -9,20 +9,27 @@ import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
-import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { correctionLabel } from '../shared/field-caption/correction-labels';
+import type { FieldCaptionPage } from '../shared/field-caption/field-caption';
+import {
+  correctionsInSlots,
+  isUnderReview,
+  countUnderReview,
+} from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
-import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import {
+  ListingProvenance,
+  type ProvenanceCorrection,
+} from '../shared/listing-provenance/listing-provenance';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
-import { CompanyFacts } from './company-facts';
+import { COMPANY_FACT_FIELDS, CompanyFacts } from './company-facts';
 import { VendorProductRow } from './vendor-product-row';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
@@ -37,6 +44,14 @@ const HERO_LINK_FIELDS = [
   'facebook_url',
   'instagram_url',
 ] as const;
+
+/** Every field this page marks "Under review" in its slot: the hero links, the description
+ *  and the Company facts rows (AECI-1666). The panel's count reads this list. */
+const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
+  ...HERO_LINK_FIELDS,
+  'description',
+  ...COMPANY_FACT_FIELDS,
+];
 
 /**
  * AECI-59 — Vendor detail page at `/vendors/:slug`.
@@ -88,11 +103,10 @@ const HERO_LINK_FIELDS = [
     CompanyFactsNote,
     DetailLayout,
     ExternalLinkTracker,
-    FieldCaptionLine,
+    ListingProvenance,
     LogoOrInitial,
     UnclaimedNote,
     MailingListSignup,
-    MaintenanceMarker,
     NewTabIcon,
     NotFound,
     RequestDrawer,
@@ -145,34 +159,17 @@ const HERO_LINK_FIELDS = [
               />
             }
             <div class="min-w-0 space-y-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <p
-                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                  i18n="@@vendors.detail.eyebrow"
-                >
-                  Vendor
-                </p>
-                <aec-maintenance-marker
-                  [maintainedBy]="v.maintenance.maintained_by"
-                  [reviewedAt]="v.maintenance.last_reviewed_at"
-                  [ownerName]="v.company_name"
-                />
-              </div>
+              <p
+                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                i18n="@@vendors.detail.eyebrow"
+              >
+                Vendor
+              </p>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ v.company_name }}
               </h1>
-              <!-- AECI-1628: AECi replaced or removed the logo the vendor holds. The logo
-                   sits beside this column, so the line names it. -->
-              @if (logoCorrection(); as c) {
-                <aec-field-caption
-                  data-testid="logo-correction"
-                  [correction]="c"
-                  [label]="logoLabel"
-                  [page]="captionPage()"
-                />
-              }
               <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
                    image, with counsel's wording directly beside it. -->
               @if (v.claim_status === 'unclaimed') {
@@ -243,22 +240,6 @@ const HERO_LINK_FIELDS = [
             }
           </div>
 
-          <!-- AECI-1614: AECi's corrections on the facts in the row above. That row is
-               chips and icons in one wrap, with no room under any one value, so each line
-               names its field. AECI-1628: a removal reads "Removed by" here too, since the
-               value it removed has no slot left on the page. Corrected only: this page takes no Maintained caption
-               (ruling 2026-11-05). -->
-          @if (factCorrections().length > 0) {
-            <div class="space-y-1" data-testid="vendor-corrections">
-              @for (entry of factCorrections(); track entry.correction.field) {
-                <aec-field-caption
-                  [correction]="entry.correction"
-                  [label]="entry.label"
-                  [page]="captionPage()"
-                />
-              }
-            </div>
-          }
           <!-- AECI-1238 (§11d.7): a link AECi hid while it checks it. Its icon is gone
                from the row above, so each line names the field. -->
           @if (linksUnderReview().length > 0) {
@@ -403,6 +384,23 @@ const HERO_LINK_FIELDS = [
           <aec-company-facts-note class="block sm:col-span-2 lg:col-span-1" />
         </div>
 
+        <!-- AECI-1666: "About this listing", the page's one provenance panel. A card at
+             the end of the sidebar from lg. Below lg the disclosure copy at the end of
+             the body takes over, so only this copy carries the test id. Corrections
+             only: this page takes no Maintained caption (ruling 2026-11-05). -->
+        <aec-listing-provenance
+          slot="metadata"
+          data-testid="listing-provenance"
+          variant="card"
+          [maintainedBy]="v.maintenance.maintained_by"
+          [reviewedAt]="v.maintenance.last_reviewed_at"
+          [ownerName]="v.company_name"
+          [claimed]="v.claim_status !== 'unclaimed'"
+          [corrections]="provenanceCorrections()"
+          [underReviewCount]="underReviewCount()"
+          [page]="captionPage()"
+        />
+
         <!-- About goes in the LEAD slot so the metadata panel lands under it below
              xl instead of at the foot of the page. See DetailLayout. -->
         <div slot="body-lead" class="space-y-12">
@@ -539,6 +537,17 @@ const HERO_LINK_FIELDS = [
               </div>
             }
           </section>
+
+          <aec-listing-provenance
+            variant="disclosure"
+            [maintainedBy]="v.maintenance.maintained_by"
+            [reviewedAt]="v.maintenance.last_reviewed_at"
+            [ownerName]="v.company_name"
+            [claimed]="v.claim_status !== 'unclaimed'"
+            [corrections]="provenanceCorrections()"
+            [underReviewCount]="underReviewCount()"
+            [page]="captionPage()"
+          />
         </div>
       </aec-detail-layout>
 
@@ -615,44 +624,40 @@ export class VendorDetailPage {
     entityId: this.vendor()?.id ?? '',
   }));
 
-  protected readonly logoLabel = fieldOverrideLabel('logo_url');
-
-  /** AECi's correction on the logo (AECI-1628): a replacement while it shows, a removal
-   *  while there is none. */
-  protected readonly logoCorrection = computed(() => {
+  /**
+   * The corrections "About this listing" names (AECI-1666, §4.5.8). A correction that set a
+   * value is listed while that value renders: the logo and the hero links. One that cleared
+   * a value is listed where the page would have shown it, which takes in headquarters and
+   * founded year. Those two are removal-only slots: the Company facts row already says who
+   * set a value it shows. A correction on a field the page never renders (the phone
+   * number, say) would point at nothing, so it is left out.
+   */
+  protected readonly provenanceCorrections = computed<readonly ProvenanceCorrection[]>(() => {
     const v = this.vendor();
-    return v ? correctionInSlot(v.corrections, 'logo_url', !!v.logo_url) : null;
+    if (!v) return [];
+    return correctionsInSlots(v.corrections, {
+      logo_url: !!v.logo_url,
+      website: !!v.website,
+      linkedin_url: !!v.linkedin_url,
+      x_url: !!v.x_url,
+      youtube_url: !!v.youtube_url,
+      facebook_url: !!v.facebook_url,
+      instagram_url: !!v.instagram_url,
+      headquarters: false,
+      founded_year: false,
+    }).map((correction) => ({ correction, label: correctionLabel(correction.field) }));
   });
 
   /**
-   * The corrections whose slot this page shows. A correction that set a value shows while
-   * that value renders in the row above. One that cleared a value (AECI-1628) shows as
-   * "Removed by" in its place, which takes in headquarters and founded year too: the
-   * Company facts panel names a correction on its own row, but only while the row has a
-   * value. A correction on a field the page never renders (the phone number, say) has no
-   * slot.
+   * How many values the panel says are under review (AECI-1666): only the ones this page
+   * marks. Those are the hero links, the description and the Company facts rows, the same
+   * lists the template and `aec-company-facts` mount `aec-under-review` from. A hidden
+   * field the page never renders (the phone number, say) has no marker, so it is not
+   * counted.
    */
-  protected readonly factCorrections = computed(() => {
-    const v = this.vendor();
-    if (!v) return [];
-    const shown: Readonly<Record<string, unknown>> = {
-      website: v.website,
-      linkedin_url: v.linkedin_url,
-      x_url: v.x_url,
-      youtube_url: v.youtube_url,
-      facebook_url: v.facebook_url,
-      instagram_url: v.instagram_url,
-    };
-    const removable = new Set([...Object.keys(shown), 'headquarters', 'founded_year']);
-    return (v.corrections ?? [])
-      .filter((correction) =>
-        correction.cleared
-          ? removable.has(correction.field) &&
-            (shown[correction.field] == null || shown[correction.field] === '')
-          : shown[correction.field] != null && shown[correction.field] !== '',
-      )
-      .map((correction) => ({ correction, label: fieldOverrideLabel(correction.field) }));
-  });
+  protected readonly underReviewCount = computed(() =>
+    countUnderReview(this.vendor()?.under_review, UNDER_REVIEW_MARKED_FIELDS),
+  );
 
   /** AECI-1238 (§11d.7): the company description is hidden while AECi checks it. */
   protected readonly descriptionUnderReview = computed(() =>
@@ -667,7 +672,7 @@ export class VendorDetailPage {
     const v = this.vendor();
     if (!v) return [];
     return HERO_LINK_FIELDS.filter((field) => isUnderReview(v.under_review, field)).map(
-      (field) => ({ field, label: fieldOverrideLabel(field) }),
+      (field) => ({ field, label: correctionLabel(field) }),
     );
   });
 

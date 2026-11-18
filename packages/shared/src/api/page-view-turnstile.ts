@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 
-import { TURNSTILE_TOKEN_MAX } from './page-views';
+import { CF_RAY_PATTERN, TURNSTILE_TOKEN_MAX } from './page-views';
 
 /**
  * The three Cloudflare Turnstile verdicts `page_views.turnstile_verdict` stores
@@ -33,7 +33,7 @@ export type TurnstileVerdict = (typeof TURNSTILE_VERDICTS)[number];
  * `x-aeci-cf-ray` header.
  */
 export const TurnstileVerdictPostSchema = z.object({
-  cf_ray: z.string().regex(/^[0-9a-f]{16}(-[A-Z]{3,4})?$/i),
+  cf_ray: z.string().regex(CF_RAY_PATTERN),
   token: z.string().min(1).max(TURNSTILE_TOKEN_MAX),
 });
 

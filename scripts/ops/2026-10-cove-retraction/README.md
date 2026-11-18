@@ -65,7 +65,7 @@ pnpm --filter @aeci/api ops:retract-product -- --id 5d33a95e-b2c1-456d-a693-f440
 pnpm --filter @aeci/api ops:retract-vendor -- --id ea586005-82d8-4f59-897c-255d3b28fd66 --env production --apply --allow-production --confirm-count 1
 ```
 
-Neither CLI marks the sitemap dirty (`docs/RUNBOOKS.md`, "Sitemap is stale"), so the marker was
+Neither CLI marks the sitemap dirty (`docs/runbooks/alerts.md`, "Sitemap is stale"), so the marker was
 put by hand from `apps/api`:
 
 ```

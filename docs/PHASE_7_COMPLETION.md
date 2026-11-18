@@ -50,7 +50,7 @@ _This checkpoint changes **only docs** (this report, the launch-cutover runbook,
 > **AECI-244 is still open.** The VoiceOver and NVDA speech layer, dialog focus management, and the
 > review-form `Tab` walk remain — see `ACCESSIBILITY_AUDIT.md` §6 and the checklist §6/§7 scripts.
 
-**What this checkpoint delivers (docs only — §4):** this report; the **DNS-cutover runbook** the AC requires (`docs/launch-cutover-runbook.md`, incl. a drafted Resend waitlist broadcast); the **a11y manual-testing checklist** (7.10's repeatability deliverable); the **§16 Phase 7 checkbox** staleness fix; and a `CLAUDE.md` source-of-truth row for the runbook.
+**What this checkpoint delivers (docs only — §4):** this report; the **DNS-cutover runbook** the AC requires (`docs/runbooks/launch-cutover.md`, incl. a drafted Resend waitlist broadcast); the **a11y manual-testing checklist** (7.10's repeatability deliverable); the **§16 Phase 7 checkbox** staleness fix; and a `CLAUDE.md` source-of-truth row for the runbook.
 
 **What is *not* green — and why none is a Phase 7 build defect:**
 
@@ -74,7 +74,7 @@ None blocks a merge of *this checkpoint*; each is a launch-day/ops step tracked 
 | 3 | ~~PostHog + Loops~~ **PostHog + Resend** live; data-quality job running + emailing; IndexNow firing on writes | ⚠️ | **Code shipped ✅, live requires secrets ⚠️.** "Loops"→Resend/PostHog (§1). PostHog `analytics/posthog-client.ts` (gated `POSTHOG_KEY`); Resend `lib/email.ts` (gated `RESEND_API_KEY`); data-quality `scheduled.ts:151` `DATA_QUALITY_CRON='0 4 * * *'` → `runDataQualityJob` (`lib/data-quality.ts` + `data-quality-email.ts`); IndexNow `promote.ts` `notifyIndexNowAfterPromote` → `lib/indexnow.ts` (gated `INDEXNOW_KEY`+`PUBLIC_SITE_URL`) — *renamed to `bufferIndexNowAfterPromote` and no longer submitting, AECI-826; the `*/20` drain cron does.* **Secrets/deploy → §F2.** |
 | 4 | WAF rate limits active; cross-browser smoke (BrowserStack 7.8) green; **screen-reader pass done**; perf/CWV within budget | ⚠️ | **WAF active ✅** (`docs/waf-rate-limits.md` — 2 Pro rules + scraper block live; hourly Datadog poll `scheduled.ts:160` `WAF_CRON`, needs `CF_ANALYTICS_API_TOKEN` → §F2). **BrowserStack ⚠️** — lane wired, inert until `BROWSERSTACK_*` → §F4. **Screen-reader ⚠️ — waived here, run later.** Carried Done at this gate per Chris's instruction; the pass itself ran **2026-09-09** and found three serious AA failures → `docs/ACCESSIBILITY_AUDIT.md`. See the 2026-09-09 addendum in §1. **Perf/CWV ✅** `docs/PERFORMANCE_AUDIT.md` (AECI-245); warn-level Lighthouse perf misses noted there. |
 | 5 | Full Stage-1 acceptance: home/search/detail/auth/reviews/requests/admin green on staging; ~~both themes~~ light theme; axe + Lighthouse; no console errors; `ng extract-i18n` clean | ⚠️ | **CI-green ✅, deployed-staging run ⚠️.** All surfaces routed (§2b surface table). "both themes"→light-only (§1). axe + Lighthouse a11y≥95 + console-health enforced in CI (AECI-65/162/188); `ng extract-i18n` verification in §"Verification". **Live staging full-surface pass with real auth → §F3.** |
-| 6 | ~~Loops~~ **Resend** waitlist campaign drafted + ready to send; DNS-cutover runbook prepared (the 7.13 step) | ✅ | **Runbook created:** `docs/launch-cutover-runbook.md` (built from §11.2 + `environments.md` apex-cutover steps), incl. a **drafted Resend waitlist broadcast** (subject + body) → "campaign drafted + ready to send." The actual send + DNS flip are 7.13 ops (AECI-247), out of scope. |
+| 6 | ~~Loops~~ **Resend** waitlist campaign drafted + ready to send; DNS-cutover runbook prepared (the 7.13 step) | ✅ | **Runbook created:** `docs/runbooks/launch-cutover.md` (built from §11.2 + `environments.md` apex-cutover steps), incl. a **drafted Resend waitlist broadcast** (subject + body) → "campaign drafted + ready to send." The actual send + DNS flip are 7.13 ops (AECI-247), out of scope. |
 | 7 | Outstanding items → follow-up issue or explicit punt to Stage 2 | ✅ | Four punts written in §3 (F1 counsel review, F2 launch secrets/ops, F3 deployed-staging acceptance, F4 BrowserStack sweep). Per the checkpoint convention, they're **documented as punts for Chris to file** — this gate creates no Linear issues. Spec'd Stage-2 deferrals listed in §3 "Not a defect." |
 
 ### 2b. §16 Phase 7 build-order bullets (7.1–7.11)
@@ -112,7 +112,7 @@ None blocks a merge of *this checkpoint*; each is a launch-day/ops step tracked 
 
 ## 3. Outstanding items — follow-ups & punts
 
-> Per the checkpoint convention (Phase 2–6, per Chris's standing instruction), outstanding items are **documented here as punts for Chris to file**; this checkpoint creates no Linear issues. All four are **launch-day / cutover** steps captured in `docs/launch-cutover-runbook.md`.
+> Per the checkpoint convention (Phase 2–6, per Chris's standing instruction), outstanding items are **documented here as punts for Chris to file**; this checkpoint creates no Linear issues. All four are **launch-day / cutover** steps captured in `docs/runbooks/launch-cutover.md`.
 
 ### F1 — Counsel legal review + publish (human launch gate)
 
@@ -151,7 +151,7 @@ _This checkpoint changed **only documentation** — no application logic. The Ph
 
 The Phase 7 launch-readiness verification: AC + §16-bullet mapping with file:line evidence, the four launch punts (§3), and the two stale-AC corrections ("both themes"→light-only, "Loops"→Resend/PostHog).
 
-### 4.2 DNS-cutover runbook (`docs/launch-cutover-runbook.md`)
+### 4.2 DNS-cutover runbook (`docs/runbooks/launch-cutover.md`)
 
 The AC6 deliverable — the go-live runbook for 7.13 (AECI-247), built from §11.2 + `docs/environments.md`'s apex-cutover steps: pre-cutover gates, the ordered cutover (provision launch secrets → `ALLOW_INDEXING="true"` → `PUBLIC_SITE_URL`→`www.` → move `aecintegrations.com`+`www` off the landing Worker onto `aeci-web-production` → apex→`www` 301 (canonical host is `www.`, ADR 0011 amendment 2026-07-05) → one-time **Resend** waitlist broadcast), a **drafted broadcast email** (subject + body — the "campaign drafted + ready to send"), post-cutover verification (dual `/api/version`+`/_version` SHA gate, indexable headers, sitemap, IndexNow ping, RUM CWV), and a rollback note. Added a `CLAUDE.md` source-of-truth row for it.
 

@@ -32,7 +32,7 @@
  *
  * `category.created` / `audience.created` / `phase.created` were templated in
  * promote.ts too. Promote stopped minting terms in AECI-1048, so nothing writes
- * them now. They stay mapped because `audit_log` is never pruned and production
+ * them now. They stay mapped because `audit_log` rows are kept four years and production
  * holds rows with them.
  */
 
@@ -130,6 +130,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // AECI-1636: the daily sweep removed the IP address and browser from acceptances
   // older than 90 days. One row per batch, no vendor.
   'agreement.evidence_removed': $localize`:@@admin.audit.action.agreementEvidenceRemoved:IP address and browser removed from acceptances`,
+  // AECI-1637: the sign-in Terms of Service acceptance, and its 90-day evidence sweep.
+  'terms.accepted': $localize`:@@admin.audit.action.termsAccepted:Terms of Service accepted`,
+  'terms.evidence_removed': $localize`:@@admin.audit.action.termsEvidenceRemoved:IP address and browser removed from Terms acceptances`,
   'vendor_request.resolved': $localize`:@@admin.audit.action.requestResolved:Request approved`,
   'vendor_request.rejected': $localize`:@@admin.audit.action.requestRejected:Request rejected`,
   'vendor_request.status_changed': $localize`:@@admin.audit.action.requestStatusChanged:Request status changed in Linear`,
@@ -244,6 +247,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
 
   // ── Email (AECI-1224) ─────────────────────────────────────────────────────
   'notification_settings.updated': $localize`:@@admin.audit.action.notificationSwitchUpdated:Sending switch changed`,
+
+  // ── Copyright notices (AECI-1665) ─────────────────────────────────────────
+  'dmca_notice.created': $localize`:@@admin.audit.action.dmcaNoticeCreated:Copyright notice logged`,
+  'dmca_notice.updated': $localize`:@@admin.audit.action.dmcaNoticeUpdated:Copyright notice edited`,
+
+  // ── Litigation holds (AECI-1638) ──────────────────────────────────────────
+  'litigation_hold.placed': $localize`:@@admin.audit.action.litigationHoldPlaced:Litigation hold placed`,
+  'litigation_hold.released': $localize`:@@admin.audit.action.litigationHoldReleased:Litigation hold released`,
 
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,

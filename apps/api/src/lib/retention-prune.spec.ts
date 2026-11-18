@@ -282,7 +282,7 @@ describe('runRetentionPrune', () => {
     expect(await tally(pageViews)).toBe(2);
     expect(await tally(jobRuns)).toBe(1);
     // No delete → no batch → no audit row. A no-op run has no fact to preserve,
-    // and `audit_log` is kept indefinitely (§26.6).
+    // and `audit_log` rows are kept four years (§26.6, AECI-1638).
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
@@ -625,17 +625,21 @@ describe('runRetentionPrune', () => {
     expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
   });
 
-  it('never prunes agreement acceptances or license grants (AECI-1615, counsel Q5(c))', async () => {
-    expect(NEVER_PRUNED).toEqual(['agreement_acceptances', 'license_grants']);
-    for (const table of NEVER_PRUNED) {
+  it('never prunes agreement acceptances, license grants or Terms acceptances (AECI-1615, AECI-1637, AECI-1638)', async () => {
+    // AECI-1638: the two acceptance tables left NEVER_PRUNED for the legal prune
+    // (`./legal-retention-prune`). This 400-day module still never touches them.
+    expect(NEVER_PRUNED).toEqual(['terms_acceptances']);
+    for (const table of ['agreement_acceptances', 'license_grants', ...NEVER_PRUNED]) {
       expect(PRUNABLE as readonly string[]).not.toContain(table);
     }
-    // The module never names either table in a statement it builds.
+    // The module never names any of the three tables in a statement it builds, and only
+    // names `terms_acceptances` as the one NEVER_PRUNED literal.
     const source = readFileSync(join(process.cwd(), 'src/lib/retention-prune.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '');
-    expect(source).not.toMatch(/agreementAcceptances|licenseGrants/);
-    expect(source.match(/'agreement_acceptances'|'license_grants'/g)).toHaveLength(2);
+    expect(source).not.toMatch(/agreementAcceptances|licenseGrants|termsAcceptances|auditLog\b/);
+    expect(source).not.toMatch(/'agreement_acceptances'|'license_grants'|'audit_log'/);
+    expect(source.match(/'terms_acceptances'/g)).toHaveLength(1);
   });
 
   it('keeps recrawl_submission_causes forever — it is not prunable (AECI-1184)', async () => {

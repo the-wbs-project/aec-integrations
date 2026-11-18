@@ -59,7 +59,7 @@ eventually it will be.
 | Request / correction description text | `request_id`, `target_type`, `slug` | Same as review bodies. The description frequently names individuals at a vendor. |
 | Vendor contact names, phone numbers | `vendor_id` | Direct identifiers with no analytical use. |
 | Anything from a form the user typed | the outcome of the submission | If you find yourself wanting the input, what you actually want is a funnel step. |
-| A raw URL containing a token | the route pattern | Unsubscribe, digest-mute and magic-link URLs carry credentials. The SDK's own URL properties are scrubbed for you: a `before_send` hook (`apps/web/src/app/analytics/posthog-url-sanitizer.ts`) strips the `token` query parameter from `$current_url`, `$referrer`, `$pathname`, their `$initial_*` copies and the `$session_entry_*` copies the SDK puts on every event of a session. It does not scrub a URL you put in a property of your own. |
+| A raw URL containing a token | the route pattern | Unsubscribe, digest-mute and magic-link URLs carry credentials. The SDK's own URL properties are scrubbed for you: a `before_send` hook (`apps/web/src/app/analytics/posthog-url-sanitizer.ts`) strips the `token` query parameter from `$current_url`, `$referrer`, `$pathname`, their `$initial_*` copies and the `$session_entry_*` copies the SDK puts on every event of a session. It also strips every `ng.form*` parameter, the name Signal Forms gives a field, so a form answer that reached the address never reaches PostHog (AECI-1919). It does not scrub a URL you put in a property of your own. |
 
 **The "How did you find us?" follow-up is form input (AECI-1063).** The channel
 enum may ride an event as `found_via`. The free-text answer (`found_via_detail`)
@@ -178,7 +178,7 @@ most important thing to understand before reading any chart here.
 | **1 — server** | always, no consent concept | Worker logs, all metrics, audit forwards, deploy markers | n/a |
 | **2 — browser operational** | **every visitor, including DNT/GPC** | errors, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie |
 | **3 — product analytics** | consented visitors only; DNT/GPC are a hard deny | `$pageview` + the event catalogue above, `identify`, groups | localStorage |
-| **`page_views` (D1, not PostHog)** | every visitor; DNT/GPC become an anonymous counter row | page, hour, country, coarse verdicts. For DNT/GPC: no UA hash, network, Ray ID, referrer host, link token or raw envelope | none in the browser |
+| **`page_views` (D1, not PostHog)** | every visitor; DNT/GPC become an anonymous counter row | page, hour, country, coarse verdicts, and the browser report (`browser_evidence`, AECI-1713), which is a column on this row and never a PostHog event. For DNT/GPC: no UA hash, network, Ray ID, referrer host, link token, browser report or raw envelope | none in the browser |
 
 Consequences you must hold in your head when reading a number:
 
@@ -212,6 +212,34 @@ Consequences you must hold in your head when reading a number:
   visitor with no known location (AECI-1581, `CACHE_STRATEGY.md` §4a.1). Their verdict
   stays null. Staging and demo sit behind Cloudflare Access, so only allowlisted
   visitors run the check there. AECI-1529 removes the exclusion after AECI-1458 closes.
+- **The browser report (AECI-1714, epic AECI-1711).** The page tracker tells us
+  whether our page script ran and whether a person then touched the page. It posts
+  one word per page load, `ran` or `interacted`, with that load's Ray ID, to
+  `POST /api/page-views/browser-evidence` (`API_CONTRACTS.md` §6.9). The API stores it
+  in `page_views.browser_evidence` on the row that ray names. It is a column on our own
+  census row. **It is never a PostHog event or property**, so the telemetry sentence in
+  the privacy policy stays true. Code: `app/core/browser-evidence-config.ts` and
+  `PageViewTracker`.
+  - **What it posts.** A landing view posts `ran` once the app has started, with the
+    document's `Server-Timing: cfray` ray. It posts `interacted` on the first
+    `pointerdown`, `keydown`, `wheel` or `touchstart`, once per view. An in-app view
+    posts only `interacted`, because its `browser-spa` row is written with `ran`. Its
+    ray comes from the `Server-Timing` header of its own `POST /api/page-views`
+    response. No ray means nothing is posted for that view, which is always the case
+    in local dev. At most one post per word per view, through `fetch` with `keepalive`.
+  - **Three gates, all checked before any post.** (1) The tier's switch: the SSR
+    Worker injects `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` only when the
+    wrangler var `BROWSER_EVIDENCE_ENABLED` is `"true"` (`docs/environments.md`).
+    Production is `"false"` until Privacy Policy 1.1 is in force (AECI-1715). (2) No
+    DNT or GPC signal. (3) No `Server-Timing: geo;desc="eu"` stamp, so nothing is sent
+    from the EEA, the UK or Switzerland (ruling 21). A browser that exposes no
+    `serverTiming` sends nothing. The DNT/GPC and region checks are the same functions
+    Turnstile uses (`turnstile-config.ts`). The API refuses privacy and held-region
+    rows as well.
+  - **Nothing is written to the browser.** No `localStorage`, `sessionStorage`, cookie
+    or IndexedDB. Not on `/admin` or `/account`.
+  - `ran` is never human evidence. Crawlers run our bundle (AECI-1710). The planned
+    human floor is `interacted` (`BOT_TRAFFIC_CLASSIFICATION.md` §2.11).
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error
   counts are therefore **occurrence** counts, not affected-visitor counts. That
   is the accepted price of running ops telemetry without asking permission.
@@ -618,6 +646,12 @@ is a 400 before that point and writes nothing.
   token. A landing view's verdict arrives later by UPDATE on the D1 row, so it is never in an envelope.
 - `ip_hash` is `HMAC(HMAC(secret, 'YYYY-MM'), ip)`. The same address matches within a UTC month and not
   across months. It is null when the secret or the IP is absent.
+  No month key is stored, so "monthly rotation" destroys nothing: every past month's hash can be
+  recomputed while `PAGE_VIEW_IP_HASH_SECRET` survives. A litigation hold therefore keeps that secret
+  unchanged, and copies the affected objects out of the 400-day lifecycle (`docs/runbooks/legal.md`
+  "Subpoena or legal process for a reviewer's identity", AECI-1622). The litigation hold switch on
+  `/admin/legal` (AECI-1638, ADR 0058) stops only the legal retention prune of audit and
+  acceptance records. It does not stop this lifecycle, so the copy-out step still applies.
 
 **What is never in it.** `cookie`, `authorization` and every `cf-access-*` header (the
 Cloudflare Access session JWT, user email and service token on gated tiers). Every IP-bearing header
@@ -662,7 +696,7 @@ The stream has no schema, so the sink has one `value` column holding the envelop
 with `json_extract_string(value, '$.path')`. Do not paste real keys into a shared file.
 
 **Health.** Metric `aeci.pageviews.raw`, alert `pageviews-raw-unsent`, runbook "Raw page-view store missed
-a capture" in `RUNBOOKS.md`. Locally the binding is absent and the write is counted `skipped`
+a capture" in `docs/runbooks/alerts.md`. Locally the binding is absent and the write is counted `skipped`
 (`local-dev.md`).
 
 **Consent.** A capture with `DNT: 1` or `Sec-GPC: 1` writes no envelope, on any outcome (AECI-1386). It
@@ -722,7 +756,7 @@ is the security record. Since AECI-1386 it is also the only record of request de
 visit. The privacy policy says so.
 
 **Health.** Cloudflare's "Logpush job disabled" email to Chris. Runbook "Logpush job disabled" in
-`RUNBOOKS.md`. A missed day is lost unless a GraphQL pull fills it in time.
+`docs/runbooks/alerts.md`. A missed day is lost unless a GraphQL pull fills it in time.
 
 ## 11b. Self-reported attribution
 
@@ -841,7 +875,104 @@ Join a classification to its view on `page_view_classifications.page_view_id = p
 classification objects with the same `read_json` call and their own path.
 
 **Health.** Metric `aeci.pageviews.archive`, alert `pageviews-archive-failed`, runbook "page_views
-archive failed" in `RUNBOOKS.md`.
+archive failed" in `docs/runbooks/alerts.md`.
+
+## 11d. Plan-change ranking snapshots
+
+**Answer first.** Every time a plan starts or ends on a product, AECi writes two JSON snapshots of that
+product's ranking to R2: one at the event and one 30 days later. They are kept at least four years under
+an R2 bucket lock, so nobody can delete or overwrite them. They are the records behind the Terms' "never
+influenced by payment" (`SEARCH_RANKING.md` §7a, counsel Q23). Decision: ADR 0056.
+
+**What it is.** One JSON object per snapshot, written by the 15-minute `plan-snapshot` sweep
+(`apps/api/src/lib/plan-snapshot-sweep.ts`) into the existing `UPLOADS` bucket of each tier:
+`aeci-uploads-staging`, `aeci-uploads-demo` and `aeci-uploads-production`. Local dev writes the local
+emulated bucket. The ledger `plan_change_snapshots` (`DATABASE_SCHEMA.md` §9.16) lists every snapshot
+and its key.
+
+| Key | Holds |
+|---|---|
+| `evidence/plan-snapshots/product=<product id>/<event_at>-<start\|end>-<event\|followup>-<row id>.json` | One snapshot |
+
+Listing one product's prefix returns its snapshots in date order. Each object's `customMetadata` holds
+`schema`, `sha256`, `product_id`, `kind` and `phase`.
+
+**The snapshot.** `schema` (1), the ledger row (`snapshot_id`, `product_id`, `kind`, `phase`, `cause`,
+`license_id`, `event_at`), `taken_at`, `commit_sha`, and:
+
+- `plan_now`: whether a live license is on the product at `taken_at`. Context, not an input.
+- `product`: slug, name, hidden, promotion status. NULL with `reason: "product_missing"` for a
+  retracted product.
+- `inputs`: `listing_tier` and its inputs (`productListingTier`), review count, both rating averages,
+  `created_at`, integration count, and `algolia_record`, the record the sync would write now
+  (`toAlgoliaProduct`), or NULL when the sync would delete it. If the transform throws,
+  `algolia_record_error` says why and the rest of the snapshot is kept.
+- `positions`: one entry per list, `{ list, sort, rank, of }`. `/products` and each taxonomy page the
+  product is on, under the default `created` order through `buildProductsWhere` and
+  `resolveProductOrderBy`, and `home:most-integrated` under the home stat's own order. `rank` is
+  1-based, NULL when the product is not in the list.
+
+Positions are computed from live D1 at `taken_at`, not from cached pages or the Algolia index.
+Algolia's Newest replica uses whole-second timestamps and different tie breakers, and its sync can
+lag D1, so a saved D1 position is not a search position. `algolia_record` is the record the sync
+would write, not the stored index record. See `SEARCH_RANKING.md` §7a.
+
+No personal data: no actor, no email, no billing account. The vendor's company name rides in the
+search record, as on the public page.
+
+**The lock.** One rule per bucket on the prefix `evidence/`, retention 1461 days (4 years). Chris adds
+it by hand after the first deploy (`docs/environments.md` "Logo storage deployment"). R2 refuses an
+overwrite or a delete of a locked object, so the sweep checks for the key before it writes, and adopts
+an object an earlier run left behind. A lock rule on the bucket also stops anyone emptying the bucket.
+
+**Reading it.** No live request reads a snapshot. `runbooks/legal.md` "Pull the ranking evidence for a
+product" gives the D1 query and the `wrangler r2 object get` command.
+
+**Health.** Metric `aeci.plan_snapshot.run` (the liveness heartbeat), the `plan-snapshot` row on
+`/admin/system`, and the `plan_snapshot_overdue` data-quality check for a row still unwritten 24 hours
+after it was due. Runbook "Plan-change snapshot sweep" in `docs/runbooks/alerts.md`.
+
+## 11e. The acceptance chain
+
+**Answer first.** Each night AECi writes the SHA-256 fingerprints of the agreement acceptance and
+license grant rows that changed to one hash-chained JSON file in R2, and DigiCert timestamps it. The
+files are held by an indefinite R2 bucket lock. They prove an acceptance was not edited after the
+fact (counsel Q5(c), ruling 15). They are not a backup: they hold fingerprints, not rows. Decision:
+ADR 0057.
+
+**What it is.** One JSON file a night, written by the daily `acceptance-chain` job
+(`apps/api/src/lib/acceptance-chain-export.ts`, 18:00 UTC) into the existing `UPLOADS` bucket of each
+tier. Local dev writes the local emulated bucket. The ledger tables `acceptance_chain_exports` and
+`acceptance_chain_rows` (`DATABASE_SCHEMA.md` §9.17) record each file and each row's last fingerprint.
+
+| Key | Holds |
+|---|---|
+| `evidence/acceptance-chain/<seq, 6 digits>.json` | One night's file |
+| `evidence/acceptance-chain/<seq, 6 digits>.tsr` | DigiCert's RFC 3161 reply for that file's SHA-256 |
+
+Each file's `customMetadata` holds `schema`, `seq`, `sha256` and `prev_sha256`.
+
+**The file.** Canonical JSON, keys sorted, one trailing newline: `schema`
+(`aeci.acceptance-chain/1`), `seq`, `day`, `created_at`, `prev_sha256` (NULL at seq 1),
+`fingerprint_version` (1), `entries` and `state_sha256`. Each entry is `{ table, id, op, fingerprint,
+fields }`, where `op` is `upsert` or `delete` and a `delete` has no `fields`. `fields` holds only
+columns that are not personal: ids, versions, dates, statuses and `text_sha256`. `state_sha256` is one
+hash over every live row's `table:id:fingerprint` line, sorted.
+
+**No personal data.** No email, name, title, IP address or browser. The fingerprint covers the email
+and the signer's name, so a fingerprint stays in R2 after the D1 row is deleted. Chris accepted that
+(ruling 1A). `ip` and `user_agent` are not in the fingerprint at all.
+
+**The lock.** One rule per bucket on the prefix `evidence/acceptance-chain/`, held indefinitely. Chris
+adds it by hand after the deploy (`docs/environments.md` "Acceptance chain lock"). The job checks for
+the key before it writes, and adopts a file an earlier attempt left behind.
+
+**Reading it.** No live request reads the chain. `ops:verify-acceptance-chain` checks it end to end,
+and `runbooks/legal.md` "Prove an acceptance was not edited" gives the steps for one acceptance.
+
+**Health.** Metric `aeci.acceptance_chain.run` (the liveness heartbeat), the log line
+`aeci.acceptance_chain.timestamp_failed`, and the `acceptance-chain` row on `/admin/system`. Runbook
+"Acceptance chain export" in `docs/runbooks/alerts.md`.
 
 ## 12. Related
 

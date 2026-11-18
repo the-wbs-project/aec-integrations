@@ -373,6 +373,32 @@ export type JobRunDetail =
       truncated: boolean;
       cutoff: string;
     }
+  /** The 15-minute AECI-1621 plan-change snapshot sweep. `failed` rows stay due and the
+   *  next run retries them. `adopted` objects were written by an earlier run whose D1
+   *  stamp failed. A crash is a reason row. */
+  | {
+      job: 'plan-snapshot';
+      durationMs: number;
+      due: number;
+      written: number;
+      adopted: number;
+      failed: number;
+    }
+  /** The daily AECI-1680 acceptance chain export. `seq` is the file written (or adopted
+   *  from an earlier attempt). `tsa` is this file's DigiCert outcome: `failed` never fails
+   *  the run, and a later run backfills it. `tsaFailed` counts every DigiCert failure this
+   *  run, backfill included. A crash is a reason row. */
+  | {
+      job: 'acceptance-chain';
+      durationMs: number;
+      seq: number;
+      entries: number;
+      rows: number;
+      adopted: boolean;
+      tsa: 'granted' | 'failed';
+      backfilled: number;
+      tsaFailed: number;
+    }
   | {
       job: 'protest-reply-reminder';
       due: number;
@@ -467,6 +493,28 @@ export type JobRunDetail =
       /** AECI-1228: the archive step that ran before the prune. Absent on rows
        *  written before it. */
       archive?: RetentionArchiveDetail;
+    }
+  /** The daily AECI-1638 legal retention prune (ADR 0058). `tables` is always all three,
+   *  zeros included, without the ids: those are in the run's `retention.pruned` audit row.
+   *  `vendorHolds` counts the open vendor holds it respected. A global hold is the skip
+   *  variant below. */
+  | {
+      job: 'legal-retention-prune';
+      durationMs: number;
+      rowsDeleted: number;
+      vendorHolds: number;
+      tables: LegalRetentionTableDetail[];
+      /** The hold reminder that ran first: holds due, and each send's outcome. */
+      reminders?: HoldReminderDetail;
+      /** True when the first plan lost a race and this is the replan's result. */
+      replanned?: boolean;
+    }
+  | {
+      job: 'legal-retention-prune';
+      reason: 'litigation_hold' | 'concurrent_run';
+      vendorHolds: number;
+      tables: LegalRetentionTableDetail[];
+      reminders?: HoldReminderDetail;
     }
   /** The weekly §7.6 `asn_registry` refresh (AECI-624). Five counts, because the
    *  operator's question is never "did it run" but "how much of my traffic can
@@ -625,6 +673,21 @@ export interface RetentionPrunedTableDetail {
   cutoff: string;
   rowsDeleted: number;
   truncated: boolean;
+}
+
+/** The hold reminder's half of the legal retention prune's detail (AECI-1638). */
+export interface HoldReminderDetail {
+  due: number;
+  outcomes: Partial<Record<string, number>>;
+  error?: string;
+}
+
+/** The per-table half of the legal retention prune's detail (AECI-1638). */
+export interface LegalRetentionTableDetail extends RetentionPrunedTableDetail {
+  /** `audit_log` only: an open hold paused the four-year part. */
+  paused?: boolean;
+  /** `audit_log` only: `agreement.*` rows deleted with their acceptances. */
+  companionRowsDeleted?: number;
 }
 
 /**

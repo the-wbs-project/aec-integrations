@@ -27,7 +27,7 @@ Chris ruled on 2026-10-29.
 ## Consequences
 
 - **Rows outlive the prune.** History older than 400 days is read ad hoc from the archive. No live request reads it. `VENDOR_PERFORMANCE_SPEC.md` §3.7's rollup trigger now starts with "read the archive".
-- **The prune gains a precondition that can stall it.** A broken archive stops all pruning, `job_runs` included. The alert `pageviews-archive-failed` fires on any failed day or a missing production binding. The runbook is `RUNBOOKS.md` "page_views archive failed".
+- **The prune gains a precondition that can stall it.** A broken archive stops all pruning, `job_runs` included. The alert `pageviews-archive-failed` fires on any failed day or a missing production binding. The runbook is `docs/runbooks/alerts.md` "page_views archive failed".
 - **A partial prune is not a mismatch.** A truncated run leaves part of a day in D1. The ledger then counts more rows than D1 holds, which the gate allows. Nothing else deletes `page_views` rows.
 - **Cost.** One day is about 1,000 rows, under 100 KB gzipped. Each row is read once more, at 371 days. R2 storage grows by tens of MB a year.
 - **Two operator steps before merge.** Both buckets must exist before the deploy, because a deploy with a bound bucket that does not exist fails.

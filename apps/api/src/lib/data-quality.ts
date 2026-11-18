@@ -16,14 +16,15 @@
  * `review_mirror_drift` (AECI-1455) compares each owned vendor's ownership record
  * with the review app's mirror of it, over the review app's versions read.
  *
- * All but **two** check the *catalog*. `arrival_cf_coverage` (AECI-868) and
- * `landing_cf_coverage` (AECI-876) check the *telemetry pipeline* instead, which is a
+ * All but **three** check the *catalog*. `arrival_cf_coverage` (AECI-868),
+ * `landing_cf_coverage` (AECI-876) and `browser_evidence_coverage` (AECI-1715, the
+ * browser report path) check the *telemetry pipeline* instead, which is a
  * deliberate widening of what this suite is for: the four-day arrival-metadata outage
  * the first one guards produced no error, no alert and no visibly wrong number, so
  * nothing but a nightly ratio could have caught it. See `arrival-coverage.ts` for the
  * full argument.
  *
- * The two are siblings, not duplicates — Cloudflare context reaches D1 down two
+ * The first two are siblings, not duplicates — Cloudflare context reaches D1 down two
  * independent paths, and each watches one. `arrival_cf_coverage` watches the SSR
  * arrival write into `page_views` (`PAGE_VIEW_CF_HEADERS`, a GET); `landing_cf_coverage`
  * watches the lead-capture write into `mailing_list` (`LANDING_CF_HEADERS`, a POST).
@@ -41,21 +42,25 @@
  */
 
 import {
-  LEGAL_AGREEMENT_DOCUMENTS,
+  BROWSER_EVIDENCE_VALUES,
+  isHeldRegionCountry,
   LEGAL_IN_FORCE_MAPS,
   legalEffectiveAtMs,
+  legalPublishableUpcoming,
   legalPublishedRowMismatched,
   type LegalInForceMaps,
   OWNERSHIP_VERSIONS_MAX_IDS,
   OwnershipVersionsResponseSchema,
   ownershipVersionsUrl,
   type OwnershipVersionEntry,
+  PAGE_VIEW_WRITERS,
   VENDOR_SUSPENSION_WINDOW_BUSINESS_DAYS,
 } from '@aeci/shared';
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import type { AlgoliaLogoReader, LogoEntity } from './algolia-unclaimed-logo';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { businessWindowEnd } from './business-days';
 import { fieldHideDues } from './field-hide-dues';
@@ -92,6 +97,8 @@ import {
   listingHides,
   mailingList,
   ownershipSyncDeliveries,
+  pageViews,
+  planChangeSnapshots,
   products,
   productVendors,
   reviews,
@@ -154,6 +161,35 @@ export const LANDING_CF_COVERAGE_MIN = 0.9;
  */
 export const LANDING_CF_COVERAGE_MIN_ROWS = 10;
 
+/**
+ * The minimum share of a day's Turnstile-pass arrivals that must carry a browser
+ * report before `browser_evidence_coverage` fails (AECI-1715).
+ *
+ * **A starting value, not a ruling.** No production day has been measured yet. AECI-1715
+ * records the first production reading, and the floor moves to fit it. Some loss is
+ * expected: a tab closed before the report, a blocker on our own endpoint. Read it with
+ * {@link BROWSER_EVIDENCE_COVERAGE_MIN_ROWS}.
+ */
+export const BROWSER_EVIDENCE_COVERAGE_MIN = 0.8;
+
+/**
+ * Below this many Turnstile-pass arrivals in the day, `browser_evidence_coverage`
+ * reports "nothing to measure" and passes (AECI-1715).
+ *
+ * **A starting value, not a ruling**, recorded with the first production reading on
+ * AECI-1715. Twenty lets four missing reports pass at the 0.8 floor, so one odd row
+ * never fails a quiet day.
+ */
+export const BROWSER_EVIDENCE_COVERAGE_MIN_ROWS = 20;
+
+/**
+ * Whether this tier captures the browser report (AECI-1715). Only `"true"` counts.
+ * Mirrors the SSR Worker's var of the same name, which the API cannot read.
+ */
+export function browserEvidenceCaptureEnabled(env: Pick<Env, 'BROWSER_EVIDENCE_ENABLED'>): boolean {
+  return env.BROWSER_EVIDENCE_ENABLED === 'true';
+}
+
 export type DataQualitySeverity = 'error' | 'warn' | 'info';
 
 /** The raw finding a single check returns (before id/label/severity are attached). */
@@ -193,9 +229,15 @@ export interface DataQualityDeps {
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
    *  `algolia_index_drift` is skipped (no Algolia creds — the local default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
+  /** The `algolia_unclaimed_logo` reader (AECI-1867, `createUnclaimedLogoReader`).
+   *  `undefined` → that check is skipped (no Algolia creds — the local default). */
+  unclaimedLogoReader?: AlgoliaLogoReader;
   /** The `review_mirror_drift` wiring (AECI-1455). `undefined` → that check is
    *  skipped. Production builds it in `review-mirror-drift-deps.ts`. */
   reviewMirror?: ReviewMirrorDriftDeps;
+  /** Whether the tier captures the browser report (`browserEvidenceCaptureEnabled`,
+   *  AECI-1715). Absent or false → `browser_evidence_coverage` is skipped. */
+  browserEvidenceEnabled?: boolean;
 }
 
 /**
@@ -683,6 +725,132 @@ export async function checkAlgoliaDrift(
   };
 }
 
+/** The claimed test of `isVendorClaimed` (`claimed-vendors.ts`) as SQL on alias `cv`. */
+const CLAIMED_CV_SQL = sql`cv.owned_at IS NOT NULL AND cv.claim_ended_at IS NULL`;
+
+/**
+ * Unclaimed listings whose search record still carries a logo (AECI-1867). Search
+ * shows a logo only while claimed (AECI-1618, DESIGN.md §5 "Unclaimed note", counsel's
+ * ruling 9), and `/search` trusts the record. The builders already null the field, so
+ * a finding is a record the nightly sync has not rebuilt since the rule or the claim
+ * changed.
+ *
+ * Every unclaimed id is a candidate, not only those with a stored logo: a record can
+ * hold a logo D1 no longer has. An id with no record is not a finding. A vendor is
+ * claimed when `owned_at` is set and `claim_ended_at` is null; a product when any
+ * linked vendor is, which is `claimedProductExtra`. Severity `error`: a public page
+ * breaks a counsel ruling. The fix is the watermark reset for that entity
+ * (`docs/SEARCH_RANKING.md` §1.2).
+ */
+export async function checkAlgoliaUnclaimedLogo(
+  db: Db,
+  reader?: AlgoliaLogoReader,
+): Promise<CheckFinding> {
+  if (!reader) {
+    return { lines: [], skipped: true, note: 'skipped — Algolia credentials not configured' };
+  }
+  const unclaimedProducts = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(
+      sql`NOT EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id WHERE cpv.product_id = ${products.id} AND ${CLAIMED_CV_SQL})`,
+    )
+    .orderBy(asc(products.slug));
+  const unclaimedVendors = await db
+    .select({ id: vendors.id, slug: vendors.slug })
+    .from(vendors)
+    .where(or(isNull(vendors.ownedAt), isNotNull(vendors.claimEndedAt)))
+    .orderBy(asc(vendors.slug));
+
+  const lines: string[] = [];
+  const candidates: Array<[LogoEntity, Array<{ id: string; slug: string }>]> = [
+    ['products', unclaimedProducts],
+    ['vendors', unclaimedVendors],
+  ];
+  let checked = 0;
+  for (const [entity, rows] of candidates) {
+    if (rows.length === 0) continue;
+    const slugOf = new Map(rows.map((r) => [r.id, r.slug]));
+    const indexed = await reader.logos(
+      entity,
+      rows.map((r) => r.id),
+    );
+    checked += indexed.length;
+    for (const r of indexed) {
+      if (!r.logoUrl) continue;
+      lines.push(
+        `${reader.indexName(entity)}: ${slugOf.get(r.objectID) ?? r.objectID} carries a logo`,
+      );
+    }
+  }
+  return { lines, note: `read ${checked} unclaimed record(s)` };
+}
+
+/** "Some joined vendor owns this product" as SQL, the owned test of `loadOwnedProductIds`. */
+const PRODUCT_HAS_OWNER_SQL = sql`EXISTS (SELECT 1 FROM product_vendors opv JOIN vendors ov ON ov.id = opv.vendor_id WHERE opv.product_id = ${products.id} AND ov.owned_at IS NOT NULL)`;
+
+/**
+ * Vendor-maintained records that no vendor owns (AECI-1908, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13.9). Every write that sets `maintained_by = 'vendor'` on a product or vendor needs a
+ * seat, and a seat means `owned_at` is set. The return to AECi and Terminate clear
+ * `owned_at` and reset the marker in the same batch (a ban of the last seat is refused
+ * since AECI-1623). So a finding is a vendor save that committed just after one of those
+ * (vendor writes carry no commit-time seat sentinel), or a hand edit. A product counts as
+ * owned when any joined vendor owns it, which is the return's own co-owner rule.
+ *
+ * A claim end is not a finding. A last-seat revoke or an erasure sets `claim_ended_at`
+ * and keeps `owned_at` and the marker on purpose (ADR 0042 decision 3, ADR 0051
+ * decision 1), and the promote fence keys on the marker. Those rows are counted in the
+ * note only. The public record line already reads the AECi form on an unclaimed
+ * listing (AECI-1666). Severity `warn`. The fix is an ops script that sets
+ * `maintained_by = 'aeci'` on the row, with its audit row.
+ */
+export async function checkMaintainedByWithoutOwner(db: Db): Promise<CheckFinding> {
+  const unownedVendors = await db
+    .select({ slug: vendors.slug, name: vendors.companyName })
+    .from(vendors)
+    .where(and(eq(vendors.maintainedBy, 'vendor'), isNull(vendors.ownedAt)))
+    .orderBy(textAsc(vendors.companyName), asc(vendors.slug));
+  const unownedProducts = await db
+    .select({ slug: products.slug, name: products.name })
+    .from(products)
+    .where(and(eq(products.maintainedBy, 'vendor'), sql`NOT ${PRODUCT_HAS_OWNER_SQL}`))
+    .orderBy(textAsc(products.name), asc(products.slug));
+
+  const [frozenVendors] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(vendors)
+    .where(
+      and(
+        eq(vendors.maintainedBy, 'vendor'),
+        isNotNull(vendors.ownedAt),
+        isNotNull(vendors.claimEndedAt),
+      ),
+    );
+  const [frozenProducts] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(products)
+    .where(
+      and(
+        eq(products.maintainedBy, 'vendor'),
+        PRODUCT_HAS_OWNER_SQL,
+        sql`NOT EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id WHERE cpv.product_id = ${products.id} AND ${CLAIMED_CV_SQL})`,
+      ),
+    );
+
+  return {
+    lines: [
+      ...unownedVendors.map(
+        (r) => `vendor ${r.name} (${r.slug}) is vendor-maintained but not owned`,
+      ),
+      ...unownedProducts.map(
+        (r) => `product ${r.name} (${r.slug}) is vendor-maintained but no vendor owns it`,
+      ),
+    ],
+    note: `${frozenVendors?.n ?? 0} vendor(s) and ${frozenProducts?.n ?? 0} product(s) frozen by a claim end (by design, ADR 0051)`,
+  };
+}
+
 /**
  * The license half of the mirror: `vendors.verified = 1` XOR a LIVE license
  * (`ended_at IS NULL`) on any of the vendor's billing accounts (AECI-1354,
@@ -816,6 +984,35 @@ export async function checkVendorSuspensionPastWindow(db: Db, now: Date): Promis
       if (!r.noticeSentAt) return [`${label} — notice not confirmed sent`];
       return windowPassed(r.noticeSentAt) ? [`${label} — stage 1 window has passed`] : [];
     }),
+  };
+}
+
+/**
+ * A plan-change ranking snapshot still unwritten 24 hours after it was due (AECI-1621,
+ * ADR 0056). The 15-minute sweep retries a failed row on every run, so a row this late
+ * means the sweep keeps failing it or has stopped. The evidence the Terms rely on is
+ * then missing for that product, so it is `error`. No seed writes the table.
+ */
+export async function checkPlanSnapshotOverdue(db: Db, now: Date): Promise<CheckFinding> {
+  const cutoff = new Date(now.getTime() - DAY_MS).toISOString();
+  const rows = await db
+    .select({
+      productId: planChangeSnapshots.productId,
+      kind: planChangeSnapshots.kind,
+      phase: planChangeSnapshots.phase,
+      dueAt: planChangeSnapshots.dueAt,
+      attempts: planChangeSnapshots.attempts,
+      lastError: planChangeSnapshots.lastError,
+    })
+    .from(planChangeSnapshots)
+    .where(and(isNull(planChangeSnapshots.r2Key), lt(planChangeSnapshots.dueAt, cutoff)))
+    .orderBy(asc(planChangeSnapshots.dueAt), asc(planChangeSnapshots.id));
+  return {
+    lines: rows.map(
+      (r) =>
+        `${r.productId} ${r.kind}/${r.phase} due ${r.dueAt}, ${r.attempts} attempts` +
+        (r.lastError ? ` (${r.lastError.slice(0, 120)})` : ''),
+    ),
   };
 }
 
@@ -1093,6 +1290,122 @@ export async function checkLandingCfCoverage(db: Db, now: Date): Promise<CheckFi
 }
 
 /**
+ * `browser_evidence_coverage` (AECI-1715, epic AECI-1711): the share of yesterday's
+ * Turnstile-pass arrivals that carry a browser report.
+ *
+ * The third check here that watches the telemetry pipeline rather than the catalog.
+ *
+ * ─── What it measures ──────────────────────────────────────────────────────
+ *
+ * An `ssr-arrival` row starts with `browser_evidence` NULL. The browser upgrades it to
+ * `ran` or `interacted` with `POST /api/page-views/browser-evidence`, matched on the
+ * page load's `cf_ray` (AECI-1713). If that report path breaks, every arrival stays
+ * NULL, nothing errors, and the human floor reads zero.
+ *
+ * **The denominator is Turnstile-pass arrivals**, because a `pass` verdict proves our
+ * page script ran in that page load. Every row in it should have reported, so a gap is
+ * the report path, not the visitors. Crawlers that never run the script never reach
+ * the denominator, which is why the raw arrival count would be the wrong base.
+ *
+ * Rows that could not report by design are out of both numbers: a privacy-signal row
+ * (DNT or GPC, the column is never collected) and a held-region row
+ * (`isHeldRegionCountry`, which also holds an unknown country). Those are "not
+ * collected", never "no report arrived" (AECI-1711).
+ *
+ * ─── Scope decisions ───────────────────────────────────────────────────────
+ *
+ * - **The previous UTC day**, `[00:00, 24:00)`, not the last 24 h, so the reading names
+ *   one calendar day and matches the day the human floor will be reported for.
+ * - **Grouped by country, filtered in code.** One SELECT groups the population by
+ *   `cf_country`, and `isHeldRegionCountry` drops held groups. That keeps the hold rule
+ *   in one place (`@aeci/shared`) and binds no country list, so D1's bound-parameter
+ *   limit never applies. A day has at most a few hundred country groups.
+ * - **Not applicable when capture is off** (`browserEvidenceEnabled` false): the check
+ *   reports `skipped`, not a pass. The tier says so explicitly with
+ *   `BROWSER_EVIDENCE_ENABLED` rather than the check inferring it from recent rows,
+ *   because an inference goes silent exactly when capture breaks entirely.
+ * - **Read-only, and unaudited.** `page_views` is log-class under ADR 0022, and this is
+ *   a `SELECT`.
+ *
+ * Severity is `warn`: a failing day loses evidence the floor is built on, but no
+ * catalog row is wrong and no visitor sees anything. Its `count` is 1 when tripped, not
+ * a row count, for the reason {@link checkArrivalCfCoverage} gives.
+ */
+export async function checkBrowserEvidenceCoverage(
+  db: Db,
+  now: Date,
+  captureEnabled: boolean,
+): Promise<CheckFinding> {
+  if (!captureEnabled) {
+    return {
+      lines: [],
+      skipped: true,
+      note: 'skipped — BROWSER_EVIDENCE_ENABLED is not "true" on this tier, so no browser report is captured',
+    };
+  }
+
+  const dayEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayStart = new Date(dayEnd.getTime() - DAY_MS);
+  const day = dayStart.toISOString().slice(0, 10);
+
+  // One grouped scan, so the numerator and the denominator come from the same read.
+  const groups = await db
+    .select({
+      country: pageViews.cfCountry,
+      arrivals: count(),
+      // SUM over zero rows is NULL in SQLite; a group always has a row, but coerce anyway.
+      withEvidence: sql<number | null>`sum(case when ${inArray(
+        pageViews.browserEvidence,
+        BROWSER_EVIDENCE_VALUES,
+      )} then 1 else 0 end)`,
+    })
+    .from(pageViews)
+    .where(
+      and(
+        eq(pageViews.writerProvenance, PAGE_VIEW_WRITERS.ssrArrival),
+        eq(pageViews.turnstileVerdict, 'pass'),
+        eq(pageViews.privacySignal, false),
+        gte(pageViews.createdAt, dayStart.toISOString()),
+        lt(pageViews.createdAt, dayEnd.toISOString()),
+      ),
+    )
+    .groupBy(pageViews.cfCountry);
+
+  let arrivals = 0;
+  let withEvidence = 0;
+  for (const g of groups) {
+    if (isHeldRegionCountry(g.country)) continue;
+    arrivals += Number(g.arrivals ?? 0);
+    withEvidence += Number(g.withEvidence ?? 0);
+  }
+
+  if (arrivals < BROWSER_EVIDENCE_COVERAGE_MIN_ROWS) {
+    return {
+      lines: [],
+      note:
+        `${arrivals} Turnstile-pass arrivals on ${day}, below the ` +
+        `${BROWSER_EVIDENCE_COVERAGE_MIN_ROWS}-row minimum — nothing to measure`,
+    };
+  }
+
+  const coverage = withEvidence / arrivals;
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const observed =
+    `${withEvidence}/${arrivals} Turnstile-pass arrivals on ${day} carry a browser report ` +
+    `(${pct(coverage)}, floor ${pct(BROWSER_EVIDENCE_COVERAGE_MIN)})`;
+  if (coverage >= BROWSER_EVIDENCE_COVERAGE_MIN) return { lines: [], note: observed };
+
+  return {
+    lines: [
+      `Only ${pct(coverage)} of Turnstile-pass arrivals on ${day} carried a browser report ` +
+        `(${withEvidence} of ${arrivals}), below the ${pct(BROWSER_EVIDENCE_COVERAGE_MIN)} floor. ` +
+        `See "Browser evidence coverage" in docs/runbooks/alerts.md.`,
+    ],
+    note: observed,
+  };
+}
+
+/**
  * Vendors the review app does not know (AECI-1418, ruled 2026-10-20). Counts vendors
  * whose LATEST ownership delivery (`ownership_sync_deliveries`, highest id) ended
  * `permanent` with HTTP 404: the receiver answered "unknown vendor"
@@ -1273,8 +1586,8 @@ function truncate(message: string): string {
 export const LEGAL_UNPUBLISHED_WARN_DAYS = 30;
 
 /**
- * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms or Managed plan
- * agreement version whose effective moment is 30 days away or less, or already past, and
+ * `legal_agreement_unpublished` (AECI-1689): an upcoming Vendor Terms, Managed plan
+ * agreement or (AECI-1637) Terms of Service or Privacy Policy version whose effective moment is 30 days away or less, or already past, and
  * that has no `legal_versions` row. Unpublished, it never becomes the version in force
  * (`legalAgreementVersionInForce`), so the page keeps "takes effect on <date>" past the
  * date, and the 30-day notice can no longer be given in time. Publish it, or move the
@@ -1287,9 +1600,7 @@ export async function checkLegalAgreementUnpublished(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
   const horizon = now.getTime() + LEGAL_UNPUBLISHED_WARN_DAYS * DAY_MS;
-  const due = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    if (!upcoming) return [];
+  const due = legalPublishableUpcoming(maps).flatMap(({ document, upcoming }) => {
     const at = legalEffectiveAtMs(upcoming.effectiveOn);
     return Number.isFinite(at) && at <= horizon ? [{ document, upcoming, at }] : [];
   });
@@ -1318,8 +1629,9 @@ export async function checkLegalAgreementUnpublished(
 }
 
 /**
- * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms or Managed plan
- * agreement row for the upcoming version whose effective moment is not the upcoming
+ * `legal_agreement_date_moved` (AECI-1689 review): a published Vendor Terms, Managed plan
+ * agreement, Terms of Service or Privacy Policy row (the last two since AECI-1637) for the
+ * upcoming version whose effective moment is not the upcoming
  * entry's, because the date was moved after the publish. The row is in force nowhere
  * (`legalPublishedRowMismatched`): the page never switches, no stamp moves, the acceptance
  * screen asks nothing. Move the entry back to the published date, or make the new date a
@@ -1329,10 +1641,7 @@ export async function checkLegalAgreementDateMoved(
   db: Db,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): Promise<CheckFinding> {
-  const entries = LEGAL_AGREEMENT_DOCUMENTS.flatMap((document) => {
-    const upcoming = maps.agreementUpcoming[document];
-    return upcoming ? [{ document, upcoming }] : [];
-  });
+  const entries = legalPublishableUpcoming(maps);
   if (entries.length === 0) return { lines: [] };
   const rows = await db
     .select({
@@ -1368,7 +1677,8 @@ interface CheckSpec {
 
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
- *  AECI-1455 review-app mirror drift). Severity
+ *  AECI-1455 review-app mirror drift, the AECI-1715 browser report tripwire and the
+ *  AECI-1908 maintenance-marker guard). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -1443,6 +1753,22 @@ export const CHECKS: CheckSpec[] = [
     label: 'Algolia index drift (Supabase ≠ Algolia)',
     severity: 'warn',
     run: ({ runDrift }) => checkAlgoliaDrift(runDrift),
+  },
+  {
+    id: 'algolia_unclaimed_logo',
+    label: 'Unclaimed listings whose search record still carries a logo',
+    // `error`: search shows a logo counsel's ruling 9 keeps to the listing's own page
+    // (AECI-1867). Skipped without Algolia creds, so a seeded database is clean.
+    severity: 'error',
+    run: ({ db, unclaimedLogoReader }) => checkAlgoliaUnclaimedLogo(db, unclaimedLogoReader),
+  },
+  {
+    id: 'maintained_by_without_owner',
+    label: 'Vendor-maintained products and vendors that no vendor owns',
+    // `warn`: the public record line already reads the AECi form on an unclaimed
+    // listing (AECI-1666), so a finding is stored drift, not a wrong page (AECI-1908).
+    severity: 'warn',
+    run: ({ db }) => checkMaintainedByWithoutOwner(db),
   },
   {
     id: 'license_mirror_drift',
@@ -1534,11 +1860,28 @@ export const CHECKS: CheckSpec[] = [
     run: ({ db }) => checkLegalAgreementDateMoved(db),
   },
   {
+    id: 'plan_snapshot_overdue',
+    label: 'Plan-change ranking snapshots still unwritten 24 hours after they were due',
+    // `error`: evidence the Terms' ranking promise relies on is missing. Not a seed
+    // obligation: no seed writes the table.
+    severity: 'error',
+    run: ({ db, now }) => checkPlanSnapshotOverdue(db, now),
+  },
+  {
     id: 'review_mirror_drift',
     label: 'Owned vendors whose review-app mirror differs from the live record',
     // `error`: the review app is curating from a stale copy of a vendor's own records.
     severity: 'error',
     run: ({ db, reviewMirror }) => checkReviewMirrorDrift(db, reviewMirror),
+  },
+  {
+    id: 'browser_evidence_coverage',
+    label: 'Turnstile-pass arrivals with no browser report (previous UTC day)',
+    // `warn`: lost evidence for the human floor, not a wrong catalog row. Not a seed
+    // obligation: a seeded database has no Turnstile-pass arrivals, so it is clean.
+    severity: 'warn',
+    run: ({ db, now, browserEvidenceEnabled }) =>
+      checkBrowserEvidenceCoverage(db, now, browserEvidenceEnabled === true),
   },
 ];
 

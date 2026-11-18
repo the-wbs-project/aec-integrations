@@ -29,7 +29,7 @@ monday.com; monday.com has 49, none to Dynamics. But it *was* materialised: the 
 sweep note lists **monday** among what it seeded. It then vanished between two systems with no
 trace on either side.
 
-`docs/RUNBOOKS.md` prescribes exactly one exit for that shape — *"a `stray` with no recorded
+`docs/runbooks/alerts.md` prescribes exactly one exit for that shape — *"a `stray` with no recorded
 ruling and no obvious curator action is a real unknown; do not delete to make the audit green.
 Capture the ids and the affected pair pages, and raise it with whoever owns the catalog."* That
 is what happened. The review app was asked directly on 2026-09-07 and recommended deletion:

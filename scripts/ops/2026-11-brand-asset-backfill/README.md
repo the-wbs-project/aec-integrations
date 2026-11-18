@@ -67,4 +67,4 @@ The SQL purges nothing. Detail pages cache for 900 s, so they show Unclaimed wit
 
 ### 6. Algolia
 
-The claim-ended script stamps `updated_at` on the vendors and products it changes, so the nightly sync picks them up. The sourced-logo script leaves `updated_at` alone, because nothing public renders that column. Never-owned listings changed at deploy without an `updated_at` move, so their search records keep a logo until a full rebuild. Run the datatool reindex for this environment (`RUNBOOKS.md`, `POST /api/reindex` on `apps/datatool`).
+The claim-ended script stamps `updated_at` on the vendors and products it changes, so the nightly sync picks them up. The sourced-logo script leaves `updated_at` alone, because nothing public renders that column. Never-owned listings changed at deploy without an `updated_at` move, so their search records keep a logo until a full rebuild. Run the datatool reindex for this environment (`docs/runbooks/alerts.md`, `POST /api/reindex` on `apps/datatool`).

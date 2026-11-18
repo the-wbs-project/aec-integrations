@@ -119,6 +119,37 @@ describe('PublishLegalVersionRequestSchema', () => {
     ).toBe(true);
   });
 
+  // AECI-1637: the Terms of Service and the Privacy Policy are publishable too.
+  it('takes the two reader documents, and refuses requires_acceptance for Privacy only', () => {
+    for (const document of ['terms', 'privacy']) {
+      expect(PublishLegalVersionRequestSchema.safeParse({ ...base, document }).success).toBe(true);
+    }
+    expect(
+      PublishLegalVersionRequestSchema.safeParse({
+        ...base,
+        document: 'terms',
+        requires_acceptance: true,
+      }).success,
+    ).toBe(true);
+    const privacy = PublishLegalVersionRequestSchema.safeParse({
+      ...base,
+      document: 'privacy',
+      requires_acceptance: true,
+    });
+    expect(privacy.success).toBe(false);
+    expect(privacy.error?.issues.map((i) => i.path.join('.'))).toEqual(['requires_acceptance']);
+    for (const document of ['terms', 'privacy']) {
+      expect(
+        PublishLegalVersionRequestSchema.safeParse({ ...base, document, expedited_reason: 'law' })
+          .success,
+      ).toBe(false);
+    }
+    expect(
+      PublishLegalVersionRequestSchema.safeParse({ ...base, document: 'review_guidelines' })
+        .success,
+    ).toBe(false);
+  });
+
   it('is strict: an extra field such as effective_at is refused', () => {
     expect(
       PublishLegalVersionRequestSchema.safeParse({ ...base, effective_at: '2027-01-01' }).success,
@@ -154,5 +185,7 @@ describe('legalPdfKey and legalVersionPagePath', () => {
     expect(legalPdfKey('vendor_terms', '1.4')).toBe('legal/vendor-terms/v1.4.pdf');
     expect(legalPdfKey('managed_plan', '1.2')).toBe('legal/managed-plan-agreement/v1.2.pdf');
     expect(legalVersionPagePath('managed_plan', '1.2')).toBe('/legal/managed-plan-agreement/v1.2');
+    expect(legalPdfKey('terms', '1.2')).toBe('legal/terms/v1.2.pdf');
+    expect(legalVersionPagePath('privacy', '1.2')).toBe('/legal/privacy/v1.2');
   });
 });

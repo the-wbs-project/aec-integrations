@@ -14,7 +14,7 @@
 import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { agreementAcceptances, auditLog } from '../db/schema';
+import { agreementAcceptances, auditLog, termsAcceptances } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   ACCEPTANCE_EVIDENCE_DAYS,
@@ -23,6 +23,7 @@ import {
   EVIDENCE_REMOVAL_CHUNK,
   EVIDENCE_REMOVAL_MAX_CHUNKS,
   runAcceptanceEvidenceRemoval,
+  TERMS_EVIDENCE_REMOVED_ACTION,
 } from './acceptance-evidence-removal';
 
 const NOW = new Date('2027-03-01T17:00:00.000Z');
@@ -232,5 +233,63 @@ describe('runAcceptanceEvidenceRemoval', () => {
     expect(result).toMatchObject({ removed: 0, batches: 0, truncated: false });
     expect(batchSpy).not.toHaveBeenCalled();
     expect(await removalAudits()).toHaveLength(0);
+  });
+});
+
+// AECI-1637, ruling 1 of 2026-11-13: the sign-in Terms acceptances follow the same rule.
+describe('runAcceptanceEvidenceRemoval: terms_acceptances (AECI-1637)', () => {
+  const seedTerms = (rows: { id: string; acceptedAt: string }[]) =>
+    t.db.insert(termsAcceptances).values(
+      rows.map((r) => ({
+        id: r.id,
+        document: 'terms',
+        version: '1.2',
+        profileId: `p-${r.id}`,
+        email: `${r.id}@example.com`,
+        acceptedAt: r.acceptedAt,
+        ip: IP,
+        userAgent: UA,
+        checkboxLabel: 'label',
+        checkboxLabelSha256: 'h',
+        checkboxDefaultUnticked: true,
+      })),
+    );
+
+  it('nulls IP and browser past 90 days, with its own audit row, and keeps the record', async () => {
+    await seed([{ id: 'a-old', acceptedAt: daysAgo(91) }]);
+    await seedTerms([
+      { id: 't-old', acceptedAt: daysAgo(100) },
+      { id: 't-young', acceptedAt: daysAgo(10) },
+    ]);
+
+    const result = await runAcceptanceEvidenceRemoval(t.db, { now: NOW });
+
+    expect(result).toMatchObject({ removed: 2, batches: 2, truncated: false });
+    const terms = Object.fromEntries(
+      (await t.db.select().from(termsAcceptances)).map((r) => [r.id, r]),
+    );
+    expect(terms['t-old']).toMatchObject({
+      ip: null,
+      userAgent: null,
+      evidenceRemovedAt: NOW.toISOString(),
+      email: 't-old@example.com',
+      version: '1.2',
+      profileId: 'p-t-old',
+    });
+    expect(terms['t-young']).toMatchObject({ ip: IP, userAgent: UA, evidenceRemovedAt: null });
+
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, TERMS_EVIDENCE_REMOVED_ACTION));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ entityType: 'terms_acceptance', actorType: 'system' });
+    expect(audits[0]!.metadata).toMatchObject({ count: 1, acceptance_ids: ['t-old'] });
+    expect(JSON.stringify(audits[0])).not.toContain(IP);
+    // The agreement sweep kept its own audit row.
+    expect(await removalAudits()).toHaveLength(1);
+
+    // A re-run changes nothing.
+    expect((await runAcceptanceEvidenceRemoval(t.db, { now: NOW })).removed).toBe(0);
   });
 });

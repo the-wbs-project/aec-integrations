@@ -61,7 +61,7 @@
  * It lives only as a GitHub Actions secret and a Wrangler Worker secret, both of
  * which are write-only stores — `wrangler secret list` returns names, never values,
  * so you must supply the value from the password manager or rotate the key
- * (`docs/launch-cutover-runbook.md` §2a).
+ * (`docs/runbooks/launch-cutover.md` §2a).
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the outbound submissions.

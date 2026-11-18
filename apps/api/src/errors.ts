@@ -31,6 +31,10 @@ type ResourceKind =
   | 'license_grant'
   // A published legal version on the notice re-send (AECI-1620). Admin-only.
   | 'legal_version'
+  // A copyright notice or counter-notice in the log (AECI-1665). Admin-only.
+  | 'dmca_notice'
+  // A litigation hold (AECI-1638). Admin-only.
+  | 'litigation_hold'
   | 'vendor_suspension'
   | 'abuse_cost_entry'
   | 'product'

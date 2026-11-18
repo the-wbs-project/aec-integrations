@@ -742,6 +742,25 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL which scheduled job failed and why.',
     note: 'Always on: it is the alert for a failed job, so pausing it would hide the failure. Sent in waitUntil, so a failed send changes nothing about the job. A send that did not go out reaches the PostHog backstop alert through aeci.cron.failure_email.',
   },
+  // AECI-1638: a litigation hold left open too long.
+  'litigation-hold-reminder': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: '0 3 legal retention prune, queued (lib/litigation-hold-reminder.ts runLitigationHoldReminders)',
+    },
+    envRule: 'production-only',
+    dedupe:
+      'One per hold at most every 30 days: the job skips a hold whose last sent or unknown send of this template is under 30 days old in notification_sends. Key litigation-hold-reminder:{holdId}:{YYYY-MM-DD}, so a queue retry the same day is a duplicate.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.22b',
+    summary:
+      'Tells SUPPORT_EMAIL that a litigation hold has been open more than 90 days, with its scope, vendor, reason, matter and age, so it is released or kept on purpose.',
+    note: 'Always on: a forgotten hold keeps personal data past the Privacy Policy period, and this is the only prompt. Production only: holds on other tiers are test data. It names an internal reason and a vendor id, never a person.',
+  },
   // AECI-1503 (E9.5): the backstop for a missed Stripe webhook.
   'stripe-reconcile-alert': {
     channel: 'email',
@@ -759,7 +778,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
     summary:
       'Tells SUPPORT_EMAIL which Stripe plans the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
-    note: 'Sent after the fixes commit, so a failed send changes nothing: the subscriptions already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging Stripe plan would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed subscriptions".',
+    note: 'Sent after the fixes commit, so a failed send changes nothing: the subscriptions already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging Stripe plan would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: docs/runbooks/subscriptions.md "Stripe reconcile changed subscriptions".',
   },
   'attestation-digest': {
     channel: 'email+portal',
@@ -945,6 +964,25 @@ export const NOTIFICATIONS = {
     summary:
       "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
     note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason.',
+  },
+  // AECI-1637 (counsel Q34, ruling 12): the account twin of `legal-terms-change`.
+  'legal-account-change': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/legal-versions (a material Terms of Service or Privacy Policy version, post-commit) and POST /api/admin/legal-versions/:id/notice (the re-send), each enqueuing one message per 25 accounts on aeci-legal-notice-{env}; the queue consumer sends (lib/legal-notice.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per account per version: key legal-account-change:{document}:{version}:{profileId}. A failed send releases its key, so a queue retry or an admin re-send reaches only the accounts not yet sent, and a re-send skips every account already delivered.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_1_SPEC.md §27',
+    summary:
+      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only from the account holder's next sign-in, or (Privacy Policy) from its date.",
+    note: 'Always on: a service notice the Terms promise, so it has no unsubscribe, ignores the marketing mute and cannot be paused. Same template and checks as legal-terms-change: the consumer re-hashes the PDF on every message and sends nothing on a mismatch, and an account email lookup that is unavailable retries the whole message. The send carries an attachment, so it blind-copies no one. Each account has a legal_notice_reader_deliveries row, and /admin/legal counts and lists the accounts not reached.',
   },
   'license-unassigned-reminder': {
     channel: 'email',

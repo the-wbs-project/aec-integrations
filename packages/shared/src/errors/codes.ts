@@ -342,6 +342,17 @@ export const ApiErrorCode = {
   // already accepted. Nothing is written on either.
   LEGAL_ACCEPTANCE_REQUIRED: 'LEGAL_ACCEPTANCE_REQUIRED',
   LEGAL_ACCEPTANCE_NOT_PENDING: 'LEGAL_ACCEPTANCE_NOT_PENDING',
+  // AECI-1665 the copyright notice log (`API_CONTRACTS.md` §4, `PATCH
+  // /api/admin/dmca-notices/:id`). `DMCA_NOTICE_CHANGED` (409): the row's `updated_at` is
+  // no longer the `expected_updated_at` the page sent, because another tab or admin saved
+  // it first. Nothing was written. Reload and edit again.
+  DMCA_NOTICE_CHANGED: 'DMCA_NOTICE_CHANGED',
+  // AECI-1638 litigation holds (`API_CONTRACTS.md` §4, `/api/admin/litigation-holds`).
+  // `LITIGATION_HOLD_EXISTS` (409): an open hold of that scope already exists, globally or
+  // for that vendor. One open hold per scope. `LITIGATION_HOLD_RELEASED` (409): the hold
+  // was already released. Nothing is written on either.
+  LITIGATION_HOLD_EXISTS: 'LITIGATION_HOLD_EXISTS',
+  LITIGATION_HOLD_RELEASED: 'LITIGATION_HOLD_RELEASED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

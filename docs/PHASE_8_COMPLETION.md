@@ -1,7 +1,7 @@
 # Phase 8 Completion Report (living checkpoint)
 
 **Issue:** [AECI-279](https://linear.app/aec-integrations/issue/AECI-279) — Phase 8.1, Post-launch monitoring & stabilization
-**Spec anchor:** `docs/STAGE_1_SPEC.md` §16 Phase 8 (build-order bullets, lines 1184–1188) + §14 (observability). CWV budgets referenced by the AC live in `docs/STAGE_1_PHASE_2_SPEC.md` §12 (not §12 of the Stage 1 spec — see the stale-cite note below). Companion records: `docs/OBSERVABILITY.md`, `docs/RUNBOOKS.md`, `docs/POST_LAUNCH_MONITORING.md`, `docs/POST_LAUNCH_HEALTH_REPORT.md`, `docs/ANALYTICS_BASELINE.md`, `docs/launch-cutover-runbook.md`.
+**Spec anchor:** `docs/STAGE_1_SPEC.md` §16 Phase 8 (build-order bullets, lines 1184–1188) + §14 (observability). CWV budgets referenced by the AC live in `docs/STAGE_1_PHASE_2_SPEC.md` §12 (not §12 of the Stage 1 spec — see the stale-cite note below). Companion records: `docs/OBSERVABILITY.md`, `docs/runbooks/alerts.md`, `docs/POST_LAUNCH_MONITORING.md`, `docs/POST_LAUNCH_HEALTH_REPORT.md`, `docs/ANALYTICS_BASELINE.md`, `docs/runbooks/launch-cutover.md`.
 **Mirrors:** [AECI-67](https://linear.app/aec-integrations/issue/AECI-67) (Phase 2), [AECI-146](https://linear.app/aec-integrations/issue/AECI-146) (Phase 3), [AECI-187](https://linear.app/aec-integrations/issue/AECI-187) (Phase 4), [AECI-207](https://linear.app/aec-integrations/issue/AECI-207) (Phase 5), [AECI-220](https://linear.app/aec-integrations/issue/AECI-220) (Phase 6), [AECI-246](https://linear.app/aec-integrations/issue/AECI-246) (Phase 7 / launch-readiness gate).
 **Prerequisites met:** the DNS cutover shipped (AECI-247/277, #438) — **production is live** (`www.aecintegrations.com`, prod SHA `8348297…`, deployed `2026-07-05T18:10Z`; `/api/version` = `/_version`, no stale SSR). Phase 7's launch punts (F1–F4) are the ops backdrop this pass operates against.
 **Evaluated against:** the working tree on `chris/aeci-279-…`, at `main` @ `a0dfe6b`. · **Date:** 2026-07-11 (UTC)
@@ -31,7 +31,7 @@ _This checkpoint changes **only docs + monitor JSON** — no application logic �
 
 ## 1. Verdict
 
-**Phase 8.1 is functionally complete for the parts that don't require weeks of real traffic; the rest is honestly marked blocked or ongoing.** The operate-and-tune pass is inherently multi-week and cannot be "finished" in one change, so AECI-279 delivers what durably reduces future toil: a repeatable daily/weekly **monitoring runbook** (`POST_LAUNCH_MONITORING.md`); a dated **health-report log** with its first structural snapshot (`POST_LAUNCH_HEALTH_REPORT.md`); and two concrete, correct-regardless-of-volume **alert fixes** — the data-quality monitor **severity split** (warn checks no longer page like integrity errors) and the missing **WAF-poll liveness monitor** (a silently-dead hourly poll now pages). The dependent records (`OBSERVABILITY.md`, `RUNBOOKS.md`, `docs/README.md`, `CLAUDE.md`) were updated so nothing goes stale, and the OBSERVABILITY monitors table was completed to all **23** committed monitors (it had been missing the three pre-existing data-quality rows).
+**Phase 8.1 is functionally complete for the parts that don't require weeks of real traffic; the rest is honestly marked blocked or ongoing.** The operate-and-tune pass is inherently multi-week and cannot be "finished" in one change, so AECI-279 delivers what durably reduces future toil: a repeatable daily/weekly **monitoring runbook** (`POST_LAUNCH_MONITORING.md`); a dated **health-report log** with its first structural snapshot (`POST_LAUNCH_HEALTH_REPORT.md`); and two concrete, correct-regardless-of-volume **alert fixes** — the data-quality monitor **severity split** (warn checks no longer page like integrity errors) and the missing **WAF-poll liveness monitor** (a silently-dead hourly poll now pages). The dependent records (`OBSERVABILITY.md`, `docs/runbooks/alerts.md`, `docs/README.md`, `CLAUDE.md`) were updated so nothing goes stale, and the OBSERVABILITY monitors table was completed to all **23** committed monitors (it had been missing the three pre-existing data-quality rows).
 
 **What is _not_ green — and why none is a Phase 8.1 build defect:**
 
@@ -163,7 +163,7 @@ The remaining §16 Phase 8 bullets are separate slices needing real traffic/revi
 
 The 00:15 UTC `metrics_daily` snapshot is the **only cron with no dedicated Datadog monitor**, and it is the one where absence is permanently lossy: it is queue-less (a failed run is never retried) and a missed day's **stock** metrics cannot be reconstructed — only flows can. A gap also silently aborts the whole 03:00 retention prune (§7.4 forbids pruning an uncaptured day), so today a snapshot outage surfaces as a *retention* alert or not at all.
 
-Build it on `aeci.metrics_snapshot.run{outcome:ok,trigger:cron,env:production}` with `notify_no_data` over ~30h, modeled on `monitor-algolia-sync-no-data.json`. A second, non-paging monitor on `aeci.metrics_snapshot.metric{outcome:failed}` would catch the `partial` case (one broken producer out of 19) that the run-level tag hides. Runbook already written: `RUNBOOKS.md` → "Metrics snapshot missing or incomplete".
+Build it on `aeci.metrics_snapshot.run{outcome:ok,trigger:cron,env:production}` with `notify_no_data` over ~30h, modeled on `monitor-algolia-sync-no-data.json`. A second, non-paging monitor on `aeci.metrics_snapshot.metric{outcome:failed}` would catch the `partial` case (one broken producer out of 19) that the run-level tag hides. Runbook already written: `docs/runbooks/alerts.md` → "Metrics snapshot missing or incomplete".
 
 ### F6 — At-merge obligations for `admin-panel → main` (Phase 8.3) — CLOSED 2026-09-22
 
@@ -172,7 +172,7 @@ Four things AECI-587 could not discharge, because the docs closeout landed *befo
 ### Not a defect — flagged, not fixed here
 
 - **CWV worst-offenders (CLS on detail/browse/taxonomy, detail-page JS ~227 KB)** are pre-identified in `PERFORMANCE_AUDIT.md` and **owned by AECI-221** (the warn→error Lighthouse re-flip); AECI-279 validates them against field data (§F1), it does not implement the perf fixes.
-- **The `RUNBOOKS.md` banner** still promises a "severity matrix / comms / post-mortem template … land in Phase 6" that never landed — a pre-existing incident-process gap, surfaced for Chris; out of scope for this monitoring pass.
+- **The `docs/runbooks/alerts.md` banner** still promises a "severity matrix / comms / post-mortem template … land in Phase 6" that never landed — a pre-existing incident-process gap, surfaced for Chris; out of scope for this monitoring pass.
 
 ---
 
@@ -194,7 +194,7 @@ Dated log (template + first structural entry) modeled on `ANALYTICS_BASELINE.md`
 The living Phase 8 checkpoint: AC + §16-bullet mapping with evidence, the four punts, and the two stale-cite corrections.
 
 ### 4.6 Dependent-doc updates
-`OBSERVABILITY.md` (monitors table completed to 23 incl. the DQ + WAF-poll rows; DQ-severity + WAF-poll-liveness prose; apply-note count/placeholder); `RUNBOOKS.md` (DQ + WAF alert lists reflect the split + new monitor); `docs/README.md` (index rows for the two new docs); `CLAUDE.md` (source-of-truth rows + `PHASE_{2..7}` → `{2..8}`).
+`OBSERVABILITY.md` (monitors table completed to 23 incl. the DQ + WAF-poll rows; DQ-severity + WAF-poll-liveness prose; apply-note count/placeholder); `docs/runbooks/alerts.md` (DQ + WAF alert lists reflect the split + new monitor); `docs/README.md` (index rows for the two new docs); `CLAUDE.md` (source-of-truth rows + `PHASE_{2..7}` → `{2..8}`).
 
 ### 4.7 Phase 8.3 — admin panel (epic AECI-572, appended 2026-08-14 by AECI-587)
 

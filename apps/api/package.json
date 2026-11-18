@@ -43,6 +43,7 @@
     "ops:indexnow-runner": "tsx scripts/indexnow-runner.ts",
     "ops:traffic-shadow": "tsx scripts/traffic-classification-shadow.ts",
     "ops:identify-traffic-client": "tsx scripts/identify-traffic-client.ts",
+    "ops:verify-acceptance-chain": "tsx scripts/verify-acceptance-chain.ts",
     "docs:notifications": "tsx scripts/generate-notifications-doc.ts",
     "docs:notifications:check": "tsx scripts/generate-notifications-doc.ts --check",
     "typecheck": "tsc --noEmit",

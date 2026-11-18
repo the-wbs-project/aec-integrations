@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from './agreements';
+import { LegalPublishableDocumentSchema, type LegalPublishableDocument } from './agreements';
 
 /**
  * Published legal versions (AECI-1688). Source of truth: `STAGE_1_SPEC.md` §27.5,
@@ -11,10 +11,12 @@ import { LegalAgreementDocumentSchema, type LegalAgreementDocument } from './agr
  *   POST /api/admin/legal-versions             behind `requireAdmin()` then `rateLimit('write')`.
  *   POST /api/admin/legal-versions/:id/notice  the same guard and limiter (AECI-1620).
  *
- * Publishing records one version listed in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, with
+ * Publishing records one version listed in `LEGAL_AGREEMENT_UPCOMING_VERSIONS` or, since
+ * AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS` (the Terms of Service and Privacy Policy), with
  * its summary, its two operator-set flags and the hash of its CI-built PDF. After the
  * row commits, a material version enqueues its change notice (`legal-terms-change`,
- * AECI-1620), one message per affected company, and records the outcome on the row.
+ * AECI-1620), one message per affected company (or, for a reader document, per 25
+ * accounts: `legal-account-change`, AECI-1637), and records the outcome on the row.
  * The `/notice` route sends it again. The acceptance screen (AECI-1677) and reader
  * accounts (AECI-1637) read the row later. The effective date is never typed: it comes
  * from the upcoming map.
@@ -31,18 +33,20 @@ export const LEGAL_PDF_MAX_BYTES = 5 * 1024 * 1024;
 /** The hour (UTC) of the effective day at which a version takes effect. */
 export const LEGAL_EFFECTIVE_HOUR_UTC = 12;
 
-/** document → the public route slug (`/legal/<slug>`). */
+/** document → the public route slug (`/legal/<slug>`). Every publishable document. */
 export const LEGAL_DOCUMENT_SLUGS = {
   vendor_terms: 'vendor-terms',
   managed_plan: 'managed-plan-agreement',
-} as const satisfies Record<LegalAgreementDocument, string>;
+  terms: 'terms',
+  privacy: 'privacy',
+} as const satisfies Record<LegalPublishableDocument, string>;
 
 /**
  * The R2 key `legal-pdf.yml` uploads to: `legal/<slug>/v<version>.pdf`. Callers pass a
  * version read from `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, never a request field, so the
  * key is built from code constants only.
  */
-export function legalPdfKey(document: LegalAgreementDocument, version: string): string {
+export function legalPdfKey(document: LegalPublishableDocument, version: string): string {
   return `legal/${LEGAL_DOCUMENT_SLUGS[document]}/v${version}.pdf`;
 }
 
@@ -50,10 +54,12 @@ export function legalPdfKey(document: LegalAgreementDocument, version: string): 
 export const LEGAL_DOCUMENT_TITLES = {
   vendor_terms: 'Vendor Terms',
   managed_plan: 'Managed plan agreement',
-} as const satisfies Record<LegalAgreementDocument, string>;
+  terms: 'Terms of Service',
+  privacy: 'Privacy Policy',
+} as const satisfies Record<LegalPublishableDocument, string>;
 
 /** `/legal/<slug>/v<version>`, site-relative: the version's own page. */
-export function legalVersionPagePath(document: LegalAgreementDocument, version: string): string {
+export function legalVersionPagePath(document: LegalPublishableDocument, version: string): string {
   return `/legal/${LEGAL_DOCUMENT_SLUGS[document]}/v${version}`;
 }
 
@@ -153,12 +159,16 @@ export const LegalSummarySchema = z
  * `material`: the change is summarised and noticed. `requires_acceptance`: an owner seat
  * must accept before the version applies to its company (Vendor Terms: a change to
  * liability, indemnity, disputes or the content license; Managed plan agreement: a
- * material change monthly customers click to accept). Both are the operator's call at
- * publish, and `requires_acceptance` needs `material`.
+ * material change monthly customers click to accept), or for the Terms of Service, the
+ * version applies to an account only from its holder's next sign-in, never on continued
+ * use (a change that reduces a reader's rights, AECI-1637; signing in is the acceptance). Both are the operator's call at publish,
+ * and `requires_acceptance` needs `material`. A Privacy Policy version never takes
+ * `requires_acceptance` (ruling 4 of 2026-11-13), and only a Vendor Terms version may
+ * be expedited.
  */
 export const PublishLegalVersionRequestSchema = z
   .object({
-    document: LegalAgreementDocumentSchema,
+    document: LegalPublishableDocumentSchema,
     version: z.string().trim().min(1).max(20),
     material: z.boolean(),
     requires_acceptance: z.boolean(),
@@ -171,6 +181,10 @@ export const PublishLegalVersionRequestSchema = z
     message: 'A change that needs acceptance is a material change',
     path: ['requires_acceptance'],
   })
+  .refine((v) => v.document !== 'privacy' || !v.requires_acceptance, {
+    message: 'A Privacy Policy version never needs acceptance',
+    path: ['requires_acceptance'],
+  })
   .refine((v) => v.document === 'vendor_terms' || !v.expedited_reason, {
     message: 'Only a Vendor Terms version may be expedited',
     path: ['expedited_reason'],
@@ -180,7 +194,7 @@ export type PublishLegalVersionRequest = z.infer<typeof PublishLegalVersionReque
 /** One `legal_versions` row as the API returns it. */
 export const LegalVersionSchema = z.object({
   id: z.string(),
-  document: LegalAgreementDocumentSchema,
+  document: LegalPublishableDocumentSchema,
   version: z.string(),
   /** ISO timestamp, 12:00 UTC of the effective day. */
   effective_at: z.string(),
@@ -199,7 +213,9 @@ export const LegalVersionSchema = z.object({
    *   - both null: no fan-out recorded. A non-material version never has one. A material
    *     one is still queuing, or its outcome write failed: send it again.
    *   - `notice_enqueued_at` set: every affected company was queued at that time, and
-   *     `notice_vendor_count` is how many (0 when there was no one to notify).
+   *     `notice_vendor_count` is how many (0 when there was no one to notify). For a
+   *     Terms of Service or Privacy Policy row (AECI-1637) the count is of ACCOUNTS, not
+   *     companies: the field keeps its name.
    *   - `notice_enqueued_at` null and `notice_vendor_count` set: the fan-out did NOT
    *     finish. The count is the companies queued before the audience read or a queue
    *     send failed (0 when nothing was queued). Send it again.
@@ -268,10 +284,14 @@ export const LEGAL_NOTICE_DELIVERY_REASONS = [
 export const LegalNoticeDeliveryReasonSchema = z.enum(LEGAL_NOTICE_DELIVERY_REASONS);
 export type LegalNoticeDeliveryReason = z.infer<typeof LegalNoticeDeliveryReasonSchema>;
 
-/** One company the notice did not reach, for the list on `/admin/legal`. */
+/**
+ * One company the notice did not reach, for the list on `/admin/legal`. On a Terms of
+ * Service or Privacy Policy version (AECI-1637) each entry is one ACCOUNT instead:
+ * `vendor_id` holds the `profiles.id`, and `name` and `slug` are null.
+ */
 export const LegalNoticeNotReachedSchema = z.object({
   vendor_id: z.string(),
-  /** `vendors.company_name`; null when the company row is gone. */
+  /** `vendors.company_name`; null when the company row is gone, and on an account entry. */
   name: z.string().nullable(),
   slug: z.string().nullable(),
   status: z.enum(['no_recipients', 'dropped', 'expired']),
@@ -279,7 +299,8 @@ export const LegalNoticeNotReachedSchema = z.object({
 });
 export type LegalNoticeNotReached = z.infer<typeof LegalNoticeNotReachedSchema>;
 
-/** The per-company delivery record of one version, summarised. */
+/** The per-company delivery record of one version, summarised. Per account on a Terms of
+ *  Service or Privacy Policy version (`legal_notice_reader_deliveries`, AECI-1637). */
 export const LegalNoticeDeliveriesSchema = z.object({
   /** Companies with a delivery row: every company any fan-out tried to queue. */
   total: z.number().int().nonnegative(),
@@ -324,7 +345,7 @@ export type ResendLegalNoticeResponse = z.infer<typeof ResendLegalNoticeResponse
 
 /** One upcoming entry on `/admin/legal`, with its published row when there is one. */
 export const AdminLegalUpcomingEntrySchema = z.object({
-  document: LegalAgreementDocumentSchema,
+  document: LegalPublishableDocumentSchema,
   version: z.string(),
   /** `YYYY-MM-DD`, from the upcoming map. */
   effective_on: z.string(),
@@ -354,7 +375,7 @@ export type AdminLegalVersionsResponse = z.infer<typeof AdminLegalVersionsRespon
  * listed, so the read says nothing the legal page itself does not.
  */
 export const LegalPublishedVersionSchema = z.object({
-  document: LegalAgreementDocumentSchema,
+  document: LegalPublishableDocumentSchema,
   version: z.string(),
   /** ISO timestamp of the effective moment, 12:00 UTC of the effective day. */
   effective_at: z.string(),
@@ -364,7 +385,7 @@ export type LegalPublishedVersion = z.infer<typeof LegalPublishedVersionSchema>;
 /**
  * `GET /api/legal/published` (AECI-1689). Public and a read: no auth, no rate limit,
  * `Cache-Control: no-store`. The legal pages and the claim box ask it which upcoming
- * agreement version has been published, so they agree with the API on the version in
+ * agreement, Terms of Service or Privacy Policy version has been published, so they agree with the API on the version in
  * force (`legalVersionsInForce`). `now` is the API's clock, so a browser deciding on an
  * in-app navigation never reads its own clock.
  */

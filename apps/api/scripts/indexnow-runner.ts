@@ -203,7 +203,7 @@ async function main(): Promise<number> {
   if (sent.status >= 400 && sent.status < 500) {
     console.log(
       `::warning::IndexNow refused the batch (${sent.status}). The rows stay queued for ` +
-        "tomorrow. The 72 h refusal alert judges a run of these; see docs/RUNBOOKS.md 'IndexNow submissions refused'.",
+        "tomorrow. The 72 h refusal alert judges a run of these; see docs/runbooks/alerts.md 'IndexNow submissions refused'.",
     );
     return 0;
   }

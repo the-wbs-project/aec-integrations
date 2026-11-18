@@ -33,7 +33,7 @@
 // Nothing in this script or its audit row asserts it either.
 //
 // So the ruling is an OPERATOR ruling taken after escalating to the catalog owner,
-// which is what `docs/RUNBOOKS.md` prescribes for a stray with no recorded ruling —
+// which is what `docs/runbooks/alerts.md` prescribes for a stray with no recorded ruling —
 // not a transcription of a curator note. Recorded on AECI-795, 2026-09-07:
 // "It has no upstream record and no defence; if the edge is real it should be
 // re-materialised deliberately with current evidence, not adopted from a stranded

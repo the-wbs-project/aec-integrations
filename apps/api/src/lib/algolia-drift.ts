@@ -15,7 +15,7 @@
  * and the watermark advances on every successful run. A record missing from the
  * index whose row was last touched before the watermark is never re-pushed by the
  * cron; it needs a full index rebuild (the datatool's `POST /api/reindex`) or a
- * write that bumps its `updated_at`. See docs/RUNBOOKS.md "Algolia index drift".
+ * write that bumps its `updated_at`. See docs/runbooks/alerts.md "Algolia index drift".
  *
  * Dependency-injected, exactly like `./algolia-orphans`: this module imports
  * neither a database client nor `algoliasearch`, so it unit-tests with fakes and

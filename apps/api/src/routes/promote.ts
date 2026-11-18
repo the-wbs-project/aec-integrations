@@ -2041,7 +2041,7 @@ async function replayPromoteJob(
   if (!ledger) {
     // The commit HAPPENED; we simply cannot describe it. Failing is the only safe
     // answer — re-planning would mint the duplicate. This is the one `errored` promote
-    // job that did write, which is why the message says so (see `docs/RUNBOOKS.md`).
+    // job that did write, which is why the message says so (see `docs/runbooks/alerts.md`).
     throw new ApiError(
       500,
       'INTERNAL_ERROR',

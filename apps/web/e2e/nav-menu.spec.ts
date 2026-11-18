@@ -361,6 +361,9 @@ test.describe('primary navigation menu (1280px)', () => {
   test('the flyout opens on keyboard and Escape closes it, returning focus', async ({ page }) => {
     await page.goto(ROUTE);
     const trigger = primaryNav(page).getByRole('link', { name: 'Audiences', exact: true });
+    // Load-bearing (AECI-1675). The flyout values are client-only, and app
+    // stability waits for their fetch. Before it, ArrowDown focuses "View all",
+    // the only link yet, and the values then render above it.
     await untilHydrated(trigger);
     await trigger.focus();
     await page.keyboard.press('ArrowDown');

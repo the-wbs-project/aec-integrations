@@ -851,6 +851,9 @@ describe('cacheGateway — stamps Server-Timing: geo (AECI-1581)', () => {
     ['Martinique', { country: 'MQ' }],
     ['Réunion', { country: 'RE' }],
     ['Mayotte', { country: 'YT' }],
+    // AECI-1713: the list now lives in @aeci/shared and names the EU member states
+    // itself, so an EU country is held even when Cloudflare omits isEUCountry.
+    ['an EU country with no isEUCountry flag', { country: 'DE' }],
   ])('stamps %s, after the ray', async (_label, cf) => {
     const result = await run(new Response('<html></html>', { headers: HTML }), withCf(cf));
 

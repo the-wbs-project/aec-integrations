@@ -327,7 +327,7 @@ describe('AdminLegalVersions', () => {
     await openDialog(ctx, { material: 'no', acceptance: 'no' });
     const d = dialogEl()!;
     expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
-      'You said this is not a material change. No company will be emailed about it.',
+      'You said this is not a material change. No one will be emailed about it.',
     );
     expect(text(d.querySelector('[data-testid="legal-dialog-acceptance"]'))).toBe(
       'You said it does not need acceptance, so no one will be asked to accept it.',
@@ -674,7 +674,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
     await ctx.rerender();
     await ctx.rerender();
     const expected =
-      'The notice was not queued for every company. The card shows how far it got. Send it again.';
+      'The notice was not queued for everyone. The card shows how far it got. Send it again.';
     expect(text(dialogEl()!.querySelector('[data-testid="legal-dialog-error"]'))).toBe(expected);
     const cardError = card(ctx.el, 'vendor_terms').querySelector(
       '[data-testid="legal-card-error"]',
@@ -719,5 +719,113 @@ describe('AdminLegalVersions: a date moved after the publish (AECI-1689)', () =>
       },
     });
     expect(el.querySelector('[data-testid="legal-card-date-moved"]')).toBeNull();
+  });
+});
+
+// AECI-1637: the Terms of Service and Privacy Policy publish here too. Their notices go to
+// accounts, and the Privacy Policy has no acceptance question (the API refuses it).
+describe('AdminLegalVersions: the reader documents (AECI-1637)', () => {
+  const READER: AdminLegalVersionsResponse = {
+    publish_enabled: true,
+    upcoming: [
+      entry({ document: 'terms', version: '1.2', current_version: '1.1' }),
+      entry({ document: 'privacy', version: '1.2', current_version: '1.1' }),
+    ],
+  };
+
+  it('renders a card for each, with the acceptance question on Terms only', async () => {
+    const ctx = await setup({ data: READER });
+    const terms = card(ctx.el, 'terms');
+    const privacy = card(ctx.el, 'privacy');
+    expect(text(terms.querySelector('h3'))).toBe('Terms of Service version 1.2');
+    expect(text(privacy.querySelector('h3'))).toBe('Privacy Policy version 1.2');
+    expect(terms.querySelector('[data-testid="legal-acceptance-question"]')).not.toBeNull();
+    expect(text(terms)).toContain('Answer Yes when the change reduces a reader');
+    expect(privacy.querySelector('[data-testid="legal-acceptance-question"]')).toBeNull();
+    expect(text(privacy)).toContain('every account holder');
+    expect(text(privacy)).not.toContain('affected company');
+  });
+
+  it('publishes the Privacy Policy on one answer, never asking for acceptance', async () => {
+    const ctx = await setup({ data: READER });
+    const c = card(ctx.el, 'privacy');
+    expect(publishButton(c).disabled).toBe(true);
+    expect(text(c)).toContain('Answer the question and write the summary to publish.');
+    await choose(radio(c, 'privacy', 'material', 'yes'), ctx.rerender);
+    await type(c, 'privacy', 'We keep visit records for 60 days.', ctx.rerender);
+    expect(publishButton(c).disabled).toBe(false);
+    publishButton(c).click();
+    await ctx.rerender();
+    const d = dialogEl()!;
+    expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
+      'You said this is a material change. Publishing emails every account holder your summary, a link to this version and its PDF.',
+    );
+    expect(d.querySelector('[data-testid="legal-dialog-acceptance"]')).toBeNull();
+    dialogButton('Publish version').click();
+    await ctx.rerender();
+    expect(ctx.api.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ document: 'privacy', material: true, requires_acceptance: false }),
+    );
+    expect(ctx.api.publish.mock.calls[0]![0]).not.toHaveProperty('expedited_reason');
+  });
+
+  it('says what acceptance means for the Terms of Service', async () => {
+    const ctx = await setup({ data: READER });
+    await openDialog(ctx, { material: 'yes', acceptance: 'yes', doc: 'terms' });
+    expect(text(dialogEl()!.querySelector('[data-testid="legal-dialog-acceptance"]'))).toBe(
+      'You said it needs acceptance. Version 1.2 will apply to each account holder only from their next sign-in.',
+    );
+  });
+
+  it('counts accounts, not companies, on a published reader notice', async () => {
+    const row = published({
+      document: 'terms',
+      version: '1.2',
+      effective_at: '2099-01-15T12:00:00.000Z',
+      notice_enqueued_at: '2026-11-13T09:00:00.000Z',
+      notice_vendor_count: 40,
+    });
+    const deliveries: LegalNoticeDeliveries = {
+      total: 40,
+      delivered: 38,
+      pending: 0,
+      not_reached: 2,
+      not_reached_companies: [
+        {
+          vendor_id: '7a1b2c3d-0000-4000-8000-000000000001',
+          name: null,
+          slug: null,
+          status: 'no_recipients',
+          reason: null,
+        },
+      ],
+      delivered_to_check: 0,
+      delivered_to_check_companies: [],
+      stale_companies: [],
+    };
+    const ctx = await setup({
+      data: {
+        publish_enabled: true,
+        upcoming: [
+          entry({
+            document: 'terms',
+            version: '1.2',
+            published: row,
+            notice_sends: { sent: 38, failed: 0, unknown: 0, suppressed: 0, skipped: 0 },
+            notice_deliveries: deliveries,
+          }),
+        ],
+      },
+    });
+    const c = card(ctx.el, 'terms');
+    expect(text(c)).toContain('The last send queued 40 accounts on');
+    expect(text(c.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
+      'Accounts queued 40 Delivered 38 Not yet delivered 0 Not reached 2',
+    );
+    expect(text(c)).toContain('Accounts not reached');
+    expect(
+      [...c.querySelectorAll('[data-testid="legal-notice-not-reached"] li')].map(text),
+    ).toEqual(['Account 7a1b2c3d: The account has no email address to send to.']);
+    expect(text(c)).not.toMatch(/compan/i);
   });
 });

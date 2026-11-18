@@ -115,7 +115,7 @@ account alerting policy and needs account Notifications Edit.
 
 ```bash
 source /tmp/aeci-1447.env
-curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/004dc1af737b22a8aa83b3550fa9b9d3/alerting/v3/policies" -H "Authorization: Bearer $CF_LOGPUSH_ONEOFF_TOKEN" -H 'Content-Type: application/json' -d '{"name":"AECi edge log: Logpush job disabled","description":"AECI-1447, ADR 0045. Runbook: docs/RUNBOOKS.md Logpush job disabled","alert_type":"failing_logpush_job_disabled_alert","enabled":true,"filters":{},"mechanisms":{"email":[{"id":"chrisw@thewbsproject.com"}]}}'
+curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/004dc1af737b22a8aa83b3550fa9b9d3/alerting/v3/policies" -H "Authorization: Bearer $CF_LOGPUSH_ONEOFF_TOKEN" -H 'Content-Type: application/json' -d '{"name":"AECi edge log: Logpush job disabled","description":"AECI-1447, ADR 0045. Runbook: docs/runbooks/alerts.md Logpush job disabled","alert_type":"failing_logpush_job_disabled_alert","enabled":true,"filters":{},"mechanisms":{"email":[{"id":"chrisw@thewbsproject.com"}]}}'
 ```
 
 ## 5. Day-two check

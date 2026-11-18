@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: November 5, 2026
+last_updated: November 17, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -104,7 +104,7 @@ AEC Integrations can also set a product's terms on one of these tabs and lock th
 
 On Managed, the **Audiences** and **Phases** tabs also let you say how each team uses the product. Under each term you tick, add up to 8 short points of up to 200 characters each. You can reorder and remove points.
 
-Points publish to your product page as soon as you save, with no review. The section then says "Maintained by", your company name and the date you last changed the points, so readers know the words are yours. One **Save changes** saves the terms and the points together.
+Points publish to your product page as soon as you save, with no review. The page's "About this listing" panel then says "How teams use it: Maintained by", your company name and the date you last changed the points, so readers know the words are yours. One **Save changes** saves the terms and the points together.
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 
@@ -122,19 +122,19 @@ Your headquarters, founded year, company size, ownership, parent company and fun
 
 ## What readers see
 
-A small line under each group of fields says who wrote it:
+Each product page has one "About this listing" panel. It sits in the side column on a wide screen. On a narrow screen it sits at the end of the page, closed until a reader opens it. Its first line reads "AEC Integrations maintained" until you edit the listing or mark it as checked. Then it reads "Vendor maintained · Updated (date)". After it, one line per group of fields says who wrote it:
 
-- **"Maintained by (your company) · updated (date)"** sits under your product description, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
+- **"Maintained by (your company) · updated (date)"** covers your product description, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). Each line names its group. The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
 - **"Maintained by (your company) until (date)"** replaces it on "How teams use it" and the Managed group when the product's subscription ends. Your description, website and categories stay on "updated", because you can still edit them on Free.
 - **No line** means you have not changed that group yet.
 
-The line says the words are yours. It does not say we checked them. Your company page carries no such line. If you return your records to AEC Integrations, the lines on your description, the Managed group and your integrations go away, because our catalog updates can then write those fields again.
+The line says the words are yours. It does not say we checked them. Your company page carries no such line. Its "About this listing" panel holds the first line and our corrections only. Your integrations' lines are on each integration's page, not on the product page. If you return your records to AEC Integrations, the lines on your description, the Managed group and your integrations go away, because our catalog updates can then write those fields again.
 
 ## Fields AEC Integrations set
 
 A field AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason. This can be a link, a company detail, or the terms on a categories, trades, audiences or phases tab. You cannot change it while it is locked. To dispute it, email support@aecintegrations.com and quote the reason. If you try to save a change to a field that was locked while you were editing, nothing is saved and the page asks you to reload. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
 
-Readers see "Corrected by AEC Integrations on (date)" beside that value, with a link to the source we recorded. They do not see our reason. The line stays after we lift the lock, until you change the value.
+Readers see "(Field): Corrected by AEC Integrations on (date)" in the page's "About this listing" panel, with a link to the source we recorded. If we removed the value, the line reads "Removed by AEC Integrations" instead, and the value no longer shows on the page. They do not see our reason. The line stays after we lift the lock, until you change the value.
 
 A field AEC Integrations hid while it checks it carries a different note: "Hidden from your public page while AEC Integrations checks it. Saving a change to this field ends the hide." It shows our reason and the source we received. This can be a company detail, a link or a description. You can still edit the field. Saving a change ends the hide, and your new value goes public. [If AEC Integrations hides one detail](/docs/vendors/requesting-changes-and-appeals#if-aec-integrations-hides-one-detail) explains what readers see.
 

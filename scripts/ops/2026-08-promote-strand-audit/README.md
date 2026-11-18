@@ -16,10 +16,10 @@
 >
 > **Two cautions when reading below.** Its bucket names (`stray`, `dangling`, `stranded`,
 > `duplicatePointers`, `pendingJobMarkers`) are **this lane's**, not the successor's — the
-> live six are listed in the successor's README and in `docs/RUNBOOKS.md`. And its Airtable
+> live six are listed in the successor's README and in `docs/runbooks/alerts.md`. And its Airtable
 > vocabulary ("the Airtable record", "the base") is systematically stale across every promote
 > doc; AECI-797 owns that sweep. The *reasoning* in §Healing survives both, which is why it
-> is still linked from `docs/RUNBOOKS.md` and three sibling ops lanes.
+> is still linked from `docs/runbooks/alerts.md` and three sibling ops lanes.
 
 Cross-referenced production D1 against the AEC Integrations Airtable base and reported
 every row on either side without a valid counterpart link (AECI-568).
@@ -189,7 +189,7 @@ drop out of the sitemap, which is correct — the content is retracted.
 ## Healing
 
 > **Vocabulary updated 2026-09-13 (AECI-797).** The recipes below are live and still linked
-> from `docs/RUNBOOKS.md`, so they name the **review app** rather than the Airtable base this
+> from `docs/runbooks/alerts.md`, so they name the **review app** rather than the Airtable base this
 > lane was written against. The reasoning is unchanged; only the store is. The rest of this
 > file is a 2026-08 run record and deliberately still says Airtable.
 

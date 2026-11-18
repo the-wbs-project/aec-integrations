@@ -172,6 +172,23 @@
       "aeci.agreement.evidence_removal.run fires on EVERY run, outcome ok or failed. It carries",
       "activeFrom until its first production heartbeat.",
       "",
+      "AECI-1621 added plan-snapshot, the twenty-seventh cron, every 15 minutes at minute 11: it",
+      "writes the due plan-change ranking snapshots to R2. Its heartbeat aeci.plan_snapshot.run",
+      "fires on EVERY run, outcome ok, skipped or failed. It carries activeFrom until its first",
+      "production heartbeat.",
+      "",
+      "AECI-1680 added acceptance-chain, the twenty-eighth cron, daily at 18:00 UTC: it writes the",
+      "fingerprints of changed agreement acceptance and license grant rows to R2 and asks DigiCert",
+      "for a timestamp. Its heartbeat aeci.acceptance_chain.run fires on EVERY run, outcome ok,",
+      "skipped or failed. A failed DigiCert request is a warn log, not a failed run. It carries",
+      "activeFrom until its first production heartbeat.",
+      "",
+      "AECI-1638 added legal-retention-prune, the twenty-ninth job. It has no trigger of its own:",
+      "the 03:00 retention-prune tick enqueues it on the reconcile queue. It deletes audit rows",
+      "older than four years and acceptance and grant records past their retention. Its heartbeat",
+      "aeci.legal_retention.prune fires on EVERY run, outcome ok, skipped (a global litigation",
+      "hold) or failed. It carries activeFrom until its first production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -219,6 +236,16 @@
         "maxAgeMinutes": 1560,
         "datadogMonitor": "AECi \u2014 Retention prune not running (no daily run)",
         "datadogNoDataTimeframeMinutes": 1560
+      },
+      {
+        "job": "legal-retention-prune",
+        "cron": "0 3 * * *",
+        "metric": "aeci.legal_retention.prune",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-25T04:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1638. Never had a Datadog monitor: the job did not exist. Enqueued by the 03:00 retention tick on RECONCILE_QUEUE, daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped (a global litigation hold) or failed, so its absence means the job stopped running. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "data-quality",
@@ -320,7 +347,7 @@
         "maxAgeMinutes": 1680,
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1476. NOT a Cloudflare cron: the GitHub Actions workflow .github/workflows/indexnow-send.yml, which sends the day's IndexNow request from a runner IP. Its heartbeat aeci.indexnow.batch is emitted by POST /api/internal/indexnow/batch on every AUTHENTICATED call (outcome ok, empty or skipped), so a stopped schedule, a missing INDEXNOW_RUNNER_TOKEN (401) and a dead API Worker all read as MISSING here. Without it a stopped runner is silent: the refusal alert needs at least three submissions in 72 h. maxAgeMinutes is 1680 (28 h), two hours more than a daily cron, because GitHub delays scheduled workflows under load. Because of `scheduler`, the sweep's MISSING and STALE text names the workflow runs, not a Cloudflare cron trigger (AECI-1568; docs/RUNBOOKS.md 'IndexNow submissions refused'). activeFrom was removed by AECI-1568: the first production heartbeat came from the 2026-11-02 05:16 UTC hand dispatch. Its placeholder (2026-11-03T02:00Z) had covered the whole outage of 2026-10-28..11-02, when every run 401ed because INDEXNOW_RUNNER_TOKEN never reached the Worker, so the sweep printed PENDING instead of MISSING."
+        "_note": "AECI-1476. NOT a Cloudflare cron: the GitHub Actions workflow .github/workflows/indexnow-send.yml, which sends the day's IndexNow request from a runner IP. Its heartbeat aeci.indexnow.batch is emitted by POST /api/internal/indexnow/batch on every AUTHENTICATED call (outcome ok, empty or skipped), so a stopped schedule, a missing INDEXNOW_RUNNER_TOKEN (401) and a dead API Worker all read as MISSING here. Without it a stopped runner is silent: the refusal alert needs at least three submissions in 72 h. maxAgeMinutes is 1680 (28 h), two hours more than a daily cron, because GitHub delays scheduled workflows under load. Because of `scheduler`, the sweep's MISSING and STALE text names the workflow runs, not a Cloudflare cron trigger (AECI-1568; docs/runbooks/alerts.md 'IndexNow submissions refused'). activeFrom was removed by AECI-1568: the first production heartbeat came from the 2026-11-02 05:16 UTC hand dispatch. Its placeholder (2026-11-03T02:00Z) had covered the whole outage of 2026-10-28..11-02, when every run 401ed because INDEXNOW_RUNNER_TOKEN never reached the Worker, so the sweep printed PENDING instead of MISSING."
       },
       {
         "job": "claim-stale-check",
@@ -410,6 +437,16 @@
         "_note": "AECI-1636. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok or failed, so its absence means the job stopped running. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
+        "job": "acceptance-chain",
+        "cron": "0 18 * * *",
+        "metric": "aeci.acceptance_chain.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-25T19:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1680. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped or failed, so its absence means the job stopped running. A failed DigiCert timestamp is logged as aeci.acceptance_chain.timestamp_failed and the run stays ok. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+      },
+      {
         "job": "stripe-reconcile",
         "cron": "15 1 * * *",
         "metric": "aeci.stripe.reconcile.run",
@@ -429,6 +466,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1505. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many skipped ones that find nothing dirty. A new cron can miss its first tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "plan-snapshot",
+        "cron": "11-59/15 * * * *",
+        "metric": "aeci.plan_snapshot.run",
+        "maxAgeMinutes": 90,
+        "trigger": "cron",
+        "activeFrom": "2026-11-24T00:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1621. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many with nothing due. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
       },
       {
         "job": "vendor-claim-nudge",

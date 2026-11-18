@@ -390,6 +390,8 @@ The known case, found the hard way: **D1 sets `SQLITE_MAX_COMPOUND_SELECT` to 5*
 
 The second case is in the driver, not SQLite (AECI-1507). **drizzle 0.45's D1 batch throws on a `findFirst` that matches no row.** Its `mapGetResult` passes `[undefined]` to the relational mapper, which reads a property of `undefined`. better-sqlite3 returns `undefined` cleanly, so `GET /api/products/:slug` passed every spec and returned `500` for an unknown slug under `wrangler dev`. Inside `db.batch`, use `findMany({ …, limit: 1 })` and take `[0]`. The harness's `batch()` shim now throws on an empty `findFirst` too, so a spec catches it.
 
+The harness's synchronous work also starves the vitest worker's event loop (AECI-1916). `promote.spec.ts` ran 83 s without one macrotask, past birpc's 60 s `onTaskUpdate` timeout, and the lane exited 1 with every test green. `makeTestDb()` now yields one macrotask and clones a migrated image built once per file. The rule and its edge cases are in `UNIT_TESTING_GUIDE.md` under "Drizzle/D1 queries".
+
 Two habits follow:
 
 1. **Hand-built SQL is where this bites.** ORM-generated queries stay inside ordinary shapes; a hand-rolled `sql.raw(...)` that scales with table count, column count, or row count can cross a limit the harness will never enforce. `SQLITE_MAX_VARIABLE_NUMBER` and the 100 KB statement-length cap are the same class of hazard.
@@ -919,6 +921,16 @@ asserts. It returns at once for an element with no listener, and it waits for an
 element inside a `@defer (hydrate …)` block until that block hydrates. `#ng-state`
 is no signal: it survives the `TransferState` read. `[ngh]` is no signal either:
 it is consumed before a default `goto` resolves.
+
+The same signal also covers content the client fetches at boot. App stability
+waits for pending `HttpClient` requests, `httpResource` included. So once
+`jsaction` is gone, the desktop nav flyouts hold their `TaxonomyNavStore` values.
+A listener can be live before that point while the list is still empty. In
+`e2e/nav-menu.spec.ts` "the flyout opens on keyboard", an ArrowDown sent before
+stability focused "View all", the only link yet. The values then rendered above
+it, so the first link was not focused (AECI-1675, 7 of 80 runs without the gate,
+0 of 1,120 with it). Gate on `untilHydrated` even when the listener seems to
+answer already.
 
   **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
   then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and

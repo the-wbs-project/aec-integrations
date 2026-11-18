@@ -17,7 +17,14 @@ import {
   isKnownPlansPageVersion,
   plansPageSha256,
   portalAcceptanceLabel,
+  SIGN_IN_TERMS_LINE,
   AGREEMENT_CHECKBOX_LABELS,
+  LEGAL_PUBLISHABLE_DOCUMENTS,
+  LEGAL_READER_CURRENT_VERSIONS,
+  LEGAL_READER_DOCUMENTS,
+  LEGAL_READER_EFFECTIVE_ON,
+  LEGAL_READER_KNOWN_VERSIONS,
+  LEGAL_READER_UPCOMING_VERSIONS,
 } from './agreements';
 import { compareLegalVersions, legalEffectiveAtMs } from './legal-versions';
 
@@ -101,6 +108,42 @@ describe('LEGAL_AGREEMENT_EFFECTIVE_ON (AECI-1677)', () => {
         `${document} ${version} was accepted as a draft; ship the final text as a new version number, see the legal README "Bump day"`,
       ).toBeNull();
     }
+  });
+});
+
+describe('reader documents (AECI-1637)', () => {
+  it('are publishable, and not agreements', () => {
+    expect(LEGAL_PUBLISHABLE_DOCUMENTS).toEqual([
+      'vendor_terms',
+      'managed_plan',
+      'terms',
+      'privacy',
+    ]);
+    for (const d of LEGAL_READER_DOCUMENTS) {
+      expect(LEGAL_AGREEMENT_DOCUMENTS as readonly string[]).not.toContain(d);
+    }
+  });
+
+  it('end each known list with the current version, and date exactly the known versions', () => {
+    for (const d of LEGAL_READER_DOCUMENTS) {
+      expect(LEGAL_READER_KNOWN_VERSIONS[d].at(-1)).toBe(LEGAL_READER_CURRENT_VERSIONS[d]);
+      expect(Object.keys(LEGAL_READER_EFFECTIVE_ON[d])).toEqual([
+        ...LEGAL_READER_KNOWN_VERSIONS[d],
+      ]);
+    }
+  });
+
+  it('every version today is a draft, and nothing is upcoming, so a sign-in records nothing', () => {
+    for (const d of LEGAL_READER_DOCUMENTS) {
+      for (const day of Object.values(LEGAL_READER_EFFECTIVE_ON[d])) expect(day).toBeNull();
+    }
+    expect(LEGAL_READER_UPCOMING_VERSIONS).toEqual({});
+  });
+
+  it('the sign-in line is the text the ruling of 2026-11-13 names', () => {
+    expect(SIGN_IN_TERMS_LINE).toBe(
+      'By signing in, you agree to our Terms of Service and Privacy Policy.',
+    );
   });
 });
 

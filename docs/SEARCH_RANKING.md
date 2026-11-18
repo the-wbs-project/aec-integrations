@@ -103,6 +103,16 @@ counted in the D1 membership and were absent from the index, which is the drift 
 reported: `production_integrations`, 950 indexed against 972 promoted. The check was right and
 the index was short. See `scripts/ops/2026-09-algolia-integration-watermark-reset/README.md`.
 
+**The second worked case (AECI-1867, 2026-11-17).** The same path also repairs records that are
+present but **stale**. Since AECI-1618 both builders null `logo_url` for an unclaimed listing, but
+records built before that kept their logos, because their rows' `updated_at` never moved. `/search`
+trusts the record, so it showed unclaimed logos. The audit found 434 such records in production and
+421 in staging, and none in demo. A reset of the `products` and `vendors` fields swept them at the
+next 08:00 UTC run, with `updateObject` replacing each record whole, and the audit then read 0 on
+both tiers. The run record is in the watermark-reset README. The audit is
+`scripts/ops/2026-11-algolia-unclaimed-logo-audit/audit.mjs`, and the daily `algolia_unclaimed_logo`
+data-quality check now watches for a recurrence (`ADMIN_PANEL_SPEC.md` §14.1).
+
 ---
 
 ---
@@ -492,12 +502,37 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 
 **Roll out.** Every change is code: edit `INDEX_SETTINGS` / `MECHANISM_RANK` in `packages/shared/src/algolia.ts`, update the matching section of this doc in the same PR, and let `applyIndexSettings()` push it through the per-environment path in §1.1 (CI applies settings for staging, demo and production; there is no preview tier). `algolia.spec.ts` must be updated to assert the new settings. Prefer Algolia A/B testing (two index configurations) to validate a ranking change against live metrics before making it the default, rather than flipping production ranking blind.
 
+**A change the ranking page describes bumps that page's version (AECI-1621).** `/docs/trust/how-ranking-works` is a versioned page: the Terms link it, so it is a promise (§7a). If a ranking change makes any sentence on that page false, the same PR edits the page, bumps its version, adds the new version file and adds a line to its `## Versions` list. A spec fails any edit to the page until the version moves. The old version stays readable at `/docs/trust/how-ranking-works/v<version>`. How to bump it is in `apps/web/src/content/README.md`. A change that alters what the page promises is a `decision` under `LEGAL_IMPACT_REVIEW.md`, so Chris rules before it is built.
+
 **Evaluating a lever before there is enough data.** The full loop above runs on real query data — that is [AECI-283](https://linear.app/aec-integrations/issue/AECI-283), unblocked since go-live ([AECI-247](https://linear.app/aec-integrations/issue/AECI-247), 2026-07-03) but only actionable once launch traffic has accumulated meaningful Algolia analytics. Until then, the dev-only **`/preview/search-relevance`** harness ([AECI-286](https://linear.app/aec-integrations/issue/AECI-286)) ranks a curated AEC fixture set under the candidate levers above (Baseline, Ratings-forward, Coverage-weighted, and a tunable Balanced blend) so the trade-offs can be *seen and felt* before any `INDEX_SETTINGS` change. It is a **client-side model** of `customRanking`, not Algolia: a deterministic token-overlap text score stands in for Algolia's textual ranking, the lexicographic strategies mirror the real "signals only break textual ties" model, and the weighted strategies illustrate a best-match alternative where signals can override text. The pure logic lives in `apps/web/src/app/preview/search-relevance/ranking-strategies.ts` (unit-tested); the surface itself is covered by `apps/web/e2e/preview-search-relevance.spec.ts` (reorder behavior + axe). It touches no production setting and is production-blocked by `isPreviewPath`. *(AECI-636 PR-B, 2026-09-22: its Baseline strategy now models the new production `customRanking`.)*
+
+---
+
+## 7a. Substantiation and retention (AECI-1621)
+
+The Terms say ranking is never influenced by payment. Under Florida's unfair trade practices law (FDUTPA, Fla. Stat. 501.204) that claim is defended with records held when it was made (counsel Q23, `LEGAL_COUNSEL_RECORD.md`). This section lists every such record and where it lives. **Each one is kept at least four years**, the limitations period counsel named, and longer under a litigation hold (`runbooks/legal.md` "Litigation hold notice").
+
+| Record | Where it lives | How it is kept |
+|---|---|---|
+| Ranking code, and the input list that shows a plan is not an input | `packages/shared/src/algolia.ts` (`INDEX_SETTINGS`), `packages/shared/src/listing-tier.ts` (`PRODUCT_LISTING_TIER_INPUTS`, `VENDOR_LISTING_TIER_INPUTS`), `apps/api/src/lib/sort.ts`, and this document | git, every version with its date. The change log is the git history plus this doc, which changes in the same PR (§1, §7) |
+| Tests for "plans do not affect ranking, placement or review publication" | `packages/shared/src/entitlements.spec.ts` (the seven assertions, `STAGE_2_PAID_TIERS_SPEC.md` §3.2), `algolia.spec.ts`, `apps/api/src/lib/ranking-firewall.spec.ts`, `review-reply-ranking-firewall.spec.ts` | git. The tests can be re-run at any commit. GitHub keeps CI run logs for its own retention period, not four years |
+| The paid-plan capability list | `CAPABILITIES` and `TIER_CAPABILITIES` in `packages/shared/src/entitlements.ts` | git |
+| Each version of the Terms and the paid-plan agreement | `/legal/*` and its archives, `legal_versions` (`ADMIN_PANEL_SPEC.md` §5.22, ADR 0054) | Versioned pages and the published-version table. Never deleted |
+| Manual ranking and moderation actions, with actor and reason | `audit_log` (`STAGE_1_SPEC.md` §26) | Four years after the action, longer while a litigation hold is open (§26.6, AECI-1638). The legal retention prune deletes it after that. An account deletion nulls the actor id, and the action stays |
+| Moderation records, the same standard for every vendor | `reviews` and its moderation columns, the moderation audit rows | D1, with the audit rows above |
+| Ranking snapshots before and after a plan starts or ends | `plan_change_snapshots` (`DATABASE_SCHEMA.md` §9.16) and the JSON objects under `evidence/plan-snapshots/` in each `UPLOADS` bucket (`ANALYTICS.md` §11d, ADR 0056) | 4-year R2 bucket lock on `evidence/`. Nobody can delete or overwrite an object |
+| The public ranking page, every version | `/docs/trust/how-ranking-works` and its archive `/docs/trust/how-ranking-works/v<version>` | Each version is a file in git and an archived page. A change bumps the version (§7) |
+
+**What a snapshot holds.** Each plan start or end on a product writes two snapshots: one at the event, and one 30 days later, which shows a cancellation caused no later demotion. Each holds the product's `listing_tier` and its inputs, its search record as the sync would write it, its review count, ratings, creation date and integration count, and its position and list size in `/products`, each taxonomy page it is on, and the home "most integrated" list. Positions use the public list queries against the live D1 catalog at `taken_at`; they do not read cached page responses. **They do not record an Algolia search position.** The `created_desc` replica shares the Newest sort, but its timestamps are whole seconds and its ties read `listing_tier` and review count, while D1 uses the full stored timestamp and `id`. The index can also lag D1 (§6). No live Algolia query is made (ADR 0056). The saved `algolia_record` is what the sync would write at `taken_at`, not a read of the stored index record. A snapshot holds no personal data. It also records whether a plan is live now, as context. The modules that build it are kept outside the ranking firewall's file names for that reason (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
+
+**Pulling the evidence.** `runbooks/legal.md` "Pull the ranking evidence for a product".
 
 ---
 
 ## 8. Cross-references
 
+- `/docs/trust/how-ranking-works` — the public ranking page the Terms link (`apps/web/src/content/docs/trust/how-ranking-works.md`). Versioned since AECI-1621: each version is archived at `/docs/trust/how-ranking-works/v<version>`, and a change this doc describes bumps it (§7).
+- §7a — the substantiation records and their four-year retention; ADR 0056 for the plan-change snapshots.
 - `STAGE_1_SPEC.md` §7 — Search section; §7.1 record shapes, §7.2 faceting, §7.3 (the stub this doc fulfills), §7.4 sync strategy, §7.5 InstantSearch, §7.6 per-locale indexes.
 - `packages/shared/src/algolia.ts` — `INDEX_SETTINGS`, `MECHANISM_RANK`, `mechanismRank()`, `indexSettingsFor()`, `applyIndexSettings()` (the operative configuration).
 - `packages/shared/src/algolia-records.ts` — Zod record schemas (fields available to rank/facet on).

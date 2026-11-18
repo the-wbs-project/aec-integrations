@@ -4,8 +4,8 @@
  * `UPLOADS`.
  *
  * The one writer is `routes/admin-legal-versions.ts` (the insert, and the two notice
- * outcome columns). The change-notice consumer (`lib/legal-notice.ts`, AECI-1620) reads
- * through here, and the acceptance screen (AECI-1677) will.
+ * outcome columns). The change-notice consumer (`lib/legal-notice.ts`, AECI-1620) and the
+ * reader acceptance (`lib/reader-legal-acceptance.ts`, AECI-1637) read through here.
  *
  * ── THE PDF IS FIXED AT PUBLISH ──────────────────────────────────────────────────
  * `legal-pdf.yml` renders the version file and uploads it to `legal/<slug>/v<version>.pdf`,
@@ -16,8 +16,8 @@
 
 import {
   LEGAL_PDF_MAX_BYTES,
-  type LegalAgreementDocument,
   type LegalExpeditedReason,
+  type LegalPublishableDocument,
   type LegalVersion,
 } from '@aeci/shared';
 import { and, eq } from 'drizzle-orm';
@@ -42,7 +42,7 @@ export function summaryOf(row: Pick<LegalVersionRow, 'summaryJson'>): string[] {
 export function toLegalVersion(row: LegalVersionRow): LegalVersion {
   return {
     id: row.id,
-    document: row.document as LegalAgreementDocument,
+    document: row.document as LegalPublishableDocument,
     version: row.version,
     effective_at: new Date(row.effectiveAt).toISOString(),
     material: row.material,
@@ -62,7 +62,7 @@ export function toLegalVersion(row: LegalVersionRow): LegalVersion {
 /** One published version, or null. */
 export async function loadLegalVersion(
   db: Db,
-  document: LegalAgreementDocument,
+  document: LegalPublishableDocument,
   version: string,
 ): Promise<LegalVersionRow | null> {
   const row = await db.query.legalVersions.findFirst({

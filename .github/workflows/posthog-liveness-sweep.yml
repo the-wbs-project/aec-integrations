@@ -106,5 +106,5 @@ jobs:
             echo "::error::  2. Cloudflare dashboard — apps/api Worker, Triggers tab: is the cron still registered and firing?"
             echo "::error::  3. apps/api/src/lib/cron-schedules.ts — a schedule edited there but not in wrangler.jsonc stops dispatching SILENTLY (controller.cron no longer matches the switch)."
             echo "::error::  4. observability/posthog/project-config.json — if the schedule changed deliberately, maxAgeMinutes has to change with it."
-            echo "::error::Runbook: docs/RUNBOOKS.md."
+            echo "::error::Runbook: docs/runbooks/alerts.md."
           }

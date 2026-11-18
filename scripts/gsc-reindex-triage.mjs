@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// GSC re-index triage: step 0 of docs/gsc-reindex-playbook.md.
+// GSC re-index triage: step 0 of docs/runbooks/gsc-reindex.md.
 //
 // The MANUAL fallback for the daily gsc_inspect cron (AECI-1236,
 // apps/api/src/lib/gsc-inspect-job.ts). Use it when the cron did not run, or to
@@ -103,7 +103,7 @@ const D1_ACCOUNT_ID = process.env.AECI_D1_ACCOUNT_ID ?? '004dc1af737b22a8aa83b35
 const D1_DATABASE = process.env.AECI_D1_DATABASE ?? 'aeci-app-production';
 
 if (!ADMIN_TOKEN && !ADMIN_COOKIE && (args.apply || !args['from-d1'])) {
-  fail('set AECI_ADMIN_TOKEN or AECI_ADMIN_COOKIE. See docs/gsc-reindex-playbook.md, step 0.');
+  fail('set AECI_ADMIN_TOKEN or AECI_ADMIN_COOKIE. See docs/runbooks/gsc-reindex.md, step 0.');
 }
 // The API reads a bearer token first, then the Supabase session cookies.
 const ADMIN_AUTH = ADMIN_TOKEN

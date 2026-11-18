@@ -89,8 +89,8 @@ import {
   orderedPairSlugs,
   type AttestationDetector,
   type FoundVia,
-  type LegalAgreementDocument,
   type LegalExpeditedReason,
+  type LegalPublishableDocument,
   type RequestKind,
   type RequestTargetType,
 } from '@aeci/shared';
@@ -1689,17 +1689,34 @@ export function sendAttestationOpsDigestEmail(
  *   - `managed-monthly-accept`: a Managed plan version that needs acceptance, to a company
  *     with a live monthly card subscription. Adds the portal button. It says nothing about
  *     what happens without an acceptance: that sentence of the agreement is being rewritten.
+ *
+ * AECI-1637, to an account holder (`legal-account-change`), each restating the Terms of
+ * Service "Changes to these terms" or the Privacy Policy:
+ *
+ *   - `reader-terms`: a Terms version with no acceptance. Continued use binds.
+ *   - `reader-terms-accept`: a Terms version that reduces a reader's rights. It applies to
+ *     the account only from the next sign-in, which records the acceptance. Never on
+ *     continued use alone.
+ *   - `reader-privacy`: a Privacy Policy version. It applies from its date.
  */
 export type LegalTermsChangeClosing =
   | 'vendor-terms'
   | 'vendor-terms-accept'
   | 'managed-binds'
-  | 'managed-monthly-accept';
+  | 'managed-monthly-accept'
+  | 'reader-terms'
+  | 'reader-terms-accept'
+  | 'reader-privacy';
 
-/** What `legal-terms-change` needs for one recipient. */
+/** Whether a closing is one of an account notice (`legal-account-change`, AECI-1637). */
+export function isReaderLegalClosing(closing: LegalTermsChangeClosing): boolean {
+  return closing.startsWith('reader-');
+}
+
+/** What `legal-terms-change` (and `legal-account-change`) needs for one recipient. */
 export interface LegalTermsChangeSubject {
   to: string;
-  document: LegalAgreementDocument;
+  document: LegalPublishableDocument;
   version: string;
   /** `YYYY-MM-DD`, the day it takes effect (12:00 UTC). */
   effectiveDay: string;
@@ -1724,7 +1741,7 @@ export interface LegalTermsChangeSubject {
 
 /** `aeci-<slug>-v<version>.pdf`, the attachment's file name. */
 export function legalNoticeAttachmentName(
-  document: LegalAgreementDocument,
+  document: LegalPublishableDocument,
   version: string,
 ): string {
   return `aeci-${LEGAL_DOCUMENT_SLUGS[document]}-v${version}.pdf`;
@@ -1746,6 +1763,12 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
       return `For this change we ask an owner seat at your company to accept version ${version} in the vendor portal.`;
     case 'managed-binds':
       return 'It applies from your next renewal or your next purchase, whichever comes first.';
+    case 'reader-terms':
+      return `If you keep using the service after ${date}, the new version applies to you.`;
+    case 'reader-terms-accept':
+      return `Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before ${date}.`;
+    case 'reader-privacy':
+      return `The new version applies from ${date}.`;
   }
 }
 
@@ -1770,6 +1793,10 @@ function bulletBlock(items: readonly string[]): { text: string; html: string } {
  *
  * Not pausable and no unsubscribe: it is a legal notice. It passes no `operatorCopy`, so
  * the attachment-bearing send copies no one. Replies go to `SUPPORT_EMAIL`.
+ *
+ * AECI-1637: a `reader-*` closing is the account notice of a Terms of Service or Privacy
+ * Policy version, sent and ledgered as `legal-account-change`. It carries the same four
+ * things, an account holder's note, and no portal button.
  */
 export function sendLegalTermsChangeEmail(
   c: EmailContext,
@@ -1799,8 +1826,10 @@ export function sendLegalTermsChangeEmail(
   const closing = legalClosingLine(opts.closing, opts.version, date);
   const askToAccept =
     opts.closing === 'vendor-terms-accept' || opts.closing === 'managed-monthly-accept';
-  const note =
-    "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
+  const reader = isReaderLegalClosing(opts.closing);
+  const note = reader
+    ? 'You are receiving this notice because you have an account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.'
+    : "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
 
   const render = (link: LinkTagger): EmailContent => {
     const text = [lead, changes, bullets.text];
@@ -1833,7 +1862,7 @@ export function sendLegalTermsChangeEmail(
 
   return sendTransactionalEmail(c, {
     to: opts.to,
-    template: 'legal-terms-change',
+    template: reader ? 'legal-account-change' : 'legal-terms-change',
     subject,
     render,
     attachments: [
@@ -4448,7 +4477,7 @@ export function sendCronJobFailedAlert(
   if (opts.detail !== undefined) {
     facts.push(['Detail', clipped(JSON.stringify(opts.detail), CRON_FAILURE_DETAIL_MAX_CHARS)]);
   }
-  facts.push(['Runbook', 'docs/RUNBOOKS.md, "A scheduled job failed"']);
+  facts.push(['Runbook', 'docs/runbooks/alerts.md, "A scheduled job failed"']);
   const intro =
     `The scheduled job ${opts.job} failed and will not retry. ` +
     'It sends this once per day for each different reason.';
@@ -4465,6 +4494,61 @@ export function sendCronJobFailedAlert(
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
+  });
+}
+
+/**
+ * `litigation-hold-reminder` (AECI-1638, `ADMIN_PANEL_SPEC.md` §5.22b): a litigation hold
+ * has been open more than 90 days. Sent by the daily legal retention job to
+ * `SUPPORT_EMAIL`, at most once every 30 days per hold (`lib/litigation-hold-reminder.ts`
+ * reads the ledger for that). It names the scope, the vendor, the reason, the matter
+ * reference and the age, and links `/admin/legal` to release or keep the hold. The reason
+ * is the operator's own internal note. No vendor or person receives it.
+ */
+export function sendLitigationHoldReminder(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    holdId: string;
+    scope: 'global' | 'vendor';
+    vendorName: string | null;
+    vendorId: string | null;
+    reason: string;
+    matterReference: string | null;
+    placedAt: string;
+    ageDays: number;
+  } & Pick<SendDedupe, 'dedupeKey'>,
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const scope =
+    opts.scope === 'global'
+      ? 'Global: the retention prune deletes nothing'
+      : `Vendor: ${opts.vendorName ?? opts.vendorId ?? 'unknown'}`;
+  const facts: EmailTableRow[] = [
+    ['Scope', scope, { plain: true }],
+    ['Reason', opts.reason, { plain: true }],
+    ['Matter', opts.matterReference ?? 'none given', { plain: true }],
+    ['Placed', opts.placedAt],
+    ['Open for', `${opts.ageDays} days`],
+    ['Environment', tierLabel(c.env)],
+    ['Runbook', 'docs/runbooks/legal.md, "Litigation hold notice"'],
+  ];
+  const intro =
+    `A litigation hold has been open for ${opts.ageDays} days. While it is open, the retention prune keeps records past their promised period. ` +
+    'Release it on /admin/legal if the matter has ended, or keep it if the matter is still open. This reminder repeats every 30 days while the hold stays open.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `Hold open for ${opts.ageDays} days: release it or keep it.`,
+    heading: 'A litigation hold is still open',
+    table: facts,
+    ...(base ? { cta: { label: 'Open the legal page', url: link(`${base}/admin/legal`) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'litigation-hold-reminder',
+    subject: `[AECi] Litigation hold open for ${opts.ageDays} days`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'litigation_hold', id: opts.holdId },
   });
 }
 

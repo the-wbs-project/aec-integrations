@@ -45,6 +45,7 @@ import {
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
   sendCronJobFailedAlert,
+  sendLitigationHoldReminder,
   sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
@@ -671,6 +672,22 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         attempts: 4,
       }),
   },
+  'litigation-hold-reminder': {
+    links: true,
+    send: (c) =>
+      sendLitigationHoldReminder(c, {
+        to: 'support@aecintegrations.com',
+        holdId: 'h-1',
+        scope: 'vendor',
+        vendorId: 'v-1',
+        vendorName: 'Bentley',
+        reason: 'Demand letter received',
+        matterReference: 'AECI-9999',
+        placedAt: '2026-08-01T10:00:00.000Z',
+        ageDays: 91,
+        dedupeKey: 'litigation-hold-reminder:h-1:2026-10-31',
+      }),
+  },
   'stripe-reconcile-alert': {
     links: true,
     send: (c) =>
@@ -832,6 +849,23 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         pdfBase64: 'JVBERi0=',
         dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:abc',
         entity: { type: 'legal_version', id: 'lv1' },
+      }),
+  },
+  'legal-account-change': {
+    links: true,
+    send: (c) =>
+      sendLegalTermsChangeEmail(c, {
+        to: 'reader@example.com',
+        document: 'terms',
+        version: '1.2',
+        effectiveDay: '2027-01-15',
+        summary: ['The disputes section changes.'],
+        closing: 'reader-terms-accept',
+        expeditedReason: null,
+        vendorSlug: null,
+        pdfBase64: 'JVBERi0=',
+        dedupeKey: 'legal-account-change:terms:1.2:u1',
+        entity: { type: 'legal_version', id: 'lv2' },
       }),
   },
   'payment-failed': {

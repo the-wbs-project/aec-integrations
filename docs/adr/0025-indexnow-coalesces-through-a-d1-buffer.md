@@ -156,7 +156,7 @@ Webmaster Tools panel is **not** a recovery route (that claim was wrong and is c
 `bb576250`).
 
 Rotation is the only way to a known value, it is cheap, and IndexNow supports it by design.
-Procedure: `docs/launch-cutover-runbook.md` §2a.
+Procedure: `docs/runbooks/launch-cutover.md` §2a.
 
 **The fix is unproven until `aeci.indexnow.submit{outcome:ok}` is non-zero in
 production** (`source:cron` until AECI-1476, `source:runner` since). That needs a prod promote plus a real catalogue write. Until then, treat Bing
