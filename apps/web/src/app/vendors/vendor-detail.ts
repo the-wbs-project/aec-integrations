@@ -341,9 +341,11 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                     [href]="'/vendors/' + v.slug + '/claim'"
                   >
                     <aec-icon name="flag" decorative [size]="4" />
-                    <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md section 3). -->
-                    <ng-container i18n="@@vendors.detail.metadata.claimCompany"
-                      >Claim {{ v.company_name }}</ng-container
+                    <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md section 3).
+                         AECI-1925: the label reads "Claim Vendor" (Chris, 2026-11-18). The name
+                         stays in the accessible name, after the visible words. -->
+                    <ng-container i18n="@@vendors.detail.metadata.claimVendor"
+                      >Claim Vendor<span class="sr-only"> {{ v.company_name }}</span></ng-container
                     >
                   </a>
                   <a

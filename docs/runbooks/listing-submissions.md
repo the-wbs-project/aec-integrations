@@ -170,7 +170,7 @@ Hi {{name}},
 Thanks for getting in touch about {{product}}. It is listed on AEC Integrations here:
 {{listing_url}}
 
-You can claim it from that page with "Claim {{company}}". Claiming is free. Once we have checked
+You can claim it from that page with "Claim Vendor". Claiming is free. Once we have checked
 your claim, your team can edit the listing, reply to reviews and confirm integration data.
 
 Managed is the paid plan for maintaining the listing yourself. The plans are compared here:

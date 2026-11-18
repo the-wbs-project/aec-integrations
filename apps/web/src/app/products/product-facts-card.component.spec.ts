@@ -284,7 +284,10 @@ describe('ProductFactsCard (AECI-1779)', () => {
         '/products/procore/correction',
         '/vendor-program?vendor=procore',
       ]);
-      expect(text(actions)).toContain('Claim Procore Technologies');
+      // AECI-1925: "Claim Vendor", with the company name visually hidden after it.
+      const claim = actions.querySelector('a[href="/products/procore/claim"]')!;
+      expect(claim.querySelector('.sr-only')?.textContent?.trim()).toBe('Procore Technologies');
+      expect(text(claim)).toContain('Claim Vendor Procore Technologies');
       expect(text(actions)).toContain('Suggest a correction');
       expect(text(actions)).toContain('Learn more about claiming');
       // "Claim" stays before "Suggest a correction" (ruled 2026-11-16).
