@@ -1,23 +1,4 @@
-import { isPlatformBrowser } from '@angular/common';
-import {
-  Directive,
-  ElementRef,
-  PLATFORM_ID,
-  booleanAttribute,
-  computed,
-  inject,
-  input,
-  type OnInit,
-} from '@angular/core';
-
-import {
-  type HostRecipe,
-  ServerHostClasses,
-  applyHostRecipe,
-  dropStaleRecipe,
-  hostRecipe,
-  staticHostAttribute,
-} from '../host-recipe';
+import { Directive, booleanAttribute, computed, input } from '@angular/core';
 
 /**
  * The card looks (DESIGN.md section 5 "Cards", section 4 "Shadow Vocabulary").
@@ -148,7 +129,7 @@ export const CARD_GRID_CLASS = 'aec-card-grid';
     '[class]': 'classes()',
   },
 })
-export class AecCard implements OnInit {
+export class AecCard {
   readonly tone = input<AecCardTone>('base');
   readonly interactive = input(false, { transform: booleanAttribute });
   readonly nested = input(false, { transform: booleanAttribute });
@@ -164,101 +145,5 @@ export class AecCard implements OnInit {
       stripe: this.stripe(),
       phoneFlush: this.phoneFlush(),
     }),
-  );
-
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
-
-  /**
-   * FIRST RENDER (AECI-1937, see `shared/host-recipe.ts`). Inputs are not set
-   * yet. A server node gets back the recipe the server wrote. A client-created
-   * card gets only the classes every still-possible input value shares. A bound
-   * `[nested]` or `[tone]` (`product-integration-card.ts` binds `[nested]`) adds
-   * no fill, radius or shadow until its binding does, so a nested card never
-   * shows the white base surface.
-   */
-  private recipeAtCreate = applyHostRecipe(
-    this.host,
-    cardRecipeAtCreate([
-      staticHostAttribute('tone'),
-      staticHostAttribute('interactive'),
-      staticHostAttribute('nested'),
-      staticHostAttribute('stripe'),
-      staticHostAttribute('phoneFlush'),
-    ]),
-    inject(ServerHostClasses),
-    isPlatformBrowser(inject(PLATFORM_ID)),
-  );
-
-  ngOnInit(): void {
-    dropStaleRecipe(this.host, this.recipeAtCreate, this.classes());
-    this.recipeAtCreate = [];
-  }
-}
-
-type CardAttributes = readonly [
-  tone: string | null,
-  interactive: string | null,
-  nested: string | null,
-  stripe: string | null,
-  phoneFlush: string | null,
-];
-
-interface CardChoices {
-  readonly tones: readonly AecCardTone[];
-  readonly interactive: readonly boolean[];
-  readonly nested: readonly boolean[];
-  readonly stripes: readonly (AecCardStripe | null)[];
-  readonly phoneFlush: readonly boolean[];
-}
-
-const TONES: readonly AecCardTone[] = ['base', 'warm'];
-const STRIPES: readonly (AecCardStripe | null)[] = [null, 'forest', 'clay'];
-const BOTH = [false, true] as const;
-const EVERY_CARD: CardChoices = {
-  tones: TONES,
-  interactive: BOTH,
-  nested: BOTH,
-  stripes: STRIPES,
-  phoneFlush: BOTH,
-};
-const recipesAtCreate = new Map<string, HostRecipe>();
-
-/**
- * The recipe the static attributes allow before inputs are set, memoised per
- * attribute set. `tone`, `nested` and `stripe` decide the surface, and the app
- * binds `[nested]`, so with no attribute every value is possible and no surface
- * is certain. `interactive` and `phoneFlush` are only ever static, so a missing
- * attribute means `false`.
- */
-function cardRecipeAtCreate(attrs: CardAttributes): HostRecipe {
-  const key = attrs.join('|');
-  let recipe = recipesAtCreate.get(key);
-  if (!recipe) {
-    const [tone, interactive, nested, stripe, phoneFlush] = attrs;
-    const choices: CardChoices = {
-      tones: tone === 'base' || tone === 'warm' ? [tone] : TONES,
-      interactive: [booleanAttribute(interactive)],
-      nested: nested === null ? BOTH : [booleanAttribute(nested)],
-      stripes: stripe === 'forest' || stripe === 'clay' ? [stripe] : STRIPES,
-      phoneFlush: [booleanAttribute(phoneFlush)],
-    };
-    recipe = hostRecipe('aec-card', cardRecipes(choices), cardRecipes(EVERY_CARD));
-    recipesAtCreate.set(key, recipe);
-  }
-  return recipe;
-}
-
-/** One recipe per combination of the choices. */
-function cardRecipes(c: CardChoices): string[] {
-  return c.tones.flatMap((tone) =>
-    c.interactive.flatMap((interactive) =>
-      c.nested.flatMap((nested) =>
-        c.stripes.flatMap((stripe) =>
-          c.phoneFlush.map((phoneFlush) =>
-            cardClass({ tone, interactive, nested, stripe, phoneFlush }),
-          ),
-        ),
-      ),
-    ),
   );
 }
