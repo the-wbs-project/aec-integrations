@@ -6,7 +6,7 @@
  * browser by `e2e/button.spec.ts`. The unlayered edge rules and the danger hover
  * token are pinned by `button-styles.guard.spec.ts`.
  */
-import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
+import { Component, PLATFORM_ID, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { Router, RouterLink, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -342,5 +342,89 @@ describe('aecButton disabled links and the default type (AECI-1758)', () => {
     expect(el('submit').getAttribute('type')).toBe('submit');
     el('submit').click();
     expect(host.submitted).toBe(1);
+  });
+});
+
+/**
+ * AECI-1937: Angular writes an element's static classes when it creates the
+ * element and applies the `[class]` host binding only in the first update pass.
+ * During hydration that write left a button with its layout classes alone, and
+ * a frame could paint it with no fill. `TestBed.createComponent` runs the same
+ * creation pass, so the state before the first update is the state a frame
+ * could paint between the two passes.
+ */
+@Component({
+  imports: [AecButton],
+  template: `
+    <a aecButton class="mt-12" href="/" data-testid="static">Go home</a>
+    <button aecButton variant="secondary" compact class="w-full" data-testid="attrs">Save</button>
+    <a aecButton class="grow" [variant]="bound()" href="/x" data-testid="bound">Review</a>
+    <a
+      aecButton
+      class="grow"
+      data-variant="danger"
+      [variant]="bound()"
+      href="/y"
+      data-testid="server"
+      >Review</a
+    >
+  `,
+})
+class CreationHost {
+  readonly bound = signal<AecButtonVariant>('danger');
+}
+
+describe('aecButton at the creation pass (AECI-1937)', () => {
+  const tokens = (value: string) => value.split(' ');
+  const create = (platform: 'browser' | 'server') => {
+    TestBed.configureTestingModule({
+      imports: [CreationHost],
+      providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: platform }],
+    });
+    const fixture = TestBed.createComponent(CreationHost);
+    const el = (id: string) =>
+      fixture.nativeElement.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+    return { fixture, el };
+  };
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('has the whole recipe beside the static class before the first update', () => {
+    const { el } = create('browser');
+    for (const cls of ['mt-12', ...tokens(buttonClass('primary'))]) {
+      expect(el('static').classList.contains(cls), cls).toBe(true);
+    }
+  });
+
+  it('reads static variant and compact attributes before inputs are set', () => {
+    const { el } = create('browser');
+    for (const cls of ['w-full', ...tokens(buttonClass('secondary', { compact: true }))]) {
+      expect(el('attrs').classList.contains(cls), cls).toBe(true);
+    }
+    expect(el('attrs').classList.contains('bg-(--accent-primary)')).toBe(false);
+  });
+
+  it('takes a bound variant from the server data-variant left on a hydrated node', () => {
+    const { el } = create('browser');
+    for (const cls of tokens(buttonClass('danger'))) {
+      expect(el('server').classList.contains(cls), cls).toBe(true);
+    }
+  });
+
+  it('drops a wrong guess for a bound variant in the first update, keeping the static class', async () => {
+    const { fixture, el } = create('browser');
+    expect(el('bound').classList.contains('bg-(--accent-primary)')).toBe(true);
+    await fixture.whenStable();
+    const settled = el('bound').classList;
+    expect(settled.contains('grow')).toBe(true);
+    for (const cls of tokens(buttonClass('danger'))) expect(settled.contains(cls), cls).toBe(true);
+    expect(settled.contains('bg-(--accent-primary)')).toBe(false);
+    expect(settled.contains('hover:bg-(--accent-primary-hover)')).toBe(false);
+  });
+
+  it('adds nothing in the server render, so the server HTML is unchanged', async () => {
+    const { fixture, el } = create('server');
+    expect(el('static').getAttribute('class')).toBe('mt-12');
+    await fixture.whenStable();
+    expect(el('static').classList.contains('aec-btn')).toBe(true);
   });
 });

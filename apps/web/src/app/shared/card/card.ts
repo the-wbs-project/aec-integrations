@@ -1,4 +1,16 @@
-import { Directive, booleanAttribute, computed, input } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import {
+  Directive,
+  ElementRef,
+  PLATFORM_ID,
+  booleanAttribute,
+  computed,
+  inject,
+  input,
+  type OnInit,
+} from '@angular/core';
+
+import { applyHostRecipe, dropStaleRecipe, staticHostAttribute } from '../host-recipe';
 
 /**
  * The card looks (DESIGN.md section 5 "Cards", section 4 "Shadow Vocabulary").
@@ -129,7 +141,7 @@ export const CARD_GRID_CLASS = 'aec-card-grid';
     '[class]': 'classes()',
   },
 })
-export class AecCard {
+export class AecCard implements OnInit {
   readonly tone = input<AecCardTone>('base');
   readonly interactive = input(false, { transform: booleanAttribute });
   readonly nested = input(false, { transform: booleanAttribute });
@@ -146,4 +158,35 @@ export class AecCard {
       phoneFlush: this.phoneFlush(),
     }),
   );
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+  /**
+   * FIRST PAINT (AECI-1937, see `shared/host-recipe.ts`). Inputs are not set yet,
+   * so the recipe comes from the static attributes. A bound input takes its
+   * default here, and `ngOnInit` corrects it in the first update pass. Only a
+   * card with both a static `class` and a bound input can paint that default
+   * for a frame. No card does today: the one bound `[nested]` has no static class.
+   */
+  private recipeAtCreate = applyHostRecipe(
+    this.host,
+    'aec-card',
+    cardClass({
+      tone: staticHostAttribute('tone') === 'warm' ? 'warm' : 'base',
+      interactive: booleanAttribute(staticHostAttribute('interactive')),
+      nested: booleanAttribute(staticHostAttribute('nested')),
+      stripe: cardStripeAt(staticHostAttribute('stripe')),
+      phoneFlush: booleanAttribute(staticHostAttribute('phoneFlush')),
+    }),
+    isPlatformBrowser(inject(PLATFORM_ID)),
+  );
+
+  ngOnInit(): void {
+    dropStaleRecipe(this.host, this.recipeAtCreate, this.classes());
+    this.recipeAtCreate = [];
+  }
+}
+
+function cardStripeAt(value: string | null): AecCardStripe | null {
+  return value === 'forest' || value === 'clay' ? value : null;
 }

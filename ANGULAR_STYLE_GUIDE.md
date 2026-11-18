@@ -163,6 +163,12 @@ Use the `host: { ... }` metadata property on `@Component` / `@Directive`. Never 
 
 Lint: ✅ `@angular-eslint/prefer-host-metadata-property`.
 
+**A `[class]` binding and a static `class` on one element leave a gap (AECI-1937).** When Angular creates or hydrates an element, it writes the element's static classes with one `setAttribute('class', …)`: the template's `class="mt-12"` plus any static host `class`. Bound classes (`[class]`, `[class.x]`, a host `[class]`) come back only in the first update pass. During hydration that write replaces the server's full class list. On some routes the update pass runs in a later script than the creation pass, so a frame can paint the element with its static classes alone. Measured on the hold branch: the home hero submit had no fill in 5 of 5 throttled loads, and the 404 "Go home" link in 2 of 5. An element with no static class is never touched by the write, so it keeps the server's list.
+
+- A shared directive that sets its look through a host `[class]` puts the recipe back in its constructor, with `applyHostRecipe` and `dropStaleRecipe` from `shared/host-recipe.ts`. `aecButton` and `aecCard` do. Inputs are not set in the constructor, so read static attributes with `staticHostAttribute`. A bound input takes its default there and `ngOnInit` corrects it.
+- In a template, don't pair a static `class` with class bindings when the bound classes change the look or the layout. Put the whole list in one binding instead (`[class]="'mt-5 flex ' + layout()"`). Several elements still pair them (AECI-1938).
+- `e2e/hydration-class-recipe.spec.ts` guards the two directives. It reads the class list in each MutationObserver callback, which runs between scripts, where a frame can paint.
+
 ---
 
 ## 11. Signals over RxJS

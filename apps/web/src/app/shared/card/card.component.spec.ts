@@ -3,7 +3,7 @@
  * each look renders. jsdom does not run Tailwind, so computed sizes, the lift and
  * the forced-colours edge are measured in the browser by `e2e/card.spec.ts`.
  */
-import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
+import { Component, PLATFORM_ID, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -149,5 +149,62 @@ describe('aecCard (AECI-1765)', () => {
     for (const name of cardClass().split(' ')) {
       expect(el('plain').classList.contains(name), name).toBe(true);
     }
+  });
+});
+
+/** AECI-1937: see the `aecButton` creation-pass specs. The same gap left a card without its frame. */
+@Component({
+  imports: [AecCard],
+  template: `
+    <li aecCard class="p-6" data-testid="static">Static</li>
+    <div aecCard interactive tone="warm" stripe="clay" class="p-6" data-testid="attrs">Attrs</div>
+    <section aecCard class="p-8" [tone]="tone()" data-testid="bound">Bound</section>
+  `,
+})
+class CreationHost {
+  readonly tone = signal<AecCardTone>('warm');
+}
+
+describe('aecCard at the creation pass (AECI-1937)', () => {
+  const tokens = (value: string) => value.split(' ');
+  const create = (platform: 'browser' | 'server') => {
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: platform }],
+    });
+    const fixture = TestBed.createComponent(CreationHost);
+    const el = (id: string) =>
+      fixture.nativeElement.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+    return { fixture, el };
+  };
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('has the whole frame beside the static class before the first update', () => {
+    const { el } = create('browser');
+    for (const cls of ['p-6', ...tokens(cardClass())]) {
+      expect(el('static').classList.contains(cls), cls).toBe(true);
+    }
+  });
+
+  it('reads static tone, interactive and stripe attributes before inputs are set', () => {
+    const { el } = create('browser');
+    const recipe = cardClass({ tone: 'warm', interactive: true, stripe: 'clay' });
+    for (const cls of tokens(recipe)) expect(el('attrs').classList.contains(cls), cls).toBe(true);
+  });
+
+  it('drops a wrong guess for a bound tone in the first update, keeping the static class', async () => {
+    const { fixture, el } = create('browser');
+    expect(el('bound').classList.contains('bg-(--surface-base)')).toBe(true);
+    await fixture.whenStable();
+    const settled = el('bound').classList;
+    expect(settled.contains('p-8')).toBe(true);
+    for (const cls of tokens(cardClass({ tone: 'warm' }))) {
+      expect(settled.contains(cls), cls).toBe(true);
+    }
+    expect(settled.contains('bg-(--surface-base)')).toBe(false);
+  });
+
+  it('adds nothing in the server render', () => {
+    const { el } = create('server');
+    expect(el('static').getAttribute('class')).toBe('p-6');
   });
 });

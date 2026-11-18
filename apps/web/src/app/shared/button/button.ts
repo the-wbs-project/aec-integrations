@@ -3,6 +3,7 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
+  type OnInit,
   PLATFORM_ID,
   Renderer2,
   afterNextRender,
@@ -15,6 +16,7 @@ import {
 } from '@angular/core';
 
 import { isReplayedEvent } from '../../core/event-replay';
+import { applyHostRecipe, dropStaleRecipe, staticHostAttribute } from '../host-recipe';
 
 /**
  * The six button looks (DESIGN.md §5 "Buttons").
@@ -128,6 +130,11 @@ export function buttonClass(
  * caller that writes `aria-disabled` by hand gets the dimmed look only: the link
  * still takes focus and still navigates.
  *
+ * FIRST PAINT
+ * The recipe is on the element from the first client render (AECI-1937, see
+ * `shared/host-recipe.ts`). Without that, hydration left a button with only its
+ * layout classes for a frame, so it painted with no fill and faded back in.
+ *
  * ACCESSIBILITY
  * An `iconOnly` button has no visible text, so it needs `aria-label`,
  * `aria-labelledby` or visually hidden text. Dev mode logs an error when it has
@@ -142,7 +149,7 @@ export function buttonClass(
     '[attr.disabled]': 'isButton && disabled() ? "" : null',
   },
 })
-export class AecButton {
+export class AecButton implements OnInit {
   readonly variant = input<AecButtonVariant>('primary');
   readonly compact = input(false, { transform: booleanAttribute });
   readonly iconOnly = input(false, { transform: booleanAttribute });
@@ -157,6 +164,9 @@ export class AecButton {
   private readonly destroyRef = inject(DestroyRef);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   protected readonly isButton = this.host.tagName === 'BUTTON';
+
+  /** The recipe tokens the constructor put back, until the first update settles them. */
+  private recipeAtCreate: readonly string[] = [];
 
   /** The link's own tabindex, kept while disabled so re-enabling restores it. */
   private savedTabindex: string | null = null;
@@ -183,6 +193,20 @@ export class AecButton {
       this.renderer.setAttribute(this.host, 'type', 'button');
     }
 
+    // Inputs are not set yet. A static attribute gives the value, and a bound
+    // `[variant]` on a server node left its value in `data-variant`. A bound
+    // variant on a client-created button has neither, so it starts as primary
+    // and `ngOnInit` corrects it in the first update pass.
+    this.recipeAtCreate = applyHostRecipe(
+      this.host,
+      'aec-btn',
+      buttonClass(variantAtCreate(this.host, staticHostAttribute('variant')), {
+        compact: booleanAttribute(staticHostAttribute('compact')),
+        iconOnly: booleanAttribute(staticHostAttribute('iconOnly')),
+      }),
+      this.isBrowser,
+    );
+
     if (!this.isButton) {
       effect(() => this.setLinkDisabled(this.disabled()));
       this.destroyRef.onDestroy(() => {
@@ -203,6 +227,11 @@ export class AecButton {
     });
   }
 
+  ngOnInit(): void {
+    dropStaleRecipe(this.host, this.recipeAtCreate, this.classes());
+    this.recipeAtCreate = [];
+  }
+
   private setLinkDisabled(disabled: boolean): void {
     if (disabled === this.linkDisabled) return;
     this.linkDisabled = disabled;
@@ -219,6 +248,14 @@ export class AecButton {
       if (this.isBrowser) el.removeEventListener('click', this.blockClick, true);
     }
   }
+}
+
+/** The variant before inputs are set: the static attribute, else the server's `data-variant`. */
+function variantAtCreate(host: HTMLElement, staticVariant: string | null): AecButtonVariant {
+  const value = staticVariant ?? host.getAttribute('data-variant');
+  return value !== null && Object.hasOwn(BUTTON_VARIANT, value)
+    ? (value as AecButtonVariant)
+    : 'primary';
 }
 
 /**
