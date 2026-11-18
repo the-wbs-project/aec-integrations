@@ -3203,7 +3203,7 @@ Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 // One key per column the operator's table renders; `created` is absent because
 // `created_at` is not on the row, so no header could state its direction.
 export const AdminVendorSortSchema = z
-  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated'])
+  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated', 'claimed'])
   .default('name');
 
 export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
@@ -3211,6 +3211,8 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
   // No `verified` filter since AECI-1375. The column still sorts.
+  // AECI-1934: true = owned_at IS NOT NULL, false = owned_at IS NULL, absent = all.
+  claimed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
 export const AdminVendorRowSchema = z.object({
@@ -3222,6 +3224,7 @@ export const AdminVendorRowSchema = z.object({
   live_license_count: z.number().int().nonnegative(),
   product_count: z.number().int().min(0),
   updated_at: z.string(),
+  owned_at: z.string().nullable(),                // vendors.owned_at (AECI-1934)
 });
 
 export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendorRowSchema);
@@ -3245,7 +3248,7 @@ every link and bookmark written before the parameter existed orders exactly as i
 draw its arrows — **one copy, because two would drift silently**: a header would render
 ↑ while the server sorted descending and nothing would fail. Naturally: `name`/`slug`
 ASC, `verified` DESC (verified first), `licenses` DESC (most live subscriptions first),
-`products` DESC, `updated` DESC.
+`products` DESC, `updated` DESC, `claimed` DESC (most recent claim first).
 
 **Only the PRIMARY term flips.** The `id ASC` tiebreaker and the intermediate
 `company_name` term never move — they are what make the order total and the page stable
@@ -3257,6 +3260,15 @@ column sorts rather than toggling it. That was defensible when the endpoint coul
 by two keys; with six it became a defect — an arrow on a clickable header reads as a
 toggle, and a control that silently no-ops on the second click is a worse lie than the
 one the rule was avoiding.)*
+
+**`claimed` filters and sorts on record ownership (AECI-1934).** "Claimed" means
+`vendors.owned_at IS NOT NULL` (ADR 0042), as Chris ruled on 2026-11-18. It is not a live
+seat and not the `verified` mirror, and it does not read `claim_ended_at`. `?claimed=true`
+returns the owned vendors, `?claimed=false` the rest, and absent returns every vendor.
+`total` is the `count()` over the same filter. The `claimed` sort key orders by
+`owned_at` behind an `owned_at IS NULL` term that never flips. So an unclaimed vendor
+sorts last in both directions, and company name then `id` order that tail. A value other
+than `true` or `false` is a `400 VALIDATION_FAILED`.
 
 **`licenses` counts live subscriptions, not grants.** `live_license_count` is a correlated
 count of `licenses` rows with `ended_at IS NULL` whose billing account belongs to the
@@ -3281,7 +3293,8 @@ explicit `ESCAPE '\'`, because Drizzle's `like()` emits none. The leading `%` me
 cannot use `vendors_company_name_idx`; at AECi's cardinality that is the right trade.
 
 Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for an unknown
-`sort` key or a `perPage` above 100. A leftover `?verified=` is ignored, not refused.
+`sort` key, a `claimed` value other than `true` or `false`, or a `perPage` above 100. A
+leftover `?verified=` is ignored, not refused.
 
 #### `GET /api/admin/vendors/:id` (Stage 2 — AECI-652)
 

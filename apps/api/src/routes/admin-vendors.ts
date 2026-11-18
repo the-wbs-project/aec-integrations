@@ -234,6 +234,12 @@ export function createAdminVendorsListHandler(
       search
         ? or(likeContains(vendors.companyName, search), likeContains(vendors.slug, search))
         : undefined,
+      // AECI-1934: "claimed" is record ownership (`owned_at`, ADR 0042), as ruled.
+      query.claimed === undefined
+        ? undefined
+        : query.claimed
+          ? isNotNull(vendors.ownedAt)
+          : isNull(vendors.ownedAt),
     );
 
     const [rows, totals] = await db.batch([
@@ -244,6 +250,7 @@ export function createAdminVendorsListHandler(
           companyName: vendors.companyName,
           verified: vendors.verified,
           updatedAt: vendors.updatedAt,
+          ownedAt: vendors.ownedAt,
           productCount: vendorListConfig.extras.productCount,
           // Aliased so `resolveAdminVendorOrderBy` orders by the alias, not a
           // second copy of the subquery.
@@ -267,6 +274,7 @@ export function createAdminVendorsListHandler(
           live_license_count: Number(row.liveLicenseCount ?? 0),
           product_count: Number(row.productCount ?? 0),
           updated_at: row.updatedAt,
+          owned_at: row.ownedAt,
         }),
       ),
       page: query.page,

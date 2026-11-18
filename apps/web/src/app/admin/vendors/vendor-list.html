@@ -40,6 +40,15 @@
         </button>
         }
       </form>
+
+      <aec-select
+        i18n-label="@@admin.vendors.filter.claimed.label"
+        label="Claimed"
+        [options]="claimedOptions"
+        [value]="claimed()"
+        idPrefix="admin-vendors-claimed"
+        (changed)="onClaimedChange($event)"
+      />
     </div>
   </div>
 
@@ -79,14 +88,14 @@
     </button>
   </div>
   } @else if (isEmpty()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.empty">
-    No vendors match this search.
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.empty2">
+    No vendors match this search or filter.
   </p>
   } @else {
   <div class="mt-6 overflow-x-auto">
     <table class="w-full min-w-[60rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.table.caption2">
-        Vendors in the catalog, with account state, live subscriptions and counts
+      <caption class="sr-only" i18n="@@admin.vendors.table.caption3">
+        Vendors in the catalog, with account state, claim date, live subscriptions and counts
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -109,6 +118,17 @@
             label="Slug"
             [activeSort]="sort()"
             [direction]="directionFor('slug')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="claimed"
+            i18n-label="@@admin.vendors.col.claimedOn"
+            label="Claimed on"
+            [activeSort]="sort()"
+            [direction]="directionFor('claimed')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
           ></th>
@@ -177,6 +197,17 @@
             — and lifting it out of the name cell makes every row one line tall.
           -->
           <td class="py-2.5 pe-4 font-mono text-xs text-(--text-tertiary)">{{ v.slug }}</td>
+
+          <!--
+            Claimed on is record ownership, owned_at (ADR 0042), not the paid
+            mirror beside it. A Free-plan claim shows a date here and a dash there.
+          -->
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (v.owned_at) { {{ v.owned_at | date: 'mediumDate' : 'UTC' }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.notClaimed">Not claimed</span>
+            }
+          </td>
 
           <!--
             Account active and Live licenses sit in adjacent columns so an operator
