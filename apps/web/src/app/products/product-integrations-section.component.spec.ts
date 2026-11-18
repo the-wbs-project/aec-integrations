@@ -358,6 +358,30 @@ describe('ProductIntegrationsSection collapsible lanes', () => {
     expect(el.querySelectorAll('li[aec-product-integration-card] h3')).toHaveLength(0);
   });
 
+  it('draws each card from the integration card recipe (match-card-recipe.ts)', () => {
+    const { el } = setup(withLanes());
+    const card = el.querySelector(
+      'li[aec-product-integration-card] [data-testid="integration-card"]',
+    )!;
+    // 24px padding, 32px from md, 20px between blocks.
+    expect(card.className).toContain('gap-5');
+    expect(card.className).toContain('md:p-8');
+    // The name at the Title role, on the partner link.
+    expect(card.querySelector('.aec-partner-link')!.className).toContain('text-t-24');
+    // The recipe's chips, not the dense chip.
+    expect(card.querySelector('aec-chip')).toBeNull();
+    // The 34px round button with the chevron at the foot.
+    const go = card.querySelector('[data-testid="integration-card-go"]')!;
+    expect(go.className).toContain('size-8.5');
+    expect(go.className).toContain('rounded-full');
+    // Both lists use the integration card grid, not the product card grid.
+    const lists = [...el.querySelectorAll('#integrations [data-testid="integration-cards"]')];
+    for (const list of lists) {
+      expect(list.classList).toContain('aec-integration-grid');
+      expect(list.classList).not.toContain('aec-card-grid');
+    }
+  });
+
   it('names each lane table by its own card heading', () => {
     const { fixture, el } = setup(withLanes());
     showTable(fixture, el);

@@ -1,20 +1,40 @@
+import { DATA_OBJECT_ICONS } from '../shared/icon/icon-maps';
+import type { AecIconName } from '../shared/icon/icon-registry';
+
 /**
- * The match card recipe (AECI-1835, DESIGN.md "The match card"): the empty pair page's
- * closest-match card, from mock-up 5's `.card`, given more room after the owner's review
- * of 2026-11-18. Class strings only, like `integration-filter-recipe.ts`, so the product
- * page's integration card can adopt the same set in a follow-up without sharing a
- * component (its content differs: a lane row, captions, under-review markers).
+ * The integration card recipe (DESIGN.md "The integration card"): one roomy card for
+ * one integration, from mock-ups 5 and 6 (`.card`), given more room after the owner's
+ * reviews of 2026-11-18. Two users: the empty pair page's closest-match card (AECI-1835)
+ * and the product page's integration card (AECI-1720), with the connector page's hub
+ * cards on its compact variant. Class strings only, like `integration-filter-recipe.ts`,
+ * because the cards' contents differ (a lane row, Via rows, under-review markers).
  *
  * Light only. No new token, size or radius.
  */
 
-/** The card: 24px padding on a phone, 32px from md, 20px between blocks. */
-export const MATCH_CARD_CLASS =
-  'group/card relative flex h-full flex-col gap-5 p-6 transition-shadow duration-base ease-standard hover:shadow-menu md:p-8';
+/** The card body: 24px padding on a phone, 32px from md, 20px between blocks. */
+export const MATCH_CARD_BODY_CLASS = 'flex h-full flex-col gap-5 p-6 md:p-8';
 
-/** The name: the Title role (`--t-24`), one step above the mock-up's 20px, on a 1.1 line. */
-export const MATCH_CARD_NAME_CLASS =
-  'm-0 font-display text-t-24 leading-[1.1] font-semibold break-words';
+/** The card, for a caller whose card is not `interactive`: the body with its own hover. */
+export const MATCH_CARD_CLASS = `group/card relative ${MATCH_CARD_BODY_CLASS} transition-shadow duration-base ease-standard hover:shadow-menu`;
+
+/**
+ * The compact variant, for a card nested inside a group card on the connector page:
+ * 24px padding at every width and 16px between blocks, so a nested card is neither
+ * cramped nor larger than the cards beside its group.
+ */
+export const MATCH_CARD_COMPACT_BODY_CLASS = 'flex h-full flex-col gap-4 p-6';
+
+/** The name's type: the Title role (`--t-24`), one step above the mock-ups' 20px, on a
+ *  1.1 line. Put it on the name's own element (a heading's unlayered rule beats a size
+ *  utility on the heading itself). */
+export const MATCH_CARD_NAME_TEXT_CLASS = 'font-display text-t-24 leading-[1.1] font-semibold';
+
+/** The name as a heading that carries its own size (an `h4`, which no unlayered rule sizes). */
+export const MATCH_CARD_NAME_CLASS = `m-0 ${MATCH_CARD_NAME_TEXT_CLASS} break-words`;
+
+/** The compact variant's name: the Card title role (`--t-20`). */
+export const MATCH_CARD_COMPACT_NAME_TEXT_CLASS = 'text-t-20 leading-tight font-semibold';
 
 /** The byline under the name. */
 export const MATCH_CARD_BYLINE_CLASS = 'm-0 mt-1 text-t-13 text-(--text-secondary)';
@@ -55,3 +75,16 @@ export const MATCH_CARD_FOOT_CLASS =
 /** The foot's 34px round button. It holds a chevron, never an arrow (the Arrow Rule). */
 export const MATCH_CARD_GO_CLASS =
   'grid size-8.5 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)';
+
+/**
+ * The card grid (`.aec-integration-grid` in `styles.css`): one column on a phone, two
+ * from md, and a third only where every card would still be at least 400px wide. The
+ * page wrap caps a list at 1,232px, under the 1,248px three such cards need, so a page
+ * list never takes three.
+ */
+export const MATCH_CARD_GRID_CLASS = 'aec-integration-grid';
+
+/** A data object's glyph on its chip, where the icon map has one. */
+export function matchChipIcon(slug: string): AecIconName | null {
+  return (DATA_OBJECT_ICONS as Readonly<Record<string, AecIconName | null>>)[slug] ?? null;
+}

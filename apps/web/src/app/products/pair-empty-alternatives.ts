@@ -49,6 +49,7 @@ import {
   MATCH_CARD_CLASS,
   MATCH_CARD_FOOT_CLASS,
   MATCH_CARD_GO_CLASS,
+  MATCH_CARD_GRID_CLASS,
   MATCH_CARD_NAME_CLASS,
   MATCH_CARD_SCORES_CLASS,
   MATCH_CARD_SCORE_ROW_CLASS,
@@ -553,10 +554,14 @@ function objectIcon(slug: string): AecIconName | null {
             }
           </div>
         } @else if (view() === 'cards') {
-          <ul [class]="cardsGrid()" data-testid="pair-matches-cards">
+          <ul
+            [class]="cardsGrid"
+            [attr.data-columns]="cardsColumns()"
+            data-testid="pair-matches-cards"
+          >
             @for (m of shown(); track m.product.id) {
               <li class="min-w-0">
-                <!-- The match card recipe (match-card-recipe.ts, DESIGN.md "The match card"). -->
+                <!-- The integration card recipe (match-card-recipe.ts, DESIGN.md "The integration card"). -->
                 <article aecCard [class]="card.card">
                   <div class="flex min-w-0 items-center gap-3">
                     <aec-logo-or-initial
@@ -837,7 +842,7 @@ export class PairEmptyAlternatives {
   protected readonly statusClass = INTEGRATION_STATUS_CLASS;
   protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
 
-  /** The match card recipe, shared so the product page can adopt it (match-card-recipe.ts). */
+  /** The integration card recipe, shared with the product page (match-card-recipe.ts). */
   protected readonly card = {
     card: MATCH_CARD_CLASS,
     name: MATCH_CARD_NAME_CLASS,
@@ -956,16 +961,14 @@ export class PairEmptyAlternatives {
   });
 
   /**
-   * The match card grid (DESIGN.md "The match card"): one column on a phone, two from
+   * The integration card grid (DESIGN.md "The integration card"): one column on a phone, two from
    * md. A third column needs every card at least 400px wide, a 1,248px list, and the page
    * wrap caps the list at 1,232px, so the list never takes three. One match takes the
    * whole row, so no column is left blank (PLAN.md §10).
    */
-  protected readonly cardsGrid = computed(() =>
-    this.shown().length >= 2
-      ? 'mt-6 grid list-none gap-6 p-0 md:grid-cols-2'
-      : 'mt-6 grid list-none gap-6 p-0',
-  );
+  protected readonly cardsGrid = `${MATCH_CARD_GRID_CLASS} mt-6 list-none p-0`;
+  /** One match takes the whole row (`data-columns`, as on the product page). */
+  protected readonly cardsColumns = computed(() => (this.shown().length === 1 ? 1 : null));
 
   protected readonly keepOptions = computed(() =>
     (['context', 'other'] as const).map((key) => ({

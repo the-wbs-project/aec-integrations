@@ -161,10 +161,11 @@ import { ProductIntegrationCard } from './product-integration-card';
     }
   `,
   styles: `
-    /* The group's card grid: one column, two from md, three from xl. The jump rail
-       takes the left column from lg, so three columns wait for xl (mock-up 7 steps to
-       two columns at 1260px and below in grouped mode). Never more than three (clash
-       18). Positioned, so a hidden card below stays inside the list's box. */
+    /* The group's card grid, the integration card grid's columns (DESIGN.md "The
+       integration card"): one column, two from md. Mock-up 7 draws three 300px cards at
+       1440 beside the jump rail; the roomier card needs 400px, which three columns
+       never get here, so the grid stops at two. Positioned, so a hidden card below
+       stays inside the list's box. */
     .aec-category-grid {
       position: relative;
       display: grid;
@@ -174,11 +175,6 @@ import { ProductIntegrationCard } from './product-integration-card';
     @media (min-width: 48rem) {
       .aec-category-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-    @media (min-width: 80rem) {
-      .aec-category-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
     /* One or two cards share the full row equally (ruled 2026-11-16), and their row
