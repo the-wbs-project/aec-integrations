@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: November 9, 2026
+last_updated: November 18, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -54,7 +54,7 @@ You may add a dated update to a review of yours that we have published, for exam
 
 The vendor of each product in a reviewed integration may post one public response to each published review. Any company that has claimed its product may reply, on any plan. Whether a company replies never affects whether a review is published or how a product ranks.
 
-- **Labeled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
+- **Labeled.** A response appears after the review text, in its own panel labeled "Response from" the company's name, with the date it was published. It is never mixed with the reviewer's words.
 - **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.
 - **The review stays as written.** A response cannot alter, hide, or remove a review. It does not change a review's rating, whether the review is published, or how any product ranks.
 - **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It may say that a reported problem is fixed and invite an updated review, without asking for a rating or for favorable content. An update is published under the original review with its own date; the original stays. It may give a support email address or a help link. It must not contain advertising, other contact details, or anything this page does not allow in a review.
@@ -72,4 +72,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews. After a second drafting pass: we remove confidential information when a report shows it is confidential, without interpreting private contracts, and a disclosed relationship does not bar a review.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews. After a second drafting pass: we remove confidential information when a report shows it is confidential, without interpreting private contracts, and a disclosed relationship does not bar a review. Later: a response appears after the review text, in its own labeled panel, and is never mixed with the reviewer's words.

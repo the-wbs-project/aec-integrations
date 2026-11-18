@@ -593,6 +593,7 @@ describe('docs manifest', () => {
       'search',
       'browsing-lists',
       'the-home-page',
+      'a-product-page',
       'what-does-not-count',
       'what-a-plan-does-not-buy',
       'corrections-are-free',

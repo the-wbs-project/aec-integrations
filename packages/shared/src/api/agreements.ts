@@ -160,11 +160,11 @@ export const LEGAL_AGREEMENT_TEXT_SHA256 = {
     '1.0': '628113b220f006e9918498e538bf6c86e9d69046da70dc32ec4f16d8f8a71d52',
     '1.1': '9ab3fe5b38411a45e2d0c6e5134c4e44fe9b7b44ba385af669901c2e214b1ca0',
     '1.2': '5a9592f8db571b06352dede158bb442c2ebd5a7cc4ad29e8211391577dcae043',
-    '1.3': 'f0b6417d34499357652db3d1e1a5e751412828bda5157044971bb12cf7dfa1ad',
+    '1.3': 'e94bca9b5bdbad730326c28f61f91f04c394474d2b55f8d10a03a366c5ffcdd4',
   },
   managed_plan: {
     '1.0': '3f8e28e5e4309330aa9b5f1dd6cc51a572317c6f4691564fbb6f65b23797032d',
-    '1.1': '047cfc4f12483336b2c74a6fa1584a5c2e6d635a4d1b31176a043075a07ce0ad',
+    '1.1': '29e2581c68810d89fdba03bb064f3dc11891fda1c1b3382ede22dbe9ab00f87c',
   },
 } as const satisfies Record<LegalAgreementDocument, Record<string, string>>;
 
