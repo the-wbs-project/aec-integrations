@@ -190,7 +190,7 @@ export function toVendorBillingLicenseRow(
     } @else {
       @if (liveRows().length > 0) {
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[44rem] table-fixed border-collapse text-start text-sm">
+          <table [class]="tableClass()">
             <caption class="sr-only" i18n="@@vendor.billing.licenses.caption">
               Subscriptions
             </caption>
@@ -232,7 +232,7 @@ export function toVendorBillingLicenseRow(
             >
           </summary>
           <div class="mt-2 overflow-x-auto">
-            <table class="w-full min-w-[44rem] table-fixed border-collapse text-start text-sm">
+            <table [class]="tableClass()">
               <caption class="sr-only" i18n="@@vendor.billing.ended.caption">
                 Ended subscriptions
               </caption>
@@ -253,12 +253,15 @@ export function toVendorBillingLicenseRow(
 
     <ng-template #tableBody let-group>
       <colgroup>
-        <col class="w-[10%]" />
+        <!-- Fixed rem widths, never percentages: Product takes the rest, and the
+             table's min width (tableClass) keeps that rest at 12rem or more, so a
+             narrow screen scrolls the table instead of crushing its columns. -->
+        <col class="w-[8.5rem]" />
         <col />
-        <col class="w-[10%]" />
-        <col class="w-[10%]" />
-        <col class="w-[22%]" />
-        <col class="w-[11%]" />
+        <col class="w-[7.5rem]" />
+        <col class="w-[7.5rem]" />
+        <col class="w-[14rem]" />
+        <col class="w-[8rem]" />
         @if (rowActions()) {
           <col class="w-[13rem]" />
         }
@@ -369,6 +372,17 @@ export class VendorBillingLicenses {
   protected asRows(group: unknown): readonly VendorBillingLicenseRow[] {
     return group as readonly VendorBillingLicenseRow[];
   }
+
+  /**
+   * The fixed columns plus a 12rem floor for Product: 58rem, or 71rem with the
+   * 13rem Actions column. Below that the wrapper's `overflow-x-auto` scrolls.
+   * Full literals so Tailwind sees both.
+   */
+  protected readonly tableClass = computed(() =>
+    this.rowActions()
+      ? 'w-full min-w-[71rem] table-fixed border-collapse text-start text-sm'
+      : 'w-full min-w-[58rem] table-fixed border-collapse text-start text-sm',
+  );
 
   protected readonly thClass = 'py-2 pe-4 text-start font-label font-semibold';
   /** The tone classes live in `styles.css` (unlayered), so the border colour wins. */

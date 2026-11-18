@@ -114,6 +114,19 @@ describe('VendorBillingLicenses', () => {
     expect(main!.querySelectorAll('th')).toHaveLength(6);
   });
 
+  it('keeps a minimum table width so a narrow screen scrolls, not crushes (AECI-1866 review)', () => {
+    const el = render(VENDOR_BILLING_FIXTURE.licenses).nativeElement as HTMLElement;
+    const tables = [...el.querySelectorAll('table')];
+
+    expect(tables).toHaveLength(2);
+    for (const t of tables) {
+      expect(t.classList).toContain('min-w-[58rem]');
+      expect(t.closest('.overflow-x-auto')).not.toBeNull();
+      // Rem widths, never percentages: a percentage column shrinks with the screen.
+      expect([...t.querySelectorAll('col')].some((c) => c.className.includes('%'))).toBe(false);
+    }
+  });
+
   it('shows an empty state that no longer promises buying "later" (AECI-1502)', () => {
     const el = render([]).nativeElement as HTMLElement;
 
