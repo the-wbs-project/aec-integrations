@@ -12,6 +12,12 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
  *
  * The dispute route is §11d.4: email support@aecintegrations.com. A lock is lifted only by
  * AECi, so the line says so rather than offering an action the vendor cannot take.
+ *
+ * The reason reaches only the vendor holding the lock (AECI-1668, §11d.5). Another vendor
+ * that sees the record, such as the other endpoint of an integration, gets `reason` as
+ * `null`. Its note then says who set the value and links the source, which the public
+ * page shows anyway. It has no reason and no dispute line, because the dispute is the
+ * holder's.
  */
 @Component({
   selector: 'aec-vendor-locked-note',
@@ -25,7 +31,9 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
       <span class="font-semibold text-(--text-primary)" i18n="@@vendor.locked.setBy"
         >Set by AEC Integrations.</span
       >
-      <span i18n="@@vendor.locked.reason">Reason: {{ lock().reason }}</span>
+      @if (lock().reason !== null) {
+        <span i18n="@@vendor.locked.reason">Reason: {{ lock().reason }}</span>
+      }
       @if (sourceHref(); as href) {
         <!-- AECI-1614: the source readers see on the public page. A new tab, because the
              reader is mid-edit (DESIGN.md, "The Link Treatment Rule"). -->
@@ -41,9 +49,11 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
           ><span i18n="@@vendor.locked.source">Source</span><aec-new-tab-icon
         /></a>
       }
-      <span i18n="@@vendor.locked.dispute"
-        >To dispute it, email support@aecintegrations.com and quote this reason.</span
-      >
+      @if (lock().reason !== null) {
+        <span i18n="@@vendor.locked.dispute"
+          >To dispute it, email support@aecintegrations.com and quote this reason.</span
+        >
+      }
     </p>
   `,
   styles: [':host { display: block; }'],

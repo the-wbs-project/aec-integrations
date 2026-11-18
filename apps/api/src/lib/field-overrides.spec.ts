@@ -1,5 +1,6 @@
 /**
- * `lockedFieldsByEntity` under D1's 100-bound-parameter cap.
+ * `lockedFieldsByEntity` under D1's 100-bound-parameter cap, and its holder-only reason
+ * (AECI-1668).
  *
  * better-sqlite3 accepts an over-cap `IN (…)` list, so a plain harness run cannot see
  * the failure. This spec wraps `prepare` to reject any statement binding more than 100
@@ -19,6 +20,8 @@ import {
 
 const D1_MAX_BOUND_PARAMS = 100;
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const HOLDER = 'vendor-holder';
+const OTHER = 'vendor-other';
 
 let t: TestDb;
 
@@ -46,6 +49,7 @@ describe('lockedFieldsByEntity', () => {
         field: 'docs_url',
         value: 'https://a.example/old',
         reason: 'older',
+        vendorId: HOLDER,
         setAt: '2026-10-01T00:00:00.000Z',
       },
       {
@@ -54,6 +58,7 @@ describe('lockedFieldsByEntity', () => {
         field: 'description',
         value: 'Corrected',
         reason: 'newer',
+        vendorId: HOLDER,
         setAt: '2026-10-02T00:00:00.000Z',
       },
       {
@@ -62,6 +67,7 @@ describe('lockedFieldsByEntity', () => {
         field: 'docs_url',
         value: 'https://b.example',
         reason: 'last chunk',
+        vendorId: HOLDER,
         setAt: '2026-10-03T00:00:00.000Z',
       },
       {
@@ -83,7 +89,7 @@ describe('lockedFieldsByEntity', () => {
       },
     ]);
 
-    const locks = await lockedFieldsByEntity(t.db, 'integration', ids);
+    const locks = await lockedFieldsByEntity(t.db, 'integration', ids, HOLDER);
 
     expect([...locks.keys()].sort()).toEqual([ids[0], ids[152]]);
     expect(locks.get(ids[0]!)?.map((l) => l.reason)).toEqual(['newer', 'older']);
@@ -98,7 +104,69 @@ describe('lockedFieldsByEntity', () => {
   });
 
   it('reads nothing for an empty id list', async () => {
-    expect((await lockedFieldsByEntity(t.db, 'integration', [])).size).toBe(0);
+    expect((await lockedFieldsByEntity(t.db, 'integration', [], HOLDER)).size).toBe(0);
+  });
+
+  describe('the reason goes to the holder only (AECI-1668, §11d.5)', () => {
+    const id = uuid(1);
+    const orphan = uuid(2);
+    const SOURCE = 'https://source.example/fact';
+
+    beforeEach(async () => {
+      await t.db.insert(fieldOverrides).values([
+        {
+          entityType: 'integration',
+          entityId: id,
+          field: 'docs_url',
+          value: 'https://a.example',
+          reason: 'For the holder',
+          sourceUrl: SOURCE,
+          vendorId: HOLDER,
+          setAt: '2026-10-01T00:00:00.000Z',
+        },
+        {
+          entityType: 'integration',
+          entityId: orphan,
+          field: 'docs_url',
+          value: 'https://b.example',
+          reason: 'Nobody told',
+          sourceUrl: SOURCE,
+          vendorId: null,
+          setAt: '2026-10-01T00:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('gives the holder the reason and the source', async () => {
+      const locks = await lockedFieldsByEntity(t.db, 'integration', [id], HOLDER);
+      expect(locks.get(id)).toEqual([
+        {
+          field: 'docs_url',
+          reason: 'For the holder',
+          set_at: '2026-10-01T00:00:00.000Z',
+          source_url: SOURCE,
+        },
+      ]);
+    });
+
+    it('gives any other vendor the field, date and public source, never the reason', async () => {
+      const locks = await lockedFieldsByEntity(t.db, 'integration', [id], OTHER);
+      expect(locks.get(id)).toEqual([
+        {
+          field: 'docs_url',
+          reason: null,
+          set_at: '2026-10-01T00:00:00.000Z',
+          source_url: SOURCE,
+        },
+      ]);
+    });
+
+    it('shows a lock with no vendor_id, or to a null viewer, with no reason', async () => {
+      const byHolder = await lockedFieldsByEntity(t.db, 'integration', [orphan], HOLDER);
+      expect(byHolder.get(orphan)?.[0]?.reason).toBeNull();
+      const byNobody = await lockedFieldsByEntity(t.db, 'integration', [id], null);
+      expect(byNobody.get(id)?.[0]?.reason).toBeNull();
+    });
   });
 });
 
