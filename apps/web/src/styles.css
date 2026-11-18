@@ -1274,6 +1274,32 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The integration card grid (DESIGN.md "The integration card", `match-card-recipe.ts`):
+   the product page's Integrations section, its lane cards, and the empty pair page's
+   closest matches. One column below `md` and two from `md`. A third column would need
+   every card at least 400px wide, a 1,248px list, and the page wrap caps a list at
+   1,232px, so the grid stops at two. The product card grids keep `.aec-card-grid`. */
+.aec-integration-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .aec-integration-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A set column count, as on `.aec-card-grid`: equal rows, and one card takes the row. */
+.aec-integration-grid[data-columns] {
+  grid-auto-rows: 1fr;
+}
+
+.aec-integration-grid[data-columns='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* The Forest hero band (AECI-1766, `shared/hero-band/hero-band.ts`). The glow is
    the one gradient the design allows (DESIGN.md §4 "Hero glow"): two radial
    gradients in a single colour, Forest hover at 75% and 45%, taken from the
