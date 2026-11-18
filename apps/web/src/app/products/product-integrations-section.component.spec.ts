@@ -550,7 +550,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
   it('a direction chip filters, announces the count politely, and the heading count stays', () => {
     const { fixture, el } = setup(rows());
     const status = el.querySelector('[role="status"]')!;
-    // AECI-1720: idle, the status is empty, as on the shared List filter: an idle
+    // AECI-1720: idle, the status is empty, as on "Integrations it powers": an idle
     // "Showing 4 of 4" would be a row count beside the heading (ruled 2026-11-16).
     expect(status.textContent?.trim()).toBe('');
     pressChip(fixture, el, 'Enscape sends');
@@ -595,6 +595,8 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       'Any direction 4',
     ]);
     expect(clear()).toBeNull();
+    // The button removed itself, so focus moved to the search field (AECI-1788).
+    expect(document.activeElement).toBe(filterInput(el));
   });
 
   it('renders no direction or category group when no row has one', () => {

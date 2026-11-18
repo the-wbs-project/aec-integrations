@@ -16,6 +16,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PoweredIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
+import {
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+} from './integration-filter-recipe';
 import { ProductPoweredHub } from './product-powered-hub';
 
 const link = (slug: string, name: string): ProductLink => ({
@@ -106,13 +112,13 @@ describe('ProductPoweredHub', () => {
   // degree to claim pairs. A single edge falls through to the "Other
   // connections" pair rows, which are a different template branch and are not
   // what AECI-853 changed.
-  it('renders the hub-relative direction inside the partner cell, not a separate slot', () => {
+  it('renders the hub-relative direction inside the partner card, not a separate slot', () => {
     const { el } = setup(NINE);
-    const stack = el.querySelector('ul li a span.flex.min-w-0.flex-1.flex-col')!;
-    expect(stack).not.toBeNull();
-    expect(stack.textContent).toContain('Acumatica');
-    expect(stack.textContent).toContain('Sends to Acumatica');
-    expect(stack.textContent).toContain('\u2192');
+    const card = el.querySelector('ul li a[data-testid="powered-card"]')!;
+    expect(card).not.toBeNull();
+    expect(card.textContent).toContain('Acumatica');
+    expect(card.textContent).toContain('Sends to Acumatica');
+    expect(card.textContent).toContain('\u2192');
   });
 
   it('labels the direction for assistive tech now that the slot is gone', () => {
@@ -222,6 +228,137 @@ describe('ProductPoweredHub', () => {
     type(fixture, filterInput(el)!, '');
     expect(el.querySelector('h3 button')!.getAttribute('aria-expanded')).toBe('false');
   });
+  // AECI-1788: the section in the Integrations section's language. The rows became
+  // nested cards in the shared card grid, the filter moved into a panel, and nothing
+  // else moved: the order, the counts and the link names are the row's.
+  describe('the card language (AECI-1788)', () => {
+    const cards = (el: HTMLElement) => [
+      ...el.querySelectorAll<HTMLAnchorElement>('a[data-testid="powered-card"]'),
+    ];
+
+    it('renders each pair as one nested card that is the pair link', () => {
+      const { el } = setup(NINE);
+      const all = cards(el);
+      expect(all).toHaveLength(9);
+      for (const card of all) {
+        // The nested card surface (clash 14): the panel radius and tint, no shadow.
+        expect(card.classList).toContain('aec-card');
+        expect(card.classList).toContain('rounded-panel');
+        expect(card.classList).not.toContain('shadow-card');
+        expect(card.getAttribute('href')).toMatch(/^\/products\/[a-z0-9-]+\/integrations\//);
+        // One link per card, as there was one per row: no partner link was added.
+        expect(card.querySelectorAll('a')).toHaveLength(0);
+        expect(card.closest('li')!.classList).toContain('group/card');
+      }
+    });
+
+    it('sits the cards in the shared grid inside the group card', () => {
+      const { el } = setup(NINE);
+      const grid = el.querySelector('#powers-group-procore-panel ul')!;
+      expect(grid.classList).toContain('aec-card-grid');
+      expect(grid.getAttribute('role')).toBe('list');
+    });
+
+    it('lets one or two cards share the row, and leaves three or more to the grid', () => {
+      // Two partners never form a hub, so they are the flat list.
+      const two = setup(['Acumatica', 'Bluebeam']).el;
+      expect(two.querySelector('ul.aec-card-grid')!.getAttribute('data-columns')).toBe('2');
+      TestBed.resetTestingModule();
+
+      const { fixture, el } = setup(NINE);
+      const grid = () => el.querySelector('#powers-group-procore-panel ul')!;
+      expect(grid().hasAttribute('data-columns')).toBe(false);
+      // The rule reads the rendered count, so a filter down to one card fills the row.
+      type(fixture, filterInput(el)!, 'acumatica');
+      expect(grid().getAttribute('data-columns')).toBe('1');
+    });
+
+    it('"Clear filters" shows only while the search is on, restores every row and focuses the field', () => {
+      const { fixture, el } = setup([...NINE, 'Sage 300 CRE']);
+      const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;
+      const clear = () =>
+        el.querySelector<HTMLButtonElement>('[data-testid="powers-filter-clear"]');
+      const status = () => el.querySelector('[role="status"]')!.textContent!.trim();
+      expect(clear()).toBeNull();
+
+      type(fixture, filterInput(el)!, 'sage');
+      expect(rows(el)).toBe(1);
+      expect(status()).toBe('Showing 1 of 10');
+      const button = clear()!;
+      expect(button.textContent!.trim()).toBe('Clear filters');
+      // The Integrations section's place (mock-up 6): the list row under the panel,
+      // after the status, not inside the panel.
+      const row = el.querySelector('[data-testid="powers-list-row"]')!;
+      expect(row.contains(button)).toBe(true);
+      expect(panel.contains(button)).toBe(false);
+      expect(panel.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.querySelector('aec-icon[name="x"]')).not.toBeNull();
+
+      button.click();
+      fixture.detectChanges();
+      expect(filterInput(el)!.value).toBe('');
+      expect(rows(el)).toBe(10);
+      expect(status()).toBe('');
+      expect(clear()).toBeNull();
+      expect(document.activeElement).toBe(filterInput(el));
+    });
+
+    it('takes the Integrations section recipe: heading size, Bone panel, field, list row', () => {
+      const { el } = setup(NINE);
+      // Angular may reorder a bound class list, so compare the classes as sets.
+      const classes = (node: Element) => [...node.classList].sort();
+      const recipe = (value: string) => value.split(/\s+/).sort();
+      const span = el.querySelector('h2 > span')!;
+      expect(classes(span)).toEqual(recipe(INTEGRATION_LIST_HEADING_CLASS));
+      const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;
+      expect(classes(panel)).toEqual(recipe(INTEGRATION_FILTER_PANEL_CLASS));
+      expect(panel.classList).toContain('bg-(--accent-warm)');
+      expect(classes(filterInput(el)!)).toEqual(recipe(INTEGRATION_SEARCH_INPUT_CLASS));
+      expect(panel.querySelector('aec-icon[name="search"]')).not.toBeNull();
+      expect(classes(el.querySelector('[data-testid="powers-list-row"]')!)).toEqual(
+        recipe(INTEGRATION_LIST_ROW_CLASS),
+      );
+      // "Filters" names the panel for assistive tech only, as on the Integrations panel.
+      expect(el.querySelector('#powers-filters-title')!.classList).toContain('sr-only');
+    });
+
+    it('puts the filter in a "Filters" panel under the heading', () => {
+      const { el } = setup(NINE);
+      const panel = el.querySelector('[data-testid="powers-filter-panel"]')!;
+      expect(panel.getAttribute('role')).toBe('group');
+      const name = el.querySelector('#' + panel.getAttribute('aria-labelledby'))!;
+      expect(name.textContent?.trim()).toBe('Filters');
+      expect(panel.querySelector('input#powers-filter')!.classList).toContain('aec-field-control');
+      // The heading comes first, then the panel, then the cards.
+      const h2 = el.querySelector('h2')!;
+      expect(h2.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('keeps the order: groups by partner count then name, partners A to Z', () => {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      const sage = link('sage', 'Sage');
+      const edges = [
+        ...['Zeta', 'Alpha', 'Mu'].map((n) => poweredEdge(sage, link(n.toLowerCase(), n))),
+        ...['Delta', 'Beta', 'Omega', 'Kappa'].map((n) =>
+          poweredEdge(HUB, link(n.toLowerCase(), n)),
+        ),
+      ];
+      fixture.componentInstance.view.set(groupPoweredIntegrations(edges, 'agave-erp-sync'));
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const groups = [...el.querySelectorAll('h3 button')].map((b) => b.textContent);
+      expect(groups[0]).toContain('Procore');
+      expect(groups[1]).toContain('Sage');
+      const names = [...el.querySelectorAll('[data-testid="powered-card-name"]')].map((n) =>
+        n.textContent?.trim(),
+      );
+      expect(names).toEqual(['Beta', 'Delta', 'Kappa', 'Omega', 'Alpha', 'Mu', 'Zeta']);
+    });
+  });
+
   describe('the depth axis (AECI-1080)', () => {
     function setupWithObjects(slugs: readonly (readonly string[])[]) {
       TestBed.configureTestingModule({
@@ -241,14 +378,23 @@ describe('ProductPoweredHub', () => {
       return fixture.nativeElement as HTMLElement;
     }
 
-    it('shows the object count beside the badge and on the narrow meta line', () => {
+    it('shows the object count beside the badge, once per card at every width (AECI-1788)', () => {
       const el = setupWithObjects([['rfis', 'models', 'issues'], ['rfis']]);
-      const chips = [...el.querySelectorAll('[data-testid="hub-data-objects"]')].map((c) =>
-        c.textContent?.trim(),
-      );
-      expect(chips).toEqual(['3 types of data', '1 type of data']);
-      const sublabels = el.querySelectorAll('[data-testid="hub-data-objects-sublabel"]');
-      expect(sublabels).toHaveLength(2);
+      const chips = [...el.querySelectorAll('[data-testid="hub-data-objects"]')];
+      expect(chips.map((c) => c.textContent?.trim())).toEqual([
+        '3 types of data',
+        '1 type of data',
+      ]);
+      // A card has room for its chips, so no breakpoint hides them and no meta-line
+      // copy repeats them below md.
+      for (const chip of chips) expect(chip.closest('.hidden, .md\\:hidden')).toBeNull();
+      expect(el.querySelector('[data-testid="hub-data-objects-sublabel"]')).toBeNull();
+      // The mechanism badge comes first, then the count, as on the row.
+      const row = chips[0]!.parentElement!;
+      expect([...row.querySelectorAll('aec-chip')].map((c) => c.textContent?.trim())).toEqual([
+        'API',
+        '3 types of data',
+      ]);
     });
 
     it('names the count in the row link, whose aria-label hides the chip', () => {
@@ -319,9 +465,35 @@ describe('ProductPoweredHub', () => {
         poweredEdge(fieldwire, bluebeam),
         { ...poweredEdge(raken, zeta), direction: 'both' },
       ]);
+      // AECI-1788 after restore C: the card's own words, framed on A, the name it
+      // prints first. The flow runs Fieldwire to Bluebeam, so Bluebeam receives.
       expect(names(el)).toEqual([
-        'View the Bluebeam and Fieldwire integration, direction One-way from Fieldwire to Bluebeam, API',
-        'View the Raken and Zeta integration, direction Bidirectional, API',
+        'View the Bluebeam and Fieldwire integration, direction Receives from Fieldwire, API',
+        'View the Raken and Zeta integration, direction Syncs both ways, API',
+      ]);
+      const words = [...el.querySelectorAll('a[data-testid="powered-card"]')].map((a) =>
+        a.textContent!.replace(/\s+/g, ' '),
+      );
+      expect(words[0]).toContain('Receives from Fieldwire');
+      expect(words[1]).toContain('Syncs both ways');
+      expect(words.join(' ')).not.toMatch(/One-way|Bidirectional/);
+    });
+
+    it('frames a hub card on the hub when the hub is endpoint B of the stored pair', () => {
+      // Endpoints are stored A to Z, so with Zeta Hub as the hub every pair stores the
+      // hub as B. One flow per direction, each read from the hub: the partner the hub
+      // sends to, the partner it receives from, and a round trip.
+      const hub = link('zeta-hub', 'Zeta Hub');
+      const el = setupEdges([
+        poweredEdge(hub, link('alpha', 'Alpha')),
+        poweredEdge(link('beta', 'Beta'), hub),
+        { ...poweredEdge(hub, link('gamma', 'Gamma')), direction: 'both' },
+      ]);
+      expect(el.querySelector('h3 button')!.textContent).toContain('Zeta Hub');
+      expect(names(el)).toEqual([
+        'View the Zeta Hub and Alpha integration, direction Sends to Alpha, API',
+        'View the Zeta Hub and Beta integration, direction Receives from Beta, API',
+        'View the Zeta Hub and Gamma integration, direction Syncs both ways, API',
       ]);
     });
 
@@ -331,7 +503,7 @@ describe('ProductPoweredHub', () => {
         poweredEdge(HUB, link('cmic', 'CMiC')),
         poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
       ]);
-      const names = [...el.querySelectorAll('ul li a span.font-semibold.break-words')];
+      const names = [...el.querySelectorAll('ul li a span.break-words')];
       expect(names).toHaveLength(4);
       for (const name of names) {
         expect(name.classList).not.toContain('truncate');
@@ -339,7 +511,7 @@ describe('ProductPoweredHub', () => {
       }
     });
 
-    it('ends every row in the aria-hidden chevron, never a trailing arrow', () => {
+    it('marks every card with one aria-hidden chevron, never a trailing arrow', () => {
       const el = setupEdges([
         poweredEdge(HUB, link('sage', 'Sage')),
         poweredEdge(HUB, link('cmic', 'CMiC')),
@@ -348,8 +520,12 @@ describe('ProductPoweredHub', () => {
       const anchors = [...el.querySelectorAll('ul li a')];
       expect(anchors).toHaveLength(3);
       for (const a of anchors) {
-        const host = a.lastElementChild!;
-        expect(host.tagName.toLowerCase()).toBe('aec-icon');
+        // AECI-1788: the chevron sits at the card's top end, as on the integration card.
+        const icons = a.querySelectorAll('aec-icon');
+        expect(icons).toHaveLength(1);
+        const host = icons[0]!;
+        expect(host.getAttribute('name')).toBe('chevron-right');
+        expect(a.textContent).not.toMatch(/[→←⇄]\s*$/);
         const last = host.querySelector('svg')!;
         expect(last.getAttribute('aria-hidden')).toBe('true');
         expect(last.querySelector('path')!.getAttribute('d')).toBe('m9 18 6-6-6-6');

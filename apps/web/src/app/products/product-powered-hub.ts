@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
@@ -7,17 +7,27 @@ import { RequestTrigger } from '../requests/request-trigger';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
-  directionLabel,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
+import { sharedRowColumns } from './integration-category-groups';
 import { filterPoweredHubView, isFilterActive } from './integration-filter';
+import {
+  INTEGRATION_CLEAR_CLASS,
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_LIST_ROW_END_CLASS,
+  INTEGRATION_SEARCH_ICON_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+  INTEGRATION_STATUS_CLASS,
+} from './integration-filter-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
-import { IntegrationListFilter } from './integration-list-filter';
 import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
+import { AecCard } from '../shared/card/card';
 import { AecIcon } from '../shared/icon/icon';
 import { Chip } from '../shared/chip/chip';
 
@@ -78,7 +88,19 @@ import { Chip } from '../shared/chip/chip';
  *
  * No `@defer`: even at 50+ edges this is a handful of anchors, so the
  * deferred-block machinery the endpoint table needs would cost more than it
- * saves.
+ * saves. It also keeps this list clear of AECI-1891: with no deferred tail, a
+ * filter typed before the reader scrolls leaves nothing stale behind.
+ *
+ * **Since AECI-1788 the rows are cards** in the Integrations section's language: the
+ * filter in a sunken "Filters" panel under the `<h2>`, and each pair a nested
+ * `aecCard` in the shared card grid inside its group card, as the Via lane cards are.
+ * The content, the conditions, the order and the words are the row's. Each card is
+ * still the row's one link to the pair page with the same accessible name, so no
+ * heading and no partner link were added. Below `md` the row folded the mechanism and
+ * the data-object count into its meta line. A card has room for its chips at every
+ * width, so the chips show at every width and the fold went. Every card's direction
+ * comes from the shared helper ("Sends to", "Receives from", "Syncs both ways"): a hub
+ * card reads from its hub, a hubless card from the endpoint it prints first.
  */
 @Component({
   // Attribute selector on the page's real <section>, matching the sibling
@@ -89,38 +111,77 @@ import { Chip } from '../shared/chip/chip';
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-powered-hub]',
   imports: [
+    AecCard,
     AecIcon,
     RouterLink,
     LogoOrInitial,
     IntegrationGroupCard,
-    IntegrationListFilter,
     RequestTrigger,
     Chip,
   ],
   template: `
-    <!-- Heading row: title left, filter right. The filter lives HERE rather
-         than in a band under the heading so an idle one costs no vertical
-         space, which is what let the ten-row threshold go. -->
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-      <h2
-        id="powered-integrations-title"
-        class="font-display text-2xl font-semibold text-(--text-primary)"
+    <h2 id="powered-integrations-title" class="text-balance">
+      <span [class]="headingClass">{{ heading() }}</span>
+    </h2>
+
+    <!-- The Integrations section's panel and list row (mock-up 6, AECI-1720), from the
+         same recipe (integration-filter-recipe.ts), ruled 2026-11-17: two filter panels
+         on one page look and behave alike. This list has no chips and no Cards or Table
+         choice, so the panel holds the search box alone. The panel's name "Filters" is
+         kept for assistive tech only. The list row has no heading of its own: each hub
+         card carries one, as each Via lane card does in the Integrations section. -->
+    @if (showFilter()) {
+      <div
+        role="group"
+        aria-labelledby="powers-filters-title"
+        [class]="panelClass"
+        data-testid="powers-filter-panel"
       >
-        {{ heading() }}
-      </h2>
-      @if (showFilter()) {
-        <aec-integration-list-filter
-          inputId="powers-filter"
-          i18n-label="@@products.detail.body.powers.filter.label"
-          label="Search these connections"
-          i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
-          placeholder="Filter by product or connection"
-          [(query)]="query"
-          [shown]="filteredView().pairCount"
-          [total]="view().pairCount"
-        />
-      }
-    </div>
+        <span id="powers-filters-title" class="sr-only" i18n="@@listing.filters.title"
+          >Filters</span
+        >
+        <div class="relative min-w-0" data-testid="powers-filter-search">
+          <label
+            for="powers-filter"
+            class="sr-only"
+            i18n="@@products.detail.body.powers.filter.label"
+            >Search these connections</label
+          >
+          <span [class]="searchIconClass" aria-hidden="true">
+            <aec-icon name="search" decorative [size]="4" />
+          </span>
+          <input
+            #filterInput
+            id="powers-filter"
+            type="search"
+            autocomplete="off"
+            [value]="query()"
+            i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
+            placeholder="Filter by product or connection"
+            (input)="onQuery($event)"
+            [class]="searchInputClass"
+          />
+        </div>
+      </div>
+      <div [class]="listRowClass" data-testid="powers-list-row">
+        <div [class]="listRowEndClass">
+          <p role="status" [class]="statusClass" data-testid="powers-status">
+            {{ statusLabel() }}
+          </p>
+          @if (filterActive()) {
+            <button
+              type="button"
+              [class]="clearClass"
+              (click)="clearFilters()"
+              data-testid="powers-filter-clear"
+            >
+              <aec-icon name="x" decorative [size]="3.5" />
+              <span i18n="@@listing.filters.clear">Clear filters</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
 
     @if (view().pairCount === 0) {
       <p
@@ -154,106 +215,87 @@ import { Chip } from '../shared/chip/chip';
           [expanded]="isExpanded(group.hub.slug)"
           (toggled)="toggle(group.hub.slug)"
         >
-          <ul class="m-0 list-none divide-y divide-(--border-default) p-0">
+          <!-- AECI-1788: one card per pair in the shared card grid, as the Via lane cards
+               sit inside their lane card: the nested surface, one column, two from md,
+               three from lg, and one or two cards share the row. Every card is in the
+               server HTML. There is no deferred cut. -->
+          <ul
+            class="aec-card-grid p-4 md:p-6"
+            role="list"
+            [attr.data-columns]="columns(group.partners.length)"
+          >
             @for (partner of group.partners; track partner.key) {
-              <li>
+              <li class="group/card block min-w-0">
+                <!-- The card is the row's one link, as the row was: the pair page, with
+                     the same accessible name. No partner link is added. -->
                 <a
+                  aecCard
+                  interactive
+                  nested
                   [routerLink]="pairLink(partner)"
                   [attr.aria-label]="hubRowAriaLabel(group.hub.name, partner)"
-                  class="group flex items-center gap-3 px-4 py-3 text-sm text-(--text-primary)
-                    no-underline transition-colors hover:bg-(--surface-muted)
-                    focus-visible:outline-2 focus-visible:-outline-offset-2
-                    focus-visible:outline-(--accent-primary)"
+                  class="flex h-full flex-col gap-4 p-6 text-(--text-primary) no-underline"
+                  data-testid="powered-card"
                 >
-                  <aec-logo-or-initial
-                    [claimStatus]="'server-filtered'"
-                    [src]="partner.partner.logo_url"
-                    [name]="partner.partner.name"
-                    size="sm"
-                  />
-                  <span class="flex min-w-0 flex-1 flex-col">
-                    <span class="min-w-0 font-semibold break-words">{{
-                      partner.partner.name
-                    }}</span>
-                    <!-- The meta line under the partner name. Direction sits
-                         here at every width and the mechanism joins it below md,
-                         the same fold ProductIntegrationRow uses (AECI-853).
-                         §12.3 pins this row to the endpoint table's breakpoint
-                         behaviour, so the two must move together or the same
-                         page shows direction as a column in one section and a
-                         sublabel in the other. AECI-1117 polish matched the rest
-                         of that row too: text-sm names that wrap rather than
-                         truncate, and a tertiary meta line that steps to secondary
-                         once the row fill goes muted (DESIGN.md "Tertiary": never
-                         on muted). -->
+                  <span class="flex items-start gap-3">
+                    <aec-logo-or-initial
+                      [claimStatus]="'server-filtered'"
+                      [src]="partner.partner.logo_url"
+                      [name]="partner.partner.name"
+                      size="sm"
+                    />
                     <span
-                      class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary)
-                        transition-colors group-hover:text-(--text-secondary)
-                        group-focus-visible:text-(--text-secondary)"
+                      class="min-w-0 flex-1 self-center text-t-20 leading-tight font-semibold break-words
+                        transition-colors group-hover/card:text-(--accent-primary)"
+                      data-testid="powered-card-name"
+                      >{{ partner.partner.name }}</span
                     >
-                      <!-- Flow relative to the HUB (this card's frame), matching
-                           how the endpoint table frames direction relative to
-                           its page product. The sr-only prefix replaces the
-                           labelling the dropped direction slot used to carry. -->
-                      <span class="inline-flex items-center gap-1">
-                        <span class="sr-only" i18n="@@products.detail.body.powers.direction.srLabel"
-                          >Direction:</span
-                        >
-                        @if (hubDirection(partner); as d) {
-                          <span
-                            class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
-                            aria-hidden="true"
-                            >{{ d.glyph }}</span
-                          >
-                          <span>{{ d.label }}</span>
-                        } @else {
-                          <span
-                            i18n="@@products.detail.body.powers.direction.none"
-                            i18n-aria-label="@@products.detail.body.powers.direction.none.aria"
-                            aria-label="Direction not listed"
-                            >–</span
-                          >
-                        }
-                      </span>
+                    <!-- Navigation affordance, not direction (DESIGN.md "The Arrow
+                         Rule"): the chevron the integration card draws. -->
+                    <span
+                      class="inline-flex size-6 shrink-0 items-center justify-center text-(--text-tertiary)
+                        transition-colors group-hover/card:text-(--text-secondary)"
+                      ><aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true"
+                    /></span>
+                  </span>
+                  <!-- Flow relative to the HUB (this card's frame), matching how the
+                       endpoint cards frame direction relative to their page product. -->
+                  <span
+                    class="flex flex-wrap items-center gap-x-1.5 text-sm text-(--text-secondary)"
+                  >
+                    <span class="sr-only" i18n="@@products.detail.body.powers.direction.srLabel"
+                      >Direction:</span
+                    >
+                    @if (hubDirection(partner); as d) {
+                      <span
+                        class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
+                        aria-hidden="true"
+                        >{{ d.glyph }}</span
+                      >
+                      <span>{{ d.label }}</span>
+                    } @else {
+                      <span
+                        i18n="@@products.detail.body.powers.direction.none"
+                        i18n-aria-label="@@products.detail.body.powers.direction.none.aria"
+                        aria-label="Direction not listed"
+                        >–</span
+                      >
+                    }
+                  </span>
+                  @if (mechanismSummary(partner) || dataObjectLabel(partner)) {
+                    <span class="flex flex-wrap items-center gap-1.5">
                       @if (mechanismSummary(partner); as summary) {
-                        <span class="md:hidden" aria-hidden="true">·</span>
-                        <span class="md:hidden">{{ summary }}</span>
+                        <aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip>
                       }
-                      <!-- AECI-1080 depth axis, below md: the object count joins
-                           the meta line, as it does on ProductIntegrationRow.
-                           Nothing renders for a pair with no claims. -->
+                      <!-- AECI-1080: the depth chip beside the mechanism badge, at the
+                           same weight. Depth is orthogonal to mechanism. -->
                       @if (dataObjectLabel(partner); as objects) {
-                        <span class="md:hidden" aria-hidden="true">·</span>
-                        <span class="md:hidden" data-testid="hub-data-objects-sublabel">{{
+                        <aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
                           objects
-                        }}</span>
+                        }}</aec-chip>
                       }
                     </span>
-                  </span>
-                  @if (mechanismSummary(partner); as summary) {
-                    <span class="hidden shrink-0 md:inline-flex"
-                      ><aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip></span
-                    >
                   }
-                  @if (dataObjectLabel(partner); as objects) {
-                    <!-- AECI-1080: the depth chip beside the mechanism badge, at
-                         the same weight. Depth is orthogonal to mechanism. -->
-                    <span class="hidden shrink-0 md:inline-flex"
-                      ><aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
-                        objects
-                      }}</aec-chip></span
-                    >
-                  }
-                  <!-- Navigation affordance, not direction: the aec-icon chevron
-                       ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
-                       AECI-919, applied here by AECI-1117). -->
-                  <aec-icon
-                    class="text-(--text-tertiary)"
-                    name="chevron-right"
-                    decorative
-                    [size]="4"
-                    [mirrorRtl]="true"
-                  />
                 </a>
               </li>
             }
@@ -261,10 +303,10 @@ import { Chip } from '../shared/chip/chip';
         </aec-integration-group-card>
       }
 
-      <!-- Pairs with no shared hub. Rendered as whole A-to-B rows, since
-           neither endpoint has earned the right to head a card. Only labelled
-           "Other connections" when hub cards exist above it to be "other" than;
-           on its own it is simply the list. -->
+      <!-- Pairs with no shared hub. Rendered as whole A-to-B cards, since neither
+           endpoint has earned the right to head a card. Only labelled "Other
+           connections" when hub cards exist above it to be "other" than. On its own
+           it is simply the list. -->
       @if (filteredView().others.length > 0) {
         <aec-integration-group-card
           headingId="powers-other"
@@ -273,73 +315,74 @@ import { Chip } from '../shared/chip/chip';
           [expanded]="isExpanded('powers-other')"
           (toggled)="toggle('powers-other')"
         >
-          <ul class="m-0 list-none divide-y divide-(--border-default) p-0">
+          <ul
+            class="aec-card-grid p-4 md:p-6"
+            role="list"
+            [attr.data-columns]="columns(filteredView().others.length)"
+          >
             @for (pair of filteredView().others; track pair.key) {
-              <li>
+              <li class="group/card block min-w-0">
                 <a
+                  aecCard
+                  interactive
+                  nested
                   [routerLink]="pairLink(pair)"
                   [attr.aria-label]="flatRowAriaLabel(pair)"
-                  class="group flex items-center gap-3 px-4 py-3 text-sm text-(--text-primary)
-                    no-underline transition-colors hover:bg-(--surface-muted)
-                    focus-visible:outline-2 focus-visible:-outline-offset-2
-                    focus-visible:outline-(--accent-primary)"
+                  class="flex h-full flex-col gap-4 p-6 text-(--text-primary) no-underline"
+                  data-testid="powered-card"
                 >
-                  <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-                    <span class="inline-flex min-w-0 items-center gap-2">
-                      <aec-logo-or-initial
-                        [claimStatus]="'server-filtered'"
-                        [src]="pair.a.logo_url"
-                        [name]="pair.a.name"
-                        size="sm"
-                      />
-                      <span class="min-w-0 font-semibold break-words">{{ pair.a.name }}</span>
+                  <span class="flex items-start gap-3">
+                    <span
+                      class="flex min-w-0 flex-1 flex-wrap items-center gap-2 self-center text-t-20
+                        leading-tight font-semibold transition-colors
+                        group-hover/card:text-(--accent-primary)"
+                    >
+                      <span class="inline-flex min-w-0 items-center gap-2">
+                        <aec-logo-or-initial
+                          [claimStatus]="'server-filtered'"
+                          [src]="pair.a.logo_url"
+                          [name]="pair.a.name"
+                          size="sm"
+                        />
+                        <span class="min-w-0 break-words">{{ pair.a.name }}</span>
+                      </span>
+                      <span
+                        class="font-display inline-block text-xl leading-none text-(--accent-primary)
+                          rtl:-scale-x-100"
+                        aria-hidden="true"
+                        >{{ pair.direction ? directionGlyph(pair.direction) : '·' }}</span
+                      >
+                      <span class="inline-flex min-w-0 items-center gap-2">
+                        <aec-logo-or-initial
+                          [claimStatus]="'server-filtered'"
+                          [src]="pair.b.logo_url"
+                          [name]="pair.b.name"
+                          size="sm"
+                        />
+                        <span class="min-w-0 break-words">{{ pair.b.name }}</span>
+                      </span>
                     </span>
                     <span
-                      class="font-display inline-block text-xl leading-none text-(--accent-primary)
-                        rtl:-scale-x-100"
-                      aria-hidden="true"
-                      >{{ pair.direction ? directionGlyph(pair.direction) : '·' }}</span
-                    >
-                    <span class="inline-flex min-w-0 items-center gap-2">
-                      <aec-logo-or-initial
-                        [claimStatus]="'server-filtered'"
-                        [src]="pair.b.logo_url"
-                        [name]="pair.b.name"
-                        size="sm"
-                      />
-                      <span class="min-w-0 font-semibold break-words">{{ pair.b.name }}</span>
-                    </span>
+                      class="inline-flex size-6 shrink-0 items-center justify-center text-(--text-tertiary)
+                        transition-colors group-hover/card:text-(--text-secondary)"
+                      ><aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true"
+                    /></span>
                   </span>
                   @if (pairDirectionLabel(pair); as label) {
-                    <span class="hidden shrink-0 text-sm text-(--text-secondary) md:inline">{{
-                      label
-                    }}</span>
+                    <span class="text-sm text-(--text-secondary)">{{ label }}</span>
                   }
-                  @if (mechanismSummary(pair); as summary) {
-                    <span class="hidden shrink-0 md:inline-flex"
-                      ><aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip></span
-                    >
+                  @if (mechanismSummary(pair) || dataObjectLabel(pair)) {
+                    <span class="flex flex-wrap items-center gap-1.5">
+                      @if (mechanismSummary(pair); as summary) {
+                        <aec-chip density="dense" tone="neutral">{{ summary }}</aec-chip>
+                      }
+                      @if (dataObjectLabel(pair); as objects) {
+                        <aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
+                          objects
+                        }}</aec-chip>
+                      }
+                    </span>
                   }
-                  @if (dataObjectLabel(pair); as objects) {
-                    <!-- Same md breakpoint as the mechanism badge beside it: a
-                         flat row has no meta line to fold into below md, and the
-                         link's accessible name carries the count at every width. -->
-                    <span class="hidden shrink-0 md:inline-flex"
-                      ><aec-chip density="dense" tone="neutral" data-testid="hub-data-objects">{{
-                        objects
-                      }}</aec-chip></span
-                    >
-                  }
-                  <!-- Navigation affordance, not direction: the aec-icon chevron
-                       ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
-                       AECI-919, applied here by AECI-1117). -->
-                  <aec-icon
-                    class="text-(--text-tertiary)"
-                    name="chevron-right"
-                    decorative
-                    [size]="4"
-                    [mirrorRtl]="true"
-                  />
                 </a>
               </li>
             }
@@ -357,7 +400,7 @@ import { Chip } from '../shared/chip/chip';
         </p>
       }
 
-      <!-- Catalog-scope note. Same boundary as the endpoint table on the same
+      <!-- Catalog-scope note. Same boundary as the endpoint list on the same
            page, and it bites harder here: a connector's whole value proposition
            is breadth, so "Integrations it powers (4)" for a product that markets
            ~14 ERP connections understates the vendor in an h2. That is the
@@ -405,6 +448,49 @@ export class ProductPoweredHub {
    * keystroke for HTML that does not vary with it.
    */
   protected readonly query = signal('');
+
+  /** The panel's search field, so "Clear filters" can hand focus back to it. */
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+
+  // The mock-up 6 recipe, shared with the Integrations section (AECI-1788).
+  protected readonly headingClass = INTEGRATION_LIST_HEADING_CLASS;
+  protected readonly panelClass = INTEGRATION_FILTER_PANEL_CLASS;
+  protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
+  protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
+  protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;
+  protected readonly listRowEndClass = INTEGRATION_LIST_ROW_END_CLASS;
+  protected readonly statusClass = INTEGRATION_STATUS_CLASS;
+  protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
+
+  /**
+   * "Showing 3 of 12" while the search is on, empty otherwise: the message id and rule
+   * of the Integrations section's list row. The region stays in the DOM so the first
+   * change is announced.
+   */
+  protected readonly statusLabel = computed(() => {
+    if (!this.filterActive()) return '';
+    const shown = this.filteredView().pairCount;
+    const total = this.view().pairCount;
+    return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;
+  });
+
+  protected onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  /** The search is on: "Clear filters" shows, as on the Integrations panel. */
+  protected readonly filterActive = computed(() => isFilterActive(this.query()));
+
+  /**
+   * "Clear filters" (ruled 2026-11-17): the query back to empty, so every row and
+   * every card the reader had not closed comes back, and the "Showing n of m" status
+   * empties. The button goes with the filter, so focus moves to the search field
+   * rather than falling to the page body.
+   */
+  protected clearFilters(): void {
+    this.query.set('');
+    this.filterInput()?.nativeElement.focus();
+  }
 
   /** Card keys the reader has closed. Hub slug, or `powers-other`. */
   private readonly collapsed = signal<ReadonlySet<string>>(new Set<string>());
@@ -474,6 +560,15 @@ export class ProductPoweredHub {
       if (!next.delete(key)) next.add(key);
       return next;
     });
+  }
+
+  /**
+   * One or two cards share the row equally, three or more keep the grid's steps: the
+   * Integrations section's rule (ruled 2026-11-16), through the same helper. Read off
+   * the rendered count, so the rule holds under a filter too.
+   */
+  protected columns(count: number): 1 | 2 | null {
+    return sharedRowColumns(count);
   }
 
   /** This hub's UNFILTERED partner count, for the "3 of 12" label. */
@@ -556,15 +651,15 @@ export class ProductPoweredHub {
    */
   protected readonly directionGlyph = directionGlyph;
 
-  /** One-way / Bidirectional for a hubless pair row; `''` when unknown.
-   *
-   *  `pair.direction` is a `ContextDirection` (`outbound`/`inbound`/`both`), and
-   *  a hubless row has no hub to read that frame against — hence the collapse.
-   *  Since AECI-921 `directionLabel` accepts `both` directly, so only the two
-   *  arrows need synthesising. */
+  /**
+   * A hubless pair card's direction words (AECI-1720 restore C): the shared helper
+   * every other row uses, "Sends to {B}", "Receives from {B}" or "Syncs both ways".
+   * The card has no page product to frame against, so it frames on endpoint A, the
+   * name it prints first, which is the frame `pair.direction` is already in. `''`
+   * when unknown, which the template's `@if`-as-binding treats as absent.
+   */
   protected pairDirectionLabel(pair: PoweredConnection): string {
-    if (pair.direction === null) return '';
-    return directionLabel(pair.direction === 'both' ? 'both' : 'one-way');
+    return contextDirectionLabel(pair.direction, pair.b.name).label;
   }
 
   /**
@@ -591,26 +686,18 @@ export class ProductPoweredHub {
   }
 
   /**
-   * Accessible name for a flat "Other connections" row (AECI-1117). The row
-   * draws `A → B`, so a one-way pair says which way in words: "One-way" alone,
-   * the visible label from `md` up, would drop the half the arrow carries. Below
-   * `md` the arrow is the ONLY direction cue on screen, and it is `aria-hidden`.
+   * Accessible name for a flat "Other connections" card (AECI-1117). The card
+   * draws `A → B` with an `aria-hidden` arrow, so the name says which way in the
+   * card's own words since AECI-1788: "Sends to B" or "Receives from B" from A,
+   * which the name opens with. "One-way" alone dropped the half the arrow carries.
    */
   protected flatRowAriaLabel(pair: PoweredConnection): string {
-    let directionPhrase: string;
-    switch (pair.direction) {
-      case 'outbound':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.a.name}:FROM: to ${pair.b.name}:TO:`;
-        break;
-      case 'inbound':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.b.name}:FROM: to ${pair.a.name}:TO:`;
-        break;
-      case 'both':
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction:direction ${directionLabel('both')}:DIRECTION:`;
-        break;
-      default:
-        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
-    }
+    // The visible words, framed on A, which the name opens with (WCAG 2.5.3), the same
+    // message ids as a hub card's name.
+    const label = this.pairDirectionLabel(pair);
+    const directionPhrase = label
+      ? $localize`:@@products.detail.body.powers.row.aria.direction:direction ${label}:DIRECTION:`
+      : $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
     return this.rowAriaLabel(pair.a.name, pair.b.name, directionPhrase, pair);
   }
 
