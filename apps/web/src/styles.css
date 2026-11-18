@@ -234,17 +234,20 @@
      Source Serif 4 narrows as it grows, so each band's fallback face is scaled for that
      size. The bands follow the fluid ramp below: the media queries further down move a
      role to the next band where its clamp() crosses into it. Only the fallback differs:
-     every stack starts with Source Serif 4, so nothing changes once the font has loaded. */
+     every stack starts with Source Serif 4, so nothing changes once the font has loaded.
+     The four display-scale roles (36, 48, statement, display) draw Source Serif 4 at its
+     opsz 60 cut at every size (AECI-1927, "Optical size by role" below), so their glyphs
+     are as wide as at 60px and their fallback is the opsz 60 face at every width. */
   --font-display-fig:
     'Source Serif 4', 'Source Serif 4 Fallback 32', Georgia, 'Times New Roman', serif;
   --font-display-36:
-    'Source Serif 4', 'Source Serif 4 Fallback 32', Georgia, 'Times New Roman', serif;
+    'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-display-48:
-    'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
+    'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-display-statement:
-    'Source Serif 4', 'Source Serif 4 Fallback 40', Georgia, 'Times New Roman', serif;
+    'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-display-display:
-    'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
+    'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   --font-body-caps:
     'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible Next Caps Fallback', system-ui,
     -apple-system, 'Segoe UI', sans-serif;
@@ -631,6 +634,12 @@ body {
   line-height: 1.6;
   margin: 0;
   min-height: 100vh;
+  /* How glyphs are drawn, as every approved mock-up's `body` sets it (AECI-1927,
+     DESIGN.md §3 "How glyphs are drawn"). Grayscale smoothing on every ground: macOS
+     no longer thickens the strokes, so text reads as finely as in the mock-ups. And the
+     font's kerning and ligatures at every size. */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1,
@@ -742,36 +751,65 @@ h1.aec-docs-title,
   --font-display: var(--font-display-36);
 }
 
-/* The bands move with the fluid steps. `--t-display` passes 53px at 640px wide and
-   60px (where the optical-size axis stops) at 900px; `--t-statement` passes 44px at
-   768px and 53px at 1280px; `--t-fig` passes 37px at 1024px. */
-@media (min-width: 640px) {
-  :root {
-    --font-display-display:
-      'Source Serif 4', 'Source Serif 4 Fallback 56', Georgia, 'Times New Roman', serif;
-  }
-}
-
-@media (min-width: 768px) {
-  :root {
-    --font-display-statement:
-      'Source Serif 4', 'Source Serif 4 Fallback 48', Georgia, 'Times New Roman', serif;
-  }
-}
-
+/* The band moves with the fluid step it follows: `--t-fig` passes 37px at 1024px. The
+   display-scale roles need no band change: they draw the opsz 60 cut at every size. */
 @media (min-width: 1024px) {
   :root {
     --font-display-fig:
       'Source Serif 4', 'Source Serif 4 Fallback 40', Georgia, 'Times New Roman', serif;
-    --font-display-display:
-      'Source Serif 4', 'Source Serif 4 Fallback 60', Georgia, 'Times New Roman', serif;
   }
 }
 
-@media (min-width: 1280px) {
-  :root {
-    --font-display-statement:
-      'Source Serif 4', 'Source Serif 4 Fallback 56', Georgia, 'Times New Roman', serif;
+/* Optical size by role (AECI-1927, DESIGN.md §3 "How glyphs are drawn"). Source Serif 4
+   has an optical-size axis (opsz 8 to 60). With the browser's default the cut follows
+   the px size, so a 36px heading draws the heavier opsz 36 cut. The mock-ups pin the
+   display-scale roles at opsz 60, the display cut, with finer strokes and more contrast
+   between thick and thin: the Section heading (`--t-36`), the score figure (`--t-48`),
+   the Statement and the Display. The roles below them keep the default, as the mock-ups
+   do: Headline and count figures (`--t-fig`), Title (`--t-24`) and Card title (`--t-20`).
+   The property inherits, so each smaller role sets `normal` back, and the heading rules
+   beat a dead size utility on the heading, as the bands above do. Atkinson Hyperlegible
+   Next has no opsz axis, so the sans ignores it. Each pinned role's fallback face is the
+   opsz 60 face (the stacks in :root). */
+.text-t-20,
+.text-t-24,
+.text-lg,
+.text-xl,
+.text-2xl,
+.text-t-fig,
+.text-5xl,
+h1,
+h1[class],
+h2,
+h2[class],
+h3,
+h3[class] {
+  font-variation-settings: normal;
+}
+
+.text-t-36,
+.text-3xl,
+.text-4xl,
+.text-t-48,
+.text-t-statement,
+.text-t-display,
+.text-6xl,
+.text-7xl,
+.text-8xl,
+.text-9xl,
+.aec-docs-title,
+h1.aec-docs-title,
+.aec-plan-price {
+  font-variation-settings: 'opsz' 60;
+}
+
+/* A section heading that steps up to `--t-36` from `md` (`text-t-24 md:text-t-36`):
+   from `md` it is the Section role, so it takes that role's band and optical size. It
+   sits after the rules above so it beats the `.text-t-24` it also carries. */
+@media (min-width: 768px) {
+  .md\:text-t-36 {
+    --font-display: var(--font-display-36);
+    font-variation-settings: 'opsz' 60;
   }
 }
 
