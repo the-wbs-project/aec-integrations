@@ -74,7 +74,8 @@ import { DestroyRef, Injectable, Injector, PLATFORM_ID, inject } from '@angular/
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
-import { isUntrackedRoute, type PageViewPayload } from '@aeci/shared';
+import type { PageViewPayload } from '@aeci/shared';
+import { isUntrackedRoute } from '@aeci/shared/api/page-view-eager';
 
 import {
   browserEvidenceEnabled,

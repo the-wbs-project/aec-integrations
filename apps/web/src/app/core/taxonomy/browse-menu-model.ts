@@ -1,4 +1,5 @@
-import { type TaxonomyResponse, type TaxonomyTermWithCount, isPublishedTrade } from '@aeci/shared';
+import type { TaxonomyResponse, TaxonomyTermWithCount } from '@aeci/shared';
+import { isPublishedTrade } from '@aeci/shared/api/trade-publish';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { byDisplayOrder, topByCount } from './taxonomy-rank';

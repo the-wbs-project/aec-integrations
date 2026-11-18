@@ -14,7 +14,11 @@
  */
 import type { HttpClient } from '@angular/common/http';
 
-import { BROWSER_EVIDENCE_URL, CF_RAY_PATTERN, type BrowserEvidence } from '@aeci/shared';
+import {
+  BROWSER_EVIDENCE_URL,
+  CF_RAY_PATTERN,
+  type BrowserEvidence,
+} from '@aeci/shared/api/page-view-eager';
 
 import { browserSendsPrivacySignal, regionAllowsCollection } from './turnstile-config';
 
