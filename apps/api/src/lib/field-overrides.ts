@@ -174,13 +174,16 @@ export function correctionRecordInsert(
   });
 }
 
-/** Every active lock on one entity, as the vendor read shows it. Never the note. */
+/** Every active lock on one entity, as `viewerVendorId` sees it. Never the note. */
 export async function activeLocksOn(
   db: Db,
   entityType: FieldOverrideEntityType,
   entityId: string,
+  viewerVendorId: string | null,
 ): Promise<LockedField[]> {
-  return (await lockedFieldsByEntity(db, entityType, [entityId])).get(entityId) ?? [];
+  return (
+    (await lockedFieldsByEntity(db, entityType, [entityId], viewerVendorId)).get(entityId) ?? []
+  );
 }
 
 /**
@@ -190,11 +193,19 @@ export async function activeLocksOn(
  * vendor 500'd `GET /api/vendor/integrations`). An entity lives in exactly one slice,
  * so each entity's list keeps the newest-first order. An empty id list reads nothing
  * (Drizzle's `inArray` with `[]` emits degenerate SQL).
+ *
+ * `viewerVendorId` is the vendor reading (AECI-1668, §11d.5). The reason goes only to
+ * the lock's `vendor_id`, the holder AECi told, as for a value hide (§11d.7). Any other
+ * viewer, such as the other endpoint of an integration or a co-owner of a shared
+ * product, gets `reason: null`. `source_url` goes to every viewer, because the public
+ * "Corrected by" line already shows it. A lock with no `vendor_id`, or a `null`
+ * viewer (a caller that reads only `field`), shows its reason to no vendor.
  */
 export async function lockedFieldsByEntity(
   db: Db,
   entityType: FieldOverrideEntityType,
   entityIds: readonly string[],
+  viewerVendorId: string | null,
 ): Promise<Map<string, LockedField[]>> {
   const out = new Map<string, LockedField[]>();
   const ids = [...new Set(entityIds)];
@@ -209,6 +220,7 @@ export async function lockedFieldsByEntity(
             reason: fieldOverrides.reason,
             setAt: fieldOverrides.setAt,
             sourceUrl: fieldOverrides.sourceUrl,
+            vendorId: fieldOverrides.vendorId,
           })
           .from(fieldOverrides)
           .where(
@@ -224,9 +236,10 @@ export async function lockedFieldsByEntity(
   ).flat();
   for (const row of rows) {
     const list = out.get(row.entityId) ?? [];
+    const holder = row.vendorId !== null && row.vendorId === viewerVendorId;
     list.push({
       field: row.field,
-      reason: row.reason,
+      reason: holder ? row.reason : null,
       set_at: row.setAt,
       source_url: row.sourceUrl,
     });
@@ -243,7 +256,7 @@ export async function lockedFieldsAmong(
   fields: readonly string[],
 ): Promise<string[]> {
   if (fields.length === 0) return [];
-  const locked = new Set((await activeLocksOn(db, entityType, entityId)).map((l) => l.field));
+  const locked = new Set((await activeLocksOn(db, entityType, entityId, null)).map((l) => l.field));
   return fields.filter((field) => locked.has(field));
 }
 

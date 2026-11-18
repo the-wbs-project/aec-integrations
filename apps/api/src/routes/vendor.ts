@@ -870,8 +870,9 @@ export function createVendorMeHandler(
       }),
       // AECI-1237: AECi's field locks, so the forms render those fields read-only.
       // Two reads on the partial unique index; nothing when nothing is locked.
-      lockedFieldsByEntity(db, 'vendor', [vendorId]),
-      lockedFieldsByEntity(db, 'product', productIds),
+      // A shared product's lock shows its reason only to the holder (AECI-1668).
+      lockedFieldsByEntity(db, 'vendor', [vendorId], vendorId),
+      lockedFieldsByEntity(db, 'product', productIds, vendorId),
       // AECI-1238 (§11d.7): AECi's value hides, so the forms carry the note. The same
       // two reads on `field_hides_active_key`'s table; nothing when nothing is hidden.
       // A shared product's hide shows its reason only to the holder (§11d.7).
@@ -1094,7 +1095,7 @@ export function createUpdateVendorProfileHandler(
     const { db } = writeDb(c, dbFor);
     const [before, locks, hides] = await Promise.all([
       db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
-      activeLocksOn(db, 'vendor', vendorId),
+      activeLocksOn(db, 'vendor', vendorId, vendorId),
       activeHidesOn(db, 'vendor', vendorId, vendorId),
     ]);
     if (!before) throw notFoundError('vendor', { id: vendorId });
@@ -1337,7 +1338,7 @@ export function createUpdateVendorProductHandler(
     // those are read before the screen, and only when a facet lock stands. The
     // resolution wave below reuses the read.
     const [locks, hides] = await Promise.all([
-      activeLocksOn(db, 'product', productId),
+      activeLocksOn(db, 'product', productId, vendorId),
       activeHidesOn(db, 'product', productId, vendorId),
     ]);
     const preloadedTaxonomy = locks.some((lock) => isFacetOverrideField(lock.field))
