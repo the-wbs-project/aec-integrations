@@ -11,7 +11,7 @@
 #     ./scripts/check-ssr-listings.sh https://demo.aecintegrations.com
 #
 # CI runs it after every promote (AECI-840): promote-to-demo.yml and
-# promote-to-prod.yml, right after the smoke step. The caller owns the retry:
+# promote-to-prod.yml, after the smoke and Algolia steps. The caller owns the retry:
 # exit 1 fails the promote at once, exit 2 is retried before it fails.
 #
 # Exit codes:
@@ -42,7 +42,7 @@
 #       blank page is, so it is a finding, not a skip (AECI-753).
 #     - 200 carrying the "Couldn't load products" error branch.
 #     - 200 carrying zero product links.
-#     - a redirect chain that ends on another host (an Access login page, most often).
+#     - a redirect to another host (an Access login page, most often).
 #   COULD NOT CHECK = no HTTP response at all. Not a FAIL — nothing was measured, so
 #     the run reports exit 2 rather than exit 1.
 #
@@ -91,8 +91,9 @@
 #   follows it, the login page answers 200 with no product links, and the run would
 #   report the AECI-746 regression for a reason that has nothing to do with crawlers.
 #   So: the token headers are attached when BOTH env vars are set, the same rule as
-#   scripts/verify-version.sh. And any page whose redirect chain ends on a different
-#   host than the one asked about is a FAIL that names the host it landed on. A crawler
+#   scripts/verify-version.sh. And any page that redirects to a different host than
+#   the one asked about is a FAIL that names that host. The script follows redirects
+#   itself and never requests the off-host URL, so the token is never sent there. A crawler
 #   sent off-host reaches no catalogue on ours either, so it is a finding, not a skip.
 #   On production the token is inert (the host is public) and CI passes it anyway.
 
@@ -143,29 +144,46 @@ unreachable=0  # never answered at all
 off_host=0     # the redirect chain ended on another host
 
 for page in "${PAGES[@]}"; do
-  # Truncate first: on a transport failure curl may never open -o, which would
-  # leave the PREVIOUS page's body here to be graded a second time.
-  : > "$BODY_FILE"
-
+  # Redirects are followed by hand, one hop at a time, and never off our host.
+  # `curl -L` would send every `-H` header to each host in the chain, so the Access
+  # client secret would leave for whatever an off-host redirect named. Here the next
+  # hop is requested only once its host is checked, so the token reaches ours alone.
+  # Up to 3 redirects, as `--max-redirs 3` allowed; a longer chain is graded on its
+  # last 3xx, as before. Following at all matters: Googlebot follows redirects, and
+  # this probe claims to see what Googlebot sees.
+  #
   # No `-f`. `-f` is exactly what threw the status code away and produced the
-  # AECI-753 false pass. `-L` because Googlebot follows redirects and this probe
-  # claims to see what Googlebot sees; --max-redirs stops a loop.
+  # AECI-753 false pass.
   #
   # curl itself writes "000" into %{http_code} when it never received an HTTP
   # response, so do NOT write `code=$(...) || code="000"` — that would clobber a
-  # real status on the paths where curl exits non-zero while still knowing one
-  # (a chain that exceeds --max-redirs reports its last 301).
-  #
-  # %{url_effective} is the last URL in the chain, for the off-host check. A
-  # tab separates it from the status: neither can contain one.
-  out="$(curl -sS -L --max-redirs 3 --max-time 30 -A "$UA" ${hdrs[@]+"${hdrs[@]}"} \
-    -o "$BODY_FILE" -w '%{http_code}\t%{url_effective}' "${BASE}${page}" 2>/dev/null)"
-  code="${out%%$'\t'*}"
-  final_url=""
-  case "$out" in *$'\t'*) final_url="${out#*$'\t'}" ;; esac
-  [ -n "$code" ] || code="000"
-  final_host="${final_url#*://}"
-  final_host="${final_host%%/*}"
+  # real status on a path where curl exits non-zero while still knowing one.
+  url="${BASE}${page}"
+  code="000"
+  off_host_to=""
+  for hop in 0 1 2 3; do
+    # Truncate first: on a transport failure curl may never open -o, which would
+    # leave the PREVIOUS page's body here to be graded a second time.
+    : > "$BODY_FILE"
+    # %{redirect_url} is the absolute Location of a 3xx. A tab separates it from
+    # the status: neither can contain one.
+    out="$(curl -sS --max-time 30 -A "$UA" ${hdrs[@]+"${hdrs[@]}"} \
+      -o "$BODY_FILE" -w '%{http_code}\t%{redirect_url}' "$url" 2>/dev/null)"
+    code="${out%%$'\t'*}"
+    [ -n "$code" ] || code="000"
+    next=""
+    case "$out" in *$'\t'*) next="${out#*$'\t'}" ;; esac
+    case "$code" in 3??) ;; *) break ;; esac
+    [ -n "$next" ] && [ "$hop" -lt 3 ] || break
+    next_host="${next#*://}"
+    next_host="${next_host%%/*}"
+    # The apex 301s to www (AECI-1441), so `www.` + the asked-for host is the same site.
+    if [ "$next_host" != "$BASE_HOST" ] && [ "$next_host" != "www.${BASE_HOST}" ]; then
+      off_host_to="$next_host"
+      break
+    fi
+    url="$next"
+  done
 
   if [ "$code" = "000" ]; then
     printf "  %-38s %14s   %s\n" "$page" "-" "COULD NOT CHECK (no response — DNS, timeout, or refused)"
@@ -173,10 +191,8 @@ for page in "${PAGES[@]}"; do
     continue
   fi
 
-  # The apex 301s to www (AECI-1441), so `www.` + the asked-for host is the same site.
-  if [ -n "$final_host" ] && [ "$final_host" != "$BASE_HOST" ] \
-    && [ "$final_host" != "www.${BASE_HOST}" ]; then
-    printf "  %-38s %14s   %s\n" "$page" "-" "FAIL (redirected off-host to ${final_host}, Access login?)"
+  if [ -n "$off_host_to" ]; then
+    printf "  %-38s %14s   %s\n" "$page" "-" "FAIL (redirected off-host to ${off_host_to}, Access login?)"
     off_host=$((off_host + 1))
     continue
   fi

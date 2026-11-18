@@ -65,7 +65,8 @@ test('every page 200 with product links: exit 0', async () => {
 });
 
 test('one page answers 403: exit 1, a finding not a skip', async () => {
-  handler = (p) => (p === '/products' ? { status: 403, body: 'challenge' } : { status: 200, body: LINKS });
+  handler = (p) =>
+    p === '/products' ? { status: 403, body: 'challenge' } : { status: 200, body: LINKS };
   const { code, stdout } = await run(base());
   assert.equal(code, 1, stdout);
   assert.match(stdout, /FAIL \(HTTP 403/);
@@ -73,14 +74,19 @@ test('one page answers 403: exit 1, a finding not a skip', async () => {
 
 test('a 200 page renders the error branch: exit 1', async () => {
   handler = (p) =>
-    p === '/phases/construction' ? { status: 200, body: `${LINKS} Couldn't load products` } : { status: 200, body: LINKS };
+    p === '/phases/construction'
+      ? { status: 200, body: `${LINKS} Couldn't load products` }
+      : { status: 200, body: LINKS };
   const { code, stdout } = await run(base());
   assert.equal(code, 1, stdout);
   assert.match(stdout, /renders the error message/);
 });
 
 test('a 200 page has zero product links: exit 1', async () => {
-  handler = (p) => (p.startsWith('/categories/') ? { status: 200, body: '<html></html>' } : { status: 200, body: LINKS });
+  handler = (p) =>
+    p.startsWith('/categories/')
+      ? { status: 200, body: '<html></html>' }
+      : { status: 200, body: LINKS };
   const { code, stdout } = await run(base());
   assert.equal(code, 1, stdout);
   assert.match(stdout, /no product links for crawlers/);
@@ -103,7 +109,9 @@ test('a redirect to another host (an Access login): exit 1, names the host', asy
 
 test('a same-host redirect is followed and graded on the final page', async () => {
   handler = (p) =>
-    p === '/products' ? { status: 301, headers: { location: '/products?sort=name' } } : { status: 200, body: LINKS };
+    p === '/products'
+      ? { status: 301, headers: { location: '/products?sort=name' } }
+      : { status: 200, body: LINKS };
   const { code, stdout } = await run(base());
   assert.equal(code, 0, stdout);
 });
@@ -126,4 +134,17 @@ test('Access token headers are sent only when both env vars are set', async () =
     assert.equal(h['cf-access-client-id'], undefined);
     assert.equal(h['cf-access-client-secret'], undefined);
   }
+});
+
+test('the Access token never follows a redirect to another host', async () => {
+  // An off-host redirect is graded without requesting it, so the secret stays home.
+  handler = () => ({ status: 302, headers: { location: `http://localhost:${port}/login` } });
+  seen = [];
+  const { code } = await run(base(), {
+    CF_ACCESS_CLIENT_ID: 'id-123',
+    CF_ACCESS_CLIENT_SECRET: 'secret-456',
+  });
+  assert.equal(code, 1);
+  const offHost = seen.filter((h) => h.host === `localhost:${port}`);
+  assert.equal(offHost.length, 0, 'the off-host URL was requested');
 });
