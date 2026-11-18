@@ -637,8 +637,10 @@ body {
   /* How glyphs are drawn, as every approved mock-up's `body` sets it (AECI-1927,
      DESIGN.md §3 "How glyphs are drawn"). Grayscale smoothing on every ground: macOS
      no longer thickens the strokes, so text reads as finely as in the mock-ups. And the
-     font's kerning and ligatures at every size. */
+     font's kerning and ligatures at every size. Firefox on macOS reads the `-moz-osx`
+     property instead, so it draws the same as Safari and Chrome. */
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 

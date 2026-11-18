@@ -475,6 +475,8 @@ describe('design tokens', () => {
     it('sets grayscale smoothing and optimizeLegibility on body, for every ground', () => {
       const body = rules.find((r) => r.selectors.length === 1 && r.selectors[0] === 'body');
       expect(body?.body).toMatch(/-webkit-font-smoothing:\s*antialiased;/);
+      // Firefox on macOS: the same grayscale smoothing.
+      expect(body?.body).toMatch(/-moz-osx-font-smoothing:\s*grayscale;/);
       expect(body?.body).toMatch(/text-rendering:\s*optimizeLegibility;/);
     });
 
