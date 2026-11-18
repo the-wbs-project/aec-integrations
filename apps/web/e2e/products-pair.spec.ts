@@ -575,7 +575,7 @@ test.describe('product-PAIR page — the empty pair with match cards (AECI-1829)
     await expect(cards.first()).toBeVisible();
     const total = await cards.count();
     const count = page.getByTestId('pair-matches-count');
-    await expect(count).toHaveText(new RegExp(`^\\s*${total} of ${total} match`));
+    await expect(count).toHaveText(new RegExp(`^\\s*Showing ${total} of ${total}\\s*$`));
 
     // Turning every category off leaves the designed empty state, and the count says 0.
     const anchors = page.getByTestId('pair-matches-anchors').getByRole('button');
@@ -583,8 +583,45 @@ test.describe('product-PAIR page — the empty pair with match cards (AECI-1829)
       await untilHydrated(anchor);
       await anchor.click();
     }
-    await expect(count).toHaveText(new RegExp(`^\\s*0 of ${total} match`));
+    await expect(count).toHaveText(new RegExp(`^\\s*Showing 0 of ${total}\\s*$`));
     await expect(page.getByTestId('pair-matches-empty')).toHaveAttribute('data-empty', 'all-off');
+  });
+
+  test('tabs through the lane switch, the search, the categories, the list row, then the cards', async ({
+    page,
+    request,
+  }) => {
+    const pair = await findPopulatedEmptyPair(request);
+    test.skip(pair === null, 'no empty pair with closest matches in the local catalog');
+
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
+    const first = page.getByTestId('pair-matches-keep-context');
+    await untilHydrated(first);
+    if (pair!.opensEmpty) {
+      await page.getByTestId('pair-matches-keep-other').click();
+    }
+    await expect(page.getByTestId('pair-matches-cards').locator('li').first()).toBeVisible();
+    await first.focus();
+    // Name each stop by the part of the section it belongs to.
+    const stops: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const where = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el) return 'none';
+        const id = el.getAttribute('data-testid') ?? '';
+        if (id.startsWith('pair-matches-keep-')) return 'lane';
+        if (el.id === 'pair-matches-filter') return 'search';
+        if (id.startsWith('pair-matches-anchor-')) return 'chip';
+        if (el.closest('[data-testid="pair-matches-list-row"]')) return 'list-row';
+        if (el.closest('[data-testid="pair-matches-order"]')) return 'order';
+        if (id.startsWith('pair-match-link-')) return 'card';
+        return 'other';
+      });
+      if (stops[stops.length - 1] !== where) stops.push(where);
+      if (where === 'card') break;
+      await page.keyboard.press('Tab');
+    }
+    expect(stops).toEqual(['lane', 'search', 'chip', 'list-row', 'order', 'card']);
   });
 
   test('has no axe violations and no sideways scroll with the cards on the page', async ({

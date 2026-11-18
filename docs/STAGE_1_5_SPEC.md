@@ -652,12 +652,11 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 
 **What the module is.**
 
-- One lane shows at a time. A two-option button group picks it: "Keep {A}" and "Keep {B}".
-- The default is the first product, "Keep {A}". The lane lists products that the kept product connects to.
-- The lane heading restates the choice in plain words. Example: "Construction accounting or ERP products that Bluebeam Revu connects to".
-- The categories of the product that is swapped out appear as toggle chips. All are on by default. Turning one off narrows what "similar" means.
+- One lane shows at a time. The lane switch picks it, directly under the intro: a two-option control named for the lanes, "{A} integrations" and "{B} integrations" (AECI-1835, the owner's ruling of 2026-11-18; it was "Keep {A}" and "Keep {B}"). It is the lane's heading too: a visually hidden `h3` repeats the selected lane's name.
+- The default is the first product's lane, "{A} integrations". The lane lists products that the kept product connects to.
+- Under the switch, one filter panel: the search (product and vendor names), then the categories of the product that is swapped out as toggle chips. All are on by default. Turning one off narrows what "similar" means. The long lane heading that restated the categories ("Construction accounting or ERP products that Bluebeam Revu connects to") is gone.
 - A product appears when it shares a category that is on and has an integration on record with the kept product.
-- A live count shows. Each empty result has its own message.
+- The list row sits under the panel, immediately above the cards: the live count ("Showing {n} of {total}") and "Clear filters" at the start, the Cards and Table toggle at the end, as on the product page's Integrations section. Each empty result has its own message.
 - Cards are the default view. A table is the alternative.
 - Each card shows the product, vendor, both ratings, review count, shared categories, the data objects moved, the direction, and the agreement state where there is one. It links to that pair page.
 

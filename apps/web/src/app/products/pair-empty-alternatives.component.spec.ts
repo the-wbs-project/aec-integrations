@@ -96,7 +96,15 @@ function setup(alternatives: PairAlternatives = ALTERNATIVES) {
     el.querySelector<HTMLElement>(selector)!.click();
     fixture.detectChanges();
   };
-  return { fixture, el, click };
+  /** Press "Table" in the list row's shared Cards and Table toggle. */
+  const clickTable = () => {
+    const table = Array.from(
+      el.querySelectorAll<HTMLButtonElement>('[data-testid="pair-matches-view"] button'),
+    ).find((b) => b.textContent?.includes('Table'))!;
+    table.click();
+    fixture.detectChanges();
+  };
+  return { fixture, el, click, clickTable };
 }
 
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim();
@@ -164,7 +172,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
       };
       type('corp');
       expect(cardNames(el)).toEqual(['zeta Books']);
-      expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('1 of 2 match');
+      expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('Showing 1 of 2');
       type('ledger');
       expect(cardNames(el)).toEqual(['Alpha Ledger']);
       type('nothing like it');
@@ -199,7 +207,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
   it('keeps the API order (A to Z is the server order) and renders the first lane on first paint', () => {
     const { el } = setup();
     expect(cardNames(el)).toEqual(['zeta Books', 'Alpha Ledger']);
-    expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('2 of 2 match');
+    expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('Showing 2 of 2');
     expect(el.querySelector('[data-testid="pair-matches-count"]')!.getAttribute('aria-live')).toBe(
       'polite',
     );
@@ -215,7 +223,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
       el.querySelector('[data-testid="pair-moving-object-rfis"]')!.getAttribute('aria-pressed'),
     ).toBe('true');
     expect(cardNames(el)).toEqual(['zeta Books']);
-    expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('1 of 2 match');
+    expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('Showing 1 of 2');
     expect(text(el.querySelector('[data-testid="pair-matches-picked-note"]'))).toContain(
       'Products with no data objects on record are left out.',
     );
@@ -232,8 +240,9 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     const { el, click } = setup();
     click('[data-testid="pair-matches-anchor-erp"]');
     expect(cardNames(el)).toEqual(['Alpha Ledger']);
+    // The lane's heading names the lane, whatever the categories (AECI-1835).
     expect(text(el.querySelector('[data-testid="pair-matches-lane-heading"]'))).toBe(
-      'Accounting products that Bluebeam Revu connects to',
+      'Bluebeam Revu integrations',
     );
     click('[data-testid="pair-matches-anchor-accounting"]');
     expect(el.querySelector('[data-testid="pair-matches-empty"]')!.getAttribute('data-empty')).toBe(
@@ -311,8 +320,8 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
   });
 
   it('shows the same matches as a table', () => {
-    const { el, click } = setup();
-    click('[data-testid="pair-matches-view-table"]');
+    const { el, clickTable } = setup();
+    clickTable();
     const rows = Array.from(el.querySelectorAll('[data-testid="pair-matches-table"] tbody tr'));
     expect(rows.map((r) => text(r.querySelector('th a')))).toEqual(['zeta Books', 'Alpha Ledger']);
     expect(text(el.querySelector('[data-testid="pair-matches-table"] thead'))).toContain(
@@ -322,7 +331,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
 
   it('words direction and scores with the shared labels (AECI-1720 restore C)', () => {
     const lanes = ALTERNATIVES.lanes;
-    const { el, click } = setup({
+    const { el, clickTable } = setup({
       ...ALTERNATIVES,
       lanes: {
         ...lanes,
@@ -340,7 +349,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     expect(text(cards[0])).toContain('Sends to zeta Books');
     expect(text(cards[1])).toContain('Syncs both ways');
     expect(text(cards[0])).not.toMatch(/Outbound|Inbound/);
-    click('[data-testid="pair-matches-view-table"]');
+    clickTable();
     const head = text(el.querySelector('[data-testid="pair-matches-table"] thead'));
     expect(head).toContain('Product quality');
     expect(head).toContain('Onboarding experience');
@@ -348,29 +357,66 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     expect(text(firstRow)).toContain('Sends to zeta Books');
   });
 
-  it('draws the deck, count, chips, score box and foot as mock-up 5 and the product page do', () => {
+  it('orders the section: lane switch, filter panel, list row with the view toggle, then cards', () => {
     const { el } = setup();
-    const deck = el.querySelector('[data-testid="pair-matches-deck"]')!;
-    expect(deck.className).toContain('bg-(--accent-warm)');
-    expect(deck.className).not.toContain('surface-sunken');
-    // The small count line, hidden from assistive tech: the lane's line is the live one.
-    const badge = el.querySelector('[data-testid="pair-matches-count-badge"]')!;
-    expect(text(badge)).toBe('2 of 2 products match right now');
-    expect(badge.getAttribute('aria-hidden')).toBe('true');
-    expect(badge.className).toContain('text-t-14');
-    expect(el.querySelector('[data-testid="pair-matches-count"]')!.getAttribute('aria-live')).toBe(
-      'polite',
-    );
+    const section = el.querySelector('[data-testid="pair-empty-matches"]')!;
+    const order = [
+      'pair-matches-intro',
+      'pair-matches-lane-switch',
+      'pair-matches-filter-panel',
+      'pair-matches-list-row',
+      'pair-matches-order',
+      'pair-matches-cards',
+    ].map((id) => section.querySelector(`[data-testid="${id}"]`)!);
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    // The lane switch names the lanes; its pressed option and the hidden h3 agree.
+    const lanes = el.querySelectorAll('[data-testid="pair-matches-lane-switch"] button');
+    expect(Array.from(lanes).map((b) => text(b.querySelector('.break-words')))).toEqual([
+      'Bluebeam Revu integrations',
+      'Sage 300 CRE integrations',
+    ]);
+    expect(lanes[0]!.getAttribute('aria-pressed')).toBe('true');
+    const heading = el.querySelector('[data-testid="pair-matches-lane-heading"]')!;
+    expect(heading.tagName).toBe('H3');
+    expect(heading.className).toContain('sr-only');
+    // One Bone panel holds the search and the categories, and no toggle.
+    const panel = el.querySelector('[data-testid="pair-matches-filter-panel"]')!;
+    expect(panel.className).toContain('bg-(--accent-warm)');
+    expect(panel.querySelector('#pair-matches-filter')).toBeTruthy();
+    expect(panel.querySelector('[data-testid="pair-matches-anchors"]')).toBeTruthy();
+    expect(panel.querySelector('[aria-pressed][data-testid^="pair-matches-keep"]')).toBeNull();
+    // The list row: the announced count, then the shared Cards and Table toggle.
+    const row = el.querySelector('[data-testid="pair-matches-list-row"]')!;
+    const count = row.querySelector('[data-testid="pair-matches-count"]')!;
+    expect(text(count)).toBe('Showing 2 of 2');
+    expect(count.getAttribute('aria-live')).toBe('polite');
+    expect(row.querySelector('aec-listing-view-toggle')).toBeTruthy();
+    // The old count line beside the intro is gone.
+    expect(el.querySelector('[data-testid="pair-matches-count-badge"]')).toBeNull();
+  });
+
+  it('draws the card from the match card recipe', () => {
+    const { el } = setup();
     const card = el.querySelector('[data-testid="pair-matches-cards"] article')!;
     // Mock-up 5's .mini chip: the sunken pill, 13px at 600, its glyph where the map has one.
     const chip = card.querySelector('[data-testid="pair-match-objects"] > span')!;
     expect(chip.className).toContain('bg-(--surface-sunken)');
     expect(chip.className).toContain('py-[5px]');
     expect(chip.querySelector('aec-icon')).toBeTruthy();
+    expect(card.className).toContain('gap-5');
+    expect(card.className).toContain('md:p-8');
+    expect(card.querySelector('h4')!.className).toContain('text-t-24');
     const scores = card.querySelector('[data-testid="pair-match-scores"]')!;
     expect(scores.className).toContain('border');
     expect(scores.className).toContain('p-4');
     expect(scores.className).toContain('bg-(--surface-raised)');
+    // A score label never wraps; a narrow box stacks the stars under every label alike.
+    expect(scores.querySelector('dt')!.className).toContain('whitespace-nowrap');
+    expect(scores.querySelector('dl > div')!.className).toContain('max-sm:flex-col');
     // The foot keeps its words as the link's name. The round button is a chevron, hidden.
     const link = card.querySelector<HTMLAnchorElement>('[data-testid="pair-match-link-zeta"]')!;
     expect(text(link)).toBe('Bluebeam Revu and zeta Books');
