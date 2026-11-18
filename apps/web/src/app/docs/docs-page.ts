@@ -50,6 +50,7 @@ import { pathForcesNoindex } from './docs-indexing';
 import type { DocsWidget } from './docs-markdown';
 import { DocsPlansComparisonComponent } from './docs-plans-comparison';
 import { AecPageToc } from '../shared/page-toc/page-toc';
+import { AecProseTableScroll } from '../shared/prose-blocks/prose-table-scroll';
 import { VENDOR_PROGRAM_PATH, plansVendorProgramPointer } from './plans-actions-copy';
 import {
   PlanCtaActionsComponent,
@@ -94,6 +95,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
     PlanCtaPanelComponent,
     PlanCtaRailComponent,
     ClaimDialogHost,
+    AecProseTableScroll,
   ],
   template: `
     <div
@@ -134,7 +136,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           } @else if (segment.widget === 'plans-cta') {
             <aec-plan-cta-panel class="mt-6 mb-6" page="docs_plans" />
           } @else {
-            <div class="aec-prose" [class.mt-6]="first">
+            <div class="aec-prose" [class.mt-6]="first" aecProseTableScroll>
               @for (block of segment.blocks; track $index) {
                 @if (block.heading; as heading) {
                   @if (heading.level === 2) {

@@ -1915,6 +1915,28 @@ html[data-consent-reserve]
   font-weight: 600;
 }
 
+/* AECI-1918: a table wider than the column scrolls inside its own box, so the
+   page does not scroll sideways at 320px (WCAG 1.4.10). `renderDocsBody` wraps
+   every prose table in this box. The table keeps `display: table`: set to
+   `block`, some screen readers stop reading it as a table. The box takes the
+   table's top margin, so the rhythm is unchanged. When the table overflows,
+   `AecProseTableScroll` makes the box a named keyboard stop, and this ring
+   shows it, the chip's ring (3px Forest at a 3px offset). */
+.aec-prose-table-scroll {
+  margin-block: 1.5rem 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+
+.aec-prose-table-scroll > table {
+  margin-block: 0;
+}
+
+.aec-prose-table-scroll:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 3px;
+}
+
 /* ─── The /docs help center (AECI-1259; anchor site Devin DeepWiki) ───────────
    `docs/docs-*.ts`; DESIGN.md "Product docs". Unlayered on purpose, and after the
    `.aec-prose` block on purpose:

@@ -63,8 +63,10 @@ import { hubCut, type CategoryHubEntry } from './category-hub';
   host: { class: 'block' },
   template: `
     <h2 id="product-category-hub-title" class="m-0" data-testid="product-category-hub-title">
+      <!-- The body face, as the pair finder's title beside it: 16px serif would
+           be below the 20px floor (DESIGN.md §3 "The Serif-Floor Rule", AECI-1928). -->
       <span
-        class="text-t-16 font-semibold text-(--text-on-brand)"
+        class="font-body text-t-16 font-semibold text-(--text-on-brand)"
         i18n="@@products.detail.hero.hub.heading"
         >Integrations by partner category</span
       >

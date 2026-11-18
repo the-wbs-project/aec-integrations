@@ -27,12 +27,13 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { AecProseTableScroll } from '../shared/prose-blocks/prose-table-scroll';
 import { type DocsBlock, type DocsSection, getDocsSection } from './docs-content';
 import { pathForcesNoindex } from './docs-indexing';
 
 @Component({
   selector: 'app-docs-section',
-  imports: [RouterLink],
+  imports: [RouterLink, AecProseTableScroll],
   template: `
     <!-- AECI-987: the index takes the docs content column. The header and the
          intro prose keep the 42rem measure. From lg the page list runs two columns. -->
@@ -44,7 +45,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </header>
 
         @if (lead.length > 0) {
-          <div class="aec-prose mt-6 max-w-[42rem]" data-intro="lead">
+          <div class="aec-prose mt-6 max-w-[42rem]" data-intro="lead" aecProseTableScroll>
             @for (block of lead; track $index) {
               <div class="contents" [innerHTML]="block.html"></div>
             }
@@ -72,7 +73,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </ol>
 
         @if (rest.length > 0) {
-          <div class="aec-prose mt-10 max-w-[42rem]" data-intro="rest">
+          <div class="aec-prose mt-10 max-w-[42rem]" data-intro="rest" aecProseTableScroll>
             @for (block of rest; track $index) {
               @if (block.heading; as heading) {
                 @if (heading.level === 2) {

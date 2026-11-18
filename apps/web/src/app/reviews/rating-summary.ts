@@ -50,7 +50,9 @@ export type RatingSummaryVariant = 'inline' | 'cell';
         class="inline-flex items-baseline gap-1.5 leading-none"
       >
         <span aria-hidden="true" class="text-sm" [style.color]="'var(--accent-rating)'">★</span>
-        <span class="font-display text-sm font-semibold tabular-nums text-(--text-primary)">{{
+        <!-- The body face: a 14px number is below the 20px serif floor
+             (DESIGN.md §3 "The Serif-Floor Rule", AECI-1928). -->
+        <span class="font-body text-sm font-semibold tabular-nums text-(--text-primary)">{{
           formatted()
         }}</span>
         <span class="text-xs text-(--text-secondary)">{{ countLabel() }}</span>
