@@ -385,12 +385,18 @@ describe('VendorDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="vendor-actions-label"]') as HTMLElement;
 
-  it('always offers to claim the company by name, with no note (AECI-1365)', () => {
+  it('always offers to claim the company, with no note (AECI-1365, AECI-1925)', () => {
     const { el } = setup(buildVendor());
     const section = actions(el);
 
     expect(section).toBeTruthy();
-    expect(section.textContent).toContain('Claim Procore Technologies');
+    // AECI-1925: the visible label is "Claim Vendor" (Chris, 2026-11-18). The company
+    // name stays in the accessible name as visually hidden text after the label.
+    const cta = section.querySelector<HTMLAnchorElement>('a[href$="/claim"]')!;
+    const hidden = cta.querySelector('.sr-only')!;
+    expect(hidden.textContent?.trim()).toBe('Procore Technologies');
+    expect(cta.textContent?.replace(hidden.textContent ?? '', '').trim()).toBe('Claim Vendor');
+    expect(cta.textContent?.replace(/\s+/g, ' ').trim()).toBe('Claim Vendor Procore Technologies');
     expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');

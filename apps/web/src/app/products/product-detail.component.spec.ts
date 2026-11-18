@@ -1002,7 +1002,7 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
 
 /**
  * The Actions-sidebar claim CTA is stateless (AECI-1266). Every listing reads
- * "Claim <Company>" (AECI-1365: a claim is on the company) with no note, whatever plan the built-by vendor holds: a
+ * "Claim Vendor" (AECI-1925; the company name visually hidden after it, AECI-1365: a claim is on the company) with no note, whatever plan the built-by vendor holds: a
  * state-dependent wording told visitors which vendors pay. It opens the same
  * `kind:'claim'` request for a first claim and for a colleague joining an account
  * someone already holds. Seats are admin-granted and multi-seat
@@ -1019,7 +1019,12 @@ describe('ProductDetailPage claim CTA', () => {
     const { el } = setup(buildProduct());
     const section = actions(el);
 
-    expect(section.textContent).toContain('Claim Procore Technologies');
+    expect(section.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Claim Vendor Procore Technologies',
+    );
+    expect(
+      section.querySelector('a[href="/products/procore/claim"] .sr-only')?.textContent?.trim(),
+    ).toBe('Procore Technologies');
     expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
