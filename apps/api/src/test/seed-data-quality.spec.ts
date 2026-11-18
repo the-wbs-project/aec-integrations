@@ -8,6 +8,11 @@
  * no finding at any severity. The two `grant-*` steps of the chain are node scripts
  * that need local env, so they are not applied; they touch profiles only.
  *
+ * AECI-1920 adds the floor: the whole chain, fixture included, raises no error-severity
+ * finding at all, and the only nonzero check is the expected `products_without_vendor`
+ * warning, from fixtures that are vendorless on purpose. A new finding of any severity,
+ * or a change to that count, fails here before it reaches the cron.
+ *
  * The network checks stay skipped (no Algolia, review-app or browser deps), and the
  * logo probe gets a stub that answers 200, so the run is hermetic.
  */
@@ -80,6 +85,53 @@ describe('seed chain: connector-lists-fixtures.sql adds no data-quality finding 
       expect(a.bySeverity).toEqual(b.bySeverity);
       // And no sample line names one of the fixture's rows.
       expect(after.flatMap((r) => r.sample).filter((l) => FIXTURE_NAMES.test(l))).toEqual([]);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+/**
+ * The vendorless products the seed keeps on purpose (AECI-1920). Each is a fixture whose
+ * tests need no vendor: the connector-lane endpoints and platforms of
+ * connector-fixtures.sql ("no vendor, no integrations" scaffolding), pyRevit in
+ * extension-fixtures.sql (the extension tile with no vendor line), the long-list
+ * product and its 14 partners (`products-long-list.spec.ts`), and
+ * `fixture-acme-connector` (`logo-rule.spec.ts` needs it unclaimed).
+ */
+const VENDORLESS_ON_PURPOSE =
+  /^(fx-[a-z0-9-]+|fixture-long-list(-partner-\d{2})?|fixture-acme-connector|pyrevit)$/;
+
+/** Every nonzero check on a fresh seed, by id. Anything else is a new finding. */
+const EXPECTED_FINDINGS = { products_without_vendor: 28 };
+
+describe('seed chain: a fresh seed is clean (AECI-1920)', () => {
+  it('raises no error-severity finding, and only the expected warnings', async () => {
+    const t = await makeTestDb();
+    try {
+      for (const file of [...CHAIN, FIXTURE]) apply(t, file);
+      const results = await run(t);
+      expect(results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`)).toEqual([]);
+
+      const errors = results.filter((r) => r.severity === 'error' && r.count > 0);
+      expect(errors.map((r) => `${r.id}: ${r.sample.join('; ')}`)).toEqual([]);
+
+      const nonzero = Object.fromEntries(
+        results.filter((r) => r.count > 0).map((r) => [r.id, r.count]),
+      );
+      expect(nonzero).toEqual(EXPECTED_FINDINGS);
+      expect(summarise(results).bySeverity).toEqual({ error: 0, warn: 28, info: 0 });
+
+      // The 28 are the fixtures named above, not a catalog row that lost its vendor.
+      const vendorless = t.raw
+        .prepare(
+          'SELECT slug FROM products WHERE id NOT IN (SELECT product_id FROM product_vendors)',
+        )
+        .all() as Array<{ slug: string }>;
+      expect(vendorless).toHaveLength(EXPECTED_FINDINGS.products_without_vendor);
+      expect(vendorless.map((r) => r.slug).filter((s) => !VENDORLESS_ON_PURPOSE.test(s))).toEqual(
+        [],
+      );
     } finally {
       t.dispose();
     }
