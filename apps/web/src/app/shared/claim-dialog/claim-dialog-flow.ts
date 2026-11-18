@@ -33,6 +33,7 @@ import {
 
 import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
+import { isReplayedEvent } from '../../core/event-replay';
 import { ClaimRoutedNotice } from '../../requests/claim-routed-notice';
 import { ClaimantFields } from '../../requests/claimant-fields';
 import { CompanyCountryField } from '../../requests/company-country-field';
@@ -376,7 +377,10 @@ interface ClaimDialogModel {
           }
         }
         @default {
-          <form id="claim-dialog-form" novalidate (submit)="$event.preventDefault(); primary()">
+          <!-- AECI-1919: method="dialog" makes a native submit before hydration do
+               nothing. With no method, Enter on the server-rendered listing page
+               reloaded it with every answer in the address. -->
+          <form id="claim-dialog-form" method="dialog" novalidate (submit)="onFormSubmit($event)">
             @switch (step()) {
               @case ('you') {
                 <h3
@@ -909,6 +913,18 @@ export class ClaimDialogFlow implements OnInit {
   protected back(): void {
     const index = STEPS.indexOf(this.step());
     if (index > 0) this.show(STEPS[index - 1]!);
+  }
+
+  /**
+   * The form's submit. A press made before hydration is replayed here once the app
+   * is stable, and on a replay `preventDefault` throws (`core/event-replay.ts`).
+   * The form is `method="dialog"`, so the native submit did nothing, and the
+   * replayed press is dropped, as the other forms drop theirs (AECI-1919).
+   */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.primary();
   }
 
   /** Continue, or send on the last step. */
