@@ -195,11 +195,16 @@ export function toBillingLicenseRow(
     license,
     sourceLabel: licenseSourceLabel(license.source),
     startsLabel: formatTermDate(license.starts_at, locale),
-    endsLabel: license.ends_at
-      ? formatTermDate(license.ends_at, locale)
-      : license.source === 'stripe'
-        ? $localize`:@@admin.vendors.billing.licenses.monthly:Monthly, renews`
-        : $localize`:@@admin.vendors.billing.licenses.noEnd:No end date`,
+    // An ended row's Ends is the day it ended, not the term end it never reached
+    // (AECI-1866, the vendor table's rule).
+    endsLabel:
+      !license.live && license.ended_at
+        ? formatTermDate(license.ended_at, locale)
+        : license.ends_at
+          ? formatTermDate(license.ends_at, locale)
+          : license.source === 'stripe'
+            ? $localize`:@@admin.vendors.billing.licenses.monthly:Monthly, renews`
+            : $localize`:@@admin.vendors.billing.licenses.noEnd:No end date`,
     statusLabel,
     cancelLabel:
       license.live && license.cancel_at_term_end

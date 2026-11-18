@@ -382,8 +382,28 @@ function previewAcceptances(): VendorAgreementAcceptance[] {
 }
 
 function previewBilling(): VendorBillingResponse {
+  const base = clone(VENDOR_BILLING_FIXTURE);
+  const [assigned, pool, ended] = base.licenses;
   return {
-    ...clone(VENDOR_BILLING_FIXTURE),
+    ...base,
+    // AECI-1866: every status-chip tone shows. The pool subscription will not renew
+    // (Clay "Live" with its "Cancels at term end" badge), and a second ended row makes
+    // the closed group read "Ended subscriptions (2)".
+    licenses: [
+      assigned!,
+      { ...pool!, cancel_at_term_end: true },
+      ended!,
+      {
+        ...ended!,
+        id: '00000000-0000-4000-8000-0000000054a4',
+        source: 'complimentary',
+        starts_at: '2026-06-01',
+        ends_at: '2027-05-31',
+        ended_at: '2026-07-15T09:00:00.000Z',
+        end_reason: 'released',
+        reference: null,
+      },
+    ],
     stripe_checkout_available: true,
     // AECI-1615: one grant waiting, so the "Subscriptions waiting for you" card renders.
     pending_grants: [clone(VENDOR_PENDING_GRANT_FIXTURE)],
