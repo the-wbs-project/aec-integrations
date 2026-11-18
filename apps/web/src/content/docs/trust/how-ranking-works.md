@@ -74,6 +74,10 @@ When two have the same number of products, they are listed A to Z. A category, a
 - **Categories**, **phases** and **trades** follow a fixed order we set, the same on every product page. Phases follow project order. Where we have set no order, they are listed A to Z. **Audiences** are listed A to Z.
 - **Similar products**, near the end of a product page, lists up to six products that share a category with it, A to Z by name, ignoring capital letters. When more than six do, the first six in that order are shown.
 
+## A pair page with no integration
+
+- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. Plan or license status has no effect on who appears or the order.
+
 ## What does not count
 
 None of these changes where a listing appears in search:
@@ -99,7 +103,7 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
 
-- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 18, 2026. Adds the Browse menu and the order of the lists the redesigned product page adds, and names the home page row Most viewed and its fallback Largest categories.
+- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 18, 2026. Adds the Browse menu, the order of the lists the redesigned product page adds and the closest matches on a pair page with no integration, and names the home page row Most viewed and its fallback Largest categories.
 - [Version 1.1](/docs/trust/how-ranking-works/v1.1): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
 - [Version 1.0](/docs/trust/how-ranking-works/v1.0): recorded November 16, 2026. The first recorded version.
 
