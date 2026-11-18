@@ -51,6 +51,24 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q41 | Privacy Policy | Breach notification obligations, and the one 1.1 acceptor | Alexander Coffin | 2026-11-11 |
 | Q42 | Vendor Terms | Moving vendors who accepted a draft version onto the final Vendor Terms | Alexander Coffin | 2026-11-11 |
 | Q43 | Privacy Policy | Is one privacy sentence enough for a yes-or-no browser report, under US state privacy law | Alexander Coffin | 2026-11-11 |
+| Q44 | Terms of Service | Is a paid, richer vendor profile advertising that needs a label | Alexander Coffin | 2026-11-16 |
+| Q45 | Vendor Terms | A paying vendor posts a customer testimonial on our site: what we must do under 16 CFR Parts 465 and 255 | Alexander Coffin | 2026-11-16 |
+| Q46 | Terms of Service | Section 230 when the vendor pays and our staff approve the content first | Alexander Coffin | 2026-11-16 |
+| Q47 | Privacy Policy | Privacy notice owed to a person named in a vendor's customer quote | Alexander Coffin | 2026-11-16 |
+| Q48 | Vendor Terms | Right of publicity when a vendor's testimonial names a person | Alexander Coffin | 2026-11-16 |
+| Q49 | Vendor Terms | A vendor lists its customers by name on our site: false endorsement exposure | Alexander Coffin | 2026-11-17 |
+| Q50 | Vendor Terms | Do our vendor warranty and indemnity cover third-party material in screenshots and quotes | Travis Russell | 2026-11-15 |
+| Q51 | Privacy Policy | A click-to-play YouTube or Vimeo video for visitors in the EEA, the UK and Switzerland | Alexander Coffin | 2026-11-16 |
+| Q52 | Privacy Policy | An embedded third-party video player: Video Privacy Protection Act and Florida wiretap exposure | Alexander Coffin | 2026-11-16 |
+| Q53 | Terms of Service | Sending vendor content to a language-model provider for screening: do our licence and Privacy Policy cover it | Travis Russell | 2026-11-15 |
+| Q54 | Terms of Service | Does a stored automated risk score give us knowledge under the DMCA or weaken Section 230 | Alexander Coffin | 2026-11-16 |
+| Q55 | Privacy Policy | One notice at first save for a private "software my firm uses" list, and its three uses | Alexander Coffin | 2026-11-16 |
+| Q56 | Privacy Policy | Emails based on a reader's saved software list: consent in the US, EU, UK and Canada | Alexander Coffin | 2026-11-16 |
+| Q57 | Privacy Policy | Paid vendor plans that include usage totals: is that a "sale" or "sharing" of personal information | Alexander Coffin | 2026-11-16 |
+| Q58 | Terms of Service | A public "used by N accounts" count on a product page | Alexander Coffin | 2026-11-16 |
+| Q59 | Terms of Service | An employee records their employer's software and office names on our site without authority | Alexander Coffin | 2026-11-16 |
+| Q60 | Privacy Policy | Adding new sections to a legal page before its first effective date: is the 30-day notice owed | Travis Russell | 2026-11-15 |
+| Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Brian D. Lerner | 2026-11-17 |
 
 ## Questions and answers
 
@@ -131,7 +149,7 @@ Questions: (a) Is this notice mechanism sufficient under Florida law? (b) Should
 (b) A link can be enough; the email need not contain the full text. But identify the version by number and effective date, summarize every material change in the email, link directly to that fixed version, and let the customer download, save and print it. Do not link to a living page you can edit later; archive each version. Under Fla. Stat. 668.50, a retained electronic record must accurately reflect the record and remain accessible for later reference, and a record a recipient cannot store or print is risky to enforce. For material changes, attach a PDF or redline.
 (c) Yes, monthly is higher risk. Cancel if you do not agree treats silence as assent, and a seat user who receives the email may not be the contracting party or have authority to bind or cancel the company. Send it to the account owner, admin and billing contact, not every seat alone. Fix an internal conflict too: the clause binds at the next purchase, whichever comes first, but the monthly promise is at least 30 days before a new version binds, so a purchase inside 30 days should not bind the customer. For material monthly changes, get an affirmative click or written acceptance, and if they cancel, do not charge again or cut off the month already paid for.
 
-**What we did:** Change-notice emails carry version, summary, archived link and PDF; monthly purchase inside the window stays on the old version; material monthly changes need a click. Text branch 2; build AECI-1620.
+**What we did:** Change-notice emails carry version, summary, archived link and PDF; monthly purchase inside the window stays on the old version; material monthly changes need a click. Text branch 2; build AECI-1620. *Applied 2026-11-18 (legal branch 6, AECI-1690):* the agreement no longer says unaccepted monthly subscriptions end. Until an owner seat accepts, they keep renewing on their version, and the new version binds at the first charge after an acceptance. A subscription added to an existing plan takes that plan's version, or the latest of its versions.
 
 ### Q4. Keeping a vendor's text live after the paid plan ends
 
@@ -640,7 +658,7 @@ Questions: (a) Under Florida's Deceptive and Unfair Trade Practices Act, what re
 (b) The statement helps but is not a shield alone. Florida tortious interference requires a business relationship, knowledge, intentional and unjustified interference, and damage. Ethan Allen, Inc. v. Georgetown Manor, Inc., 647 So. 2d 812 (Fla. 1994). A vendor in contract with you is not a stranger to it, reviews by others are not your interference, and a drop from neutral, pre-disclosed criteria applied as promised is justified. The wording is evidence no ranking was promised and payment bought only editing capability. It will not protect conduct contradicting it, such as demotion after cancellation.
 (c) Yes, reference the ranking page from the Terms with a stable link, if accurate and kept current. That can incorporate it and show the factors used. The page then becomes part of your representations, so version and archive it, and state that the Terms control on any conflict.
 
-**What we did:** Terms link the ranking page; ranking snapshots on plan change and ranking-page versioning. Text branch 1; build AECI-1621.
+**What we did:** Terms link the ranking page; ranking snapshots on plan change and ranking-page versioning. Text branch 1; build AECI-1621. *Applied 2026-11-18 (legal branch 6, AECI-1857):* the Terms sentence now reads "Search ranking is algorithmic. Neither it nor our editorial choices are ever influenced by payment." The old wording called all editorial judgment algorithmic, which hand-set orders such as category display order made untrue. Counsel has not seen the new sentence.
 
 *Built 2026-11-16 (AECI-1621).* The Terms link and the "these terms control" sentence shipped earlier, in #1163. When a plan starts or ends on a product, we now record a ranking snapshot at the event and again 30 days later (Chris, 2026-11-16). Each snapshot holds the product's ranking inputs and its position in each public list, and no personal data. Snapshots are kept four years under a storage lock on the `evidence/` prefix (Chris, 2026-11-16). The lock is an operator step after deploy. `/docs/trust/how-ranking-works` is now versioned at 1.0, recorded November 16, 2026. Each version is archived at `/docs/trust/how-ranking-works/v<version>`, and any change to the page is a new version. No legal text changed.
 
@@ -678,7 +696,7 @@ Questions: (a) If a vendor sues a reviewer for defamation and subpoenas us for t
 (b) Yes. State in the Privacy Policy, cross-referenced in the Terms, that identifying information is disclosed only in response to legal process, and that you will notify the affected user before disclosure where permitted, in time to object where practicable. That promise binds you, so keep the 'where permitted' qualifier.
 (c) Keeping only a hashed IP is not a custodian problem. You produce records in the form kept, and minimisation adopted before any claim is lawful. Once a subpoena or claim is reasonably anticipated, a litigation hold overrides routine deletion and key rotation for relevant records; destroying a key then risks spoliation. While its key survives, a monthly keyed hash is pseudonymous, not anonymous, so produce it under protective order and tell the requesting party early that you hold no raw address.
 
-**What we did:** Legal-process-only disclosure with notice where permitted in the policy and Terms; subpoena runbook with litigation hold on the IP hash key. Text branch 2; AECI-1622. *Written 2026-11-11 (AECI-1622):* `docs/runbooks/legal.md` "Subpoena or legal process for a reviewer's identity". No code switch is needed to freeze the key: month keys are derived from one secret and never stored, so the hold keeps `PAGE_VIEW_IP_HASH_SECRET` unchanged.
+**What we did:** Legal-process-only disclosure with notice where permitted in the policy and Terms; subpoena runbook with litigation hold on the IP hash key. Text branch 2; AECI-1622. *Written 2026-11-11 (AECI-1622):* `docs/runbooks/legal.md` "Subpoena or legal process for a reviewer's identity". No code switch is needed to freeze the key: month keys are derived from one secret and never stored, so the hold keeps `PAGE_VIEW_IP_HASH_SECRET` unchanged. *Applied 2026-11-18 (legal branch 6, ruling 45):* the Privacy Policy's "Deletion" now says we keep a copy of information the law requires us to preserve, such as after legal process, for as long as that requirement lasts.
 
 ### Q26. US-primary posture, and stripping the GDPR-style rights
 
@@ -854,7 +872,7 @@ Questions: (a) Is "continued use constitutes acceptance" enforceable against an 
 
 Your view is too thin, mostly because of who the notice actually reaches. (a) A 30-day banner only reaches people who visit during those 30 days. An account holder who logs in on day 45 never saw it, and "continued use" gets weak when there was no real notice to continue past. Courts applying Florida law generally look for actual or reasonably conspicuous notice before enforcing browsewrap-style terms, and unilateral changes by posting alone get treated with suspicion. You already have their email addresses, so emailing is cheap and it fixes the problem. I'd send one for every material change. One more thing: right now the 30-day promise is in the Privacy Policy, not the Terms. Move it into the Terms so the change mechanism sits in one document. (b) Yes, but only for changes that cut back a reader's rights. The liability cap is the obvious one, and the same goes for any arbitration clause, class waiver or new venue clause. Put those behind a click at the next sign-in. Anyone who never signs in again is just a visitor, and the old terms keep applying to them. Pure clarifications don't need a click. Also make adverse changes prospective only. A new cap shouldn't reach a claim that already exists. That's a separate fight, and you'd likely lose it. (c) I think this is the wrong statute for the question. Section 668.50 is Florida's UETA. It gives electronic records and signatures legal effect and covers retaining them. It doesn't decide whether anyone assented. The archive shows what each version said, which helps, but it doesn't show that a given reader agreed to it. Your colleague got this right on the vendor side: log the click, the version and the timestamp for each user. That log, together with the archive, is what proves assent.
 
-**What we did:** Email every account holder before a material change and a click at next sign-in for rights-reducing changes (ruling 12, AECI-1637); 30-day notice promise moved into the Terms. Text branch 2. Built 2026-11-13 (AECI-1637). The email goes to every account holder before a material change. Chris ruled on 2026-11-13 that signing in is the acceptance (ruling 26). The sign-in page always shows "By signing in, you agree to our Terms of Service and Privacy Policy.", with both names linked. Each sign-in logs the user, email, version, time, that line's exact text, the IP address and the browser for the Terms version in force, once per version. A rights-reducing version applies to an account holder only from that sign-in. Nothing is blocked. Whether the line is enough is an open item for the next batch (below).
+**What we did:** Email every account holder before a material change and a click at next sign-in for rights-reducing changes (ruling 12, AECI-1637); 30-day notice promise moved into the Terms. Text branch 2. Built 2026-11-13 (AECI-1637). The email goes to every account holder before a material change. Chris ruled on 2026-11-13 that signing in is the acceptance (ruling 43). The sign-in page always shows "By signing in, you agree to our Terms of Service and Privacy Policy.", with both names linked. Each sign-in logs the user, email, version, time, that line's exact text, the IP address and the browser for the Terms version in force, once per version. A rights-reducing version applies to an account holder only from that sign-in. Nothing is blocked. Whether the line is enough is an open item for the next batch (below).
 
 ### Q35. Confirming no arbitration and no class-action waiver
 
@@ -945,7 +963,7 @@ Questions: (a) Does this section, with the registration, give us the Section 512
 
 The section has three defects. The counter-notice must consent to the federal district of the user's address, not the Southern District of Florida. After forwarding the counter-notice to the complainant, you must restore the content within 10 to 14 business days, not merely "may." And change "tell the person" to "will promptly notify." For repeat infringers, no threshold is required, but you must adopt and actually enforce a policy: say you "will terminate repeat infringers in appropriate circumstances" and log notices. Trademark complaints can go through Listing Accuracy, but a logo may also be copyrighted artwork, so accept DMCA notices for logos too. Renew the agent registration every three years.
 
-**What we did:** Text items 13.1 to 13.4 on AECI-1363, for legal branch 5: 'will promptly notify', counter-notice consent to the user's own district, mandatory restore between 10 and 14 business days, a stated repeat-infringer policy, and DMCA notices accepted for logos. The agent renewal (2029-10-28) is in the legal README. Legal branch 5 applied the items on November 12, 2026, in place and without a bump. AECI-1665 built the notice log on November 17, 2026. Every notice and counter-notice is a row in `dmca_notices`, worked on `/admin/dmca`. A counter-notice shows its restore window, business day 10 to business day 14 after receipt, and whether it is overdue. Each account's takedown count shows on `/admin/users/:id` for the repeat-infringer review. There is no fixed threshold. The decision is recorded in the notice's notes and in a Linear issue (ruling 27). The steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice". The log is new personal data, so the Privacy Policy v1.1 draft gained a collection line, a retention line and a deletion line. The retention period is an open question below.
+**What we did:** Text items 13.1 to 13.4 on AECI-1363, for legal branch 5: 'will promptly notify', counter-notice consent to the user's own district, mandatory restore between 10 and 14 business days, a stated repeat-infringer policy, and DMCA notices accepted for logos. The agent renewal (2029-10-28) is in the legal README. Legal branch 5 applied the items on November 12, 2026, in place and without a bump. AECI-1665 built the notice log on November 17, 2026. Every notice and counter-notice is a row in `dmca_notices`, worked on `/admin/dmca`. A counter-notice shows its restore window, business day 10 to business day 14 after receipt, and whether it is overdue. Each account's takedown count shows on `/admin/users/:id` for the repeat-infringer review. There is no fixed threshold. The decision is recorded in the notice's notes and in a Linear issue (ruling 44). The steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice". The log is new personal data, so the Privacy Policy v1.1 draft gained a collection line, a retention line and a deletion line. The retention period is an open question below.
 
 ### Q39. Five clauses assembled from your colleagues' answers, as they now read
 
@@ -1073,6 +1091,486 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 
 **What we did:** The plan became epic AECI-1711. On 2026-11-13, with Chris's approval, AECI-1712 put this sentence into the Privacy Policy 1.1 draft: "If your browser sends neither signal, our record of your visit also notes whether our page script ran and whether the page was scrolled, clicked or typed in, as a yes or no only, never which key or what was clicked. We do not collect this for visitors in the European Economic Area, the United Kingdom or Switzerland." AECI-1714 builds the EEA, UK and Swiss hold into the browser gate. Production capture waits until 1.1 is in force (AECI-1715). The Ray ID is fine and the sentence is probably enough. The visit record for a visitor who sends no privacy signal is not aggregate: it holds a user-agent hash and network details, and links to the request log's keyed IP hash. So the Phase 1 sentence attaches to 'our record of the visit', not to 'the tally'. No change to the live Privacy Policy.
 
+Q44 to Q60 are batch 4, asked on 2026-11-13 about two planned features: the Enhanced profile and the saved software list. Only the answered ones are recorded here. Q49 came back on 2026-11-16 with an answer to a different customer's tax question, so it is not recorded. Chris replied in that conversation and the real answer arrived on 2026-11-17. The attorney's opening and closing lines about live consultations are left out.
+
+### Q44. Is a paid, richer vendor profile advertising that needs a label
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Every product has a free listing. We plan a paid plan that lets a vendor add its own marketing material to its own product page: screenshots, one video, customer quotes, a list of capabilities, a product FAQ and a pricing summary. The plan never changes where a listing appears in search or in any list. A page with these blocks will look fuller than a free page, and the vendor paid for that.
+
+Each block carries a small caption, "Maintained by {Vendor}". Customer quotes carry "Customer quote supplied by {Vendor}". Our methodology page would say that vendors on a paid plan may add media and that we do not check it. No block says "Ad", "Sponsored" or "Paid".
+
+Our public ranking page says:
+
+"No plan, at any price, changes a listing's position in search or in any list. There is no sponsored placement and no promoted tier."
+
+Our view: this is the vendor's own content about its own product, on its own listing, labelled as supplied by the vendor. It is not advertising dressed as editorial content under Section 5 of the FTC Act or the FTC's native advertising policy, so the caption is enough and no "paid" label is needed.
+
+Question: is "Maintained by {Vendor}" enough, or must a paid block or a paid page carry a plainer label that says the vendor paid for it, and if so what wording?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+I think your view mostly holds up, but I'd tighten two things before launch. The FTC test asks whether consumers are misled about an ad's "nature or source." The rule is that the Commission will find an advertisement deceptive if the ad misleads reasonable consumers as to its nature or source, including that a party other than the sponsoring advertiser is its source. Your blocks name the vendor as the source, and screenshots and a capabilities list written by a vendor read as promotional anyway. Nobody thinks that's independent editorial content. Concern number one, a third party posing as the source, is covered. There are two weak spots. First, "Maintained by" is soft. It can read as "the vendor keeps it up to date," which isn't the same as "the vendor wrote it." That matters because the FTC looks at the net impression the advertisement conveys to reasonable consumers, not statements in isolation. These blocks also sit on a review site, next to your own content. I'd change the caption to "Supplied by {Vendor}." Small fix, big gain. Second, and this is the real one: your ranking page says there's "no promoted tier." But a paid plan that makes pages look fuller is arguably exactly that, even if search position never changes. A reader could fairly take that sentence to mean nobody pays for anything on your site. So the problem isn't the blocks. It's that your public statement risks creating a misleading impression by leaving out the paid plan.
+
+**What we did:** Nothing built yet. No "Ad" label is needed. Two changes follow. Paid blocks are captioned "Supplied by {Vendor}", not "Maintained by". The ranking page must say that vendors can pay for a plan and what it buys, beside "no promoted tier". Ruling 31 sets the caption. Ruling 36 adds a sentence to the ranking page now. Counsel saw only the two quoted sentences. The live page puts them under the heading "What a plan does not buy", so it already says plans are paid. *Applied 2026-11-18 (legal branch 6, ruling 36, AECI-1871):* How ranking works 1.1 adds, beside "no promoted tier": "A paid plan lets a vendor edit more of its own listing. It changes what a page says, never where it appears."
+
+### Q45. A paying vendor posts a customer testimonial on our site: what we must do under 16 CFR Parts 465 and 255
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Readers write independent reviews on our site. We pre-moderate them and never accept a compensated or insider review. Separately, we plan to let a vendor on a paid plan post up to five customer quotes on its own product page. Each quote holds the quote text, the person's name, their job title and their employer.
+
+Our planned controls:
+
+- Quotes sit in their own section, apart from reviews. They are never counted, rated or shown in a review list.
+- Each quote is labelled "Customer quote supplied by {Vendor}".
+- For each quote the vendor ticks three statements: the person said this, the person agreed to its publication on AEC Integrations, and any compensation or other connection is disclosed.
+- If the vendor flags compensation, the quote shows a line that says so.
+- One of our staff approves each quote before it is published. We check the ticks and the label. We do not contact the person quoted.
+- We remove a quote within two business days of a complaint from the person or their employer.
+
+Our view: the vendor is the advertiser and carries the duties in 16 CFR Part 465 and the Endorsement Guides in Part 255. As the host, paid by the vendor, we meet our own duty with the attestations, the label, the compensation line and removal on complaint. We do not need to confirm each quote with the person quoted.
+
+Question: are those controls enough for us as the paid host under Parts 465 and 255, or must we do more, such as confirm each quote with the person quoted?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Probably close to enough, but not quite. Part 465 doesn't say a paid host has to confirm every quote with the person quoted. What it does is punish disseminating a fake testimonial you "knew or should have known" was fake, and your controls only answer the "knew" half. Here's my thinking. The vendor is the advertiser. Agreed. But under § 465.2 the question isn't who wrote the quote. It's whether a business disseminated it, and you're arguably disseminating it, for money, on your own domain. So the "should have known" standard reaches you. A checkbox the vendor ticks for itself is evidence you asked. It isn't evidence you looked. If the FTC ever pulls a quote that turns out to be invented, "the vendor ticked a box and we checked the box was ticked" is a thin story. Your staff review checks the form and never the substance. Part 255 points the same way. The Guides say intermediaries like ad agencies and review platforms can be liable for deceptive endorsements they help spread, especially when they're paid and take an active role. Approving each quote is an active role. Then there's § 465.6, which is easy to overlook. You run what you market as an independent review site. Your separation and "supplied by {Vendor}" labelling are doing real work there, so keep them prominent and never blur them.
+
+**What we did:** Our view was too thin. The vendor's ticks do not meet the "should have known" standard, because we never look at substance. Nothing built yet. Read with Q48, the fix is one step: the person quoted confirms the quote to us directly. Ruling 30: customer quotes are left out of Enhanced 1.0.
+
+### Q46. Section 230 when the vendor pays and our staff approve the content first
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Your colleagues advised us on November 4, 2026 that vendor-entered listing data is the vendor's content under 47 U.S.C. 230 whether or not we screen it, that content we author or adopt as our own verified finding is ours, and that we must not market anything as verified unless we verify it. Those answers were about free vendor content that publishes without review.
+
+Two facts are new. First, the vendor pays for a plan that lets it add the content. Second, some of the content waits for one of our staff to approve it. The held blocks are customer quotes, screenshots, a video, and security and compliance statements. A compliance statement is text such as "SOC 2 Type II" with a link to the vendor's evidence. It is displayed as "{Vendor} states: SOC 2 Type II".
+
+Our staff approve or reject against a fixed checklist. They never reword. The checklist is: the vendor's required attestations are ticked, images have alt text, no personal data or customer drawings appear without an attestation, nothing on our prohibited list appears, and the evidence link on a compliance statement opens. Staff do not check whether any claim is true. Other blocks, such as capabilities, FAQ answers and pricing, go live when the vendor saves them.
+
+Our view: being paid to host the content, and approving or rejecting it without rewording, are publisher functions that do not make us an information content provider. Checking that an evidence link opens is not adopting the claim as our own finding.
+
+Question: does the payment, or the checklist approval, and in particular the evidence-link check on a security statement, make these vendor claims our own content outside Section 230?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+No. Neither the payment nor the checklist approval, the link check included, should make these vendor claims your content. Payment. Courts have long held that paying for content doesn't take away immunity. In Blumenthal v. Drudge (D.D.C. 1998), AOL paid Drudge and was still protected. What matters is who created or developed the information, not whether money changed hands. FTC v. Accusearch (10th Cir. 2009) is the case to watch, but it turned on the site soliciting and paying for unlawful content, not on payment as such. A paid plan for adding listings is nowhere near that. Approval. Deciding whether to publish or withdraw content is the core publisher function Zeran protects. Under Roommates and Jones v. Dirty World, you lose immunity only if you "materially contribute" to what makes the content unlawful. You never reword anything, and your checklist covers formatting, attestations, prohibited items and personal data, not truth. That's screening, which your colleagues already said doesn't change who authored the content. The evidence link. Confirming that a URL opens doesn't endorse what's behind it. And the "{Vendor} states:" display helps a lot, because it tells readers the claim is the vendor's. If the label said "Verified SOC 2," that would be a different conversation.
+
+**What we did:** Our view holds. Nothing built yet. The build keeps three rules: staff never reword, the checklist never tests truth, and a compliance statement reads "{Vendor} states:" and never "Verified".
+
+### Q47. Privacy notice owed to a person named in a vendor's customer quote
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan to let a vendor post customer quotes on its product page. Each quote shows a person's name, job title and employer. That person never dealt with us and has no account. The vendor gives us the data. We do not target the EU or the UK, but visitors and customers from there reach the site, and a quoted person could live there or in California.
+
+Our Privacy Policy today covers visitors, account holders and vendor staff. It has no section for a person named in content a vendor submits.
+
+Our plan:
+
+- The vendor confirms, for each quote, that the person agreed to its publication on AEC Integrations.
+- The Privacy Policy gains a section for people named in vendor content. It says what we hold, where it came from, why we publish it and how long we keep it.
+- A named person can have a quote removed by email, with no account.
+- We allow no photographs of people.
+
+Our view: the vendor's confirmation of consent, the new policy section and the removal route are enough. We do not need to send a notice ourselves to each person named.
+
+Question: is that enough in the United States, the EU and the UK, or must we notify each named person directly, as GDPR Article 14 would require where it applies?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Mostly yes. I'd add one cheap fix, though, and it covers you everywhere. EU and UK. Start with scope, not Article 14. GDPR reaches a non-EU controller under Art. 3(2) only if it offers goods or services to people in the EU or monitors their behaviour there. Publishing a quote about someone who might happen to live in Lyon isn't targeting that person. UK GDPR works the same way. You've said we do not target the EU or the UK, so Article 14 probably never applies to the quoted person. If your analytics track EU visitors, that's a "monitoring" argument about visitors, not about the person quoted. Now say a regulator disagrees. Article 14 would then require notice within a month, unless an exception applies. The obvious one is "disproportionate effort" under Art. 14(5)(b), and it's weak here because the vendor obviously knows how to reach the person. The better one is Art. 14(5)(a): no notice is needed if the person already has the information.
+
+**What we did:** Our view mostly holds. Nothing built yet. Article 14 probably does not reach the quoted person. The safe route is that the person already has the information. The confirmation step in Q48 delivers it, if the message to the person carries the privacy notice. The answer names no specific fix beyond that.
+
+### Q48. Right of publicity when a vendor's testimonial names a person
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan to let a vendor on a paid plan post customer quotes on its product page. Each quote shows a person's name, job title and employer, beside words that praise the vendor's product. We publish it. The vendor pays us for the plan. We show no photograph of the person.
+
+For each quote the vendor ticks a statement that the person agreed to publication of their name and words on AEC Integrations. We record who ticked it and when. We do not collect anything from the person. The vendor's indemnity in our Vendor Terms covers "infringement of intellectual property or other rights by content you submit" without a cap.
+
+Our view: this is a commercial use of a name under right-of-publicity law, such as Fla. Stat. 540.08. The vendor's recorded statement that the person consented, backed by the indemnity and removal on request, is enough to protect us as publisher. We do not need the person's own consent on file.
+
+Question: is the vendor's recorded statement of consent enough to protect us against a right-of-publicity claim by the person named, or do we need the person's own consent on record?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+No. The vendor's checkbox doesn't protect you. You need the person's own consent on record, or at least a way to check it with them. Section 540.08(1) bars publishing a person's name for trade or advertising purposes without express written or oral consent given by that person (or certain authorized others, such as a licensee or estate). What matters is whether the person actually consented. Your belief that they did isn't a defense. The statute has no good-faith reliance exception for publishers, and the exemptions in 540.08(4), like news and bona fide public-interest uses, don't fit a paid vendor testimonial. You publish it and you're paid for the plan, so you're a "person" who "publicly uses" the name. Common-law misappropriation points the same way. So if the customer never agreed, the vendor's tick doesn't cure anything. It's just the vendor's word, which is effectively hearsay on the one fact that decides the claim. The person can seek an injunction plus damages, including a reasonable royalty, and potentially punitive damages. The indemnity helps, but it moves the cost. It doesn't move the liability. You're still the defendant. It's also only worth what the vendor's balance sheet is worth, and the "IP or other rights" wording invites a fight over whether publicity claims are covered. Removal on request limits ongoing exposure but does nothing about the period before removal.
+
+**What we did:** Our view was wrong. Under Fla. Stat. 540.08 we need the named person's own consent on record. The vendor's tick is not a defence. Nothing built yet. No quote that names a person may be published on the vendor's word alone. The remark on "IP or other rights" confirms text item 14.3 from Q50. Ruling 30: customer quotes are left out of Enhanced 1.0.
+
+### Q49. A vendor lists its customers by name on our site: false endorsement exposure
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan to let a vendor on a paid plan show two things on its product page. One is a plain-text list of firms that use the product. The other is up to three short case studies, each naming a customer firm with a link to the full study on the vendor's site. We show firm names as text only. We show no customer logos.
+
+Your colleague advised us on November 4, 2026 that nominative fair use is a defense and not a license, and that a use suggesting sponsorship or endorsement is actionable under Lanham Act section 43(a). That answer was about a vendor's own name and logo. Here the names belong to third parties who never dealt with us.
+
+Our planned controls: the section is labelled as supplied by the vendor. For each name the vendor ticks a statement that the firm agreed to be named. One of our staff approves the list before it is published, checking the ticks only. We remove a name within two business days of a complaint from the named firm.
+
+Our view: plain-text names, a per-name statement of permission from the vendor, the vendor label and prompt removal keep our exposure to a false-endorsement claim low. We do not need written proof of each firm's permission.
+
+Question: are those controls enough to protect us against a false-endorsement claim by a named customer firm, or must we hold proof of each firm's permission?
+
+**Answer (Alexander Coffin, 2026-11-17):**
+
+Sorry about that. Mostly yes. You don't need written proof of each firm's permission on file. But a tick-box alone is weaker than it looks, and two small changes would close most of the gap. Section 43(a) doesn't require consent as such. The question is whether the use is likely to confuse people about whether a firm endorses or is affiliated with a product. The tricky part is that a true customer list usually isn't false at all. If the firm really uses the product, saying so is accurate. The risk is in the case studies. A named case study reads like a testimonial, and that's where "they never agreed to this" claims come from. On your exposure: the vendor makes the statement and you host it. So the realistic claim against you is contributory liability, which under the Inwood standard turns on what you knew or had reason to know. Your controls fit that well. You don't verify anything up front, but once a complaint arrives, you have actual knowledge and the clock starts. Two business days is fine for the plain name list. For a case study the firm says it never approved, I'd take it down the same day while you look into it. Don't count on Section 230. It excludes intellectual property claims, and some courts treat Lanham Act claims as IP. Also, a staff member who "approves" the list arguably makes you more of a co-publisher, even if all they check is the ticks. I'd describe that step as a completeness check, not an approval.
+
+**What we did:** Our view mostly holds. Nothing built yet. We do not need proof of each firm's permission. Two changes follow. A case study a named firm disputes comes down the same day while we look into it, and a plain name stays at two business days. The staff step on these two blocks is called a completeness check, never an approval, in the product, the content policy and the docs. Section 230 is not a defence to this claim. The first answer received on 2026-11-16 was to another customer's question and is not recorded.
+
+### Q50. Do our vendor warranty and indemnity cover third-party material in screenshots and quotes
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan to let vendors upload screenshot galleries and customer quotes. A construction-software screenshot often shows a real customer project: drawings owned by an architect or engineer, a site address, staff names and costs. A quote names a person and their employer. None of that belongs to the vendor.
+
+Our Vendor Terms say:
+
+"You confirm that you have the right to submit what you submit. That includes logos, product names, screenshots and text. You confirm that it does not infringe anyone's intellectual property, breach a confidentiality obligation, or break any law."
+
+and, in the indemnity:
+
+"Your total liability under this indemnity is limited to the greater of ten thousand US dollars or ten times the fees you paid to us in the twelve months before the claim arose. That limit does not apply to your fraud or intentional misrepresentation, your willful misconduct or gross negligence, infringement of intellectual property or other rights by content you submit, your breach of confidentiality, or your violation of law in using the portal."
+
+Our view: "the right to submit" and "infringement of intellectual property or other rights" already reach a customer's drawings, a named person's privacy and publicity rights, and a customer's confidential project data. Claims of those kinds are therefore outside the ten thousand dollar cap, and no new wording is needed.
+
+Question: do those two clauses already cover third-party drawings, personal data and publicity claims without a cap, or should we add a specific warranty and name privacy and publicity claims in the uncapped list?
+
+**Answer (Travis Russell, 2026-11-15):**
+
+In general, your current language probably reaches some of these claims, but not reliably. Florida courts read contracts by their plain meaning, read general words like "other rights" in light of the specific words around them, and often construe unclear terms against the drafter. Indemnity terms are expected to be clear and specific. "Infringement of intellectual property or other rights" fits copyright in an architect's drawings well. A vendor could argue it does not clearly cover privacy, right of publicity (Florida has a statute on commercial use of a person's name or likeness), data-protection claims, or a customer's confidential project information. Also, "your breach of confidentiality" may be read to cover only the vendor's duties to you, not a duty it owes its own customer.
+
+Because the cap exclusions are where the money is, most drafters don't rely on general wording. Common practice is to add a specific warranty that the vendor has every consent and license needed for third-party content, including drawings, names, likenesses, quotes, and personal or confidential data, and that it will redact project details it isn't allowed to share. The same claims are then named expressly in the uncapped list, and the indemnity itself, not just the cap carve-out, is made to cover them. A takedown process also helps, since some claims could be brought against you directly.
+
+So the safer course is to add the specific language rather than rely on interpretation. For a review of your actual Vendor Terms and proposed wording, please schedule a live consultation and upload the documents for that appointment.
+
+**What we did:** Our view was wrong. The general wording does not reliably cover privacy, publicity, data-protection or customer-confidentiality claims. Nothing is changed yet. The Vendor Terms need three edits: a specific warranty for third-party material with a duty to redact, those claims named in the uncapped list and in the indemnity itself, and "your breach of confidentiality" widened to a duty the vendor owes its own customer. Screenshots can be uploaded today, so the edits do not wait for the Enhanced plan. Ruling 26: they go into the first in-force Vendor Terms, as text items 14.1 to 14.4 on AECI-1363. *Applied 2026-11-18 (legal branch 6):* text items 14.1 to 14.4 are in the Vendor Terms 1.3 draft, in place, because production held no 1.3 acceptance. The upload warranty covers third-party material with a duty to remove what may not be shared, the indemnity and its uncapped list name privacy, name and likeness, data-protection and confidentiality claims, and the confidentiality carve-out covers a duty owed to anyone.
+
+### Q51. A click-to-play YouTube or Vimeo video for visitors in the EEA, the UK and Switzerland
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question about European law only.
+
+Your colleague advised us on November 6 and November 11, 2026 that reading or storing data on a visitor's device is an ePrivacy Article 5(3) event, and that purpose decides the "strictly necessary" exemption. We do not target the EU or the UK, but visitors from there reach the site.
+
+We plan to let a vendor show one product video, hosted by YouTube or Vimeo. Our design:
+
+- The page shows a still image that we host, with a play button.
+- A line beside it reads "Plays from YouTube. YouTube will receive your IP address and may set cookies."
+- Nothing loads from the video provider until the visitor clicks play.
+- On the click, the provider's player loads in its reduced-tracking mode.
+- Our Privacy Policy names the video providers as third parties that are not our processors.
+
+Our view: a visitor who clicks play on a video that names its provider has explicitly requested that service, so the player is strictly necessary for it and needs no consent banner. If that is wrong, the click after that line is itself valid consent.
+
+Question: is the click, after that line, enough for visitors in the EEA, the UK and Switzerland, or do those visitors need a separate consent step before the player loads?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+The click works, but only as consent, not under the "strictly necessary" exemption. And the line next to the video needs a little more detail before the click can count as informed consent. Strictly necessary. I don't think this holds. Playing the video is a service the visitor asked for, so cookies the player needs just to play it are arguably exempt. YouTube and Vimeo set more than that, though. YouTube's privacy-enhanced mode still writes local storage and other identifiers once playback starts. Those serve the provider's own purposes, not the playback. Regulators look at each cookie's purpose, so the exemption covers the playback cookies and nothing else. Your colleague's purpose test points the same way. The click as consent. This is the stronger argument, and it's basically the "two-click" model that the German and French regulators have accepted. Consent has to be freely given, specific, informed and a clear affirmative act. Clicking play after a clear notice can meet that. Nothing loads before the click, and the visitor can skip the video and still use the page, so it's freely given. The weak spot is "informed." "May set cookies" is thin.
+
+**What we did:** Nothing built yet. The click-to-play design stands, as consent and not as strictly necessary. The line beside the player must say more than "may set cookies": who the provider is, what it receives and stores, and that it uses the data for its own purposes. The answer does not give the wording.
+
+### Q52. An embedded third-party video player: Video Privacy Protection Act and Florida wiretap exposure
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question about US law only.
+
+Your colleague noted on November 6, 2026 that class exposure for a free review site comes from statutes with fixed damages, and named Video Privacy Protection Act pixel theories and Fla. Stat. ch. 934.
+
+We plan to let a vendor show one product video on its product page, hosted by YouTube or Vimeo. The page shows a still image that we host and a line reading "Plays from YouTube. YouTube will receive your IP address and may set cookies." Nothing loads from the provider until the visitor clicks play. Then the visitor's browser loads the provider's player directly from the provider. We send the provider nothing ourselves. We run no advertising pixel. Most visitors are not signed in. Some are signed in to a free account that holds their email address. We never pass an account identifier to the provider.
+
+Our view: we do not disclose who watched what, because we send the provider no identifier and the browser makes the request only after the visitor clicks. The line beside the player gives notice, which answers a Florida wiretap claim. So this design creates no real exposure under the Video Privacy Protection Act or chapter 934.
+
+Question: does this click-to-load design, with that line, avoid Video Privacy Protection Act and Florida chapter 934 exposure for us, or is a further step needed?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Tou're mostly fine, but I'd add two small technical steps. And your reasoning is a little off in a couple of places. VPPA. Your best defense isn't that you send the provider nothing. It's that you probably aren't a "video tape service provider" at all. The statute covers someone engaged in the business of renting, selling or delivering video content (18 U.S.C. § 2710(a)(4)). A software directory that lets one vendor show one demo clip is a weak fit for that, even under the broader readings some circuits have adopted. Your "the browser does it, not us" point is weaker than you think. Plaintiffs argue that the site's own embed code causes the disclosure. Once a visitor clicks play, YouTube receives the page URL as the referrer. That URL can show which product video was watched. If the visitor is signed in to Google, YouTube can tie the view to a real person. You don't control that, but you did set it up. So:
+
+Use youtube-nocookie.com, or Vimeo's do-not-track setting (dnt=1). Add referrerpolicy="no-referrer", or at least "origin", to the iframe.
+
+Also, the notice line is not VPPA consent. The statute requires separate, distinct written consent. Don't rely on the notice for this part.
+
+**What we did:** Nothing built yet. The design is mostly fine. Two build rules are added: the player loads from `youtube-nocookie.com` or with Vimeo's `dnt=1`, and the iframe carries `referrerpolicy="no-referrer"`. The notice line is not Video Privacy Protection Act consent, so we do not rely on it for that. The answer does not reach Fla. Stat. ch. 934.
+
+### Q53. Sending vendor content to a language-model provider for screening: do our licence and Privacy Policy cover it
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan an automated screening job. Each time a vendor creates or edits text or an image on its listing, we send that content to a language-model provider together with our content policy. The provider returns a risk score from 0 to 100 and reason codes. A score above a threshold puts the item in front of one of our staff. The model never removes, hides or rewords anything. The provider's contract bars it from training on our data. Screening covers every vendor on every plan, including vendors who accepted the current terms before screening existed. Some content, such as a customer quote, names a person who is not our user.
+
+The content licence in our Terms of Service, which the Vendor Terms repeat, says:
+
+"you grant the operator a non-exclusive, worldwide, royalty-free, irrevocable license to host, store, reproduce, format, excerpt, resize, crop, compress, index, make accessible and display that content in connection with operating the service, and to moderate it under our policies."
+
+Our Privacy Policy lists processor functions, including "automated content checks on submitted reviews".
+
+Our view: "to moderate it under our policies" already permits automated screening by a processor. We can widen the Privacy Policy phrase to "automated content checks on submitted content" as an ordinary update. Vendors who accepted the current terms do not need to accept anything new.
+
+Question: is that right, or must screening by a third-party model be a named operation in the licence that existing vendors accept again?
+
+**Answer (Travis Russell, 2026-11-15):**
+
+Your view is reasonable but not risk-free. A license to host, reproduce and "moderate it under our policies" in connection with operating the service is fairly read to cover moderation tools, including automated screening a vendor does for you. Using service providers for licensed activities is routine. But the license doesn't expressly mention sharing content with service providers, a vendor could point to that gap, and unclear terms are often construed against the drafter. Many platforms add simple wording such as "you also authorize our service providers to do these things on our behalf."
+
+For existing vendors, a change that only clarifies an existing right is usually lower risk. You can roll it out under your modification clause with notice, applying going forward. Fresh click-through acceptance is safer where a change materially expands how content or personal data is used, and it is the strongest evidence of consent.
+
+On privacy, the FTC has warned that quietly changing terms to allow new AI uses of data already collected can be unfair or deceptive. Your facts help: screening only, no training by the provider, and human review of flagged items. Your disclosure should still accurately describe automated screening by third-party AI providers, including content that names non-users. Your provider contract should cover confidentiality and use limits. EU or UK users bring separate rules.
+
+The practical course is to update both the license and the privacy disclosure, give advance notice, and consider click-through acceptance.
+
+**What we did:** Nothing built yet. The licence probably covers screening, but it does not name service providers. Before screening runs, the licence gains a sentence authorising our service providers to act for us, and the Privacy Policy names automated screening by a third-party AI provider, including content that names people who are not users. Screening content already collected is a new use of it, so it needs advance notice. Ruling 27: the service-provider sentence goes into the first in-force versions as text item 14.5, so every vendor accepts it on the acceptance screen. The EU and UK side was not answered. Ruling 29 holds that follow-up until screening is scheduled. *Applied 2026-11-18 (legal branch 6):* text item 14.5 is in the Terms of Service 1.1 and Vendor Terms 1.3 drafts, in place. The Privacy Policy screening disclosure still waits for the screening build.
+
+### Q54. Does a stored automated risk score give us knowledge under the DMCA or weaken Section 230
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Your colleagues advised us that learning third-party content is false does not by itself defeat Section 230, that continued publication after verifiable proof is evidence of knowledge in a trade-libel claim, and that our DMCA safe harbor needs an enforced repeat-infringer policy and a notice log.
+
+We plan an automated screening job for vendor content. A language model scores each new or edited block from 0 to 100 and attaches reason codes. The codes are: named competitor, unsourced superlative, personal data, project data in an image, compliance claim without evidence, testimonial without attestation, advertising in a factual field, and off-topic or abusive. We store the score, the codes, the model version and a hash of the content beside the block.
+
+A block that scores above the threshold goes to a staff queue. If the block is already live, it stays live until a person acts. A block below the threshold is never looked at by a person. The model makes mistakes in both directions.
+
+Our view: an automated score is a triage signal. It is not actual knowledge or red-flag knowledge of infringement under 17 U.S.C. 512(c)(1)(A), and it is not knowledge that a statement is false. Keeping the score does not weaken our position, provided a person reviews flagged items within a stated time.
+
+Question: is that right, or does a stored flag on content we leave live, such as "project data in an image", create knowledge that weakens the DMCA safe harbor or our Section 230 position, and if so what must we do when a flag is raised?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Mostly right. The weak spot is the queue, not the score. DMCA. In Florida, the Eleventh Circuit adopted Viacom's test in Athos v. YouTube (2026). It found YouTube protected because it expeditiously removed infringing material identified by valid takedown notices and did not have actual or red flag knowledge of other specific infringements. Red-flag knowledge turns on whether the provider was subjectively aware of facts that would have made the specific infringement "objectively" obvious to a reasonable person. A probability score that nobody reads isn't subjective awareness. "Project data in an image" isn't even a copyright code. It's a privacy or confidentiality flag. Once a person opens the item, though, things change. If what they see makes infringement obvious, say a competitor's watermarked screenshot, that's red-flag knowledge. The clock starts then, because the provider that gains knowledge or awareness of infringing activity retains safe-harbor protection if it acts expeditiously to remove, or disable access to, the material. So leaving it live "until a person acts" is fine. Leaving it live after a person has looked is the exposure. Also watch willful blindness: a backlog of unopened flags that stays big for months looks like you chose not to know. Section 230. A stored flag doesn't change your status. You're still not the content's developer, and knowledge alone doesn't defeat 230, which matches what my colleagues told you. The risk is the trade-libel claim.
+
+**What we did:** Our view mostly holds. Nothing built yet. A stored score is not knowledge. Two build rules follow. A staff member who opens a flagged item must decide it then, and remove obvious infringement at once. The flag queue needs a review deadline and an alert on its age, so it never sits unopened for months. The answer names the trade-libel claim as the remaining risk and says no more about it.
+
+### Q55. One notice at first save for a private "software my firm uses" list, and its three uses
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan a feature for signed-in readers. A reader records which products in our catalog their firm uses, and can group them under office labels they type, such as "Chicago". Only that reader can see their list. Our staff cannot read it. We do not target the EU or the UK, but people there can create accounts.
+
+We would use the list in three ways:
+
+1. To filter and annotate the directory for that reader only.
+2. To show a public count on each product page, "used by N accounts", only when N is 5 or more.
+3. To show the vendor of a product, in its paid portal, the same kind of total for its own products, only when 5 or more. Never who, never which firm, never an office label.
+
+Our Privacy Policy today says of the legal basis: "Consent: where required, for example for non-essential analytics cookies and the optional About you answers; you can withdraw consent at any time".
+
+Our plan: the first time a reader saves a list, we show one short notice that names all three uses in plain words. The reader confirms once. The Privacy Policy gains matching text. Marketing email based on the list is a separate question and is not covered here.
+
+Our view: one clear notice at the point of collection that names the three uses is valid consent for all three, in the United States, the EU and the UK.
+
+Question: is that single notice enough for all three uses, or does the public count or the vendor total need its own separate opt-in tick in any of those places?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+One notice is enough for all three uses, but only if you stop calling it consent. United States. The notice is fine. Florida's Digital Bill of Rights only applies above roughly $1 billion in revenue, so it almost certainly doesn't reach you. The other state laws (California and the rest) mostly require you to tell people and let them opt out of sales, not to get opt-in consent. A list of software a firm uses isn't sensitive data under any of them. And a count of 5 or more, with no names and no office labels, looks like aggregate or deidentified data. Clear notice at first save does the job here. EU and UK. This is where your stated view breaks down. First, a threshold point: if you don't target people there, GDPR's reach under Art. 3(2) is arguable. Still, plan as if it applies. Under GDPR, consent has to be granular. The EDPB consent guidelines and the ICO both say that one confirm covering several separate purposes isn't valid consent for any of them. The public count and the vendor total are clearly separate purposes. So if consent is your legal basis, yes, each needs its own unticked opt-in, and a person who declines must still be able to use the private filtering. My advice is not to use consent at all:
+
+Use 1 (private filtering) is the service the reader asked for. Contract, Art. 6(1)(b), covers it. Uses 2 and 3 produce counts with nobody identified. Legitimate interests, Art. 6(1)(f), fits well if you document a short balancing test: no names, a minimum of 5, staff can't read lists. Offer an easy way to exclude your list from counts and you're in good shape.
+
+On that approach, your single notice at first save becomes the Art. 13 transparency notice, which is exactly what it should be. There's no consent to bundle and no need for ticks.
+
+**What we did:** Nothing built yet. One notice at first save stands, but not as consent. The Privacy Policy states contract as the basis for the reader's own filtering and legitimate interests for the two counts. We write a short balancing test and keep it on file. The account page gains a switch that leaves a reader's list out of the vendor totals. Ruling 37 adopts this. Ruling 39 removed the public count, so only the vendor total remains.
+
+### Q56. Emails based on a reader's saved software list: consent in the US, EU, UK and Canada
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+A signed-in reader may save a private list of the software their firm uses. We plan to email that reader when something relevant changes, for example: "Product X now integrates with Product Y, which is on your list." We write and send the email. No vendor pays for it, picks its content or receives the reader's address. Every email carries an unsubscribe link and our postal address.
+
+Your colleague advised us on November 6, 2026 that a single marketing email needs no prior consent under CAN-SPAM, needs an advertisement label when sent without affirmative consent, and that Canada's CASL and the EU rules are consent-based.
+
+Our plan: the notice shown when a reader first saves a list carries one unticked box, "Email me when something changes for software on my list." We send these emails only to readers who tick it, in every country.
+
+Our view: these are commercial emails. An unticked box at the point of collection, ticked by the reader, is valid consent under CAN-SPAM, the GDPR and ePrivacy rules, the UK rules and CASL. With that consent on record, no advertisement label is needed.
+
+Question: is one unticked opt-in box at first save sufficient consent for these emails in the United States, the EU, the UK and Canada, or does any of the four need something more?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+The box works in all four places. In Canada and the EU, though, the box alone isn't the whole job. What has to go around it differs by region. US (CAN-SPAM). You don't need consent to send at all. A reader who ticks an unticked box has given "affirmative consent," which is what removes the advertisement label requirement. Your view is right here. You still need the unsubscribe link, your postal address, an honest "from" line and an honest subject line, and you must honor opt-outs within 10 business days. EU (GDPR plus ePrivacy). Planet49 confirms that an unticked box is the right mechanism. A box doesn't make the consent informed, though. The text near it has to:
+
+say who you are, describe what the emails will be about, and tell the reader they can withdraw at any time (Article 7(3)).
+
+Keep records of who ticked the box, when, and what wording they saw. Germany and Austria expect a confirmation email (double opt-in) as proof. It isn't strictly required, but it's cheap, so add it for EU readers.
+
+**What we did:** Our view holds. Nothing built yet. Build rules: the text beside the box names us, says what the emails cover and says the reader can withdraw. We record who ticked, when and the wording shown. EU readers get a confirmation email before the first send. The answer does not cover Canada or the UK.
+
+### Q57. Paid vendor plans that include usage totals: is that a "sale" or "sharing" of personal information
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Signed-in readers may save a private list of the software their firm uses. We plan to show each vendor, in a paid portal plan, how many accounts list each of its own products. The vendor sees a single number per product. It never sees who, which firm, which office, or what else those accounts use. A number below 5 is hidden. Our market is small. A product might be listed by a few dozen accounts in total.
+
+Our Privacy Policy says:
+
+"We do not sell or share personal information, and we honor GPC as an opt-out of product analytics."
+
+Our Vendor Terms say:
+
+"Information we show you in the portal about how your listings perform is for your company's internal use. Do not publish it or pass it to anyone outside your company without our written permission."
+
+We believe we are below the California Consumer Privacy Act thresholds, but we want the sentence above to stay true under that law's definitions.
+
+Our view: a single count per product, hidden below 5, is aggregate or deidentified information and not personal information. Giving it to a paying vendor is therefore not a sale or sharing, and the internal-use clause is enough.
+
+Question: is that right, or do we need a higher minimum count, or a promise from the vendor not to try to identify the accounts, to keep "we do not sell or share personal information" true?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Mostly right, but I'd add the vendor promise. It costs you almost nothing and covers the weak spot. The count probably qualifies as "aggregate consumer information" under Cal. Civ. Code §1798.140(b). That means data about a group that isn't linked or reasonably linkable to any consumer or household. If it fits there, it isn't personal information. Handing it over isn't a "sale," even though vendors pay for it. "Sharing" isn't really in play either, because it's limited to cross-context behavioral advertising. So far, so good. The problem is your market size. When a product has a few dozen listers and the number updates live, a vendor can watch it change. Say it goes from 11 to 12 the week after a firm signs up, and the vendor already knows that firm is its customer. Now the number is about one firm, which is exactly the "reasonably linkable" problem. Raising the floor to 10 doesn't fix that. The leak comes from the changes over time, not the floor.
+
+**Follow-up asked:**
+
+Thank you. You said the leak is a vendor watching the total change, and that a higher floor does not fix it. One question: if we refresh each total once a month instead of live, keep the minimum of 5, and add the vendor's promise not to identify accounts, is the total then aggregate consumer information under Cal. Civ. Code 1798.140(b), or is something more needed, such as rounding?
+
+**Follow-up answer (Alexander Coffin, 2026-11-17):**
+
+Monthly refresh, a floor of 5, and the vendor promise get you closer. I don't think they get you all the way to "aggregate consumer information" under 1798.140(b). Something more is needed, and rounding or noise is the practical fix. The (b) test doesn't turn on whether the vendor promises to behave. It asks whether the count is "linked or reasonably linkable" to a consumer or household. A contractual promise not to re-identify is one of the elements of the deidentified definition in 1798.140(m), alongside a public commitment and technical measures. It doesn't make a linkable number unlinkable. So the promise helps if you rely on (m), but it doesn't fix (b) on its own.
+
+**What we did:** Our view mostly holds, with one addition. Nothing built yet. The Vendor Terms gain a promise that a vendor will not try to identify the accounts behind a total. Ruling 32 set a monthly refresh. The follow-up says that monthly refresh, a floor of 5 and the promise are still not enough to make the total aggregate information. The number itself must be rounded or have noise added. The promise counts toward the separate "deidentified" definition, together with a public commitment and technical measures. Ruling 40 adds bands to ruling 32.
+
+### Q58. A public "used by N accounts" count on a product page
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Signed-in readers may save a private list of the software their firm uses. We plan to show a count on each product's public page, drawn from those lists. The count is our own statement. Your colleagues advised us on November 4, 2026 that Section 230 never shields our own statements, and that we must not present anything as verified unless we verify it.
+
+Facts about the number:
+
+- It is self-reported. We do not check that an account's firm uses the product.
+- It counts accounts, not firms. Three colleagues at one firm are three accounts.
+- We exclude accounts that hold a vendor role, so a vendor's staff cannot add to their own product's count.
+- We show it only when it is 5 or more.
+- It never affects search order or any ranking.
+
+Our planned wording is "N accounts on AEC Integrations say they use this", and our methodology page would say the count is self-reported and unverified.
+
+Our view: that wording states exactly what we hold. With the methodology note, it is not a false or misleading statement about a vendor's market position under the Florida Deceptive and Unfair Trade Practices Act or Lanham Act section 43(a), and it needs no further disclaimer.
+
+Question: is that wording, with the methodology note, enough to protect us against a false-advertising or deceptive-practice claim by a competing vendor, or is more needed on the page itself?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+Mostly yes, but put a few words on the page itself. The wording is literally true. "N accounts on AEC Integrations say they use this" describes exactly what you hold, so a literal-falsity claim under section 43(a) shouldn't get far. The exposure is implied falsity, meaning a message that's technically true but misleads. A competing vendor would argue that a big number on a product page reads as market share or adoption, as in "N firms use this." And because you count accounts rather than firms, three people at one firm count three times, so the number can overstate adoption. The methodology note doesn't fully fix that, because it lives on a different page. Courts and the FTC look at the net impression of the page as people actually see it. A disclosure one click away that most readers never open won't cure a misleading impression on the page they're reading. FDUTPA asks a similar question: would a reasonable consumer, acting reasonably, be misled? A reasonable reader might well take the number at face value. The Lanham Act also has threshold problems for a plaintiff. Under Lexmark, the vendor has to show commercial injury proximately caused by your statement. They'd also have to show the count is "commercial advertising or promotion," which is arguable for a neutral directory that doesn't sell competing software. Those are real defenses, but I wouldn't rely on them alone.
+
+**What we did:** Our view mostly holds. Nothing built yet. The wording stands. The qualifier must sit beside the number on the product page, not only on the methodology page. It says the count is self-reported and counts accounts, not firms. The answer does not give the on-page words. Ruling 33 set them. Ruling 39 then removed the public count, so nothing is built from this answer.
+
+### Q59. An employee records their employer's software and office names on our site without authority
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+We plan a feature for signed-in readers. A reader records which products in our catalog their firm uses, and can group them under office labels they type. Only that reader sees the list. We use it to filter the directory for them, and to produce counts of 5 or more accounts per product. Office labels are never used in any count, report, email or analytics event.
+
+The reader is usually an employee. They may have no authority to tell us what software their employer runs. An office label such as "Acquired firm" could reveal something the employer treats as confidential. A firm's software list could also be useful to an attacker. Our Terms of Service today cover content a user submits for publication. They say nothing about private information a user gives us about a third party.
+
+Our plan: the Terms gain a sentence in which the reader confirms they are allowed to share this information. We keep each list private to the reader. If an employer proves who it is and asks, we delete lists that name it.
+
+Our view: a firm's choice of commercial software is rarely a trade secret. The reader's confirmation, the privacy of the list and deletion on the employer's verified request are enough to protect us against a confidentiality or trade-secret claim by the employer.
+
+Question: are those three steps enough to protect us against a claim by the employer, or do we need something more?
+
+**Answer (Alexander Coffin, 2026-11-16):**
+
+The three steps get you most of the way, but not all of it. Under the Florida Uniform Trade Secrets Act, you're liable for misappropriation only if you knew, or had reason to know, that the information came through improper means or from someone who owed the employer a duty of confidence. You're right that a list of off-the-shelf software usually won't qualify as a trade secret. Office labels are different. "Acquired firm" could reveal an unannounced deal, and that's the kind of thing an employer guards. Here's where the plan is thin. The user confirmation helps, but it isn't a shield. The worry is that the feature itself puts you on notice: you invite people to type in free text, and if you know employees may lack authority, that knowledge is close to "reason to know." A clause in the Terms doesn't erase it. What it really gives you is a contract claim against the user, which you'll probably never bring. Deletion on verified request is good. But once an employer gives notice, you have actual knowledge, so deletion has to be fast and complete. That means backups, caches and any counts the list fed into. If you keep using the data after notice, that's textbook misappropriation. Privacy of the list covers disclosure. It doesn't cover a breach, and you've already spotted that a firm's software stack is useful to an attacker. If you hold the data loosely and it leaks, you face a negligence-style claim, separate from trade secrets.
+
+**What we did:** Our view mostly holds for the software list and not for office labels. Nothing built yet. The free-text office label is the exposure, because inviting free text gives us reason to know it may hold a confidence. Deletion on an employer's notice must be fast and complete: the lists, the counts they fed, caches and backups. The lists need real access controls, because a leak is a separate negligence claim. Ruling 38: labels stay free text and become general groups, not offices. Counsel's concern about free text stands and is accepted. The answer gives no remedy for the free-text point.
+
+### Q60. Adding new sections to a legal page before its first effective date: is the 30-day notice owed
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Our Privacy Policy and Terms of Service are published with a banner that says each is a draft, pending legal review and not yet in force. Neither has an effective date yet. Your colleague advised us on November 11, 2026 that a change clause inside a draft that never took effect may not itself be in effect.
+
+The Privacy Policy says:
+
+"Where a change materially affects how we use your personal data, we tell you the way our Terms of Service describe: a notice on every page of the site for 30 days before it takes effect, and an email to every account holder."
+
+We plan new features that collect new data and use it in new ways. Each needs new sections in the Privacy Policy. Some of that text may be ready before the policy's first effective date. The related features would not be switched on until the text is in the policy.
+
+Our view: text added before the first effective date is simply part of the first version that takes force. No 30-day notice and no email is owed for it. The same text added after the effective date is a material change and needs both.
+
+Question: is that right, or does the 30-day notice and email promise already bind us for changes made while the pages still carry the draft banner?
+
+**Answer (Travis Russell, 2026-11-15):**
+
+In general, your view is sound as a matter of contract. A notice-of-change promise in a policy that has not yet taken effect usually does not bind you until the policy does. Text added before the first effective date is part of the first version, not a "change" to it. That holds best when the draft label is clear and consistent, nobody has been asked to accept the draft, and the first version gets a clear effective date.
+
+The bigger risk is regulatory rather than contractual. The FTC and state consumer-protection laws, including Florida's, look at what you actually represent to the public and what you actually do. A banner saying "draft" doesn't fully neutralize a publicly posted privacy policy if the site is live and collecting data. If people are creating accounts or submitting information now, they may reasonably rely on the posted text. Expanding how you use data you have already collected can draw scrutiny even if the change technically lands before an effective date. Some states that may apply to visitors, such as California, also expect a live site to have an operative privacy policy with an effective date. So the practical risk depends on whether you are collecting data now.
+
+Common approaches:
+
+If you are collecting real user data now, put a short, accurate interim policy in effect for current practices.
+Keep new features off until the policy covering them is live, as you plan.
+Don't apply new uses to data collected earlier without notice or consent.
+Even if not strictly required, give a short notice or email when the first version takes effect. It costs little and builds goodwill.
+
+**What we did:** Our view holds as contract: text added before the first effective date is part of the first version and owes no 30-day notice. Two limits follow. A new use of data we already hold needs notice or consent whenever its text lands, which reaches the screening job in Q53. The draft banner does not protect a live site that collects data, so the first effective date should not slip behind new features. Ruling 28: a short notice or email goes out when the first version takes effect.
+
+Q61 and Q62 are batch 5, asked on 2026-11-16 from AECI-1826, the product page redesign.
+
+### Q61. A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, an independent US directory of construction-industry software compiled from public information. Florida law governs. This is one question, with one decision at the end.
+
+Most listed vendors have never claimed their listing. Your colleague advised us on November 4 and 5, 2026 that using a product's name in text to identify it is nominative use and low risk when the listing is marked Unclaimed and carries a clear not-affiliated line, that a logo is riskier, and that the page must not look official. We followed that advice. On an unclaimed listing the logo is never larger than 32 pixels, we use none of the vendor's colours, and the top of the page carries this line beside the product name:
+
+"Unclaimed · not affiliated with or endorsed by this vendor"
+
+We are redesigning the product page. Two things are new, and both use the name as text only.
+
+1. At the top of the page, under our own site header, the product name is the page title in large type on our own dark green background. The line above sits beside it.
+2. When the reader scrolls down, a slim bar stays fixed at the top of the screen. It reads "AEC Integrations › Revit": our own wordmark first, then the product name in small plain text, then links to the page's sections. It shows no vendor logo and no vendor colour. The not-affiliated line is not repeated in this bar. By then it has scrolled out of view with the top of the page.
+
+Our view: both are nominative use of a word name. The bar leads with our own wordmark, so it reads as our page about the product, not the vendor's own site. The line does not need to be repeated in the bar.
+
+Question: on an unclaimed listing, may the fixed bar show the product name in text without the not-affiliated line beside it, or must the bar repeat that line or leave the name out?
+
+**Answer (Brian D. Lerner, 2026-11-17):**
+
+The bar may show the name without repeating the line. Nominative fair use permits using a product’s name to identify it if you use only what is needed and nothing suggests sponsorship. Plain text, no logo, smaller than your own wordmark, which comes first and identifies you as the source, meets that standard. A disclaimer helps but is not required, and Lanham Act 43(a) does not require you to repeat it wherever the name appears. Courts in the Eleventh Circuit, which covers Florida, ask whether the overall page is likely to confuse users about affiliation, so keep the bar free of “official,” vendor colors or styling, and claim language. If you want extra margin at low cost, add a short “Unclaimed” tag beside the name in the bar.
+
+**What we did:** Our view holds. The sticky bar keeps the product name for every product, as built. The bar stays free of vendor colours, vendor styling, the word "official" and any claim language. Counsel offers an optional "Unclaimed" tag beside the name. Ruling 41 adds it as a trial. Recorded on AECI-1826.
+
 ## Chris's rulings
 
 1. **Ban structure (Q13, 2026-11-05).** Suspend at once; written notice with evidence; 7 business days to cure or rebut, a further 7 on a false-claim finding; then subscriptions end with a pro-rata refund of the unused term less fees for the period used and the itemised cost of the abuse (staff time at $150 an hour logged at the time, costs paid to others, only where the breach caused them, recoveries credited, never more than the refund due). Ending a subscription ends the edit right; the vendor keeps ownership of its text.
@@ -1086,7 +1584,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 9. **Logos on unclaimed listings (Q12 follow-up, 2026-11-11).** Keep small sourced logos, never as a badge or header, with the Unclaimed and not-affiliated line beside them, removed at once on objection (AECI-1618).
 10. **EU and UK visitors (Q26, Q29, 2026-11-06).** Keep serving them; no geo-block; rights section stays; GDPR and state addenda under AECI-309.
 11. **Acceptance-record IP and browser (Q27).** Deleted 90 days after acceptance (AECI-1636).
-12. **Reader-account changes (Q34).** Email every account holder before a material change; click-to-accept at next sign-in for rights-reducing changes; prospective only (AECI-1637). The site banner (AECI-1592) stays for visitors. Since 2026-11-13 the click is the sign-in itself (ruling 26).
+12. **Reader-account changes (Q34).** Email every account holder before a material change; click-to-accept at next sign-in for rights-reducing changes; prospective only (AECI-1637). The site banner (AECI-1592) stays for visitors. Since 2026-11-13 the click is the sign-in itself (ruling 43).
 13. **Jury waiver (Q35).** Mutual jury-trial waiver in the Managed plan agreement and the Vendor Terms only, not the Terms of Service.
 14. **Connector-delivered integrations (2026-11-09).** Claim, edit and contest are open to every claimed owner, with no Managed gate (AECI-1663, text item 12.17).
 15. **Tamper-evident acceptance record (AECI-1615 review, 2026-11-11).** Yes: a nightly export of the fingerprints (SHA-256 hashes) of acceptance and grant rows, not the rows themselves, to a hash-chained file in a locked R2 prefix, with a DigiCert RFC 3161 timestamp on each file. The IP address and browser are left out of the fingerprint. *Built 2026-11-17 (AECI-1680, ADR 0057).* R2 has no object versioning, so a bucket lock holds the files instead.
@@ -1100,13 +1598,37 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 23. **Platform gate issues (2026-11-11).** Build AECI-1621, AECI-1622 and AECI-1638 before any effective date. No text is softened.
 24. **Vendor re-acceptance (Q42, 2026-11-11).** Until an owner seat accepts the in-force Vendor Terms, the portal opens only the acceptance screen. Any owner seat accepts for the company, the listing stays claimed, and no deadline ends the claim (AECI-1677).
 25. **Later rights-reducing changes to the Vendor Terms (Q42, 2026-11-11).** Yes: a change that reduces a vendor's rights under the liability, indemnity, disputes or content license sections applies to a company only after an owner seat accepts it in the portal, mirroring ruling 12 (text item 13.12, AECI-1677).
-26. **Signing in is the acceptance (Q34, 2026-11-13).** For the Terms of Service, the sign-in page shows one line beside the sign-in buttons, "By signing in, you agree to our Terms of Service and Privacy Policy.", and the sign-in is the click. Each sign-in logs the acceptance of the Terms version in force (AECI-1637). There is no separate acceptance screen and nothing is blocked. A rights-reducing version applies to an account holder from their next sign-in, never on continued use. This replaces the click-to-accept screen in ruling 12. The vendor portal is unchanged (ruling 24).
-27. **The copyright notice log (Q38, 2026-11-17).** Account deletion clears the account from a notice and keeps the notice. A deleted and re-created account starts with a clean count. Notices are kept three years after they close, the limitation period for a copyright claim, pending counsel's view. The repeat-infringer count is notices that led to a takedown. A notice we took no action on, and a takedown restored after a counter-notice, do not count. Counter-notices the account filed show as a second number (AECI-1665).
+26. **Third-party material in vendor uploads (Q50, 2026-11-15).** Before the first effective date, the Vendor Terms gain a specific warranty for third-party material with a duty to redact. Privacy, name and likeness, data-protection and third-party confidentiality claims are named in the indemnity and in its uncapped list. "Your breach of confidentiality" covers a duty owed to anyone (text items 14.1 to 14.4, AECI-1363).
+27. **Service providers in the content license (Q53, 2026-11-15).** The license gains a sentence authorising our service providers to act for us, in the first in-force versions (text item 14.5). If it lands after an effective date, it applies to a company only after an owner seat accepts it in the portal, under ruling 25.
+28. **Notice at the first effective date (Q60, 2026-11-15).** Yes: a short notice or email goes out when the first versions take effect, though counsel said none is strictly owed.
+29. **EU and UK side of screening (Q53, 2026-11-15).** Not re-asked now. It goes back as one question when the screening job is scheduled.
+30. **Customer quotes (Q45, Q48, 2026-11-16).** Left out of Enhanced 1.0. No quote that names a person is published on a vendor's word alone. If quotes return, the person quoted confirms to us directly first.
+31. **Caption on Enhanced blocks (Q44, 2026-11-16).** "Supplied by {Vendor}". The "Maintained by" caption on Managed fields under ruling 5 is not changed by this ruling.
+32. **Vendor usage totals (Q57, 2026-11-16).** A total refreshes monthly and never live, so a vendor cannot watch it change. The Vendor Terms gain a promise not to identify the accounts behind a total.
+33. **Public usage count wording (Q58, 2026-11-16).** "N accounts on AEC Integrations say they use this", with "Self-reported. Counts accounts, not firms." directly under the number.
+34. **Brand colours on unclaimed listings (AECI-1826, 2026-11-16).** None, on any page, including the product's own page. This is tighter than the redesign plan's §4.5.
+35. **Caption on Managed fields (Q44, 2026-11-16).** Stays "Maintained by {Vendor}". Ruling 5 stands. "Supplied by" is for Enhanced blocks only.
+36. **Ranking page says what a plan buys (Q44, 2026-11-16).** Add it now, in quiet wording, not when Enhanced ships. The page is versioned, so this is a version bump.
+37. **Legal basis for the saved software list (Q55, 2026-11-16).** One notice at first save, not called consent. Contract for the reader's own filtering, legitimate interests for the vendor total, a written balancing test on file, and a switch on the account page that leaves a list out of the totals. This replaces the consent approach of 2026-11-13.
+38. **Groups in the saved software list (Q59, 2026-11-16).** A reader groups products however they like, under a free-text label. It is a general grouping tool, not an office list. Counsel named free text as the exposure, and Chris accepted it. Labels never leave the account and are in no total, report, email or analytics event. Deletion on an employer's notice is fast and complete.
+39. **Public usage count (Q58, 2026-11-16).** Removed. A count of accounts is not useful, and only a count of firms would be. Ruling 33 is spent.
+40. **Vendor usage totals are shown as bands (Q57 follow-up, 2026-11-17).** A vendor sees a band such as "5 to 9", "10 to 24" or "25 to 49", never the exact number. This adds to ruling 32: monthly refresh, a floor of 5 and the vendor's promise all stay.
+41. **"Unclaimed" tag in the sticky bar (Q61, 2026-11-17).** Add a short "Unclaimed" tag beside the product name in the sticky bar on an unclaimed listing, at least to see how it looks. Counsel called it optional, so removing it later needs no counsel question.
+42. **Vendor reply inside the review card (AECI-1872, 2026-11-17).** The redesigned layout stays: the reply sits in its own labelled, dated panel inside the review card, after the review text. The Review Guidelines sentence "It is never shown as part of the review" is reworded to say the response appears after the review text in its own labelled panel and is never mixed with the reviewer's words (text item 14.6). The text merges with or before the layout. No counsel question was asked.
+43. **Signing in is the acceptance (Q34, 2026-11-13).** For the Terms of Service, the sign-in page shows one line beside the sign-in buttons, "By signing in, you agree to our Terms of Service and Privacy Policy.", and the sign-in is the click. Each sign-in logs the acceptance of the Terms version in force (AECI-1637). There is no separate acceptance screen and nothing is blocked. A rights-reducing version applies to an account holder from their next sign-in, never on continued use. This replaces the click-to-accept screen in ruling 12. The vendor portal is unchanged (ruling 24). Recorded on `main` as ruling 26 until the two lists were merged on 2026-11-18.
+44. **The copyright notice log (Q38, 2026-11-17).** Account deletion clears the account from a notice and keeps the notice. A deleted and re-created account starts with a clean count. Notices are kept three years after they close, the limitation period for a copyright claim, pending counsel's view. The repeat-infringer count is notices that led to a takedown. A notice we took no action on, and a takedown restored after a counter-notice, do not count. Counter-notices the account filed show as a second number (AECI-1665). Recorded on `main` as ruling 27 until the two lists were merged on 2026-11-18.
+45. **A legal hold and a reviewer's own deletion (Q25, AECI-1683, 2026-11-17).** No hold flag. A reviewer's account deletes as it does today, and nothing blocks or delays it. The subpoena runbook exports the reviewer's record on the day legal process arrives, before any notice goes to the reviewer. The Privacy Policy's "Deletion" section gains one sentence: "We also keep a copy of information that the law requires us to preserve, for example when we have received legal process about it, for as long as that requirement lasts." (text item 14.7). The retention prune keeps its own hold (AECI-1638), which pauses a scheduled deletion and blocks no user's deletion.
+46. **Terms of Service, what is algorithmic (AECI-1857, 2026-11-18).** "Our editorial judgment and search ranking are algorithmic" became "Search ranking is algorithmic. Neither it nor our editorial choices are ever influenced by payment." Some orders are set by a person, so only the payment promise is stated for editorial choices. Applied in legal branch 6. Counsel has not seen the sentence, and Q62 may touch it again.
+47. **Wording for reviews after an account is deleted (AECI-1915, 2026-11-18).** The account page and its confirmation dialog say published reviews "stay online, but they are no longer linked to your account". The word "anonymized" is not used, because a review's text can still identify its author. Applied in legal branch 6.
+48. **An acceptance from a claim that was never approved (AECI-1914, 2026-11-18).** Kept for six years after the claim closes, then deleted. A claim closes when it is declined, withdrawn or expires. This is the same period as every other acceptance. It needs one clause in the Privacy Policy's "Retention" and one rule in the legal retention prune. *Built 2026-11-18 (AECI-1914).* The claim close is dated by `vendor_requests.resolved_at` on a rejected claim, because no withdraw or expiry exists in the code.
+49. **No IP address or browser on a portal acceptance (2026-11-18).** The portal acceptance screen keeps recording no IP address and no browser. The owner seat is signed in, and the record holds the account, name, title, email, time, version and box text. An IP address adds little to that, and it would be deleted after 90 days, before most disputes arise. A claim still records both, because a claim comes from a person we have not yet verified. No text or code changes. `PORTAL_RECORDS_EVIDENCE` stays `false`.
+50. **Acceptances that ruling 48 cannot date (AECI-1914, 2026-11-18).** No acceptance is kept without an end date. An acceptance from the old "Not listed?" form, which has no vendor and no claim, is deleted six years after it was accepted. So is an acceptance whose claim was deleted by hand. An acceptance whose vendor was deleted is deleted six years after the vendor's deletion. If that date is missing, the row is kept and counted in a data-quality check for a person to look at. The Privacy Policy's "Retention" gains: "Where a record has no such date, we keep it for six years after the latest date we hold for it." Two points were added the same day. First, the `vendor.deleted` audit record that dates a deleted company's acceptances is kept past four years, for as long as an acceptance or grant still names that company, and is deleted in the same batch as the last one. The Privacy Policy's audit record bullet therefore reads "Four kinds of audit record are kept longer", and its fourth kind is "the record that a company was deleted from the site, which dates the six-year period when the company's record is gone". Second, when a company is promoted back under the same id, its acceptances are dated by the normal account end again, and the old deletion record becomes an ordinary four-year audit record. No text changes for the second point. The claim date in ruling 48 is the day the claim was rejected, because the code has no withdrawn or expired claim state. *Built 2026-11-18 (AECI-1914).* Counsel has not seen either new sentence: the catch-all and "Four kinds".
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
 
 ## Open items for the next counsel batch
 
+- **Ruling 48 follow-up: acceptance records with no vendor account end (raised 2026-11-18, AECI-1914).** Some acceptance records have no vendor account whose end could start the six-year clock: a claim that was never approved, a listing request, and a company we deleted from the site. We now delete each six years after the latest date we hold for it. That is the claim's close, the acceptance itself, or the company's deletion. We keep the audit record of the company's deletion for as long as the acceptance records it dates. The v1.1 draft, not yet in force, now adds to "Retention" under "Agreement acceptance records": "If a claim is never approved, we keep its acceptance record for six years after the claim is closed. Where a record has no such date, we keep it for six years after the latest date we hold for it." The audit record bullet now reads: "Four kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, the record that an account was deleted, which dates the start of the six-year period, and the record that a company was deleted from the site, which dates the six-year period when the company's record is gone." Questions: (a) Are the two new acceptance sentences clear and enough? (b) Is the fourth kind of audit record described clearly enough?
 - **Q27c and Q23a follow-up: the legal hold clause and the audit records kept past four years (raised 2026-11-17, AECI-1638).** After Q27(c) we stated two periods. Audit records are kept four years after the action. Acceptance records are kept six years after the vendor account ends, or five years after a granted subscription ends, if later. A daily job now deletes both when the period ends. Following Q23(a) and Q25(c), the job stops while a litigation hold is open. A hold covers one vendor or everything, and we place it with a written reason. Some audit records must also outlive four years, because they prove an acceptance record that is still kept: the record of the acceptance itself, of a Terms of Service acceptance, and of an account deletion, which starts the six-year clock for the Terms acceptance. We also keep the record of each deletion run, which holds only row ids, so our tamper-evident acceptance chain (ruling 15) can show why a row is gone. The v1.1 draft, not yet in force, now reads in "Retention": "Agreement acceptance records: … kept for as long as the company has a vendor account, and for six years after it ends, or for five years after a granted subscription ends, if later, or longer while a legal hold requires it, as evidence of the agreement, even if you delete your account." And: "Audit record for abuse prevention: the record of who submitted or changed what, kept for four years after the action. We pause this deletion while we are under a legal duty to preserve records, for example after receiving legal process. Three kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, and the record that an account was deleted, which dates the start of the six-year period." Questions: (a) Is "or longer while a legal hold requires it" on the acceptance record, and "We pause this deletion while we are under a legal duty to preserve records" on the audit record, enough disclosure, or must the policy say more about holds? (b) Is the "Three kinds of audit record are kept longer" sentence a clear enough exception to the four years? (c) Does keeping the deletion-run record, row ids only, with no end date need disclosure?
 - **Q34 follow-up: is the sign-in line enough? (raised 2026-11-13, AECI-1637).** Is a visible line beside the sign-in buttons, with the sign-in logged against the version, enough for a rights-reducing change, or must it be an unticked box? Fallback: one unticked box on the sign-in page, shown only after a rights-reducing change.
 - **Q38 follow-up: how long may we keep a copyright notice? (raised 2026-11-17, AECI-1665).** We keep each notice and counter-notice for three years after the matter closes, including after the account involved is deleted. Three years is the limitation period for a civil copyright claim (17 U.S.C. 507(b)). Is that the right period, and may we keep the sender's and the account holder's details that long after deletion? Is the Privacy Policy wording right? It reads: "Copyright notices and counter-notices: for three years after we close the matter, as evidence if a copyright claim is brought. We keep them even if you delete your account. They are then no longer linked to your account." Fallback: a shorter period counsel names, with the deletion job (AECI-1905) set to match.

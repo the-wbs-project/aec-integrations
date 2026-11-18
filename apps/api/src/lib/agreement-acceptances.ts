@@ -121,7 +121,9 @@ export const AGREEMENT_ACCEPTANCE_ENTITY_TYPE = 'agreement_acceptance';
 
 /**
  * Whether a `portal` acceptance stores the IP address and browser (module header). False
- * until the Privacy Policy names this acceptance. `agreement-acceptances.spec.ts` pins it.
+ * by ruling 49 (2026-11-18): the owner seat is signed in, so the record already names the
+ * account. Turning it on needs a new ruling and a Privacy Policy change first.
+ * `agreement-acceptances.spec.ts` pins it.
  */
 export const PORTAL_RECORDS_EVIDENCE = false;
 

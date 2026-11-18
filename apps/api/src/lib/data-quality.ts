@@ -66,6 +66,7 @@ import { businessWindowEnd } from './business-days';
 import { fieldHideDues } from './field-hide-dues';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
+import { VENDOR_DELETED_ACTION } from './legal-retention-prune';
 import { liveLicenseCountSql } from './license';
 import { liveEvidencedPairOn, liveIntegrationOn } from './live-integration';
 import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
@@ -84,6 +85,7 @@ import {
   or,
   sql,
   inArray,
+  type SQL,
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
@@ -201,6 +203,9 @@ export interface CheckFinding {
   note?: string;
   /** True when the check was deliberately not run (e.g. drift with no creds). */
   skipped?: boolean;
+  /** The gauge value when it is not one per line: a check that reports a row count in
+   *  one summary line (AECI-1914). Defaults to `lines.length`. */
+  count?: number;
 }
 
 /** A single check's outcome, ready for the digest + the `aeci.data_quality.check` gauge. */
@@ -1666,6 +1671,63 @@ export async function checkLegalAgreementDateMoved(
   return { lines };
 }
 
+/**
+ * `acceptance_without_retention_date` (AECI-1914, rulings 48 and 50): agreement
+ * acceptances and license grants the legal retention prune can never date, so would keep
+ * forever. Ruling 50 makes it a count at warning severity: the number of acceptance rows
+ * plus the number of grant rows whose vendor has no `vendors` row and no `vendor.deleted`
+ * audit row (`VENDOR_DELETED_ACTION`), the record arm D of `lib/legal-retention-prune.ts`
+ * dates the six years from. It names no vendor id: one summary line, and the gauge reads
+ * the row count. Only `lib/retract-vendor.ts` deletes a vendor, and it writes that
+ * row in the same batch, so a finding is a hand delete or an audit row lost another way.
+ * The fix is an ops script that writes the missing `vendor.deleted` row with the best
+ * known deletion date, never a migration.
+ *
+ * The note counts NULL-vendor claim acceptances whose claim was approved (`resolved`). The
+ * approval batch links the vendor (`linkClaimAcceptanceStatements`), so such a row is a
+ * linking defect. Arm B keeps it, because only a rejected claim dates it. `warn`, and a
+ * seeded database is clean: the seed deletes no vendor and links every approved claim.
+ */
+export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<CheckFinding> {
+  const undated = (
+    vendorId: SQL,
+  ) => sql`NOT EXISTS (SELECT 1 FROM "vendors" "rd_v" WHERE "rd_v"."id" = ${vendorId})
+    AND NOT EXISTS (
+      SELECT 1 FROM "audit_log" "rd_a"
+      WHERE "rd_a"."entity_type" = 'vendor'
+        AND "rd_a"."entity_id" = ${vendorId}
+        AND "rd_a"."action" = ${VENDOR_DELETED_ACTION}
+    )`;
+  const [row] = await db.all<{ acceptances: number; grants: number }>(sql`
+    SELECT
+      (SELECT count(*) FROM "agreement_acceptances" "rd_x"
+       WHERE "rd_x"."vendor_id" IS NOT NULL AND ${undated(sql`"rd_x"."vendor_id"`)}) AS "acceptances",
+      (SELECT count(*) FROM "license_grants" "rd_g"
+       WHERE ${undated(sql`"rd_g"."vendor_id"`)}) AS "grants"
+  `);
+  const acceptances = Number(row?.acceptances ?? 0);
+  const grants = Number(row?.grants ?? 0);
+  const count = acceptances + grants;
+  const [unlinked] = await db.all<{ n: number }>(sql`
+    SELECT count(*) AS "n" FROM "agreement_acceptances" "ul_a"
+    JOIN "vendor_requests" "ul_r" ON "ul_r"."id" = "ul_a"."vendor_request_id"
+    WHERE "ul_a"."vendor_id" IS NULL
+      AND "ul_a"."billing_account_id" IS NULL
+      AND "ul_r"."kind" = 'claim'
+      AND "ul_r"."status" = 'resolved'
+  `);
+  return {
+    lines:
+      count > 0
+        ? [
+            `${acceptances} acceptance(s) and ${grants} grant(s) name a vendor with no vendor row and no vendor.deleted record, so they can never be pruned`,
+          ]
+        : [],
+    count,
+    note: `${Number(unlinked?.n ?? 0)} acceptance(s) of an approved claim with no vendor linked (kept until linked)`,
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -1678,7 +1740,7 @@ interface CheckSpec {
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
  *  AECI-1455 review-app mirror drift, the AECI-1715 browser report tripwire and the
- *  AECI-1908 maintenance-marker guard). Severity
+ *  AECI-1908 maintenance-marker guard and the AECI-1914 retention-date guard). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -1860,6 +1922,14 @@ export const CHECKS: CheckSpec[] = [
     run: ({ db }) => checkLegalAgreementDateMoved(db),
   },
   {
+    id: 'acceptance_without_retention_date',
+    label: 'Acceptances and grants of a deleted vendor with no record of the deletion',
+    // `warn`: nothing is deleted early, a row is only kept too long. Not a seed
+    // obligation: the seed deletes no vendor (AECI-1914).
+    severity: 'warn',
+    run: ({ db }) => checkAcceptanceWithoutRetentionDate(db),
+  },
+  {
     id: 'plan_snapshot_overdue',
     label: 'Plan-change ranking snapshots still unwritten 24 hours after they were due',
     // `error`: evidence the Terms' ranking promise relies on is missing. Not a seed
@@ -1896,12 +1966,12 @@ export async function runDataQualityChecks(
   const results: DataQualityCheckResult[] = [];
   for (const spec of CHECKS) {
     try {
-      const { lines, note, skipped } = await spec.run(deps);
+      const { lines, note, skipped, count } = await spec.run(deps);
       results.push({
         id: spec.id,
         label: spec.label,
         severity: spec.severity,
-        count: skipped ? 0 : lines.length,
+        count: skipped ? 0 : (count ?? lines.length),
         sample: lines.slice(0, SAMPLE_LIMIT),
         ...(note ? { note } : {}),
         ...(skipped ? { skipped } : {}),

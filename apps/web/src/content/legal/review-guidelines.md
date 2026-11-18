@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: November 17, 2026
+last_updated: November 18, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -72,4 +72,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews. After a second drafting pass: we remove confidential information when a report shows it is confidential, without interpreting private contracts, and a disclosed relationship does not bar a review.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews. After a second drafting pass: we remove confidential information when a report shows it is confidential, without interpreting private contracts, and a disclosed relationship does not bar a review. Later: a response appears after the review text, in its own labeled panel, and is never mixed with the reviewer's words.

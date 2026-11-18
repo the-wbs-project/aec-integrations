@@ -2293,8 +2293,10 @@ export const productProposals = sqliteTable(
  * Domain state: every insert carries its `agreement.accepted` audit row in the same
  * `db.batch`. Append-only but for the 90-day evidence sweep (AECI-1636) and the legal
  * retention prune (AECI-1638, `lib/legal-retention-prune.ts`), which deletes a row six
- * years after the vendor account ends, or five after its grant ends if later. A row with a
- * NULL `vendor_id` is never deleted. No `relations()` entry.
+ * years after the vendor account ends, or five after its grant ends if later. AECI-1914: no
+ * row is kept forever. A claim never approved goes six years after its rejection, a row with
+ * no vendor and no claim six years after acceptance, and a row whose vendor row is gone six
+ * years after its `vendor.deleted` audit row. No `relations()` entry.
  */
 export const agreementAcceptances = sqliteTable(
   'agreement_acceptances',
