@@ -300,15 +300,20 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(a.y).toBe(b.y);
   });
   // AECI-1802: the /about recipe. One Bone band (the hero), one Forest feature card
-  // (the closing panel), and nothing scrolls sideways on a phone.
-  for (const path of ['/vendor-program', '/vendor-program/list-your-product']) {
+  // (the closing panel), and nothing scrolls sideways on a phone. The listing request
+  // page has no Bone band since the AECI-1720 layout pass: its form comes first.
+  for (const [path, bands] of [
+    ['/vendor-program', 1],
+    ['/vendor-program/list-your-product', 0],
+  ] as const) {
     for (const width of [320, 390]) {
-      test(`${path} has one Bone band and fits at ${width}px`, async ({ page }) => {
+      test(`${path} has ${bands} Bone band and fits at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
         await waitForHydrationSettle(page);
-        await expect(page.locator('.aec-bone-band')).toHaveCount(1);
-        await expect(page.locator('aec-bone-band h1')).toHaveCount(1);
+        await expect(page.locator('.aec-bone-band')).toHaveCount(bands);
+        await expect(page.locator('h1')).toHaveCount(1);
+        await expect(page.locator('aec-bone-band h1')).toHaveCount(bands);
         await expectNoSidewaysScroll(page);
       });
     }

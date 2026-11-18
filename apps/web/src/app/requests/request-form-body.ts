@@ -44,7 +44,7 @@ import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
-import { AecCard, cardClass } from '../shared/card/card';
+import { AecCard, FORM_CARD_GAP_CLASS, cardClass } from '../shared/card/card';
 import { AecIcon } from '../shared/icon/icon';
 import {
   FIELD_ERROR_CLASS,
@@ -203,7 +203,9 @@ export class RequestFormBody implements OnInit {
   /** AECI-1807: on the routed page the form is the shared card. The drawer panel is
    *  already the surface, so there the form stays bare. */
   protected readonly formClass = computed(() =>
-    this.variant() === 'page' ? `${cardClass()} mt-10` : 'space-y-6',
+    this.variant() === 'page'
+      ? `${cardClass({ phoneFlush: true })} ${FORM_CARD_GAP_CLASS}`
+      : 'space-y-6',
   );
   protected readonly fieldsClass = computed(() =>
     this.variant() === 'page' ? 'space-y-6 p-6 sm:p-8' : 'space-y-6',
@@ -215,7 +217,7 @@ export class RequestFormBody implements OnInit {
       : 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6',
   );
   /** The routed confirmation sits in one shared card, as the claim receipt page does. */
-  protected readonly confirmCardClass = `${cardClass()} p-6 sm:p-8`;
+  protected readonly confirmCardClass = `${cardClass({ phoneFlush: true })} p-6 sm:p-8`;
   /** A standalone docs link: the in-text link look with a 44px target (AECI-1808). */
   protected readonly docsLinkClass =
     'mt-3 inline-flex min-h-11 items-center gap-1.5 text-t-14 font-semibold text-(--accent-primary) ' +

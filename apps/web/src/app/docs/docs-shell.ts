@@ -93,6 +93,8 @@ export interface GuideLink {
  * Sidebar link: muted text, a sunken pill when current. 44px tall at the least
  * (AECI-1803), `rounded-mark`, weight 400 and 600 only (DESIGN.md §3), and the
  * 3px Forest ring at a 3px offset. The panel's padding leaves the ring room.
+ * The 44px rows touch: the lists add no gap between rows or between sections
+ * (AECI-1720 layout pass), so the tree is as dense as the target allows.
  */
 const TREE_LINK =
   'flex min-h-11 items-center rounded-mark px-3 py-2 text-t-14 leading-snug text-(--text-secondary) ' +
@@ -190,7 +192,9 @@ const GUIDE_LINK =
           <!-- Two trees, one per guide, picked from the URL alone (AECI-1265), so
                the SSR HTML is the same for every visitor of a page. -->
           <nav [attr.aria-label]="navLabel()" [attr.data-guide]="location().guide">
-            <ul class="space-y-0.5">
+            <!-- AECI-1720 layout pass: rows touch. Each link is still a 44px target,
+                 with no margin between rows or between sections. -->
+            <ul>
               @if (location().guide === 'help') {
                 <li>
                   <a
@@ -216,9 +220,7 @@ const GUIDE_LINK =
                     >{{ section.label }}</a
                   >
                   @if (entry.children.length > 0) {
-                    <ul
-                      class="ms-3 mt-0.5 mb-2 space-y-0.5 border-s border-(--border-default) ps-2"
-                    >
+                    <ul class="ms-3 border-s border-(--border-default) ps-2">
                       @for (page of entry.children; track page.slug) {
                         <li>
                           <a

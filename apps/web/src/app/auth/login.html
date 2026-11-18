@@ -1,15 +1,17 @@
 <!--
   A focused flow (DESIGN.md "The Page-Width Rule", AECI-1805): a narrow centred
   column on white, like the not-found page, with every state inside one shared card.
-  Below `sm` the page gutter is 16px, the card padding 20px and the Google button's
-  padding 12px with a 6px gap, and its label never wraps: at 320px "Continue with
-  Google" and its G mark stay on one 44px line even in a wide fallback font.
+  Below `sm` the card is a form card (`phoneFlush`): it drops its frame and spans
+  the 24px page gutter, so the field is as wide as it was before the card. The
+  Google button's padding is 12px with a 6px gap, and its label never wraps: at
+  320px "Continue with Google" and its G mark stay on one 44px line even in a wide
+  fallback font.
 -->
 <section
-  class="mx-auto w-full max-w-md px-4 py-16 text-(--text-primary) sm:px-6 md:py-24"
+  class="mx-auto w-full max-w-md px-6 py-16 text-(--text-primary) md:py-24"
   aria-labelledby="login-title"
 >
-  <div aecCard class="p-5 sm:p-8">
+  <div aecCard phoneFlush class="p-6 sm:p-8">
     @if (resuming()) {
     <!-- ── Silent resume (AECI-954) ─────────────────────────────────────── -->
     <!--

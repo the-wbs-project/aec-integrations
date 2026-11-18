@@ -17,15 +17,17 @@
  * `Cache-Tag: route:index` on the `/vendor-program` TTLs, is indexable and is in
  * `sitemap.xml`.
  *
- * **Layout (AECI-1802, the content-page language of `/about`).** The `h1` and the
- * lede sit on `aec-bone-band`, the page's one Bone band; the `h1` is the Headline
- * role (the global h1 size). Then one white band on the 1328px page wrap, split 5:7
- * from `lg` like the home argument band: on the left the `h2` "What happens next"
- * (the Section role on an inner span) over a four-item ordered list, styled as
- * `/vendor-program`'s "How claiming works", sticky, so the left column is not blank
- * beside the tall form; on the right the form on the shared card (`aecCard`) with an
- * `h2`, so the flow's `h3` step headings keep a correct outline. Below `lg` they
- * stack: the list, then the form. Mobbin anchor: the claim dialog's own (Mercor's
+ * **Layout (AECI-1802, reworked by the AECI-1720 layout pass).** A vendor comes
+ * here to fill the form, so the form starts on the first screen. There is no Bone
+ * band: one white band on the 1328px page wrap, split 5:7 from `lg` like the home
+ * argument band. On the left the `h1` (the Headline role, the global h1 size)
+ * and the lede. Under them, sticky once the heading has scrolled away, the `h2`
+ * "What happens next" (the Section role on an inner span) over a four-item
+ * ordered list styled as `/vendor-program`'s "How claiming works", so the left
+ * column is not blank beside the tall form. On the right the
+ * form on the shared form card (`aecCard phoneFlush`) with an `h2`, so the flow's
+ * `h3` step headings keep a correct outline. Below `lg` they stack: the heading,
+ * the list, then the form. Mobbin anchor: the claim dialog's own (Mercor's
  * "Complete your profile" modal, screen `a39d82f4-c61a-44cb-be88-f81eec9320a8`),
  * since this is that form out of its dialog.
  *
@@ -37,7 +39,6 @@ import { canonicalUrl } from '../core/canonical';
 import { VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
 import { BAND_WRAP_CLASS } from '../shared/band-wrap';
-import { BoneBand } from '../shared/bone-band/bone-band';
 import { AecCard } from '../shared/card/card';
 import { ClaimDialogFlow } from '../shared/claim-dialog/claim-dialog-flow';
 import type { ClaimDialogOpening } from '../shared/claim-dialog/claim-dialog.service';
@@ -51,111 +52,112 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
 
 @Component({
   selector: 'aec-list-your-product',
-  imports: [AecCard, BoneBand, ClaimDialogFlow],
+  imports: [AecCard, ClaimDialogFlow],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- 1. Hero: the page's one Bone band. -->
-      <aec-bone-band>
-        <div class="max-w-[52ch]" data-testid="list-your-product-intro">
-          <h1 class="text-balance text-(--text-primary)" i18n="@@listYourProduct.heading">
-            Ask us to list your product
-          </h1>
-          <p
-            class="mt-6 text-t-20 leading-normal text-(--text-secondary)"
-            i18n="@@listYourProduct.lede"
-          >
-            Listing is free. Tell us the product and its website, and we take it from there.
-          </p>
-        </div>
-      </aec-bone-band>
-
-      <!-- 2. White: what happens next on the left, sticky from lg, and the form on the
-           right, the home argument band's 5:7 split. -->
-      <div class="py-16 md:py-24">
+      <!-- One white band on the page wrap, split 5:7 from lg: the heading, the lede
+           and what happens next on the left, sticky; the form on the right. The form
+           starts on the first screen, as it did before the redesign. -->
+      <div class="pt-8 pb-16 md:pt-12 md:pb-24">
         <div
           [class]="
-            wrap +
-            ' grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-16'
+            wrap + ' grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-16'
           "
         >
-          <div class="lg:sticky lg:top-8" data-testid="list-your-product-next">
-            <h2 id="list-your-product-next-heading" class="text-(--text-primary)">
-              <span [class]="sectionTitle" i18n="@@listYourProduct.next.heading"
-                >What happens next</span
+          <!-- The column stretches to the row, so the list can stick inside it once
+               the heading has scrolled away. -->
+          <div class="lg:self-stretch" data-testid="list-your-product-next">
+            <div class="max-w-[52ch]" data-testid="list-your-product-intro">
+              <h1 class="text-balance text-(--text-primary)" i18n="@@listYourProduct.heading">
+                Ask us to list your product
+              </h1>
+              <p
+                class="mt-4 text-t-20 leading-normal text-(--text-secondary) lg:mt-6"
+                i18n="@@listYourProduct.lede"
               >
-            </h2>
-            <ol class="mt-8 space-y-5" aria-labelledby="list-your-product-next-heading">
-              <li class="flex gap-4">
-                <span [class]="stepNumber" aria-hidden="true">1</span>
-                <div>
-                  <p class="font-semibold" i18n="@@listYourProduct.next.confirm.title">
-                    Confirm your email.
-                  </p>
-                  <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
-                    i18n="@@listYourProduct.next.confirm.body"
-                  >
-                    We email you a link. Your request is sent when you click it.
-                  </p>
-                </div>
-              </li>
-              <li class="flex gap-4">
-                <span [class]="stepNumber" aria-hidden="true">2</span>
-                <div>
-                  <p class="font-semibold" i18n="@@listYourProduct.next.review.title">
-                    We review it.
-                  </p>
-                  <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
-                    i18n="@@listYourProduct.next.review.body"
-                  >
-                    A person on our team confirms that you work for the company and checks the
-                    product against our
-                    <a
-                      href="/docs/trust/listing-submissions"
-                      target="_blank"
-                      rel="noopener"
-                      class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
-                      >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
-                    >.
-                  </p>
-                </div>
-              </li>
-              <li class="flex gap-4">
-                <span [class]="stepNumber" aria-hidden="true">3</span>
-                <div>
-                  <p class="font-semibold" i18n="@@listYourProduct.next.add.title">
-                    We may add the listing.
-                  </p>
-                  <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
-                    i18n="@@listYourProduct.next.add.body"
-                  >
-                    If it meets our conditions, we write it from the product's public pages and add
-                    it to the directory.
-                  </p>
-                </div>
-              </li>
-              <li class="flex gap-4">
-                <span [class]="stepNumber" aria-hidden="true">4</span>
-                <div>
-                  <p class="font-semibold" i18n="@@listYourProduct.next.claim.title">
-                    You claim it.
-                  </p>
-                  <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
-                    i18n="@@listYourProduct.next.claim.body"
-                  >
-                    We email you so you can claim the listing and keep it current.
-                  </p>
-                </div>
-              </li>
-            </ol>
+                Listing is free. Tell us the product and its website, and we take it from there.
+              </p>
+            </div>
+            <div class="mt-8 lg:sticky lg:top-8 lg:mt-12">
+              <h2 id="list-your-product-next-heading" class="text-(--text-primary)">
+                <span [class]="sectionTitle" i18n="@@listYourProduct.next.heading"
+                  >What happens next</span
+                >
+              </h2>
+              <ol class="mt-6 space-y-5 lg:mt-8" aria-labelledby="list-your-product-next-heading">
+                <li class="flex gap-4">
+                  <span [class]="stepNumber" aria-hidden="true">1</span>
+                  <div>
+                    <p class="font-semibold" i18n="@@listYourProduct.next.confirm.title">
+                      Confirm your email.
+                    </p>
+                    <p
+                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      i18n="@@listYourProduct.next.confirm.body"
+                    >
+                      We email you a link. Your request is sent when you click it.
+                    </p>
+                  </div>
+                </li>
+                <li class="flex gap-4">
+                  <span [class]="stepNumber" aria-hidden="true">2</span>
+                  <div>
+                    <p class="font-semibold" i18n="@@listYourProduct.next.review.title">
+                      We review it.
+                    </p>
+                    <p
+                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      i18n="@@listYourProduct.next.review.body"
+                    >
+                      A person on our team confirms that you work for the company and checks the
+                      product against our
+                      <a
+                        href="/docs/trust/listing-submissions"
+                        target="_blank"
+                        rel="noopener"
+                        class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+                        >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
+                      >.
+                    </p>
+                  </div>
+                </li>
+                <li class="flex gap-4">
+                  <span [class]="stepNumber" aria-hidden="true">3</span>
+                  <div>
+                    <p class="font-semibold" i18n="@@listYourProduct.next.add.title">
+                      We may add the listing.
+                    </p>
+                    <p
+                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      i18n="@@listYourProduct.next.add.body"
+                    >
+                      If it meets our conditions, we write it from the product's public pages and
+                      add it to the directory.
+                    </p>
+                  </div>
+                </li>
+                <li class="flex gap-4">
+                  <span [class]="stepNumber" aria-hidden="true">4</span>
+                  <div>
+                    <p class="font-semibold" i18n="@@listYourProduct.next.claim.title">
+                      You claim it.
+                    </p>
+                    <p
+                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      i18n="@@listYourProduct.next.claim.body"
+                    >
+                      We email you so you can claim the listing and keep it current.
+                    </p>
+                  </div>
+                </li>
+              </ol>
+            </div>
           </div>
 
           <!-- The form on the shared card. -->
           <section
             aecCard
+            phoneFlush
             aria-labelledby="list-your-product-form-heading"
             data-testid="list-your-product-form"
           >
