@@ -21,6 +21,16 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  buildPlan,
+  buildSeedSql,
+  ID_MARKER,
+  mulberry32,
+  PRODUCTS_QUERY,
+  Rng,
+  type ProductInput,
+} from '@aeci/shared/seed-reviews';
+
 import { runDataQualityChecks, type DataQualityCheckResult } from '../lib/data-quality';
 
 import { makeTestDb, type TestDb } from './d1';
@@ -132,6 +142,56 @@ describe('seed chain: a fresh seed is clean (AECI-1920)', () => {
       expect(vendorless.map((r) => r.slug).filter((s) => !VENDORLESS_ON_PURPOSE.test(s))).toEqual(
         [],
       );
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+/**
+ * The by-hand review seeder (`db:seed-reviews`, AECI-1936) over the seeded catalog. It
+ * builds the same plan and the same `.sql` file the CLI does and applies the file here,
+ * in place of `wrangler d1 execute`. Its reviews have no reviewer, so before AECI-1936
+ * every one of them tripped the error-severity `reviews_missing_anonymized_at` check.
+ */
+describe('review seeder: its rows raise no error-severity finding (AECI-1936)', () => {
+  it('writes anonymous reviews that carry anonymized_at', async () => {
+    const t = await makeTestDb();
+    try {
+      for (const file of [...CHAIN, FIXTURE]) apply(t, file);
+
+      const rows = t.raw.prepare(PRODUCTS_QUERY).all() as Array<{
+        id: string;
+        slug: string;
+        name: string;
+        category_slugs: string | null;
+      }>;
+      const products: ProductInput[] = rows.map((r) => ({
+        id: r.id,
+        slug: r.slug,
+        name: r.name,
+        categorySlugs: r.category_slugs ? r.category_slugs.split(',') : [],
+      }));
+      const plan = buildPlan(
+        products,
+        new Rng(mulberry32(0x5eed)),
+        Date.parse('2026-11-17T00:00:00.000Z'),
+      );
+      t.raw.exec(buildSeedSql(plan, { db: 'aeci-app-preview', seed: 0x5eed }));
+
+      const seeded = t.raw
+        .prepare(
+          `SELECT count(*) AS n, sum(reviewer_id IS NULL AND anonymized_at IS NULL) AS bare FROM reviews WHERE id LIKE '${ID_MARKER}%'`,
+        )
+        .get() as { n: number; bare: number };
+      expect(seeded.n).toBe(plan.reviews.length);
+      expect(seeded.n).toBeGreaterThan(0);
+      expect(seeded.bare).toBe(0);
+
+      const results = await run(t);
+      expect(results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`)).toEqual([]);
+      const errors = results.filter((r) => r.severity === 'error' && r.count > 0);
+      expect(errors.map((r) => `${r.id}: ${r.sample.join('; ')}`)).toEqual([]);
     } finally {
       t.dispose();
     }
