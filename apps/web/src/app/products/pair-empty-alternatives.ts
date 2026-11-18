@@ -2,14 +2,17 @@ import { formatNumber } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
+  effect,
   inject,
   input,
   signal,
+  viewChild,
   viewChildren,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -31,6 +34,15 @@ import { DATA_OBJECT_ICONS } from '../shared/icon/icon-maps';
 import type { AecIconName } from '../shared/icon/icon-registry';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 
+import {
+  INTEGRATION_CLEAR_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_LIST_ROW_END_CLASS,
+  INTEGRATION_SEARCH_ICON_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+  INTEGRATION_STATUS_CLASS,
+} from './integration-filter-recipe';
+import { isFilterActive } from './integration-filter';
 import { integrationsOnRecordCount } from './integrations-on-record';
 import { filterPairMatches } from './pair-matches-filter';
 
@@ -105,25 +117,18 @@ function objectIcon(slug: string): AecIconName | null {
             aria-hidden="true"
             focusable="false"
           >
-            <!-- Mock-up 5's two fills, from tokens at opacities the code already uses: Forest
-                 at .1 and Clay at .36 (the diagram's Clay). Forest at .16, nearer the mock-up,
-                 left the secondary text on the overlap at 4.39:1. At .1 the three grounds give
-                 5.80, 4.74 and 5.35:1. -->
-            <ellipse
-              cx="350"
-              cy="150"
-              rx="350"
-              ry="150"
-              class="fill-(--accent-primary)"
-              opacity=".1"
-            />
+            <!-- Mock-up 5's fills (--venn-a and --venn-b, multiplied where they overlap),
+                 mixed from tokens on white: the hero ribbon green at 20% and Clay at 36%.
+                 Text on them is primary, never secondary: secondary on the overlap would be
+                 4.38:1 (DESIGN.md, the empty pair page). -->
+            <ellipse cx="350" cy="150" rx="350" ry="150" [class]="ovalA" />
             <ellipse
               cx="650"
               cy="150"
               rx="350"
               ry="150"
-              class="fill-(--accent-secondary)"
-              opacity=".36"
+              [class]="ovalB"
+              style="mix-blend-mode: multiply"
             />
           </svg>
           @for (group of groups(); track group.key) {
@@ -133,21 +138,18 @@ function objectIcon(slug: string): AecIconName | null {
               [attr.data-testid]="'pair-moving-' + group.key"
             >
               <h3 class="m-0 flex items-center gap-2">
-                <span class="inline-flex">
-                  @for (p of group.marks; track p.id; let i = $index) {
-                    <aec-logo-or-initial
-                      [class]="i > 0 ? '-ms-2' : ''"
-                      [name]="p.name"
-                      [src]="p.logo_url"
-                      [alt]="logoAlt(p.name)"
-                      [claimStatus]="p.claim_status"
-                      size="sm"
-                    />
-                  }
-                </span>
+                @for (p of group.marks; track p.id) {
+                  <aec-logo-or-initial
+                    [name]="p.name"
+                    [src]="p.logo_url"
+                    [alt]="logoAlt(p.name)"
+                    [claimStatus]="p.claim_status"
+                    size="sm"
+                  />
+                }
                 <span class="font-display text-t-20 font-semibold">{{ group.title }}</span>
               </h3>
-              <p class="m-0 text-t-13 text-(--text-secondary)">{{ group.sub }}</p>
+              <p class="m-0 text-t-13 text-(--text-primary)">{{ group.sub }}</p>
               @if (group.objects.length > 0) {
                 <div class="flex flex-wrap justify-center gap-2">
                   @for (o of group.objects; track o.slug) {
@@ -168,7 +170,7 @@ function objectIcon(slug: string): AecIconName | null {
                   }
                 </div>
               } @else {
-                <p class="m-0 text-t-14 text-(--text-secondary)" i18n="@@pair.empty.moving.none">
+                <p class="m-0 text-t-14 text-(--text-primary)" i18n="@@pair.empty.moving.none">
                   None on record yet
                 </p>
               }
@@ -182,9 +184,12 @@ function objectIcon(slug: string): AecIconName | null {
           >
             @if (pickedNames().length > 0) {
               <span>
-                <ng-container i18n="@@pair.empty.moving.mustMove">Matches must move</ng-container
-                >&ngsp;
-                <strong class="font-semibold text-(--text-primary)">{{ pickedList() }}</strong>
+                <ng-container i18n="@@pair.empty.moving.showingOnly"
+                  >Showing only matches that move</ng-container
+                >&ngsp;<strong class="font-semibold text-(--text-primary)">{{
+                  pickedList()
+                }}</strong
+                >.
               </span>
               <button
                 type="button"
@@ -199,8 +204,8 @@ function objectIcon(slug: string): AecIconName | null {
               >
             } @else {
               <aec-icon name="info" decorative [size]="4" />
-              <span i18n="@@pair.empty.moving.nothingPicked"
-                >Nothing picked. Matches can move any data.</span
+              <span i18n="@@pair.empty.moving.showingAll"
+                >Showing every match. Pick the data you need to narrow the list.</span
               >
             }
           </p>
@@ -225,15 +230,14 @@ function objectIcon(slug: string): AecIconName | null {
               <span
                 class="block font-display text-t-36 leading-[1.1] tracking-[-0.02em]"
                 i18n="@@pair.empty.matches.heading"
-                >Keep one product. See what it already connects to.</span
+                >Keep one product and swap the other</span
               >
             </h2>
             <p
               class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
-              i18n="@@pair.empty.matches.intro"
+              data-testid="pair-matches-intro"
             >
-              Every card opens a pair page we have on record, with its data objects, direction and
-              attestations.
+              {{ introLine() }}
             </p>
           </div>
           <!-- Mock-up 5's count line (.count-badge): small, at the intro's baseline. The
@@ -251,14 +255,21 @@ function objectIcon(slug: string): AecIconName | null {
           </p>
         </div>
 
-        <!-- The deck: keep toggle, category anchors, view toggle. -->
+        <!-- The deck (mock-up 5, .deck): the keep toggle at the start and the Cards and Table
+             toggle at the end of row one, the categories on row two, and the search on the
+             last row. When the categories fit between the two toggles, as in the mock-up, they
+             sit there and the deck keeps one row above the search (measured in the browser,
+             two rows on the server). -->
         <div
-          class="grid gap-4 rounded-card bg-(--accent-warm) p-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center md:p-4"
+          #deck
+          [class]="deckClass"
+          [attr.data-rows]="oneRow() ? 'one' : 'two'"
           data-testid="pair-matches-deck"
         >
           <div
+            #keepGroup
             role="group"
-            class="flex gap-1 rounded-control bg-(--surface-base) p-1"
+            class="flex gap-1 rounded-control bg-(--surface-base) p-1 md:col-start-1 md:row-start-1"
             i18n-aria-label="@@pair.empty.matches.keepGroup"
             aria-label="Which product do you keep"
           >
@@ -287,35 +298,8 @@ function objectIcon(slug: string): AecIconName | null {
 
           <div
             role="group"
-            class="flex min-w-0 flex-wrap items-center gap-2"
-            i18n-aria-label="@@pair.empty.matches.anchorsGroup"
-            aria-label="Categories that define similar"
-            data-testid="pair-matches-anchors"
-          >
-            @if (lane().anchors.length > 0) {
-              <span class="text-t-14 text-(--text-secondary)">
-                <strong class="font-semibold text-(--text-primary)">{{ similarTo() }}</strong
-                >&ngsp;
-                <ng-container i18n="@@pair.empty.matches.meansShares">means it shares</ng-container>
-              </span>
-              @for (c of lane().anchors; track c.slug) {
-                <button
-                  type="button"
-                  [class]="isOn(c.slug) ? anchorOn : anchorOff"
-                  [attr.aria-pressed]="isOn(c.slug)"
-                  [attr.data-testid]="'pair-matches-anchor-' + c.slug"
-                  (click)="toggleAnchor(c.slug)"
-                >
-                  <aec-icon [name]="isOn(c.slug) ? 'check' : 'plus'" decorative [size]="4" />
-                  <span>{{ c.name }}</span>
-                </button>
-              }
-            }
-          </div>
-
-          <div
-            role="group"
-            class="flex gap-1 justify-self-start rounded-control bg-(--surface-base) p-1 md:justify-self-end"
+            #viewGroup
+            class="flex gap-1 justify-self-start rounded-control bg-(--surface-base) p-1 md:col-start-3 md:row-start-1 md:justify-self-end"
             i18n-aria-label="@@pair.empty.matches.viewGroup"
             aria-label="Show matches as"
           >
@@ -339,19 +323,90 @@ function objectIcon(slug: string): AecIconName | null {
               <span i18n="@@pair.empty.matches.table">Table</span>
             </button>
           </div>
+
+          <div
+            #anchors
+            role="group"
+            [class]="anchorsClass()"
+            i18n-aria-label="@@pair.empty.matches.anchorsGroup"
+            aria-label="Categories that define similar"
+            data-testid="pair-matches-anchors"
+          >
+            @if (lane().anchors.length > 0) {
+              <span class="text-t-14 text-(--text-secondary) md:whitespace-nowrap">
+                <strong class="font-semibold text-(--text-primary)">{{ similarTo() }}</strong
+                >&ngsp;
+                <ng-container i18n="@@pair.empty.matches.meansShares">means it shares</ng-container>
+              </span>
+              @for (c of lane().anchors; track c.slug) {
+                <button
+                  type="button"
+                  [class]="isOn(c.slug) ? anchorOn : anchorOff"
+                  [attr.aria-pressed]="isOn(c.slug)"
+                  [attr.data-testid]="'pair-matches-anchor-' + c.slug"
+                  (click)="toggleAnchor(c.slug)"
+                >
+                  <aec-icon [name]="isOn(c.slug) ? 'check' : 'plus'" decorative [size]="4" />
+                  <span>{{ c.name }}</span>
+                </button>
+              }
+            }
+          </div>
+
+          <!-- The search (the Integrations section's recipe, integration-filter-recipe.ts):
+               product and vendor names only. It removes and never reorders, and it is not in
+               a form, so nothing submits. -->
+          <div class="relative min-w-0 md:col-span-3 md:max-w-md" data-testid="pair-matches-search">
+            <label
+              for="pair-matches-filter"
+              class="sr-only"
+              i18n="@@pair.empty.matches.search.label"
+              >Search these matches</label
+            >
+            <span [class]="searchIconClass" aria-hidden="true">
+              <aec-icon name="search" decorative [size]="4" />
+            </span>
+            <input
+              #filterInput
+              id="pair-matches-filter"
+              type="search"
+              autocomplete="off"
+              [value]="query()"
+              i18n-placeholder="@@pair.empty.matches.search.placeholder"
+              placeholder="Filter by product or vendor"
+              (input)="onQuery($event)"
+              [class]="searchInputClass"
+            />
+          </div>
         </div>
 
-        <div class="mt-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <h3 class="m-0" data-testid="pair-matches-lane-heading">
+        <!-- The list row (integration-filter-recipe.ts): the lane heading, the announced
+             count and "Clear filters" while anything filters. -->
+        <div [class]="listRowClass" class="mt-8" data-testid="pair-matches-list-row">
+          <h3 class="m-0 min-w-0" data-testid="pair-matches-lane-heading">
             <span class="font-display text-t-24 font-semibold">{{ laneHeading() }}</span>
           </h3>
-          <p
-            class="m-0 text-t-14 text-(--text-secondary)"
-            aria-live="polite"
-            data-testid="pair-matches-count"
-          >
-            {{ countLine() }}
-          </p>
+          <div [class]="listRowEndClass">
+            <p
+              role="status"
+              [class]="statusClass"
+              aria-live="polite"
+              data-testid="pair-matches-count"
+            >
+              {{ countLine() }}
+            </p>
+            @if (filtering()) {
+              <button
+                type="button"
+                [class]="clearClass"
+                (click)="clearFilters()"
+                data-testid="pair-matches-filter-clear"
+              >
+                <aec-icon name="x" decorative [size]="3.5" />
+                <span i18n="@@listing.filters.clear">Clear filters</span>
+              </button>
+            }
+          </div>
         </div>
         <!-- STAGE_1_5_SPEC.md 11.3: the filter says rows with no recorded data are left out,
              never that those products do not move the data. -->
@@ -471,6 +526,11 @@ function objectIcon(slug: string): AecIconName | null {
                     Turn another category on to widen the list.
                   </p>
                 }
+                @case ('no-query') {
+                  <p class="m-0 font-semibold" i18n="@@pair.empty.matches.emptyQueryTitle">
+                    No match has a product or vendor name with those words.
+                  </p>
+                }
                 @case ('no-object') {
                   <p class="m-0 font-semibold" i18n="@@pair.empty.matches.emptyObjectsTitle">
                     No match has every data object you picked on record.
@@ -503,6 +563,10 @@ function objectIcon(slug: string): AecIconName | null {
               >
                 Clear data objects
               </button>
+            } @else if (empty === 'no-query') {
+              <button type="button" [class]="primaryButton" (click)="clearFilters()">
+                <span i18n="@@listing.filters.clear">Clear filters</span>
+              </button>
             } @else if (empty === 'no-lane') {
               <button type="button" [class]="primaryButton" (click)="keepFromEmpty(otherSide())">
                 {{ keepLabel(otherSide()) }}
@@ -523,11 +587,11 @@ function objectIcon(slug: string): AecIconName | null {
                       [src]="m.product.logo_url"
                       [alt]="logoAlt(m.product.name)"
                       [claimStatus]="'server-filtered'"
-                      size="sm"
+                      size="md"
                     />
                     <div class="min-w-0">
                       <h4
-                        class="m-0 font-display text-t-20 leading-tight font-semibold break-words"
+                        class="m-0 font-display text-t-20 leading-[1.1] font-semibold break-words"
                       >
                         {{ m.product.name }}
                       </h4>
@@ -541,20 +605,22 @@ function objectIcon(slug: string): AecIconName | null {
                       }
                     </div>
                   </div>
+                  <!-- Mock-up 5's .rates: 16px padding, 8px rows, the score at 16px. -->
                   <div
-                    class="grid gap-1.5 rounded-panel border bg-(--surface-base) p-3 text-t-13"
+                    class="grid gap-2 rounded-control border bg-(--surface-raised) p-4 text-t-13"
                     data-testid="pair-match-scores"
                   >
-                    <dl class="m-0 grid gap-1.5">
+                    <dl class="m-0 grid gap-2">
                       @for (r of ratingRows(m); track r.kind) {
                         <div class="flex items-center justify-between gap-2">
                           <dt class="text-(--text-secondary)">{{ r.label }}</dt>
                           <dd class="m-0 flex items-center gap-2">
                             @if (r.value !== null) {
                               <aec-review-stars [rating]="r.value" [kind]="r.kind" />
-                              <span class="font-semibold tabular-nums">{{
-                                r.value.toFixed(1)
-                              }}</span>
+                              <span
+                                class="min-w-[1.9em] text-end text-t-16 font-semibold tabular-nums"
+                                >{{ r.value.toFixed(1) }}</span
+                              >
                             } @else {
                               <span
                                 class="text-(--text-secondary)"
@@ -573,9 +639,12 @@ function objectIcon(slug: string): AecIconName | null {
                   </div>
                   <div class="space-y-2">
                     <p class="aec-overline m-0 text-(--text-secondary)">{{ sharesWith() }}</p>
-                    <div class="flex flex-wrap gap-1.5">
+                    <div class="flex flex-wrap gap-2">
                       @for (c of m.shared_categories; track c.slug) {
-                        <aec-chip density="dense" icon="tag">{{ c.name }}</aec-chip>
+                        <span [class]="mini">
+                          <aec-icon name="tag" [class]="miniIcon" decorative [size]="3.5" />
+                          {{ c.name }}
+                        </span>
                       }
                     </div>
                   </div>
@@ -593,15 +662,19 @@ function objectIcon(slug: string): AecIconName | null {
                       </p>
                     }
                     @if (m.data_objects.length > 0) {
-                      <!-- The product page's data chip (product-integration-card.ts), the
-                           Same-Behavior Rule: dense, neutral, no glyph. -->
-                      <div class="flex flex-wrap gap-1.5" data-testid="pair-match-objects">
+                      <!-- Mock-up 5's .mini chip, its glyph where the icon map has one. The
+                           product page's integration card uses the dense chip instead. -->
+                      <div class="flex flex-wrap gap-2" data-testid="pair-match-objects">
                         @for (o of m.data_objects; track o.slug) {
-                          <aec-chip
-                            density="dense"
-                            [tone]="isPicked(o.slug) ? 'wash' : 'neutral'"
-                            >{{ o.name }}</aec-chip
+                          <span
+                            [class]="isPicked(o.slug) ? miniHit : mini"
+                            [attr.data-picked]="isPicked(o.slug) ? '' : null"
                           >
+                            @if (icon(o.slug); as glyph) {
+                              <aec-icon [name]="glyph" [class]="miniIcon" decorative [size]="3.5" />
+                            }
+                            {{ o.name }}
+                          </span>
                         }
                       </div>
                     } @else {
@@ -626,16 +699,16 @@ function objectIcon(slug: string): AecIconName | null {
                   }
                   <a
                     [routerLink]="pairLink(m)"
-                    class="mt-auto flex min-h-11 items-center justify-between gap-3 text-t-14 font-semibold text-(--text-secondary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary) {{
+                    class="mt-auto flex items-center justify-between gap-3 pt-1 text-t-14 font-semibold text-(--text-secondary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary) {{
                       focusRing
                     }}"
                     [attr.data-testid]="'pair-match-link-' + m.product.slug"
                   >
                     <span class="min-w-0 break-words">{{ pairLabel(m) }}</span>
-                    <!-- The product page card's round button (product-integration-card.ts). A
-                         chevron, never an arrow: an arrow here means data-flow direction. -->
+                    <!-- Mock-up 5's 34px round button. A chevron, never an arrow: an arrow on
+                         this card means data-flow direction (the Arrow Rule). -->
                     <span
-                      class="grid size-9 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)"
+                      class="grid size-8.5 shrink-0 place-items-center rounded-full bg-(--surface-sunken) transition-colors group-hover/card:bg-(--surface-sunken-hover)"
                       aria-hidden="true"
                       data-testid="pair-match-go"
                     >
@@ -787,6 +860,37 @@ export class PairEmptyAlternatives {
   private readonly locale = inject(LOCALE_ID);
   private readonly injector = inject(Injector);
   private readonly keepButtons = viewChildren('keepButton', { read: ElementRef });
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+  private readonly deck = viewChild<ElementRef<HTMLElement>>('deck');
+  private readonly keepGroup = viewChild<ElementRef<HTMLElement>>('keepGroup');
+  private readonly viewGroup = viewChild<ElementRef<HTMLElement>>('viewGroup');
+  private readonly anchorsEl = viewChild<ElementRef<HTMLElement>>('anchors');
+
+  /** The Integrations section's search recipe (integration-filter-recipe.ts). */
+  protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
+  protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
+  protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;
+  protected readonly listRowEndClass = INTEGRATION_LIST_ROW_END_CLASS;
+  protected readonly statusClass = INTEGRATION_STATUS_CLASS;
+  protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
+
+  /** Mock-up 5's card chip (.mini): 13px at 600 on a 1.6 line, 31px tall, its glyph 14px. */
+  protected readonly mini =
+    'inline-flex items-center gap-1 rounded-pill bg-(--surface-sunken) py-[5px] ps-2 pe-3 text-t-13 leading-[1.6] font-semibold text-(--text-primary)';
+  protected readonly miniHit =
+    'inline-flex items-center gap-1 rounded-pill bg-(--accent-primary-soft) py-[5px] ps-2 pe-3 text-t-13 leading-[1.6] font-semibold text-(--accent-primary) ring-1 ring-(--accent-primary) ring-inset';
+  protected readonly miniIcon = 'text-(--text-secondary)';
+
+  /** The two ovals, mock-up 5's --venn-a and --venn-b mixed from tokens on white. */
+  protected readonly ovalA =
+    'fill-[color-mix(in_srgb,var(--surface-hero-ribbon)_20%,var(--surface-base))]';
+  protected readonly ovalB =
+    'fill-[color-mix(in_srgb,var(--accent-secondary)_36%,var(--surface-base))]';
+
+  /** The search query (Integrations section rules: never in the URL, dies with the page). */
+  protected readonly query = signal('');
+  /** Whether the categories fit between the two toggles (measured; two rows on the server). */
+  protected readonly oneRow = signal(false);
 
   protected readonly logoAlt = logoAlt;
   protected readonly focusRing = FOCUS_RING;
@@ -838,17 +942,50 @@ export class PairEmptyAlternatives {
 
   /** The lane's matches that pass the reader's filters, in the API's order (R1). */
   protected readonly shown = computed(() =>
-    filterPairMatches(this.lane(), this.off()[this.keep()], this.picked()),
+    filterPairMatches(this.lane(), this.off()[this.keep()], this.picked(), this.query()),
   );
 
+  /** Whether any filter is narrowing the lane: the search, a category off, or picked data. */
+  protected readonly filtering = computed(
+    () =>
+      isFilterActive(this.query()) ||
+      this.off()[this.keep()].length > 0 ||
+      this.picked().length > 0,
+  );
+
+  /** Mock-up 5's Bone deck. Three columns from md: keep, the categories or nothing, view. */
+  protected readonly deckClass =
+    'grid gap-4 rounded-card bg-(--accent-warm) p-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center md:p-4';
+
+  protected readonly anchorsClass = computed(
+    () =>
+      `flex min-w-0 flex-wrap items-center gap-2 ${
+        this.oneRow() ? 'md:col-start-2 md:row-start-1' : 'md:col-span-3 md:row-start-2'
+      }`,
+  );
+
+  /** The intro, true for either lane and whatever the reader turned off. */
+  protected readonly introLine = computed(() => {
+    const swap = this.swapName();
+    const kept = this.keptName();
+    return $localize`:@@pair.empty.matches.introSwap:These products are similar to ${swap}:SWAP: and have an integration with ${kept}:KEEP: on record. Open one to see what moves between them.`;
+  });
+
   protected readonly emptyState = computed<
-    'no-anchors' | 'no-lane' | 'all-off' | 'no-shared' | 'no-object' | null
+    'no-anchors' | 'no-lane' | 'all-off' | 'no-shared' | 'no-object' | 'no-query' | null
   >(() => {
     const lane = this.lane();
     if (lane.anchors.length === 0) return 'no-anchors';
     if (lane.matches.length === 0) return 'no-lane';
     if (this.onAnchors().length === 0) return 'all-off';
     if (this.shown().length > 0) return null;
+    // The search emptied the list when the other filters alone keep a match.
+    if (
+      isFilterActive(this.query()) &&
+      filterPairMatches(lane, this.off()[this.keep()], this.picked()).length > 0
+    ) {
+      return 'no-query';
+    }
     // Nothing picked: the categories left on are what emptied the list, not the data.
     return this.picked().length === 0 ? 'no-shared' : 'no-object';
   });
@@ -879,15 +1016,17 @@ export class PairEmptyAlternatives {
         title: $localize`:@@pair.empty.moving.only:Only ${a.name}:PRODUCT:`,
         sub: this.acrossLabel(onRecord(a)),
         objects: m.context_only,
-        tint: 'bg-(--accent-primary-soft)',
+        // Below md each group is its own card in its oval's fill (mock-up 5, .vcol).
+        tint: 'bg-[color-mix(in_srgb,var(--surface-hero-ribbon)_20%,var(--surface-base))]',
       },
       {
         key: 'both',
-        marks: [a, b],
+        // No marks: "Both exchange" says it (AECI-1835).
+        marks: [] as ProductPairSubject[],
         title: $localize`:@@pair.empty.moving.both:Both exchange`,
         sub: $localize`:@@pair.empty.moving.bothSub:Each already moves these with other tools`,
         objects: m.both,
-        tint: 'bg-(--surface-base)',
+        tint: 'bg-[color-mix(in_srgb,color-mix(in_srgb,var(--surface-hero-ribbon)_20%,var(--surface-base))_50%,color-mix(in_srgb,var(--accent-secondary)_36%,var(--surface-base)))]',
       },
       {
         key: 'other-only',
@@ -895,7 +1034,7 @@ export class PairEmptyAlternatives {
         title: $localize`:@@pair.empty.moving.only:Only ${b.name}:PRODUCT:`,
         sub: this.acrossLabel(onRecord(b)),
         objects: m.other_only,
-        tint: 'bg-(--surface-base)',
+        tint: 'bg-[color-mix(in_srgb,var(--accent-secondary)_36%,var(--surface-base))]',
       },
     ];
   });
@@ -953,6 +1092,69 @@ export class PairEmptyAlternatives {
 
   protected setKeep(side: Side): void {
     this.keep.set(side);
+  }
+
+  protected onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * "Clear filters": the search, the categories turned off in this lane and the picked
+   * data, back to the whole lane. The button goes with the filter, so focus moves to the
+   * search field, as in the Integrations section.
+   */
+  protected clearFilters(): void {
+    const side = this.keep();
+    this.query.set('');
+    this.off.update((all) => ({ ...all, [side]: [] }));
+    this.picked.set([]);
+    this.filterInput()?.nativeElement.focus();
+  }
+
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    // The deck keeps one row while the categories fit between the toggles (mock-up 5).
+    // Measured in the browser only; the server renders two rows, which never overflow.
+    const destroyRef = this.destroyRef;
+    afterNextRender(() => {
+      const deck = this.deck()?.nativeElement;
+      if (!deck || typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(() => this.measureDeck());
+      observer.observe(deck);
+      destroyRef.onDestroy(() => observer.disconnect());
+    });
+    effect(() => {
+      this.lane();
+      afterNextRender(() => this.measureDeck(), { injector: this.injector });
+    });
+  }
+
+  /** One row when keep, the categories' own width and the view toggle fit from md. */
+  private measureDeck(): void {
+    const deck = this.deck()?.nativeElement;
+    const keep = this.keepGroup()?.nativeElement;
+    const viewGroup = this.viewGroup()?.nativeElement;
+    const anchors = this.anchorsEl()?.nativeElement;
+    if (!deck || !keep || !viewGroup || !anchors) return;
+    if (!window.matchMedia('(min-width: 768px)').matches) {
+      this.oneRow.set(false);
+      return;
+    }
+    const style = getComputedStyle(deck);
+    const inner = deck.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const gap = parseFloat(style.columnGap) || 0;
+    const kids = [...anchors.children] as HTMLElement[];
+    const anchorGap = parseFloat(getComputedStyle(anchors).columnGap) || 0;
+    const anchorsWidth =
+      kids.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) +
+      anchorGap * Math.max(0, kids.length - 1);
+    const need =
+      keep.getBoundingClientRect().width +
+      viewGroup.getBoundingClientRect().width +
+      anchorsWidth +
+      gap * 2;
+    this.oneRow.set(kids.length > 0 && need <= inner);
   }
 
   /**

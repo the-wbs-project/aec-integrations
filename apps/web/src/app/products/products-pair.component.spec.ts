@@ -2253,8 +2253,8 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
   it('uses the mock-up kickers and headings', () => {
     const { el } = setup(emptyPair());
     const sbs = el.querySelector('[data-testid="pair-empty-side-by-side"]')!;
-    expect(text(sbs.querySelector('.aec-overline'))).toBe('The two products, side by side');
-    expect(text(sbs.querySelector('h2'))).toBe('What we have on record for each');
+    expect(text(sbs.querySelector('.aec-overline'))).toBe('Side by side');
+    expect(text(sbs.querySelector('h2'))).toBe('How the two products compare');
     const look = el.querySelector('[data-testid="pair-empty-look-it-up"]')!;
     expect(text(look.querySelector('.aec-overline'))).toBe('Look it up yourself');
     expect(text(look.querySelector('h2'))).toBe("Each vendor's own pages");
@@ -2290,6 +2290,15 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(cells(el, 'pair-empty-facts-integrations')).toEqual(['12', 'None on record yet']);
   });
 
+  it('keeps a short product name on one line in the statement, and lets a long one break', () => {
+    const { el } = setup(
+      emptyPair({}, { name: 'Sage Intacct Construction Financial Management Suite' }),
+    );
+    const names = el.querySelectorAll('[data-testid="pair-empty-statement"] .font-semibold');
+    expect(names[0]!.className).toContain('md:whitespace-nowrap');
+    expect(names[1]!.className).not.toContain('whitespace-nowrap');
+  });
+
   it('marks a term both products carry as Both, keeps each product order, and lists the captions in the panel', () => {
     const { el } = setup(
       emptyPair(
@@ -2322,9 +2331,14 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     const chips = Array.from(audiences.querySelectorAll('aec-chip:not([density])')).map(spoken);
     expect(chips).toEqual([
       'General contractors (Procore only)',
-      'Architects Both',
+      'Architects appears on both products',
       'Owners (Revit only)',
     ]);
+    // A term on both leads with the word "Both" in place of the two tiles, and no tag trails it.
+    const both = audiences.querySelectorAll('aec-chip:not([density])')[1]!;
+    expect(both.querySelector('aec-logo-or-initial')).toBeNull();
+    expect(text(both)?.startsWith('Both')).toBe(true);
+    expect(both.querySelector('aec-chip[density]')).toBeNull();
     // AECI-1666: nothing inline. The removal empties the group, so it is absent, and the
     // panel at the end of the page lists it and the Managed caption, each named for Procore.
     expect(el.querySelector('[data-testid="pair-empty-who-phases"]')).toBeNull();
@@ -2334,9 +2348,21 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(panel).toContain('Procore, Audiences, trades, phases and resources');
     expect(panel).toContain('Maintained by Acme');
     expect(panel).toMatch(/Procore, [^:]+: Removed by AEC Integrations/);
-    expect(text(el.querySelector('[data-testid="pair-empty-who"]'))).toContain(
-      'appears on both products',
+    // The legend line is gone: each chip carries its own meaning.
+    expect(el.querySelector('[data-testid="pair-empty-who"] h3 + p')).toBeNull();
+  });
+
+  it('stacks the ledger and "Who each product is for", each the full row', () => {
+    const { el } = setup(
+      emptyPair({
+        audiences: [{ id: 'a1', slug: 'arch', name: 'Architects' }],
+      }),
     );
+    const grid = el
+      .querySelector('[data-testid="pair-empty-facts"]')!
+      .closest('[aecCard]')!.parentElement!;
+    expect(grid.className).not.toMatch(/grid-cols/);
+    expect(grid.querySelector('[data-testid="pair-empty-who"]')).toBeTruthy();
   });
 
   it('links each vendor page in a new tab, and lists its corrections in the panel', () => {
@@ -2415,22 +2441,30 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     );
   });
 
-  it('says it has not found a directory when a vendor publishes none', () => {
-    const { el } = setup(emptyPair({ vendor: vendor('v1', 'Acme') }));
-    expect(text(el.querySelector('[data-testid="pair-look-no-directory-context"]'))).toBe(
-      'We have not found an integrations page published by Acme.',
+  it('lists only what a vendor has: no line says something is missing', () => {
+    const { el } = setup(
+      emptyPair({ vendor: vendor('v1', 'Acme'), integration_count: 3 }, { integration_count: 2 }),
     );
-    // A card with no link never heads itself "Published by" above that line.
     const card = el.querySelector('[data-testid="pair-empty-look-context"]')!;
+    expect(text(card)).not.toMatch(/not found|None found|have not found/i);
+    // With no link, the card holds the product's own list on AEC Integrations only.
+    expect(card.querySelectorAll('li')).toHaveLength(1);
+    expect(card.querySelector('[data-testid="pair-look-all-context"]')).toBeTruthy();
+    // A card with no link never heads itself "Published by".
     expect(card.querySelector('[data-testid="pair-look-published-by"]')).toBeNull();
     expect(text(card.querySelector('[data-testid="pair-look-by"]'))).toBe('by Acme');
   });
 
-  it('ends the no-directory line with one full stop when the vendor name has its own', () => {
-    const { el } = setup(emptyPair({ vendor: vendor('v1', 'Acme Inc.') }));
-    expect(text(el.querySelector('[data-testid="pair-look-no-directory-context"]'))).toBe(
-      'We have not found an integrations page published by Acme Inc.',
+  it('leaves out a vendor card with nothing to list, and the other takes the row', () => {
+    const { el } = setup(
+      emptyPair(
+        { vendor: vendor('v1', 'Acme'), integration_count: 0, listed_integration_count: 0 },
+        { integration_count: 2 },
+      ),
     );
+    expect(el.querySelector('[data-testid="pair-empty-look-context"]')).toBeNull();
+    const other = el.querySelector('[data-testid="pair-empty-look-other"]')!;
+    expect(other.parentElement!.className).not.toMatch(/grid-cols/);
   });
 
   it("names the vendor's directory and says Published by only on the vendor's own links", () => {

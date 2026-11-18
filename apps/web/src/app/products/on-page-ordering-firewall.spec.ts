@@ -1402,11 +1402,16 @@ describe('on-page ordering firewall: the Browse menu', () => {
 // ─── The empty pair page's closest matches (AECI-1829) ─────────────────────────
 
 describe('on-page ordering firewall: the empty pair page closest-matches filter', () => {
-  /** The two fields the reader's filter reads: the category toggles and the data-object picks. */
+  /** The fields the reader's filter reads: the category toggles and the data-object picks. */
   const FILTER_INPUTS = new Set(['shared_categories', 'data_objects']);
+  /**
+   * Text the search matches (with `product.name`). Flipping it would change what a query
+   * matches, which is the search working, not an order reading a paid input, so it is
+   * never flipped (the Integrations section's `FILTER_TEXT_FIELDS` rule).
+   */
+  const FILTER_TEXT = new Set(['vendor_name']);
   /** Every other match field. None may move the list. */
   const NOT_INPUTS = [
-    'vendor_name',
     'review_count',
     'rating_overall_avg',
     'rating_onboarding_avg',
@@ -1489,23 +1494,24 @@ describe('on-page ordering firewall: the empty pair page closest-matches filter'
   });
 
   /** Every kind of reader state the deck offers, from nothing touched to the narrowest. */
-  const STATES: readonly { off: string[]; picked: string[] }[] = [
+  const STATES: readonly { off: string[]; picked: string[]; query?: string }[] = [
     { off: [], picked: [] },
     { off: ['estimating'], picked: [] },
     { off: ['accounting'], picked: [] },
     { off: ['accounting', 'erp'], picked: [] },
     { off: [], picked: ['cost-code'] },
     { off: ['estimating'], picked: ['invoice', 'cost-code'] },
+    // The search (AECI-1835): a product name substring, alone and with the other filters.
+    { off: [], picked: [], query: 'O' },
+    { off: ['estimating'], picked: ['invoice'], query: 'delta' },
   ];
 
   const ids = (l: PairAlternativeLane) =>
-    STATES.map((st) => filterPairMatches(l, st.off, st.picked).map((m) => m.product.id));
+    STATES.map((st) => filterPairMatches(l, st.off, st.picked, st.query).map((m) => m.product.id));
 
   /** A paid or count-like value at `level`, 0 being none. Higher is "more". */
   function notInputValue(field: string, level: number): unknown {
     switch (field) {
-      case 'vendor_name':
-        return level === 0 ? null : `${String.fromCharCode(90 - level)} Vendor`;
       case 'review_count':
       case 'integration_count':
       case 'listed_integration_count':
@@ -1553,7 +1559,10 @@ describe('on-page ordering firewall: the empty pair page closest-matches filter'
   it('classifies every match field as a filter input or a field the filter may not read', () => {
     for (const f of Object.keys(PairAlternativeMatchSchema.shape)) {
       const known =
-        FILTER_INPUTS.has(f) || f === 'product' || (NOT_INPUTS as readonly string[]).includes(f);
+        FILTER_INPUTS.has(f) ||
+        FILTER_TEXT.has(f) ||
+        f === 'product' ||
+        (NOT_INPUTS as readonly string[]).includes(f);
       expect(known, f).toBe(true);
     }
   });
@@ -1591,6 +1600,21 @@ describe('on-page ordering firewall: the empty pair page closest-matches filter'
     expect(ids(lane(moved))).not.toEqual(base);
   });
 
+  it('[surface:pair-page-closest-matches] the search matches product or vendor names and never reorders', () => {
+    const named = rows.map((m, i) => (i === 7 ? { ...m, vendor_name: 'Quill Software' } : m));
+    const all = filterPairMatches(lane(named), [], []).map((m) => m.product.id);
+    // A vendor name match keeps its row; a product name match keeps its rows; case and
+    // accents fold as in the Integrations section.
+    expect(filterPairMatches(lane(named), [], [], 'quill').map((m) => m.product.id)).toEqual([
+      named[7]!.product.id,
+    ]);
+    const byName = filterPairMatches(lane(named), [], [], 'DÉLTA').map((m) => m.product.id);
+    expect(byName).toEqual([named[3]!.product.id, named[4]!.product.id]);
+    expect(all.filter((id) => byName.includes(id))).toEqual(byName);
+    // Whitespace is no query.
+    expect(filterPairMatches(lane(named), [], [], '   ').map((m) => m.product.id)).toEqual(all);
+  });
+
   it('[surface:pair-page-closest-matches] the filter and the section hold no comparator and name no paid input', () => {
     const filter = readFileSync(
       join(process.cwd(), 'src/app/products/pair-matches-filter.ts'),
@@ -1599,8 +1623,9 @@ describe('on-page ordering firewall: the empty pair page closest-matches filter'
       // The doc comment names what the filter never reads.
       .replace(/\/\*\*[\s\S]*?\*\//g, '');
     expect(filter).not.toMatch(/\.sort\(|toSorted|localeCompare|compareText/);
+    // `vendor_name` is search text (FILTER_TEXT), so the filter may read it.
     expect(filter).not.toMatch(
-      /plan|license|tier|entitle|rating|review_count|integration_count|claim|logo_url|confirmed|vendor_name/,
+      /plan|license|tier|entitle|rating|review_count|integration_count|claim|logo_url|confirmed/,
     );
     const section = readFileSync(
       join(process.cwd(), 'src/app/products/pair-empty-alternatives.ts'),

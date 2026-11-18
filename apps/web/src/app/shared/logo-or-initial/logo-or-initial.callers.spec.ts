@@ -57,12 +57,13 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'preview/integration-pair/concept-flow-canvas.ts': { preview: 2 },
   'products/integration-group-card.ts': { group: 1 },
   // AECI-1827, AECI-1835: the empty pair body's marks, each by its subject's own
-  // claim_status: the ledger head, the two marks of the Both legend, the two chip marks
-  // and the vendor card head. An unclaimed product is its initial tile in all of them.
+  // claim_status: the ledger head, a single-product chip's mark (one per side) and the
+  // vendor card head. A chip both products carry says "Both" and has no mark. An
+  // unclaimed product is its initial tile in all of them.
   // AECI-1829 / AECI-1830: the pair's own two products (moving groups, keep toggle) by
   // their claim_status, and each match card from the server-filtered ProductLink.
   'products/pair-empty-alternatives.ts': { subject: 2, link: 1 },
-  'products/pair-empty-sections.ts': { subject: 6 },
+  'products/pair-empty-sections.ts': { subject: 4 },
   // AECI-1835: the empty pair hero's two cards: the 64px mark, and the 32px sourced logo
   // beside the Unclaimed note.
   'products/pair-empty-stage.ts': { subject: 2 },

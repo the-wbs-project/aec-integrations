@@ -414,7 +414,7 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
       'The data each product already exchanges',
     );
     await expect(page.getByTestId('pair-empty-matches').locator('h2')).toHaveText(
-      'Keep one product. See what it already connects to.',
+      'Keep one product and swap the other',
     );
     await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
       'aria-pressed',

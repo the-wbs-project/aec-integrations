@@ -35,7 +35,7 @@ import type {
 } from '../shared/listing-provenance/listing-provenance';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 
-import { integrationsOnRecordCount, withoutTrailingFullStop } from './integrations-on-record';
+import { integrationsOnRecordCount } from './integrations-on-record';
 
 /** The shared focus ring on a light ground, 3px at 3px. */
 const FOCUS_RING =
@@ -135,18 +135,18 @@ function share(value: number, a: number, b: number): number {
       <div [class]="wrap">
         <div class="mb-6 md:mb-12">
           <p class="aec-overline mb-3 text-(--text-secondary)" i18n="@@pair.empty.sideBySide.title">
-            The two products, side by side
+            Side by side
           </p>
           <h2 id="pair-side-by-side-title" class="m-0">
             <span
               class="block font-display text-t-36 leading-[1.1] tracking-[-0.02em]"
               i18n="@@pair.empty.sideBySide.heading"
-              >What we have on record for each</span
+              >How the two products compare</span
             >
           </h2>
         </div>
 
-        <div [class]="sbsGrid()">
+        <div [class]="sbsGrid">
           <div aecCard class="min-w-0 px-4 py-6 md:p-8">
             <div
               role="table"
@@ -350,33 +350,6 @@ function share(value: number, a: number, b: number): number {
                     >Who each product is for</span
                   >
                 </h3>
-                @if (hasBoth()) {
-                  <p
-                    class="m-0 flex flex-wrap items-center gap-2 text-t-14 text-(--text-secondary)"
-                  >
-                    <aec-chip tone="wash" aria-hidden="true">
-                      <span class="inline-flex">
-                        <aec-logo-or-initial
-                          [class]="chipMark"
-                          [name]="ctx.name"
-                          [src]="ctx.logo_url"
-                          [claimStatus]="ctx.claim_status"
-                          size="sm"
-                        />
-                        <aec-logo-or-initial
-                          [class]="chipMark"
-                          class="-ms-2"
-                          [name]="oth.name"
-                          [src]="oth.logo_url"
-                          [claimStatus]="oth.claim_status"
-                          size="sm"
-                        />
-                      </span>
-                      <aec-chip density="dense" i18n="@@pair.empty.who.both">Both</aec-chip>
-                    </aec-chip>
-                    <span i18n="@@pair.empty.who.legend">appears on both products</span>
-                  </p>
-                }
               </div>
               @for (f of facets(); track f.key) {
                 <div class="min-w-0 space-y-3" [attr.data-testid]="'pair-empty-who-' + f.key">
@@ -401,31 +374,43 @@ function share(value: number, a: number, b: number): number {
                           [tone]="c.side === 'both' ? 'wash' : null"
                           [link]="[f.route, c.term.slug]"
                         >
-                          <span class="inline-flex">
-                            @if (c.side !== 'other') {
-                              <aec-logo-or-initial
-                                [class]="chipMark"
-                                [name]="ctx.name"
-                                [src]="ctx.logo_url"
-                                [claimStatus]="ctx.claim_status"
-                                size="sm"
-                              />
-                            }
-                            @if (c.side !== 'context') {
-                              <aec-logo-or-initial
-                                [class]="chipMark"
-                                [class.-ms-2]="c.side === 'both'"
-                                [name]="oth.name"
-                                [src]="oth.logo_url"
-                                [claimStatus]="oth.claim_status"
-                                size="sm"
-                              />
-                            }
-                          </span>
+                          <!-- A term on both products leads with the word "Both" in place of
+                               the two product tiles (AECI-1835). A screen reader hears the
+                               term, then "appears on both products". -->
+                          @if (c.side === 'both') {
+                            <span
+                              class="font-semibold text-(--accent-primary)"
+                              aria-hidden="true"
+                              i18n="@@pair.empty.who.both"
+                              >Both</span
+                            >
+                          } @else {
+                            <span class="inline-flex">
+                              @if (c.side === 'context') {
+                                <aec-logo-or-initial
+                                  [class]="chipMark"
+                                  [name]="ctx.name"
+                                  [src]="ctx.logo_url"
+                                  [claimStatus]="ctx.claim_status"
+                                  size="sm"
+                                />
+                              } @else {
+                                <aec-logo-or-initial
+                                  [class]="chipMark"
+                                  [name]="oth.name"
+                                  [src]="oth.logo_url"
+                                  [claimStatus]="oth.claim_status"
+                                  size="sm"
+                                />
+                              }
+                            </span>
+                          }
                           <span>{{ c.term.name }}</span
                           >&ngsp;
                           @if (c.side === 'both') {
-                            <aec-chip density="dense" i18n="@@pair.empty.who.both">Both</aec-chip>
+                            <span class="sr-only" i18n="@@pair.empty.who.legend"
+                              >appears on both products</span
+                            >
                           } @else {
                             <span class="sr-only" i18n="@@pair.empty.who.only"
                               >({{ c.side === 'context' ? ctx.name : oth.name }} only)</span
@@ -481,8 +466,10 @@ function share(value: number, a: number, b: number): number {
           </p>
         </div>
 
-        <div class="grid gap-6 md:grid-cols-2">
-          @for (s of sides(); track s.key) {
+        <!-- Only what we have for each vendor (AECI-1835): no line says something is
+             missing. A card with nothing to list is left out, and a lone card takes the row. -->
+        <div [class]="lookGrid()">
+          @for (s of lookSides(); track s.key) {
             @let p = s.product;
             <section
               aecCard
@@ -625,14 +612,6 @@ function share(value: number, a: number, b: number): number {
                       [label]="correctionLabel('tool_integrations_url')"
                     />
                   </li>
-                } @else if (s.noDirectory; as line) {
-                  <li
-                    class="mx-1 flex gap-2 rounded-panel bg-(--surface-sunken) p-4 text-t-14 leading-normal text-(--text-secondary)"
-                    [attr.data-testid]="'pair-look-no-directory-' + s.key"
-                  >
-                    <aec-icon name="info" class="mt-0.5 shrink-0" decorative [size]="4" />
-                    <span>{{ line }}</span>
-                  </li>
                 }
 
                 @if (s.onRecord > 0) {
@@ -732,12 +711,9 @@ export class PairEmptySections {
   /** Every other row on the mock-up's sunken fill. */
   protected readonly ledgerRowShaded = `${this.ledgerRow} rounded-panel bg-(--surface-sunken)`;
 
-  /** The ledger and "Who each product is for" side by side from lg, at mock-up 5's split. */
-  protected readonly sbsGrid = computed(() =>
-    this.showWho()
-      ? 'grid items-stretch gap-6 lg:grid-cols-[minmax(0,1.42fr)_minmax(0,1fr)]'
-      : 'grid items-stretch gap-6',
-  );
+  /** The ledger, then "Who each product is for", each the full row (AECI-1835): side by
+   *  side, long product names left the ledger cramped. */
+  protected readonly sbsGrid = 'grid gap-6';
   protected readonly rowHeader =
     'col-span-2 row-start-1 flex flex-col items-center gap-1 text-center md:col-span-1 md:col-start-2';
   protected readonly meterClass =
@@ -771,7 +747,6 @@ export class PairEmptySections {
         overall: visibleRating(product.rating_overall_avg, product.review_count),
         onboarding: visibleRating(product.rating_onboarding_avg, product.review_count),
         hasWho: hasWho(product),
-        noDirectory: this.noDirectoryLine(product),
         publishedBy: publishedByVendor(product),
       };
     }),
@@ -811,9 +786,24 @@ export class PairEmptySections {
     });
   });
 
-  /** Whether any facet has a term both products carry: the legend explains "Both". */
-  protected readonly hasBoth = computed(() =>
-    this.facets().some((f) => f.chips.some((c) => c.side === 'both')),
+  /**
+   * The vendor cards with something to list: a link, a value under review, or the
+   * product's own list on AEC Integrations. A card with none of these is left out.
+   */
+  protected readonly lookSides = computed(() =>
+    this.sides().filter(
+      (s) =>
+        !!s.product.api_docs_url ||
+        !!s.product.tool_integrations_url ||
+        isUnderReview(s.product.under_review, 'api_docs_url') ||
+        isUnderReview(s.product.under_review, 'tool_integrations_url') ||
+        s.onRecord > 0,
+    ),
+  );
+
+  /** Two cards share the row from md; a lone card takes it whole, so no half is blank. */
+  protected readonly lookGrid = computed(() =>
+    this.lookSides().length > 1 ? 'grid gap-6 md:grid-cols-2' : 'grid gap-6',
   );
 
   /** The printed count, as the product page's facts card prints it. */
@@ -874,22 +864,6 @@ export class PairEmptySections {
       source_entity_id: canonicalPairIds(this.context().id, this.other().id).join(':'),
       link_purpose: purpose,
     };
-  }
-
-  /**
-   * "We have not found an integrations page published by {vendor}.", or `null`. The
-   * product page's rule (`showsNoIntegrationsDirectory`): a vendor and no link, and the
-   * link neither hidden for checking nor removed by AECi.
-   */
-  private noDirectoryLine(p: ProductPairSubject): string | null {
-    if (!p.vendor || p.tool_integrations_url) return null;
-    if (isUnderReview(p.under_review, 'tool_integrations_url')) return null;
-    if (correctionsInSlots(p.captions?.corrections, { tool_integrations_url: false }).length > 0) {
-      return null;
-    }
-    // As on the product page: "Acme Inc." ends the sentence once, never "Inc..".
-    const vendor = withoutTrailingFullStop(p.vendor.name);
-    return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
   }
 }
 

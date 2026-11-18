@@ -675,8 +675,9 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 **Position and data object filter (ruling R6, AECI-1737, Chris, 2026-11-14: "However the mockup had it. I liked the mockup").**
 
 - Closest matches sit where mock-up 5 puts them. That is after the hero, the interest card and "What you would be moving", and before the side-by-side facts. They do not move up under the hero.
-- The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Nothing picked. Matches can move any data."
-- When chips are on, a product must move every picked data object to appear. The lane shows "must move {objects}" with a Clear control.
+- The data object filter is the set of data object chips in "What you would be moving". Every chip is off by default. The caption reads "Showing every match. Pick the data you need to narrow the list." (AECI-1835, the owner's wording of 2026-11-18; it was "Nothing picked. Matches can move any data.").
+- When chips are on, a product must move every picked data object to appear. The caption reads "Showing only matches that move {objects}." with Clear, and the lane shows "must move {objects}" with a Clear control.
+- A search box filters the list by product and vendor name (AECI-1835), with the Integrations section's recipe and rules: it removes and never reorders, it never reaches the URL, and "Clear filters" clears it with the categories and the picked data. The web ordering firewall registers it under `pair-page-closest-matches`.
 - The AECI-1816 measurement ran on 2026-11-14 against production. Production has 0 Managed integrations. All 2,227 data-object rows are AECi seeds. 509 of 1,572 live integrations (32.4%) have no data object. The filter cannot hide Free vendors' rows unevenly today, and it is cleared to build.
 - The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
 - Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
@@ -701,8 +702,8 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 3. **Interest card.** The look-up count, "I need this too" and "Watch this pair".
 4. **What you would be moving.** Data objects in three groups: only {A}, both, only {B}. They come from each product's other integrations on record.
 5. **Closest matches.** See §11.3.
-6. **The two products, side by side.** A facts table and "Who each product is for". The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
-7. **Look it up yourself.** Each vendor's API docs and integrations directory links.
+6. **Side by side ("How the two products compare").** A facts table and "Who each product is for", each the full row. The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
+7. **Look it up yourself.** Each vendor's API docs and integrations directory links, and its own list on AEC Integrations. Only what we have: no line says something is missing, and a vendor with nothing to list has no card.
 
 **Exact copy, fixed by the legal review (`docs/design/mockups/redesign-2026-11/records/legal-review-2026-11-12.md`) and PLAN.md §5.1.** Use these strings exactly. Do not reword them.
 
@@ -721,7 +722,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 | Watch promise | One email if we add an integration for this pair. Nothing else. |
 | Look it up intro | Linked as each vendor publishes them. What they say about building a connection is theirs, not ours. |
 | API sentence | An API is not an integration. We list an integration only when we can show that one exists. |
-| No directory page | We have not found an integrations page published by {vendor}. |
+| No directory page | Retired on the empty pair page (AECI-1835, the owner's ruling of 2026-11-18: list only what we have for each vendor). The product page's zero state still uses: We have not found an integrations page published by {vendor}. |
 | Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
 | Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
 | Under review flag | Under review (source: Chris's ruling of 2026-11-14, asked on AECI-343, not the legal review) |

@@ -113,9 +113,76 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     expect(text(moving.querySelector('h2'))).toBe('The data each product already exchanges');
     const matches = el.querySelector('[data-testid="pair-empty-matches"]')!;
     expect(text(matches.querySelector('.aec-overline'))).toBe('Closest matches on record');
-    expect(text(matches.querySelector('h2'))).toBe(
-      'Keep one product. See what it already connects to.',
+    expect(text(matches.querySelector('h2'))).toBe('Keep one product and swap the other');
+    // The intro names the product to swap and the one kept, for whichever lane is shown.
+    expect(text(el.querySelector('[data-testid="pair-matches-intro"]'))).toBe(
+      'These products are similar to Sage 300 CRE and have an integration with Bluebeam Revu on record. Open one to see what moves between them.',
     );
+  });
+
+  it('drops the marks beside "Both exchange" and says what the list shows', () => {
+    const { el, click } = setup();
+    const both = el.querySelector('[data-testid="pair-moving-both"] h3')!;
+    expect(both.querySelector('aec-logo-or-initial')).toBeNull();
+    expect(
+      el.querySelector('[data-testid="pair-moving-context-only"] h3 aec-logo-or-initial'),
+    ).toBeTruthy();
+    const status = el.querySelector('[data-testid="pair-moving-picked"]')!;
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(text(status)).toBe('Showing every match. Pick the data you need to narrow the list.');
+    click('[data-testid="pair-moving-object-rfis"]');
+    expect(text(status)).toContain('Showing only matches that move RFIs.');
+  });
+
+  it('searches product and vendor names, keeps the order, and clears back to the search box', async () => {
+    const lanes = ALTERNATIVES.lanes;
+    const { el, fixture } = setup({
+      ...ALTERNATIVES,
+      lanes: {
+        ...lanes,
+        context: {
+          ...lanes.context,
+          matches: [
+            { ...lanes.context.matches[0]!, vendor_name: 'Zeta Corp' },
+            lanes.context.matches[1]!,
+          ],
+        },
+      },
+    });
+    document.body.appendChild(el);
+    try {
+      const input = el.querySelector<HTMLInputElement>('#pair-matches-filter')!;
+      expect(input.closest('form')).toBeNull();
+      expect(el.querySelector('label[for="pair-matches-filter"]')!.textContent?.trim()).toBe(
+        'Search these matches',
+      );
+      expect(input.placeholder).toBe('Filter by product or vendor');
+      const type = (value: string) => {
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+        fixture.detectChanges();
+      };
+      type('corp');
+      expect(cardNames(el)).toEqual(['zeta Books']);
+      expect(text(el.querySelector('[data-testid="pair-matches-count"]'))).toBe('1 of 2 match');
+      type('ledger');
+      expect(cardNames(el)).toEqual(['Alpha Ledger']);
+      type('nothing like it');
+      const empty = el.querySelector('[data-testid="pair-matches-empty"]')!;
+      expect(empty.getAttribute('data-empty')).toBe('no-query');
+      const clear = el.querySelector<HTMLButtonElement>(
+        '[data-testid="pair-matches-filter-clear"]',
+      )!;
+      clear.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(cardNames(el)).toEqual(['zeta Books', 'Alpha Ledger']);
+      expect(input.value).toBe('');
+      expect(document.activeElement).toBe(input);
+      expect(el.querySelector('[data-testid="pair-matches-filter-clear"]')).toBeNull();
+    } finally {
+      el.remove();
+    }
   });
 
   it('groups the data in three, with a designed line for an empty group', () => {
@@ -153,7 +220,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
       'Products with no data objects on record are left out.',
     );
     expect(text(el.querySelector('[data-testid="pair-moving-picked"]'))).toContain(
-      'Matches must move RFIs',
+      'Showing only matches that move RFIs.',
     );
     click('[data-testid="pair-moving-object-drawings"]');
     expect(el.querySelector('[data-testid="pair-matches-empty"]')!.getAttribute('data-empty')).toBe(
@@ -295,12 +362,15 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
       'polite',
     );
     const card = el.querySelector('[data-testid="pair-matches-cards"] article')!;
-    // The product page card's data chip: dense and neutral.
-    const chip = card.querySelector('[data-testid="pair-match-objects"] aec-chip')!;
-    expect(chip.querySelector('[data-tone="neutral"]')).toBeTruthy();
+    // Mock-up 5's .mini chip: the sunken pill, 13px at 600, its glyph where the map has one.
+    const chip = card.querySelector('[data-testid="pair-match-objects"] > span')!;
+    expect(chip.className).toContain('bg-(--surface-sunken)');
+    expect(chip.className).toContain('py-[5px]');
+    expect(chip.querySelector('aec-icon')).toBeTruthy();
     const scores = card.querySelector('[data-testid="pair-match-scores"]')!;
     expect(scores.className).toContain('border');
-    expect(scores.className).toContain('bg-(--surface-base)');
+    expect(scores.className).toContain('p-4');
+    expect(scores.className).toContain('bg-(--surface-raised)');
     // The foot keeps its words as the link's name. The round button is a chevron, hidden.
     const link = card.querySelector<HTMLAnchorElement>('[data-testid="pair-match-link-zeta"]')!;
     expect(text(link)).toBe('Bluebeam Revu and zeta Books');

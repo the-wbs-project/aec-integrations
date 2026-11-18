@@ -600,6 +600,12 @@ function writePairViewCookie(mode: PairViewMode): void {
  */
 @Component({
   selector: 'aec-products-pair',
+  // AECI-1835: the empty pair page renders as mock-up 5 does, with grayscale smoothing and
+  // the font's kerning and ligatures (`body` in the mock-up). Only on the empty pair.
+  host: {
+    '[class.antialiased]': 'emptyPair()',
+    '[style.text-rendering]': "emptyPair() ? 'optimizeLegibility' : null",
+  },
   imports: [
     AecBreadcrumb,
     AecCard,
@@ -680,9 +686,8 @@ function writePairViewCookie(mode: PairViewMode): void {
                the legal-reviewed string, used exactly, and the caveat always follows it. -->
           <span heroTitle data-testid="pair-empty-statement" i18n="@@pair.empty.statement"
             >We have no integration between
-            <span class="font-semibold md:whitespace-nowrap">{{ context.name }}</span> and
-            <span class="font-semibold md:whitespace-nowrap">{{ other.name }}</span> on
-            record.</span
+            <span [class]="statementName(context.name)">{{ context.name }}</span> and
+            <span [class]="statementName(other.name)">{{ other.name }}</span> on record.</span
           >
         }
         <!-- The caveat, in the band's default slot directly under the statement. Its own
@@ -1575,6 +1580,19 @@ export class ProductsPairPage {
   });
 
   /** View-model: mechanisms with their direction copy + claim lanes resolved once. */
+  /**
+   * A product name in the empty pair statement. From `md` a name stays on one line, as
+   * mock-up 5's `.pn` does, while it is short enough to fit the text column at its
+   * narrowest: 16 characters, about 345px at 43px type in the 372px column at 1040px. A
+   * longer name may break, so it never pushes the page sideways.
+   */
+  protected statementName(name: string): string {
+    return name.length <= 16 ? 'font-semibold md:whitespace-nowrap' : 'font-semibold';
+  }
+
+  /** Whether this is the empty pair page (no mechanism on record). */
+  protected readonly emptyPair = computed(() => this.pair()?.mechanisms.length === 0);
+
   protected readonly view = computed<PairView | null>(() => {
     const pair = this.pair();
     if (!pair) return null;
