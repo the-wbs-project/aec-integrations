@@ -363,6 +363,21 @@ describe('LogoOrInitial', () => {
     },
   );
 
+  // AECI-1928: serif never renders below 20px. The 32px tile's 14px initial is the
+  // body face, as mock-ups 10 to 12 draw it. The larger tiles stay serif at 20px+.
+  it.each([
+    ['sm', 'font-body', 'text-sm'],
+    ['md', 'font-display', 'text-t-20'],
+    ['lg', 'font-display', 'text-2xl'],
+    ['hero', 'font-display', 'text-t-36'],
+  ] as const)('sets the %s initial in %s at %s', (size, face, step) => {
+    const tile = renderHost({ src: null, size }).root.querySelector('span[aria-hidden]')!;
+    expect(tile.classList.contains(face)).toBe(true);
+    expect(tile.classList.contains(step)).toBe(true);
+    const other = face === 'font-body' ? 'font-display' : 'font-body';
+    expect(tile.classList.contains(other)).toBe(false);
+  });
+
   it.each(['hero', 'lg', 'sm'] as const)(
     'rounds the %s mark and its tile at the 8px mark radius, so the scale never inverts',
     (size) => {

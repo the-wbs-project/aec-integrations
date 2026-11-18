@@ -1,6 +1,7 @@
 import { Component, input } from '@angular/core';
 
 import type { DocsBlock } from '../../docs/docs-markdown';
+import { AecProseTableScroll } from './prose-table-scroll';
 
 /**
  * A Markdown body rendered as blocks, with an `id` on every `h2` and `h3`
@@ -27,6 +28,9 @@ import type { DocsBlock } from '../../docs/docs-markdown';
   // `tr[aec-product-card]` does.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'article[aec-prose-blocks]',
+  // A wide table scrolls in its own box, a keyboard stop only when it overflows
+  // (AECI-1918).
+  hostDirectives: [AecProseTableScroll],
   template: `
     @for (block of blocks(); track $index) {
       @if (block.heading; as heading) {

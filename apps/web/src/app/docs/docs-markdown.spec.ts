@@ -4,9 +4,15 @@
  * Plain Vitest (no `.md` import, no DOM). The real pages are pinned in
  * `docs-content.component.spec.ts`; the rendered ids in `docs-page.component.spec.ts`.
  */
+import { marked } from 'marked';
 import { describe, expect, it } from 'vitest';
 
-import { DOCS_RESERVED_IDS, headingSlug, renderDocsBody } from './docs-markdown';
+import {
+  DOCS_RESERVED_IDS,
+  PROSE_TABLE_SCROLL_CLASS,
+  headingSlug,
+  renderDocsBody,
+} from './docs-markdown';
 
 describe('headingSlug', () => {
   // The two in-content deep links that already exist depend on this exact shape.
@@ -187,5 +193,43 @@ describe('renderDocsBody widgets', () => {
   // Any other HTML comment stays ordinary content.
   it('leaves a plain HTML comment alone', () => {
     expect(renderDocsBody('<!-- a note -->\n').blocks.every((block) => !block.widget)).toBe(true);
+  });
+});
+
+// AECI-1918: a wide table scrolls in its own box, so the page does not scroll
+// sideways on a phone. The wrapper is markup only: the table inside it is the
+// exact HTML `marked` renders, so no word, link or cell changes.
+describe('renderDocsBody tables', () => {
+  const table =
+    '| Event | Who | Channel |\n| -- | -- | -- |\n| A [link](/docs/x) | `code` | Email |\n';
+  const open = `<div class="${PROSE_TABLE_SCROLL_CLASS}">`;
+
+  it('wraps each table in one scroll box around the unchanged table HTML', () => {
+    const { html } = renderDocsBody(`## Events\n\nLead.\n\n${table}\nAfter.\n`);
+    const plain = marked.parse(table, { async: false, gfm: true });
+    expect(html).toContain(`${open}${plain}</div>`);
+    expect(html.match(/<table>/g)).toHaveLength(1);
+    expect(html.split(PROSE_TABLE_SCROLL_CLASS)).toHaveLength(2);
+  });
+
+  it('changes nothing but the wrapper', () => {
+    const source = `Lead.\n\n${table}\nAfter.\n`;
+    const plain = marked.parse(source, { async: false, gfm: true });
+    const unwrapped = renderDocsBody(source)
+      .html.replace(open, '')
+      .replace('</table>\n</div>\n', '</table>\n');
+    expect(unwrapped).toBe(plain);
+  });
+
+  it('leaves a body without a table unwrapped', () => {
+    expect(renderDocsBody('Plain text.\n').html).not.toContain(PROSE_TABLE_SCROLL_CLASS);
+  });
+
+  // The global `marked` renders legal `html` and the version specs: it must not wrap.
+  it('does not change the global marked renderer', () => {
+    renderDocsBody(table);
+    expect(marked.parse(table, { async: false, gfm: true })).not.toContain(
+      PROSE_TABLE_SCROLL_CLASS,
+    );
   });
 });

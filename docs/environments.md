@@ -1562,15 +1562,17 @@ that a bare catalog does not:
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
 | `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
-| `review-response-fixtures.sql` | Seven reviews on Dynamo for Revit (six approved, one pending) and five Autodesk replies, one per status (AECI-1175, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
+| `review-response-fixtures.sql` | Nine reviews on Dynamo for Revit (eight approved, one pending) and seven Autodesk replies: one per status, plus two pending for the admin queue e2e (AECI-1175, AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. The reviews have no reviewer and carry an `anonymized_at` stamp, the state an account deletion leaves, so `reviews_missing_anonymized_at` stays at zero (AECI-1920). Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
 | `long-list-fixtures.sql` | `fixture-long-list` with 14 integrations, its 14 partners and three fixture-only categories (AECI-1868), so the grouped integration list renders. Idempotent. Ids `00000000-…-0000000018xx`. |
 | `connector-lists-fixtures.sql` | `fixture-hybrid-via` (a Via lane past 20 rows, and it powers 21 pairs) and `fixture-connector-hub` (powers 39 pairs), with two hubs and 25 partners (AECI-1788), so `products-connector-lists.spec.ts` runs every case. One unverified vendor, no category or review, so the data-quality run adds no finding (`src/test/seed-data-quality.spec.ts`). Idempotent. Ids `00000000-…-0000000019xx` to `21xx`. |
 
 Four things they do **not** cover, all of which had to be applied by hand:
 
-- **Reviews.** Only the seven on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
+- **Reviews.** Only the fixtures on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
   `db:seed-reviews -- --remote --env <tier> --apply` writes a deterministic set; every row
-  carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those.
+  carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those. Its rows
+  have `reviewer_id` NULL and no `anonymized_at`, so the daily `reviews_missing_anonymized_at`
+  check (error severity) reports every one of them on that tier until they are torn down.
 - **An operator profile.** The fixture profiles are the two e2e personas; your own account
   has no row, so you sign in as a role-less user with no `/admin` and no `/vendor`.
   Authorization is per-tier D1 (ADR 0016), so a profile there grants nothing elsewhere.

@@ -141,7 +141,9 @@ export interface GroupCardLogo {
             <span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
               <span class="min-w-0 text-t-20 leading-tight break-words">{{ heading() }}</span>
               @if (countLabel(); as count) {
-                <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{
+                <!-- The body face: inside the h3 the count would inherit the serif
+                     at 12px, below the 20px floor (AECI-1928). -->
+                <span class="shrink-0 font-body text-xs font-normal text-(--text-secondary)">{{
                   count
                 }}</span>
               }
