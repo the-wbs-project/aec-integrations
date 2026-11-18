@@ -335,6 +335,40 @@ describe('ReindexList', () => {
     expect(dialogEl()).toBeNull();
   });
 
+  it('shows the total queued across every page, not just the rows on this one', async () => {
+    const api = makeApiMock([makeRow({ id: 1 }), makeRow({ id: 2 })], 42);
+    const { el } = await setup(api);
+    const total = () =>
+      el.querySelector('[data-testid="admin-reindex-total"]')?.textContent?.replace(/\s+/g, ' ');
+    expect(total()?.trim()).toBe('42 URLs in the queue');
+  });
+
+  it('ticks the total down on Done and names the tier when filtered', async () => {
+    const api = makeApiMock([makeRow({ id: 1 }), makeRow({ id: 2 })], 2);
+    const { el, fixture } = await setup(api);
+    const total = () =>
+      el
+        .querySelector('[data-testid="admin-reindex-total"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim();
+    await chooseDone(el, fixture, '/products/product-1', NOT_REQUESTED);
+    expect(total()).toBe('1 URL in the queue');
+
+    api.list.mockResolvedValueOnce({ data: [makeRow({ id: 3 })], page: 1, perPage: 25, total: 7 });
+    const group = el.querySelector('[aria-labelledby="admin-reindex-priority-label"]')!;
+    buttonByText(group as HTMLElement, '2').click();
+    await settle();
+    fixture.detectChanges();
+    expect(total()).toBe('7 URLs at priority 2');
+  });
+
+  it('shows no total while the load has failed', async () => {
+    const api = makeApiMock([makeRow({ id: 1 })]);
+    api.list.mockRejectedValueOnce(new Error('boom'));
+    const { el } = await setup(api);
+    expect(el.querySelector('[data-testid="admin-reindex-total"]')).toBeNull();
+  });
+
   it('says an empty list is the good outcome, and where rows come from', async () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.querySelector('tbody')).toBeNull();

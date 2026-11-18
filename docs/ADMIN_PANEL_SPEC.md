@@ -1235,7 +1235,9 @@ operator worked from memory after a promote, which `environments.md` described a
 
 - **`/admin/reindex`** — one table, most important first, with a Done button per
   row. `priority`, `reason`, `url`, a **Google says** column, and age. The only filter is
-  `?priority=`. **Google says** is the last inspection result (AECI-1236): a label from
+  `?priority=`. A count under the heading shows how many URLs match the current filter across
+  every page ("42 URLs in the queue", or "7 URLs at priority 2"). It comes from the list
+  response's `total` and drops by one on each Done. **Google says** is the last inspection result (AECI-1236): a label from
   `inspect_reason` and the date of Google's last crawl. It reads "Not checked yet" for a row
   nobody has inspected, and for a row edited since. Rows the daily cron closed are under
   `reindex.auto_cleared` in `audit_log`, one summary row per batch with the list in

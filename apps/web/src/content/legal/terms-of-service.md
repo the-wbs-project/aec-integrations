@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: November 12, 2026
+last_updated: November 18, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -14,7 +14,7 @@ These terms govern your use of AEC Integrations (the "service"), an independent 
 
 ## What the service is
 
-AEC Integrations catalogs software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Our editorial judgment and search ranking are algorithmic and are never influenced by payment. [How ranking works](/docs/trust/how-ranking-works) describes the factors we use. If that page and these terms conflict, these terms control.
+AEC Integrations catalogs software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Search ranking is algorithmic. Neither it nor our editorial choices are ever influenced by payment. [How ranking works](/docs/trust/how-ranking-works) describes the factors we use. If that page and these terms conflict, these terms control.
 
 The service is provided for general informational purposes to help AEC teams evaluate software. It is not professional, legal, procurement, or engineering advice, and it is not a substitute for your own evaluation and due diligence.
 
@@ -41,7 +41,7 @@ When you use the service, including submitting a review, request or correction, 
 - attempt to disrupt, overload, scrape, crawl or extract data in bulk by automated means without our written permission, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
-You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free, irrevocable license to host, store, reproduce, format, excerpt, resize, crop, compress, index, make accessible and display that content in connection with operating the service, and to moderate it under our policies. The license does not let us reword what you wrote. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
+You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free, irrevocable license to host, store, reproduce, format, excerpt, resize, crop, compress, index, make accessible and display that content in connection with operating the service, and to moderate it under our policies. You also authorize our service providers to do these things on our behalf. The license does not let us reword what you wrote. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
 
 ## Intellectual property
 
@@ -83,5 +83,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process. After counsel's second read: emails account holders before a material change and asks for acceptance of one that reduces rights, adds 30 days' notice before a court action, and makes the named courts exclusive. After a second drafting pass: bulk automated extraction needs our written permission, urgent court relief is not held up by the notice period, and the confidentiality carve-out names a written duty we owe you. After counsel's later answers: we promptly notify the person whose content we remove on a copyright notice, a counter-notice consents to the federal court for your own district, we restore content 10 to 14 business days after a counter-notice unless a court action is filed, we terminate repeat infringers and log every notice, and the liability section says it limits only what we can owe you.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process. After counsel's second read: emails account holders before a material change and asks for acceptance of one that reduces rights, adds 30 days' notice before a court action, and makes the named courts exclusive. After a second drafting pass: bulk automated extraction needs our written permission, urgent court relief is not held up by the notice period, and the confidentiality carve-out names a written duty we owe you. After counsel's later answers: we promptly notify the person whose content we remove on a copyright notice, a counter-notice consents to the federal court for your own district, we restore content 10 to 14 business days after a counter-notice unless a court action is filed, we terminate repeat infringers and log every notice, and the liability section says it limits only what we can owe you. After counsel's batch 4 answers: our service providers may act for us under the content license, and the opening says search ranking is algorithmic and that neither it nor our editorial choices are influenced by payment.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.
