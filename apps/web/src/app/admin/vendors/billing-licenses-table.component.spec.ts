@@ -667,6 +667,19 @@ describe('toBillingLicenseRow', () => {
     }
   });
 
+  it('shows the day an ended license ended, not its term end (AECI-1866)', () => {
+    const row = toBillingLicenseRow(
+      makeLicense({
+        live: false,
+        ends_at: '2027-11-16',
+        ended_at: '2026-11-16T10:00:00.000Z',
+        end_reason: 'released',
+      }),
+      'en-US',
+    );
+    expect(row.endsLabel).toBe('Nov 16, 2026');
+  });
+
   it('shows an unknown source token as is', () => {
     expect(toBillingLicenseRow(makeLicense({ source: 'barter' }), 'en-US').sourceLabel).toBe(
       'barter',
