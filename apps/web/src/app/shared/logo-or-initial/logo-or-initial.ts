@@ -230,21 +230,27 @@ export class LogoOrInitial {
     () => `${this.boxClass()} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}`,
   );
 
-  /** The initial steps with the box: `--t-36` in the hero tile, 24px at 64px, 14px at 32px. */
+  /**
+   * The initial steps with the box: `--t-36` in the hero tile, 24px at 64px,
+   * `--t-20` at 48px, all serif. At 32px it is 14px in the body face, as mock-ups
+   * 10 to 12 draw the 32px tile (`font: 600 var(--t-14)/1 var(--font-body)`):
+   * serif never renders below 20px (DESIGN.md §3 "The Serif-Floor Rule",
+   * AECI-1928).
+   */
   private readonly initialClass = computed(() => {
     const size = this.size();
     return size === 'hero'
-      ? 'text-t-36'
+      ? 'font-display text-t-36'
       : size === 'lg'
-        ? 'text-2xl'
+        ? 'font-display text-2xl'
         : size === 'md'
-          ? 'text-t-20'
-          : 'text-sm';
+          ? 'font-display text-t-20'
+          : 'font-body text-sm';
   });
 
   protected readonly spanClass = computed(
     () =>
-      `flex ${this.boxClass()} items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) font-display ${this.initialClass()} font-semibold text-(--text-primary)`,
+      `flex ${this.boxClass()} items-center justify-center ${this.radiusClass()} border bg-(--surface-raised) ${this.initialClass()} font-semibold text-(--text-primary)`,
   );
 
   constructor() {

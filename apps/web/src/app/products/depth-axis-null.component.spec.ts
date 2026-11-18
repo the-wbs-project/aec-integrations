@@ -15,6 +15,11 @@
  * One re-record, and it is not a depth-axis change. AECI-1079 (2026-09-24) gave
  * the row's partner-name link a 24px target (`-my-0.5 min-w-6 py-0.5`). The two
  * row snapshots changed in that `class` attribute and nowhere else.
+ *
+ * AECI-1928 (2026-11-18) re-recorded the two rows and the powered hub for the
+ * Serif-Floor Rule, not a depth-axis change: the 32px initial tile's
+ * `font-display` became `font-body`, and the group card count gained
+ * `font-body`. Checked by diffing with those two classes removed: identical.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
