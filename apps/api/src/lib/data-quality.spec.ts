@@ -821,6 +821,7 @@ describe('checkAcceptanceWithoutRetentionDate', () => {
   it('is clean on an empty database', async () => {
     expect(await checkAcceptanceWithoutRetentionDate(t.db)).toEqual({
       lines: [],
+      count: 0,
       note: '0 acceptance(s) of an approved claim with no vendor linked (kept until linked)',
     });
   });
@@ -860,11 +861,28 @@ describe('checkAcceptanceWithoutRetentionDate', () => {
     await seedAcceptance('acc-rejected', { vendorRequestId: 'claim-rejected' });
     await seedAcceptance('acc-open', { vendorRequestId: 'claim-open' });
 
-    expect(await checkAcceptanceWithoutRetentionDate(t.db)).toEqual({
+    // A second undated acceptance of the same vendor counts as a second row.
+    await seedAcceptance('acc-gone-2', { vendorId: 'v-gone' });
+
+    const finding = await checkAcceptanceWithoutRetentionDate(t.db);
+    expect(finding).toEqual({
       lines: [
-        'vendor id v-gone has no vendor row and no vendor.deleted record: 1 acceptance(s) and 1 grant(s) can never be pruned',
+        '2 acceptance(s) and 1 grant(s) name a vendor with no vendor row and no vendor.deleted record, so they can never be pruned',
       ],
+      count: 3,
       note: '1 acceptance(s) of an approved claim with no vendor linked (kept until linked)',
+    });
+    // Ruling 50: a count only. No vendor id reaches the digest.
+    expect(finding.lines.join(' ')).not.toContain('v-gone');
+  });
+
+  it('puts the row count, not the line count, on the gauge', async () => {
+    await seedAcceptance('acc-gone-a', { vendorId: 'v-gone' });
+    await seedAcceptance('acc-gone-b', { vendorId: 'v-gone' });
+    const results = await runDataQualityChecks({ db: t.db, now: NOW });
+    expect(results.find((r) => r.id === 'acceptance_without_retention_date')).toMatchObject({
+      count: 2,
+      severity: 'warn',
     });
   });
 

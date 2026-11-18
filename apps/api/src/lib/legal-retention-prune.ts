@@ -56,8 +56,8 @@
  * `claim_ended_at` and a new license is live, so either restarts the clock. The `licenses`
  * table decides this, not the `plan_ended_at` mirror.
  *
- * Every acceptance row must have a date its period runs from (Chris's ruling 48 and its
- * extension, AECI-1914). A row goes once it was accepted at least
+ * Every acceptance row must have a date its period runs from (Chris's rulings 48 and 50,
+ * AECI-1914). A row goes once it was accepted at least
  * {@link ACCEPTANCE_RETENTION_YEARS_AFTER_ACCOUNT_END} calendar years ago, no global hold is
  * open, and one of four arms holds ({@link acceptancePrunePredicate}):
  *

@@ -85,6 +85,7 @@ import {
   or,
   sql,
   inArray,
+  type SQL,
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
@@ -202,6 +203,9 @@ export interface CheckFinding {
   note?: string;
   /** True when the check was deliberately not run (e.g. drift with no creds). */
   skipped?: boolean;
+  /** The gauge value when it is not one per line: a check that reports a row count in
+   *  one summary line (AECI-1914). Defaults to `lines.length`. */
+  count?: number;
 }
 
 /** A single check's outcome, ready for the digest + the `aeci.data_quality.check` gauge. */
@@ -1668,11 +1672,13 @@ export async function checkLegalAgreementDateMoved(
 }
 
 /**
- * `acceptance_without_retention_date` (AECI-1914, ruling 48 and its extension): agreement
+ * `acceptance_without_retention_date` (AECI-1914, rulings 48 and 50): agreement
  * acceptances and license grants the legal retention prune can never date, so would keep
- * forever. Each line is one vendor id with no `vendors` row and no `vendor.deleted` audit
- * row (`VENDOR_DELETED_ACTION`), the record arm D of `lib/legal-retention-prune.ts` dates
- * the six years from. Only `lib/retract-vendor.ts` deletes a vendor, and it writes that
+ * forever. Ruling 50 makes it a count at warning severity: the number of acceptance rows
+ * plus the number of grant rows whose vendor has no `vendors` row and no `vendor.deleted`
+ * audit row (`VENDOR_DELETED_ACTION`), the record arm D of `lib/legal-retention-prune.ts`
+ * dates the six years from. It names no vendor id: one summary line, and the gauge reads
+ * the row count. Only `lib/retract-vendor.ts` deletes a vendor, and it writes that
  * row in the same batch, so a finding is a hand delete or an audit row lost another way.
  * The fix is an ops script that writes the missing `vendor.deleted` row with the best
  * known deletion date, never a migration.
@@ -1683,27 +1689,25 @@ export async function checkLegalAgreementDateMoved(
  * seeded database is clean: the seed deletes no vendor and links every approved claim.
  */
 export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<CheckFinding> {
-  const undated = sql`NOT EXISTS (SELECT 1 FROM "vendors" "rd_v" WHERE "rd_v"."id" = "rd"."vendor_id")
+  const undated = (
+    vendorId: SQL,
+  ) => sql`NOT EXISTS (SELECT 1 FROM "vendors" "rd_v" WHERE "rd_v"."id" = ${vendorId})
     AND NOT EXISTS (
       SELECT 1 FROM "audit_log" "rd_a"
       WHERE "rd_a"."entity_type" = 'vendor'
-        AND "rd_a"."entity_id" = "rd"."vendor_id"
+        AND "rd_a"."entity_id" = ${vendorId}
         AND "rd_a"."action" = ${VENDOR_DELETED_ACTION}
     )`;
-  const rows = await db.all<{ vendor_id: string; acceptances: number; grants: number }>(sql`
-    SELECT "rd"."vendor_id" AS "vendor_id",
-           sum("rd"."is_acceptance") AS "acceptances",
-           sum(1 - "rd"."is_acceptance") AS "grants"
-    FROM (
-      SELECT "vendor_id", 1 AS "is_acceptance" FROM "agreement_acceptances"
-      WHERE "vendor_id" IS NOT NULL
-      UNION ALL
-      SELECT "vendor_id", 0 AS "is_acceptance" FROM "license_grants"
-    ) "rd"
-    WHERE ${undated}
-    GROUP BY "rd"."vendor_id"
-    ORDER BY "rd"."vendor_id"
+  const [row] = await db.all<{ acceptances: number; grants: number }>(sql`
+    SELECT
+      (SELECT count(*) FROM "agreement_acceptances" "rd_x"
+       WHERE "rd_x"."vendor_id" IS NOT NULL AND ${undated(sql`"rd_x"."vendor_id"`)}) AS "acceptances",
+      (SELECT count(*) FROM "license_grants" "rd_g"
+       WHERE ${undated(sql`"rd_g"."vendor_id"`)}) AS "grants"
   `);
+  const acceptances = Number(row?.acceptances ?? 0);
+  const grants = Number(row?.grants ?? 0);
+  const count = acceptances + grants;
   const [unlinked] = await db.all<{ n: number }>(sql`
     SELECT count(*) AS "n" FROM "agreement_acceptances" "ul_a"
     JOIN "vendor_requests" "ul_r" ON "ul_r"."id" = "ul_a"."vendor_request_id"
@@ -1713,10 +1717,13 @@ export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<Check
       AND "ul_r"."status" = 'resolved'
   `);
   return {
-    lines: rows.map(
-      (r) =>
-        `vendor id ${r.vendor_id} has no vendor row and no vendor.deleted record: ${Number(r.acceptances)} acceptance(s) and ${Number(r.grants)} grant(s) can never be pruned`,
-    ),
+    lines:
+      count > 0
+        ? [
+            `${acceptances} acceptance(s) and ${grants} grant(s) name a vendor with no vendor row and no vendor.deleted record, so they can never be pruned`,
+          ]
+        : [],
+    count,
     note: `${Number(unlinked?.n ?? 0)} acceptance(s) of an approved claim with no vendor linked (kept until linked)`,
   };
 }
@@ -1959,12 +1966,12 @@ export async function runDataQualityChecks(
   const results: DataQualityCheckResult[] = [];
   for (const spec of CHECKS) {
     try {
-      const { lines, note, skipped } = await spec.run(deps);
+      const { lines, note, skipped, count } = await spec.run(deps);
       results.push({
         id: spec.id,
         label: spec.label,
         severity: spec.severity,
-        count: skipped ? 0 : lines.length,
+        count: skipped ? 0 : (count ?? lines.length),
         sample: lines.slice(0, SAMPLE_LIMIT),
         ...(note ? { note } : {}),
         ...(skipped ? { skipped } : {}),

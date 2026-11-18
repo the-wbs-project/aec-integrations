@@ -2515,7 +2515,7 @@ create unique index agreement_acceptances_stripe_session_key
   ruling 1 of 2026-11-17 defines the account end. A vendor's account has ended when
   `vendors.claim_ended_at` is set and it holds no live license. The end instant is the later of
   `claim_ended_at` and the latest `licenses.ended_at` on its billing account. A reclaim or a new
-  license restarts the clock. No row is kept forever (Chris's ruling 48 and its extension,
+  license restarts the clock. No row is kept forever (Chris's rulings 48 and 50,
   AECI-1914). A row goes when it was accepted at least six calendar years ago, no global hold is
   open, and one of four arms holds:
   - **A, the vendor exists.** Its vendor's account ended at least six calendar years ago. A
@@ -2535,7 +2535,8 @@ create unique index agreement_acceptances_stripe_session_key
   - **D, the vendor row is gone.** The latest `vendor.deleted` audit row for its `vendor_id`
     (`lib/retract-vendor.ts`) is at least six calendar years old, and the grant test of arm A
     holds. A vendor hold on that id keeps it. With no `vendor.deleted` row it is kept, and the
-    `acceptance_without_retention_date` data-quality check reports it.
+    `acceptance_without_retention_date` data-quality check counts it (a row count at `warn`,
+    ruling 50).
 
   A `license_grants` row goes on arm A or arm D for its vendor, plus the grant-end test. At most 200 ids
   go per run. They are listed in the run's `retention.pruned` audit row

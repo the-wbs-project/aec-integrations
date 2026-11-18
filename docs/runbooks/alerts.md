@@ -1287,8 +1287,9 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > (ADR 0051).
 
 > **`acceptance_without_retention_date` means acceptance records the legal prune can never delete**
-> (AECI-1914). Each line names a vendor id that acceptances or grants still name, with no `vendors`
-> row and no `vendor.deleted` audit row. The prune dates a deleted company's records from that audit
+> (AECI-1914). It is a count only (ruling 50): its one line gives the number of acceptance rows and
+> grant rows whose vendor has no `vendors` row and no `vendor.deleted` audit row. To find the vendor
+> ids, run the same test in D1 against `agreement_acceptances.vendor_id` and `license_grants.vendor_id`. The prune dates a deleted company's records from that audit
 > row, so without it they are kept forever, which breaks the Privacy Policy. `ops:retract-vendor`
 > always writes the row, so look for a hand delete in D1. Write the missing `vendor.deleted` row by an
 > ops script, with the best known deletion date and `entity_type = 'vendor'`, not a migration. The
