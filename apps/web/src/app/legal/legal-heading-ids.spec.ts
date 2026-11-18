@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { marked } from 'marked';
 import { describe, expect, it } from 'vitest';
 
-import { renderDocsBody } from '../docs/docs-markdown';
+import { PROSE_TABLE_SCROLL_CLASS, renderDocsBody } from '../docs/docs-markdown';
 import { parseFrontmatter } from './legal-frontmatter';
 import { PROSE_PAGE_RESERVED_IDS } from './legal-render';
 
@@ -42,13 +42,19 @@ const decode = (html: string): string =>
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 
-/** The page's block rendering, as the template lays it out, ids removed. */
+/**
+ * The page's block rendering, as the template lays it out, ids removed, and the
+ * table scroll box removed (AECI-1918). The box is markup only, around the
+ * unchanged table, so taking it off must give back the single rendering.
+ */
 function asBlocks(body: string): string {
   return renderDocsBody(body, PROSE_PAGE_RESERVED_IDS)
     .blocks.map(({ heading, html }) =>
       heading ? `<h${heading.level}>${heading.text}</h${heading.level}>${html}` : html,
     )
-    .join('');
+    .join('')
+    .replaceAll(`<div class="${PROSE_TABLE_SCROLL_CLASS}"><table>`, '<table>')
+    .replaceAll('</table>\n</div>', '</table>');
 }
 
 /** Whitespace between tags is layout, not words. */
@@ -66,6 +72,16 @@ describe('legal and methodology heading ids (AECI-1720)', () => {
     it(`${name}: the block rendering is the same HTML, word for word`, () => {
       const single = marked.parse(body, { async: false, gfm: true });
       expect(normalise(asBlocks(body))).toBe(normalise(single));
+    });
+
+    // AECI-1918: one scroll box per table, and none in a body with no table.
+    // No legal file holds a table today, so a legal page gets no box.
+    it(`${name}: wraps each table, and only tables, in one scroll box`, () => {
+      const blocks = renderDocsBody(body, PROSE_PAGE_RESERVED_IDS).html;
+      const tables = (marked.parse(body, { async: false, gfm: true }).match(/<table>/g) ?? [])
+        .length;
+      expect(blocks.split(PROSE_TABLE_SCROLL_CLASS).length - 1).toBe(tables);
+      if (name.startsWith('legal')) expect(tables).toBe(0);
     });
 
     it(`${name}: every h2 and h3 has a unique id that no page element uses`, () => {
