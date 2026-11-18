@@ -37,12 +37,15 @@ export class RequestsApi {
   submitCorrection(
     target: RequestTargetRef,
     formValue: CorrectionForm,
+    /** AECI-1828: the other product of an empty pair; the request records both. */
+    pairSlug: string | null = null,
   ): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/correction', {
         ...formValue,
         target_type: target.targetType,
         slug: target.slug,
+        ...(pairSlug ? { pair_slug: pairSlug } : {}),
       }),
     );
   }

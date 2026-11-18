@@ -27,6 +27,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
+import { integrationsOnRecordCount } from './integrations-on-record';
 import { integrationNoun } from './integration-stat';
 import { hasNoIntegrationsOnRecord } from './integrations-on-record';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
@@ -395,10 +396,9 @@ export class ProductFactsCard {
    * after each write, so it can lag the rows. A stored zero never wins over listed rows:
    * the card must not say "We have no integrations on record" above a list of them.
    */
-  protected readonly count = computed(() => {
-    const stored = this.product().integration_count;
-    return stored === 0 ? this.pageRowCount() : stored;
-  });
+  protected readonly count = computed(() =>
+    integrationsOnRecordCount(this.product().integration_count, this.pageRowCount()),
+  );
 
   /**
    * Whether the stat panel shows "Know of one?". The Integrations section shows its own

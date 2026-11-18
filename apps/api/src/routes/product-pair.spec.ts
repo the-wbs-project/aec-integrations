@@ -4,7 +4,11 @@
  */
 
 import type { ClaimDirection, ProductPairResponse } from '@aeci/shared';
-import { ProductPairResponseSchema } from '@aeci/shared';
+import {
+  PairAlternativesSchema,
+  ProductPairResponseSchema,
+  countListedIntegrationRows,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,7 +37,7 @@ import {
 import { resolveMovedPair } from '../lib/pair-redirect';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createProductPairHandler } from './integrations';
+import { createPairAlternativesHandler, createProductPairHandler } from './integrations';
 import { createProductDetailHandler } from './products';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -529,6 +533,89 @@ describe('GET /api/products/:slug/integrations/:otherSlug — field captions (AE
       { field: 'description', date: EDITED, source_url: 'https://source.example', cleared: true },
       { field: 'docs_url', date: EDITED, source_url: 'https://source.example', cleared: true },
     ]);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — subject captions (AECI-1827)', () => {
+  const EDITED = '2026-06-01T00:00:00.000Z';
+  const LATER = '2026-07-01T00:00:00.000Z';
+
+  it('carries each side its Managed caption and its live corrections, a removal as cleared', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db
+      .update(products)
+      .set({ apiDocsUrl: 'https://developers.example/procore', managedEditedAt: EDITED })
+      .where(eq(products.id, u(1)));
+    await t.db.insert(fieldOverrides).values([
+      {
+        id: u(70),
+        entityType: 'product',
+        entityId: u(1),
+        field: 'api_docs_url',
+        value: 'https://developers.example/procore',
+        sourceUrl: 'https://source.example',
+        reason: 'SECRET-REASON',
+        setAt: EDITED,
+      },
+      {
+        id: u(71),
+        entityType: 'product',
+        entityId: u(2),
+        field: 'tool_integrations_url',
+        value: null,
+        sourceUrl: null,
+        reason: 'R',
+        setAt: LATER,
+      },
+    ]);
+    const res = await get('/api/products/procore/integrations/revit');
+    const text = await res.text();
+    expect(text).not.toContain('SECRET');
+    const body = JSON.parse(text) as ProductPairResponse;
+    expect(body.mechanisms).toEqual([]);
+    expect(body.context_product.captions).toEqual({
+      managed: { form: 'updated', vendor_names: ['Acme Software'], date: EDITED },
+      corrections: [
+        {
+          field: 'api_docs_url',
+          date: EDITED,
+          source_url: 'https://source.example',
+          cleared: false,
+        },
+      ],
+    });
+    expect(body.other_product.captions).toEqual({
+      managed: null,
+      corrections: [
+        { field: 'tool_integrations_url', date: LATER, source_url: null, cleared: true },
+      ],
+    });
+    // Nothing is hidden, so neither side names a field under review.
+    expect(body.context_product.under_review).toBeUndefined();
+  });
+
+  it('drops a correction the live value no longer matches', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db
+      .update(products)
+      .set({ apiDocsUrl: 'https://vendor-changed.example' })
+      .where(eq(products.id, u(1)));
+    await t.db.insert(fieldOverrides).values({
+      id: u(70),
+      entityType: 'product',
+      entityId: u(1),
+      field: 'api_docs_url',
+      value: 'https://developers.example/procore',
+      sourceUrl: null,
+      reason: 'R',
+      setAt: EDITED,
+    });
+    const body = (await (
+      await get('/api/products/procore/integrations/revit')
+    ).json()) as ProductPairResponse;
+    expect(body.context_product.captions?.corrections).toEqual([]);
   });
 });
 
@@ -2113,7 +2200,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
       status: 200,
       batches: 1,
-      statements: 11,
+      statements: 12,
       outsideBatch: 0,
     });
   });
@@ -2132,7 +2219,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
       .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
 
     const trips = await roundTrips('/api/products/revit/integrations/procore');
-    expect(trips).toEqual({ status: 200, batches: 1, statements: 11, outsideBatch: 0 });
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 12, outsideBatch: 0 });
   });
 
   it('an unknown slug', async () => {
@@ -2140,7 +2227,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
       status: 404,
       batches: 1,
-      statements: 11,
+      statements: 12,
       outsideBatch: 0,
     });
   });
@@ -2286,5 +2373,201 @@ describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url is htt
       await (await get('/api/products/procore/integrations/revit')).json(),
     );
     expect(parsed.mechanisms[0]?.pricing_url).toBeNull();
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — listed_integration_count (AECI-1827)', () => {
+  /** Products, slugs chosen so canonical A/B order is easy to read. */
+  async function seedListed() {
+    await seedProducts();
+    await t.db.insert(products).values([
+      { id: u(3), slug: 'autocad', name: 'AutoCAD', promotionStatus: 'promoted' },
+      {
+        id: u(4),
+        slug: 'zapier',
+        name: 'Zapier',
+        productRole: 'connector',
+        promotionStatus: 'promoted',
+      },
+      { id: u(5), slug: 'sage', name: 'Sage', promotionStatus: 'promoted' },
+      { id: u(6), slug: 'bim360', name: 'BIM 360', promotionStatus: 'promoted' },
+    ]);
+    // Procore's own rows. The stored integration_count stays 0 throughout.
+    await integration(u(10), u(1), u(3)); // direct
+    await integration(u(11), u(1), u(3)); // a second direct edge, its own row
+    await integration(u(12), u(1), u(5), { poweredByProductId: u(4) }); // via Zapier
+    await integration(u(13), u(5), u(1), { poweredByProductId: u(4) }); // collapses
+    await integration(u(14), u(1), u(6), { mechanismKind: 'iPaaS' }); // unnamed via
+    await integration(u(15), u(1), u(6), { poweredByProductId: u(1) }); // self, direct
+    await integration(u(16), u(3), u(5), { poweredByProductId: u(1) }); // Procore powers
+    await integration(u(17), u(5), u(3), { poweredByProductId: u(1) }); // the same pair
+    await integration(u(18), u(1), u(3), { retiredAt: '2026-01-01T00:00:00.000Z' }); // not live
+    // The evidenced arm: Procore and AutoCAD via Zapier, a Via row of its own.
+    const [a, b] = [u(1), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(4),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      mechanismName: 'Zapier',
+    });
+  }
+
+  /** The detail payload's two sections, counted by the same shared rule. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function countFromDetail(detail: any): number {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edge = (i: any) => ({
+      partnerSlug: i.source.slug === detail.slug ? i.target.slug : i.source.slug,
+      sourceSlug: i.source.slug,
+      targetSlug: i.target.slug,
+      connectorSlug: i.via?.slug ?? i.powered_by_product?.slug ?? null,
+      evidenced: i.via !== null && i.via !== undefined,
+      mechanismKind: i.mechanism_kind,
+    });
+    return countListedIntegrationRows(
+      detail.slug,
+      [...detail.integrations_as_source, ...detail.integrations_as_target].map(edge),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      detail.integrations_as_connector.map((i: any) => ({
+        sourceSlug: i.source.slug,
+        targetSlug: i.target.slug,
+      })),
+    );
+  }
+
+  it('counts the rows the product page lists, with the stored count at 0', async () => {
+    await seedListed();
+    const pair = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(pair.mechanisms).toEqual([]);
+    expect(pair.context_product.integration_count).toBe(0);
+    // 2 direct + Zapier/Sage + unnamed/BIM 360 + the self-powered edge + Zapier/AutoCAD
+    // (evidenced) + 1 powered pair = 7. The retired edge is not listed.
+    expect(pair.context_product.listed_integration_count).toBe(7);
+    expect(pair.other_product.listed_integration_count).toBe(0);
+
+    const detailRes = await buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug',
+      handler: createProductDetailHandler(t.factory),
+    }).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
+    const detail: unknown = await detailRes.json();
+    expect(countFromDetail(detail)).toBe(pair.context_product.listed_integration_count);
+  });
+
+  it('adds no statement to the one-trip batch', async () => {
+    await seedListed();
+    const batch = vi.spyOn(t.db, 'batch');
+    await get('/api/products/procore/integrations/revit');
+    expect((batch.mock.calls[0]?.[0] as readonly unknown[]).length).toBe(12);
+    batch.mockRestore();
+  });
+});
+
+// AECI-341 / AECI-1829 / AECI-1830: the empty pair page's alternatives read.
+describe('GET /api/products/:slug/integrations/:otherSlug/alternatives', () => {
+  const alternatives = (url: string) =>
+    buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug/integrations/:otherSlug/alternatives',
+      handler: createPairAlternativesHandler(t.factory),
+    }).request(url, {}, TEST_ENV, fakeExecutionContext());
+
+  /** Procore and Revit share no edge. Procore connects to three partners. */
+  async function seedAlternatives() {
+    await seedProducts();
+    await t.db.insert(products).values([
+      { id: u(3), slug: 'zeta-pm', name: 'zeta PM', promotionStatus: 'promoted' },
+      { id: u(4), slug: 'alpha-pm', name: 'Alpha PM', promotionStatus: 'promoted' },
+      {
+        id: u(5),
+        slug: 'beta-erp',
+        name: 'Beta ERP',
+        promotionStatus: 'promoted',
+        reviewCount: 7,
+        ratingOverallAvg: 4.2,
+        ratingOnboardingAvg: 3.9,
+      },
+    ]);
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(301), slug: 'pm', name: 'Project management', displayOrder: 1 },
+      { id: u(302), slug: 'erp', name: 'ERP', displayOrder: 2 },
+      { id: u(303), slug: 'cad', name: 'CAD', displayOrder: 3 },
+    ]);
+    await t.db.insert(productCategories).values([
+      // Revit (the other product) carries pm and erp: the anchors of Procore's lane.
+      { productId: u(2), categoryId: u(301) },
+      { productId: u(2), categoryId: u(302) },
+      { productId: u(3), categoryId: u(301) },
+      { productId: u(4), categoryId: u(301) },
+      { productId: u(5), categoryId: u(303) },
+    ]);
+    await dataObject(u(20), 'rfis', 'RFIs', 2);
+    await dataObject(u(21), 'drawings', 'Drawings', 1);
+    await integration(u(10), u(1), u(3));
+    await integration(u(11), u(4), u(1));
+    await integration(u(12), u(1), u(5));
+    await integration(u(13), u(2), u(5));
+    await claim(u(30), u(10), u(20), 'a_to_b');
+    await claim(u(31), u(11), u(21), 'a_to_b');
+    await claim(u(32), u(13), u(20), 'a_to_b');
+  }
+
+  it('lists the kept product matches A to Z that share a category with the other product', async () => {
+    await seedAlternatives();
+    const res = await alternatives('/api/products/procore/integrations/revit/alternatives');
+    expect(res.status).toBe(200);
+    const body = PairAlternativesSchema.parse(await res.json());
+    expect(body.lanes.context.anchors.map((a) => a.slug)).toEqual(['pm', 'erp']);
+    // Beta ERP is a partner of Procore but shares no category with Revit: not a match.
+    // Case never decides the order: "Alpha PM" before "zeta PM".
+    expect(body.lanes.context.matches.map((m) => m.product.slug)).toEqual(['alpha-pm', 'zeta-pm']);
+    const zeta = body.lanes.context.matches[1]!;
+    expect(zeta.shared_categories.map((c) => c.slug)).toEqual(['pm']);
+    expect(zeta.data_objects.map((d) => d.slug)).toEqual(['rfis']);
+    expect(zeta.direction).toBe('outbound');
+    expect(zeta.confirmed).toBe(false);
+    // Keep Revit: its only partner, Beta ERP, carries no Procore category (Procore has none).
+    expect(body.lanes.other.anchors).toEqual([]);
+    expect(body.lanes.other.matches).toEqual([]);
+  });
+
+  it('groups the data objects each product exchanges, in the vocabulary order', async () => {
+    await seedAlternatives();
+    const body = PairAlternativesSchema.parse(
+      await (await alternatives('/api/products/procore/integrations/revit/alternatives')).json(),
+    );
+    expect(body.moving.context_only.map((d) => d.slug)).toEqual(['drawings']);
+    expect(body.moving.both.map((d) => d.slug)).toEqual(['rfis']);
+    expect(body.moving.other_only).toEqual([]);
+  });
+
+  it('withholds a match rating under five reviews and reads one statement per product', async () => {
+    await seedAlternatives();
+    await t.db.insert(productCategories).values({ productId: u(5), categoryId: u(302) });
+    const batch = vi.spyOn(t.db, 'batch');
+    const body = PairAlternativesSchema.parse(
+      await (await alternatives('/api/products/procore/integrations/revit/alternatives')).json(),
+    );
+    expect((batch.mock.calls[0]?.[0] as readonly unknown[]).length).toBe(2);
+    batch.mockRestore();
+    const beta = body.lanes.context.matches.find((m) => m.product.slug === 'beta-erp')!;
+    expect(beta.review_count).toBe(7);
+    expect(beta.rating_overall_avg).toBe(4.2);
+    const alpha = body.lanes.context.matches.find((m) => m.product.slug === 'alpha-pm')!;
+    expect(alpha.rating_overall_avg).toBeNull();
+  });
+
+  it('404s an unknown slug and equal slugs', async () => {
+    await seedProducts();
+    expect(
+      (await alternatives('/api/products/procore/integrations/nope/alternatives')).status,
+    ).toBe(404);
+    expect(
+      (await alternatives('/api/products/procore/integrations/procore/alternatives')).status,
+    ).toBe(404);
   });
 });

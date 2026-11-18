@@ -87,6 +87,13 @@ export type CorrectionForm = z.infer<typeof CorrectionFormSchema>;
 export const CorrectionRequestSchema = CorrectionFormSchema.extend({
   target_type: RequestTargetTypeSchema,
   slug: z.string().min(1),
+  /**
+   * AECI-1828 (`STAGE_1_5_SPEC.md` §11.5): the empty pair page's "It does exist". The
+   * other product of the pair, by slug, when the target is a product. The request then
+   * records both products: the target, and this one in `context_product_id`. Optional:
+   * every other correction leaves it out.
+   */
+  pair_slug: z.string().min(1).optional(),
 });
 export type CorrectionRequest = z.infer<typeof CorrectionRequestSchema>;
 

@@ -44,6 +44,7 @@ function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminV
     target_id: over.target_id ?? `t-${over.id}`,
     target:
       'target' in over ? over.target! : { id: `t-${over.id}`, name: 'Procore', slug: 'procore' },
+    pair_product: over.pair_product ?? null,
     submitter_email: over.submitter_email ?? 'submitter@vendor.test',
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
@@ -183,6 +184,20 @@ describe('RequestQueue', () => {
     const { el } = await setup(makeApiMock([makeRequest({ id: 'r1', target: null })]));
     expect(el.querySelector('article h3 a')).toBeNull();
     expect(cardFor(el, 'Unknown product').textContent).toContain('Unknown product');
+  });
+
+  it('names the pair product of a correction sent from an empty pair page (AECI-1828)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeRequest({
+          id: 'r1',
+          pair_product: { id: 'p2', name: 'Sage 300 CRE', slug: 'sage-300-cre' },
+        }),
+      ]),
+    );
+    const line = el.querySelector('[data-testid="request-pair-product"]')!;
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('Pair with Sage 300 CRE');
+    expect(line.querySelector('a')!.getAttribute('href')).toBe('/products/sage-300-cre');
   });
 
   it('flags a likely duplicate', async () => {

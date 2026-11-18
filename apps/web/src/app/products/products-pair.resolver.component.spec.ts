@@ -33,9 +33,14 @@ import type { ProductPairResponse } from '@aeci/shared';
 
 import { ServerApiError, type ServerApiClient } from '../../server-api-client';
 import { createRequestContext, type AeciRequestContext } from '../../server/request-context';
+import { fitTitle } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
 
-import { productsPairResolver } from './products-pair.resolver';
+import {
+  emptyPairMetaDescription,
+  emptyPairMetaTitle,
+  productsPairResolver,
+} from './products-pair.resolver';
 
 const STATE = {} as RouterStateSnapshot;
 
@@ -48,6 +53,7 @@ const productListItem = (slug: string, name: string) => ({
   trades: [],
   api_docs_url: null,
   tool_integrations_url: null,
+  listed_integration_count: 0,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,
@@ -187,6 +193,66 @@ describe('productsPairResolver — server path', () => {
         noindex: false,
       }),
     );
+  });
+
+  it('renders an empty pair with its alternatives and tags every match (AECI-1829)', async () => {
+    const meta = metaStub();
+    const alternatives = {
+      moving: { context_only: [], both: [], other_only: [] },
+      lanes: {
+        context: {
+          anchors: [],
+          matches: [
+            {
+              product: { id: 'm1', slug: 'match-one', name: 'Match One', logo_url: null },
+              vendor_name: null,
+              review_count: 0,
+              rating_overall_avg: null,
+              rating_onboarding_avg: null,
+              shared_categories: [],
+              data_objects: [],
+              direction: null,
+              confirmed: false,
+            },
+          ],
+        },
+        other: { anchors: [], matches: [] },
+      },
+    };
+    const ctx = createRequestContext(
+      apiClient(async (path) =>
+        path.endsWith('/alternatives') ? alternatives : pairFixture({ mechanisms: [] }),
+      ),
+    );
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+    });
+
+    const result = (await run()) as { alternatives?: unknown } | null;
+
+    expect(result?.alternatives).toEqual(alternatives);
+    expect(ctx.embedded).toContainEqual({ type: 'product', slug: 'match-one' });
+  });
+
+  it('does not read alternatives for a pair with integrations', async () => {
+    const meta = metaStub();
+    const request = vi.fn(async (_path: string) => pairFixture());
+    const ctx = createRequestContext({ request } as unknown as ServerApiClient);
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+    });
+    await run();
+    expect(request.mock.calls.some(([path]) => String(path).endsWith('/alternatives'))).toBe(false);
   });
 
   it('sets noindex when the pair has no mechanisms', async () => {
@@ -482,6 +548,74 @@ describe('productsPairResolver — version-selection noindex', () => {
     const meta = await runWith({ mechanisms: [] });
     expect(meta.setEntityMeta).toHaveBeenCalledWith(expect.objectContaining({ noindex: true }));
     expect(meta.setPairJsonLd).not.toHaveBeenCalled();
+  });
+
+  // ─── AECI-1827: the caveat goes wherever the statement goes (legal review item 1) ───
+  const CAVEAT = 'Not on record means we have not found one. It is not proof that none exists.';
+
+  it('gives an empty pair a title and description that carry the caveat', async () => {
+    const meta = await runWith({ mechanisms: [] });
+    const entity = meta.setEntityMeta.mock.calls[0]![0];
+    expect(entity.name).toBe(`Procore and Revit: ${CAVEAT}`);
+    // No shorter rung: `fitTitle` must emit the caveat title whole, never a name-only one.
+    expect(entity.titleFallbacks).toEqual([]);
+    expect(entity.description).toBe(
+      `We have no integration between Procore and Revit on record. ${CAVEAT}`,
+    );
+  });
+
+  it('never lets a long name push the caveat out of the description', () => {
+    const long = (name: string) => ({ ...productListItem('x', 'x'), name });
+    for (const [a, b] of [
+      ['Procore', 'Revit'],
+      ['Autodesk Construction Cloud Build', 'Oracle Primavera P6 Enterprise Project Portfolio'],
+      ['A'.repeat(80), 'B'.repeat(80)],
+    ]) {
+      const pair = pairFixture({
+        mechanisms: [],
+        context_product: long(a!),
+        other_product: long(b!),
+      });
+      const description = emptyPairMetaDescription(pair);
+      expect(description.length).toBeLessThanOrEqual(155);
+      expect(description).toContain(CAVEAT);
+      // The statement appears only together with the caveat, and never truncated.
+      if (description.includes('We have no integration')) expect(description).toMatch(/exists\.$/);
+      expect(description).not.toContain('…');
+    }
+  });
+
+  it('steps the description down whole: statement and caveat, then the title, then the caveat', () => {
+    const named = (a: string, b: string) =>
+      pairFixture({
+        mechanisms: [],
+        context_product: { ...productListItem('a', a) },
+        other_product: { ...productListItem('b', b) },
+      });
+    expect(emptyPairMetaDescription(named('Procore', 'Revit'))).toBe(
+      `We have no integration between Procore and Revit on record. ${CAVEAT}`,
+    );
+    expect(emptyPairMetaDescription(named('Dynamo for Revit', 'McCormick Estimating'))).toBe(
+      `Dynamo for Revit and McCormick Estimating: ${CAVEAT}`,
+    );
+    expect(emptyPairMetaDescription(named('A'.repeat(50), 'B'.repeat(50)))).toBe(CAVEAT);
+  });
+
+  it('keeps the caveat title whole through fitTitle, with no brand suffix', () => {
+    const pair = pairFixture({ mechanisms: [] });
+    const name = emptyPairMetaTitle(pair);
+    expect(fitTitle(name, ' · AEC Integrations', [])).toBe(name);
+    expect(name.startsWith('Procore and Revit: Not on record')).toBe(true);
+  });
+
+  it('leaves a pair with integrations on its existing title and description', async () => {
+    const meta = await runWith({ version_diff: diff(true) });
+    const entity = meta.setEntityMeta.mock.calls[0]![0];
+    expect(entity.name).toBe('Procore and Revit integrations');
+    expect(entity.description).toBe(
+      'How Procore and Revit exchange data across their integrations.',
+    );
+    expect(entity.titleFallbacks.length).toBeGreaterThan(0);
   });
 
   it('suppresses JSON-LD on a non-default version selection', async () => {

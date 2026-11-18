@@ -47,6 +47,7 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     target_id: over.target_id ?? `t-${over.id}`,
     target:
       'target' in over ? over.target! : { id: `t-${over.id}`, name: 'Procore', slug: 'procore' },
+    pair_product: null,
     submitter_email: over.submitter_email ?? 'submitter@vendor.test',
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
