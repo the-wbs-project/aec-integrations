@@ -1571,8 +1571,11 @@ Four things they do **not** cover, all of which had to be applied by hand:
 - **Reviews.** Only the fixtures on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
   `db:seed-reviews -- --remote --env <tier> --apply` writes a deterministic set; every row
   carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those. Its rows
-  have `reviewer_id` NULL and no `anonymized_at`, so the daily `reviews_missing_anonymized_at`
-  check (error severity) reports every one of them on that tier until they are torn down.
+  have `reviewer_id` NULL and an `anonymized_at` stamp at their moderation time, so the daily
+  `reviews_missing_anonymized_at` check (error severity) stays at zero (AECI-1936). They keep
+  their `reviewer_firm`, which a real account deletion would also clear. `src/test/seed-data-quality.spec.ts` applies the seeder's output
+  over the seed chain and fails on any error-severity finding. Rows seeded before AECI-1936
+  carry no stamp and are still reported until they are torn down or re-seeded.
 - **An operator profile.** The fixture profiles are the two e2e personas; your own account
   has no row, so you sign in as a role-less user with no `/admin` and no `/vendor`.
   Authorization is per-tier D1 (ADR 0016), so a profile there grants nothing elsewhere.
