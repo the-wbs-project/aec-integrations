@@ -5,6 +5,7 @@ import {
   INTEGRATION_EDIT_REQUIRED_FIELDS,
   integrationEditFieldSchema,
 } from './integration-edits';
+import { IntegrationRetiredBySchema } from './integration-retire';
 import { IntegrationMechanismKindSchema } from './integrations';
 
 /**
@@ -86,7 +87,8 @@ export type CreateVendorIntegrationParsed = z.output<typeof CreateVendorIntegrat
  * An existing integration that strongly matches the one being created (AECI-1012,
  * option 1C): the same two products in either order, the same connector (none),
  * and an owner that is the caller or unknown. Retired rows are included, marked,
- * so a vendor that retired its own row can restore it instead.
+ * so a vendor that retired its own row can restore it instead. `retired_by` says
+ * who retired it, because only AEC Integrations restores an AECi retire.
  */
 export const PossibleDuplicateIntegrationSchema = z.object({
   id: z.string().uuid(),
@@ -100,6 +102,9 @@ export const PossibleDuplicateIntegrationSchema = z.object({
   owner: z.object({ id: z.string(), name: z.string() }).nullable(),
   claimed: z.boolean(),
   retired: z.boolean(),
+  /** Who retired the row (AECI-1046), or `null` while it is live. A retired row
+   *  with no stored value predates migration 0046 and reads as `owner`. */
+  retired_by: IntegrationRetiredBySchema.nullable(),
 });
 export type PossibleDuplicateIntegration = z.infer<typeof PossibleDuplicateIntegrationSchema>;
 

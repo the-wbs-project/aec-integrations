@@ -6,7 +6,11 @@
  * create and the one in the 201 cannot disagree.
  */
 
-import { orderedPairSlugs, type PossibleDuplicateIntegration } from '@aeci/shared';
+import {
+  effectiveRetiredBy,
+  orderedPairSlugs,
+  type PossibleDuplicateIntegration,
+} from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq } from 'drizzle-orm';
 
@@ -114,6 +118,7 @@ export function toPossibleDuplicate(
         : null,
     claimed: row.claimedAt !== null,
     retired: row.retiredAt !== null,
+    retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
   };
 }
 

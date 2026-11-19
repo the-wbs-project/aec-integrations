@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 17, 2026
+last_updated: November 19, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -99,8 +99,8 @@ If your company offers an integration that is not listed, choose **Add an integr
 When you choose the other product, we check for integrations already on record for the two products that could be yours. Any we find are listed at the top of the second step, each with one choice:
 
 - **Claim this one instead.** Your company is recorded as its owner but has not claimed it yet. Claim it rather than add a copy.
-- **Open it.** Your company already holds it.
-- **Open it to restore.** Your company retired it. Restore it from its page.
+- **Open it.** Your company already holds it. This is also the action on a row AEC Integrations retired. Its status line says so. Only AEC Integrations can restore it.
+- **Open it to restore.** It is retired, and your company retired it. Its page shows who retired it. You can restore it there.
 - **Ask to be recorded as the owner.** Nobody is on file as its owner. Its page lets you ask us to record your company.
 
 You can still add yours. The list never stops you.

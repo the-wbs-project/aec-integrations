@@ -151,6 +151,7 @@ export interface StrongMatchRow {
   claimedAt: string | null;
   origin: string;
   retiredAt: string | null;
+  retiredBy: string | null;
 }
 
 /**
@@ -178,6 +179,7 @@ export async function findStrongMatches(
       claimedAt: integrations.claimedAt,
       origin: integrations.origin,
       retiredAt: integrations.retiredAt,
+      retiredBy: integrations.retiredBy,
     })
     .from(integrations)
     .leftJoin(vendors, eq(vendors.id, integrations.builtByVendorId))

@@ -30,6 +30,10 @@
  *      sentence. A failed check fails open. Change drops a stale answer.
  *  13. The receipt links to the portal row and the public pair page, and after a
  *      201 it lists only matches the pre-check did not show.
+ *  14. The receipt names the pair that was submitted. Change is disabled while a
+ *      create or a claim is in flight, and a form change mid-flight is ignored.
+ *  15. An own match AEC Integrations retired only opens: the restore route refuses
+ *      the vendor, so it never offers Open it to restore.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -330,6 +334,7 @@ describe('submitting', () => {
           owner: null,
           claimed: false,
           retired: false,
+          retired_by: null,
         },
       ],
     });
@@ -608,11 +613,13 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     owner: { id: ME.id, name: ME.company_name },
     claimed: false,
     retired: false,
+    retired_by: null,
     ...over,
   });
   const CLAIMABLE = dup(1, {});
   const CLAIMED = dup(2, { claimed: true });
-  const RETIRED = dup(3, { claimed: true, retired: true });
+  const RETIRED = dup(3, { claimed: true, retired: true, retired_by: 'owner' });
+  const AECI_RETIRED = dup(7, { claimed: true, retired: true, retired_by: 'aeci' });
   const NO_OWNER = dup(4, { owner: null, orientation: 'reversed' });
   const ALL = [CLAIMABLE, CLAIMED, RETIRED, NO_OWNER];
 
@@ -813,6 +820,7 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     const OTHER_RETIRED = dup(6, {
       owner: { id: 'other-vendor', name: 'Procore Technologies' },
       retired: true,
+      retired_by: 'owner',
     });
     api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [OTHER, OTHER_RETIRED] });
     const fixture = await mountLinked();
@@ -825,6 +833,102 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     expect(status(OTHER_RETIRED.id)).toBe('Offered by Procore Technologies, retired');
     expect(q(fixture, '[data-testid="create-dupes-count"]')?.textContent?.trim()).toBe(
       '2 integrations',
+    );
+  });
+
+  it('offers only Open it on an own match AEC Integrations retired, and says who retired it', async () => {
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [AECI_RETIRED, RETIRED] });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const aeciRow = row(fixture, AECI_RETIRED.id)!;
+    expect(aeciRow.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim()).toBe(
+      'Yours, retired by AEC Integrations. Only AEC Integrations can restore it.',
+    );
+    expect(aeciRow.querySelector('[data-testid="create-dupe-restore"]')).toBeNull();
+    expect(aeciRow.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
+    const openLink = aeciRow.querySelector('[data-testid="create-dupe-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open it');
+    expect(href(openLink)).toBe(`/products/${OWN.slug}/integrations/${AECI_RETIRED.id}`);
+    // An owner retire still offers the restore.
+    expect(
+      row(fixture, RETIRED.id)?.querySelector('[data-testid="create-dupe-restore"]'),
+    ).not.toBeNull();
+  });
+
+  /** Back to step 1 past the disabled button, then pick another product. This
+   *  stands in for any form change that lands while a request is in flight. */
+  async function changeToBluebeam(fixture: ComponentFixture<VendorIntegrationCreate>) {
+    const BLUEBEAM = product('00000000-0000-4000-8000-000000005305', 'Bluebeam Revu');
+    api.searchProducts.mockResolvedValue({ data: [BLUEBEAM], total: 1, page: 1, perPage: 8 });
+    (fixture.componentInstance as unknown as { onChangeCounterpart(): void }).onChangeCounterpart();
+    await settle(fixture);
+    await searchFor(fixture, 'blu');
+    const pick = options().find((o) => o.textContent?.includes('Bluebeam'))!;
+    pick.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    pick.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle(fixture);
+  }
+
+  it('builds the create receipt from the submitted pair, and disables Change while saving', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    api.createIntegration.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    await fillRequired(fixture);
+    await submit(fixture);
+
+    const change = q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!;
+    expect(change.disabled).toBe(true);
+    change.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-change-counterpart"]')).not.toBeNull();
+
+    await changeToBluebeam(fixture);
+    finish({
+      integration: { id: '00000000-0000-4000-8000-000000000777' },
+      possible_duplicates: [],
+    });
+    await settle(fixture);
+
+    expect(href(q(fixture, '[data-testid="create-result-public"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${PROCORE.slug}`,
+    );
+    const openLink = q(fixture, '[data-testid="create-result-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open your integration');
+    expect(href(openLink)).toBe(
+      `/products/${OWN.slug}/integrations/00000000-0000-4000-8000-000000000777`,
+    );
+  });
+
+  it('builds the claim receipt from the pair it claimed from, and disables Change while claiming', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [CLAIMABLE] });
+    api.claimIntegration.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-dupe-claim"]')!.click();
+    await settle(fixture);
+
+    expect(
+      q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!.disabled,
+    ).toBe(true);
+
+    await changeToBluebeam(fixture);
+    finish({ integration: { id: CLAIMABLE.id } });
+    await settle(fixture);
+
+    expect(q(fixture, '[data-testid="create-result-title"]')?.textContent?.trim()).toBe(
+      'You now own Row 1.',
+    );
+    expect(href(q(fixture, '[data-testid="create-result-public"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${PROCORE.slug}`,
+    );
+    expect(href(q(fixture, '[data-testid="create-result-open"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${CLAIMABLE.id}`,
     );
   });
 });

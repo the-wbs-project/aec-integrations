@@ -147,10 +147,12 @@ function emptyDraft(): Draft {
  * product, the form reads `GET /api/vendor/integrations/possible-duplicates`, the
  * create's own strong-match rule, and lists each match at the top of step 2 with
  * one action: Claim this one instead (the caller's live, unclaimed row), Open it
- * (already the caller's), Open it to restore (the caller's retired row), or Ask to
- * be recorded as the owner (no owner on file). A claim closes the form and shows
- * the same receipt for the claimed row. A failed check fails open: the create still
- * runs, and its `201` still warns. After the `201` the receipt lists only matches
+ * (already the caller's, or retired by AEC Integrations, which only AECi restores),
+ * Open it to restore (a row the caller retired), or Ask to be recorded as the owner
+ * (no owner on file). A claim closes the form and shows the same receipt for the
+ * claimed row. Change is disabled while a create or a claim is in flight, and each
+ * receipt is built from what was submitted, never from the form after the await.
+ * A failed check fails open: the create still runs, and its `201` still warns. After the `201` the receipt lists only matches
  * the pre-check did not show, such as a row created in between.
  *
  * The type picker leaves out the connector-delivered kinds, which the server
@@ -296,7 +298,11 @@ function emptyDraft(): Draft {
                 @for (dup of created.duplicates; track dup.id) {
                   <ng-container
                     [ngTemplateOutlet]="duplicateRow"
-                    [ngTemplateOutletContext]="{ $implicit: dup, receipt: true }"
+                    [ngTemplateOutletContext]="{
+                      $implicit: dup,
+                      receipt: true,
+                      ownSlug: created.own.slug,
+                    }"
                   />
                 }
               </ul>
@@ -515,6 +521,7 @@ function emptyDraft(): Draft {
                       type="button"
                       [class]="secondaryButtonClass"
                       [attr.aria-label]="changeCounterpartLabel(chosen.name)"
+                      [disabled]="saving() || claimingId() !== null"
                       (click)="onChangeCounterpart()"
                       data-testid="create-change-counterpart"
                       i18n="@@vendor.integrationCreate.counterpart.change"
@@ -570,7 +577,11 @@ function emptyDraft(): Draft {
                       @for (dup of duplicates(); track dup.id) {
                         <ng-container
                           [ngTemplateOutlet]="duplicateRow"
-                          [ngTemplateOutletContext]="{ $implicit: dup, receipt: false }"
+                          [ngTemplateOutletContext]="{
+                            $implicit: dup,
+                            receipt: false,
+                            ownSlug: ownSlug(),
+                          }"
                         />
                       }
                     </ul>
@@ -785,8 +796,9 @@ function emptyDraft(): Draft {
 
       <!-- One match: its name, a status line under it, and the one action that fits
            it on the right. On a narrow column the action wraps under the text. The
-           receipt offers links only, so a claim there goes through the row's page. -->
-      <ng-template #duplicateRow let-dup let-receipt="receipt">
+           receipt offers links only, so a claim there goes through the row's page.
+           The receipt passes the own slug it was built with, never the live form's. -->
+      <ng-template #duplicateRow let-dup let-receipt="receipt" let-rowOwnSlug="ownSlug">
         <li [class]="receipt ? 'py-2.5' : 'px-4 py-3'" [attr.data-duplicate]="dup.id">
           <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
             <div class="min-w-0 flex-1 basis-48">
@@ -803,7 +815,7 @@ function emptyDraft(): Draft {
             <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
               @switch (actionFor(dup)) {
                 @case ('claim') {
-                  @if (linkTo(dup.id); as link) {
+                  @if (linkTo(dup.id, rowOwnSlug); as link) {
                     <a
                       [routerLink]="link"
                       [attr.aria-label]="openAria(dup, 'open')"
@@ -833,7 +845,7 @@ function emptyDraft(): Draft {
                   }
                 }
                 @case ('restore') {
-                  @if (linkTo(dup.id); as link) {
+                  @if (linkTo(dup.id, rowOwnSlug); as link) {
                     <a
                       [routerLink]="link"
                       [attr.aria-label]="openAria(dup, 'restore')"
@@ -845,7 +857,7 @@ function emptyDraft(): Draft {
                   }
                 }
                 @case ('ask') {
-                  @if (linkTo(dup.id); as link) {
+                  @if (linkTo(dup.id, rowOwnSlug); as link) {
                     <a
                       [routerLink]="link"
                       [attr.aria-label]="openAria(dup, 'ask')"
@@ -857,7 +869,7 @@ function emptyDraft(): Draft {
                   }
                 }
                 @default {
-                  @if (linkTo(dup.id); as link) {
+                  @if (linkTo(dup.id, rowOwnSlug); as link) {
                     <a
                       [routerLink]="link"
                       [attr.aria-label]="openAria(dup, 'open')"
@@ -1439,21 +1451,27 @@ export class VendorIntegrationCreate implements OnInit {
       return;
     }
 
+    // The receipt is built only from what was submitted. The form stays live
+    // while the request runs, so nothing is read from it after the await.
+    const pair = this.pairFor() ?? {
+      own: { slug: '', name: '' },
+      other: { slug: other.slug, name: other.name },
+    };
+    const shown = new Set(this.duplicates().map((dup) => dup.id));
+    const name = body.name ?? '';
+
     this.saving.set(true);
     try {
       const response = await this.api.createIntegration(body);
       // The receipt repeats only what the pre-check did not show (AECI-1953).
-      const shown = new Set(this.duplicates().map((dup) => dup.id));
       const late = response.possible_duplicates.filter((dup) => !shown.has(dup.id));
-      const pair = this.pairFor();
       this.saving.set(false);
       this.open.set(false);
       this.result.set({
         kind: 'created',
         id: response.integration.id,
-        name: body.name ?? '',
-        own: pair?.own ?? { slug: '', name: '' },
-        other: pair?.other ?? { slug: other.slug, name: other.name },
+        name,
+        ...pair,
         duplicates: late,
       });
       this.announcer.announce(
@@ -1500,11 +1518,13 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   /** The one action a match offers. The claim route does not refuse a retired row,
-   *  so Claim shows only on a live, unclaimed row the caller owns. */
+   *  so Claim shows only on a live, unclaimed row the caller owns. Restore shows only
+   *  on a row the owner retired: the restore route refuses an AECi retire, so that
+   *  row only opens. */
   protected actionFor(dup: PossibleDuplicateIntegration): DuplicateAction {
     if (dup.owner === null) return 'ask';
     if (dup.owner.id !== this.myVendorId()) return 'open';
-    if (dup.retired) return 'restore';
+    if (dup.retired) return dup.retired_by === 'aeci' ? 'open' : 'restore';
     return dup.claimed ? 'open' : 'claim';
   }
 
@@ -1518,7 +1538,9 @@ export class VendorIntegrationCreate implements OnInit {
     }
     if (dup.owner.id === this.myVendorId()) {
       if (dup.retired)
-        return $localize`:@@vendor.integrationCreate.dupes.status.yoursRetired:Yours, retired`;
+        return dup.retired_by === 'aeci'
+          ? $localize`:@@vendor.integrationCreate.dupes.status.yoursRetiredByAeci:Yours, retired by AEC Integrations. Only AEC Integrations can restore it.`
+          : $localize`:@@vendor.integrationCreate.dupes.status.yoursRetired:Yours, retired`;
       return dup.claimed
         ? $localize`:@@vendor.integrationCreate.dupes.status.yours:Yours`
         : $localize`:@@vendor.integrationCreate.dupes.status.yoursUnclaimed:Yours, not claimed yet`;
@@ -1575,13 +1597,15 @@ export class VendorIntegrationCreate implements OnInit {
   /** "Claim this one instead" (§4.7.5): the `onClaim` pattern of the owned rows. */
   protected async onClaimDuplicate(dup: PossibleDuplicateIntegration): Promise<void> {
     if (this.claimingId() !== null || this.saving()) return;
+    // Snapshot before the await, as the create does: the receipt names the pair
+    // the vendor claimed from, not whatever the form shows when the claim lands.
     const pair = this.pairFor();
     if (!pair) return;
+    const name = this.duplicateName(dup);
     this.claimingId.set(dup.id);
     this.claimNotice.set(null);
     try {
       await this.api.claimIntegration(dup.id);
-      const name = this.duplicateName(dup);
       this.open.set(false);
       this.result.set({ kind: 'claimed', id: dup.id, name, ...pair, duplicates: [] });
       this.announcer.announce(

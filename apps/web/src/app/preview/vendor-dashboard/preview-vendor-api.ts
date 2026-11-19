@@ -466,11 +466,12 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  * reviewable. No network is ever touched.
  */
 /**
- * AECI-1953: four rows on Summit Model Coordination and Bluebeam Revu, one of each
+ * AECI-1953: five rows on Summit Model Coordination and Bluebeam Revu, one of each
  * kind the create form's duplicate panel offers an action for. Pick Bluebeam Revu
  * as the other product to see the panel: a live row Summit owns but has not
  * claimed (Claim this one instead), one it has claimed (Open it), one it retired
- * (Open it to restore), and one with no owner on file (Ask to be recorded).
+ * (Open it to restore), one with no owner on file (Ask to be recorded), and one
+ * AEC Integrations retired (Open it, since only AECi restores it).
  */
 const OTHER_BLUEBEAM = {
   id: '00000000-0000-4000-8000-000000005305',
@@ -541,6 +542,14 @@ const PREVIEW_BLUEBEAM_DUPLICATES: readonly VendorIntegration[] = [
     retired_at: null,
     retired_by: null,
     maintained_by: 'aeci',
+  }),
+  bluebeamRow(5, 'Summit Revu Export', {
+    is_owner: true,
+    owner: SUMMIT,
+    claimed_at: '2026-08-15T00:00:00.000Z',
+    retired_at: '2026-10-02T00:00:00.000Z',
+    retired_by: 'aeci',
+    maintained_by: 'vendor',
   }),
 ];
 
@@ -2473,6 +2482,7 @@ export class PreviewVendorApi extends VendorApi {
         owner: entry.owner,
         claimed: entry.claimed_at !== null,
         retired: entry.retired_at !== null,
+        retired_by: entry.retired_at === null ? null : (entry.retired_by ?? 'owner'),
       }));
   }
 

@@ -10739,6 +10739,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
     owner: z.object({ id, name }).nullable(),
     claimed: z.boolean(),
     retired: z.boolean(),
+    retired_by: IntegrationRetiredBySchema.nullable(),   // 'owner' | 'aeci', null while live
   })),
 });
 ```
@@ -10778,6 +10779,8 @@ export const PossibleDuplicatesResponseSchema = z.object({
   possible_duplicates: z.array(PossibleDuplicateIntegrationSchema),   // the create's item, unchanged
 });
 ```
+
+**The item.** It is the create's item: `id`, `name`, `mechanism_kind`, `mechanism_name`, `orientation`, `owner`, `claimed`, `retired` and `retired_by`. `retired_by` is `'owner'` or `'aeci'` on a retired row and `null` on a live one. A retired row with no stored value predates migration 0046 and reads as `'owner'`. The portal offers restore only for `'owner'`, because the restore route refuses an AECi retire with `INTEGRATION_RETIRED_BY_AECI`.
 
 **Order: shape, then endpoints.** A missing or malformed id, an unknown key, or equal ids is `400`. The endpoint check is the create's: a `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`.
 

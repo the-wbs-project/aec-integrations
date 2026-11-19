@@ -37,7 +37,8 @@ const P_FOREIGN = uuid(13); // C's product
 
 const I_NO_OWNER_REVERSED = uuid(20); // OTHER → OWN, no owner on file
 const I_MINE_UNCLAIMED = uuid(21); // OWN → OTHER, owner A, not claimed
-const I_MINE_RETIRED = uuid(22); // OWN → OTHER, owner A, claimed and retired
+const I_MINE_RETIRED = uuid(22); // OWN → OTHER, owner A, claimed and retired by A
+const I_MINE_RETIRED_AECI = uuid(26); // OWN → OTHER, owner A, claimed, retired by AECi
 const I_OTHER_OWNER = uuid(23); // same pair, owned by C: NOT a strong match
 const I_POWERED = uuid(24); // same pair, connector-powered: NOT a strong match
 const I_ELSEWHERE = uuid(25); // OWN → FOREIGN: another pair
@@ -123,7 +124,20 @@ beforeEach(async () => {
       builtByVendorId: VENDOR_A,
       claimedAt: '2026-03-01T00:00:00.000Z',
       retiredAt: '2026-04-01T00:00:00.000Z',
+      retiredBy: 'owner',
       createdAt: '2026-03-01T00:00:00.000Z',
+    },
+    {
+      id: I_MINE_RETIRED_AECI,
+      name: 'Revit export',
+      sourceProductId: P_OWN,
+      targetProductId: P_OTHER,
+      mechanismKind: 'api',
+      builtByVendorId: VENDOR_A,
+      claimedAt: '2026-05-01T00:00:00.000Z',
+      retiredAt: '2026-06-01T00:00:00.000Z',
+      retiredBy: 'aeci',
+      createdAt: '2026-05-01T00:00:00.000Z',
     },
     {
       id: I_OTHER_OWNER,
@@ -184,7 +198,7 @@ async function read(
 const pair = (own: string, other: string) => `product_id=${own}&counterpart_product_id=${other}`;
 
 describe('GET /api/vendor/integrations/possible-duplicates — the matches', () => {
-  it('lists every strong match in either orientation, oldest first, retired rows marked', async () => {
+  it('lists every strong match in either orientation, oldest first, retired rows marked with who retired them', async () => {
     const res = await read(AUTH_A, pair(P_OWN, P_OTHER));
     expect(res.status).toBe(200);
     const body = PossibleDuplicatesResponseSchema.parse(res.body);
@@ -198,6 +212,7 @@ describe('GET /api/vendor/integrations/possible-duplicates — the matches', () 
         owner: null,
         claimed: false,
         retired: false,
+        retired_by: null,
       },
       {
         id: I_MINE_UNCLAIMED,
@@ -208,6 +223,7 @@ describe('GET /api/vendor/integrations/possible-duplicates — the matches', () 
         owner: { id: VENDOR_A, name: 'Autodesk' },
         claimed: false,
         retired: false,
+        retired_by: null,
       },
       {
         id: I_MINE_RETIRED,
@@ -218,6 +234,18 @@ describe('GET /api/vendor/integrations/possible-duplicates — the matches', () 
         owner: { id: VENDOR_A, name: 'Autodesk' },
         claimed: true,
         retired: true,
+        retired_by: 'owner',
+      },
+      {
+        id: I_MINE_RETIRED_AECI,
+        name: 'Revit export',
+        mechanism_kind: 'api',
+        mechanism_name: null,
+        orientation: 'same',
+        owner: { id: VENDOR_A, name: 'Autodesk' },
+        claimed: true,
+        retired: true,
+        retired_by: 'aeci',
       },
     ]);
   });
@@ -308,7 +336,7 @@ describe('GET /api/vendor/integrations/possible-duplicates — registration', ()
       fakeExecutionContext(),
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as JsonBody).possible_duplicates).toHaveLength(3);
+    expect(((await res.json()) as JsonBody).possible_duplicates).toHaveLength(4);
     expect(write.keys).toEqual([]);
     expect(token.keys).toEqual([]);
   });
