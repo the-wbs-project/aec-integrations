@@ -1326,7 +1326,7 @@ Also, the notice line is not VPPA consent. The statute requires separate, distin
 
 Thank you. One part of the question is left. One question: under Fla. Stat. ch. 934, does this same click-to-load design, where nothing loads from the video provider until the visitor clicks play beside a line naming the provider, create any wiretap exposure for us, or does the notice and the click answer it?
 
-**Follow-up answer (2026-11-19):**
+**Follow-up answer (Alexander Coffin, 2026-11-19):**
 
 The click-to-load design handles chapter 934 well. The notice line isn't really what protects you, though, and as written it has a gap you should fix. Start with who intercepts what. A claim under § 934.03 needs someone to intercept the contents of a communication without consent from all parties. Once the visitor clicks, their browser talks directly to YouTube. That's a two-party exchange, and YouTube is a party to it. A party to a communication isn't intercepting it, and you aren't in the middle of it at all. That's your main defense, and it's a good one. Florida courts have also been unreceptive to session-replay and tracking theories, often finding no "contents" were captured. Where does exposure remain? The aiding or procuring theory: you put the player there, so you "procured" YouTube's collection. That's weak when YouTube is the endpoint, but plaintiffs still plead it. The other issue is content. When the player loads, YouTube learns the video ID, and the referrer tells it the page URL. A URL that shows which product page someone visited can look a lot like content.
 
