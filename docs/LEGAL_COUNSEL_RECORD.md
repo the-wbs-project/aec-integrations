@@ -69,9 +69,15 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q59 | Terms of Service | An employee records their employer's software and office names on our site without authority | Alexander Coffin | 2026-11-16 |
 | Q60 | Privacy Policy | Adding new sections to a legal page before its first effective date: is the 30-day notice owed | Travis Russell | 2026-11-15 |
 | Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Brian D. Lerner | 2026-11-17 |
+| Q62 | Vendor Terms | "No plan changes where you rank or appear" when a paid plan lets a vendor set the tags that order our category menus | Alexander Coffin | 2026-11-19 |
 | Q63 | Terms of Service | Is a visible line beside the sign-in buttons enough acceptance for a change that reduces a reader's rights | Alexander Morton | 2026-11-19 |
 | Q64 | Privacy Policy | How long we may keep a copyright notice and counter-notice, and the privacy wording for it | Alexander Coffin | 2026-11-19 |
+| Q65 | Privacy Policy | Forwarding a counter-notice when our privacy policy says we identify users only under legal process | Alexander Coffin | 2026-11-19 |
+| Q66 | Privacy Policy | Disclosing a legal hold, and the audit records we keep longer than the stated four years | Alexander Coffin | 2026-11-19 |
+| Q67 | Privacy Policy | How long to keep an acceptance record when no vendor account ever existed or the company's record is gone | Alexander Coffin | 2026-11-19 |
 | Q68 | Vendor Terms | Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms | Travis Russell | 2026-11-19 |
+| Q69 | Vendor Terms | Giving the first in-force Vendor Terms a new version number | Travis Russell | 2026-11-19 |
+| Q70 | Terms of Service | Three sentences changed since your colleagues' reviews: a wording check | Alexander Coffin | 2026-11-19 |
 
 ## Questions and answers
 
@@ -1582,7 +1588,43 @@ The bar may show the name without repeating the line. Nominative fair use permit
 
 **What we did:** Our view holds. The sticky bar keeps the product name for every product, as built. The bar stays free of vendor colours, vendor styling, the word "official" and any claim language. Counsel offers an optional "Unclaimed" tag beside the name. Ruling 41 adds it as a trial. Recorded on AECI-1826.
 
-Q63 to Q70 are batch 6, asked on 2026-11-19: the items that gate the first effective date. Only the answered ones are recorded here.
+### Q62. "No plan changes where you rank or appear" when a paid plan lets a vendor set the tags that order our category menus
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 4, 2026 that our statement that ranking is never influenced by payment must be backed by records, and that it will not protect conduct that contradicts it.
+
+Our Vendor Terms say:
+
+"No plan changes where you rank or appear, or whether a review is published. That holds on Free, on Managed, and for anything else you pay us for."
+
+Our Managed plan agreement says:
+
+"No plan changes where you rank or appear, or whether a review is published. A subscription changes what you can edit. It never changes the order of listings."
+
+Products carry tags for the trades and the audiences they serve, such as "Electrical" or "General contractors". We set these tags from our own research when we list a product. A vendor can change them on its own product only on the paid Managed plan. That is one of the things the plan is sold as including.
+
+The tags feed three things:
+
+- Each trade and each audience has its own page listing the products that carry the tag. A product appears there only if it carries the tag.
+- Our site menu and home page show the ten trades and the ten audiences with the most products. So tags a Managed vendor adds can lift a term into that top ten, or make a trade with no products appear for the first time.
+- The order of products inside any list never reads the plan. No product moves up or down a list because of a plan.
+
+Our public page "How ranking works" already says the directory menu lists "the trades with the most products". It does not say that only a paying vendor can change its own product's trade tags.
+
+Our view: the two sentences stay true. The plan changes how a product is described and which category terms our menus show. It never changes the order of listings. One added sentence on "How ranking works", saying that a Managed vendor can set its product's trades and audiences and that those tags decide which category pages list it, is enough.
+
+Question: is that disclosure on "How ranking works" enough, or do the words "or appear" in both agreements need a qualifier because a Managed vendor can put its product on a trade or audience page that a Free vendor cannot?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+The page disclosure isn't enough on its own. "Or appear" needs a qualifier. The problem is that the clause is simply false as written. Your terms say "No plan changes where you rank or appear", but a vendor can change them on its own product only on the paid Managed plan, and a product appears there only if it carries the tag. So the plan does change where a product appears. That's the literal reading, and it's the one a Free vendor will argue when it can't get onto the "Electrical" page and a competitor paying for Managed can. Contract law. A public web page doesn't amend a signed agreement. If the agreement makes an express promise, a disclosure somewhere else won't cure it, especially when the agreement itself never points to that page. And the Vendor Terms make it worse by extending the promise to anything else you pay us for. FDUTPA. Florida asks whether the overall impression is likely to mislead someone acting reasonably. A plain "no" in the agreement next to a caveat on a separate page is the classic pattern where the caveat loses. Your colleague already flagged this: the statement will not protect conduct that contradicts it. There's also a second exposure. Your menu claims to show "the trades with the most products", but only paying vendors can push those counts up. Directory users could see that as payment-shaped, even if the order within each list is clean.
+
+**What we did:** Our view was wrong. "No plan changes where you rank or appear" is false as written in both agreements, because only a Managed vendor can put its product on a trade or audience page. A sentence on the ranking page does not cure a promise in the agreement. Not applied yet. Either the sentence is qualified in both agreements, or trade and audience tags become editable on every plan so the sentence is true. The menu's "trades with the most products" is a second exposure, tracked on AECI-1836. Chris's ruling is open. This gates the first effective date. Recorded on AECI-1826.
+
+Q63 to Q70 are batch 6, asked on 2026-11-19: the items that gate the first effective date. All eight are answered.
 
 ### Q63. Is a visible line beside the sign-in buttons enough acceptance for a change that reduces a reader's rights
 
@@ -1640,6 +1682,96 @@ It's written to account holders. Many senders have no account, so "if you delete
 
 **What we did:** Three years stays. Not applied yet. The retention sentence is rewritten to add "or longer if a claim, dispute or legal hold is pending", to speak to senders who have no account, to name what we keep, and to say who we send a notice or counter-notice to. One build check follows: after an account is deleted and the link removed, can we still count that person's notices if they register again. The case counsel cites is reproduced as written. We believe its name is Warner Chappell Music v. Nealy.
 
+### Q65. Forwarding a counter-notice when our privacy policy says we identify users only under legal process
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Reviews are published under the reviewer's chosen display name. We have a registered DMCA designated agent. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 4, 2026 that we should disclose a reviewer's identity only in response to legal process, with notice to the reviewer where the law permits. Our Privacy Policy said so in these words:
+
+"We disclose information that identifies you only in response to legal process, and we tell you first where the law permits, in time for you to object where practicable."
+
+Our Terms of Service also say, as your colleague reviewed on November 10, 2026:
+
+"We forward your counter-notice to the person who sent the notice."
+
+A counter-notice carries the sender's name, address and phone number. Forwarding it is required by 17 U.S.C. 512(g), and it is not a response to legal process. So the two sentences disagreed. We added this to the Privacy Policy, directly after the "only in response to legal process" sentence:
+
+"There is one exception. If you send a copyright counter-notice, we forward it to the person who sent the notice, with the name and contact details you put in it, as copyright law requires."
+
+Our view: the exception is narrow, required by statute, and stated beside the promise it qualifies, so the Privacy Policy is now accurate.
+
+Question: is that added sentence the right way to reconcile the two promises, or should the wording change?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+Mostly yes. Putting the exception right next to the promise it qualifies is the right move. I'd still change three things in the wording.
+
+1. Drop "There is one exception." That's a promise in itself, and a risky one. If you also share data with hosting vendors, or in an emergency, the policy is wrong again, and an absolute privacy statement that turns out false invites a deception claim under Florida's consumer protection statute (FDUTPA) or Section 5 of the FTC Act. Just state the counter-notice rule on its own. Then check the rest of the policy for any other sharing the "only" sentence doesn't cover.
+2. Deal with the "tell you first" promise. The base sentence promises advance notice "in time for you to object." Forwarding a counter-notice doesn't work that way. The statute says you forward it promptly, and there's nothing for the user to object to. A user could read your exception as still promising a heads-up before you forward. Say plainly that sending the counter-notice is the notice.
+3. Describe what you actually send. "Name and contact details" is vague. Section 512(g)(3) requires the counter-notice to include name, address, phone number and a statement consenting to jurisdiction. You forward a copy of the whole document, including anything else the user chose to put in it. Say that.
+
+**What we did:** The placement stands. The sentence is rewritten, not yet applied: no "There is one exception", a plain statement that we give no advance notice before forwarding, and that we forward a copy of the whole counter-notice. One check follows: read the rest of the policy for any other sharing the "only in response to legal process" sentence does not cover.
+
+### Q66. Disclosing a legal hold, and the audit records we keep longer than the stated four years
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Florida law governs. This is one question, with one decision at the end.
+
+Your colleagues advised us on November 4 and 6, 2026 to keep records that back our public statements, to state retention periods in our Privacy Policy, and that a litigation hold overrides routine deletion for relevant records.
+
+We now run a daily job that deletes two kinds of record when their period ends. The job stops while a litigation hold is open. We place a hold with a written reason, for one company or for everything.
+
+Our Privacy Policy says, under Retention:
+
+"Agreement acceptance records: your name, your title, the company's legal name, your email address, the time and the version are kept for as long as the company has a vendor account, and for six years after it ends, or for five years after a granted subscription ends, if later, or longer while a legal hold requires it, as evidence of the agreement, even if you delete your account."
+
+"Audit record for abuse prevention: the record of who submitted or changed what, kept for four years after the action. We pause this deletion while we are under a legal duty to preserve records, for example after receiving legal process. Four kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, the record that an account was deleted, which dates the start of the six-year period, and the record that a company was deleted from the site, which dates the six-year period when the company's record is gone."
+
+Two further facts. While any hold is open, the job pauses all audit deletion, including for people the hold does not concern. And we keep, with no end date, a record of each deletion run. It holds internal row numbers only and no personal information. It lets us show why a record is gone.
+
+Our view: the two hold phrases are enough disclosure, the "Four kinds" sentence is a clear exception to the four years, and the deletion-run record needs no disclosure because it holds no personal information.
+
+Question: are the hold wording and the "Four kinds" exception above sufficient as written, and may we keep the deletion-run record without disclosing it, or does any of the three need to change?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+Two of the three are fine. The hold wording needs to change. Hold wording: change it, or change the job. The acceptance-record wording is fine. The audit sentence says you pause deletion "while we are under a legal duty to preserve records, for example after receiving legal process." Your practice goes further in two ways. First, holds can be "for one company or for everything," based on your own written reason, which may come before any legal duty actually exists. Second, "the job pauses all audit deletion, including for people the hold does not concern." So someone with no connection to a dispute can have their audit record kept past four years, which the policy doesn't tell them. That's the kind of gap between what you say and what you do that the FTC Act and Florida's deceptive trade practices statute (FDUTPA) target. The cleaner fix is to scope the pause to the held company's records. If you can't, disclose that deletion of audit records generally may pause while any hold is open, and say "when we reasonably anticipate or are subject to a legal duty," not just "legal process." "Four kinds": sufficient, with one gap. The exception is clear and tied to a defined period. But think about a reviewer who accepted the Terms of Service and never had an agreement acceptance record. What does their ToS acceptance record "belong to"? Add a fallback, for example "or four years, if there is no acceptance record.\"
+
+**What we did:** Not applied yet. The acceptance-record wording stands. The audit hold wording changes, or the job does: either the pause covers only the held company's records, or the policy says audit deletion in general may pause while any hold is open. Either way the trigger reads "when we reasonably anticipate or are subject to a legal duty". The "Four kinds" sentence gains a fallback for a Terms acceptance with no agreement record. The answer does not discuss the deletion-run record. "Two of the three are fine" covers it by implication only. Chris's ruling on job or wording is open.
+
+### Q67. How long to keep an acceptance record when no vendor account ever existed or the company's record is gone
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. A vendor representative claims a company's listing by ticking a box that accepts our Vendor Terms. We record that acceptance. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 6, 2026 that we may keep the acceptance record after a user deletes their account, and we set the period at six years after the vendor account ends.
+
+Some acceptance records have no vendor account whose end could start that period:
+
+1. A claim we rejected. The person accepted the terms, and no account was ever created.
+2. An acceptance given on an older "request a listing" form, which never creates an account.
+3. An acceptance whose company we later deleted from the site.
+
+We now delete each of these six years after the latest date we hold for it. For case 1 that is the day we rejected the claim. For case 2 it is the day of the acceptance. For case 3 it is the day we deleted the company.
+
+Our Privacy Policy now adds, under Retention:
+
+"If a claim is never approved, we keep its acceptance record for six years after the claim is closed. Where a record has no such date, we keep it for six years after the latest date we hold for it."
+
+Our view: a rejected claim is where a dispute over a false claim is most likely, so six years is justified, one period for every acceptance is simpler to state, and the two sentences are enough disclosure.
+
+Question: is six years from those dates a reasonable period for an acceptance record where no vendor account existed, and are the two sentences above sufficient, or should the period or the wording change?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+Six years is fine. The two sentences need some tightening. On the period. In Florida, a claim on a written contract has a five-year limitations period (Fla. Stat. § 95.11(2)(b)). Fraud has four years, but under § 95.031(2)(a) the clock runs from discovery, with a 12-year outer limit. So six years covers the contract claim with a year to spare, and it covers most false-claim fraud disputes, though not every one. That's defensible. You're right that a rejected claim is where false-claim fights are most likely. I wouldn't go longer just to chase the 12-year outer limit. That would be hard to justify as a privacy matter, and no US privacy law requires it. Keeping one period for every acceptance is also smart, because it's easier to defend and easier to run. On the wording, there are three problems. First, "never approved" isn't the same as "rejected." A claim that's still pending has never been approved, so the sentence technically covers it, and pending claims have no close date yet. Say "rejected or withdrawn." Second, "closed" isn't defined, and your internal rule says "rejected." Use one word in both places. Third, the big one: "the latest date we hold for it" floats. If someone later adds a log entry, a note, or a support ticket, the date moves and the clock restarts. That gives you an open-ended retention period while the policy reads like a fixed one, which is the kind of gap the FTC looks at under Section 5. You already know the three triggers, so name them.
+
+**What we did:** Six years stays. The two sentences are rewritten, not yet applied: "rejected or withdrawn" in place of "never approved" and "closed", and the three start dates named in place of "the latest date we hold". One build check follows: confirm the deletion job reads those three fixed dates and that no later note or log entry can move one.
+
 ### Q68. Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms
 
 **Asked (sent as a Word attachment with the clause quoted inline):**
@@ -1673,6 +1805,64 @@ Because you tied the policies to a specific number and date, the vendor is bound
 The simple fix is to send the 30 day email for policy changes too, or use the email process once to amend the change clause so it spells out how policy updates work.
 
 **What we did:** Our view was wrong. A change to the Listing Accuracy Policy or the Review Guidelines is a change to what a vendor agreed to. The site notice is not the promised email. A vendor stays on the policy version it accepted until we follow the change process. Nothing is in force yet, so no vendor is affected today. Two routes: the publish flow sends the 30-day email for the two policies as well, or the change clause is amended to say how policy updates work. Chris's ruling is open. It closes the open item in the legal README.
+
+### Q69. Giving the first in-force Vendor Terms a new version number
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 11, 2026 that a vendor who accepted a draft marked "not yet in force" is not moved to the final version by an email, and must accept the final version in the portal. We built that screen. Every acceptance so far was of a draft: versions 1.0 to 1.3 of our Vendor Terms. We plan to publish the first in-force Vendor Terms as version 1.4, even if its words equal 1.3, so that no record ever shows a draft number as binding. Each company's owner then accepts 1.4 once on the portal screen. Until an owner accepts, the portal opens only that screen.
+
+Our view: a new version number for the first in-force version is the cleaner record and creates no gap in what binds a vendor.
+
+Question: is publishing the first in-force Vendor Terms under a new version number, with one portal acceptance per company, sound, or does it leave any gap in what binds a vendor before that acceptance?
+
+**Answer (Travis Russell, 2026-11-19):**
+
+Yes, that is a sound approach. Giving the first version in force its own number, and getting one clear portal acceptance for it, makes a clean record. It doesn't matter that the words match 1.3. What matters is that each vendor clearly agreed to the terms that are actually in force.
+
+The new number doesn't create a gap, but there is a window. Version 1.4 doesn't bind a company until it accepts. A draft clearly marked not yet in force is strong evidence nobody meant to be bound by it, so 1.0 to 1.3 likely don't fill that period. That doesn't mean nothing binds the vendor, other terms it agreed to, or the parties' conduct, can still create obligations. The lockout screen helps going forward, but it doesn't by itself deal with things already in place, like an existing listing, reviews, or content the vendor gave you, or with a vendor who never accepts.
+
+So have 1.4 say it replaces all drafts, and spell out how it treats existing listings and content. Decide now what happens to a listing if a company never accepts. Keep a record of who accepted, when, and which version, and make sure that person had authority to bind the company.
+
+**What we did:** Our view holds. The first in-force Vendor Terms take a new version number, which closes the open item in the legal README. Not applied yet. The new version gains two statements: it replaces every draft, and it covers listings and content the vendor already gave us. Ruling 24 already says a company that never accepts keeps its claimed listing behind the acceptance screen with no deadline. Counsel asks us to decide that on purpose, so Chris confirms it or changes it. The acceptance record already holds who, when, which version and the authority statement.
+
+### Q70. Three sentences changed since your colleagues' reviews: a wording check
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Florida law governs. We changed three sentences after your colleagues' reviews. We are asking for a defect check on the wording as written, not for new advice on the positions.
+
+In our Terms of Service, "Our editorial judgment and search ranking are algorithmic and are never influenced by payment" became:
+
+"Search ranking is algorithmic. Neither it nor our editorial choices are ever influenced by payment."
+
+We changed it because a person sets a few orders by hand, such as which categories a menu shows first. No order reads a vendor's plan.
+
+On the account deletion screen, "Reviews you've published stay online but are anonymized" became:
+
+"Reviews you've published stay online, but they are no longer linked to your account."
+
+We changed it because the text of a review may still identify its author.
+
+In our Privacy Policy, under Deletion, we added:
+
+"We also keep a copy of information that the law requires us to preserve, for example when we have received legal process about it, for as long as that requirement lasts."
+
+Our view: each of the three sentences is more accurate than what it replaced, and none creates a new promise.
+
+Question: is any of the three sentences above inaccurate, ambiguous, or likely to be read against us, and if so which one and how should it read?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+I'd fix the first sentence. The other two mostly work but have small gaps.
+
+Ranking and payment. This is the weak one. "Never influenced by payment" is absolute, and "influenced" is a broad word. Does a paid plan give vendors anything that feeds the algorithm, like more photos, fuller profiles or badges that improve ranking? If so, payment influences ranking indirectly, even though no order looks at the plan itself. A plaintiff or the FTC would read the sentence that way. "Search ranking is algorithmic" also sits awkwardly next to orders a person sets by hand. Suggested: "Search ranking and editorial choices do not take into account whether, or how much, a vendor pays us." Only use it if it's true of every paid feature.
+Deletion screen. Mostly fine. "No longer linked to your account" is odd once the account is gone, though, and a user may read it as "my name comes off." If a display name or photo stays, that's a problem. It could also conflict with sentence 3 if a preserved copy keeps the link. Suggested: "Reviews you've published stay online. We remove your name and profile from them, but the text stays as written, so anything in it that identifies you will remain visible."
+Legal process. This one is close. The catch is that receiving legal process doesn't always create a legal duty to preserve. A preservation request under 18 U.S.C. § 2703(f) does. A subpoena or a reasonably anticipated lawsuit is less clear, and suits can trigger holds the law doesn't strictly "require." So if you ever preserve in those situations, the sentence understates what you do. Suggested: "We also keep a copy of information we are legally required to preserve, or that we need to keep for an actual or reasonably anticipated legal claim, for as long as that need lasts.\"
+
+**What we did:** All three sentences change, none applied yet. Counsel gave wording for each. The ranking sentence is the weak one, and counsel's wording may be used only if it is true of every paid feature. Read with Q62, it is not true today: Managed-only trade and audience tags feed search matching and category pages. So the ranking sentence waits on the Q62 ruling. The deletion-screen wording needs one check first: that a deleted account's display name and photo really come off its reviews.
 
 ## Chris's rulings
 
