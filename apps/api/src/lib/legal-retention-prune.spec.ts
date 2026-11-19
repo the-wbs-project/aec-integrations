@@ -20,6 +20,11 @@ import {
   auditLog,
   billingAccounts,
   claims,
+  connectorCatalogs,
+  connectorEvidencedPairs,
+  connectorPairs,
+  connectorStubMappings,
+  connectorStubs,
   integrations,
   licenseGrants,
   licenses,
@@ -1273,6 +1278,7 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
       ['p-b', 'v-b'],
       ['p-c', null],
       ['p-d', null],
+      ['p-e', null],
     ] as const) {
       await t.db.insert(products).values({ id: p, slug: p, name: p });
       if (v) await t.db.insert(productVendors).values({ productId: p, vendorId: v });
@@ -1290,9 +1296,68 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
       { id: 'c-a', integrationId: 'i-a', dataObjectId: 'do-1', direction: 'a_to_b' },
       { id: 'c-b', integrationId: 'i-b', dataObjectId: 'do-1', direction: 'a_to_b' },
     ]);
+    // A built i-built between two products it owns neither of.
+    await t.db.insert(integrations).values({
+      id: 'i-built',
+      sourceProductId: 'p-d',
+      targetProductId: 'p-e',
+      builtByVendorId: 'v-a',
+    });
+    // Connector-backed relationships (Addenda B and C). ep-a has A's product at one end,
+    // ep-built was built by A between unowned products, ep-b is B's.
+    await t.db.insert(connectorEvidencedPairs).values([
+      { id: 'ep-a', connectorProductId: 'p-c', productAId: 'p-a', productBId: 'p-d' },
+      {
+        id: 'ep-built',
+        connectorProductId: 'p-c',
+        productAId: 'p-d',
+        productBId: 'p-e',
+        builtByVendorId: 'v-a',
+      },
+      { id: 'ep-b', connectorProductId: 'p-c', productAId: 'p-b', productBId: 'p-d' },
+    ]);
+    // cat-a is A's connector's catalog. cat-x is an unowned connector's, with one stub
+    // mapped to A's product.
+    const stamps = {
+      firstSeenAt: '2025-01-01T00:00:00.000Z',
+      lastSeenAt: '2025-01-01T00:00:00.000Z',
+    };
+    await t.db.insert(connectorCatalogs).values([
+      { id: 'cat-a', connectorProductId: 'p-a' },
+      { id: 'cat-x', connectorProductId: 'p-c' },
+    ]);
+    await t.db.insert(connectorStubs).values([
+      { id: 's-a1', catalogId: 'cat-a', slug: 's1', ...stamps },
+      { id: 's-a2', catalogId: 'cat-a', slug: 's2', ...stamps },
+      { id: 's-x1', catalogId: 'cat-x', slug: 's1', ...stamps },
+      { id: 's-x2', catalogId: 'cat-x', slug: 's2', ...stamps },
+      { id: 's-x3', catalogId: 'cat-x', slug: 's3', ...stamps },
+    ]);
+    await t.db.insert(connectorStubMappings).values({
+      id: 'm-x1',
+      stubId: 's-x1',
+      catalogId: 'cat-x',
+      productId: 'p-a',
+      status: 'mapped',
+      decidedBy: 'chris',
+    });
+    await t.db.insert(connectorPairs).values([
+      { id: 'cp-a', catalogId: 'cat-a', stubAId: 's-a1', stubBId: 's-a2', ...stamps },
+      { id: 'cp-map', catalogId: 'cat-x', stubAId: 's-x1', stubBId: 's-x2', ...stamps },
+      { id: 'cp-x', catalogId: 'cat-x', stubAId: 's-x2', stubBId: 's-x3', ...stamps },
+    ]);
+    await t.db.insert(claims).values([
+      { id: 'c-ep', connectorEvidencedPairId: 'ep-a', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-ep-b', connectorEvidencedPairId: 'ep-b', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-cp', connectorPairId: 'cp-a', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-map', connectorPairId: 'cp-map', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-cp-x', connectorPairId: 'cp-x', dataObjectId: 'do-1', direction: 'a_to_b' },
+    ]);
     await t.db.insert(attestations).values([
       { id: 'at-a', claimId: 'c-a', source: 'vendor_a' },
       { id: 'at-b', claimId: 'c-b', source: 'vendor_a' },
+      { id: 'at-ep', claimId: 'c-ep', source: 'vendor_a' },
+      { id: 'at-cp', claimId: 'c-map', source: 'vendor_a' },
     ]);
     for (const [id, product] of [
       ['r-a', 'p-a'],
@@ -1360,6 +1425,18 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
       // 5. A claim on A, by the company or by its product.
       await row('a-request', { entityType: 'vendor_request', entityId: 'q-a' }),
       await row('a-request-product', { entityType: 'vendor_request', entityId: 'q-pa' }),
+      // 4b. Relationships A built, and connector-backed ones: the pair, its claims and their
+      //     attestations, A's connector's catalog, and a pair whose stub maps to A.
+      await row('a-built-integration', { entityType: 'integration', entityId: 'i-built' }),
+      await row('a-evpair', { entityType: 'connector_evidenced_pair', entityId: 'ep-a' }),
+      await row('a-evpair-built', { entityType: 'connector_evidenced_pair', entityId: 'ep-built' }),
+      await row('a-ep-claim', { entityType: 'claim', entityId: 'c-ep' }),
+      await row('a-ep-attestation', { entityType: 'attestation', entityId: 'at-ep' }),
+      await row('a-catalog', { entityType: 'connector_catalog', entityId: 'cat-a' }),
+      await row('a-cp-claim', { entityType: 'claim', entityId: 'c-cp' }),
+      await row('a-mapped-pair', { entityType: 'connector_pair', entityId: 'cp-map' }),
+      await row('a-mapped-claim', { entityType: 'claim', entityId: 'c-map' }),
+      await row('a-mapped-attestation', { entityType: 'attestation', entityId: 'at-cp' }),
       // 6. Written by A's seat, whatever it is about.
       await row('a-seat', {
         actorId: 'seat-a',
@@ -1383,6 +1460,12 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
         entityId: 'r-b',
       }),
       await row('b-request', { entityType: 'vendor_request', entityId: 'q-b' }),
+      await row('b-evpair', { entityType: 'connector_evidenced_pair', entityId: 'ep-b' }),
+      await row('b-ep-claim', { entityType: 'claim', entityId: 'c-ep-b' }),
+      // A connector catalog, pair and claim no company holds.
+      await row('unowned-catalog', { entityType: 'connector_catalog', entityId: 'cat-x' }),
+      await row('unowned-pair', { entityType: 'connector_pair', entityId: 'cp-x' }),
+      await row('unowned-pair-claim', { entityType: 'claim', entityId: 'c-cp-x' }),
       // A reader's own account row, and a system row about nothing.
       await row('reader-profile', {
         actorId: 'reader-1',
@@ -1447,6 +1530,8 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
       'b-attestation',
       'b-review',
       'b-request',
+      'b-evpair',
+      'b-ep-claim',
     ]) {
       expect(left.has(id), `kept ${id}`).toBe(true);
     }

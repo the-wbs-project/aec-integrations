@@ -368,8 +368,9 @@ off switch, and the only one any job has.
 3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
 4. What it stops. A vendor hold keeps that company's audit records and lets every other audit
    record be deleted on schedule, as the Privacy Policy says (ruling 55, AECI-1970). An audit
-   record is the company's when it names the company, is about one of its products, their
-   integrations, claims, attestations or reviews, is about a claim on the company, or was written
+   record is the company's when it names the company, is about one of its products or their
+   reviews, is about an integration or connector link it built or its products take part in,
+   or a claim or attestation on one, is about a claim on the company, or was written
    by one of its current team members. The full list is `docs/DATABASE_SCHEMA.md` §8.4 "Whose row
    it is, for a hold". It also keeps old released holds on the same company. A vendor hold also
    keeps that vendor's agreement acceptances and subscription grants, including the acceptances of a

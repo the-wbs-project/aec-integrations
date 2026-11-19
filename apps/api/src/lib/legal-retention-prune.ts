@@ -371,11 +371,14 @@ export function auditPrunePredicate(cutoff: string): SQL {
  *      whose `entity_id` is the vendor id.
  *   3. **Its legacy metadata names it**: `metadata.vendor_id` or `metadata.vendorId`, the
  *      only vendor key on rows written before `0063` (no backfill, ruling 2026-10-04).
- *   4. **It is about one of the company's products** (`product_vendors`): the `product_id`
- *      column, a `product` row, an `integration` row with that product at either end or as
- *      its connector, a `claim` or `attestation` row of such an integration, or a `review`
- *      of that product. Promote writes and product retractions name no vendor, so this is
- *      how they are reached.
+ *   4. **It is about one of the company's products or relationships** (`product_vendors`):
+ *      the `product_id` column, a `product` row, a `review` of that product, an
+ *      `integration` the company built or with its product at either end or as `powered_by`,
+ *      a `connector_evidenced_pair` it built or with its product at either end or as the
+ *      connector, a `connector_pair` whose catalog is its connector's or whose stub maps to
+ *      its product, a `connector_catalog` of its connector, and a `claim` or `attestation`
+ *      on any of those three anchors. Promote writes and product retractions name no vendor,
+ *      so this is how they are reached.
  *   5. **It is about a claim on the company**: a `vendor_request` row whose request targets
  *      the company, or one of its products (the legacy product-target shape).
  *   6. **One of the company's current seats wrote it** (`profiles.vendor_id`), whatever it
@@ -395,9 +398,45 @@ export function auditRowOfVendor(vendorId: SQL): SQL {
   const integrationOfVendor = (integrationId: SQL) => sql`EXISTS (
       SELECT 1 FROM "integrations" "ov_i"
       WHERE "ov_i"."id" = ${integrationId}
-        AND ("ov_i"."source_product_id" IN (${productsOf})
+        AND ("ov_i"."built_by_vendor_id" = ${vendorId}
+          OR "ov_i"."source_product_id" IN (${productsOf})
           OR "ov_i"."target_product_id" IN (${productsOf})
           OR "ov_i"."powered_by_product_id" IN (${productsOf}))
+    )`;
+  // A connector-evidenced pair (Addendum B): the company built it, or owns either end or
+  // the connector.
+  const evidencedPairOfVendor = (pairId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_evidenced_pairs" "ov_e"
+      WHERE "ov_e"."id" = ${pairId}
+        AND ("ov_e"."built_by_vendor_id" = ${vendorId}
+          OR "ov_e"."connector_product_id" IN (${productsOf})
+          OR "ov_e"."product_a_id" IN (${productsOf})
+          OR "ov_e"."product_b_id" IN (${productsOf}))
+    )`;
+  // A connector catalog belongs to the company that owns its connector product.
+  const catalogOfVendor = (catalogId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_catalogs" "ov_k"
+      WHERE "ov_k"."id" = ${catalogId}
+        AND "ov_k"."connector_product_id" IN (${productsOf})
+    )`;
+  // A reached connector pair (Addendum C): its catalog is the company's, or either stub is
+  // mapped to one of the company's products.
+  const connectorPairOfVendor = (pairId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_pairs" "ov_cp"
+      WHERE "ov_cp"."id" = ${pairId}
+        AND (${catalogOfVendor(sql`"ov_cp"."catalog_id"`)}
+          OR EXISTS (
+            SELECT 1 FROM "connector_stub_mappings" "ov_m"
+            WHERE "ov_m"."stub_id" IN ("ov_cp"."stub_a_id", "ov_cp"."stub_b_id")
+              AND "ov_m"."product_id" IN (${productsOf})
+          ))
+    )`;
+  // A claim, by whichever of its three anchors is set.
+  const claimOfVendor = (claimId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claims" "ov_c" WHERE "ov_c"."id" = ${claimId}
+        AND (${integrationOfVendor(sql`"ov_c"."integration_id"`)}
+          OR ${evidencedPairOfVendor(sql`"ov_c"."connector_evidenced_pair_id"`)}
+          OR ${connectorPairOfVendor(sql`"ov_c"."connector_pair_id"`)})
     )`;
   return sql`(
     "audit_log"."vendor_id" = ${vendorId}
@@ -409,14 +448,14 @@ export function auditRowOfVendor(vendorId: SQL): SQL {
     OR "audit_log"."product_id" IN (${productsOf})
     OR ("audit_log"."entity_type" = 'product' AND "audit_log"."entity_id" IN (${productsOf}))
     OR ("audit_log"."entity_type" = 'integration' AND ${integrationOfVendor(sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'claim' AND EXISTS (
-          SELECT 1 FROM "claims" "ov_c" WHERE "ov_c"."id" = "audit_log"."entity_id"
-            AND ${integrationOfVendor(sql`"ov_c"."integration_id"`)}))
+    OR ("audit_log"."entity_type" = 'connector_evidenced_pair' AND ${evidencedPairOfVendor(sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'connector_pair' AND ${connectorPairOfVendor(sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'connector_catalog' AND ${catalogOfVendor(sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'claim' AND ${claimOfVendor(sql`"audit_log"."entity_id"`)})
     OR ("audit_log"."entity_type" = 'attestation' AND EXISTS (
           SELECT 1 FROM "attestations" "ov_at"
-          JOIN "claims" "ov_c2" ON "ov_c2"."id" = "ov_at"."claim_id"
           WHERE "ov_at"."id" = "audit_log"."entity_id"
-            AND ${integrationOfVendor(sql`"ov_c2"."integration_id"`)}))
+            AND ${claimOfVendor(sql`"ov_at"."claim_id"`)}))
     OR ("audit_log"."entity_type" = 'review' AND EXISTS (
           SELECT 1 FROM "reviews" "ov_r" WHERE "ov_r"."id" = "audit_log"."entity_id"
             AND "ov_r"."product_id" IN (${productsOf})))

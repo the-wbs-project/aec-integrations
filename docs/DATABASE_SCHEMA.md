@@ -1991,7 +1991,9 @@ company V keeps an expired row only when the row is V's. `auditRowOfVendor` in
 | `entity_type IN ('vendor', 'vendor_entitlement') AND entity_id = V` | rows filed under V |
 | `metadata.vendor_id` or `metadata.vendorId` = V, behind `json_valid` | rows before `0063`, never backfilled |
 | `product_id`, or a `product` row, naming a product of V (`product_vendors`) | product edits, promote writes, retractions |
-| an `integration` row with V's product at either end or as `powered_by`; a `claim` or `attestation` row of such an integration | integration rows, which leave `product_id` NULL |
+| an `integration` V built (`built_by_vendor_id`) or with V's product at either end or as `powered_by` | integration rows, which leave `product_id` NULL |
+| a `connector_evidenced_pair` V built or with V's product at either end or as the connector; a `connector_pair` whose catalog is V's connector's or whose stub maps to V's product (`connector_stub_mappings`); a `connector_catalog` of V's connector | connector-backed relationships (Addenda B and C) |
+| a `claim` on any of those three anchors, or an `attestation` of such a claim | claim and attestation rows, which name no vendor on promote |
 | a `review` row of V's product | moderation of reviews of V's products |
 | a `vendor_request` row whose request targets V, or V's product | claims on V, including rejections, which name no vendor |
 | `actor_id` is a profile with `vendor_id = V` | what V's current seats did |
