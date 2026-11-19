@@ -29,7 +29,10 @@
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Location } from '@angular/common';
+import { provideLocationMocks } from '@angular/common/testing';
+import { Router, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminVendorSortSchema } from '@aeci/shared';
@@ -49,6 +52,7 @@ function makeRow(over: Partial<AdminVendorRow> = {}): AdminVendorRow {
     live_license_count: 2,
     product_count: 4,
     updated_at: '2026-08-20T00:00:00.000Z',
+    owned_at: null,
     ...over,
   };
 }
@@ -66,25 +70,55 @@ function makeApiMock(rows: AdminVendorRow[], total = rows.length): ApiMock {
   };
 }
 
-function settle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve));
+/** The harness of the test in progress, so `settle()` can flush it. */
+let current: RouterTestingHarness | undefined;
+
+/**
+ * Let a click finish its round trip: the push navigation, the URL signal, the
+ * load effect, the mocked fetch and the render. Three passes, because each hop
+ * is its own task.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((resolve) => setTimeout(resolve));
+    current?.detectChanges();
+    await current?.fixture.whenStable();
+  }
 }
 
-async function setup(api: ApiMock) {
+/**
+ * Mounts the list at a real route, so `?claimed=` / `sort` / `order` / `search`
+ * travel through the router exactly as in the app (AECI-1934 review ruling).
+ */
+async function setup(api: ApiMock, url = '/admin/vendors') {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
-      provideRouter([]),
+      provideRouter([{ path: 'admin/vendors', component: VendorList }]),
+      // A history stack the test can walk: `Location.back()` pops synchronously.
+      provideLocationMocks(),
       { provide: AdminVendorsApi, useValue: api },
     ],
   });
-  const fixture = TestBed.createComponent(VendorList);
-  fixture.detectChanges();
-  await fixture.whenStable();
+  const harness = await RouterTestingHarness.create();
+  current = harness;
+  // Subscribes the router to location pops, as app bootstrap does, so a
+  // `Location.back()` reaches the component the way the browser's Back does.
+  TestBed.inject(Router).initialNavigation();
+  await harness.navigateByUrl(url);
   await settle();
-  fixture.detectChanges();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  const componentInstance = harness.routeDebugElement!.componentInstance as VendorList &
+    Record<string, never>;
+  const fixture = {
+    componentInstance,
+    detectChanges: () => harness.detectChanges(),
+  };
+  return { fixture, harness, api, el: harness.routeNativeElement as HTMLElement };
+}
+
+function routerUrl(): string {
+  return TestBed.inject(Router).url;
 }
 
 function lastQuery(api: ApiMock): Record<string, unknown> {
@@ -149,8 +183,220 @@ describe('VendorList', () => {
     const { el } = await setup(makeApiMock([makeRow()]));
     expect(header(el, 'Entitlement')).toBeFalsy();
     expect(header(el, 'Term ends')).toBeFalsy();
-    expect(el.querySelector('aec-select')).toBeNull();
+    // The only select is the Claimed filter (AECI-1934).
+    expect(el.querySelectorAll('aec-select')).toHaveLength(1);
     expect(el.textContent).not.toContain('Account status');
+  });
+
+  describe('claimed (AECI-1934)', () => {
+    it('renders the claim date from owned_at, and "Not claimed" for null', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeRow({ owned_at: '2026-10-05T14:00:00.000Z' }),
+          makeRow({ id: '00000000-0000-4000-8000-000000000011', slug: 'bluebeam' }),
+        ]),
+      );
+      expect(header(el, 'Claimed on')).toBeTruthy();
+      const [claimed, unclaimed] = bodyRows(el);
+      expect(claimed!.textContent).toContain('Oct 5, 2026');
+      expect(claimed!.textContent).not.toContain('Not claimed');
+      expect(unclaimed!.textContent).toContain('Not claimed');
+    });
+
+    it('shows a claimed vendor with no live subscription as claimed, not inactive-only', async () => {
+      // The reason the column exists: Account active is the paid mirror, and most
+      // claimed vendors are on the Free plan.
+      const { el } = await setup(
+        makeApiMock([
+          makeRow({ verified: false, live_license_count: 0, owned_at: '2026-10-05T00:00:00.000Z' }),
+        ]),
+      );
+      const row = bodyRows(el)[0]!;
+      expect(row.textContent).toContain('Oct 5, 2026');
+      expect(row.querySelector('[aria-label="Account inactive"]')).toBeTruthy();
+    });
+
+    it('omits the filter while it is at "All vendors"', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]));
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('sends the filter, resets to chunk 1 and discards the accumulation on change', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeRow()], 200));
+      fixture.componentInstance['loadMore']();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['page']).toBe(2);
+      expect(bodyRows(el)).toHaveLength(2);
+
+      fixture.componentInstance['onClaimedChange']('true');
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['claimed']).toBe('true');
+      expect(lastQuery(api)['page']).toBe(1);
+      expect(bodyRows(el)).toHaveLength(1);
+
+      fixture.componentInstance['onClaimedChange']('any');
+      await settle();
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+  });
+
+  // AECI-1934 review ruling: filter, search and sort live in the URL, so reload,
+  // Back and a shared link restore them. Defaults stay out of the URL.
+  describe('URL state', () => {
+    it('leaves the bare URL bare: the defaults write no parameters', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]));
+      expect(routerUrl()).toBe('/admin/vendors');
+      expect(lastQuery(api)).toMatchObject({ sort: 'name', order: 'asc', page: 1 });
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+      expect(lastQuery(api)).not.toHaveProperty('search');
+    });
+
+    it('seeds every control from the URL', async () => {
+      const { el, api } = await setup(
+        makeApiMock([makeRow()]),
+        '/admin/vendors?claimed=true&sort=claimed&order=asc&search=auto',
+      );
+      expect(lastQuery(api)).toMatchObject({
+        claimed: 'true',
+        sort: 'claimed',
+        order: 'asc',
+        search: 'auto',
+      });
+      expect(header(el, 'Claimed on')?.getAttribute('aria-sort')).toBe('ascending');
+      expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe('auto');
+      expect(el.querySelector('aec-select')?.textContent).toContain('Claimed');
+    });
+
+    it('seeds claimed=false too', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]), '/admin/vendors?claimed=false');
+      expect(lastQuery(api)['claimed']).toBe('false');
+    });
+
+    it("reads a sort with no order as that key's natural direction", async () => {
+      const { api } = await setup(makeApiMock([makeRow()]), '/admin/vendors?sort=updated');
+      expect(lastQuery(api)).toMatchObject({ sort: 'updated', order: 'desc' });
+    });
+
+    it('reads junk values as the defaults rather than narrowing to nothing', async () => {
+      const { api } = await setup(
+        makeApiMock([makeRow()]),
+        '/admin/vendors?claimed=yes&sort=created&order=sideways',
+      );
+      expect(lastQuery(api)).toMatchObject({ sort: 'name', order: 'asc' });
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('writes ?claimed= on a filter change, and drops it again at All vendors', async () => {
+      const { fixture } = await setup(makeApiMock([makeRow()]));
+      fixture.componentInstance['onClaimedChange']('true');
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors?claimed=true');
+
+      fixture.componentInstance['onClaimedChange']('any');
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors');
+    });
+
+    it('writes sort and order on a header click, leaving a natural order off', async () => {
+      const { el } = await setup(makeApiMock([makeRow()], 200));
+      const button = () => header(el, 'Claimed on')?.querySelector('button');
+
+      button()?.click();
+      await settle();
+      // `claimed` descends naturally, so only the key is written.
+      expect(routerUrl()).toBe('/admin/vendors?sort=claimed');
+
+      button()?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors?sort=claimed&order=asc');
+
+      // Back to the default key in its natural direction: a bare URL again.
+      header(el, 'Vendor')?.querySelector('button')?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors');
+    });
+
+    it('reverses the default key with order alone', async () => {
+      const { el } = await setup(makeApiMock([makeRow()]));
+      header(el, 'Vendor')?.querySelector('button')?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors?order=desc');
+    });
+
+    it('writes the search on submit and removes it on Clear', async () => {
+      const { fixture } = await setup(makeApiMock([makeRow()]));
+      fixture.componentInstance['searchDraft'].set('  auto ');
+      fixture.componentInstance['submitSearch']();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors?search=auto');
+
+      fixture.componentInstance['clearSearch']();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors');
+    });
+
+    it('keeps the other parameters when one control changes', async () => {
+      const { fixture } = await setup(
+        makeApiMock([makeRow()]),
+        '/admin/vendors?sort=claimed&search=auto',
+      );
+      fixture.componentInstance['onClaimedChange']('false');
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors?search=auto&claimed=false&sort=claimed');
+    });
+
+    it('follows a navigation to different params, as Back does, and refetches from chunk 1', async () => {
+      const api = makeApiMock([makeRow()], 200);
+      const { harness, el, fixture } = await setup(api, '/admin/vendors?claimed=true');
+      fixture.componentInstance['loadMore']();
+      await settle();
+      expect(bodyRows(el)).toHaveLength(2);
+
+      await harness.navigateByUrl('/admin/vendors?claimed=false&sort=updated&search=beta');
+      await settle();
+      expect(lastQuery(api)).toMatchObject({
+        claimed: 'false',
+        sort: 'updated',
+        order: 'desc',
+        search: 'beta',
+        page: 1,
+      });
+      expect(bodyRows(el)).toHaveLength(1);
+      expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe('beta');
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('descending');
+    });
+
+    it('restores the previous state on Back', async () => {
+      const api = makeApiMock([makeRow()]);
+      const { fixture } = await setup(api);
+      fixture.componentInstance['onClaimedChange']('true');
+      await settle();
+      expect(lastQuery(api)['claimed']).toBe('true');
+
+      TestBed.inject(Location).back();
+      await settle();
+      expect(routerUrl()).toBe('/admin/vendors');
+      expect(lastQuery(api)).not.toHaveProperty('claimed');
+    });
+
+    it('sorts Claimed on by the `claimed` key, most recent first', async () => {
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()]));
+      header(el, 'Claimed on')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('claimed');
+      expect(lastQuery(api)['order']).toBe('desc');
+      expect(header(el, 'Claimed on')?.getAttribute('aria-sort')).toBe('descending');
+    });
+
+    it('labels the Claimed filter', async () => {
+      const { el } = await setup(makeApiMock([makeRow()]));
+      const select = el.querySelector('aec-select')!;
+      expect(select.textContent).toContain('Claimed');
+      expect(select.textContent).toContain('All vendors');
+    });
   });
 
   it('renders the per-row product count, and no integration column at all', async () => {
@@ -277,12 +523,13 @@ describe('VendorList', () => {
     it('gives EVERY column a control, and each sends a key the API accepts', async () => {
       // The rule is unchanged — a header the server cannot honour would reorder
       // only what is loaded and present it as a ranking. What changed is that
-      // `resolveAdminVendorOrderBy` now orders by all six columns, so parsing
+      // `resolveAdminVendorOrderBy` now orders by all seven columns, so parsing
       // each emitted key against the real schema is what keeps them honest.
       const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
       const labels = [
         'Vendor',
         'Slug',
+        'Claimed on',
         'Account active',
         'Live subscriptions',
         'Products',

@@ -537,5 +537,82 @@
   </p>
   } @if (actionFailed()) {
   <p role="alert" class="mt-3 text-sm text-(--text-primary)">{{ actionFailed() }}</p>
-  } }
+  }
+
+  <!-- ── Audit trail (AECI-693) ───────────────────────────────────────────── -->
+  <section aria-labelledby="admin-user-audit">
+    <div class="mt-8 flex flex-wrap items-end justify-between gap-3">
+      <h3
+        id="admin-user-audit"
+        class="text-base font-bold text-(--text-primary)"
+        i18n="@@admin.users.audit.heading"
+      >
+        Audit trail
+      </h3>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span
+          id="admin-user-audit-scope-label"
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.users.audit.scope.label"
+          >Scope</span
+        >
+        <div
+          role="group"
+          aria-labelledby="admin-user-audit-scope-label"
+          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
+        >
+          @for (opt of scopeOptions; track opt.key) {
+          <button
+            type="button"
+            (click)="setScope(opt.key)"
+            [attr.aria-pressed]="auditScope() === opt.key"
+            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+          >
+            {{ opt.label }}
+          </button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.audit.intro">
+      Every recorded change to this account and everything this person did, newest first. Opening it
+      records nothing.
+    </p>
+    <!--
+      The global log filters on one field at a time, so each link shows one half
+      of this trail: the rows this person wrote, or the rows filed against the
+      account.
+    -->
+    <p class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <a
+        routerLink="/admin/audit"
+        [queryParams]="{ actor_id: u.id }"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.users.audit.actorLink"
+        >Everything this person did, in the audit log</a
+      >
+      <a
+        routerLink="/admin/audit"
+        [queryParams]="{ entity_type: 'profile', entity_id: u.id }"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.users.audit.entityLink"
+        >Rows filed against this account, in the audit log</a
+      >
+    </p>
+
+    <aec-audit-trail
+      [rows]="auditRows()"
+      [page]="auditPage()"
+      [perPage]="auditPerPage"
+      [total]="auditTotal()"
+      [loading]="auditLoading()"
+      [failed]="auditFailed()"
+      [emailsAvailable]="auditEmailsAvailable()"
+      (pageChange)="goToAuditPage($event)"
+      (retry)="retryAudit()"
+    />
+  </section>
+  }
 </section>

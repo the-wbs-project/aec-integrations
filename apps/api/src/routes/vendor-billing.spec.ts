@@ -6,7 +6,11 @@
  * the open release request, and which products a pool license may go on.
  */
 
-import { VendorBillingResponseSchema, type VendorBillingResponse } from '@aeci/shared';
+import {
+  VENDOR_BILLING_LICENSES_MAX,
+  VendorBillingResponseSchema,
+  type VendorBillingResponse,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -322,6 +326,25 @@ describe('GET /api/vendor/billing', () => {
     expect(JSON.stringify(parsed.pending_grants)).not.toContain('internal');
   });
 
+  // AECI-1865: the warning counts from this, so it must never stop at the list's cap.
+  it('counts the whole pool in pool_count, past the license list cap', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    const n = VENDOR_BILLING_LICENSES_MAX + 2;
+    const rows = Array.from({ length: n }, (_, i) => ({
+      id: `77777777-7777-4777-8777-${String(i).padStart(12, '0')}`,
+      billingAccountId: account,
+      source: 'complimentary' as const,
+      startsAt: '2026-01-01T00:00:00.000Z',
+    }));
+    for (let i = 0; i < rows.length; i += 50) {
+      await t.db.insert(licenses).values(rows.slice(i, i + 50));
+    }
+    const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(parsed.licenses_truncated).toBe(true);
+    expect(parsed.licenses).toHaveLength(VENDOR_BILLING_LICENSES_MAX);
+    expect(parsed.pool_count).toBe(n);
+  });
+
   it('answers null for both when nothing is on record', async () => {
     const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
     expect(parsed.legal_name).toBeNull();
@@ -429,6 +452,8 @@ describe('GET /api/vendor/billing — the Stripe summary (AECI-1501)', () => {
       cancel_at_period_end: true,
       synced: true,
     });
+    // AECI-1865: two pool rows in D1, plus the one Stripe was paid for that has not landed.
+    expect(VendorBillingResponseSchema.parse(body).pool_count).toBe(3);
     expect(stripe.retrieveSubscription).toHaveBeenCalledTimes(1);
     expect(stripe.retrieveSubscription).toHaveBeenCalledWith(SUB);
   });
@@ -452,6 +477,8 @@ describe('GET /api/vendor/billing — the Stripe summary (AECI-1501)', () => {
       synced: false,
     });
     expect(parsed.licenses).toHaveLength(2);
+    // Stripe did not answer, so only what D1 holds counts.
+    expect(parsed.pool_count).toBe(2);
   });
 
   it('answers the D1 view with no Stripe key', async () => {

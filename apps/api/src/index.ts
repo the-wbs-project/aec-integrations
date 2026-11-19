@@ -97,7 +97,11 @@ import {
   createAdminUpdateVendorLegalNameHandler,
   createAdminVendorBillingHandler,
 } from './routes/admin-vendors-billing';
-import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
+import {
+  createAdminUserAuditHandler,
+  createAdminUserDetailHandler,
+  createAdminUsersListHandler,
+} from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -1218,6 +1222,8 @@ authAdmin.delete(
 // Literal segment before the bare `/:id`, matching the vendors block.
 authAdmin.get('/api/admin/users', requireAdmin(), createAdminUsersListHandler());
 authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandler());
+// AECI-693: the person's audit trail. A read, so no rate limit.
+authAdmin.get('/api/admin/users/:id/audit', requireAdmin(), createAdminUserAuditHandler());
 // AECI-720: the per-iPaaS management cutoff. Flips `connector_catalogs.managed_by`,
 // which freezes the review lane for that catalogue: `POST /api/promote/connector-catalog`
 // then refuses every page for it with `CATALOG_VENDOR_MANAGED`. Audit-only, no

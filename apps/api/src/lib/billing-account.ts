@@ -313,6 +313,9 @@ export interface StripeCustomerLinkParams {
   vendorPlan: VendorPlanSnapshot;
   /** `metadata.source`: `'vendor-portal'` from the checkout route. */
   source: string;
+  /** AECI-1865: the unused count the owner accepted on the checkout that opened this
+   *  customer. Recorded in `metadata.unused_acknowledged` when above zero. */
+  unusedAcknowledged?: number;
 }
 
 /**
@@ -343,7 +346,11 @@ export function stripeCustomerLinkStatements(
     vendorPlan: p.vendorPlan,
     beforeState: { stripe_customer_id: null },
     afterState: { stripe_customer_id: p.stripeCustomerId },
-    metadata: { source: p.source, vendorId: p.vendorId },
+    metadata: {
+      source: p.source,
+      vendorId: p.vendorId,
+      ...(p.unusedAcknowledged ? { unused_acknowledged: p.unusedAcknowledged } : {}),
+    },
   };
   return {
     stmts: [

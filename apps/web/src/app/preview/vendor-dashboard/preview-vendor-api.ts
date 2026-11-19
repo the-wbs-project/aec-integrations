@@ -114,6 +114,7 @@ import {
   contestValueProblem,
   integrationEditValueProblem,
   isAwaitingCounterpartAnswer,
+  unusedAfterPurchase,
   type ContestableFields,
   type ContextDirection,
   type IntegrationEditField,
@@ -722,7 +723,12 @@ export class PreviewVendorApi extends VendorApi {
   private billing: VendorBillingResponse = previewBilling();
 
   override async getBilling(): Promise<VendorBillingResponse> {
-    return clone(this.billing);
+    // AECI-1865: the fake has no webhook gap, so the pool is its live rows on no product.
+    return clone({ ...this.billing, pool_count: this.poolCount() });
+  }
+
+  private poolCount(): number {
+    return this.billing.licenses.filter((l) => l.live && l.assigned_product === null).length;
   }
 
   private acceptances: VendorAgreementAcceptance[] = previewAcceptances();
@@ -836,6 +842,7 @@ export class PreviewVendorApi extends VendorApi {
     quantity: number,
     interval: StripeBillingInterval,
     signerTitle: string,
+    unusedAcknowledged?: number,
   ): Promise<StripeRedirectResponse> {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
       throw apiError(400, 'VALIDATION_FAILED', 'Invalid quantity', { field: 'quantity' });
@@ -852,15 +859,20 @@ export class PreviewVendorApi extends VendorApi {
         { details: { interval: existing.interval } },
       );
     }
+    this.requireUnusedAcknowledged(quantity, unusedAcknowledged);
     const url = new URL(globalThis.location.href);
     url.searchParams.set('checkout', 'success');
     return { url: url.toString() };
   }
 
   /** AECI-1502, fixture-side: the add lands at once, as if the webhook were instant. */
-  override async addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
+  override async addStripeLicenses(
+    quantity: number,
+    unusedAcknowledged?: number,
+  ): Promise<AddStripeLicensesResponse> {
     const sub = this.billing.stripe;
     if (!sub) throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No Stripe plan');
+    this.requireUnusedAcknowledged(quantity, unusedAcknowledged);
     sub.quantity += quantity;
     for (let i = 0; i < quantity; i++) {
       this.billing.licenses.unshift({
@@ -880,6 +892,19 @@ export class PreviewVendorApi extends VendorApi {
       });
     }
     return { ok: true, pending: true };
+  }
+
+  /** AECI-1865, as the handlers: a purchase that leaves subscriptions on no product
+   *  needs `unused_acknowledged` equal to the count, or `409`. */
+  private requireUnusedAcknowledged(quantity: number, acknowledged: number | undefined): void {
+    const pool = this.poolCount();
+    const productsWithoutSubscription = this.billing.assignable_products.length;
+    const unused = unusedAfterPurchase({ quantity, pool, productsWithoutSubscription });
+    if (unused > 0 && acknowledged !== unused) {
+      throw apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', 'Unused subscriptions', {
+        details: { unused, pool, products_without_subscription: productsWithoutSubscription },
+      });
+    }
   }
 
   /** AECI-1502, fixture-side: the portal is Stripe's page, so the preview stays put.

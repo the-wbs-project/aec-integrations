@@ -2527,6 +2527,8 @@ export const VENDOR_BILLING_FIXTURE: VendorBillingResponse = {
   legal_name: 'Summit BIM Software, Inc.',
   checkout_signer_title: 'Head of Partnerships',
   pending_grants: [],
+  // AECI-1865: the one live invoice subscription in the pool.
+  pool_count: 1,
   assignable_products: [
     { id: SECONDARY_PRODUCT.id, slug: SECONDARY_PRODUCT.slug, name: SECONDARY_PRODUCT.name },
   ],

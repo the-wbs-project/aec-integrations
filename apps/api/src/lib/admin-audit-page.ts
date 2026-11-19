@@ -1,19 +1,22 @@
 /**
  * One page of an entity's audit trail, shaped for `<aec-audit-trail>`.
  *
- * Shared by the single-disjunct admin audit reads: the connector catalogue's
+ * Shared by the admin audit reads: the connector catalogue's
  * (`GET /api/admin/connector-catalogs/:id/audit`), the claim's
- * (`GET /api/admin/claims/:id/audit`, AECI-1276), and the global viewer
- * (`GET /api/admin/audit`, AECI-653). Each scoped caller owns its own 404 gate,
+ * (`GET /api/admin/claims/:id/audit`, AECI-1276), the user's
+ * (`GET /api/admin/users/:id/audit`, AECI-693), and the global viewer
+ * (`GET /api/admin/audit`, AECI-653). The connector and claim trails pass one
+ * disjunct. The user trail passes a flat OR of up to three legs and a scope
+ * (`userAuditWhere`, `admin-users.ts`). Each scoped caller owns its own 404 gate,
  * and every caller owns its own `where`. The global viewer has no gate and may
  * pass `undefined`. This reader owns everything after the gate: the page
  * and count `db.batch`, the actor-name lookup, the email seam, and the row
- * mapping. The vendor trail (`admin-vendors.ts`) keeps its own code because it
- * ORs four disjuncts and carries a scope filter.
+ * mapping. The vendor trail (`admin-vendors.ts`) keeps its own code, which
+ * predates this reader.
  *
  * Two paging modes, chosen by a discriminated `paging` argument:
  *
- * - **offset** (`{ page, perPage }`, no `kind`): the claim and connector trails.
+ * - **offset** (`{ page, perPage }`, no `kind`): the claim, connector and user trails.
  *   Ordered `created_at DESC, id DESC`, `LIMIT perPage OFFSET (page - 1) * perPage`,
  *   always counted. Those callers pass their parsed `PageQuerySchema` object
  *   unchanged, so the missing `kind` is what selects this branch.

@@ -44,9 +44,18 @@ function apiError(status: number, code: string, details?: Record<string, unknown
   return new HttpErrorResponse({ status, error: { error: { code, message: 'x', details } } });
 }
 
+/** Products with no subscription, so the purchases below leave nothing unused and the
+ *  AECI-1865 warning stays away. Its own tests build the counts they need. */
+const SPARE_PRODUCTS = Array.from({ length: 5 }, (_, i) => ({
+  id: `00000000-0000-4000-8000-0000000077${String(i).padStart(2, '0')}`,
+  slug: `spare-${i}`,
+  name: `Spare ${i}`,
+}));
+
 const AVAILABLE: VendorBillingResponse = {
   ...VENDOR_BILLING_FIXTURE,
   stripe_checkout_available: true,
+  assignable_products: [...VENDOR_BILLING_FIXTURE.assignable_products, ...SPARE_PRODUCTS],
 };
 
 const STRIPE_LICENSE: VendorBillingLicense = {
@@ -249,7 +258,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     await settle(fixture);
 
     // AECI-1625: the title is pre-filled from this seat's own claim.
-    expect(startCheckout).toHaveBeenCalledWith(3, 'month', 'Head of Partnerships');
+    expect(startCheckout).toHaveBeenCalledWith(3, 'month', 'Head of Partnerships', undefined);
     expect(redirect).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_1');
   });
 
@@ -265,7 +274,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
     await settle(fixture);
 
-    expect(startCheckout).toHaveBeenCalledWith(1, 'year', 'COO');
+    expect(startCheckout).toHaveBeenCalledWith(1, 'year', 'COO', undefined);
   });
 
   it('refuses a blank title before any request and focuses the field (AECI-1625)', async () => {
@@ -446,7 +455,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     fixture.detectChanges();
 
-    expect(addStripeLicenses).toHaveBeenCalledWith(2);
+    expect(addStripeLicenses).toHaveBeenCalledWith(2, undefined);
     expect(document.querySelector('[data-testid="stripe-add-dialog"]')).toBeNull();
     expect(q(fixture, 'billing-checkout-notice-title')?.textContent).toContain(
       'Stripe accepted the change',
@@ -597,6 +606,301 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
   });
 });
 
+describe('the unused-subscriptions warning (AECI-1865)', () => {
+  let getBilling: ReturnType<typeof vi.fn>;
+  let startCheckout: ReturnType<typeof vi.fn>;
+  let addStripeLicenses: ReturnType<typeof vi.fn>;
+
+  /** No pool subscription, and `products` products with no subscription. */
+  function billingWith(products: number, pool = 0, stripe = false): VendorBillingResponse {
+    const notPool = VENDOR_BILLING_FIXTURE.licenses.filter(
+      (l) => !(l.live && l.assigned_product === null),
+    );
+    const poolRows = Array.from({ length: pool }, (_, i) => ({
+      ...STRIPE_LICENSE,
+      id: `00000000-0000-4000-8000-0000000088${String(i).padStart(2, '0')}`,
+    }));
+    return {
+      ...AVAILABLE,
+      licenses: [...poolRows, ...notPool],
+      pool_count: pool,
+      assignable_products: SPARE_PRODUCTS.slice(0, products),
+      stripe: stripe ? SUBSCRIBED.stripe : null,
+    };
+  }
+
+  beforeEach(() => {
+    getBilling = vi.fn().mockResolvedValue(billingWith(1));
+    startCheckout = vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
+    addStripeLicenses = vi.fn().mockResolvedValue({ ok: true, pending: true });
+    vi.spyOn(
+      VendorBillingStripePanel.prototype as unknown as { redirect: (url: string) => void },
+      'redirect',
+    ).mockImplementation(() => undefined);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideRouter([]),
+        {
+          provide: VendorApi,
+          useValue: {
+            getBilling,
+            getAcceptances: vi.fn().mockResolvedValue({ acceptances: VENDOR_ACCEPTANCES_FIXTURE }),
+            getMe: vi.fn().mockResolvedValue(VENDOR_ME_FIXTURE),
+            startCheckout,
+            addStripeLicenses,
+            openBillingPortal: vi.fn(),
+          } as Partial<VendorApi>,
+        },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+  });
+
+  async function create(): Promise<ComponentFixture<VendorBillingSection>> {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+    const fixture = TestBed.createComponent(VendorBillingSection);
+    fixture.detectChanges();
+    await settle(fixture);
+    return fixture;
+  }
+
+  async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+    await flush();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  const root = (fixture: ComponentFixture<unknown>) => fixture.nativeElement as HTMLElement;
+  /** Rendered text, whitespace collapsed: the ICU cases wrap across lines. */
+  const text = (el: Element | null | undefined) =>
+    (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const q = (fixture: ComponentFixture<unknown>, id: string) =>
+    root(fixture).querySelector(`[data-testid="${id}"]`);
+
+  function type(input: HTMLInputElement, value: string): void {
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  async function buyQuantity(fixture: ComponentFixture<unknown>, n: string): Promise<void> {
+    type(q(fixture, 'stripe-buy-quantity') as HTMLInputElement, n);
+    await settle(fixture);
+  }
+
+  it('with 1 product and 3 subscriptions, warns and sends nothing until the box is ticked', async () => {
+    const fixture = await create();
+    await buyQuantity(fixture, '3');
+
+    const warning = q(fixture, 'unused-warning');
+    expect(text(warning)).toContain('1 of your products has no subscription.');
+    expect(text(warning)).toContain(
+      '2 of these subscriptions would not be on any product until you add products. You pay for them from today.',
+    );
+    // The text is in a live region, so a screen reader hears it.
+    expect(warning?.closest('[role="status"]')).not.toBeNull();
+    const box = q(fixture, 'unused-box') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    const label = root(fixture).querySelector(`label[for="${box.id}"]`);
+    expect(text(label)).toBe('I understand that 2 subscriptions will be unused.');
+    expect(box.getAttribute('aria-describedby')).toBe('vendor-billing-buy-unused-text');
+
+    // The button stays enabled (DESIGN.md "Submit stays enabled").
+    const submit = q(fixture, 'stripe-checkout') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    submit.click();
+    await settle(fixture);
+    expect(startCheckout).not.toHaveBeenCalled();
+    expect(text(q(fixture, 'unused-error'))).toContain('Tick the box');
+    expect(document.activeElement).toBe(box);
+
+    box.click();
+    await settle(fixture);
+    expect(q(fixture, 'unused-error')).toBeNull();
+    submit.click();
+    await settle(fixture);
+    expect(startCheckout).toHaveBeenCalledWith(3, 'year', 'Head of Partnerships', 2);
+  });
+
+  it('with 2 products and 2 subscriptions, shows no warning and sends no count', async () => {
+    getBilling.mockResolvedValue(billingWith(2));
+    const fixture = await create();
+    await buyQuantity(fixture, '2');
+
+    expect(q(fixture, 'unused-warning')).toBeNull();
+    expect(q(fixture, 'unused-box')).toBeNull();
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(startCheckout).toHaveBeenCalledWith(2, 'year', 'Head of Partnerships', undefined);
+  });
+
+  it('clears the box when the quantity or the billing period changes', async () => {
+    const fixture = await create();
+    await buyQuantity(fixture, '3');
+    (q(fixture, 'unused-box') as HTMLInputElement).click();
+    await settle(fixture);
+    expect((q(fixture, 'unused-box') as HTMLInputElement).checked).toBe(true);
+
+    await buyQuantity(fixture, '4');
+    expect((q(fixture, 'unused-box') as HTMLInputElement).checked).toBe(false);
+    expect(text(q(fixture, 'unused-warning'))).toContain('3 of these subscriptions');
+
+    (q(fixture, 'unused-box') as HTMLInputElement).click();
+    await settle(fixture);
+    (q(fixture, 'stripe-interval-month')!.querySelector('input') as HTMLInputElement).click();
+    await settle(fixture);
+    expect((q(fixture, 'unused-box') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('says so when every product already has a subscription', async () => {
+    getBilling.mockResolvedValue(billingWith(0));
+    const fixture = await create();
+
+    const warningText = text(q(fixture, 'unused-warning'));
+    expect(warningText).toContain('Every product you own already has a subscription.');
+    expect(warningText).toContain(
+      'This subscription would not be on any product until you add a product. You pay for it from today.',
+    );
+  });
+
+  it('re-reads billing on the API recount, keeps the form, and focuses the cleared box', async () => {
+    startCheckout.mockRejectedValueOnce(
+      apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', { unused: 3 }),
+    );
+    const fixture = await create();
+    await buyQuantity(fixture, '3');
+    (q(fixture, 'unused-box') as HTMLInputElement).click();
+    await settle(fixture);
+    // Another owner's spare lands in the pool meanwhile.
+    getBilling.mockResolvedValue(billingWith(1, 1));
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(getBilling).toHaveBeenCalledTimes(2);
+    const box = q(fixture, 'unused-box') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(text(root(fixture).querySelector(`label[for="${box.id}"]`))).toContain(
+      '3 subscriptions will be unused',
+    );
+    expect(text(q(fixture, 'unused-warning'))).toContain(
+      'You already have 1 unused subscription in your pool.',
+    );
+    expect(text(q(fixture, 'unused-error'))).toContain('has changed');
+    expect(document.activeElement).toBe(box);
+  });
+
+  it('with 1 product and one spare in the pool, adding 1 warns inside the dialog', async () => {
+    getBilling.mockResolvedValue(billingWith(1, 1, true));
+    const fixture = await create();
+    (q(fixture, 'stripe-add-open') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const dialog = document.querySelector('[data-testid="stripe-add-dialog"]') as HTMLElement;
+    const warning = dialog.querySelector('[data-testid="unused-warning"]');
+    expect(text(warning)).toContain('You already have 1 unused subscription in your pool.');
+    // A spare already in the pool: the sentence counts the account, not "these".
+    expect(text(warning)).toContain(
+      'After this purchase, 1 of your subscriptions would not be on any product until you add a product. You pay for the new one from today.',
+    );
+    const box = dialog.querySelector('[data-testid="unused-box"]') as HTMLInputElement;
+    expect(text(dialog.querySelector(`label[for="${box.id}"]`))).toBe(
+      'I understand that 1 subscription will be unused.',
+    );
+
+    (dialog.querySelector('[data-testid="stripe-add-submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(addStripeLicenses).not.toHaveBeenCalled();
+    expect(dialog.querySelector('[data-testid="unused-error"]')).not.toBeNull();
+    expect(document.activeElement).toBe(box);
+
+    box.click();
+    await settle(fixture);
+    (dialog.querySelector('[data-testid="stripe-add-submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(addStripeLicenses).toHaveBeenCalledWith(1, 1);
+  });
+
+  // Review finding: the license list is capped, so the warning counts `pool_count`.
+  it('counts the whole pool from pool_count, not the capped license list', async () => {
+    getBilling.mockResolvedValue({ ...billingWith(1), pool_count: 501, licenses_truncated: true });
+    const fixture = await create();
+
+    expect(text(q(fixture, 'unused-warning'))).toContain(
+      'You already have 501 unused subscriptions in your pool.',
+    );
+    (q(fixture, 'unused-box') as HTMLInputElement).click();
+    await settle(fixture);
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(startCheckout).toHaveBeenCalledWith(1, 'year', 'Head of Partnerships', 501);
+  });
+
+  // Review finding: a read that lags the API (a webhook in flight, Stripe not answering)
+  // would refuse forever. After the 409 the API's own counts drive the warning.
+  it('warns from the API counts after a recount, even when the re-read still lags', async () => {
+    startCheckout
+      .mockRejectedValueOnce(
+        apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', {
+          unused: 3,
+          pool: 2,
+          products_without_subscription: 1,
+        }),
+      )
+      .mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
+    const fixture = await create();
+    await buyQuantity(fixture, '2');
+    (q(fixture, 'unused-box') as HTMLInputElement).click();
+    await settle(fixture);
+    // The re-read answers the same lagging numbers: no pool at all.
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    await settle(fixture);
+
+    const box = q(fixture, 'unused-box') as HTMLInputElement;
+    expect(text(root(fixture).querySelector(`label[for="${box.id}"]`))).toBe(
+      'I understand that 3 subscriptions will be unused.',
+    );
+    box.click();
+    await settle(fixture);
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(startCheckout).toHaveBeenLastCalledWith(2, 'year', 'Head of Partnerships', 3);
+  });
+
+  it('keeps the dialog open on the API recount', async () => {
+    getBilling.mockResolvedValue(billingWith(1, 1, true));
+    addStripeLicenses.mockRejectedValueOnce(
+      apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', { unused: 2 }),
+    );
+    const fixture = await create();
+    (q(fixture, 'stripe-add-open') as HTMLButtonElement).click();
+    await settle(fixture);
+    const dialog = document.querySelector('[data-testid="stripe-add-dialog"]') as HTMLElement;
+    (dialog.querySelector('[data-testid="unused-box"]') as HTMLInputElement).click();
+    await settle(fixture);
+    getBilling.mockResolvedValue(billingWith(1, 2, true));
+    (dialog.querySelector('[data-testid="stripe-add-submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(document.querySelector('[data-testid="stripe-add-dialog"]')).not.toBeNull();
+    const box = document.querySelector(
+      '[data-testid="stripe-add-dialog"] [data-testid="unused-box"]',
+    ) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(document.activeElement).toBe(box);
+  });
+});
+
 describe('stripeBillingErrorMessage (AECI-1502)', () => {
   const cases: readonly [HttpErrorResponse, string, boolean][] = [
     [apiError(503, 'STRIPE_UNAVAILABLE'), 'not available right now', false],
@@ -605,6 +909,7 @@ describe('stripeBillingErrorMessage (AECI-1502)', () => {
     [apiError(409, 'LICENSE_INTERVAL_MISMATCH', { interval: 'month' }), 'billed monthly', true],
     [apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED'), 'no active Stripe plan', true],
     [apiError(409, 'STRIPE_PAYMENT_INCOMPLETE'), 'Your card was not charged', false],
+    [apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', { unused: 2 }), 'has changed', false],
     [apiError(503, 'DEPENDENCY_FAILURE'), 'Stripe did not answer', false],
     [apiError(429, 'RATE_LIMITED'), 'Too many attempts', false],
     [apiError(400, 'VALIDATION_FAILED'), 'from 1 to 100', false],
@@ -615,6 +920,32 @@ describe('stripeBillingErrorMessage (AECI-1502)', () => {
     const mapped = stripeBillingErrorMessage(err, 'checkout');
     expect(mapped.message).toContain(text);
     expect(mapped.stale).toBe(stale);
+  });
+
+  it('marks the unused recount, and nothing else, for a re-read in place (AECI-1865)', () => {
+    expect(
+      stripeBillingErrorMessage(apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED'), 'add')
+        .recount,
+    ).toBe(true);
+    for (const [err] of cases.filter(
+      ([e]) => e.error.error.code !== 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED',
+    )) {
+      expect(stripeBillingErrorMessage(err, 'checkout').recount).toBeFalsy();
+    }
+  });
+
+  it('passes the API counts on a recount, and none when they are missing or malformed', () => {
+    const counts = (details?: Record<string, unknown>) =>
+      stripeBillingErrorMessage(
+        apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', details),
+        'add',
+      ).counts;
+    expect(counts({ unused: 2, pool: 1, products_without_subscription: 0 })).toEqual({
+      pool: 1,
+      productsWithout: 0,
+    });
+    expect(counts({ unused: 2 })).toBeUndefined();
+    expect(counts({ pool: -1, products_without_subscription: 1 })).toBeUndefined();
   });
 
   it('falls back to the action line for anything else', () => {

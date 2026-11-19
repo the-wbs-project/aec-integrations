@@ -75,7 +75,11 @@ import {
   createAdminVendorProductsHandler,
   createAdminVendorsListHandler,
 } from './admin-vendors';
-import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
+import {
+  createAdminUserAuditHandler,
+  createAdminUserDetailHandler,
+  createAdminUsersListHandler,
+} from './admin-users';
 import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances';
 import { createAdminVendorBillingHandler } from './admin-vendors-billing';
 import { createAdminLicenseReleaseRequestsListHandler } from './admin-license-release-requests';
@@ -163,6 +167,7 @@ const ROUTES = [
   // exists for the deny cases anyway.
   { name: 'GET /api/admin/users', url: '/api/admin/users' },
   { name: 'GET /api/admin/users/:id', url: `/api/admin/users/${REVIEWER}` },
+  { name: 'GET /api/admin/users/:id/audit', url: `/api/admin/users/${REVIEWER}/audit` },
   // AECI-722 — the §5.9 connector surface. FIVE reads and no write: the
   // `managed_by` flip is AECI-720's PATCH, covered by
   // `admin-connector-catalogs.spec.ts` with the rest of its write semantics, so
@@ -350,6 +355,12 @@ function makeApp() {
     '/api/admin/users/:id',
     requireAdmin(guard),
     createAdminUserDetailHandler(t.factory, noRecords),
+  );
+  // AECI-693. The trail takes the email seam, so it gets `noEmails` too.
+  app.get(
+    '/api/admin/users/:id/audit',
+    requireAdmin(guard),
+    createAdminUserAuditHandler(t.factory, noEmails),
   );
   // AECI-722. The list, stubs and pairs handlers take only the db factory; the
   // detail and audit handlers take the email seam second, so they get `noEmails`

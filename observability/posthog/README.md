@@ -506,9 +506,6 @@ production promote. Move it to the real promote plus a day, and delete it once
 `acceptance-evidence-removal` (AECI-1636) carries `2026-11-24T18:00:00Z`, a placeholder past the
 expected production promote. Move it to the real promote plus a day, and delete it once
 `aeci.agreement.evidence_removal.run` appears in production.
-`acceptance-chain` (AECI-1680) carries `2026-11-25T19:00:00Z`, a placeholder past the expected
-production promote. Move it to the real promote plus a day, and delete it once
-`aeci.acceptance_chain.run` appears in production.
 `legal-retention-prune` (AECI-1638) carries `2026-11-25T04:00:00Z`, a placeholder past the
 expected production promote. Move it to the real promote plus a day, and delete it once
 `aeci.legal_retention.prune` appears in production.

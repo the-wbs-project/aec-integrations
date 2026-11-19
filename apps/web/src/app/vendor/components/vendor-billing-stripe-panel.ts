@@ -23,6 +23,7 @@ import {
 import {
   CHECKOUT_SIGNER_TITLE_MAX,
   STRIPE_LICENSE_QUANTITY_MAX,
+  unusedAfterPurchase,
   type StripeBillingInterval,
   type VendorBillingResponse,
 } from '@aeci/shared';
@@ -48,9 +49,14 @@ import { VendorApi } from '../vendor-api';
 import { focusIsLost } from '../focus-is-lost';
 import { formatPlanPrice } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { billedIntervalLabel, stripeBillingErrorMessage } from './vendor-billing-stripe-errors';
+import {
+  billedIntervalLabel,
+  stripeBillingErrorMessage,
+  type StripeBillingError,
+} from './vendor-billing-stripe-errors';
 import { VendorBillingStripeWatch, liveLicenseCount } from './vendor-billing-stripe-watch';
 import { isReplayedEvent } from '../../core/event-replay';
+import { VendorBillingUnusedWarning } from './vendor-billing-unused-warning';
 
 /** Per-license price in cents, by interval. Display only: Stripe bills from its own
  *  prices, resolved by lookup key on the API (`managed_annual`, `managed_monthly`). */
@@ -91,6 +97,15 @@ function parseQuantity(text: string): number | null {
  * receipts (AECI-1501). The API opens it with the annual config. With no live
  * subscription there is nothing in it to cancel.
  *
+ * ── UNUSED SUBSCRIPTIONS (AECI-1865) ────────────────────────────────────────
+ * Both forms show {@link VendorBillingUnusedWarning} when the purchase would leave
+ * subscriptions on no product, with a required box. The submit stays enabled (DESIGN.md
+ * "Submit stays enabled"): an unticked submit shows an error under the box, moves focus
+ * there, and sends nothing. A change of quantity, interval or count clears the box. The
+ * request carries the count, and the API refuses a count that differs from its own with
+ * `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED`: the panel re-reads billing, keeps the form
+ * open, and moves focus to the cleared box.
+ *
  * ── REDIRECTS ───────────────────────────────────────────────────────────────
  * Checkout and portal answer with a Stripe URL, and the browser goes there. An
  * accepted add answers `pending`: the licenses land with the webhook, so the panel
@@ -112,6 +127,7 @@ function parseQuantity(text: string): number | null {
     BrnDialogContent,
     BrnDialogDescription,
     BrnDialogTitle,
+    VendorBillingUnusedWarning,
   ],
   template: `
     <section
@@ -274,7 +290,7 @@ function parseQuantity(text: string): number | null {
                       : 'vendor-billing-add-quantity-hint'
                   "
                   data-testid="stripe-add-quantity"
-                  (input)="addQuantity.set(textOf($event))"
+                  (input)="onAddQuantity($event)"
                 />
                 <p
                   id="vendor-billing-add-quantity-hint"
@@ -294,6 +310,17 @@ function parseQuantity(text: string): number | null {
                   </p>
                 }
               </div>
+              <aec-vendor-billing-unused-warning
+                #addWarning
+                class="mt-6 block"
+                idPrefix="vendor-billing-add"
+                [quantity]="addQuantityValue()"
+                [pool]="poolCount()"
+                [productsWithout]="productsWithoutCount()"
+                [accepted]="addAccepted()"
+                [error]="addUnusedError()"
+                (acceptedChange)="onAddAccepted($event)"
+              />
               <div class="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button
                   brnDialogClose
@@ -350,7 +377,7 @@ function parseQuantity(text: string): number | null {
                   value="year"
                   [class]="choiceInputClass"
                   [checked]="interval() === 'year'"
-                  (change)="interval.set('year')"
+                  (change)="onInterval('year')"
                 />
                 <span>
                   <span class="block" i18n="@@vendor.billing.stripe.interval.year">Annual</span>
@@ -366,7 +393,7 @@ function parseQuantity(text: string): number | null {
                   value="month"
                   [class]="choiceInputClass"
                   [checked]="interval() === 'month'"
-                  (change)="interval.set('month')"
+                  (change)="onInterval('month')"
                 />
                 <span>
                   <span class="block" i18n="@@vendor.billing.stripe.interval.month">Monthly</span>
@@ -403,7 +430,7 @@ function parseQuantity(text: string): number | null {
                   : 'vendor-billing-buy-quantity-hint'
               "
               data-testid="stripe-buy-quantity"
-              (input)="buyQuantity.set(textOf($event))"
+              (input)="onBuyQuantity($event)"
             />
             <p
               id="vendor-billing-buy-quantity-hint"
@@ -513,6 +540,18 @@ function parseQuantity(text: string): number | null {
             >
           </p>
 
+          <aec-vendor-billing-unused-warning
+            #buyWarning
+            class="block"
+            idPrefix="vendor-billing-buy"
+            [quantity]="buyQuantityValue()"
+            [pool]="poolCount()"
+            [productsWithout]="productsWithoutCount()"
+            [accepted]="buyAccepted()"
+            [error]="buyUnusedError()"
+            (acceptedChange)="onBuyAccepted($event)"
+          />
+
           @if (panelError(); as message) {
             <p
               #panelErrorEl
@@ -588,6 +627,8 @@ export class VendorBillingStripePanel {
   private readonly buyQuantityEl = viewChild<ElementRef<HTMLInputElement>>('buyQuantityEl');
   private readonly signerTitleEl = viewChild<ElementRef<HTMLInputElement>>('signerTitleEl');
   private readonly addQuantityEl = viewChild<ElementRef<HTMLInputElement>>('addQuantityEl');
+  private readonly buyWarning = viewChild<VendorBillingUnusedWarning>('buyWarning');
+  private readonly addWarning = viewChild<VendorBillingUnusedWarning>('addWarning');
   /** The panel's error line. Either branch renders one, so the ref follows the swap. */
   private readonly panelErrorEl = viewChild<ElementRef<HTMLElement>>('panelErrorEl');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -613,6 +654,47 @@ export class VendorBillingStripePanel {
   protected readonly quantityError = signal<string | null>(null);
   /** A refusal inside the add dialog. */
   protected readonly addError = signal<string | null>(null);
+
+  // ── AECI-1865: the unused-subscriptions warning ─────────────────────────────
+  /** The API's own counts from its last `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED`. They win
+   *  over the read until the next purchase or dialog open: the read can lag the API (a
+   *  webhook in flight, a Stripe read that failed), and warning from the lagging numbers
+   *  would refuse the owner forever. A later change refuses again and refreshes them. */
+  private readonly serverCounts = signal<{ pool: number; productsWithout: number } | null>(null);
+  /** Subscriptions on no product: the read's full count (`pool_count`), never the capped
+   *  license list, with paid ones the webhook has not landed yet. */
+  protected readonly poolCount = computed(
+    () => this.serverCounts()?.pool ?? this.billing().pool_count,
+  );
+  /** Products holding no live subscription, from any vendor. */
+  protected readonly productsWithoutCount = computed(
+    () => this.serverCounts()?.productsWithout ?? this.billing().assignable_products.length,
+  );
+  protected readonly buyQuantityValue = computed(() => parseQuantity(this.buyQuantity()));
+  protected readonly addQuantityValue = computed(() => parseQuantity(this.addQuantity()));
+  private unusedFor(quantity: number | null): number {
+    if (quantity === null) return 0;
+    return unusedAfterPurchase({
+      quantity,
+      pool: this.poolCount(),
+      productsWithoutSubscription: this.productsWithoutCount(),
+    });
+  }
+  private readonly buyUnused = computed(() => this.unusedFor(this.buyQuantityValue()));
+  private readonly addUnused = computed(() => this.unusedFor(this.addQuantityValue()));
+  /** The buy form's box. A new quantity, interval or count clears it. */
+  protected readonly buyAccepted = linkedSignal({
+    source: () => `${this.buyQuantity()}|${this.interval()}|${this.buyUnused()}`,
+    computation: () => false,
+  });
+  /** The add dialog's box. A new quantity or count clears it. */
+  protected readonly addAccepted = linkedSignal({
+    source: () => `${this.addQuantity()}|${this.addUnused()}`,
+    computation: () => false,
+  });
+  /** An unticked submit, or the API's recount, under the box. */
+  protected readonly buyUnusedError = signal<string | null>(null);
+  protected readonly addUnusedError = signal<string | null>(null);
 
   private price(cents: number): string {
     return formatPlanPrice(cents, this.locale);
@@ -662,6 +744,61 @@ export class VendorBillingStripePanel {
     return (event.target as HTMLInputElement).value;
   }
 
+  protected onBuyQuantity(event: Event): void {
+    this.buyQuantity.set(this.textOf(event));
+    this.buyUnusedError.set(null);
+  }
+
+  protected onInterval(interval: StripeBillingInterval): void {
+    this.interval.set(interval);
+    this.buyUnusedError.set(null);
+  }
+
+  protected onAddQuantity(event: Event): void {
+    this.addQuantity.set(this.textOf(event));
+    this.addUnusedError.set(null);
+  }
+
+  protected onBuyAccepted(accepted: boolean): void {
+    this.buyAccepted.set(accepted);
+    if (accepted) this.buyUnusedError.set(null);
+  }
+
+  protected onAddAccepted(accepted: boolean): void {
+    this.addAccepted.set(accepted);
+    if (accepted) this.addUnusedError.set(null);
+  }
+
+  private unticked(): string {
+    return $localize`:@@vendor.billing.stripe.error.unusedBox:Tick the box to confirm you understand that some subscriptions will be unused.`;
+  }
+
+  /**
+   * After the API's recount (`409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED`): re-read billing
+   * so the warning shows the new count, clear the box, and put the message under it.
+   * If the re-read leaves nothing unused, the message goes on `fallback` instead.
+   */
+  private async recount(
+    mapped: StripeBillingError,
+    form: 'buy' | 'add',
+    fallback: (message: string) => void,
+  ): Promise<void> {
+    const { message } = mapped;
+    await this.store.reload('billing');
+    if (mapped.counts) this.serverCounts.set(mapped.counts);
+    const accepted = form === 'buy' ? this.buyAccepted : this.addAccepted;
+    const unused = form === 'buy' ? this.buyUnused() : this.addUnused();
+    accepted.set(false);
+    if (unused === 0) {
+      fallback(message);
+      return;
+    }
+    (form === 'buy' ? this.buyUnusedError : this.addUnusedError).set(message);
+    afterNextRender(() => (form === 'buy' ? this.buyWarning() : this.addWarning())?.focusBox(), {
+      injector: this.injector,
+    });
+  }
+
   protected onTitleInput(event: Event): void {
     this.signerTitle.set(this.textOf(event));
     this.titleError.set(null);
@@ -688,13 +825,30 @@ export class VendorBillingStripePanel {
       return;
     }
     this.titleError.set(null);
+    const unused = this.buyUnused();
+    if (unused > 0 && !this.buyAccepted()) {
+      this.buyUnusedError.set(this.unticked());
+      this.buyWarning()?.focusBox();
+      return;
+    }
+    this.buyUnusedError.set(null);
     this.busy.set('checkout');
     try {
-      const { url } = await this.api.startCheckout(quantity, this.interval(), title);
+      const { url } = await this.api.startCheckout(
+        quantity,
+        this.interval(),
+        title,
+        unused > 0 ? unused : undefined,
+      );
       // Busy stays on: the page is leaving.
       this.redirect(url);
     } catch (err) {
       this.busy.set(null);
+      const mapped = stripeBillingErrorMessage(err, 'checkout');
+      if (mapped.recount) {
+        await this.recount(mapped, 'buy', (message) => this.panelError.set(message));
+        return;
+      }
       await this.fail(err, 'checkout');
     }
   }
@@ -714,7 +868,10 @@ export class VendorBillingStripePanel {
 
   /** Open the add dialog. From the click handler only (NG0602). */
   protected openAdd(): void {
+    this.serverCounts.set(null);
     this.addQuantity.set('1');
+    this.addAccepted.set(false);
+    this.addUnusedError.set(null);
     this.addError.set(null);
     this.panelError.set(null);
     this.dialog()?.open();
@@ -722,6 +879,7 @@ export class VendorBillingStripePanel {
 
   protected onAddClosed(): void {
     this.addError.set(null);
+    this.addUnusedError.set(null);
   }
 
   protected async add(event: Event): Promise<void> {
@@ -735,16 +893,28 @@ export class VendorBillingStripePanel {
       return;
     }
     this.addError.set(null);
+    const unused = this.addUnused();
+    if (unused > 0 && !this.addAccepted()) {
+      this.addUnusedError.set(this.unticked());
+      this.addWarning()?.focusBox();
+      return;
+    }
+    this.addUnusedError.set(null);
     this.busy.set('add');
     const baseline = liveLicenseCount(this.billing());
     try {
-      await this.api.addStripeLicenses(quantity);
+      await this.api.addStripeLicenses(quantity, unused > 0 ? unused : undefined);
+      this.serverCounts.set(null);
       this.busy.set(null);
       this.dialog()?.close();
       this.watch.watch('add', baseline);
     } catch (err) {
       this.busy.set(null);
       const mapped = stripeBillingErrorMessage(err, 'add');
+      if (mapped.recount) {
+        await this.recount(mapped, 'add', (message) => this.addError.set(message));
+        return;
+      }
       if (mapped.stale) {
         // The subscription is not what this tab showed. The re-read can remove the
         // branch that holds this dialog, so close it and keep the message on the

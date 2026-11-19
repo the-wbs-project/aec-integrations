@@ -1,5 +1,5 @@
 /**
- * `GET /api/admin/users` + `/:id` (AECI-692).
+ * `GET /api/admin/users`, `/:id` (AECI-692) and `/:id/audit` (AECI-693).
  *
  * What each group of assertions earns its keep for:
  *
@@ -19,6 +19,8 @@
  *     `requests_by_email` are keyed by an email address the seam supplies, so
  *     without it they are unknowable — an empty answer would assert a fact.
  *  5. **The reads write nothing** (ADR 0022 / `ADMIN_PANEL_SPEC.md` §9.3).
+ *  6. **The audit trail's three legs** (AECI-693). Each scope returns exactly its
+ *     legs, and the `all` OR stays flat so every leg is an index SEARCH.
  */
 
 import { eq } from 'drizzle-orm';
@@ -42,6 +44,7 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { adminAuditPageQueries, type FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import type {
   FetchAuthRecords,
@@ -51,7 +54,12 @@ import type {
 import { makeTestDb, type TestDb } from '../test/d1';
 import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
+import {
+  createAdminUserAuditHandler,
+  createAdminUserDetailHandler,
+  createAdminUsersListHandler,
+  userAuditWhere,
+} from './admin-users';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -923,5 +931,282 @@ describe('GET /api/admin/users — About you (AECI-1296)', () => {
       audiences: [],
       onboarding: 'pending',
     });
+  });
+});
+
+// ─── AECI-693: the audit trail ───────────────────────────────────────────────
+
+describe('GET /api/admin/users/:id/audit (AECI-693)', () => {
+  const ROW = {
+    profileUpdated: u(801),
+    claimGranted: u(802),
+    cancelCleared: u(803),
+    wroteElsewhere: u(804),
+    tieLow: u(805),
+    tieHigh: u(806),
+  };
+  const DECOY = {
+    otherProfile: u(851),
+    otherSeatGrant: u(852),
+    unlistedAction: u(853),
+  };
+
+  /** One row per leg for REVIEWER, a same-millisecond pair, and three decoys. */
+  async function seedTrail() {
+    await seedPeople();
+    await t.db.insert(auditLog).values([
+      // Entity leg.
+      {
+        id: ROW.profileUpdated,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'profile.updated',
+        entityType: 'profile',
+        entityId: REVIEWER,
+        beforeState: { display_name: 'Rita' },
+        afterState: { display_name: 'Rita Reviewer' },
+        createdAt: '2026-10-01T00:00:00.000Z',
+      },
+      // Metadata leg, both actions.
+      {
+        id: ROW.claimGranted,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'vendor_claim.granted',
+        entityType: 'vendor_request',
+        entityId: u(700),
+        metadata: { seat_user_id: REVIEWER },
+        createdAt: '2026-10-02T00:00:00.000Z',
+      },
+      {
+        id: ROW.cancelCleared,
+        actorId: null,
+        actorType: 'system',
+        action: 'license.cancel_at_term_end_cleared',
+        entityType: 'billing_account',
+        entityId: u(701),
+        metadata: { seat_user_id: REVIEWER },
+        createdAt: '2026-10-03T00:00:00.000Z',
+      },
+      // Actor leg: REVIEWER wrote it, on someone else's entity.
+      {
+        id: ROW.wroteElsewhere,
+        actorId: REVIEWER,
+        actorType: 'user',
+        action: 'review.created',
+        entityType: 'review',
+        entityId: u(702),
+        createdAt: '2026-10-04T00:00:00.000Z',
+      },
+      // Two entity-leg rows in one millisecond: `id DESC` breaks the tie.
+      {
+        id: ROW.tieLow,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'reviewer.banned',
+        entityType: 'profile',
+        entityId: REVIEWER,
+        createdAt: '2026-10-05T00:00:00.000Z',
+      },
+      {
+        id: ROW.tieHigh,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'notification.sent',
+        entityType: 'profile',
+        entityId: REVIEWER,
+        createdAt: '2026-10-05T00:00:00.000Z',
+      },
+      // Decoys: another person's profile row and seat grant, and an action off
+      // the metadata list that still carries REVIEWER's id.
+      {
+        id: DECOY.otherProfile,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'profile.updated',
+        entityType: 'profile',
+        entityId: BANNED,
+        createdAt: '2026-10-06T00:00:00.000Z',
+      },
+      {
+        id: DECOY.otherSeatGrant,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'vendor_claim.granted',
+        entityType: 'vendor_request',
+        entityId: u(703),
+        metadata: { seat_user_id: BANNED },
+        createdAt: '2026-10-07T00:00:00.000Z',
+      },
+      {
+        id: DECOY.unlistedAction,
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'vendor_claim.rejected',
+        entityType: 'vendor_request',
+        entityId: u(704),
+        metadata: { seat_user_id: REVIEWER },
+        createdAt: '2026-10-08T00:00:00.000Z',
+      },
+    ]);
+  }
+
+  function emailSeam(available = true): FetchAuthEmails {
+    return async (_env, ids) => ({
+      available,
+      emails: new Map(available ? ids.map((id) => [id, `${id}@example.com`]) : []),
+      reason: available ? ('ok' as const) : ('error' as const),
+    });
+  }
+
+  function auditApp(seam = emailSeam()) {
+    return mount('/users/:id/audit', createAdminUserAuditHandler(t.factory, seam));
+  }
+
+  async function ids(query = '') {
+    const res = await call(auditApp(), `/users/${REVIEWER}/audit${query}`);
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    return (body.data as { id: string }[]).map((r) => r.id);
+  }
+
+  it('404s on an unknown id rather than returning an empty trail', async () => {
+    const res = await call(auditApp(), `/users/${u(999)}/audit`);
+    expect(res.status).toBe(404);
+  });
+
+  it('400s on a bad scope or page', async () => {
+    await seedPeople();
+    const app = auditApp();
+    expect((await call(app, `/users/${REVIEWER}/audit?scope=everything`)).status).toBe(400);
+    expect((await call(app, `/users/${REVIEWER}/audit?page=0`)).status).toBe(400);
+    expect((await call(app, `/users/${REVIEWER}/audit?perPage=101`)).status).toBe(400);
+  });
+
+  it('all (the default) returns the three legs, newest first, id breaking a tie', async () => {
+    await seedTrail();
+    const all = [
+      ROW.tieHigh,
+      ROW.tieLow,
+      ROW.wroteElsewhere,
+      ROW.cancelCleared,
+      ROW.claimGranted,
+      ROW.profileUpdated,
+    ];
+    expect(await ids()).toEqual(all);
+    expect(await ids('?scope=all')).toEqual(all);
+  });
+
+  it('entity returns the profile rows and the two metadata actions only', async () => {
+    await seedTrail();
+    expect(await ids('?scope=entity')).toEqual([
+      ROW.tieHigh,
+      ROW.tieLow,
+      ROW.cancelCleared,
+      ROW.claimGranted,
+      ROW.profileUpdated,
+    ]);
+  });
+
+  it('actor returns the rows this person wrote only', async () => {
+    await seedTrail();
+    expect(await ids('?scope=actor')).toEqual([ROW.wroteElsewhere]);
+  });
+
+  it('pages with offset paging and reports the total', async () => {
+    await seedTrail();
+    const res = await call(auditApp(), `/users/${REVIEWER}/audit?perPage=4&page=2`);
+    const body = await readJson(res);
+    expect(body).toMatchObject({ page: 2, perPage: 4, total: 6 });
+    expect(body.data.map((r: { id: string }) => r.id)).toEqual([
+      ROW.claimGranted,
+      ROW.profileUpdated,
+    ]);
+  });
+
+  it('maps the diff and the actor, with emails when the seam answers', async () => {
+    await seedTrail();
+    const body = await readJson(await call(auditApp(), `/users/${REVIEWER}/audit?scope=entity`));
+    expect(body.actor_emails_available).toBe(true);
+    const row = body.data.find((r: { id: string }) => r.id === ROW.profileUpdated);
+    expect(row).toMatchObject({
+      action: 'profile.updated',
+      actor: { id: ADMIN, display_name: 'Ada Admin', email: `${ADMIN}@example.com` },
+      entity_type: 'profile',
+      entity_id: REVIEWER,
+      before_state: { display_name: 'Rita' },
+      after_state: { display_name: 'Rita Reviewer' },
+    });
+    const system = body.data.find((r: { id: string }) => r.id === ROW.cancelCleared);
+    expect(system.actor).toBeNull();
+  });
+
+  it('reports actor_emails_available false when the email seam fails', async () => {
+    await seedTrail();
+    const res = await call(auditApp(emailSeam(false)), `/users/${REVIEWER}/audit`);
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    expect(body.actor_emails_available).toBe(false);
+    expect(
+      body.data.every((r: { actor: { email: string | null } | null }) => !r.actor?.email),
+    ).toBe(true);
+  });
+
+  it('writes no audit_log or workflow_transitions row', async () => {
+    await seedTrail();
+    const before = (await t.db.select().from(auditLog)).length;
+    for (const scope of ['all', 'entity', 'actor']) {
+      await call(auditApp(), `/users/${REVIEWER}/audit?scope=${scope}`);
+    }
+    expect(await t.db.select().from(auditLog)).toHaveLength(before);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+  });
+
+  /**
+   * Index discipline, measured, on the exact SQL `readAdminAuditPage` sends. Every
+   * leg must be an index SEARCH and nothing may SCAN `audit_log`. An OR term that
+   * no single index can serve, such as AECI-1484's `AND(OR(...), OR(...))`, makes
+   * SQLite give up on the MULTI-INDEX OR and walk the table. Do not weaken this.
+   */
+  describe('every scope uses an index (EXPLAIN QUERY PLAN)', () => {
+    function plan(q: { sql: string; params: unknown[] }): string[] {
+      const rows = t.raw.prepare(`EXPLAIN QUERY PLAN ${q.sql}`).all(...q.params) as {
+        detail: string;
+      }[];
+      return rows.map((r) => r.detail);
+    }
+
+    function plansFor(scope: 'all' | 'entity' | 'actor') {
+      const queries = adminAuditPageQueries(t.db, userAuditWhere(REVIEWER, scope), {
+        page: 1,
+        perPage: 24,
+      });
+      return { page: plan(queries.page.toSQL()), total: plan(queries.total.toSQL()) };
+    }
+
+    const scans = (lines: string[]) => lines.filter((l) => /^SCAN audit_log\b/.test(l));
+    const searchesWith = (lines: string[], index: string) =>
+      lines.some((l) =>
+        new RegExp(`^SEARCH audit_log USING (COVERING )?INDEX ${index}\\b`).test(l),
+      );
+
+    const EXPECTED: Record<'all' | 'entity' | 'actor', string[]> = {
+      all: ['audit_log_entity_idx', 'audit_log_action_idx', 'audit_log_actor_idx'],
+      entity: ['audit_log_entity_idx', 'audit_log_action_idx'],
+      actor: ['audit_log_actor_idx'],
+    };
+
+    for (const scope of ['all', 'entity', 'actor'] as const) {
+      it(`${scope}: SEARCHes ${EXPECTED[scope].join(' + ')}, never a SCAN`, async () => {
+        await seedTrail();
+        const { page, total } = plansFor(scope);
+        for (const lines of [page, total]) {
+          expect(scans(lines), lines.join('\n')).toEqual([]);
+          for (const index of EXPECTED[scope]) {
+            expect(searchesWith(lines, index), lines.join('\n')).toBe(true);
+          }
+        }
+      });
+    }
   });
 });

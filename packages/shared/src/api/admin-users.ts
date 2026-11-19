@@ -7,6 +7,7 @@ import {
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
+import { AdminAuditRowSchema } from './admin-vendors';
 import { OnboardingStateSchema } from './profile-details';
 import { VendorSeatInviteSchema } from './vendor';
 
@@ -16,6 +17,7 @@ import { VendorSeatInviteSchema } from './vendor';
  *
  *   GET /api/admin/users      — paginated list, filters + name/email search
  *   GET /api/admin/users/:id  — profile, auth account, seat, pending invites, counts
+ *   GET /api/admin/users/:id/audit — the person's audit trail (AECI-693)
  *
  * Before this there was no user list at all. `GET /api/admin/reviewers` selects
  * `WHERE banned_at IS NOT NULL`, so the only person-shaped surface in the console
@@ -390,3 +392,37 @@ export const AdminUserDetailSchema = z.object({
   about: AdminUserAboutSchema,
 });
 export type AdminUserDetail = z.infer<typeof AdminUserDetailSchema>;
+
+// ─── GET /api/admin/users/:id/audit (AECI-693) ───────────────────────────────
+
+/**
+ * Which rows the user trail shows. The same three scopes as the vendor trail,
+ * so the two pages behave alike (`DESIGN.md` "The Same-Behavior Rule"):
+ *
+ *  - `entity` — rows ABOUT this person: `entity_type = 'profile'` with their id,
+ *    plus the two actions that name them only in `metadata.seat_user_id`
+ *    (`vendor_claim.granted`, `license.cancel_at_term_end_cleared`).
+ *  - `actor`  — rows this person WROTE (`actor_id`).
+ *  - `all`    — both. The default.
+ *
+ * `agreement.linked` names the person only in `after_state.profile_id`, which no
+ * index reaches. It is left out on purpose and stays on the claim trail
+ * (`ADMIN_PANEL_SPEC.md` §5.8).
+ */
+export const AdminUserAuditScopeSchema = z.enum(['all', 'entity', 'actor']);
+export type AdminUserAuditScope = z.infer<typeof AdminUserAuditScopeSchema>;
+
+export const AdminUserAuditQuerySchema = PageQuerySchema.extend({
+  scope: AdminUserAuditScopeSchema.default('all'),
+});
+export type AdminUserAuditQuery = z.infer<typeof AdminUserAuditQuerySchema>;
+
+/**
+ * One page of the user trail, the same envelope as the claim trail.
+ * `actor_emails_available` is `false` when the email seam failed, so an absent
+ * email reads as "unknown", not as "no address".
+ */
+export const AdminUserAuditResponseSchema = paginatedResponseSchema(AdminAuditRowSchema).extend({
+  actor_emails_available: z.boolean(),
+});
+export type AdminUserAuditResponse = z.infer<typeof AdminUserAuditResponseSchema>;
