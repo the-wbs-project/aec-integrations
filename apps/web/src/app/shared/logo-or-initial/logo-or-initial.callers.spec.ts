@@ -79,6 +79,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   // AECI-1720: the "Show more" stack is drawn twice, once per width (phone and md up).
   'products/product-integration-category-group.ts': { link: 2 },
   'products/product-powered-hub.ts': { link: 3 },
+  // AECI-1924: the hub tables, the same powered-pair payload as the hub's cards.
+  'products/product-powered-table.ts': { link: 1 },
   // AECI-1798: one loop renders both sides, each with its 64px mark and its 32px mark.
   'products/products-pair.ts': { subject: 2 },
   'reviews/review-form.html': { subject: 1 },

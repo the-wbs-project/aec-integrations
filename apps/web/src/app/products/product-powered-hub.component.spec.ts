@@ -11,7 +11,7 @@ import { Component, provideZonelessChangeDetection, signal } from '@angular/core
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter, RouterLink } from '@angular/router';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PoweredIntegrationItem, ProductLink } from '@aeci/shared';
 
@@ -531,6 +531,177 @@ describe('ProductPoweredHub', () => {
         expect(last.getAttribute('aria-hidden')).toBe('true');
         expect(last.querySelector('path')!.getAttribute('d')).toBe('m9 18 6-6-6-6');
       }
+    });
+  });
+
+  describe('Cards and Table (AECI-1924)', () => {
+    const toggle = (el: HTMLElement, name: 'Cards' | 'Table') =>
+      [...el.querySelectorAll<HTMLButtonElement>('[data-testid=powers-filter-panel] button')].find(
+        (b) => b.textContent?.trim() === name,
+      )!;
+    const cardNames = (el: HTMLElement) =>
+      [...el.querySelectorAll('a[data-testid="powered-card"]')].map((a) =>
+        a.getAttribute('aria-label'),
+      );
+    const tableNames = (el: HTMLElement) =>
+      [...el.querySelectorAll('a[data-testid="powered-table-link"]')].map((a) =>
+        a.getAttribute('aria-label'),
+      );
+    function showTable(fixture: { detectChanges: () => void }, el: HTMLElement) {
+      toggle(el, 'Table').click();
+      fixture.detectChanges();
+    }
+    const FLAT_AND_HUB = [
+      ...NINE.map((name) =>
+        poweredEdge(HUB, link(name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name)),
+      ),
+      poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam-2', 'Bluebeam Revu')),
+    ];
+    function setupMixed() {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.view.set(groupPoweredIntegrations(FLAT_AND_HUB, 'agave-erp-sync'));
+      fixture.detectChanges();
+      return { fixture, el: fixture.nativeElement as HTMLElement };
+    }
+
+    it('puts one Cards and Table toggle in the panel, Cards pressed, and renders cards first', () => {
+      const { el } = setupMixed();
+      const panel = el.querySelector('[data-testid=powers-filter-panel]')!;
+      const group = panel.querySelector('[role=group][aria-label="Choose a view"]')!;
+      expect(group).not.toBeNull();
+      expect(el.querySelectorAll('[aria-label="Choose a view"]')).toHaveLength(1);
+      expect(toggle(el, 'Cards').getAttribute('aria-pressed')).toBe('true');
+      expect(toggle(el, 'Table').getAttribute('aria-pressed')).toBe('false');
+      expect(el.querySelector('table')).toBeNull();
+      expect(cardNames(el)).toHaveLength(10);
+    });
+
+    it('shows every group as a table with the same rows in the same order', () => {
+      const { fixture, el } = setupMixed();
+      const before = cardNames(el);
+      showTable(fixture, el);
+      expect(toggle(el, 'Table').getAttribute('aria-pressed')).toBe('true');
+      expect(el.querySelector('a[data-testid="powered-card"]')).toBeNull();
+      // One table per group card: the hub, then the hubless pairs.
+      const tables = [...el.querySelectorAll('table')];
+      expect(tables).toHaveLength(2);
+      expect(tableNames(el)).toEqual(before);
+      // Each table is named by its group card's heading.
+      expect(tables[0]!.getAttribute('aria-labelledby')).toBe('powers-group-procore');
+      expect(el.querySelector('#powers-group-procore')!.textContent).toContain('Procore');
+      expect(tables[1]!.getAttribute('aria-labelledby')).toBe('powers-other');
+      expect(el.querySelector('#powers-other')!.textContent).toContain('Other connections');
+    });
+
+    it('keeps the header words of the Integrations table, and names both products when hubless', () => {
+      const { fixture, el } = setupMixed();
+      showTable(fixture, el);
+      const [hub, flat] = [...el.querySelectorAll('table')];
+      const heads = (t: Element) =>
+        [...t.querySelectorAll('thead th')].map((th) => th.textContent!.trim());
+      // AECI-1924, 2026-11-19: Direction, How it connects and Types of data as columns.
+      const columns = ['Direction', 'How it connects', 'Types of data', 'Details'];
+      expect(heads(hub!)).toEqual(['Integrates with', ...columns]);
+      expect(heads(flat!)).toEqual(['Products', ...columns]);
+      const flatRow = flat!.querySelector('tbody tr')!;
+      const shown = [...flatRow.querySelectorAll('[data-testid=powered-table-name]')].map(
+        (n) => n.textContent,
+      );
+      expect(shown).toEqual(['Bluebeam Revu', 'Fieldwire']);
+      expect(flatRow.textContent).toContain('Receives from Fieldwire');
+      const hubRow = hub!.querySelector('tbody tr')!;
+      expect(hubRow.textContent).toContain('Sends to Acumatica');
+      expect(hubRow.querySelectorAll('a')).toHaveLength(1);
+    });
+
+    it('fills Direction, How it connects and Types of data from the pair (AECI-1924)', () => {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      const sage = link('sage', 'Sage');
+      fixture.componentInstance.view.set(
+        groupPoweredIntegrations(
+          [
+            {
+              ...poweredEdge(HUB, sage),
+              mechanism_name: 'Sage connector',
+              data_object_slugs: ['rfi', 'submittal'],
+            },
+            { ...poweredEdge(HUB, link('cmic', 'CMiC')), direction: null, mechanism_kind: null },
+          ],
+          'agave-erp-sync',
+        ),
+      );
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      showTable(fixture, el);
+      const rows = [...el.querySelectorAll('tbody tr')];
+      const cell = (row: Element, id: string) =>
+        row.querySelector(`[data-testid=${id}]`)!.textContent!.replace(/\s+/g, ' ').trim();
+      // The cards' order: CMiC, then Sage.
+      expect(cell(rows[1]!, 'powered-table-direction')).toContain('Sends to Sage');
+      const connects = rows[1]!.querySelector('[data-testid=powered-table-connects]')!;
+      expect(connects.querySelector('aec-chip')!.textContent!.trim()).toBe('API');
+      expect(connects.textContent).toContain('Sage connector');
+      expect(cell(rows[1]!, 'powered-table-data')).toBe('2 types of data');
+      expect(cell(rows[0]!, 'powered-table-direction')).toBe('–');
+      expect(
+        rows[0]!
+          .querySelector('[data-testid=powered-table-connects] [aria-label]')!
+          .getAttribute('aria-label'),
+      ).toBe('Mechanism not listed');
+      expect(cell(rows[0]!, 'powered-table-data')).toContain('No types of data on record');
+    });
+
+    it('draws no rounded frame of its own inside the group card (AECI-1924)', () => {
+      const { fixture, el } = setupMixed();
+      showTable(fixture, el);
+      for (const frame of el.querySelectorAll('[data-testid=powered-table-frame]')) {
+        expect(frame.className).not.toMatch(/rounded|shadow/);
+        expect(frame.className).toContain('overflow-x-auto');
+      }
+    });
+
+    it('filters both views alike: the same rows, the same "Showing n of m"', () => {
+      const { fixture, el } = setupMixed();
+      type(fixture, filterInput(el)!, 'b');
+      const status = () => el.querySelector('[role="status"]')!.textContent!.trim();
+      const cards = cardNames(el);
+      const cardStatus = status();
+      showTable(fixture, el);
+      expect(tableNames(el)).toEqual(cards);
+      expect(status()).toBe(cardStatus);
+      expect(cardStatus).toMatch(/^Showing \d+ of 10$/);
+      // Back to cards: the filter stays, and so do the rows.
+      toggle(el, 'Cards').click();
+      fixture.detectChanges();
+      expect(cardNames(el)).toEqual(cards);
+      expect(filterInput(el)!.value).toBe('b');
+    });
+
+    it('keeps focus on the toggle after switching', () => {
+      const { fixture, el } = setupMixed();
+      const table = toggle(el, 'Table');
+      table.focus();
+      table.click();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(toggle(el, 'Table'));
+    });
+
+    it('forwards a row click to the row link and leaves the link its own click', () => {
+      const { fixture, el } = setupMixed();
+      showTable(fixture, el);
+      const row = el.querySelector('tbody tr')!;
+      const anchor = row.querySelector<HTMLAnchorElement>('a[data-testid="powered-table-link"]')!;
+      // Spy on the link's click() so the router never navigates in the test.
+      const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
+      row.querySelector('td')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(click).toHaveBeenCalledTimes(1);
+      expect(anchor.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
     });
   });
 });
