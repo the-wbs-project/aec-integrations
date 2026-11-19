@@ -857,6 +857,31 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     ).not.toBeNull();
   });
 
+  it('offers only Open it on an ownerless match that is retired, and Ask on a live one', async () => {
+    const NO_OWNER_RETIRED = dup(8, { owner: null, retired: true, retired_by: 'aeci' });
+    api.getPossibleDuplicates.mockResolvedValue({
+      possible_duplicates: [NO_OWNER_RETIRED, NO_OWNER],
+    });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const retiredRow = row(fixture, NO_OWNER_RETIRED.id)!;
+    expect(
+      retiredRow.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim(),
+    ).toBe('No owner on file, retired by AEC Integrations. Only AEC Integrations can restore it.');
+    expect(retiredRow.querySelector('[data-testid="create-dupe-ask"]')).toBeNull();
+    const openLink = retiredRow.querySelector('[data-testid="create-dupe-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open it');
+    expect(href(openLink)).toBe(`/products/${OWN.slug}/integrations/${NO_OWNER_RETIRED.id}`);
+    // A live ownerless match still offers the owner request.
+    const liveRow = row(fixture, NO_OWNER.id)!;
+    expect(liveRow.querySelector('[data-testid="create-dupe-ask"]')?.textContent).toContain(
+      'Ask to be recorded as the owner',
+    );
+    expect(liveRow.querySelector('[data-testid="create-dupe-open"]')).toBeNull();
+  });
+
   /** Back to step 1 past the disabled button, then pick another product. This
    *  stands in for any form change that lands while a request is in flight. */
   async function changeToBluebeam(fixture: ComponentFixture<VendorIntegrationCreate>) {

@@ -149,8 +149,8 @@ function emptyDraft(): Draft {
  * one action: Claim this one instead (the caller's live, unclaimed row), Open it
  * (already the caller's, or retired by AEC Integrations, which only AECi restores),
  * Open it to restore (a row the caller retired), or Ask to be recorded as the owner
- * (no owner on file). A claim closes the form and shows the same receipt for the
- * claimed row. Change is disabled while a create or a claim is in flight, and each
+ * (a live row with no owner on file). A retired row with no owner only opens.
+ * A claim closes the form and shows the same receipt for the claimed row. Change is disabled while a create or a claim is in flight, and each
  * receipt is built from what was submitted, never from the form after the await.
  * A failed check fails open: the create still runs, and its `201` still warns. After the `201` the receipt lists only matches
  * the pre-check did not show, such as a row created in between.
@@ -1520,9 +1520,11 @@ export class VendorIntegrationCreate implements OnInit {
   /** The one action a match offers. The claim route does not refuse a retired row,
    *  so Claim shows only on a live, unclaimed row the caller owns. Restore shows only
    *  on a row the owner retired: the restore route refuses an AECi retire, so that
-   *  row only opens. */
+   *  row only opens. Ask shows only on a live row with no owner: the owner-request
+   *  route refuses a retired row, and its page hides the action. A retired row with
+   *  no owner was retired by AECi, since the owner retire needs an owner, so it opens. */
   protected actionFor(dup: PossibleDuplicateIntegration): DuplicateAction {
-    if (dup.owner === null) return 'ask';
+    if (dup.owner === null) return dup.retired ? 'open' : 'ask';
     if (dup.owner.id !== this.myVendorId()) return 'open';
     if (dup.retired) return dup.retired_by === 'aeci' ? 'open' : 'restore';
     return dup.claimed ? 'open' : 'claim';
@@ -1533,7 +1535,7 @@ export class VendorIntegrationCreate implements OnInit {
   protected statusLine(dup: PossibleDuplicateIntegration): string {
     if (dup.owner === null) {
       return dup.retired
-        ? $localize`:@@vendor.integrationCreate.dupes.status.noOwnerRetired:No owner on file, retired`
+        ? $localize`:@@vendor.integrationCreate.dupes.status.noOwnerRetiredByAeci:No owner on file, retired by AEC Integrations. Only AEC Integrations can restore it.`
         : $localize`:@@vendor.integrationCreate.dupes.status.noOwner:No owner on file`;
     }
     if (dup.owner.id === this.myVendorId()) {

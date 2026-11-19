@@ -101,7 +101,7 @@ When you choose the other product, we check for integrations already on record f
 - **Claim this one instead.** Your company is recorded as its owner but has not claimed it yet. Claim it rather than add a copy.
 - **Open it.** Your company already holds it. This is also the action on a row AEC Integrations retired. Its status line says so. Only AEC Integrations can restore it.
 - **Open it to restore.** It is retired, and your company retired it. Its page shows who retired it. You can restore it there.
-- **Ask to be recorded as the owner.** Nobody is on file as its owner. Its page lets you ask us to record your company.
+- **Ask to be recorded as the owner.** Nobody is on file as its owner, and it is live. Its page lets you ask us to record your company. If it is retired, you see **Open it** instead. Only AEC Integrations can restore it.
 
 You can still add yours. The list never stops you.
 
