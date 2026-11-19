@@ -2669,7 +2669,9 @@ export const legalNoticeReaderDeliveries = sqliteTable(
  *
  * Domain state: the one writer, `lib/reader-legal-acceptance.ts` (called from
  * `POST /api/auth/profile/ensure`), inserts with its `terms.accepted` audit row in one
- * `db.batch`. Append-only but for the evidence sweep. Never pruned (`NEVER_PRUNED`).
+ * `db.batch`. Append-only but for the evidence sweep. The legal retention prune
+ * (`lib/legal-retention-prune.ts`, AECI-1718) deletes a row six years after the account's
+ * `account.deleted` audit row, once the profile is gone.
  */
 export const termsAcceptances = sqliteTable(
   'terms_acceptances',

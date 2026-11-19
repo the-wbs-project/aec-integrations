@@ -625,21 +625,22 @@ describe('runRetentionPrune', () => {
     expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
   });
 
-  it('never prunes agreement acceptances, license grants or Terms acceptances (AECI-1615, AECI-1637, AECI-1638)', async () => {
-    // AECI-1638: the two acceptance tables left NEVER_PRUNED for the legal prune
-    // (`./legal-retention-prune`). This 400-day module still never touches them.
-    expect(NEVER_PRUNED).toEqual(['terms_acceptances']);
-    for (const table of ['agreement_acceptances', 'license_grants', ...NEVER_PRUNED]) {
+  it('never prunes agreement acceptances, license grants or Terms acceptances (AECI-1615, AECI-1637, AECI-1638, AECI-1718)', async () => {
+    // AECI-1638 and AECI-1718: the three acceptance tables left NEVER_PRUNED for the legal
+    // prune (`./legal-retention-prune`). This 400-day module still never touches them.
+    expect(NEVER_PRUNED).toEqual([]);
+    const acceptanceTables = ['agreement_acceptances', 'license_grants', 'terms_acceptances'];
+    for (const table of [...acceptanceTables, ...NEVER_PRUNED]) {
       expect(PRUNABLE as readonly string[]).not.toContain(table);
     }
-    // The module never names any of the three tables in a statement it builds, and only
-    // names `terms_acceptances` as the one NEVER_PRUNED literal.
+    // The module never names any of the three tables in a statement it builds.
     const source = readFileSync(join(process.cwd(), 'src/lib/retention-prune.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '');
     expect(source).not.toMatch(/agreementAcceptances|licenseGrants|termsAcceptances|auditLog\b/);
-    expect(source).not.toMatch(/'agreement_acceptances'|'license_grants'|'audit_log'/);
-    expect(source.match(/'terms_acceptances'/g)).toHaveLength(1);
+    expect(source).not.toMatch(
+      /'agreement_acceptances'|'license_grants'|'terms_acceptances'|'audit_log'/,
+    );
   });
 
   it('keeps recrawl_submission_causes forever — it is not prunable (AECI-1184)', async () => {

@@ -33,6 +33,7 @@ import {
   reviewUpdates,
   reviews,
   taxonomyAudiences,
+  termsAcceptances,
   userActivityDaily,
   vendorRequests,
   vendors,
@@ -386,6 +387,42 @@ describe('DELETE /api/account', () => {
     expect(res.status).toBe(200);
     const left = await t.db.select().from(userActivityDaily);
     expect(left.map((r) => r.userId)).toEqual([ADMIN_USER]);
+  });
+
+  it('keeps the Terms acceptances and dates their six years with the account.deleted row (AECI-1718)', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await t.db.insert(termsAcceptances).values({
+      id: 'terms-1',
+      document: 'terms',
+      version: '1.2',
+      profileId: USER,
+      email: 'me@example.com',
+      acceptedAt: '2026-11-01T00:00:00.000Z',
+      checkboxLabel: 'line',
+      checkboxLabelSha256: 'hash',
+      checkboxDefaultUnticked: false,
+    });
+    const batch = vi.spyOn(t.db, 'batch');
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+
+    expect(res.status).toBe(200);
+    // The legal retention prune deletes the row six years after this audit row
+    // (`lib/legal-retention-prune.ts`), so the erasure must keep it.
+    expect((await t.db.select().from(termsAcceptances)).map((r) => r.id)).toEqual(['terms-1']);
+    const deletion = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'account.deleted',
+    );
+    expect(deletion).toMatchObject({ entityType: 'profile', entityId: USER });
+    // Written in the batch that deletes the profile, so a gone profile always has one.
+    expect(batch).toHaveBeenCalledTimes(1);
+    batch.mockRestore();
   });
 
   it('erases the profile, anonymizes refs, audits, and deletes the auth user', async () => {
