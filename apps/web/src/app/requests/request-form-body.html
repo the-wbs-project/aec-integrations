@@ -43,7 +43,7 @@
     <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. Your claim is
     not sent until you click it.</ng-container
   >
-  } @else if (routed()) {
+  } @else if (sentAsRouted()) {
   <ng-container i18n="@@requests.sent.claim.subtitle.routed"
     >We've emailed a receipt to
     <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
@@ -75,7 +75,7 @@
     <li data-testid="request-sent-confirm" i18n="@@requests.sent.claim.confirm.step">
       Open the email and click the link. It works for {{ confirmDays }} days.
     </li>
-    } @if (routed()) {
+    } @if (sentAsRouted()) {
     <!-- AECI-1366: the company's team decides first (AECI-1368). -->
     <li data-testid="request-sent-routed">
       @if (company(); as name) {

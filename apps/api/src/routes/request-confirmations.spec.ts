@@ -543,7 +543,8 @@ describe('POST /api/requests/confirm, a claim', () => {
     await t.db
       .insert(profiles)
       .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
-    await submitClaim();
+    // AECI-1972: the form showed the routed notice. The parked payload keeps that.
+    await submitClaim({ ...claimBody, routed_notice_shown: true });
     const token = tokenFromMail();
     const [pending] = await t.db.select().from(requestConfirmations);
 
@@ -554,6 +555,22 @@ describe('POST /api/requests/confirm, a claim', () => {
     expect(Date.parse(claim!.routedToOwnersAt!)).toBeGreaterThanOrEqual(
       Date.parse(pending!.createdAt),
     );
+  });
+
+  // AECI-1972 (ruling 61): the confirm routes on what the form showed at submit, not on
+  // the seat alone. A payload parked before the field has no flag and is not routed.
+  it('does not route at confirm when the form never showed the routed notice', async () => {
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    await submitClaim();
+    const token = tokenFromMail();
+
+    const res = await confirm(token);
+    expect(await res.json()).toMatchObject({ status: 'confirmed', routed: false });
+    const [claim] = await t.db.select().from(vendorRequests);
+    expect(claim!.status).toBe('open');
+    expect(claim!.routedToOwnersAt).toBeNull();
   });
 
   it('confirms a claim sent from a product page against the product company', async () => {

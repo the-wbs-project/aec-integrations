@@ -8,7 +8,13 @@ import { CLAIM_OWNER_REVIEW_DAYS } from '@aeci/shared';
  * owner seat (`has_seats`), so a claim sent now goes to that team first and AECi steps in
  * after {@link CLAIM_OWNER_REVIEW_DAYS} days (AECI-1368).
  *
- * Informational only: it never blocks the submit. A failed lookup shows nothing. A
+ * It names what the owners will see (AECI-1972, ruling 61): the Privacy Policy says
+ * the claim form tells the claimant this before they send. The host sends
+ * `routed_notice_shown: true` with the claim only when this notice was on screen, and
+ * the API routes to the owners only then.
+ *
+ * Informational only: it never blocks the submit. A failed lookup shows nothing, and
+ * that claim goes to AECi instead of the owners. A
  * polite live region, so a notice that appears after the lookup resolves is announced
  * without interrupting.
  */
@@ -24,12 +30,14 @@ import { CLAIM_OWNER_REVIEW_DAYS } from '@aeci/shared';
         @if (company(); as name) {
           <ng-container i18n="@@requests.claim.routedNotice"
             >{{ name }} already maintains this listing. Send your request and their team will
-            confirm you. We step in if they do not answer within {{ days }} days.</ng-container
+            confirm you. They will see your name, title, work email, LinkedIn link and note. We step
+            in if they do not answer within {{ days }} days.</ng-container
           >
         } @else {
           <ng-container i18n="@@requests.claim.routedNotice.unnamed"
             >This company already maintains this listing. Send your request and their team will
-            confirm you. We step in if they do not answer within {{ days }} days.</ng-container
+            confirm you. They will see your name, title, work email, LinkedIn link and note. We step
+            in if they do not answer within {{ days }} days.</ng-container
           >
         }
       </p>

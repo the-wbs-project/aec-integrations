@@ -3,8 +3,10 @@
  * §11a.10, `docs/VENDOR_SIGNUP_PROCESS.md` decision 4).
  *
  * When someone claims a company that already has an unbanned owner seat (the one
- * owner predicate, `lib/owner-seat.ts`), the claim is stored with
- * `routed_to_owners_at` set and stays `open`. The owners accept or decline it from
+ * owner predicate, `lib/owner-seat.ts`) and the claim form showed the notice naming
+ * what the owners will see (`routed_notice_shown`, AECI-1972, ruling 61), the claim
+ * is stored with `routed_to_owners_at` set and stays `open`. Without the notice the
+ * claim is not routed and AECi decides it. The owners accept or decline it from
  * the Seats section. AECi still gets `claim-submitted-alert` and the Linear issue, and
  * steps in after 7 days through the `claim_owner_fallback` cron.
  *

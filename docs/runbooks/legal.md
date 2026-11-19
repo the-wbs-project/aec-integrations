@@ -179,7 +179,7 @@ The Terms promise four things here. We promptly notify the person who posted the
    | Anything else | No tool. Tell Chris the same day. | |
 
    Set `action` to `removed` or `disabled`, with `action_at`. Set `account_id` to the account that posted the material, and `vendor_id` when it is a vendor's logo, screenshot or text. An incomplete notice, or one about material that is not on our service, is `no_action`. A `no_action` notice never counts against an account.
-3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
+3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Do not name the person who sent the notice, give their contact details or attach the notice. The Privacy Policy says we tell the poster only that the material was removed because of a copyright notice. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
 
 **A counter-notice**
 

@@ -209,6 +209,14 @@ export type ClaimFormInput = z.input<typeof ClaimFormSchema>;
 export const ClaimRequestSchema = ClaimFormSchema.extend({
   target_type: RequestTargetTypeSchema,
   slug: z.string().min(1),
+  /**
+   * AECI-1972 (ruling 61): true only when the form showed the claimant the routed
+   * notice, which names what the company's owners will see. The API routes a claim to
+   * the owners only when this is true. Optional, so a bundle loaded before the field
+   * still submits. Absent or false, the claim is not routed and AECi decides it. It
+   * rides the parked payload, so a confirm by emailed link uses the submit's answer.
+   */
+  routed_notice_shown: z.boolean().optional(),
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
@@ -392,9 +400,10 @@ export type ConfirmRequestResponse = z.infer<typeof ConfirmRequestResponseSchema
  *
  * A product resolves to its primary vendor, else any `product_vendors` row: the
  * same company `POST /api/requests/claim` would store. `has_seats` is the one owner
- * predicate, "the vendor has an unbanned owner seat", so it is true exactly when a
- * claim submitted now would be routed to the owners first. The claim form reads it
- * to show the routed disclosure before submit. Public, read-only,
+ * predicate, "the vendor has an unbanned owner seat". The claim form reads it to show
+ * the routed disclosure before submit, and sends `routed_notice_shown: true` with the
+ * claim only when it did. A claim routes to the owners only with both (AECI-1972).
+ * Public, read-only,
  * `Cache-Control: no-store`.
  */
 export const ClaimTargetResponseSchema = z.object({

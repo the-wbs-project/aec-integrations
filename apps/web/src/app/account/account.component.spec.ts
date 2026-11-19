@@ -526,11 +526,12 @@ describe('AccountPage', () => {
     const link = kept?.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/legal/privacy');
     expect(link?.textContent).toContain('Retention section of our Privacy Policy');
-    // AECI-1915 (ruling 3): the body promises only that the link to the account is cut.
+    // AECI-1972 (ruling 59, replacing ruling 47): a review never showed the name or
+    // profile, and its text stays as written.
+    const published =
+      "Reviews you've published stay online. They never showed your name or profile, and they are no longer linked to your account. The text stays as written, so anything in it that identifies you will remain visible.";
     const deleteSection = el.querySelector('#delete-account');
-    expect(deleteSection?.textContent?.replace(/\s+/g, ' ')).toContain(
-      "Reviews you've published stay online, but they are no longer linked to your account.",
-    );
+    expect(deleteSection?.textContent?.replace(/\s+/g, ' ')).toContain(published);
 
     // The confirmation dialog repeats it, above "Delete my account".
     const trigger = Array.from(el.querySelectorAll('button')).find(
@@ -543,11 +544,9 @@ describe('AccountPage', () => {
     expect(dialogLine?.textContent?.replace(/\s+/g, ' ')).toContain(
       'with your name removed. The text may still identify you.',
     );
-    // Ruling 3 reaches the dialog, and it lists the same kept records as the page.
+    // Ruling 59 reaches the dialog, and it lists the same kept records as the page.
     const description = document.querySelector('[brnDialogDescription]');
-    expect(description?.textContent?.replace(/\s+/g, ' ')).toContain(
-      'Your published reviews stay online, but are no longer linked to your account.',
-    );
+    expect(description?.textContent?.replace(/\s+/g, ' ')).toContain(published);
     expect(description?.textContent).not.toContain('anonymized');
     const dialogKept = document.querySelector('[data-testid="account-delete-dialog-kept"]');
     expect(dialogKept?.textContent?.replace(/\s+/g, ' ')).toContain(

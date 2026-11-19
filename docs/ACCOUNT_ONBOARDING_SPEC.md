@@ -382,9 +382,11 @@ check.
   on the page and in the dialog, that covers the rest of the "Deletion" list: "We also keep the
   record of what you submitted or changed, any agreement you accepted for a company, and what the
   law requires us to keep, such as a record tied to a legal request." The page's line ends with
-  "Read the Retention section of our Privacy Policy." Reviews now "stay online, but are no longer
-  linked to your account" on the page and in the dialog (ruling 3). "Anonymized" is gone, because
-  a review's text can still identify its author.
+  "Read the Retention section of our Privacy Policy." "Anonymized" is gone, because a review's
+  text can still identify its author. *Since AECI-1972 (ruling 59, 2026-11-19, replacing
+  ruling 47):* the page and the dialog both read "Reviews you've published stay online. They
+  never showed your name or profile, and they are no longer linked to your account. The text
+  stays as written, so anything in it that identifies you will remain visible."
 - **The Terms acceptance record is kept (AECI-1637, ruling 1 of 2026-11-13).** The same screen
   says that signing in records your acceptance of the Terms of Service, and that the record is
   kept for 6 years after deletion. It holds the

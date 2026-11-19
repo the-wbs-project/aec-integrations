@@ -1865,7 +1865,9 @@ bullets below record what was built and are history. The claim bullets after the
   0076, shows no such line.
 - **"With owners until" (AECI-1368, 2026-10-15).** A claim on a company that already has
   an unbanned owner seat is routed to its owners first (`STAGE_2_VENDOR_PORTAL_SPEC.md`
-  §11a.10). An actionable queue row with `AdminClaim.routed_to_owners_at` set shows
+  §11a.10). Since AECI-1972 a claim whose form did not show the routed notice is not
+  routed. It arrives as an ordinary row with no "With owners until" line, and its
+  `vendor_request.created` audit row carries `routing_withheld: 'notice_not_shown'`. An actionable queue row with `AdminClaim.routed_to_owners_at` set shows
   "With owners until <date>" (`routed_to_owners_at` plus `CLAIM_OWNER_REVIEW_DAYS`, 7)
   and a line saying the owners were asked and the claim comes back after that date.
   **Grant and Reject stay enabled.** It warns, never gates: AECi can decide a routed claim

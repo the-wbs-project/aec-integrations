@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: November 17, 2026
+last_updated: November 19, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, the "About this listing" panel on its page reads "Vendor maintained · Updated" with that date. Until then the panel reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
@@ -34,7 +34,7 @@ Once the claim is sent, the page confirms it, shows the address we will answer a
 
 Each address can manage one company. If the address you typed already manages another company on AEC Integrations, or belongs to an AEC Integrations staff account, we can't accept the claim. When you confirm, the page tells you why, and we email you the same details. Send the claim again from a different work address.
 
-If your company already has a team on AEC Integrations, the form tells you before you send. Your claim goes to that team first, and they confirm you. If they do not answer within 7 days, we step in and review it ourselves.
+If your company already has a team on AEC Integrations, the form tells you before you send. Your claim goes to that team first, and they confirm you. They see your name, title, work email, LinkedIn link and the note you wrote, and the form says so. If they do not answer within 7 days, we step in and review it ourselves. If the form could not show you that notice, your claim comes to us instead and that team does not see it.
 
 A claim on a product page is a claim on the vendor that makes the product. The seat you get covers the whole vendor account, not one product.
 

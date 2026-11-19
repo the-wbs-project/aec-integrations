@@ -36,7 +36,7 @@ does not restate those terms.
 | 1 | A claim is on the **company**, never a product. The form is titled "Claim <Company>". A product page pre-fills the company and names the product. |
 | 2 | The claim form has no plan question. Every approved claim lands on Free. |
 | 3 | The claim form has a required box: "I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company." We store who, when, version, IP. *Wording, plus the signer's title and the company's legal name, since AECI-1617 (counsel Q11).* |
-| 4 | A claim on a company that already has seats goes to its owner seats to accept or decline. AECi steps in only if nobody answers in 7 days. |
+| 4 | A claim on a company that already has seats goes to its owner seats to accept or decline. AECi steps in only if nobody answers in 7 days. *As built 2026-11-19 (AECI-1972, ruling 61):* the claim goes to the owners only when the claim form showed the notice naming what they will see (name, title, work email, LinkedIn link and note). Without that notice the claim comes to AECi, as a claim on a company with no seats does. |
 | 5 | Managed is sold as **subscriptions** on a billing account, assigned to products. Several products can hold different plans under one bill and one term. |
 | 6 | Subscriptions have a **source**: Stripe, invoice (PO or bespoke deal, recorded by AECi with an invoice reference and end date), or complimentary (pilot, end date, no card). |
 | 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. *Now stated in `PRICING_RULES.md` §2.* |

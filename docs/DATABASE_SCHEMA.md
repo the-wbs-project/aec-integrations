@@ -1486,7 +1486,8 @@ product or vendor target.
 
 **Claims routed to the owners (AECI-1368, 2026-10-15).** A claim on a company that
 already has an unbanned owner seat is stored with `routed_to_owners_at` set, and
-stays `open`. The owners accept or decline it from Seats. After 7 days with no
+stays `open`. Since AECI-1972 that also needs `routed_notice_shown: true` on the claim
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). Without it the column stays NULL. The owners accept or decline it from Seats. After 7 days with no
 decision the `claim_owner_fallback` cron clears it into `owner_fallback_at`, with an
 `audit_log` row per claim in the same batch. Neither column changes `status`, so the
 status CHECK is untouched. Migration 0077 is two nullable `ADD COLUMN`s.
@@ -1559,7 +1560,7 @@ create table vendor_requests (
 
   -- AECI-1368 (migration 0077): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10).
   -- routed_to_owners_at: set at submit when the claimed company has an unbanned owner
-  -- seat, so its owners decide first. NULL for every other row. For an anonymous
+  -- seat and the form showed the routed notice (AECI-1972), so its owners decide first. NULL for every other row. For an anonymous
   -- claim "submit" is the confirm (AECI-1435, §8.1c).
   -- owner_fallback_at: set by the claim_owner_fallback cron when it hands a routed
   -- claim back to AECi after 7 days with no decision. It clears routed_to_owners_at

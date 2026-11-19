@@ -1171,9 +1171,16 @@ describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => 
     company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+    // AECI-1972: the form showed the routed notice. Routing needs it.
+    routed_notice_shown: true,
   };
-  const submit = (execCtx = fakeExecutionContext()) =>
-    claimApp().request('/api/requests/claim', postInit(validBody), TEST_ENV, execCtx);
+  const submit = (execCtx = fakeExecutionContext(), extra: Record<string, unknown> = {}) =>
+    claimApp().request(
+      '/api/requests/claim',
+      postInit({ ...validBody, ...extra }),
+      TEST_ENV,
+      execCtx,
+    );
 
   it('sets routed_to_owners_at when the company has an unbanned owner seat, status stays open', async () => {
     await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
@@ -1189,6 +1196,38 @@ describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => 
     expect(row?.ownerFallbackAt).toBeNull();
     const [audit] = await t.db.select().from(auditLog);
     expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(true);
+    expect(audit!.metadata as Record<string, unknown>).not.toHaveProperty('routing_withheld');
+  });
+
+  // AECI-1972 (ruling 61): the owners see the claimant's details, so a claim routes
+  // only when the form said so.
+  it.each([
+    ['absent', undefined],
+    ['false', false],
+  ])('does not route when routed_notice_shown is %s, and records why', async (_label, flag) => {
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+
+    const res = await submit(fakeExecutionContext(), { routed_notice_shown: flag });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toBeNull();
+    expect(row?.ownerFallbackAt).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({
+      routed_to_owners: false,
+      routing_withheld: 'notice_not_shown',
+    });
+  });
+
+  it('refuses a routed_notice_shown that is not a boolean', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit(fakeExecutionContext(), { routed_notice_shown: 'yes' });
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
   });
 
   it('does not route when the only owner seat is banned', async () => {
@@ -1221,6 +1260,8 @@ describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => 
     expect(row?.routedToOwnersAt).toBeNull();
     const [audit] = await t.db.select().from(auditLog);
     expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(false);
+    // No owner seat, so nothing was withheld, flag or not.
+    expect(audit!.metadata as Record<string, unknown>).not.toHaveProperty('routing_withheld');
   });
 });
 
@@ -1437,7 +1478,11 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
       .insert(profiles)
       .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
     const execCtx = fakeExecutionContext();
-    const res = await submit({ target_type: 'vendor', slug: 'acme-co' }, PROD_ENV, execCtx);
+    const res = await submit(
+      { target_type: 'vendor', slug: 'acme-co', routed_notice_shown: true },
+      PROD_ENV,
+      execCtx,
+    );
     expect(res.status).toBe(201);
     await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
 
@@ -1448,6 +1493,74 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     expect(receipt.text).toContain('The team at co-acme-co has been asked to confirm you.');
     expect(receipt.text).toContain(
       'If nobody answers within 7 days, we review your claim and write to you.',
+    );
+  });
+
+  // AECI-1972 (ruling 61). Resend and the GoTrue owner-address lookup share one
+  // stubbed fetch, so the owner email can be told from its absence.
+  describe('the owner email follows routed_notice_shown (AECI-1972)', () => {
+    const OWNER_EMAIL = 'owner@acme.com';
+    const OWNER_ENV = {
+      ...PROD_ENV,
+      SUPABASE_URL: 'https://auth.test',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-test',
+    };
+
+    function mailFetch() {
+      const fetchMock = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
+        String(url).includes('/auth/v1/admin/users/')
+          ? new Response(JSON.stringify({ id: OWNER_ID, email: OWNER_EMAIL }), { status: 200 })
+          : new Response('{"id":"re_1"}', { status: 200 }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      return () =>
+        fetchMock.mock.calls
+          .filter(([url]) => String(url).includes('resend'))
+          .map(([, init]) => JSON.parse(String(init!.body)) as { to: string; text: string });
+    }
+
+    async function claimOnOwnedCompany(extra: Record<string, unknown>) {
+      const sent = mailFetch();
+      await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+      await t.db
+        .insert(profiles)
+        .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+      const execCtx = fakeExecutionContext();
+      const res = await submit(
+        { target_type: 'vendor', slug: 'acme-co', body: 'A note for the reviewer.', ...extra },
+        OWNER_ENV,
+        execCtx,
+      );
+      expect(res.status).toBe(201);
+      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+      const { row } = await createdRow(res);
+      return { row, mails: sent() };
+    }
+
+    it('with the flag: routed, and the owner gets the claimant details', async () => {
+      const { row, mails } = await claimOnOwnedCompany({ routed_notice_shown: true });
+      expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+      const owner = mails.find((m) => String(m.to) === OWNER_EMAIL);
+      expect(owner).toBeDefined();
+      expect(owner!.text).toContain('dana@acme.com');
+      expect(owner!.text).toContain('A note for the reviewer.');
+    });
+
+    it.each([
+      ['absent', {}],
+      ['false', { routed_notice_shown: false }],
+    ])(
+      'flag %s: not routed, no owner email, and the ordinary receipt and alert',
+      async (_label, extra) => {
+        const { row, mails } = await claimOnOwnedCompany(extra);
+        expect(row?.status).toBe('open');
+        expect(row?.routedToOwnersAt).toBeNull();
+        expect(mails.some((m) => String(m.to) === OWNER_EMAIL)).toBe(false);
+        const alert = mails.find((m) => String(m.to) === 'support@aecintegrations.com')!;
+        const receipt = mails.find((m) => String(m.to) === 'dana@acme.com')!;
+        expect(alert.text).not.toContain('Sent to the owners at');
+        expect(receipt.text).not.toContain('has been asked to confirm you');
+      },
     );
   });
 });
@@ -1465,6 +1578,8 @@ describe('POST /api/requests/claim → an address that already manages another c
     submitter_title: 'VP Partnerships',
     company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
+    // AECI-1972: the form showed the routed notice, so an unrejected claim WOULD route.
+    routed_notice_shown: true,
   };
   const PROD_ENV = {
     ...TEST_ENV,

@@ -8,8 +8,8 @@
  *     is kept for as long as the acceptance record it belongs to.
  *   - **Agreement acceptance records:** kept while the company has a vendor account and
  *     for six years after it ends, or for five years after a granted subscription ends, if
- *     later, or longer while a legal hold requires it. A claim declined, withdrawn or expired:
- *     six years after that day. A listing request form acceptance, or one whose claim
+ *     later, or longer while a legal hold requires it. A claim declined: six years after
+ *     that day. A listing request form acceptance, or one whose claim
  *     record is gone: six years after it was given. A deleted company's acceptances: six
  *     years after the company was deleted (AECI-1914, counsel Q67).
  *   - **Terms of Service acceptance records:** kept for as long as the account exists and
