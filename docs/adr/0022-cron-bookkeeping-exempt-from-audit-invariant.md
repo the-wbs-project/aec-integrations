@@ -543,7 +543,9 @@ public surface and nothing ranks on it. The re-send reads it to skip accounts al
 domain state. Its one writer, `lib/reader-legal-acceptance.ts` (called from
 `POST /api/auth/profile/ensure` at sign-in), inserts the row and a `terms.accepted` audit row
 in the same `db.batch`. The evidence sweep audits its own UPDATE
-(`terms.evidence_removed`).
+(`terms.evidence_removed`). The legal retention prune deletes the row six years after the
+account ends (AECI-1718) and writes its `retention.pruned` row in the same batch, so the
+scheduled DELETE is audited too.
 
 **Retention.** None for the delivery record. The notice is the proof that a legal notice went.
 

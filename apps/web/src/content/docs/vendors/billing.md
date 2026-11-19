@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 11, 2026
+last_updated: November 19, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -25,9 +25,10 @@ Only an owner can pay. On the **Billing** tab, the **Pay by card** panel takes y
 1. Choose **Annual**, at $250 a year per subscription, or **Monthly**, at $25 a month per subscription.
 2. Enter the number of subscriptions, from 1 to 100. The panel shows what you pay today, what renews and when, and how to cancel. The Stripe page repeats this.
 3. Check **Your title**. The field is filled in from your claim when you made one, and you must have a title in it. We record it with your acceptance of the agreement.
-4. Choose **Continue to Stripe**.
-5. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
-6. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
+4. If the subscriptions you are buying plus the unused subscriptions already in your pool exceed the products without one, the panel warns you. It says how many subscriptions would not be on any product. Tick the box to confirm you understand. You pay for every new subscription from today, even one that is not on a product.
+5. Choose **Continue to Stripe**.
+6. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
+7. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
 
 Prices do not include tax. Stripe adds sales tax where it applies, and shows it before you pay and on the receipt. You can add your company's tax ID on the Stripe page.
 
@@ -44,6 +45,8 @@ Your card statement shows the charge as **THE WBS PROJECT**. The WBS Project ope
 ## Adding subscriptions
 
 Choose **Add subscriptions** on the Billing tab and enter how many. New subscriptions join your Stripe plan and are billed on the same schedule.
+
+The dialog shows the same warning as the buy form when some subscriptions would not be on any product. It counts the unused subscriptions already in your pool too. Tick the box to confirm before you add them.
 
 Stripe charges your card at once for the rest of the current period, pro-rated, plus tax where it applies. From your next renewal, each subscription is billed at the full price. The new subscriptions appear in your pool once Stripe confirms the payment.
 
@@ -98,7 +101,7 @@ Owners see a **Billing** tab in the vendor portal. Members do not. It has these 
 - **Company legal name.** Your company's full legal name. We record it when an owner accepts the Managed plan agreement. A claim fills it in when you first claim, and only while it is empty. Choose **Change** to correct it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. AEC Integrations can also set or remove it for you.
 - **Pay by card**, or **Your Stripe plan** once you have one. It shows how many subscriptions it holds, whether it is billed yearly or monthly, and when it renews or ends. **Add subscriptions** and **Manage billing in Stripe** are here.
 - **At a glance.** A card that counts your live subscriptions: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many subscriptions come off at renewal, when either count is above zero.
-- **Subscriptions.** One subscription covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A subscription with no product reads **In pool, not assigned**. A monthly subscription paid by card has no end date.
+- **Subscriptions.** One subscription covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A subscription with no product reads **In pool, not assigned**. A monthly subscription paid by card has no end date. The status reads **Live**, or **Ends soon** when an invoice or complimentary subscription ends within 45 days. A subscription set to end at the end of its term also shows **Cancels at term end**. Subscriptions that have ended sit below the table under **Ended subscriptions**, closed until you open it. There, the end date is the day the subscription actually ended, and the status says why, such as **Ended, released** or **Ended, lapsed**.
 - **Agreements.** The agreements your company accepted, with who accepted each one and when, and the signer's name, title and the company's legal name where we recorded them. A claim also shows the versions of the Listing Accuracy Policy and the Review Guidelines it accepted. A checkout or a granted subscription links the version of the [Plans](/docs/vendors/plans) page recorded when it was accepted.
 
 ### Accept a subscription we grant

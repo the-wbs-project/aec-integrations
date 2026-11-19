@@ -1,6 +1,6 @@
 /**
  * The legal retention prune (AECI-1638, counsel Q23a and Q27c, ADR 0058). The Privacy
- * Policy's "Retention" section makes two promises this module keeps:
+ * Policy's "Retention" section makes three promises this module keeps:
  *
  *   - **Audit record:** kept for four years after the action. The deletion pauses while we
  *     are under a legal duty to preserve records. The audit record of an agreement
@@ -11,6 +11,8 @@
  *     later, or longer while a legal hold requires it. A claim never approved: six years
  *     after the claim is closed. A record with no such date: six years after the latest
  *     date we hold for it (AECI-1914).
+ *   - **Terms of Service acceptance records:** kept for as long as the account exists and
+ *     for six years after it ends, even after the account is deleted (AECI-1718).
  *
  * A queued job (`legal_retention`, enqueued from the 03:00 tick, consumed on
  * `RECONCILE_QUEUE`) runs {@link runLegalRetentionPrune} once a night. It is a separate
@@ -33,10 +35,11 @@
  * `audit_log` rows with `created_at` before the cutoff go, except the exempt actions of
  * ruling 2 (`AUDIT_LOG_PRUNE_EXEMPT_ACTIONS` / `_PREFIXES` in `@aeci/shared`):
  * `retention.pruned` (the acceptance chain verify reads every one with no date bound, ADR
- * 0057), `litigation_hold.*`, `agreement.*`, `terms.*` and `account.deleted`. One more is
- * exempt on a condition (AECI-1914): a `vendor.deleted` row while its vendor row is gone and
- * an acceptance or grant still names that vendor, because it dates their six years. The
- * cutoff is {@link AUDIT_LOG_RETENTION_DAYS} days before today's UTC midnight.
+ * 0057), `litigation_hold.*`, `agreement.*` and `terms.*`. Two more are exempt on a
+ * condition, because each dates the six years of the rows that name it: a `vendor.deleted`
+ * row while its vendor row is gone and an acceptance or grant still names that vendor
+ * (AECI-1914), and an `account.deleted` row while a `terms_acceptances` row still names that
+ * profile (AECI-1718). The cutoff is {@link AUDIT_LOG_RETENTION_DAYS} days before today's UTC midnight.
  *
  * The primary key is a UUID, not monotonic, so the chunks page the `(created_at, id)` row
  * value off `audit_log_created_at_idx`. Each chunk reads up to `PRUNE_CHUNK_ROWS` keys in
@@ -115,8 +118,24 @@
  * The JSON test is a `json_each` over the row's own column, so the bind count stays fixed. A
  * malformed value, or one with no non-empty array, is never matched. These three deletes
  * run AFTER the acceptance delete in the batch (`vendor.deleted` after the grant delete
- * too): their predicate reads whether the rows they date still exist. `terms.*` and
- * `account.deleted` wait for the Terms-acceptance prune.
+ * too): their predicate reads whether the rows they date still exist.
+ *
+ * ─── The Terms acceptance part (AECI-1718) ───────────────────────────────────
+ *
+ * A `terms_acceptances` row goes once it was accepted six calendar years ago, no global hold
+ * is open, its profile row is gone, and the latest `account.deleted` audit row for that
+ * profile is at least six years old ({@link termsAcceptancePrunePredicate}). Chris's ruling 1
+ * of 2026-11-19: that audit row dates the end of the account. `DELETE /api/account` writes it
+ * in the batch that deletes the profile, so no column on the acceptance is needed. Ruling 2:
+ * a row whose profile is gone with no `account.deleted` row is kept, and the
+ * `acceptance_without_retention_date` data-quality check counts it. Its companions go in the
+ * same batch, after the Terms delete:
+ *
+ *   - `terms.accepted` is filed under its acceptance (`entity_id`).
+ *   - `terms.evidence_removed` lists its acceptances in `metadata.acceptance_ids`. It goes
+ *     once none is left, in `(created_at, id)` chunks, like `agreement.evidence_removed`.
+ *   - `account.deleted` is filed under the profile (`entity_id`). It goes once no Terms row
+ *     names that profile, checked for the profiles this run prunes.
  *
  * **Released holds.** A `litigation_holds` row and its `litigation_hold.*` audit rows go
  * four years after `released_at` (the audit cutoff), never while the hold is open. The row's
@@ -152,10 +171,20 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, eq, isNotNull, isNull, lt, notInArray, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { agreementAcceptances, auditLog, licenseGrants, litigationHolds } from '../db/schema';
-import { AGREEMENT_EVIDENCE_REMOVED_ACTION } from './acceptance-evidence-removal';
+import {
+  agreementAcceptances,
+  auditLog,
+  licenseGrants,
+  litigationHolds,
+  termsAcceptances,
+} from '../db/schema';
+import {
+  AGREEMENT_EVIDENCE_REMOVED_ACTION,
+  TERMS_EVIDENCE_REMOVED_ACTION,
+} from './acceptance-evidence-removal';
 import { AGREEMENT_ACCEPTANCE_ENTITY_TYPE, AGREEMENT_LINKED_ACTION } from './agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
+import { TERMS_ACCEPTANCE_ENTITY_TYPE } from './reader-legal-acceptance';
 import { cutoffFor, MAX_CHUNKS_PER_TABLE, PRUNE_CHUNK_ROWS } from './retention-prune';
 
 // ---------------------------------------------------------------------------
@@ -171,12 +200,18 @@ export const LEGAL_PRUNABLE = [
   'agreement_acceptances',
   'license_grants',
   'litigation_holds',
+  'terms_acceptances',
 ] as const;
 export type LegalPrunableTable = (typeof LEGAL_PRUNABLE)[number];
 
 /** The `audit_log` action `lib/retract-vendor.ts` writes when it deletes a vendor row. Its
  *  `entity_id` is the vendor id and its `created_at` dates the deletion. */
 export const VENDOR_DELETED_ACTION = 'vendor.deleted';
+
+/** The `audit_log` action `DELETE /api/account` (`routes/account.ts`) writes in the batch
+ *  that deletes the profile. Its `entity_id` is the profile id and its `created_at` dates the
+ *  end of the account, so it dates the six years a Terms acceptance is kept (AECI-1718). */
+export const ACCOUNT_DELETED_ACTION = 'account.deleted';
 
 /** The sentinel's abort token. SQLite has no `RAISE()` outside triggers, so malformed JSON
  *  is the in-statement abort, as in `lib/notifications/switches.ts`. */
@@ -200,8 +235,10 @@ export interface LegalPrunedTable {
   /** `audit_log` only: true when an open hold paused the four-year part. */
   paused?: boolean;
   /** `audit_log` only: the `agreement.*` rows deleted because their acceptances are gone
-   *  (`agreement.accepted`, `agreement.linked`, `agreement.evidence_removed`), and the
-   *  `vendor.deleted` rows of gone vendors whose last acceptance or grant went. Counted in
+   *  (`agreement.accepted`, `agreement.linked`, `agreement.evidence_removed`), the
+   *  `vendor.deleted` rows of gone vendors whose last acceptance or grant went, the `terms.*`
+   *  rows of deleted Terms acceptances (`terms.accepted`, `terms.evidence_removed`), and the
+   *  `account.deleted` rows of profiles whose last Terms acceptance went. Counted in
    *  `rowsDeleted` too. */
   companionRowsDeleted?: number;
   /** `audit_log` only: the `litigation_hold.*` rows of holds released four years ago.
@@ -279,7 +316,12 @@ function likePrefix(prefix: string): string {
  * (AECI-1914): it dates the six years those rows are kept (arm D). The legal prune deletes
  * it in the batch that removes the last of them. A vendor row that exists again (the same
  * id promoted back) dates its rows by its account end, so the old `vendor.deleted` row is
- * an ordinary four-year row. Correlated EXISTS only, no bind.
+ * an ordinary four-year row.
+ *
+ * An `account.deleted` row is exempt while any `terms_acceptances` row names its profile
+ * (AECI-1718): it dates the six years those rows are kept. The legal prune deletes it in the
+ * batch that removes the last of them. A deleted account that never accepted a Terms version
+ * leaves an ordinary four-year row. Correlated EXISTS only, no bind.
  */
 export function auditPrunePredicate(cutoff: string): SQL {
   return and(
@@ -294,6 +336,8 @@ export function auditPrunePredicate(cutoff: string): SQL {
       NOT EXISTS (SELECT 1 FROM "agreement_acceptances" "ap_a" WHERE "ap_a"."vendor_id" = "audit_log"."entity_id")
       AND NOT EXISTS (SELECT 1 FROM "license_grants" "ap_g" WHERE "ap_g"."vendor_id" = "audit_log"."entity_id")
     ))`,
+    sql`(${auditLog.action} <> ${ACCOUNT_DELETED_ACTION}
+      OR NOT EXISTS (SELECT 1 FROM "terms_acceptances" "ap_t" WHERE "ap_t"."profile_id" = "audit_log"."entity_id"))`,
   ) as SQL;
 }
 
@@ -476,6 +520,42 @@ export function grantPrunePredicate(cutoffs: { acceptance: string; grant: string
   )`;
 }
 
+/**
+ * True when the profile id `profileId` (an SQL expression) has no `profiles` row and the
+ * latest `account.deleted` audit row for it is older than `cutoff` (Chris's ruling 1 of
+ * 2026-11-19, AECI-1718). That row is written in the batch that deletes the profile, so it
+ * dates the end of the account. With no `account.deleted` row the `max` is NULL, so it never
+ * matches: the row is kept and the `acceptance_without_retention_date` data-quality check
+ * counts it (ruling 2). A profile that exists again (the shared staging login signing in
+ * after a deletion) keeps its rows. A reader account has no vendor, so only a global hold
+ * keeps it, and the run stops on one.
+ */
+function accountGoneBefore(profileId: SQL, cutoff: string): SQL {
+  return sql`(
+    NOT EXISTS (SELECT 1 FROM "profiles" "ag_p" WHERE "ag_p"."id" = ${profileId})
+    AND (
+      SELECT max("ag_a"."created_at") FROM "audit_log" "ag_a"
+      WHERE "ag_a"."entity_type" = 'profile'
+        AND "ag_a"."entity_id" = ${profileId}
+        AND "ag_a"."action" = ${ACCOUNT_DELETED_ACTION}
+    ) < ${cutoff}
+  )`;
+}
+
+/**
+ * One `terms_acceptances` row is due (AECI-1718): accepted before the acceptance cutoff, no
+ * open global hold, and its account ended before the cutoff ({@link accountGoneBefore}). The
+ * Privacy Policy keeps it "for as long as your account exists and for six years after it
+ * ends". The bind count is fixed.
+ */
+export function termsAcceptancePrunePredicate(cutoffs: { acceptance: string }): SQL {
+  return sql`(
+    "terms_acceptances"."accepted_at" < ${cutoffs.acceptance}
+    AND ${NO_GLOBAL_HOLD}
+    AND ${accountGoneBefore(sql`"terms_acceptances"."profile_id"`, cutoffs.acceptance)}
+  )`;
+}
+
 /** `<column> IN (SELECT value FROM json_each(?))`: one bind, whatever the list length. */
 function inJsonList(column: SQL, ids: readonly string[]): SQL {
   return sql`${column} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`;
@@ -501,9 +581,12 @@ export function isLegalRetentionRaceError(error: unknown): boolean {
   return /malformed JSON/i.test(parts.join(' | '));
 }
 
+/** The two acceptance tables whose ids an `*.evidence_removed` audit row lists. */
+type AcceptanceTable = 'agreement_acceptances' | 'terms_acceptances';
+
 /**
  * True when every acceptance id listed at `path` of the JSON column `column` is gone from
- * `agreement_acceptances`. `planned` are the ids this run's batch deletes before the
+ * `table`. `planned` are the ids this run's batch deletes before the
  * statement runs: a planning read passes them so it sees the state the delete will see. The
  * batch statement itself passes none, because by then they are gone.
  *
@@ -513,7 +596,14 @@ export function isLegalRetentionRaceError(error: unknown): boolean {
  * nested `CASE` keeps `json_type` and `json_each` off a malformed value, whose error would
  * abort the batch. The id list is read from the row, so the bind count never grows.
  */
-function acceptanceIdsAllGone(column: SQL, path: string, planned: readonly string[]): SQL {
+function acceptanceIdsAllGone(
+  column: SQL,
+  path: string,
+  planned: readonly string[],
+  table: AcceptanceTable = 'agreement_acceptances',
+): SQL {
+  // `table` is one of two fixed names, never input, so `sql.raw` binds nothing unsafe.
+  const source = sql.raw(`"${table}"`);
   const stillKept =
     planned.length > 0
       ? sql`"aa_keep"."id" NOT IN (SELECT value FROM json_each(${JSON.stringify(planned)}))`
@@ -522,7 +612,7 @@ function acceptanceIdsAllGone(column: SQL, path: string, planned: readonly strin
       CASE WHEN json_type(${column}, ${path}) = 'array' AND json_array_length(${column}, ${path}) > 0
       THEN NOT EXISTS (
         SELECT 1 FROM json_each(${column}, ${path}) "aa_j"
-        WHERE "aa_j"."value" IN (SELECT "aa_keep"."id" FROM "agreement_acceptances" "aa_keep" WHERE ${stillKept})
+        WHERE "aa_j"."value" IN (SELECT "aa_keep"."id" FROM ${source} "aa_keep" WHERE ${stillKept})
       )
       ELSE 0 END
     ELSE 0 END)`;
@@ -574,6 +664,46 @@ function vendorDeletedWhere(
     lt(auditLog.createdAt, cutoff),
     sql`NOT EXISTS (SELECT 1 FROM "agreement_acceptances" "vd_a" WHERE "vd_a"."vendor_id" = "audit_log"."entity_id" ${keptAcceptance})`,
     sql`NOT EXISTS (SELECT 1 FROM "license_grants" "vd_g" WHERE "vd_g"."vendor_id" = "audit_log"."entity_id" ${keptGrant})`,
+  ) as SQL;
+}
+
+/** `terms.evidence_removed` rows older than the acceptance cutoff whose Terms acceptances are
+ *  all gone. They carry no vendor or entity id, so the age bounds the scan. */
+function termsEvidenceWhere(cutoff: string, planned: readonly string[]): SQL {
+  return and(
+    eq(auditLog.action, TERMS_EVIDENCE_REMOVED_ACTION),
+    lt(auditLog.createdAt, cutoff),
+    acceptanceIdsAllGone(
+      sql`${auditLog.metadata}`,
+      '$.acceptance_ids',
+      planned,
+      'terms_acceptances',
+    ),
+  ) as SQL;
+}
+
+/**
+ * `account.deleted` rows of the profiles whose Terms acceptances this run prunes
+ * (`profileIds`), older than the acceptance cutoff, once no `terms_acceptances` row names
+ * that profile and no `profiles` row exists for it. `planned` are the Terms ids the batch
+ * deletes first: a planning read passes them, the batch statement passes none.
+ */
+function accountDeletedWhere(
+  profileIds: readonly string[],
+  cutoff: string,
+  planned: readonly string[],
+): SQL {
+  const kept =
+    planned.length > 0
+      ? sql`AND "ad_t"."id" NOT IN (SELECT value FROM json_each(${JSON.stringify(planned)}))`
+      : sql``;
+  return and(
+    eq(auditLog.action, ACCOUNT_DELETED_ACTION),
+    eq(auditLog.entityType, 'profile'),
+    inJsonList(sql`${auditLog.entityId}`, profileIds),
+    lt(auditLog.createdAt, cutoff),
+    sql`NOT EXISTS (SELECT 1 FROM "profiles" "ad_p" WHERE "ad_p"."id" = "audit_log"."entity_id")`,
+    sql`NOT EXISTS (SELECT 1 FROM "terms_acceptances" "ad_t" WHERE "ad_t"."profile_id" = "audit_log"."entity_id" ${kept})`,
   ) as SQL;
 }
 
@@ -683,6 +813,7 @@ export async function runLegalRetentionPrune(
         zero('agreement_acceptances', cutoffs.acceptance),
         zero('license_grants', cutoffs.grant),
         { ...zero('litigation_holds', cutoffs.audit), paused: true },
+        zero('terms_acceptances', cutoffs.acceptance),
       ],
       rowsDeleted: 0,
       vendorHolds,
@@ -784,7 +915,54 @@ export async function runLegalRetentionPrune(
           vendorDeletedWhere(goneVendorIds, cutoffs.acceptance, acceptances.ids, grants.ids),
         )
       : 0;
-  const companions = accepted + linked + evidence.rowsDeleted + vendorDeleted;
+
+  // ── Terms acceptances (AECI-1718) ────────────────────────────────────────
+  // `terms.accepted` is filed under its acceptance. `terms.evidence_removed` lists acceptance
+  // ids in `metadata.acceptance_ids` and goes once none is left. `account.deleted` goes once
+  // no Terms row names its profile. Each is counted against the state the batch will leave.
+  const termsWhere = termsAcceptancePrunePredicate(cutoffs);
+  const terms = await capIds(
+    db
+      .select({ id: termsAcceptances.id })
+      .from(termsAcceptances)
+      .where(termsWhere)
+      .orderBy(asc(termsAcceptances.acceptedAt), asc(termsAcceptances.id))
+      .limit(LEGAL_RETENTION_IDS_PER_TABLE + 1),
+  );
+  const termsIdCol = sql`"terms_acceptances"."id"`;
+  const prunedProfileIds =
+    terms.ids.length > 0
+      ? (
+          await db
+            .selectDistinct({ profileId: termsAcceptances.profileId })
+            .from(termsAcceptances)
+            .where(inJsonList(termsIdCol, terms.ids))
+        ).map((r) => r.profileId)
+      : [];
+  const termsAcceptedWhere = and(
+    sql`${auditLog.entityType} = ${TERMS_ACCEPTANCE_ENTITY_TYPE}`,
+    sql`${auditLog.action} LIKE ${likePrefix('terms.')} ESCAPE '\\'`,
+    inJsonList(sql`${auditLog.entityId}`, terms.ids),
+  ) as SQL;
+  const termsAccepted = terms.ids.length > 0 ? await countAudit(termsAcceptedWhere) : 0;
+  const termsEvidence = await planKeyChunks(
+    db,
+    termsEvidenceWhere(cutoffs.acceptance, terms.ids),
+    termsEvidenceWhere(cutoffs.acceptance, []),
+  );
+  const accountDeleted =
+    prunedProfileIds.length > 0
+      ? await countAudit(accountDeletedWhere(prunedProfileIds, cutoffs.acceptance, terms.ids))
+      : 0;
+
+  const companions =
+    accepted +
+    linked +
+    evidence.rowsDeleted +
+    vendorDeleted +
+    termsAccepted +
+    termsEvidence.rowsDeleted +
+    accountDeleted;
 
   // ── The four-year audit part, and holds released four years ago ──────────
   const auditPaused = holds.length > 0;
@@ -817,7 +995,7 @@ export async function runLegalRetentionPrune(
       table: 'audit_log',
       cutoff: cutoffs.audit,
       rowsDeleted: audit.rowsDeleted + companions + holdAudit,
-      truncated: audit.truncated || evidence.truncated,
+      truncated: audit.truncated || evidence.truncated || termsEvidence.truncated,
       ...(auditPaused ? { paused: true } : {}),
       ...(companions > 0 ? { companionRowsDeleted: companions } : {}),
       ...(holdAudit > 0 ? { holdAuditRowsDeleted: holdAudit } : {}),
@@ -840,6 +1018,12 @@ export async function runLegalRetentionPrune(
       rowsDeleted: releasedHolds.ids.length,
       truncated: releasedHolds.truncated,
       ...(auditPaused ? { paused: true } : {}),
+    },
+    {
+      table: 'terms_acceptances',
+      cutoff: cutoffs.acceptance,
+      rowsDeleted: terms.ids.length,
+      truncated: terms.truncated,
     },
   ];
   const rowsDeleted = tables.reduce((sum, t) => sum + t.rowsDeleted, 0);
@@ -928,6 +1112,44 @@ export async function runLegalRetentionPrune(
       db.delete(auditLog).where(where),
     );
   }
+  // Terms acceptances (AECI-1718), the same pattern: sentinels, the `terms.accepted`
+  // companions, the rows, then the JSON-listed and `account.deleted` companions, whose
+  // predicates read whether the rows they date still exist. All before the four-year sentinel:
+  // once a profile's last Terms row is gone, its `account.deleted` row is no longer exempt
+  // from the four-year predicate, so it must be gone before that predicate is counted again.
+  if (terms.ids.length > 0) {
+    statements.push(
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "terms_acceptances" WHERE ${inJsonList(termsIdCol, terms.ids)} AND ${termsWhere}) <> ${terms.ids.length}`,
+      ),
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "audit_log" WHERE ${termsAcceptedWhere}) <> ${termsAccepted}`,
+      ),
+    );
+    if (termsAccepted > 0) statements.push(db.delete(auditLog).where(termsAcceptedWhere));
+    statements.push(
+      db.delete(termsAcceptances).where(and(inJsonList(termsIdCol, terms.ids), termsWhere)),
+    );
+  }
+  if (termsEvidence.rowsDeleted > 0 && termsEvidence.last) {
+    const upTo = sql`(${auditLog.createdAt}, ${auditLog.id}) <= (${termsEvidence.last.createdAt}, ${termsEvidence.last.id})`;
+    statements.push(
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "audit_log" WHERE ${and(termsEvidenceWhere(cutoffs.acceptance, []), upTo)}) <> ${termsEvidence.rowsDeleted}`,
+      ),
+      ...termsEvidence.statements,
+    );
+  }
+  if (accountDeleted > 0) {
+    const where = accountDeletedWhere(prunedProfileIds, cutoffs.acceptance, []);
+    statements.push(
+      abortWhen(db, sql`(SELECT count(*) FROM "audit_log" WHERE ${where}) <> ${accountDeleted}`),
+      db.delete(auditLog).where(where),
+    );
+  }
   if (releasedHolds.ids.length > 0) {
     const holdIdCol = sql`"litigation_holds"."id"`;
     const holdRowsWhere = and(inJsonList(holdIdCol, releasedHolds.ids), releasedHoldWhere);
@@ -951,10 +1173,12 @@ export async function runLegalRetentionPrune(
     // `last`, so the rows matching the predicate up to it must be exactly the planned count.
     // A concurrent run that deleted them first makes the count fall short: abort. Nothing
     // earlier in the batch deletes a row this predicate matched at the start of the batch
-    // (every `agreement.*` and `litigation_hold.*` action is exempt from it, and so is a
-    // `vendor.deleted` row an acceptance or grant still names). The only rows the earlier
+    // (every `agreement.*`, `terms.*` and `litigation_hold.*` action is exempt from it, and
+    // so are a `vendor.deleted` row an acceptance or grant still names and an
+    // `account.deleted` row a Terms acceptance still names). The only rows the earlier
     // deletes can bring into it are `vendor.deleted` rows whose last acceptance or grant
-    // they removed, and the `vendor.deleted` delete above has already removed them. So the
+    // they removed and `account.deleted` rows whose last Terms acceptance they removed, and
+    // the two deletes above have already removed them. So the
     // count is the same here as at the start of the batch. Four binds plus the
     // predicate's, whatever the chunk count.
     const upTo = sql`(${auditLog.createdAt}, ${auditLog.id}) <= (${audit.last.createdAt}, ${audit.last.id})`;
@@ -1039,6 +1263,12 @@ export async function runLegalRetentionPruneWithReplan(
         },
         { table: 'license_grants', cutoff: cutoffs.grant, rowsDeleted: 0, truncated: false },
         { table: 'litigation_holds', cutoff: cutoffs.audit, rowsDeleted: 0, truncated: false },
+        {
+          table: 'terms_acceptances',
+          cutoff: cutoffs.acceptance,
+          rowsDeleted: 0,
+          truncated: false,
+        },
       ],
       rowsDeleted: 0,
       vendorHolds: 0,

@@ -292,7 +292,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CLAIM_NOT_DELETABLE` | 409 | `DELETE /api/vendor/claims/:claimId` (AECI-1245) on a row the caller added, when another company or AECi holds a live answer on it, or when the row or its thread changed between the handler's read and its batch. Nothing is written. The caller can still withdraw its own answer |
 | `THREAD_NOT_ATTESTABLE` | 409 | A write on a private row thread (`POST …/thread/messages`, `DELETE …/thread/messages/:messageId`, `POST …/thread/help`, AECI-1535) when the claim is not attestable by two companies (`STAGE_2_ATTESTATIONS_SPEC.md` §15.2): the edge is connector-powered (`isConnectorPoweredEdge`), or the two endpoint products do not resolve to two different vendors. Raised after the endpoint `404`. Nothing is written |
 | `THREAD_CLOSED` | 409 | A write on a private row thread that is closed (§15.10), including one that closed between the handler's read and its batch. `details.closed_reason` names why. A closed thread never reopens. Nothing is written (AECI-1535) |
-| `THREAD_ACK_REQUIRED` | 409 | A company's first post to the other company on an integration carries no `acknowledgment_version`, and the company has no acknowledgment on record for that company and integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). `details` is `{ other_vendor_id, text_version }`. Nothing is written (AECI-1616) |
+| `THREAD_ACK_REQUIRED` | 409 | A company's first post to the other company on an integration carries no `acknowledgment_version`, and the company has no acknowledgment on record for that company and integration at or after `THREAD_ACK_MATERIAL_SINCE` (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). `details` is `{ other_vendor_id, text_version }`. Nothing is written (AECI-1616) |
 | `MESSAGE_NOT_AUTHOR` | 403 | `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` on a message the caller did not write, a colleague's included (§15.4). A message the caller wrote for a previous company counts as not theirs (AECI-1545). Raised only after the endpoint `404` has passed. Nothing is written (AECI-1535) |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
@@ -380,6 +380,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
 | `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live Stripe subscription: a lapsed customer still opens the portal. Buy through checkout first |
 | `STRIPE_PAYMENT_INCOMPLETE` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when Stripe could not collect the pro-rated invoice (a declined card, an unfinished 3-D Secure check). Stripe answers the update `200` but leaves a `pending_update` and the old quantity, so no subscription lands and the card was not charged. `details.expires_at` is when Stripe drops the pending change (Unix seconds). Fix the payment method in the Customer Portal, then add again. **409, not 402**, for the reason the `ENTITLEMENT_REQUIRED` row gives: this table has no 402 row (§4.1). Nothing is written |
+| `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` | 409 | `POST /api/vendor/billing/checkout` and `POST /api/vendor/billing/licenses/add` (AECI-1865) when the purchase would leave subscriptions on no product (the quantity plus the live pool, less the products holding no live subscription) and the body's `unused_acknowledged` is not exactly that count (§6.14). `details.unused` names the count, with `details.pool` and `details.products_without_subscription`. Raised before any Stripe call. Re-read `GET /api/vendor/billing`, show the warning again and send the new count. Nothing is written |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call. `POST /api/vendor/license-grants/:id/accept` (AECI-1615) answers it when the owner's sign-in email cannot be resolved, before any write |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
@@ -3012,7 +3013,8 @@ A Managed grant's `vendor_entitlement.granted` row is filed against the vendor. 
 (`vendor_request.created`) has no actor id, so its `actor` is `null`.
 
 **A read.** No `audit_log` row and no rate limit. The page reader is the same one
-`GET /api/admin/connector-catalogs/:id/audit` uses, so the two trails cannot drift.
+`GET /api/admin/connector-catalogs/:id/audit` and `GET /api/admin/users/:id/audit` use, so
+the three trails cannot drift.
 
 Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as
 `GET /api/admin/claims/:id`. Without the 404 gate an unknown id would return an empty page,
@@ -3022,7 +3024,7 @@ bad page query, and the shared 401/403.
 #### `GET /api/admin/audit` (AECI-653)
 
 **The global audit-log viewer.** Every `audit_log` row, filtered. It backs `/admin/audit`.
-Behind `requireAdmin()`. The vendor, claim and connector trails are scoped reads of the
+Behind `requireAdmin()`. The vendor, claim, connector and user trails are scoped reads of the
 same table. This one is unscoped. Source of truth: `packages/shared/src/api/admin-audit.ts`,
 `apps/api/src/routes/admin-audit.ts`, and the shared page reader
 `apps/api/src/lib/admin-audit-page.ts`.
@@ -3203,7 +3205,7 @@ Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 // One key per column the operator's table renders; `created` is absent because
 // `created_at` is not on the row, so no header could state its direction.
 export const AdminVendorSortSchema = z
-  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated'])
+  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated', 'claimed'])
   .default('name');
 
 export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
@@ -3211,6 +3213,8 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
   // No `verified` filter since AECI-1375. The column still sorts.
+  // AECI-1934: true = owned_at IS NOT NULL, false = owned_at IS NULL, absent = all.
+  claimed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
 export const AdminVendorRowSchema = z.object({
@@ -3222,6 +3226,7 @@ export const AdminVendorRowSchema = z.object({
   live_license_count: z.number().int().nonnegative(),
   product_count: z.number().int().min(0),
   updated_at: z.string(),
+  owned_at: z.string().nullable(),                // vendors.owned_at (AECI-1934)
 });
 
 export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendorRowSchema);
@@ -3245,7 +3250,7 @@ every link and bookmark written before the parameter existed orders exactly as i
 draw its arrows — **one copy, because two would drift silently**: a header would render
 ↑ while the server sorted descending and nothing would fail. Naturally: `name`/`slug`
 ASC, `verified` DESC (verified first), `licenses` DESC (most live subscriptions first),
-`products` DESC, `updated` DESC.
+`products` DESC, `updated` DESC, `claimed` DESC (most recent claim first).
 
 **Only the PRIMARY term flips.** The `id ASC` tiebreaker and the intermediate
 `company_name` term never move — they are what make the order total and the page stable
@@ -3257,6 +3262,15 @@ column sorts rather than toggling it. That was defensible when the endpoint coul
 by two keys; with six it became a defect — an arrow on a clickable header reads as a
 toggle, and a control that silently no-ops on the second click is a worse lie than the
 one the rule was avoiding.)*
+
+**`claimed` filters and sorts on record ownership (AECI-1934).** "Claimed" means
+`vendors.owned_at IS NOT NULL` (ADR 0042), as Chris ruled on 2026-11-18. It is not a live
+seat and not the `verified` mirror, and it does not read `claim_ended_at`. `?claimed=true`
+returns the owned vendors, `?claimed=false` the rest, and absent returns every vendor.
+`total` is the `count()` over the same filter. The `claimed` sort key orders by
+`owned_at` behind an `owned_at IS NULL` term that never flips. So an unclaimed vendor
+sorts last in both directions, and company name then `id` order that tail. A value other
+than `true` or `false` is a `400 VALIDATION_FAILED`.
 
 **`licenses` counts live subscriptions, not grants.** `live_license_count` is a correlated
 count of `licenses` rows with `ended_at IS NULL` whose billing account belongs to the
@@ -3281,7 +3295,8 @@ explicit `ESCAPE '\'`, because Drizzle's `like()` emits none. The leading `%` me
 cannot use `vendors_company_name_idx`; at AECi's cardinality that is the right trade.
 
 Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for an unknown
-`sort` key or a `perPage` above 100. A leftover `?verified=` is ignored, not refused.
+`sort` key, a `claimed` value other than `true` or `false`, or a `perPage` above 100. A
+leftover `?verified=` is ignored, not refused.
 
 #### `GET /api/admin/vendors/:id` (Stage 2 — AECI-652)
 
@@ -4675,6 +4690,53 @@ AdminUserDetail = {
 (below), reused — no longer the sole writer of `profiles.banned_at`: Terminate (AECI-1623) bans every seat in its batch, and `banned-at-writers.spec.ts` pins both writers.
 Seat revoke is likewise not here; it stays
 `DELETE /api/admin/vendors/:id/seats/:userId`.
+
+#### `GET /api/admin/users/:id/audit` (AECI-693)
+
+**The person's audit trail.** It backs the Audit trail section on `/admin/users/:id`.
+Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin-users.ts`,
+`apps/api/src/routes/admin-users.ts` (`userAuditWhere`), and the shared page reader
+`apps/api/src/lib/admin-audit-page.ts`.
+
+```typescript
+export const AdminUserAuditScopeSchema = z.enum(['all', 'entity', 'actor']);
+export const AdminUserAuditQuerySchema = PageQuerySchema.extend({
+  scope: AdminUserAuditScopeSchema.default('all'), // ?page=&perPage=&scope=
+});
+export const AdminUserAuditResponseSchema = paginatedResponseSchema(AdminAuditRowSchema).extend({
+  actor_emails_available: z.boolean(), // false = the email seam failed, not "no email"
+});
+```
+
+**The legs.** Each is served by its own index. Order is `created_at DESC, id DESC`.
+
+| Leg | Condition | Index | Scopes |
+|---|---|---|---|
+| Profile | `entity_type = 'profile' AND entity_id = :id` | `audit_log_entity_idx` | `all`, `entity` |
+| Metadata | `action IN ('vendor_claim.granted', 'license.cancel_at_term_end_cleared') AND json_extract(metadata, '$.seat_user_id') = :id` | `audit_log_action_idx` | `all`, `entity` |
+| Actor | `actor_id = :id` | `audit_log_actor_idx` | `all`, `actor` |
+
+- **The profile leg** catches every profile writer. That includes create and update,
+  erasure, seat accept and provision, seat revoke, ban and unban, the seat-revoked
+  `notification.sent`, and the `notification_preferences.*` writers.
+- **The metadata leg** covers the two actions filed under another entity, a claim and a
+  billing account, that name the person only in `metadata.seat_user_id`. The JSON test
+  runs only on rows with one of those actions.
+- **`agreement.linked` is not included.** It names the person only in
+  `after_state.profile_id`, which no index reaches. It shows on the claim trail.
+- **One flat OR.** `all` is a single top-level OR of the three legs, so SQLite plans a
+  MULTI-INDEX OR with one index search per leg. An `EXPLAIN QUERY PLAN` test fails on any
+  `SCAN audit_log` (the AECI-1484 rule, `GET /api/admin/vendors/:id/audit`).
+
+**A read.** No `audit_log` row, no rate limit and no cache tag. The page reader is the
+claim trail's, so the trails cannot drift.
+
+Errors:
+- `VALIDATION_FAILED` (400) on an unknown `scope` or a bad page query.
+- `NOT_FOUND` (404) on an unknown id, exactly as `GET /api/admin/users/:id`. An erased
+  account 404s too, because its profile row is gone. Without the gate an unknown id would
+  return an empty page, which reads as "no history" rather than "no such person".
+- Plus the shared `requireAdmin()` 401/403.
 
 #### `GET /api/admin/reviewers`
 
@@ -8578,6 +8640,7 @@ export const VendorBillingResponseSchema = z.object({
   licenses: z.array(VendorBillingLicenseSchema),   // capped at VENDOR_BILLING_LICENSES_MAX (500)
   licenses_truncated: z.boolean(),
   assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
+  pool_count: z.number().int().nonnegative(),  // AECI-1865
   stripe: VendorBillingStripeSchema.nullable(),    // AECI-1501; null = no live Stripe license
   stripe_checkout_available: z.boolean(),          // AECI-1501; the three Stripe routes' gate
   stripe_customer: z.boolean(),                    // AECI-1501; the account has a Stripe customer
@@ -8638,6 +8701,11 @@ export const VendorBillingLicenseSchema = z.object({
 - **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
   live subscription from **any** vendor. A co-owned product subscribed by the other owner is left
   out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
+- **`pool_count`** (AECI-1865) is every live subscription on no product, counted in the same
+  batch (`poolCountSelect`) and never capped like `licenses`. When `stripe.synced` is true it
+  also adds Stripe's quantity above the live Stripe rows (`unsyncedStripeCount`): paid
+  subscriptions the webhook has not landed yet, which arrive in the pool. The
+  unused-subscriptions warning counts from it, as the gate does.
 - **`stripe`** (AECI-1501) summarises the account's live Stripe subscription. It starts
   from D1: a fourth read in the same batch groups the live subscriptions that carry a
   `stripe_subscription_id`. Monthly rows have `ends_at` NULL, so the interval comes from the
@@ -8816,8 +8884,8 @@ The owner's Stripe routes (E9.3 of AECI-1339; `VENDOR_SIGNUP_PROCESS.md` §2 dec
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval, signer_title }` | `200 { url }` (Stripe Checkout) |
-| `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity }` | `200 { ok: true, pending: true }` |
+| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval, signer_title, unused_acknowledged? }` | `200 { url }` (Stripe Checkout) |
+| `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity, unused_acknowledged? }` | `200 { ok: true, pending: true }` |
 | `POST` | `/api/vendor/billing/portal` | none | `200 { url }` (Customer Portal) |
 
 ```typescript
@@ -8827,10 +8895,14 @@ export const StripeCheckoutRequestSchema = z
     quantity: z.number().int().min(1).max(100),
     interval: z.enum(['year', 'month']),
     signer_title: z.string().trim().min(1).max(100),  // AECI-1625: the buyer's title, required
+    unused_acknowledged: z.number().int().nonnegative().optional(), // AECI-1865
   })
   .strict();
 export const AddStripeLicensesRequestSchema = z
-  .object({ quantity: z.number().int().min(1).max(100) })
+  .object({
+    quantity: z.number().int().min(1).max(100),
+    unused_acknowledged: z.number().int().nonnegative().optional(), // AECI-1865
+  })
   .strict();
 export const StripeRedirectResponseSchema = z.object({ url: z.string().url() });
 export const AddStripeLicensesResponseSchema = z.object({
@@ -8844,6 +8916,32 @@ the handler, `requireSeatOwner()` (a member seat gets `403 FORBIDDEN`), then the
 (`503 STRIPE_UNAVAILABLE`, the `stripe_checkout_available` rule above), then the body. No
 capability gate: the fourth named exception to invariant 3. A vendor with no billing account
 is `404 NOT_FOUND`.
+
+**The unused-subscriptions gate (AECI-1865).** Checkout and add both work out how many
+subscriptions the purchase would leave on no product, with `unusedAfterPurchase`:
+
+```
+unused = max(0, quantity + pool − products without a subscription)
+```
+
+`pool` is the live `licenses` rows on the vendor's billing account with no
+`assigned_product_id`. On an add it also counts Stripe's quantity above the live Stripe rows
+(`unsyncedStripeCount`): subscriptions paid for but not yet synced by the webhook land in the
+pool, so leaving them out would let an add skip the warning. Those live Stripe rows are
+counted in the same D1 batch as the pool, after the Stripe read (`loadPurchaseCounts`). A
+count taken before the Stripe read would miss a webhook that commits during it, and that
+webhook's subscriptions would then count twice: once in the pool and once in the gap.
+Products without a subscription are the read's `assignable_products`
+predicate (`assignableProductsWhere`): owned through `product_vendors`, holding no live license
+from any vendor. The server counts both itself (`loadPurchaseCounts`) and never trusts the
+client. When `unused` is above zero and the body's `unused_acknowledged` is not exactly
+`unused`, the route answers `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` with `details.unused`,
+`details.pool` and `details.products_without_subscription`, before any Stripe write. An exact
+match is required, so a tab whose counts went stale is refused and re-reads. The tab then warns
+from `details.pool` and `details.products_without_subscription` until the next purchase, so a
+read that lags the API cannot refuse the owner forever. At zero the field is ignored. Checkout
+runs the gate after the D1 subscription check in step 1 and before the Stripe list. Add runs it
+after the Stripe read (it needs Stripe's quantity) and before the update.
 
 **A live Stripe subscription** is live `licenses` rows on the account that carry a
 `stripe_subscription_id`. A subscription Stripe holds but the webhook has not synced is not
@@ -8872,8 +8970,8 @@ and the reconcile job (E9.5) closes their gap.
    with `expand[]=data.line_items`). An open session is in neither D1 nor the Stripe subscription
    list, and stays payable for 24 h, so two open sessions could pay for two Stripe subscriptions.
    One whose single line item has this price and quantity, and whose metadata names this
-   account, this owner, the current `terms_version`, the same signer metadata (AECI-1625) and the
-   current `plans_version` (AECI-1619), and
+   account, this owner, the current `terms_version`, the same signer metadata (AECI-1625), the
+   current `plans_version` (AECI-1619) and the same `unused_acknowledged` (AECI-1865), and
    which was opened on today's UTC day (its text names a renewal date, AECI-1596), is reused: the route answers its
    `url` and opens nothing. Every other open session is expired
    (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
@@ -8892,6 +8990,11 @@ and the reconcile job (E9.5) closes their gap.
    `plans_version` (`PLANS_PAGE_CURRENT_VERSION`). Like the signer, it rides the session only,
    not `subscription_data[metadata]`. The webhook copies it into the acceptance row with the
    snapshot's hash.
+   *As built 2026-11-19 (AECI-1865):* the session's `metadata` also carries
+   `unused_acknowledged`, the accepted count, when it is above zero. Session only, like the
+   signer. When this checkout creates the Stripe customer (step 3), the
+   `billing_account.stripe_customer_linked` audit row's `metadata.unused_acknowledged` records
+   the count too. No other audit row is written on these routes.
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
@@ -8903,8 +9006,8 @@ and the reconcile job (E9.5) closes their gap.
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
    `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
    `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
-   quantity, the UTC minute and a 12-hex digest of the signer metadata and `plans_version`
-   (AECI-1625, AECI-1619; `evidenceKey`), because
+   quantity, the UTC minute and a 12-hex digest of the signer metadata, `plans_version` and
+   `unused_acknowledged` (AECI-1625, AECI-1619, AECI-1865; `evidenceKey`), because
    Stripe refuses a key replayed with different parameters. A double click in the same minute replays the same
    session. A later click for the same purchase reuses it through step 4. A click for
    another interval or quantity expires it in step 4 and gets a new key.
@@ -8932,6 +9035,13 @@ new one, so the earlier change can never land on top of the later one (Stripe do
 updates", confirmed 2026-10-28). An unpaid pending update expires after 23 hours and Stripe
 voids its invoice. Paying the open invoice in the Customer Portal applies the pending change,
 and the `customer.subscription.updated` event then syncs the subscriptions.
+*As built 2026-11-19 (AECI-1865):* the update also sets the Stripe subscription's `metadata`
+`unused_acknowledged` (the accepted count) and `unused_acknowledged_by` (the owner's profile
+id). An add with nothing unused sends both empty, which clears them. Because the metadata is a
+parameter, the count joins the idempotency key after the delta, with the owner's profile id
+when the count is above zero, because the metadata names that owner:
+`aeci-add-<sub>-<quantity read>-<delta>-u<count>-<profile id>[-<pending expires_at>]`, or
+`…-u0[-<pending expires_at>]` with nothing unused.
 
 **Portal.** The portal needs a Stripe customer, not a live Stripe subscription. An account with no
 `stripe_customer_id` and no live Stripe subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live
@@ -8953,7 +9063,8 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
-`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` (409,
+checkout and add, AECI-1865) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
 portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
 paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
@@ -9704,7 +9815,7 @@ Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus th
 
 #### AECi field locks on vendor writes (AECI-1237)
 
-A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. Each `locked_fields` entry also carries `source_url` since AECI-1614, so the vendor sees the source readers see. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
+A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. Each `locked_fields` entry also carries `source_url` since AECI-1614, so the vendor sees the source readers see. Since AECI-1668 `reason` is `string | null`: it is set only for the vendor holding the lock, the lock's `vendor_id`. Any other vendor that sees the record, such as the other endpoint of an integration or a co-owner of a shared product, gets `null`. `source_url` goes to every viewer, because the public caption shows it. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
 
 **Hidden values (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** The same three reads carry `hidden_fields: [{ field, reason, set_at, source_url }]` beside `locked_fields`, optional for deploy skew and never carrying the internal note. `reason` and `source_url` are `string | null`. They are set only for the vendor holding the record, the hide's `vendor_id`. Any other vendor that sees the record, such as the other endpoint of an integration or a co-owner of a shared product, gets both as `null`. A hidden field is not locked: the vendor writes it as usual. A save that changes it ends the hide in the write's batch, with a guarded `UPDATE` of `field_hides` and a `<entity>.field_hide_cleared` audit row (`clearKind: 'vendor_edit'`). A resend of the stored value ends nothing. No notice is written.
 
@@ -10460,7 +10571,7 @@ export const ListVendorThreadsResponseSchema = paginatedResponseSchema(VendorThr
 - **`GET /api/vendor/integrations/:id/threads` (AECI-1546)** is the integration page's one thread read, in place of one claim `GET` per row. `resolveAttestationSlots` runs first: a caller with no endpoint on the integration and an id that names no `integrations` row get the same `404`, `details.resource = 'integration'`. It lists only threads on the integration's claims whose stamped pair includes the caller (`threadParticipantWhere`). A co-owner that is not on a thread sees no entry for it. `counterparty` is the vendor a first post on any of the integration's rows would stamp, from `threadParties`. It is `null` when the rows fail §15.2. **It carries no message text and writes no read marker.** A marker is written only by the claim `GET`, which the portal calls when the seat opens a row's thread. No audit row, not cached, no `Cache-Tag`.
 - **`GET /api/vendor/threads/:threadId` (AECI-1548, ruled 2026-10-30).** A vendor keeps read access to a thread whose row was deleted. This read finds the thread by its own id, so it works after a `claim_removed` close nulled `claim_id`. Handler in `apps/api/src/routes/vendor-thread-by-id.ts`. One query, filtered by `threadParticipantWhere`, decides access: a thread of two other companies and a missing id get the same `404`, `details.resource = 'claim_thread'`. There is no endpoint check, because the caller may no longer own either product. `is_own` goes through the same `isOwnMessage` test as the claim `GET`. `data_object` is the live claim's data object, else the one in `anchor_snapshot`, the admin read's key. It upserts the caller's `claim_thread_reads` marker, best effort, as the claim `GET` does. There is no write by thread id. **`can_write` (AECI-1551)** is true when the claim write routes would accept a post by this caller: the thread is open, its claim exists, `requireAttestableRow` passes (the endpoint check, then §15.2), and the integration is live. A refusal of any check is `false`, never an error, so the read still answers. The portal page `/vendor/:vendorSlug/threads/:threadId` renders it, the thread's one permanent page. Both thread notifications link there. When `can_write` is true the page writes through the claim routes with `claim_id`. Not cached.
 - **`GET /api/vendor/threads` (AECI-1551).** The company's Conversations list. Same handler file. It lists every thread whose stamped pair includes the caller (`threadParticipantWhere`), open and closed, its claim deleted or not. `status=open|closed` filters on `closed_at`. Any other value is `400 VALIDATION_FAILED`. Paging is `page` / `perPage` (`PageQuerySchema`, default 24, max 100), as on `GET /api/vendor/history`. Order is `last_activity_at DESC, id ASC`. `last_activity_at` is the newest of the thread's `created_at`, its newest message's `created_at`, `help_requested_at` and `closed_at`. Timestamps and ids order `BINARY` (§3.2). `data_object` is named as on the by-id read. **It carries no message text and writes no read marker.** No audit row, no rate limit, not cached.
-- **The first-use acknowledgment (AECI-1616, §15.17).** The post body takes an optional `acknowledgment_version`, `THREAD_ACK_TEXT_VERSION` (today `"1"`); any other value is `400 VALIDATION_FAILED`. The server looks up `claim_thread_acknowledgments` for the caller's company, the integration and the recipient. With no row and no version, it answers `409 THREAD_ACK_REQUIRED`, after the thread-state check. With the version, the row and one `thread.acknowledged` audit row (`{ vendorId, integrationId, otherVendorId, textVersion }`) land in the post's batch. With a row, the version is ignored. Two seats racing an acknowledgment meet `claim_thread_acknowledgments_key`, and the post's second attempt posts without a new row. The claim `GET` and the by-id `GET` answer `acknowledged: boolean` for the caller's company and the counterparty, `false` when there is none.
+- **The first-use acknowledgment (AECI-1616, §15.17).** The post body takes an optional `acknowledgment_version`, `THREAD_ACK_TEXT_VERSION` (today `"1"`); any other value is `400 VALIDATION_FAILED`. The server looks up `claim_thread_acknowledgments` for the caller's company, the integration and the recipient. A row counts only when its `text_version` is at or after `THREAD_ACK_MATERIAL_SINCE` (AECI-1641). With no counting row and no version, it answers `409 THREAD_ACK_REQUIRED`, after the thread-state check. With the version, a new row and one `thread.acknowledged` audit row (`{ vendorId, integrationId, otherVendorId, textVersion }`, plus `supersedesVersion` when an older row exists) land in the post's batch. An older row stays. With a counting row, the version is ignored. Two seats racing an acknowledgment meet `claim_thread_acknowledgments_key`, and the post's second attempt posts without a new row. The claim `GET` and the by-id `GET` answer `acknowledged: boolean` for the caller's company and the counterparty, `false` when there is none.
 - **`POST …/messages`** creates the thread in the same batch as its first message and stamps `vendor_a_id` and `vendor_b_id`. The caller fills its own side. The other side is a vendor of the other endpoint that is not the caller. Two racing first posts meet the `claim_threads_claim_key` unique index. The loser re-reads and posts into the winner's thread.
 - **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author. The author test needs the profile AND the company stamped on the message (`author_vendor_id`), so a person re-seated at another company cannot delete their old company's messages, and `is_own` reads false for them (AECI-1545). Then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
 - **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.
@@ -10726,6 +10837,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
     owner: z.object({ id, name }).nullable(),
     claimed: z.boolean(),
     retired: z.boolean(),
+    retired_by: IntegrationRetiredBySchema.nullable(),   // 'owner' | 'aeci', null while live
   })),
 });
 ```
@@ -10734,13 +10846,45 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **Order: shape → endpoints → values.** A shape error, a missing required field, or equal ids is `400`. A `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`. A value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming it, including a connector-delivered kind (`iPaaS`, `integrator`): a vendor-created row is never connector-powered (decision 9).
 
-**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. The kind is **not** in this key: promote's twin skip adds `mechanism_kind` (ruled 2026-09-22), and this warning keeps the broader match, so a vendor still hears about a curated row it would duplicate under a different kind. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`.
+**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. The kind is **not** in this key: promote's twin skip adds `mechanism_kind` (ruled 2026-09-22), and this warning keeps the broader match, so a vendor still hears about a curated row it would duplicate under a different kind. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`. The same query runs before the create, through the pre-check GET below (AECI-1953). Both call `findPossibleDuplicates` in `apps/api/src/lib/integration-create.ts`.
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
 **After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds a live subscription (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
+
+#### Vendor create pre-check — `GET /api/vendor/integrations/possible-duplicates`
+
+Stage 2.1 (AECI-1953, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.2). The create's duplicate warning, read before the create. The portal calls it when the vendor picks the other product. Zod in `packages/shared/src/api/integration-create.ts`, handler in `apps/api/src/routes/vendor-integration-duplicates.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/integrations/possible-duplicates?product_id=&counterpart_product_id=` | seat, `product_id` held by the caller | `200 { possible_duplicates }` |
+
+**No rate limit.** It is a read (`waf-rate-limits.md` §6). No capability gate, as for the create.
+
+```typescript
+export const PossibleDuplicatesQuerySchema = z
+  .object({
+    product_id: z.string().uuid(),              // the caller's product
+    counterpart_product_id: z.string().uuid(),  // any promoted product
+  })
+  .strict()                                     // an unknown key is a 400
+  .refine((q) => q.product_id !== q.counterpart_product_id);   // equal ids: 400
+
+export const PossibleDuplicatesResponseSchema = z.object({
+  possible_duplicates: z.array(PossibleDuplicateIntegrationSchema),   // the create's item, unchanged
+});
+```
+
+**The item.** It is the create's item: `id`, `name`, `mechanism_kind`, `mechanism_name`, `orientation`, `owner`, `claimed`, `retired` and `retired_by`. `retired_by` is `'owner'` or `'aeci'` on a retired row and `null` on a live one. A retired row with no stored value predates migration 0046 and reads as `'owner'`. The portal offers restore only for `'owner'`, because the restore route refuses an AECi retire with `INTEGRATION_RETIRED_BY_AECI`.
+
+**Order: shape, then endpoints.** A missing or malformed id, an unknown key, or equal ids is `400`. The endpoint check is the create's: a `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`.
+
+**The list is the create's.** The same strong-match query, oldest first, with the caller as owner and no connector. So a create run straight after returns the same `possible_duplicates`, unless a row landed in between.
+
+**Nothing else.** No audit row, no purge, no cache tag. The response is `private, no-store`. It exposes nothing new: every match sits on the caller's own product, so `GET /api/vendor/integrations` already lists it.
 
 #### Product requests — `POST` + `GET /api/vendor/product-requests`
 

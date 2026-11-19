@@ -1,10 +1,20 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import {
+  Component,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, type ParamMap, type Params, Router, RouterLink } from '@angular/router';
 
 import { ADMIN_VENDOR_SORT_DEFAULT_ORDER } from '@aeci/shared';
 import type { AdminVendorRow, AdminVendorSort, SortOrder } from '@aeci/shared';
 
+import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -14,6 +24,10 @@ import { isReplayedEvent } from '../../core/event-replay';
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
 const PAGE_SIZE = 25;
+
+/** A tri-state, never a toggle, for the reason `user-list.ts` gives for its Banned
+ *  filter: "claimed", "unclaimed" and "don't filter" are three questions. */
+type TriFilter = 'any' | 'true' | 'false';
 
 /**
  * `/admin/vendors` — the operator's vendor list (AECI-652 /
@@ -64,7 +78,7 @@ const PAGE_SIZE = 25;
  * header that reordered the rows already loaded while leaving the rest of the
  * catalog alone would be worse than no control, because under scroll paging the
  * operator cannot even see where the reordered set ends. What changed is the API:
- * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` order by all six of this
+ * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` order by all seven of this
  * table's columns, including the two that are SELECT aliases rather than columns
  * (`licenses`, the live license count, and `products`). AECI-1375 dropped the
  * entitlement and term columns with the entitlement screen. Add a column here and
@@ -79,14 +93,24 @@ const PAGE_SIZE = 25;
  * licenses and seats; the integration count is a catalog fact they act on at
  * `/admin/vendors/:id`, and dropping it also dropped a correlated subquery per
  * row from the query.
+ *
+ * ── CLAIMED (AECI-1934) ─────────────────────────────────────────────────────
+ * A Claimed filter and a sortable Claimed on column, both over
+ * `vendors.owned_at` (ADR 0042). Account active is the paid mirror and misses
+ * every claimed vendor on the Free plan, which is most of them. The filter is
+ * the same `<aec-select>` `/admin/users` uses for Banned. Unlike that screen,
+ * this one keeps its filter, search and sort in the URL (see {@link queryParams}),
+ * and any change resets to chunk 1.
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
+  imports: [AecSelect, BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {
   private readonly api = inject(AdminVendorsApi);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   /** Every row loaded so far — chunk 1 plus whatever scroll has appended. */
   protected readonly vendors = signal<readonly AdminVendorRow[]>([]);
@@ -102,46 +126,99 @@ export class VendorList {
   protected readonly loadFailed = signal(false);
   protected readonly liveMessage = signal('');
 
-  /** The committed search term — what was last SENT, not what is being typed.
-   *  Typing does not refetch; the form's submit does. A keystroke-per-request
-   *  search over a `LIKE '%…%'` full scan would be a lot of scans to answer a
-   *  question the operator has not finished asking. */
-  protected readonly search = signal('');
+  /**
+   * The list's state lives in the URL (AECI-1934 review ruling): `search`,
+   * `claimed`, `sort` and `order`. It is READ reactively, so reload, Back and a
+   * shared link all restore it, and it is WRITTEN by pushing a navigation, the
+   * way `admin/audit/audit-log.ts` does. Each change is a history entry, so Back
+   * walks back through the operator's filters. A default is left out, so the
+   * bare `/admin/vendors` stays canonical. `/admin` is never edge-cached, so no
+   * cache key forks. `/admin/users` still seeds its filters one way and keeps
+   * its sort in memory (`ADMIN_PANEL_SPEC.md` §5.7).
+   *
+   * A hand-edited junk value reads as the default rather than 400ing the request:
+   * a bad link should narrow nothing, not break the screen.
+   */
+  private readonly queryParams = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+  private readonly urlState = computed(() => readUrlState(this.queryParams()), {
+    equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+  });
+
+  /** The committed search term, from the URL: what was last SENT, not what is
+   *  being typed. Typing does not refetch; the form's submit does. A
+   *  keystroke-per-request search over a `LIKE '%…%'` full scan would be a lot
+   *  of scans to answer a question the operator has not finished asking. */
+  protected readonly search = computed(() => this.urlState().search);
   protected readonly searchDraft = signal('');
 
   /**
-   * The active sort key. Component state, not a URL parameter, matching the
-   * console's existing convention (`user-list.ts` documents why its filters do
-   * not write back to the URL: a `Router.navigate` per control turns the back
-   * button into a walk through the operator's own filter history). `/admin` is
-   * never edge-cached, so nothing about the sort forks a cache key either.
-   *
-   * Alphabetical, which is also the admin schema's default (`AdminVendorSortSchema`):
-   * this is a lookup surface, and an operator arriving to find one vendor starts
-   * by scanning names.
+   * The active sort key. Alphabetical by default, which is also the admin
+   * schema's default (`AdminVendorSortSchema`): this is a lookup surface, and an
+   * operator arriving to find one vendor starts by scanning names.
    */
-  protected readonly sort = signal<AdminVendorSort>('name');
+  protected readonly sort = computed(() => this.urlState().sort);
 
   /**
-   * The direction in effect for {@link sort}. Starts at the active key's NATURAL
-   * direction, so a first render and a bare `?sort=` request agree; a second
-   * click on the active header flips it and the request carries `order`.
+   * The direction in effect for {@link sort}. Absent from the URL means the key's
+   * NATURAL direction, so a first render and a bare `?sort=` request agree; a
+   * second click on the active header flips it and writes `order`.
    *
    * Held beside the key rather than folded into it because the API takes them as
    * two parameters, and because switching columns must RESET to the new column's
    * natural direction — moving from "Updated ↓" to "Vendor" gives A–Z, not Z–A.
    */
-  protected readonly order = signal<SortOrder>(ADMIN_VENDOR_SORT_DEFAULT_ORDER['name']);
+  protected readonly order = computed(() => this.urlState().order);
+
+  /** `owned_at` set (`'true'`), not set (`'false'`), or no filter. */
+  protected readonly claimed = computed(() => this.urlState().claimed);
+
+  protected readonly claimedOptions: readonly AecSelectOption[] = [
+    { value: 'any', label: $localize`:@@admin.vendors.filter.claimed.any:All vendors` },
+    { value: 'true', label: $localize`:@@admin.vendors.filter.claimed.yes:Claimed` },
+    { value: 'false', label: $localize`:@@admin.vendors.filter.claimed.no:Unclaimed` },
+  ];
 
   protected readonly isEmpty = computed(() => !this.loading() && this.vendors().length === 0);
 
   /** More rows exist behind what is on screen. Drives the sentinel + the button. */
   protected readonly hasMore = computed(() => this.vendors().length < this.total());
 
+  /** False until the browser renders. Nothing is fetched during SSR, because the
+   *  same-origin read needs the browser's session cookie. */
+  private readonly ready = signal(false);
+
+  /** Bumped by every load. A response from a superseded load (a fast Back, say)
+   *  is dropped rather than painted over the newer one. */
+  private loadSeq = 0;
+
   constructor() {
-    afterNextRender(() => {
-      void this.load();
+    afterNextRender(() => this.ready.set(true));
+
+    // The search box follows the URL, so Back restores the text with the rows.
+    effect(() => {
+      const search = this.search();
+      untracked(() => this.searchDraft.set(search));
     });
+
+    // One fresh load per distinct URL state, including the first. Any change
+    // discards the accumulation and refetches from chunk 1: appending across a
+    // reordered or refiltered set would duplicate rows.
+    effect(() => {
+      if (!this.ready()) return;
+      this.urlState();
+      untracked(() => {
+        this.page.set(1);
+        this.vendors.set([]);
+        void this.load();
+      });
+    });
+  }
+
+  protected onClaimedChange(value: string | null): void {
+    const claimed = (value as TriFilter | null) ?? 'any';
+    this.navigate({ ...this.urlState(), claimed });
   }
 
   protected onSearchInput(event: Event): void {
@@ -157,14 +234,12 @@ export class VendorList {
   }
 
   protected submitSearch(): void {
-    this.search.set(this.searchDraft().trim());
-    this.refilter();
+    this.navigate({ ...this.urlState(), search: this.searchDraft().trim() });
   }
 
   protected clearSearch(): void {
     this.searchDraft.set('');
-    this.search.set('');
-    this.refilter();
+    this.navigate({ ...this.urlState(), search: '' });
   }
 
   /**
@@ -181,9 +256,8 @@ export class VendorList {
   /** The header emits both halves: an inactive column brings its natural
    *  direction, the active one brings the flip. */
   protected onSortChange(change: { key: string; order: 'asc' | 'desc' }): void {
-    this.sort.set(change.key as AdminVendorSort);
-    this.order.set(change.order);
-    this.refilter();
+    const sort = isSortKey(change.key) ? change.key : DEFAULT_SORT;
+    this.navigate({ ...this.urlState(), sort, order: change.order });
   }
 
   /** Scroll sentinel or the "Load more" button: append the next chunk. Guarded
@@ -206,33 +280,39 @@ export class VendorList {
     void this.load();
   }
 
-  /** Any filter, search or sort change: discard the accumulation and refetch
-   *  from chunk 1. Appending across a reordered set would duplicate rows. */
-  private refilter(): void {
-    this.page.set(1);
-    this.vendors.set([]);
-    void this.load();
+  /** Push the new state into the URL, defaults left off. The URL effect in the
+   *  constructor does the reset and the fetch, so Back takes the same path. */
+  private navigate(state: UrlState): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: toQueryParams(state),
+    });
   }
 
   private async load({ append = false }: { append?: boolean } = {}): Promise<void> {
+    const seq = ++this.loadSeq;
     if (append) this.loadingMore.set(true);
     else this.loading.set(true);
     this.loadFailed.set(false);
     try {
       const search = this.search();
+      const claimed = this.claimed();
       const response = await this.api.listVendors({
         page: this.page(),
         perPage: PAGE_SIZE,
         sort: this.sort(),
         order: this.order(),
         ...(search ? { search } : {}),
+        ...(claimed === 'any' ? {} : { claimed }),
       });
+      if (seq !== this.loadSeq) return;
       this.vendors.update((rows) => (append ? [...rows, ...response.data] : response.data));
       this.total.set(response.total);
       this.liveMessage.set(
         $localize`:@@admin.vendors.announce.loaded:${response.total}:COUNT: vendors match.`,
       );
     } catch {
+      if (seq !== this.loadSeq) return;
       this.loadFailed.set(true);
       if (append) {
         // Keep what is already on screen and step the cursor back, so a retry
@@ -244,8 +324,49 @@ export class VendorList {
         this.total.set(0);
       }
     } finally {
-      this.loading.set(false);
-      this.loadingMore.set(false);
+      if (seq === this.loadSeq) {
+        this.loading.set(false);
+        this.loadingMore.set(false);
+      }
     }
   }
+}
+
+// ─── URL state ───────────────────────────────────────────────────────────────
+
+interface UrlState {
+  search: string;
+  claimed: TriFilter;
+  sort: AdminVendorSort;
+  order: SortOrder;
+}
+
+const DEFAULT_SORT: AdminVendorSort = 'name';
+
+function isSortKey(value: string | null): value is AdminVendorSort {
+  return value !== null && Object.hasOwn(ADMIN_VENDOR_SORT_DEFAULT_ORDER, value);
+}
+
+/** The URL, sanitised. A junk value reads as its default. An absent `order`
+ *  is the sort key's natural direction. */
+function readUrlState(params: ParamMap): UrlState {
+  const rawSort = params.get('sort');
+  const sort = isSortKey(rawSort) ? rawSort : DEFAULT_SORT;
+  const rawOrder = params.get('order');
+  const order: SortOrder =
+    rawOrder === 'asc' || rawOrder === 'desc' ? rawOrder : ADMIN_VENDOR_SORT_DEFAULT_ORDER[sort];
+  const rawClaimed = params.get('claimed');
+  const claimed: TriFilter = rawClaimed === 'true' || rawClaimed === 'false' ? rawClaimed : 'any';
+  return { search: params.get('search')?.trim() ?? '', claimed, sort, order };
+}
+
+/** Every key is written, with `null` for a default, so a default DROPS from the
+ *  URL rather than lingering from the previous state. */
+function toQueryParams(state: UrlState): Params {
+  return {
+    search: state.search || null,
+    claimed: state.claimed === 'any' ? null : state.claimed,
+    sort: state.sort === DEFAULT_SORT ? null : state.sort,
+    order: state.order === ADMIN_VENDOR_SORT_DEFAULT_ORDER[state.sort] ? null : state.order,
+  };
 }

@@ -11,6 +11,9 @@
  *
  * The removal election's clear is in `vendor-removal-election.spec.ts`.
  *
+ * The same reads carry `locked_fields`, whose reason also goes only to the holder
+ * (AECI-1668, §11d.5). A lock's source is public, so every viewer gets it.
+ *
  * Real migrations on in-memory SQLite with `db.batch` shimmed onto one transaction, so
  * the guarded audit row, the guarded UPDATE and the writer's own statements commit or
  * roll back together.
@@ -25,6 +28,7 @@ import {
   auditLog,
   connectorEvidencedPairs,
   fieldHides,
+  fieldOverrides,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -504,6 +508,63 @@ describe('the vendor reads carry hidden_fields', () => {
     const holder = await call(AUTH_A, '/api/vendor/me', 'GET');
     expect(holder.body.products[0].hidden_fields).toEqual([
       expect.objectContaining({ reason: HIDE_REASON, source_url: HIDE_SOURCE }),
+    ]);
+  });
+
+  it('gives a non-holder a lock with its source and no reason (AECI-1668, §11d.5)', async () => {
+    const LOCK_REASON = 'Lock reason for the holder';
+    const LOCK_SOURCE = 'https://source.example/lock';
+    const lock = (
+      entityType: 'product' | 'integration',
+      entityId: string,
+      field: string,
+      vendorId: string,
+    ) =>
+      t.db.insert(fieldOverrides).values({
+        entityType,
+        entityId,
+        field,
+        value: 'https://corrected.example',
+        reason: LOCK_REASON,
+        internalNote: HIDE_NOTE,
+        sourceUrl: LOCK_SOURCE,
+        vendorId,
+        setBy: ADMIN.userId,
+        setAt: '2026-11-03T00:00:00.000Z',
+      });
+
+    // Bentley holds I_MAIN. Autodesk is its other endpoint and sees the lock.
+    await lock('integration', I_MAIN, 'docs_url', VENDOR_B);
+    const other = await call(AUTH_A, '/api/vendor/integrations', 'GET');
+    expect(other.status).toBe(200);
+    expect(() => ListVendorIntegrationsResponseSchema.parse(other.body)).not.toThrow();
+    const entry = other.body.integrations.find((i: JsonBody) => i.id === I_MAIN);
+    expect(entry.locked_fields).toEqual([
+      { field: 'docs_url', reason: null, set_at: expect.any(String), source_url: LOCK_SOURCE },
+    ]);
+    expect(JSON.stringify(other.body)).not.toContain(LOCK_REASON);
+    const holderList = await call(AUTH_B, '/api/vendor/integrations', 'GET');
+    const held = holderList.body.integrations.find((i: JsonBody) => i.id === I_MAIN);
+    expect(held.locked_fields).toEqual([
+      expect.objectContaining({ reason: LOCK_REASON, source_url: LOCK_SOURCE }),
+    ]);
+
+    // A product shared with a company that does not hold its lock: the same rule.
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_REVIT, vendorId: VENDOR_B, isPrimary: false });
+    await lock('product', P_REVIT, 'website', VENDOR_A);
+    const me = await call(AUTH_B, '/api/vendor/me', 'GET');
+    expect(me.status).toBe(200);
+    expect(() => VendorMeResponseSchema.parse(me.body)).not.toThrow();
+    const revit = me.body.products.find((p: JsonBody) => p.id === P_REVIT);
+    expect(revit.locked_fields).toEqual([
+      { field: 'website', reason: null, set_at: expect.any(String), source_url: LOCK_SOURCE },
+    ]);
+    expect(JSON.stringify(me.body)).not.toContain(LOCK_REASON);
+    const holder = await call(AUTH_A, '/api/vendor/me', 'GET');
+    expect(holder.body.products[0].locked_fields).toEqual([
+      expect.objectContaining({ reason: LOCK_REASON, source_url: LOCK_SOURCE }),
     ]);
   });
 

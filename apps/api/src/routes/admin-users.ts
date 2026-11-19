@@ -4,6 +4,7 @@
  *
  *   GET /api/admin/users      — paginated list, filters + name/email search
  *   GET /api/admin/users/:id  — profile, auth account, seat, invites, counts
+ *   GET /api/admin/users/:id/audit — the person's audit trail (AECI-693)
  *
  * Until this shipped there was no user list at all. `GET /api/admin/reviewers`
  * selects `WHERE banned_at IS NOT NULL`, so the only person-shaped surface in the
@@ -13,7 +14,7 @@
  * had no home: it could only be *initiated* from the review queue's
  * repeat-offender prompt and *reversed* on `/admin/reviewers`.
  *
- * ── TWO READS, AND NO NEW `banned_at` WRITER ─────────────────────────────────
+ * ── THREE READS, AND NO NEW `banned_at` WRITER ───────────────────────────────
  * Ban and reinstate reuse `PATCH /api/admin/reviewers/:id`
  * (`routes/admin-reviewers.ts`) completely unchanged — same guardrails (cannot
  * ban an admin or yourself, 422 on a repeat), same role-aware audit actions
@@ -29,7 +30,7 @@
  * (`AUTH_AND_RLS.md` §3.2) must live in exactly one place. `seat.vendor_id` is
  * shipped so the UI can link straight there.
  *
- * Both GETs emit **no `audit_log` row** — reads write nothing
+ * All three GETs emit **no `audit_log` row** — reads write nothing
  * (`ADMIN_PANEL_SPEC.md` §9.3; ADR 0022 scopes the §26.1 invariant). `json()`
  * sets `private, no-store` and `/admin/*` is absent from `ROUTE_CACHE_PATTERNS`.
  *
@@ -44,11 +45,14 @@
 
 import {
   ADMIN_USER_SORT_DEFAULT_ORDER,
+  AdminUserAuditQuerySchema,
+  AdminUserAuditResponseSchema,
   AdminUserDetailSchema,
   AdminUsersListQuerySchema,
   AdminUsersListResponseSchema,
   ApiErrorCode,
   REPEAT_OFFENDER_THRESHOLD,
+  type AdminUserAuditScope,
   type AdminUserAuthAccount,
   type AdminUserCounts,
   type AdminUserDetail,
@@ -78,6 +82,7 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import {
+  auditLog,
   licenses,
   profileAudiences,
   profileDetails,
@@ -91,12 +96,14 @@ import {
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { readAdminAuditPage, type FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { textAsc } from '../lib/collation';
 import { resolveAdminUserOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import {
+  fetchAuthUserEmailsResult,
   fetchAuthUserRecords,
   findAuthUserByEmail,
   listAllAuthUserRecords,
@@ -597,6 +604,107 @@ export function createAdminUserDetailHandler(
 
     validateResponseInDev(c.env, () => {
       AdminUserDetailSchema.parse(body);
+    });
+    return json(body);
+  };
+}
+
+// ─── GET /api/admin/users/:id/audit (AECI-693) ───────────────────────────────
+
+/**
+ * The two actions that name a person only in `metadata.seat_user_id`. Both are
+ * filed under another entity (`vendor_request` and `billing_account`), so the
+ * profile entity leg cannot see them. A new action that names the person this
+ * way must be added here, or it stays off the user trail.
+ */
+export const USER_METADATA_ACTIONS = [
+  'vendor_claim.granted',
+  'license.cancel_at_term_end_cleared',
+] as const;
+
+/**
+ * The user trail's `where`, per scope. Three legs:
+ *
+ *  1. **Entity**: `entity_type = 'profile' AND entity_id = :id`, served by
+ *     `audit_log_entity_idx`. It catches every profile writer: create, update,
+ *     erasure, seat accept and provision, seat revoke, ban and unban, the
+ *     seat-revoked `notification.sent`, and the `notification_preferences.*`
+ *     writers.
+ *  2. **Metadata**: {@link USER_METADATA_ACTIONS} with `$.seat_user_id = :id`,
+ *     served by `audit_log_action_idx`. The JSON test runs only on rows with one
+ *     of those two actions, so it scales with claim volume, not with `audit_log`.
+ *  3. **Actor**: `actor_id = :id`, served by the partial `audit_log_actor_idx`.
+ *
+ * `entity` is legs 1 and 2, `actor` is leg 3, `all` is the three.
+ *
+ * **Every leg is a flat, top-level OR term (AECI-1484).** SQLite plans an OR of
+ * indexable terms as a MULTI-INDEX OR: one index search per leg, then a rowid
+ * union. That only works when each OR term is an AND of one indexable test plus
+ * residual filters. A term like `AND(OR(...), OR(...))` fits no single index, so
+ * the planner gives up and scans `audit_log`. So `all` is ONE
+ * `or(entity, metadata, actor)`, and any filter added later goes inside each leg,
+ * never around the OR. The EXPLAIN test in `admin-users.spec.ts` guards it.
+ *
+ * `agreement.linked` is left out on purpose. It names the person only in
+ * `after_state.profile_id`, which no index reaches, and the claim trail already
+ * shows it (`ADMIN_PANEL_SPEC.md` §5.8).
+ */
+export function userAuditWhere(userId: string, scope: AdminUserAuditScope): SQL | undefined {
+  const entityLeg = and(eq(auditLog.entityType, 'profile'), eq(auditLog.entityId, userId));
+  const metadataLeg = and(
+    inArray(auditLog.action, [...USER_METADATA_ACTIONS]),
+    sql`json_extract(${auditLog.metadata}, '$.seat_user_id') = ${userId}`,
+  );
+  const actorLeg = eq(auditLog.actorId, userId);
+
+  switch (scope) {
+    case 'entity':
+      return or(entityLeg, metadataLeg);
+    case 'actor':
+      return actorLeg;
+    default:
+      return or(entityLeg, metadataLeg, actorLeg);
+  }
+}
+
+/**
+ * `GET /api/admin/users/:id/audit`: the person's audit trail on
+ * `/admin/users/:id` (AECI-693, `ADMIN_PANEL_SPEC.md` §5.8).
+ *
+ * A one-row gate on `profiles.id` runs first, so an unknown id is 404, the same
+ * answer the detail GET gives. Without it an unknown id would return an empty
+ * page, which reads as "no history" rather than "no such person". An erased
+ * account 404s too, because its profile row is gone.
+ *
+ * Paging, ordering, actor names and the email seam are `readAdminAuditPage`'s.
+ * Read-only: no `audit_log` row (ADR 0022), no rate limit, no cache tag.
+ */
+export function createAdminUserAuditHandler(
+  dbFor: DbFactory = getDb,
+  fetchEmails: FetchAuthEmails = fetchAuthUserEmailsResult,
+): (c: AdminUserContext) => Promise<Response> {
+  return async (c) => {
+    const userId = requiredParam(c, 'id');
+    const query = parseQuery(c, AdminUserAuditQuerySchema);
+    const { db } = dbFor(c.env);
+
+    const [found] = await db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .where(eq(profiles.id, userId))
+      .limit(1);
+    if (!found) throw notFoundError('profile', { id: userId });
+
+    const body = await readAdminAuditPage(
+      db,
+      c.env,
+      userAuditWhere(userId, query.scope),
+      query,
+      fetchEmails,
+    );
+
+    validateResponseInDev(c.env, () => {
+      AdminUserAuditResponseSchema.parse(body);
     });
     return json(body);
   };

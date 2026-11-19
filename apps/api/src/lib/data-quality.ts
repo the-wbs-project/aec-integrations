@@ -66,7 +66,7 @@ import { businessWindowEnd } from './business-days';
 import { fieldHideDues } from './field-hide-dues';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
-import { VENDOR_DELETED_ACTION } from './legal-retention-prune';
+import { ACCOUNT_DELETED_ACTION, VENDOR_DELETED_ACTION } from './legal-retention-prune';
 import { liveLicenseCountSql } from './license';
 import { liveEvidencedPairOn, liveIntegrationOn } from './live-integration';
 import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
@@ -1683,6 +1683,13 @@ export async function checkLegalAgreementDateMoved(
  * The fix is an ops script that writes the missing `vendor.deleted` row with the best
  * known deletion date, never a migration.
  *
+ * AECI-1718 adds Terms of Service acceptances (`terms_acceptances`) whose profile row is gone
+ * with no `account.deleted` audit row (`ACCOUNT_DELETED_ACTION`), the record the Terms part
+ * of the prune dates the six years from (Chris's ruling 2 of 2026-11-19). Only
+ * `DELETE /api/account` deletes a profile, and it writes that row in the same batch, so a
+ * finding is again a hand delete. The fix is an ops script that writes the missing
+ * `account.deleted` row with the best known deletion date.
+ *
  * The note counts NULL-vendor claim acceptances whose claim was approved (`resolved`). The
  * approval batch links the vendor (`linkClaimAcceptanceStatements`), so such a row is a
  * linking defect. Arm B keeps it, because only a rejected claim dates it. `warn`, and a
@@ -1698,16 +1705,25 @@ export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<Check
         AND "rd_a"."entity_id" = ${vendorId}
         AND "rd_a"."action" = ${VENDOR_DELETED_ACTION}
     )`;
-  const [row] = await db.all<{ acceptances: number; grants: number }>(sql`
+  const [row] = await db.all<{ acceptances: number; grants: number; terms: number }>(sql`
     SELECT
       (SELECT count(*) FROM "agreement_acceptances" "rd_x"
        WHERE "rd_x"."vendor_id" IS NOT NULL AND ${undated(sql`"rd_x"."vendor_id"`)}) AS "acceptances",
       (SELECT count(*) FROM "license_grants" "rd_g"
-       WHERE ${undated(sql`"rd_g"."vendor_id"`)}) AS "grants"
+       WHERE ${undated(sql`"rd_g"."vendor_id"`)}) AS "grants",
+      (SELECT count(*) FROM "terms_acceptances" "rd_t"
+       WHERE NOT EXISTS (SELECT 1 FROM "profiles" "rd_p" WHERE "rd_p"."id" = "rd_t"."profile_id")
+         AND NOT EXISTS (
+           SELECT 1 FROM "audit_log" "rd_ta"
+           WHERE "rd_ta"."entity_type" = 'profile'
+             AND "rd_ta"."entity_id" = "rd_t"."profile_id"
+             AND "rd_ta"."action" = ${ACCOUNT_DELETED_ACTION}
+         )) AS "terms"
   `);
   const acceptances = Number(row?.acceptances ?? 0);
   const grants = Number(row?.grants ?? 0);
-  const count = acceptances + grants;
+  const terms = Number(row?.terms ?? 0);
+  const count = acceptances + grants + terms;
   const [unlinked] = await db.all<{ n: number }>(sql`
     SELECT count(*) AS "n" FROM "agreement_acceptances" "ul_a"
     JOIN "vendor_requests" "ul_r" ON "ul_r"."id" = "ul_a"."vendor_request_id"
@@ -1717,12 +1733,18 @@ export async function checkAcceptanceWithoutRetentionDate(db: Db): Promise<Check
       AND "ul_r"."status" = 'resolved'
   `);
   return {
-    lines:
-      count > 0
+    lines: [
+      ...(acceptances + grants > 0
         ? [
             `${acceptances} acceptance(s) and ${grants} grant(s) name a vendor with no vendor row and no vendor.deleted record, so they can never be pruned`,
           ]
-        : [],
+        : []),
+      ...(terms > 0
+        ? [
+            `${terms} Terms acceptance(s) name a profile with no profile row and no account.deleted record, so they can never be pruned`,
+          ]
+        : []),
+    ],
     count,
     note: `${Number(unlinked?.n ?? 0)} acceptance(s) of an approved claim with no vendor linked (kept until linked)`,
   };
@@ -1923,7 +1945,7 @@ export const CHECKS: CheckSpec[] = [
   },
   {
     id: 'acceptance_without_retention_date',
-    label: 'Acceptances and grants of a deleted vendor with no record of the deletion',
+    label: 'Acceptances and grants of a deleted vendor or account with no record of the deletion',
     // `warn`: nothing is deleted early, a row is only kept too long. Not a seed
     // obligation: the seed deletes no vendor (AECI-1914).
     severity: 'warn',

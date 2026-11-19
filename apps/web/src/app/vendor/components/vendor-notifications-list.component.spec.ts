@@ -992,6 +992,40 @@ describe('VendorNotificationsList', () => {
   });
 
   it.each([
+    [false, 'It shows under the original review with its own date.'],
+    [true, "Its new ratings now count in your product's averages."],
+  ] as const)(
+    'renders a published reviewer update row (rerated: %s) with its note and link (AECI-1613)',
+    async (rerated, note) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'review_update',
+            id: '00000000-0000-4000-8000-00000000d1c1',
+            update_id: '00000000-0000-4000-8000-00000000d1c2',
+            review_id: '00000000-0000-4000-8000-00000000d1a2',
+            product: { slug: 'revit', name: 'Revit' },
+            review_title: 'Solid for coordination',
+            rerated,
+            created_at: '2026-11-06T12:00:00.000Z',
+          },
+        ],
+      });
+      const fixture = await create();
+      const row = el(fixture).querySelector('li')!;
+      expect(row.textContent).toContain('A reviewer added an update to a review of your product');
+      expect(row.textContent).toContain('Revit');
+      expect(row.textContent).toContain('“Solid for coordination”');
+      expect(row.textContent).toContain(note);
+      if (!rerated) expect(row.textContent).not.toContain('averages');
+      const link = row.querySelector('[data-testid="notification-reviews-link"]');
+      expect(link?.getAttribute('href')).toMatch(/\/products\/revit\/reviews$/);
+      // Not an attestation row: it is counted and never filtered out.
+      expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
+    },
+  );
+
+  it.each([
     ['approved', null, 'Your reply to a review was published', 'It now shows under the review'],
     [
       'rejected',

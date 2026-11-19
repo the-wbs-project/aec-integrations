@@ -325,6 +325,19 @@ describe('acknowledged on the by-id read (AECI-1616)', () => {
     // A detached thread has no integration to look up: no write can follow.
     expect((await get(T_DETACHED, AUTH_A)).body.thread.acknowledged).toBe(false);
   });
+
+  it('does not count an acknowledgment older than the material version (AECI-1641)', async () => {
+    await t.db.insert(claimThreadAcknowledgments).values({
+      id: uuid(301),
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_B,
+      profileId: SEAT_A,
+      textVersion: '0',
+      acknowledgedAt: TS,
+    });
+    expect((await get(T_OPEN, AUTH_A)).body.thread.acknowledged).toBe(false);
+  });
 });
 
 describe('GET /api/vendor/threads (AECI-1551)', () => {

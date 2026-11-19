@@ -10,10 +10,16 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import type { AdminUserDetail, AdminUserPendingInvite } from '@aeci/shared';
+import type {
+  AdminAuditRow,
+  AdminUserAuditScope,
+  AdminUserDetail,
+  AdminUserPendingInvite,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import { AuditTrail } from '../audit/audit-trail';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { lastSeatRefusalVendorId } from '../last-seat-refusal';
@@ -62,6 +68,13 @@ import {
  * `docs/environments.md` §10.7. Admin-triggered GDPR erasure waits on AECI-531's
  * silent-skip telemetry.
  *
+ * ── AUDIT TRAIL (AECI-693) ───────────────────────────────────────────────────
+ * The last section is the person's audit trail, through the shared
+ * `<aec-audit-trail>`. Its scope toggle is the vendor page's control, with the
+ * same three scopes, so the two pages behave alike. The trail loads once the
+ * detail resolves, and reloads at page 1 after a ban or reinstate, because both
+ * write a profile row. It does not update live.
+ *
  * **Show what this person browsed.** Impossible by design: AECI-585 dropped
  * `page_views.user_id` / `session_id` / `profile_role` and `ADMIN_PANEL_SPEC.md`
  * §9 item 7 forbids visitor↔account correlation. There is no join column to
@@ -69,7 +82,7 @@ import {
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [RouterLink, DatePipe, SortHeader],
+  imports: [AuditTrail, RouterLink, DatePipe, SortHeader],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
@@ -151,6 +164,24 @@ export class UserDetail {
   /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` names the vendor, so the refusal can link to it. */
   protected readonly lastSeatVendorId = signal<string | null>(null);
 
+  // ── Audit trail (AECI-693) ─────────────────────────────────────────────────
+  // Page-owned state, the same set the claim and vendor pages keep. The trail
+  // component is display-only.
+  protected readonly auditRows = signal<readonly AdminAuditRow[]>([]);
+  protected readonly auditTotal = signal(0);
+  protected readonly auditPage = signal(1);
+  protected readonly auditPerPage = AUDIT_PAGE_SIZE;
+  protected readonly auditScope = signal<AdminUserAuditScope>('all');
+  protected readonly auditLoading = signal(true);
+  protected readonly auditFailed = signal(false);
+  protected readonly auditEmailsAvailable = signal(true);
+
+  protected readonly scopeOptions: ReadonlyArray<{ key: AdminUserAuditScope; label: string }> = [
+    { key: 'all', label: $localize`:@@admin.users.audit.scope.all:Everything` },
+    { key: 'entity', label: $localize`:@@admin.users.audit.scope.entity:Done to this person` },
+    { key: 'actor', label: $localize`:@@admin.users.audit.scope.actor:Done by this person` },
+  ];
+
   constructor() {
     afterNextRender(() => {
       void this.load();
@@ -180,6 +211,9 @@ export class UserDetail {
     this.notFound.set(false);
     try {
       this.user.set(await this.api.getUser(id));
+      // Only once the account is known to exist. A 404 has no trail to show,
+      // and the trail's own failure never touches the flags above.
+      void this.loadAudit();
     } catch (err) {
       // Structural, not `instanceof` — the admin bundle is lazily chunked.
       if (isStatus(err, 404)) this.notFound.set(true);
@@ -257,6 +291,9 @@ export class UserDetail {
       );
       this.banFormOpen.set(false);
       this.liveMessage.set(announcement);
+      // Both actions write a profile row, so the trail now has a new first row.
+      this.auditPage.set(1);
+      void this.loadAudit();
     } catch (err) {
       const lastSeatVendorId = lastSeatRefusalVendorId(err);
       if (lastSeatVendorId) this.lastSeatVendorId.set(lastSeatVendorId);
@@ -295,6 +332,59 @@ export class UserDetail {
       return $localize`:@@admin.users.ban.error.gone:That account no longer exists. Reload the list.`;
     }
     return $localize`:@@admin.users.ban.error.failed:Something went wrong. Please try again.`;
+  }
+
+  // ── Audit trail (AECI-693) ─────────────────────────────────────────────────
+
+  protected setScope(scope: AdminUserAuditScope): void {
+    if (this.auditScope() === scope) return;
+    this.auditScope.set(scope);
+    // A scope change resets to page 1. Page 4 of a narrower set is an empty
+    // page that reads as "nothing happened".
+    this.auditPage.set(1);
+    void this.loadAudit();
+  }
+
+  protected goToAuditPage(page: number): void {
+    this.auditPage.set(page);
+    void this.loadAudit();
+  }
+
+  protected retryAudit(): void {
+    void this.loadAudit();
+  }
+
+  /**
+   * The newest audit request's number. Every write after the await checks it,
+   * so a superseded response (an earlier scope or page that resolves last) is
+   * dropped and cannot overwrite the rows the pressed button asked for.
+   */
+  private auditRequestSeq = 0;
+
+  private async loadAudit(): Promise<void> {
+    const id = this.userId();
+    if (!id) return;
+    const seq = ++this.auditRequestSeq;
+    this.auditLoading.set(true);
+    this.auditFailed.set(false);
+    try {
+      const response = await this.api.listAudit(id, {
+        page: this.auditPage(),
+        perPage: this.auditPerPage,
+        scope: this.auditScope(),
+      });
+      if (seq !== this.auditRequestSeq) return;
+      this.auditRows.set(response.data);
+      this.auditTotal.set(response.total);
+      this.auditEmailsAvailable.set(response.actor_emails_available);
+    } catch {
+      if (seq !== this.auditRequestSeq) return;
+      this.auditFailed.set(true);
+      this.auditRows.set([]);
+      this.auditTotal.set(0);
+    } finally {
+      if (seq === this.auditRequestSeq) this.auditLoading.set(false);
+    }
   }
 
   // ── Read-only renderers ────────────────────────────────────────────────────
@@ -353,6 +443,9 @@ export class UserDetail {
     }
   }
 }
+
+/** Rows per audit page, the size the claim and vendor trails use. */
+const AUDIT_PAGE_SIZE = 25;
 
 /** The sortable columns of the pending-invites table. */
 export type InviteSortKey = 'vendor' | 'invited_by' | 'created' | 'expires';

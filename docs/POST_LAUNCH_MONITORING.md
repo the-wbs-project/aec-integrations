@@ -243,7 +243,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twenty-nine** (`gsc-inspect`, `claim-owner-fallback`, `traffic-classify`, `sitemap-rebuild`, `vendor-claim-nudge`, `brand-asset-removal`, `acceptance-evidence-removal`, `plan-snapshot`, `acceptance-chain` and `legal-retention-prune` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368, AECI-1345, AECI-1505, AECI-1305, AECI-1618, AECI-1636, AECI-1621, AECI-1680 and AECI-1638). It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twenty-nine** (`gsc-inspect`, `claim-owner-fallback`, `traffic-classify`, `sitemap-rebuild`, `vendor-claim-nudge`, `brand-asset-removal`, `acceptance-evidence-removal`, `acceptance-chain` and `legal-retention-prune` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368, AECI-1345, AECI-1505, AECI-1305, AECI-1618, AECI-1636, AECI-1621, AECI-1680 and AECI-1638). It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -622,7 +622,9 @@ behind it:
 > ```
 >
 > It counts product links in the raw HTML of five listing pages and exits non-zero
-> if any is a dead end. Run it after any change to `createPaginatedIndex`, the
+> if any is a dead end. Since AECI-840 both promote workflows run it as a blocking
+> step against the host they just deployed, so a manual run is a spot check, not
+> the gate. Run it after any change to `createPaginatedIndex`, the
 > listing routes, or the SSR data path — and as a spot check when Search Console
 > coverage looks wrong.
 >

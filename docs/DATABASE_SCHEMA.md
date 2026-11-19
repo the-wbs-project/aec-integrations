@@ -145,7 +145,7 @@ Tables grouped by domain:
 - `legal_versions` — one announced version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy Policy: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688, AECI-1637)
 - `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
 - `legal_notice_reader_deliveries` — where each account's change notice for a published Terms of Service or Privacy Policy version stands (§8.6l, AECI-1637)
-- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion (§8.6k, AECI-1637)
+- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion, pruned six years after it (§8.6k, AECI-1637, AECI-1718)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -299,7 +299,7 @@ flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor kee
 `verified: true` on its Algolia record indefinitely. And **`vendors_verified_idx` is an index over a cache**. The
 authoritative predicate is a live subscription (`licenses`, §8.6c).
 
-**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. Since AECI-1623 (2026-11-05) that ban is refused (`409 VENDOR_LAST_SEAT_USE_SUSPEND`), and Terminate clears `owned_at` instead (`lib/vendor-termination.ts`). The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). A vendor-maintained vendor or product with no owner is a defect that the `maintained_by_without_owner` data-quality check reports (AECI-1908). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
+**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. `GET /api/admin/vendors` filters (`?claimed=`) and sorts on it with a full scan, which is fine at catalog size (AECI-1934). A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. Since AECI-1623 (2026-11-05) that ban is refused (`409 VENDOR_LAST_SEAT_USE_SUSPEND`), and Terminate clears `owned_at` instead (`lib/vendor-termination.ts`). The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). A vendor-maintained vendor or product with no owner is a defect that the `maintained_by_without_owner` data-quality check reports (AECI-1908). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
 **The claim end and the brand asset columns (AECI-1618, migration `0105_nebulous_starhawk.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
 
@@ -1849,7 +1849,10 @@ and while no litigation hold is open (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0
 `agreement.*` rows go with their acceptance (§8.6d), the `litigation_hold.*` rows four years
 after their hold's release (§8.15), and `retention.pruned` rows are kept. A `vendor.deleted` row
 is exempt on a condition (AECI-1914): while its vendor row is gone and an acceptance or grant
-still names that vendor. It goes with the last of them (§8.6d).
+still names that vendor. It goes with the last of them (§8.6d). The `terms.*` rows go with their
+Terms acceptance (§8.6k, AECI-1718). An `account.deleted` row is exempt on a condition too: while
+a `terms_acceptances` row names its profile. It goes with the last of them (§8.6k). A deleted
+account that never accepted a Terms version leaves an ordinary four-year row.
 
 ```sql
 create table audit_log (
@@ -2551,7 +2554,9 @@ create unique index agreement_acceptances_stripe_session_key
   grant names that vendor, after the acceptance and grant deletes and before the four-year part.
   The four-year audit prune skips a `vendor.deleted` row while its vendor row is gone and an
   acceptance or grant still names it. A malformed value, or one with no non-empty array, is kept. The 90-day
-  IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete.
+  IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete. The same job
+  prunes the reader twin, `terms_acceptances`, six years after the account's `account.deleted`
+  audit row (§8.6k, AECI-1718).
 - **IP and user agent removed after 90 days (AECI-1636 — 2026-11-10, ruling 11, counsel Q27b;
   migration `0116_aromatic_doctor_octopus`, a plain `ADD COLUMN`).** The Privacy Policy
   "Retention" and Vendor Terms "Accepting these terms" promise it. The daily
@@ -3129,8 +3134,22 @@ create unique index terms_acceptances_profile_document_version_key
   account plus 6 years, even after the account is deleted. There is no FK to `profiles`, so
   deleting the account does not delete the row. The IP address and browser are nulled 90 days
   after `accepted_at` by `lib/acceptance-evidence-removal.ts`, which stamps `evidence_removed_at`
-  and writes its own `terms.evidence_removed` audit rows. In `NEVER_PRUNED`
-  (`lib/retention-prune.ts`). The account deletion screen says so.
+  and writes its own `terms.evidence_removed` audit rows. The account deletion screen says so.
+- **The prune (AECI-1718, Chris's rulings of 2026-11-19).** The legal retention prune
+  (`lib/legal-retention-prune.ts`, ADR 0058) deletes a row once all of these hold:
+  `accepted_at` is six calendar years old, no global hold is open, no `profiles` row has its
+  `profile_id`, and the latest `account.deleted` audit row for that profile (`entity_type =
+  'profile'`, `entity_id` = the profile id) is six calendar years old. Ruling 1: that audit row
+  dates the end of the account, so the table has no end-date column. `DELETE /api/account`
+  writes it in the batch that deletes the profile, and that is the only path that deletes a
+  profile. A profile that exists again keeps its rows. Ruling 2: a row whose profile is gone with
+  no `account.deleted` row is kept, and the `acceptance_without_retention_date` data-quality
+  check counts it. In the same batch, after the row delete, the prune deletes its
+  `terms.accepted` row (`entity_id` = the acceptance id), every `terms.evidence_removed` row
+  whose `metadata.acceptance_ids` are all gone, and the profile's `account.deleted` rows once no
+  Terms row names the profile. At most 200 rows a run, like the agreement table. The
+  `retention.pruned` row reports the count with no ids, because the acceptance chain does not
+  cover this table.
 - **No CHECK and no FK**, the house rule (§8.6d). The migration is two `CREATE TABLE`s and two
   `CREATE UNIQUE INDEX`es with nothing recreated (`src/test/migration-0122.spec.ts`,
   `docs/migrations.md` §0).
@@ -3388,7 +3407,7 @@ AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` 
 | `source_url` | text | where AECi read the value (AECI-1614, migration 0104). Public, beside the "Corrected" caption. Required on a new correction by `AdminSetFieldOverrideSchema` (https, at most 2,048 characters). NULL on an older row, which renders the date alone |
 | `reason` | text NOT NULL | shown to the vendor |
 | `internal_note` | text | never shown to a vendor |
-| `vendor_id` | text | the vendor holding the record at set time, which was told. No FK |
+| `vendor_id` | text | the vendor holding the record at set time, which was told. No FK. The vendor reads give `reason` only to this vendor (AECI-1668); any other viewer gets `null` |
 | `set_by`, `set_at` | text | the admin and when. `set_at` NOT NULL |
 | `lifted_by`, `lifted_at`, `lift_reason` | text | NULL while the lock stands. `lift_reason` is shown to the vendor. A record-only row (AECI-1628) is born with `lifted_at = set_at`, `lifted_by = set_by` and `lift_reason = 'record-only'` |
 
@@ -3454,7 +3473,7 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 - **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). So is `claim_thread_acknowledgments.profile_id` (AECI-1616). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
 - **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
 - **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
-- **First-use acknowledgments (AECI-1616, migration `0107`).** `claim_thread_acknowledgments` records that a company accepted the private-thread rules for messages to one other company on one integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). A post without one answers `409 THREAD_ACK_REQUIRED`. The first post that carries `acknowledgment_version` writes the row and its `thread.acknowledged` audit row in its batch.
+- **First-use acknowledgments (AECI-1616, migration `0107`; AECI-1641, migration `0128`).** `claim_thread_acknowledgments` records that a company accepted one version of the private-thread rules for messages to one other company on one integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). A post without a counting one answers `409 THREAD_ACK_REQUIRED`. A row counts only when `text_version` is at or after `THREAD_ACK_MATERIAL_SINCE`, compared as integers. A material bump therefore adds a second row for the same three ids and keeps the first. The first post that carries `acknowledgment_version` writes the row and its `thread.acknowledged` audit row in its batch.
 
   ```sql
   create table claim_thread_acknowledgments (
@@ -3466,8 +3485,8 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
     text_version text not null,          -- THREAD_ACK_TEXT_VERSION, today '1'
     acknowledged_at text not null
   );
-  create unique index claim_thread_acknowledgments_key
-    on claim_thread_acknowledgments(vendor_id, integration_id, other_vendor_id);
+  create unique index claim_thread_acknowledgments_key  -- text_version added by 0128 (AECI-1641)
+    on claim_thread_acknowledgments(vendor_id, integration_id, other_vendor_id, text_version);
   create index claim_thread_acknowledgments_profile_idx on claim_thread_acknowledgments(profile_id);
   ```
 
@@ -6521,7 +6540,7 @@ Backup policy is deferred to a dedicated operational document — `docs/runbooks
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: **four years** after the action, enforced since AECI-1638 by the legal retention prune, queued from the same 03:00 tick (`STAGE_1_SPEC.md` §26.6, ADR 0058). Exempt actions and open litigation holds keep rows longer (§8.4, §8.15). No R2 copy is made first: the deletion is the promise
-- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). Since AECI-1914 no acceptance is kept forever: a claim never approved goes six years after its rejection, a row with no company or claim six years after acceptance, and a row of a deleted company six years after its `vendor.deleted` audit row. `terms_acceptances` is not pruned yet (a follow-up)
+- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). Since AECI-1914 no acceptance is kept forever: a claim never approved goes six years after its rejection, a row with no company or claim six years after acceptance, and a row of a deleted company six years after its `vendor.deleted` audit row. `terms_acceptances` retention: six years after the account's `account.deleted` audit row, enforced by the same legal prune since AECI-1718 (§8.6k)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11

@@ -145,7 +145,8 @@ async function eligibleFields(db: Db, owned: OwnedProduct): Promise<RemovalElect
   const { product } = owned;
   const [authored, locks] = await Promise.all([
     vendorAuthoredColumns(db, product.id),
-    activeLocksOn(db, 'product', product.id),
+    // Only the field names are read, so no viewer is needed.
+    activeLocksOn(db, 'product', product.id, null),
   ]);
   const locked = new Set(locks.map((lock) => lock.field as string));
   return REMOVAL_ELECTION_FIELDS.filter((field) => {

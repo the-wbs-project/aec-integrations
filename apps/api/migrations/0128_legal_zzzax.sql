@@ -1,0 +1,2 @@
+DROP INDEX `claim_thread_acknowledgments_key`;--> statement-breakpoint
+CREATE UNIQUE INDEX `claim_thread_acknowledgments_key` ON `claim_thread_acknowledgments` (`vendor_id`,`integration_id`,`other_vendor_id`,`text_version`);

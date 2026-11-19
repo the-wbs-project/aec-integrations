@@ -164,7 +164,7 @@
   },
   "dependencies": {
     "posthog-node": "^5.50.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",

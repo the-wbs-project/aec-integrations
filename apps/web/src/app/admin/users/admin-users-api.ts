@@ -1,6 +1,7 @@
 /**
  * Client for the admin user endpoints (AECI-692 / `ADMIN_PANEL_SPEC.md` §5.8),
- * consumed by `/admin/users` and `/admin/users/:id`.
+ * consumed by `/admin/users` and `/admin/users/:id`. The audit trail read is
+ * AECI-693.
  *
  * Mirrors `AdminVendorsApi`: browser-side reads over the SSR Worker's `/api/*`
  * passthrough (service binding). The same-origin requests carry the HttpOnly
@@ -19,7 +20,13 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
-import type { AdminUserDetail, AdminUsersListQuery, AdminUsersListResponse } from '@aeci/shared';
+import type {
+  AdminUserAuditQuery,
+  AdminUserAuditResponse,
+  AdminUserDetail,
+  AdminUsersListQuery,
+  AdminUsersListResponse,
+} from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
 export class AdminUsersApi {
@@ -38,6 +45,16 @@ export class AdminUsersApi {
   getUser(id: string): Promise<AdminUserDetail> {
     return firstValueFrom(
       this.http.get<AdminUserDetail>(`/api/admin/users/${encodeURIComponent(id)}`),
+    );
+  }
+
+  /** `GET /api/admin/users/:id/audit` — one page of the person's audit trail
+   *  (AECI-693), for the scope the page has selected. */
+  listAudit(id: string, query: Partial<AdminUserAuditQuery> = {}): Promise<AdminUserAuditResponse> {
+    return firstValueFrom(
+      this.http.get<AdminUserAuditResponse>(`/api/admin/users/${encodeURIComponent(id)}/audit`, {
+        params: toParams(query),
+      }),
     );
   }
 }

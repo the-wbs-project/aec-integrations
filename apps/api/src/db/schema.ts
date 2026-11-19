@@ -2669,7 +2669,9 @@ export const legalNoticeReaderDeliveries = sqliteTable(
  *
  * Domain state: the one writer, `lib/reader-legal-acceptance.ts` (called from
  * `POST /api/auth/profile/ensure`), inserts with its `terms.accepted` audit row in one
- * `db.batch`. Append-only but for the evidence sweep. Never pruned (`NEVER_PRUNED`).
+ * `db.batch`. Append-only but for the evidence sweep. The legal retention prune
+ * (`lib/legal-retention-prune.ts`, AECI-1718) deletes a row six years after the account's
+ * `account.deleted` audit row, once the profile is gone.
  */
 export const termsAcceptances = sqliteTable(
   'terms_acceptances',
@@ -3265,11 +3267,13 @@ export const claimThreadReads = sqliteTable(
 /**
  * First-use acknowledgments of the private-thread rules (AECI-1616, counsel Q9,
  * `STAGE_2_ATTESTATIONS_SPEC.md` §15.17). One row per company, per integration,
- * per other company: the acknowledgment names the company the messages go to, and
- * a co-owned endpoint can give two rows on one integration different counterparties
- * (ruled 2026-11-06). Written in the batch of the company's first post to that
- * company on that integration, with one `thread.acknowledged` audit row. A post
- * with no row and no acknowledgment answers `409 THREAD_ACK_REQUIRED`.
+ * per other company, per accepted text version: the acknowledgment names the
+ * company the messages go to, and a co-owned endpoint can give two rows on one
+ * integration different counterparties (ruled 2026-11-06). Written in the batch of
+ * the company's first post to that company on that integration, with one
+ * `thread.acknowledged` audit row. A row older than `THREAD_ACK_MATERIAL_SINCE` no
+ * longer counts, so the next first post writes a new row (AECI-1641). A post with
+ * no counting row and no acknowledgment answers `409 THREAD_ACK_REQUIRED`.
  *
  * **No FK on `vendor_id`, `other_vendor_id` or `integration_id`.** The row is the
  * record that a company accepted the rules. It must outlive a deleted integration
@@ -3290,10 +3294,13 @@ export const claimThreadAcknowledgments = sqliteTable(
     acknowledgedAt: text('acknowledged_at').notNull(),
   },
   (t) => [
+    // AECI-1641: the version is in the key, so a material bump adds a new row and
+    // keeps the older acceptance on record.
     uniqueIndex('claim_thread_acknowledgments_key').on(
       t.vendorId,
       t.integrationId,
       t.otherVendorId,
+      t.textVersion,
     ),
     // The account-erasure null.
     index('claim_thread_acknowledgments_profile_idx').on(t.profileId),

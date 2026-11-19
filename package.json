@@ -20,7 +20,6 @@
     "db:stop": "supabase stop",
     "db:status": "supabase status",
     "db:reset": "supabase db reset",
-    "db:push": "supabase db push --linked",
     "db:new": "supabase migration new",
     "db:list": "supabase migration list",
     "build": "pnpm -r --if-present run build",

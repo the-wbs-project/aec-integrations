@@ -86,7 +86,9 @@ export async function ensureProfileRow(
  * `account.deleted` audit keyed on the profile id). The self-heal must never
  * re-create a profile for an erased account: the JWT outlives the erasure by up to
  * its expiry, and a stale tab's header probe would otherwise resurrect the row.
- * Reads through `audit_log_entity_idx`, and only on the rare missing-profile path.
+ * Reads through `audit_log_entity_idx`, and only on the rare missing-profile path. The legal
+ * retention prune keeps that row at least four years, and while a Terms acceptance names the
+ * profile (AECI-1718), far past any JWT expiry.
  */
 async function wasErased(db: Db, userId: string): Promise<boolean> {
   const row = await db

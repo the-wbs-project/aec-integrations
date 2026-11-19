@@ -66,6 +66,15 @@
  * that sentence. The text carries a date, so an open session from an earlier UTC day is
  * never reused.
  *
+ * ── THE UNUSED-SUBSCRIPTIONS WARNING (AECI-1865) ───────────────────────────────
+ * Checkout and add work out how many subscriptions the purchase would leave on no
+ * product ({@link loadPurchaseCounts}, `unusedAfterPurchase`). When that is above zero
+ * the body must carry `unused_acknowledged` equal to it, or the route answers `409
+ * UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` before any Stripe call. Exact, so a tab whose
+ * counts went stale is refused. The count rides the Checkout Session's metadata (and so
+ * its idempotency digest and the open-session match), the customer-link audit row, and
+ * the subscription's metadata on an add.
+ *
  * ── THE SHORT-FORM CAP (AECI-1617, counsel Q15) ─────────────────────────────────
  * Clickwrap fails on surprise terms, so the agreement's cap and damages exclusion sit
  * beside the box too, in `custom_text.submit` and on the panel. The box stays one sentence.
@@ -81,13 +90,22 @@ import {
   type AddStripeLicensesResponse,
   type StripeBillingInterval,
   type StripeRedirectResponse,
+  unusedAfterPurchase,
 } from '@aeci/shared';
 import { nextRenewalDay } from '@aeci/shared/entitlements';
-import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, notExists, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import { getDb } from '../db/client';
-import { auditLog, billingAccounts, licenses, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  licenses,
+  productVendors,
+  products,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -197,6 +215,136 @@ export function toLiveStripeSubscriptions(rows: LiveStripeRow[]): LiveStripeSubs
       latestEndsAt: r.latestEndsAt,
       cancelAtTermEnd: r.anyCancel === 1,
     }));
+}
+
+/**
+ * The products a pool license can go on: owned by this vendor (`product_vendors`) and
+ * holding no live license from ANY vendor, a co-owner included. Shared with `GET
+ * /api/vendor/billing` (`assignable_products`), so the warning the tab shows and the
+ * count these routes enforce use one predicate (AECI-1865). Use over `product_vendors`
+ * joined to `products`.
+ */
+export function assignableProductsWhere(db: Db, vendorId: string) {
+  const liveOnProduct = alias(licenses, 'live_on_product');
+  return and(
+    eq(productVendors.vendorId, vendorId),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(liveOnProduct)
+        .where(
+          and(eq(liveOnProduct.assignedProductId, products.id), isNull(liveOnProduct.endedAt)),
+        ),
+    ),
+  );
+}
+
+/** What the unused count is worked out from (AECI-1865). */
+export interface PurchaseCounts {
+  /** Live licenses on the vendor's billing account(s) with no product. */
+  pool: number;
+  /** Products of this vendor's that hold no live license. */
+  productsWithoutSubscription: number;
+}
+
+/** The count of live licenses on the vendor's billing account(s) with no product. Shared
+ *  with `GET /api/vendor/billing` (`pool_count`), which never caps it (AECI-1865). */
+export function poolCountSelect(db: Db, vendorId: string) {
+  return db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(licenses)
+    .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+    .where(
+      and(
+        eq(billingAccounts.vendorId, vendorId),
+        isNull(licenses.endedAt),
+        isNull(licenses.assignedProductId),
+      ),
+    );
+}
+
+/**
+ * Subscriptions Stripe's plan holds that D1 does not yet: paid, waiting for the webhook.
+ * They land in the pool, so the unused count includes them (AECI-1865). Never negative: a
+ * D1 count above Stripe's is the reconcile job's business, not a spare.
+ */
+export function unsyncedStripeCount(stripeQuantity: number, liveCount: number): number {
+  return Math.max(0, stripeQuantity - liveCount);
+}
+
+/** Stripe's view of the plan an add raises: its id and the quantity Stripe reported. */
+export interface StripePlanQuantity {
+  subscriptionId: string;
+  quantity: number;
+}
+
+/**
+ * {@link PurchaseCounts} for a vendor, in one round-trip. With `stripePlan`, the pool also
+ * holds the paid subscriptions the webhook has not landed yet ({@link unsyncedStripeCount}).
+ * The plan's live rows are counted in the SAME batch as the pool, after the Stripe read:
+ * a webhook that commits between an earlier D1 read and this one would otherwise be
+ * counted twice, once in the pool and once in the gap.
+ */
+export async function loadPurchaseCounts(
+  db: Db,
+  vendorId: string,
+  stripePlan?: StripePlanQuantity,
+): Promise<PurchaseCounts> {
+  const [poolRows, productRows, planRows] = await db.batch([
+    poolCountSelect(db, vendorId),
+    db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(productVendors)
+      .innerJoin(products, eq(products.id, productVendors.productId))
+      .where(assignableProductsWhere(db, vendorId)),
+    db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+      .where(
+        and(
+          eq(billingAccounts.vendorId, vendorId),
+          isNull(licenses.endedAt),
+          // No plan: match nothing, so the gap is zero.
+          stripePlan ? eq(licenses.stripeSubscriptionId, stripePlan.subscriptionId) : sql`0`,
+        ),
+      ),
+  ]);
+  const unsynced = stripePlan ? unsyncedStripeCount(stripePlan.quantity, planRows[0]?.n ?? 0) : 0;
+  return {
+    pool: (poolRows[0]?.n ?? 0) + unsynced,
+    productsWithoutSubscription: productRows[0]?.n ?? 0,
+  };
+}
+
+/**
+ * The unused count for this purchase, or `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` when it
+ * is above zero and the body does not name it exactly (AECI-1865).
+ */
+async function requireUnusedAcknowledged(
+  db: Db,
+  vendorId: string,
+  quantity: number,
+  acknowledged: number | undefined,
+  stripePlan?: StripePlanQuantity,
+): Promise<number> {
+  const counts = await loadPurchaseCounts(db, vendorId, stripePlan);
+  const unused = unusedAfterPurchase({ quantity, ...counts });
+  if (unused > 0 && acknowledged !== unused) {
+    throw new ApiError(
+      409,
+      ApiErrorCode.UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED,
+      `${unused} of these subscriptions would be on no product. Accept the warning to continue`,
+      {
+        details: {
+          unused,
+          pool: counts.pool,
+          products_without_subscription: counts.productsWithoutSubscription,
+        },
+      },
+    );
+  }
+  return unused;
 }
 
 /** The account a Stripe route works on, with its vendor slug for the return URL. */
@@ -352,6 +500,13 @@ export function createStripeCheckoutHandler(
     const account = await loadStripeAccount(db, vendorId);
     const existing = account.subscriptions[0];
     if (existing) throw subscriptionExists(existing.interval, payload.interval);
+    // AECI-1865: before any Stripe call, so a refusal costs nothing.
+    const unused = await requireUnusedAcknowledged(
+      db,
+      vendorId,
+      payload.quantity,
+      payload.unused_acknowledged,
+    );
     if (account.stripeCustomerId) {
       const held = await stripe.listSubscriptions({
         customer: account.stripeCustomerId,
@@ -390,7 +545,7 @@ export function createStripeCheckoutHandler(
     // 6. The Stripe customer, created once per account and recorded BEFORE Checkout.
     const now = new Date();
     const customerId =
-      account.stripeCustomerId ?? (await linkCustomer(c, db, stripe, account, now));
+      account.stripeCustomerId ?? (await linkCustomer(c, db, stripe, account, now, unused));
 
     // AECI-1689: the Managed plan agreement version in force now. A published upcoming
     // version is the one the Checkout page's link shows from its effective moment.
@@ -417,6 +572,8 @@ export function createStripeCheckoutHandler(
       ...(signer.name ? { signer_name: signer.name } : {}),
       ...(signer.title ? { signer_title: signer.title } : {}),
       ...(signer.companyLegalName ? { company_legal_name: signer.companyLegalName } : {}),
+      // AECI-1865: the unused count the owner accepted. Left out at zero.
+      ...(unused > 0 ? { unused_acknowledged: String(unused) } : {}),
     };
 
     // 7. At most one payable session per customer. An open session is in neither D1 nor
@@ -497,13 +654,17 @@ function redirectTo(c: VendorContext, url: string): Response {
  * with the title they typed and the legal name on record now (AECI-1625), and the
  * renewal date it shows is the one the panel showed (AECI-1596).
  */
-/** The session metadata keys that name the signer (AECI-1617), and the Plans page version
- *  the session was opened under (AECI-1619). A reused session must match each one. */
+/** The session metadata keys that name the signer (AECI-1617), the Plans page version
+ *  the session was opened under (AECI-1619), and the accepted unused count (AECI-1865).
+ *  A reused session must match each one. */
 const EVIDENCE_METADATA_KEYS = [
   'signer_name',
   'signer_title',
   'company_legal_name',
   'plans_version',
+  // AECI-1865: the accepted unused count. A session opened under another count is
+  // expired, and the idempotency key changes with it.
+  'unused_acknowledged',
 ] as const;
 
 /** A short digest of the session-only evidence, so the Checkout idempotency key changes
@@ -594,6 +755,7 @@ async function linkCustomer(
   stripe: StripeClient,
   account: StripeAccount,
   now: Date,
+  unusedAcknowledged: number,
 ): Promise<string> {
   const vendorId = sessionVendorId(c);
   const customer = await stripe.createCustomer(
@@ -616,6 +778,7 @@ async function linkCustomer(
     actorType: auditActorType(session),
     vendorPlan: sessionVendorPlan(c, now),
     source: AUDIT_SOURCE,
+    unusedAcknowledged,
   });
   await db.batch(batch.stmts as BatchTuple);
 
@@ -682,6 +845,17 @@ export function createAddStripeLicensesHandler(
       );
     }
     const current = subscriptionQuantity(sub.data);
+    // AECI-1865: before the write. Stripe's quantity above the live Stripe rows is paid
+    // subscriptions the webhook has not landed yet. They arrive in the pool, so they count.
+    // The rows are re-counted with the pool, never taken from `live`, which was read
+    // before the Stripe call and may predate a webhook that landed during it.
+    const unused = await requireUnusedAcknowledged(
+      db,
+      vendorId,
+      payload.quantity,
+      payload.unused_acknowledged,
+      { subscriptionId: live.subscriptionId, quantity: current },
+    );
     const updated = await stripe.updateSubscription(
       live.subscriptionId,
       {
@@ -691,6 +865,12 @@ export function createAddStripeLicensesHandler(
         // card leaves a `pending_update` and the quantity unchanged, so the webhook
         // grants nothing that was not paid for.
         payment_behavior: 'pending_if_incomplete',
+        // AECI-1865: who accepted how many unused subscriptions on this add. An add with
+        // nothing unused clears both keys (an empty value unsets a Stripe metadata key).
+        metadata: {
+          unused_acknowledged: unused > 0 ? String(unused) : '',
+          unused_acknowledged_by: unused > 0 ? session.userId : '',
+        },
       },
       // A pending update from an earlier unpaid add joins the key. Without it, the retry
       // after a declined card would replay that refusal for Stripe's 24 h key window.
@@ -699,6 +879,9 @@ export function createAddStripeLicensesHandler(
         live.subscriptionId,
         current,
         payload.quantity,
+        // AECI-1865: the metadata above is a parameter, so a new count, or another owner
+        // acknowledging it, needs a new key.
+        unused > 0 ? `u${unused}-${session.userId}` : 'u0',
         ...(sub.data.pending_update ? [sub.data.pending_update.expires_at] : []),
       ].join('-'),
     );

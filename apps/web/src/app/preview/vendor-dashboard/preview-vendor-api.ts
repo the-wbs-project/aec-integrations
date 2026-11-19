@@ -93,6 +93,8 @@ import type {
   CreateVendorProductResponse,
   ListVendorProposalsResponse,
   VendorProposal,
+  PossibleDuplicateIntegration,
+  PossibleDuplicatesResponse,
 } from '@aeci/shared';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
@@ -114,6 +116,7 @@ import {
   contestValueProblem,
   integrationEditValueProblem,
   isAwaitingCounterpartAnswer,
+  unusedAfterPurchase,
   type ContestableFields,
   type ContextDirection,
   type IntegrationEditField,
@@ -382,8 +385,28 @@ function previewAcceptances(): VendorAgreementAcceptance[] {
 }
 
 function previewBilling(): VendorBillingResponse {
+  const base = clone(VENDOR_BILLING_FIXTURE);
+  const [assigned, pool, ended] = base.licenses;
   return {
-    ...clone(VENDOR_BILLING_FIXTURE),
+    ...base,
+    // AECI-1866: every status-chip tone shows. The pool subscription will not renew
+    // (Clay "Live" with its "Cancels at term end" badge), and a second ended row makes
+    // the closed group read "Ended subscriptions (2)".
+    licenses: [
+      assigned!,
+      { ...pool!, cancel_at_term_end: true },
+      ended!,
+      {
+        ...ended!,
+        id: '00000000-0000-4000-8000-0000000054a4',
+        source: 'complimentary',
+        starts_at: '2026-06-01',
+        ends_at: '2027-05-31',
+        ended_at: '2026-07-15T09:00:00.000Z',
+        end_reason: 'released',
+        reference: null,
+      },
+    ],
     stripe_checkout_available: true,
     // AECI-1615: one grant waiting, so the "Subscriptions waiting for you" card renders.
     pending_grants: [clone(VENDOR_PENDING_GRANT_FIXTURE)],
@@ -444,6 +467,94 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  * reviewable. No network is ever touched.
  */
 /**
+ * AECI-1953: five rows on Summit Model Coordination and Bluebeam Revu, one of each
+ * kind the create form's duplicate panel offers an action for. Pick Bluebeam Revu
+ * as the other product to see the panel: a live row Summit owns but has not
+ * claimed (Claim this one instead), one it has claimed (Open it), one it retired
+ * (Open it to restore), one with no owner on file (Ask to be recorded), and one
+ * AEC Integrations retired (Open it, since only AECi restores it).
+ */
+const OTHER_BLUEBEAM = {
+  id: '00000000-0000-4000-8000-000000005305',
+  slug: 'bluebeam-revu',
+  name: 'Bluebeam Revu',
+  logo_url: null,
+};
+function bluebeamRow(
+  n: number,
+  name: string,
+  state: Pick<
+    VendorIntegration,
+    'is_owner' | 'owner' | 'claimed_at' | 'retired_at' | 'retired_by' | 'maintained_by'
+  >,
+): VendorIntegration {
+  const id = `00000000-0000-4000-8000-0000000053e${n}`;
+  return {
+    ...INTEGRATION_OWNED_CLAIMED,
+    id,
+    name,
+    mechanism_kind: 'api',
+    mechanism_name: null,
+    other_product: OTHER_BLUEBEAM,
+    endpoint_vendors: state.owner ? [state.owner] : [],
+    origin: 'aeci',
+    created_at: `2026-0${n}-01T00:00:00.000Z`,
+    claims: [],
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name,
+      mechanism_kind: 'api',
+      direction: 'both',
+      owner: state.owner?.id ?? null,
+    },
+    ...state,
+  };
+}
+const SUMMIT = INTEGRATION_OWNED_CLAIMED.owner!;
+const PREVIEW_BLUEBEAM_DUPLICATES: readonly VendorIntegration[] = [
+  bluebeamRow(1, 'Summit Markups for Revu', {
+    is_owner: true,
+    owner: SUMMIT,
+    claimed_at: null,
+    retired_at: null,
+    retired_by: null,
+    maintained_by: 'aeci',
+  }),
+  bluebeamRow(2, 'Summit Issues in Revu', {
+    is_owner: true,
+    owner: SUMMIT,
+    claimed_at: '2026-09-05T00:00:00.000Z',
+    retired_at: null,
+    retired_by: null,
+    maintained_by: 'vendor',
+  }),
+  bluebeamRow(3, 'Summit Revu Bridge (legacy)', {
+    is_owner: true,
+    owner: SUMMIT,
+    claimed_at: '2026-08-01T00:00:00.000Z',
+    retired_at: '2026-09-10T00:00:00.000Z',
+    retired_by: 'owner',
+    maintained_by: 'vendor',
+  }),
+  bluebeamRow(4, 'Revu Studio Sync', {
+    is_owner: false,
+    owner: null,
+    claimed_at: null,
+    retired_at: null,
+    retired_by: null,
+    maintained_by: 'aeci',
+  }),
+  bluebeamRow(5, 'Summit Revu Export', {
+    is_owner: true,
+    owner: SUMMIT,
+    claimed_at: '2026-08-15T00:00:00.000Z',
+    retired_at: '2026-10-02T00:00:00.000Z',
+    retired_by: 'aeci',
+    maintained_by: 'vendor',
+  }),
+];
+
+/**
  * The default list plus a row the other endpoint's owner has retired (AECI-1010), so
  * the preview shows all three retire states: Retire on the owned, claimed card,
  * Restore once retired, and the read-only retired card. Kept out of the shared
@@ -468,6 +579,8 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
     INTEGRATION_OWNED_VIA_CONNECTOR,
     // AECI-1090: a claimed connector-delivered row the caller owns.
     INTEGRATION_CONNECTOR_OWNED,
+    // AECI-1953: one row of each duplicate-panel kind, for Bluebeam Revu.
+    ...PREVIEW_BLUEBEAM_DUPLICATES,
   ],
   // AECI-1089: the owned evidenced pairs, for the "Integrations your company offers"
   // section on the primary product's tab.
@@ -702,7 +815,12 @@ export class PreviewVendorApi extends VendorApi {
   private billing: VendorBillingResponse = previewBilling();
 
   override async getBilling(): Promise<VendorBillingResponse> {
-    return clone(this.billing);
+    // AECI-1865: the fake has no webhook gap, so the pool is its live rows on no product.
+    return clone({ ...this.billing, pool_count: this.poolCount() });
+  }
+
+  private poolCount(): number {
+    return this.billing.licenses.filter((l) => l.live && l.assigned_product === null).length;
   }
 
   private acceptances: VendorAgreementAcceptance[] = previewAcceptances();
@@ -816,6 +934,7 @@ export class PreviewVendorApi extends VendorApi {
     quantity: number,
     interval: StripeBillingInterval,
     signerTitle: string,
+    unusedAcknowledged?: number,
   ): Promise<StripeRedirectResponse> {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
       throw apiError(400, 'VALIDATION_FAILED', 'Invalid quantity', { field: 'quantity' });
@@ -832,15 +951,20 @@ export class PreviewVendorApi extends VendorApi {
         { details: { interval: existing.interval } },
       );
     }
+    this.requireUnusedAcknowledged(quantity, unusedAcknowledged);
     const url = new URL(globalThis.location.href);
     url.searchParams.set('checkout', 'success');
     return { url: url.toString() };
   }
 
   /** AECI-1502, fixture-side: the add lands at once, as if the webhook were instant. */
-  override async addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
+  override async addStripeLicenses(
+    quantity: number,
+    unusedAcknowledged?: number,
+  ): Promise<AddStripeLicensesResponse> {
     const sub = this.billing.stripe;
     if (!sub) throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No Stripe plan');
+    this.requireUnusedAcknowledged(quantity, unusedAcknowledged);
     sub.quantity += quantity;
     for (let i = 0; i < quantity; i++) {
       this.billing.licenses.unshift({
@@ -860,6 +984,19 @@ export class PreviewVendorApi extends VendorApi {
       });
     }
     return { ok: true, pending: true };
+  }
+
+  /** AECI-1865, as the handlers: a purchase that leaves subscriptions on no product
+   *  needs `unused_acknowledged` equal to the count, or `409`. */
+  private requireUnusedAcknowledged(quantity: number, acknowledged: number | undefined): void {
+    const pool = this.poolCount();
+    const productsWithoutSubscription = this.billing.assignable_products.length;
+    const unused = unusedAfterPurchase({ quantity, pool, productsWithoutSubscription });
+    if (unused > 0 && acknowledged !== unused) {
+      throw apiError(409, 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED', 'Unused subscriptions', {
+        details: { unused, pool, products_without_subscription: productsWithoutSubscription },
+      });
+    }
   }
 
   /** AECI-1502, fixture-side: the portal is Stripe's page, so the preview stays put.
@@ -2346,6 +2483,49 @@ export class PreviewVendorApi extends VendorApi {
   /** The create, fixture-side: the schema and value rule the handler applies, the
    *  strong-match warning computed from the in-memory list (same pair, either
    *  orientation, owner the caller or unknown), and a new owned, claimed entry. */
+  /** The create's strong-match rule, fixture-side (AECI-1953): the same pair, no
+   *  connector, an owner that is the caller or unknown, retired rows included. */
+  private possibleDuplicatesFor(
+    vendorId: string,
+    ownId: string,
+    otherId: string,
+  ): PossibleDuplicateIntegration[] {
+    return this.integrations.integrations
+      .filter(
+        (entry) =>
+          entry.context_product.id === ownId &&
+          entry.other_product.id === otherId &&
+          entry.powered_by === null &&
+          (entry.owner === null || entry.owner.id === vendorId),
+      )
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        mechanism_kind: entry.mechanism_kind,
+        mechanism_name: entry.mechanism_name,
+        orientation: 'same' as const,
+        owner: entry.owner,
+        claimed: entry.claimed_at !== null,
+        retired: entry.retired_at !== null,
+        retired_by: entry.retired_at === null ? null : (entry.retired_by ?? 'owner'),
+      }));
+  }
+
+  /** `GET /api/vendor/integrations/possible-duplicates`, fixture-side: the create's
+   *  endpoint `404`, then the same rule the create's 201 reports. */
+  override async getPossibleDuplicates(
+    productId: string,
+    counterpartProductId: string,
+  ): Promise<PossibleDuplicatesResponse> {
+    const me = this.me;
+    const own = me?.products.find((p) => p.id === productId);
+    const other = PREVIEW_CATALOGUE.find((p) => p.id === counterpartProductId);
+    if (!me || !own || !other || own.id === other.id) {
+      throw apiError(404, 'NOT_FOUND', 'Product not found');
+    }
+    return { possible_duplicates: this.possibleDuplicatesFor(me.vendor.id, own.id, other.id) };
+  }
+
   override async createIntegration(
     body: CreateVendorIntegrationInput,
   ): Promise<CreateVendorIntegrationResponse> {
@@ -2362,24 +2542,7 @@ export class PreviewVendorApi extends VendorApi {
     const other = PREVIEW_CATALOGUE.find((p) => p.id === parsed.data.counterpart_product_id);
     if (!me || !own || !other) throw apiError(404, 'NOT_FOUND', 'Product not found');
 
-    const duplicates = this.integrations.integrations
-      .filter(
-        (entry) =>
-          entry.context_product.id === own.id &&
-          entry.other_product.id === other.id &&
-          entry.attestable &&
-          (entry.owner === null || entry.owner.id === me.vendor.id),
-      )
-      .map((entry) => ({
-        id: entry.id,
-        name: entry.name,
-        mechanism_kind: entry.mechanism_kind,
-        mechanism_name: entry.mechanism_name,
-        orientation: 'same' as const,
-        owner: entry.owner,
-        claimed: entry.claimed_at !== null,
-        retired: entry.retired_at !== null,
-      }));
+    const duplicates = this.possibleDuplicatesFor(me.vendor.id, own.id, other.id);
 
     const now = '2026-09-22T12:00:00.000Z';
     const id = `00000000-0000-4000-8000-${String(900000000000 + this.nextCreateSeq++)}`;

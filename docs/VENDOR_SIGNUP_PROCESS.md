@@ -192,6 +192,11 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    billing account, the vendor, the owner's profile and the agreement version shown. If the
    `checkout.session.completed` event never arrives, the daily reconcile (AECI-1503) grants the
    subscriptions and backfills the missing acceptance.
+   *As built 2026-11-19 (AECI-1865):* when the quantity plus the unused pool is more than the
+   products holding no subscription, the panel (and the Add subscriptions dialog) warns how many
+   would be unused and asks for a required box. The API recounts and refuses an unacknowledged
+   purchase with `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED`. The accepted count rides the Checkout
+   Session's metadata (`API_CONTRACTS.md` §6.14).
 5. **Pilot or invoice deal.** AECi grants N subscriptions with source complimentary or invoice, an end
    date and a reference, in the admin panel. Same email, with the free or invoiced wording. A
    vendor whose every owner seat is banned is refused until a seat is unbanned (AECI-1589,

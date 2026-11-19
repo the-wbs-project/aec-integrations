@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 17, 2026
+last_updated: November 19, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -84,7 +84,7 @@ AEC Integrations can also retire an integration your company holds, to take a fa
 AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.
 
 - **A field on an integration.** When AEC Integrations accepts a change request that replaces a value you hold, your company is told which field changed and why. You can still edit that field yourself, unless AEC Integrations has also locked it, as the next item describes.
-- **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it. While it does, the public page shows "Corrected by AEC Integrations on (date)" beside it, with a link to our source when we recorded one. Your reason notice stays between us: the public line has no reason.
+- **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it. While it does, the public page shows "Corrected by AEC Integrations on (date)" beside it, with a link to our source when we recorded one. Your reason notice stays between us: the public line has no reason. Another company on the record, such as the other product's company on an integration, sees that the field is locked and the source, but not the reason.
 - **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
 - **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
 - **One detail under review.** AEC Integrations can hide one detail on your company, a product or an integration you hold while it checks a source that says the detail is wrong. The public page shows "Under review" in its place. You are told why, and you can still edit the field. Saving a change ends the hide. [If AEC Integrations hides one detail](/docs/vendors/requesting-changes-and-appeals#if-aec-integrations-hides-one-detail) explains what that means.
@@ -94,11 +94,20 @@ If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrati
 
 ## Add an integration
 
-If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. The form has two steps. In the first, find the other product by name. In the second, fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The second step lists any integrations already on record for the two products, so you can check first. **Change** takes you back to the first step and keeps what you typed.
+If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. The form has two steps. In the first, find the other product by name. In the second, fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. **Change** takes you back to the first step and keeps what you typed.
+
+When you choose the other product, we check for integrations already on record for the two products that could be yours. Any we find are listed at the top of the second step, each with one choice:
+
+- **Claim this one instead.** Your company is recorded as its owner but has not claimed it yet. Claim it rather than add a copy.
+- **Open it.** Your company already holds it. This is also the action on a row AEC Integrations retired. Its status line says so. Only AEC Integrations can restore it.
+- **Open it to restore.** It is retired, and your company retired it. Its page shows who retired it. You can restore it there.
+- **Ask to be recorded as the owner.** Nobody is on file as its owner, and it is live. Its page lets you ask us to record your company. If it is retired, you see **Open it** instead. Only AEC Integrations can restore it.
+
+You can still add yours. The list never stops you.
 
 The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
 
-If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
+Once you add it, the confirmation links to your integration and to its public page. If another similar integration was added for the same two products while you filled in the form, the confirmation lists it too. If you added a copy anyway, retire the one you added from its page. Then claim the existing one if it is yours, or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
 
 ### When the other product is not listed
 

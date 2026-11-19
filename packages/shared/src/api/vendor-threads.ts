@@ -39,11 +39,24 @@ export const THREAD_MESSAGE_BODY_MAX = 2000;
 /**
  * The version of the first-use acknowledgment text (AECI-1616, counsel Q9,
  * `STAGE_2_ATTESTATIONS_SPEC.md` §15.17). The portal renders that version's words
- * and the acknowledgment row records it. A bump records the new version on new
- * acknowledgments only. Asking companies that already acknowledged to do so again
- * needs its own change: the row's key has no version.
+ * and the acknowledgment row records it. A positive-integer string.
+ *
+ * A bump that only clarifies changes this constant alone: companies that already
+ * acknowledged are not asked again, and new acknowledgments record the new version.
+ * A bump that widens or narrows the rules also sets {@link THREAD_ACK_MATERIAL_SINCE}
+ * to the new version, which asks every company again (AECI-1641). Either bump is a
+ * text change that goes through the legal agent, and its words get their own pin in
+ * `integration-row-thread.component.spec.ts`.
  */
 export const THREAD_ACK_TEXT_VERSION = '1';
+
+/**
+ * The oldest acknowledgment version that still counts (AECI-1641, §15.17). A row
+ * whose `text_version` is older no longer counts, so the company sees the
+ * acknowledgment again and its next first post records a new row at
+ * {@link THREAD_ACK_TEXT_VERSION}. A positive-integer string, never above it.
+ */
+export const THREAD_ACK_MATERIAL_SINCE = '1';
 
 // ─── Request ─────────────────────────────────────────────────────────────────
 

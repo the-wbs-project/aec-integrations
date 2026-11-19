@@ -191,20 +191,18 @@ export const PRUNABLE = [
 export type PrunableTable = (typeof PRUNABLE)[number];
 
 /**
- * Tables no prune may delete from yet. A `terms_acceptances` row (AECI-1637) is the record
- * that an account holder accepted a Terms of Service version, kept for the life of the
- * account plus six years, past its deletion (ruling 1 of 2026-11-13). Its prune is a named
- * follow-up of AECI-1638. No table here may join {@link PRUNABLE};
- * `retention-prune.spec.ts` asserts it. The 90-day sweep NULLs the IP and user agent on
- * old rows (AECI-1636): that is an UPDATE, never a row delete.
+ * Tables no prune may delete from yet. Empty since AECI-1718. No table here may join
+ * {@link PRUNABLE}; `retention-prune.spec.ts` asserts it.
  *
- * `agreement_acceptances` and `license_grants` left this list with AECI-1638. They are
- * still never {@link PRUNABLE} here: the legal prune (`./legal-retention-prune`, ADR 0058)
- * deletes them six years after the vendor account ends and five years after a grant ends
- * (`DATABASE_SCHEMA.md` §8.6d), and `retention-prune.spec.ts` asserts this module never
- * names either table.
+ * `agreement_acceptances` and `license_grants` left this list with AECI-1638, and
+ * `terms_acceptances` with AECI-1718. They are still never {@link PRUNABLE} here: the legal
+ * prune (`./legal-retention-prune`, ADR 0058) deletes them. An agreement acceptance goes six
+ * years after the vendor account ends and a grant five years after it ends
+ * (`DATABASE_SCHEMA.md` §8.6d). A Terms acceptance goes six years after the account is
+ * deleted (§8.6k). `retention-prune.spec.ts` asserts this module never names any of the
+ * three tables.
  */
-export const NEVER_PRUNED = ['terms_acceptances'] as const;
+export const NEVER_PRUNED: readonly string[] = [];
 
 /** The tables with a retention window of their own. A child table inherits its
  *  parent's window and cutoff. */

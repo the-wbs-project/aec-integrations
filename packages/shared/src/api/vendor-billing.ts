@@ -149,6 +149,24 @@ export const STRIPE_LICENSE_QUANTITY_MAX = 100;
 const StripeLicenseQuantitySchema = z.number().int().min(1).max(STRIPE_LICENSE_QUANTITY_MAX);
 
 /**
+ * How many subscriptions a purchase would leave on no product (AECI-1865): the ones
+ * bought now, plus the live ones already in the pool, less the products that hold no
+ * live subscription. Never below zero. The Pay by card panel and the add dialog warn
+ * when it is above zero, and checkout and add refuse with `409
+ * UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` unless the body's `unused_acknowledged` equals it.
+ */
+export function unusedAfterPurchase(p: {
+  quantity: number;
+  pool: number;
+  productsWithoutSubscription: number;
+}): number {
+  return Math.max(0, p.quantity + p.pool - p.productsWithoutSubscription);
+}
+
+/** The acknowledged count on a purchase body (AECI-1865). Absent when nothing is unused. */
+const UnusedAcknowledgedSchema = z.number().int().nonnegative().optional();
+
+/**
  * The account's live Stripe subscription as the Billing tab shows it. Derived from the
  * live `source = 'stripe'` licenses in D1, refined by at most one Stripe read.
  *
@@ -186,6 +204,13 @@ export const VendorBillingResponseSchema = z.object({
    * case-insensitively, `id` breaking ties.
    */
   assignable_products: z.array(VendorBillingProductSchema),
+  /**
+   * AECI-1865: live subscriptions on no product, counted in full (never capped like
+   * `licenses`), plus any the Stripe plan has been paid for but the webhook has not yet
+   * synced (Stripe's quantity above the live Stripe rows, when `stripe.synced`). Those land
+   * in the pool. The unused-subscriptions warning counts from this, as the API does.
+   */
+  pool_count: z.number().int().nonnegative(),
   /** The live Stripe subscription, or `null` when the account has no live Stripe
    *  license. See {@link VendorBillingStripeSchema}. */
   stripe: VendorBillingStripeSchema.nullable(),
@@ -295,8 +320,10 @@ export type UpdateVendorLegalNameResponse = z.infer<typeof UpdateVendorLegalName
 export const CHECKOUT_SIGNER_TITLE_MAX = 100;
 
 /** Start a Managed purchase. Refused with `409 STRIPE_SUBSCRIPTION_EXISTS` when the
- *  account already has a live Stripe subscription in the same interval (use add), and
- *  `409 LICENSE_INTERVAL_MISMATCH` when it has one in the other interval. */
+ *  account already has a live Stripe subscription in the same interval (use add),
+ *  `409 LICENSE_INTERVAL_MISMATCH` when it has one in the other interval, and `409
+ *  UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` when the purchase would leave subscriptions on no
+ *  product and `unused_acknowledged` does not name that count (AECI-1865). */
 export const StripeCheckoutRequestSchema = z
   .object({
     quantity: StripeLicenseQuantitySchema,
@@ -304,6 +331,8 @@ export const StripeCheckoutRequestSchema = z
     /** The buyer's title (AECI-1625). It goes into the Checkout Session's metadata only,
      *  and the webhook copies it onto the acceptance row as `signer_title`. */
     signer_title: z.string().trim().min(1).max(CHECKOUT_SIGNER_TITLE_MAX),
+    /** The unused count the owner accepted (AECI-1865), see {@link unusedAfterPurchase}. */
+    unused_acknowledged: UnusedAcknowledgedSchema,
   })
   .strict();
 export type StripeCheckoutRequest = z.infer<typeof StripeCheckoutRequestSchema>;
@@ -320,6 +349,8 @@ export type StripeRedirectResponse = z.infer<typeof StripeRedirectResponseSchema
 export const AddStripeLicensesRequestSchema = z
   .object({
     quantity: StripeLicenseQuantitySchema,
+    /** The unused count the owner accepted (AECI-1865), see {@link unusedAfterPurchase}. */
+    unused_acknowledged: UnusedAcknowledgedSchema,
   })
   .strict();
 export type AddStripeLicensesRequest = z.infer<typeof AddStripeLicensesRequestSchema>;

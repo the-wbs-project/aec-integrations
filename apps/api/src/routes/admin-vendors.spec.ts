@@ -410,6 +410,123 @@ describe('GET /api/admin/vendors', () => {
     expect(res.status).toBe(400);
   });
 
+  // ── Claimed (AECI-1934) ───────────────────────────────────────────────────
+  //
+  // "Claimed" is `vendors.owned_at IS NOT NULL` (ADR 0042), ruled 2026-11-18. In
+  // this fixture Acme is verified and Beta is not, so a filter that read the
+  // `verified` mirror would return the wrong vendor for the assertions below.
+  async function seedOwnership(): Promise<void> {
+    await t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-01T00:00:00.000Z' })
+      .where(eq(vendors.id, OTHER_VENDOR));
+  }
+
+  it('ships owned_at on every row, null when unclaimed', async () => {
+    await seedOwnership();
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors',
+    );
+    const b = await body(res);
+    const byId = new Map(b.data.map((r: { id: string; owned_at: unknown }) => [r.id, r.owned_at]));
+    expect(byId.get(OTHER_VENDOR)).toBe('2026-10-01T00:00:00.000Z');
+    expect(byId.get(VENDOR)).toBeNull();
+  });
+
+  it('?claimed=true returns exactly the owned vendors, and total describes the filter', async () => {
+    await seedOwnership();
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors?claimed=true',
+    );
+    expect(res.status).toBe(200);
+    const b = await body(res);
+    expect(b.data.map((r: { slug: string }) => r.slug)).toEqual(['beta-100%-tools']);
+    expect(b.total).toBe(1);
+  });
+
+  it('?claimed=false returns the exact complement, never the true set (AECI-691)', async () => {
+    await seedOwnership();
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors?claimed=false',
+    );
+    const b = await body(res);
+    expect(b.data.map((r: { slug: string }) => r.slug)).toEqual(['acme-corp']);
+    expect(b.total).toBe(1);
+  });
+
+  it('no claimed param returns every vendor', async () => {
+    await seedOwnership();
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors',
+    );
+    expect((await body(res)).total).toBe(2);
+  });
+
+  it('keeps total on the filter when paging a claimed list', async () => {
+    await seedOwnership();
+    await seedVendor(u(13), {
+      slug: 'gamma',
+      companyName: 'Gamma',
+      ownedAt: '2026-09-01T00:00:00.000Z',
+    });
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors?claimed=true&perPage=1',
+    );
+    const b = await body(res);
+    expect(b.data).toHaveLength(1);
+    expect(b.total).toBe(2);
+  });
+
+  it('rejects a claimed value that is not true or false', async () => {
+    for (const claimed of ['yes', '1']) {
+      const res = await send(
+        mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+        `/api/admin/vendors?claimed=${claimed}`,
+      );
+      expect(res.status, claimed).toBe(400);
+    }
+  });
+
+  it('sorts by claimed date, most recent first, unclaimed last in BOTH directions', async () => {
+    // Aardvark is unclaimed and first by name; Acme is unclaimed too. Beta and
+    // Gamma are claimed, Beta more recently. NULLs must trail either way, and
+    // the unclaimed tail stays A to Z in both directions (AECI-99).
+    await seedAardvark();
+    await seedOwnership();
+    await seedVendor(u(13), {
+      slug: 'gamma',
+      companyName: 'Gamma',
+      ownedAt: '2026-09-01T00:00:00.000Z',
+    });
+
+    expect(await slugsSortedBy('claimed')).toEqual([
+      'beta-100%-tools',
+      'gamma',
+      'aardvark',
+      'acme-corp',
+    ]);
+    expect(await slugsSortedBy('claimed', 'asc')).toEqual([
+      'gamma',
+      'beta-100%-tools',
+      'aardvark',
+      'acme-corp',
+    ]);
+    expect(await slugsSortedBy('claimed')).toEqual(await slugsSortedBy('claimed', 'desc'));
+  });
+
+  it('breaks a claimed-date tie by company name, then id, in both directions', async () => {
+    const SAME = '2026-10-01T00:00:00.000Z';
+    await seedOwnership();
+    await t.db.update(vendors).set({ ownedAt: SAME }).where(eq(vendors.id, VENDOR));
+    expect(await slugsSortedBy('claimed')).toEqual(['acme-corp', 'beta-100%-tools']);
+    expect(await slugsSortedBy('claimed', 'asc')).toEqual(['acme-corp', 'beta-100%-tools']);
+  });
+
   it('rejects a sort key the schema does not know rather than falling back', async () => {
     // `created` is a PUBLIC key. Accepting it here would order by a column the
     // row does not carry, so no header could state its direction honestly.
