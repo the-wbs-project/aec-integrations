@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 11, 2026
+last_updated: November 19, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -25,9 +25,10 @@ Only an owner can pay. On the **Billing** tab, the **Pay by card** panel takes y
 1. Choose **Annual**, at $250 a year per subscription, or **Monthly**, at $25 a month per subscription.
 2. Enter the number of subscriptions, from 1 to 100. The panel shows what you pay today, what renews and when, and how to cancel. The Stripe page repeats this.
 3. Check **Your title**. The field is filled in from your claim when you made one, and you must have a title in it. We record it with your acceptance of the agreement.
-4. Choose **Continue to Stripe**.
-5. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
-6. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
+4. If the subscriptions you are buying plus the unused subscriptions already in your pool exceed the products without one, the panel warns you. It says how many subscriptions would not be on any product. Tick the box to confirm you understand. You pay for every new subscription from today, even one that is not on a product.
+5. Choose **Continue to Stripe**.
+6. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
+7. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
 
 Prices do not include tax. Stripe adds sales tax where it applies, and shows it before you pay and on the receipt. You can add your company's tax ID on the Stripe page.
 
@@ -44,6 +45,8 @@ Your card statement shows the charge as **THE WBS PROJECT**. The WBS Project ope
 ## Adding subscriptions
 
 Choose **Add subscriptions** on the Billing tab and enter how many. New subscriptions join your Stripe plan and are billed on the same schedule.
+
+The dialog shows the same warning as the buy form when some subscriptions would not be on any product. It counts the unused subscriptions already in your pool too. Tick the box to confirm before you add them.
 
 Stripe charges your card at once for the rest of the current period, pro-rated, plus tax where it applies. From your next renewal, each subscription is billed at the full price. The new subscriptions appear in your pool once Stripe confirms the payment.
 

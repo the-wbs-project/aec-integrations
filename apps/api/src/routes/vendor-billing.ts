@@ -47,8 +47,7 @@ import {
   type VendorBillingResponse,
   type VendorBillingStripe,
 } from '@aeci/shared';
-import { and, asc, desc, eq, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/sqlite-core';
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -73,9 +72,12 @@ import {
   type StripeClient,
 } from '../lib/stripe';
 import {
+  assignableProductsWhere,
   liveStripeSubscriptionsSelect,
+  poolCountSelect,
   stripeRoutesReady,
   toLiveStripeSubscriptions,
+  unsyncedStripeCount,
   type LiveStripeSubscription,
   type StripeClientFactory,
 } from './vendor-billing-stripe';
@@ -178,68 +180,54 @@ export function createVendorBillingHandler(
       'Only a vendor account owner can see billing',
     );
 
-    const liveOnProduct = alias(licenses, 'live_on_product');
-
-    const [accountRows, licenseRows, assignableRows, stripeRows, grantRows] = await db.batch([
-      // One per vendor today (`billing_accounts_vendor_key`).
-      db
-        .select({
-          id: billingAccounts.id,
-          billingEmail: billingAccounts.billingEmail,
-          stripeCustomerId: billingAccounts.stripeCustomerId,
-        })
-        .from(billingAccounts)
-        .where(eq(billingAccounts.vendorId, vendorId))
-        .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
-        .limit(1),
-      vendorLicenseSelect(db)
-        .where(eq(billingAccounts.vendorId, vendorId))
-        // The admin read's order: live first, oldest first; then ended, most
-        // recently ended first. `id` breaks every tie.
-        .orderBy(
-          sql`${licenses.endedAt} IS NULL DESC`,
-          desc(licenses.endedAt),
-          asc(licenses.createdAt),
-          asc(licenses.id),
-        )
-        .limit(VENDOR_BILLING_LICENSES_MAX + 1),
-      db
-        .select({ id: products.id, slug: products.slug, name: products.name })
-        .from(productVendors)
-        .innerJoin(products, eq(products.id, productVendors.productId))
-        .where(
-          and(
-            eq(productVendors.vendorId, vendorId),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(liveOnProduct)
-                .where(
-                  and(
-                    eq(liveOnProduct.assignedProductId, products.id),
-                    isNull(liveOnProduct.endedAt),
-                  ),
-                ),
+    const [accountRows, licenseRows, assignableRows, stripeRows, grantRows, poolRows] =
+      await db.batch([
+        // One per vendor today (`billing_accounts_vendor_key`).
+        db
+          .select({
+            id: billingAccounts.id,
+            billingEmail: billingAccounts.billingEmail,
+            stripeCustomerId: billingAccounts.stripeCustomerId,
+          })
+          .from(billingAccounts)
+          .where(eq(billingAccounts.vendorId, vendorId))
+          .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
+          .limit(1),
+        vendorLicenseSelect(db)
+          .where(eq(billingAccounts.vendorId, vendorId))
+          // The admin read's order: live first, oldest first; then ended, most
+          // recently ended first. `id` breaks every tie.
+          .orderBy(
+            sql`${licenses.endedAt} IS NULL DESC`,
+            desc(licenses.endedAt),
+            asc(licenses.createdAt),
+            asc(licenses.id),
+          )
+          .limit(VENDOR_BILLING_LICENSES_MAX + 1),
+        db
+          .select({ id: products.id, slug: products.slug, name: products.name })
+          .from(productVendors)
+          .innerJoin(products, eq(products.id, productVendors.productId))
+          .where(assignableProductsWhere(db, vendorId))
+          // Case-insensitive (AECI-825); `id` keeps the order total.
+          .orderBy(textAsc(products.name), asc(products.id)),
+        liveStripeSubscriptionsSelect(db, vendorId),
+        // AECI-1615: grants waiting for an owner's accept, oldest first.
+        db
+          .select()
+          .from(licenseGrants)
+          // Past its end it can no longer be accepted, even before the sweep marks it.
+          .where(
+            and(
+              eq(licenseGrants.vendorId, vendorId),
+              eq(licenseGrants.status, PENDING),
+              gt(licenseGrants.endsAt, new Date().toISOString()),
             ),
-          ),
-        )
-        // Case-insensitive (AECI-825); `id` keeps the order total.
-        .orderBy(textAsc(products.name), asc(products.id)),
-      liveStripeSubscriptionsSelect(db, vendorId),
-      // AECI-1615: grants waiting for an owner's accept, oldest first.
-      db
-        .select()
-        .from(licenseGrants)
-        // Past its end it can no longer be accepted, even before the sweep marks it.
-        .where(
-          and(
-            eq(licenseGrants.vendorId, vendorId),
-            eq(licenseGrants.status, PENDING),
-            gt(licenseGrants.endsAt, new Date().toISOString()),
-          ),
-        )
-        .orderBy(asc(licenseGrants.createdAt), asc(licenseGrants.id)),
-    ]);
+          )
+          .orderBy(asc(licenseGrants.createdAt), asc(licenseGrants.id)),
+        // AECI-1865: the whole pool, never capped like the license list.
+        poolCountSelect(db, vendorId),
+      ]);
 
     const account = accountRows[0] ?? null;
     // AECI-1625: the legal name a checkout records, and this seat's own claim title to
@@ -247,12 +235,20 @@ export function createVendorBillingHandler(
     const signer = await loadCheckoutSigner(db, auth.userId, vendorId);
     const pendingGrants = await toVendorPendingGrants(db, vendorId, grantRows);
 
+    const liveStripe = toLiveStripeSubscriptions(stripeRows)[0];
+    const stripe = await stripeSummary(liveStripe, stripeFor(c.env));
     const body: VendorBillingResponse = {
       billing_account: account ? { id: account.id, billing_email: account.billingEmail } : null,
       licenses: licenseRows.slice(0, VENDOR_BILLING_LICENSES_MAX).map(toVendorBillingLicense),
       licenses_truncated: licenseRows.length > VENDOR_BILLING_LICENSES_MAX,
       assignable_products: assignableRows,
-      stripe: await stripeSummary(toLiveStripeSubscriptions(stripeRows)[0], stripeFor(c.env)),
+      stripe,
+      // AECI-1865: plus paid subscriptions the webhook has not landed yet, when Stripe answered.
+      pool_count:
+        (poolRows[0]?.n ?? 0) +
+        (stripe?.synced && liveStripe
+          ? unsyncedStripeCount(stripe.quantity, liveStripe.liveCount)
+          : 0),
       stripe_checkout_available: stripeRoutesReady(c.env),
       stripe_customer: account?.stripeCustomerId != null,
       legal_name: signer.companyLegalName,

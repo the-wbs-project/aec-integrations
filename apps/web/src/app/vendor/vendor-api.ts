@@ -267,8 +267,15 @@ export class VendorApi {
     quantity: number,
     interval: StripeBillingInterval,
     signerTitle: string,
+    unusedAcknowledged?: number,
   ): Promise<StripeRedirectResponse> {
-    const body: StripeCheckoutRequest = { quantity, interval, signer_title: signerTitle };
+    const body: StripeCheckoutRequest = {
+      quantity,
+      interval,
+      signer_title: signerTitle,
+      // AECI-1865: the unused count the owner accepted, sent only when above zero.
+      ...(unusedAcknowledged ? { unused_acknowledged: unusedAcknowledged } : {}),
+    };
     return firstValueFrom(
       this.http.post<StripeRedirectResponse>('/api/vendor/billing/checkout', body),
     );
@@ -276,8 +283,14 @@ export class VendorApi {
 
   /** `POST /api/vendor/billing/licenses/add` (E9.3): raise the subscription's quantity.
    *  The licenses land with the webhook, so the caller re-reads billing until they do. */
-  addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
-    const body: AddStripeLicensesRequest = { quantity };
+  addStripeLicenses(
+    quantity: number,
+    unusedAcknowledged?: number,
+  ): Promise<AddStripeLicensesResponse> {
+    const body: AddStripeLicensesRequest = {
+      quantity,
+      ...(unusedAcknowledged ? { unused_acknowledged: unusedAcknowledged } : {}),
+    };
     return firstValueFrom(
       this.http.post<AddStripeLicensesResponse>('/api/vendor/billing/licenses/add', body),
     );

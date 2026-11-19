@@ -380,6 +380,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
 | `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live Stripe subscription: a lapsed customer still opens the portal. Buy through checkout first |
 | `STRIPE_PAYMENT_INCOMPLETE` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when Stripe could not collect the pro-rated invoice (a declined card, an unfinished 3-D Secure check). Stripe answers the update `200` but leaves a `pending_update` and the old quantity, so no subscription lands and the card was not charged. `details.expires_at` is when Stripe drops the pending change (Unix seconds). Fix the payment method in the Customer Portal, then add again. **409, not 402**, for the reason the `ENTITLEMENT_REQUIRED` row gives: this table has no 402 row (§4.1). Nothing is written |
+| `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` | 409 | `POST /api/vendor/billing/checkout` and `POST /api/vendor/billing/licenses/add` (AECI-1865) when the purchase would leave subscriptions on no product (the quantity plus the live pool, less the products holding no live subscription) and the body's `unused_acknowledged` is not exactly that count (§6.14). `details.unused` names the count, with `details.pool` and `details.products_without_subscription`. Raised before any Stripe call. Re-read `GET /api/vendor/billing`, show the warning again and send the new count. Nothing is written |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call. `POST /api/vendor/license-grants/:id/accept` (AECI-1615) answers it when the owner's sign-in email cannot be resolved, before any write |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
@@ -8591,6 +8592,7 @@ export const VendorBillingResponseSchema = z.object({
   licenses: z.array(VendorBillingLicenseSchema),   // capped at VENDOR_BILLING_LICENSES_MAX (500)
   licenses_truncated: z.boolean(),
   assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
+  pool_count: z.number().int().nonnegative(),  // AECI-1865
   stripe: VendorBillingStripeSchema.nullable(),    // AECI-1501; null = no live Stripe license
   stripe_checkout_available: z.boolean(),          // AECI-1501; the three Stripe routes' gate
   stripe_customer: z.boolean(),                    // AECI-1501; the account has a Stripe customer
@@ -8651,6 +8653,11 @@ export const VendorBillingLicenseSchema = z.object({
 - **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
   live subscription from **any** vendor. A co-owned product subscribed by the other owner is left
   out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
+- **`pool_count`** (AECI-1865) is every live subscription on no product, counted in the same
+  batch (`poolCountSelect`) and never capped like `licenses`. When `stripe.synced` is true it
+  also adds Stripe's quantity above the live Stripe rows (`unsyncedStripeCount`): paid
+  subscriptions the webhook has not landed yet, which arrive in the pool. The
+  unused-subscriptions warning counts from it, as the gate does.
 - **`stripe`** (AECI-1501) summarises the account's live Stripe subscription. It starts
   from D1: a fourth read in the same batch groups the live subscriptions that carry a
   `stripe_subscription_id`. Monthly rows have `ends_at` NULL, so the interval comes from the
@@ -8829,8 +8836,8 @@ The owner's Stripe routes (E9.3 of AECI-1339; `VENDOR_SIGNUP_PROCESS.md` §2 dec
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval, signer_title }` | `200 { url }` (Stripe Checkout) |
-| `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity }` | `200 { ok: true, pending: true }` |
+| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval, signer_title, unused_acknowledged? }` | `200 { url }` (Stripe Checkout) |
+| `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity, unused_acknowledged? }` | `200 { ok: true, pending: true }` |
 | `POST` | `/api/vendor/billing/portal` | none | `200 { url }` (Customer Portal) |
 
 ```typescript
@@ -8840,10 +8847,14 @@ export const StripeCheckoutRequestSchema = z
     quantity: z.number().int().min(1).max(100),
     interval: z.enum(['year', 'month']),
     signer_title: z.string().trim().min(1).max(100),  // AECI-1625: the buyer's title, required
+    unused_acknowledged: z.number().int().nonnegative().optional(), // AECI-1865
   })
   .strict();
 export const AddStripeLicensesRequestSchema = z
-  .object({ quantity: z.number().int().min(1).max(100) })
+  .object({
+    quantity: z.number().int().min(1).max(100),
+    unused_acknowledged: z.number().int().nonnegative().optional(), // AECI-1865
+  })
   .strict();
 export const StripeRedirectResponseSchema = z.object({ url: z.string().url() });
 export const AddStripeLicensesResponseSchema = z.object({
@@ -8857,6 +8868,32 @@ the handler, `requireSeatOwner()` (a member seat gets `403 FORBIDDEN`), then the
 (`503 STRIPE_UNAVAILABLE`, the `stripe_checkout_available` rule above), then the body. No
 capability gate: the fourth named exception to invariant 3. A vendor with no billing account
 is `404 NOT_FOUND`.
+
+**The unused-subscriptions gate (AECI-1865).** Checkout and add both work out how many
+subscriptions the purchase would leave on no product, with `unusedAfterPurchase`:
+
+```
+unused = max(0, quantity + pool − products without a subscription)
+```
+
+`pool` is the live `licenses` rows on the vendor's billing account with no
+`assigned_product_id`. On an add it also counts Stripe's quantity above the live Stripe rows
+(`unsyncedStripeCount`): subscriptions paid for but not yet synced by the webhook land in the
+pool, so leaving them out would let an add skip the warning. Those live Stripe rows are
+counted in the same D1 batch as the pool, after the Stripe read (`loadPurchaseCounts`). A
+count taken before the Stripe read would miss a webhook that commits during it, and that
+webhook's subscriptions would then count twice: once in the pool and once in the gap.
+Products without a subscription are the read's `assignable_products`
+predicate (`assignableProductsWhere`): owned through `product_vendors`, holding no live license
+from any vendor. The server counts both itself (`loadPurchaseCounts`) and never trusts the
+client. When `unused` is above zero and the body's `unused_acknowledged` is not exactly
+`unused`, the route answers `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` with `details.unused`,
+`details.pool` and `details.products_without_subscription`, before any Stripe write. An exact
+match is required, so a tab whose counts went stale is refused and re-reads. The tab then warns
+from `details.pool` and `details.products_without_subscription` until the next purchase, so a
+read that lags the API cannot refuse the owner forever. At zero the field is ignored. Checkout
+runs the gate after the D1 subscription check in step 1 and before the Stripe list. Add runs it
+after the Stripe read (it needs Stripe's quantity) and before the update.
 
 **A live Stripe subscription** is live `licenses` rows on the account that carry a
 `stripe_subscription_id`. A subscription Stripe holds but the webhook has not synced is not
@@ -8885,8 +8922,8 @@ and the reconcile job (E9.5) closes their gap.
    with `expand[]=data.line_items`). An open session is in neither D1 nor the Stripe subscription
    list, and stays payable for 24 h, so two open sessions could pay for two Stripe subscriptions.
    One whose single line item has this price and quantity, and whose metadata names this
-   account, this owner, the current `terms_version`, the same signer metadata (AECI-1625) and the
-   current `plans_version` (AECI-1619), and
+   account, this owner, the current `terms_version`, the same signer metadata (AECI-1625), the
+   current `plans_version` (AECI-1619) and the same `unused_acknowledged` (AECI-1865), and
    which was opened on today's UTC day (its text names a renewal date, AECI-1596), is reused: the route answers its
    `url` and opens nothing. Every other open session is expired
    (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
@@ -8905,6 +8942,11 @@ and the reconcile job (E9.5) closes their gap.
    `plans_version` (`PLANS_PAGE_CURRENT_VERSION`). Like the signer, it rides the session only,
    not `subscription_data[metadata]`. The webhook copies it into the acceptance row with the
    snapshot's hash.
+   *As built 2026-11-19 (AECI-1865):* the session's `metadata` also carries
+   `unused_acknowledged`, the accepted count, when it is above zero. Session only, like the
+   signer. When this checkout creates the Stripe customer (step 3), the
+   `billing_account.stripe_customer_linked` audit row's `metadata.unused_acknowledged` records
+   the count too. No other audit row is written on these routes.
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
@@ -8916,8 +8958,8 @@ and the reconcile job (E9.5) closes their gap.
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
    `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
    `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
-   quantity, the UTC minute and a 12-hex digest of the signer metadata and `plans_version`
-   (AECI-1625, AECI-1619; `evidenceKey`), because
+   quantity, the UTC minute and a 12-hex digest of the signer metadata, `plans_version` and
+   `unused_acknowledged` (AECI-1625, AECI-1619, AECI-1865; `evidenceKey`), because
    Stripe refuses a key replayed with different parameters. A double click in the same minute replays the same
    session. A later click for the same purchase reuses it through step 4. A click for
    another interval or quantity expires it in step 4 and gets a new key.
@@ -8945,6 +8987,13 @@ new one, so the earlier change can never land on top of the later one (Stripe do
 updates", confirmed 2026-10-28). An unpaid pending update expires after 23 hours and Stripe
 voids its invoice. Paying the open invoice in the Customer Portal applies the pending change,
 and the `customer.subscription.updated` event then syncs the subscriptions.
+*As built 2026-11-19 (AECI-1865):* the update also sets the Stripe subscription's `metadata`
+`unused_acknowledged` (the accepted count) and `unused_acknowledged_by` (the owner's profile
+id). An add with nothing unused sends both empty, which clears them. Because the metadata is a
+parameter, the count joins the idempotency key after the delta, with the owner's profile id
+when the count is above zero, because the metadata names that owner:
+`aeci-add-<sub>-<quantity read>-<delta>-u<count>-<profile id>[-<pending expires_at>]`, or
+`…-u0[-<pending expires_at>]` with nothing unused.
 
 **Portal.** The portal needs a Stripe customer, not a live Stripe subscription. An account with no
 `stripe_customer_id` and no live Stripe subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live
@@ -8966,7 +9015,8 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
-`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` (409,
+checkout and add, AECI-1865) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
 portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
 paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
