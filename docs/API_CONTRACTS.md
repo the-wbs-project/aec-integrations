@@ -3012,7 +3012,8 @@ A Managed grant's `vendor_entitlement.granted` row is filed against the vendor. 
 (`vendor_request.created`) has no actor id, so its `actor` is `null`.
 
 **A read.** No `audit_log` row and no rate limit. The page reader is the same one
-`GET /api/admin/connector-catalogs/:id/audit` uses, so the two trails cannot drift.
+`GET /api/admin/connector-catalogs/:id/audit` and `GET /api/admin/users/:id/audit` use, so
+the three trails cannot drift.
 
 Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as
 `GET /api/admin/claims/:id`. Without the 404 gate an unknown id would return an empty page,
@@ -3022,7 +3023,7 @@ bad page query, and the shared 401/403.
 #### `GET /api/admin/audit` (AECI-653)
 
 **The global audit-log viewer.** Every `audit_log` row, filtered. It backs `/admin/audit`.
-Behind `requireAdmin()`. The vendor, claim and connector trails are scoped reads of the
+Behind `requireAdmin()`. The vendor, claim, connector and user trails are scoped reads of the
 same table. This one is unscoped. Source of truth: `packages/shared/src/api/admin-audit.ts`,
 `apps/api/src/routes/admin-audit.ts`, and the shared page reader
 `apps/api/src/lib/admin-audit-page.ts`.
@@ -4688,6 +4689,53 @@ AdminUserDetail = {
 (below), reused — no longer the sole writer of `profiles.banned_at`: Terminate (AECI-1623) bans every seat in its batch, and `banned-at-writers.spec.ts` pins both writers.
 Seat revoke is likewise not here; it stays
 `DELETE /api/admin/vendors/:id/seats/:userId`.
+
+#### `GET /api/admin/users/:id/audit` (AECI-693)
+
+**The person's audit trail.** It backs the Audit trail section on `/admin/users/:id`.
+Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin-users.ts`,
+`apps/api/src/routes/admin-users.ts` (`userAuditWhere`), and the shared page reader
+`apps/api/src/lib/admin-audit-page.ts`.
+
+```typescript
+export const AdminUserAuditScopeSchema = z.enum(['all', 'entity', 'actor']);
+export const AdminUserAuditQuerySchema = PageQuerySchema.extend({
+  scope: AdminUserAuditScopeSchema.default('all'), // ?page=&perPage=&scope=
+});
+export const AdminUserAuditResponseSchema = paginatedResponseSchema(AdminAuditRowSchema).extend({
+  actor_emails_available: z.boolean(), // false = the email seam failed, not "no email"
+});
+```
+
+**The legs.** Each is served by its own index. Order is `created_at DESC, id DESC`.
+
+| Leg | Condition | Index | Scopes |
+|---|---|---|---|
+| Profile | `entity_type = 'profile' AND entity_id = :id` | `audit_log_entity_idx` | `all`, `entity` |
+| Metadata | `action IN ('vendor_claim.granted', 'license.cancel_at_term_end_cleared') AND json_extract(metadata, '$.seat_user_id') = :id` | `audit_log_action_idx` | `all`, `entity` |
+| Actor | `actor_id = :id` | `audit_log_actor_idx` | `all`, `actor` |
+
+- **The profile leg** catches every profile writer. That includes create and update,
+  erasure, seat accept and provision, seat revoke, ban and unban, the seat-revoked
+  `notification.sent`, and the `notification_preferences.*` writers.
+- **The metadata leg** covers the two actions filed under another entity, a claim and a
+  billing account, that name the person only in `metadata.seat_user_id`. The JSON test
+  runs only on rows with one of those actions.
+- **`agreement.linked` is not included.** It names the person only in
+  `after_state.profile_id`, which no index reaches. It shows on the claim trail.
+- **One flat OR.** `all` is a single top-level OR of the three legs, so SQLite plans a
+  MULTI-INDEX OR with one index search per leg. An `EXPLAIN QUERY PLAN` test fails on any
+  `SCAN audit_log` (the AECI-1484 rule, `GET /api/admin/vendors/:id/audit`).
+
+**A read.** No `audit_log` row, no rate limit and no cache tag. The page reader is the
+claim trail's, so the trails cannot drift.
+
+Errors:
+- `VALIDATION_FAILED` (400) on an unknown `scope` or a bad page query.
+- `NOT_FOUND` (404) on an unknown id, exactly as `GET /api/admin/users/:id`. An erased
+  account 404s too, because its profile row is gone. Without the gate an unknown id would
+  return an empty page, which reads as "no history" rather than "no such person".
+- Plus the shared `requireAdmin()` 401/403.
 
 #### `GET /api/admin/reviewers`
 

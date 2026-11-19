@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ADMIN_USERS_DEFAULT_PER_PAGE,
   ADMIN_USERS_MAX_PER_PAGE,
+  AdminUserAuditQuerySchema,
+  AdminUserAuditResponseSchema,
+  AdminUserAuditScopeSchema,
   AdminUserDetailSchema,
   AdminUserRowSchema,
   AdminUsersListQuerySchema,
@@ -237,5 +240,54 @@ describe('AdminUserDetailSchema', () => {
   it('ships seat_owner raw, so a stale flag on a demoted profile stays visible', () => {
     const stale = detail({ role: 'reviewer', seat: null, seat_owner: true });
     expect(AdminUserDetailSchema.parse(stale).seat_owner).toBe(true);
+  });
+});
+
+describe('AdminUserAuditQuerySchema (AECI-693)', () => {
+  it('defaults to scope all, page 1 and the shared page size', () => {
+    expect(AdminUserAuditQuerySchema.parse({})).toEqual({ page: 1, perPage: 24, scope: 'all' });
+  });
+
+  it('accepts the three scopes the vendor trail uses', () => {
+    for (const scope of ['all', 'entity', 'actor'] as const) {
+      expect(AdminUserAuditQuerySchema.parse({ scope }).scope).toBe(scope);
+    }
+    expect(AdminUserAuditScopeSchema.options).toEqual(['all', 'entity', 'actor']);
+  });
+
+  it('rejects an unknown scope rather than returning an empty page', () => {
+    expect(AdminUserAuditQuerySchema.safeParse({ scope: 'everything' }).success).toBe(false);
+  });
+
+  it('coerces page and perPage from the query string and caps perPage', () => {
+    expect(AdminUserAuditQuerySchema.parse({ page: '3', perPage: '10' })).toMatchObject({
+      page: 3,
+      perPage: 10,
+    });
+    expect(AdminUserAuditQuerySchema.safeParse({ page: '0' }).success).toBe(false);
+    expect(AdminUserAuditQuerySchema.safeParse({ perPage: '101' }).success).toBe(false);
+  });
+});
+
+describe('AdminUserAuditResponseSchema (AECI-693)', () => {
+  const auditRow = {
+    id: '00000000-0000-4000-8000-000000000901',
+    action: 'profile.updated',
+    actor: { id: USER_ID, display_name: 'Jane', email: null },
+    actor_type: 'user',
+    entity_type: 'profile',
+    entity_id: USER_ID,
+    created_at: '2026-11-01T00:00:00.000Z',
+    before_state: { display_name: 'J' },
+    after_state: { display_name: 'Jane' },
+  };
+
+  it('parses a page and requires actor_emails_available', () => {
+    const page = { data: [auditRow], page: 1, perPage: 24, total: 1 };
+    expect(
+      AdminUserAuditResponseSchema.parse({ ...page, actor_emails_available: false })
+        .actor_emails_available,
+    ).toBe(false);
+    expect(AdminUserAuditResponseSchema.safeParse(page).success).toBe(false);
   });
 });

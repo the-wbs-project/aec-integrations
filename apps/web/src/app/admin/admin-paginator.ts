@@ -21,7 +21,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  * Its sibling, `AdminCursorPaginator` (`admin-cursor-paginator.ts`), pages by
  * keyset cursor instead. Only `/admin/audit` uses it, because an append-only
  * ledger drifts under offset paging (ADR 0046). Every other admin list, the
- * three scoped audit trails included, stays on this one and `PageQuerySchema`.
+ * scoped audit trails included, stays on this one and `PageQuerySchema`.
  */
 @Component({
   selector: 'aec-admin-paginator',

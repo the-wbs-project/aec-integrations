@@ -17,6 +17,8 @@
  *    copy has to cover both — naming the wrong one is worse than naming neither.
  *  - **`null` ≠ `[]` ≠ `0`.** Pending invites and request counts are keyed by an
  *    address the GoTrue seam supplies; without it they are unknowable.
+ *  - **The audit trail (AECI-693).** Headed "Audit trail", never "Activity". Its
+ *    scope toggle refetches at page 1, and a ban or reinstate reloads it.
  */
 
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -24,7 +26,7 @@ import { ActivatedRoute, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AdminUserDetail } from '@aeci/shared';
+import type { AdminAuditRow, AdminUserAuditResponse, AdminUserDetail } from '@aeci/shared';
 
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminUsersApi } from './admin-users-api';
@@ -78,14 +80,52 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
 
 interface ApiMock {
   getUser: ReturnType<typeof vi.fn>;
+  listAudit: ReturnType<typeof vi.fn>;
 }
 interface BansMock {
   listBanned: ReturnType<typeof vi.fn>;
   ban: ReturnType<typeof vi.fn>;
 }
 
-function makeApiMock(user: AdminUserDetail = makeUser()): ApiMock {
-  return { getUser: vi.fn(async () => structuredClone(user)) };
+const ADMIN_ID = '00000000-0000-4000-8000-0000000000aa';
+
+function makeAuditRow(over: Partial<AdminAuditRow> = {}): AdminAuditRow {
+  return {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    action: 'profile.updated',
+    actor: { id: ADMIN_ID, display_name: 'Ops Admin', email: null },
+    actor_type: 'admin',
+    entity_type: 'profile',
+    entity_id: USER_ID,
+    created_at: '2026-06-01T00:00:00.000Z',
+    before_state: { display_name: 'Rita' },
+    after_state: { display_name: 'Rita Reviewer' },
+    ...over,
+  };
+}
+
+function makeAudit(
+  rows: AdminAuditRow[] = [makeAuditRow()],
+  over: Partial<AdminUserAuditResponse> = {},
+): AdminUserAuditResponse {
+  return {
+    data: rows,
+    page: 1,
+    perPage: 25,
+    total: rows.length,
+    actor_emails_available: true,
+    ...over,
+  };
+}
+
+function makeApiMock(
+  user: AdminUserDetail = makeUser(),
+  audit: AdminUserAuditResponse = makeAudit(),
+): ApiMock {
+  return {
+    getUser: vi.fn(async () => structuredClone(user)),
+    listAudit: vi.fn(async () => structuredClone(audit)),
+  };
 }
 
 function makeBansMock(): BansMock {
@@ -317,10 +357,13 @@ describe('UserDetail', () => {
       invite(3, 'Zeta', 'ann', '2026-07-01T00:00:00.000Z', '2026-10-15T00:00:00.000Z'),
     ];
 
+    // The audit trail (AECI-693) is a second table on the page, so skip its cells.
+    const inviteCells = <T extends Element>(el: HTMLElement, selector: string) =>
+      [...el.querySelectorAll<T>(selector)].filter((cell) => !cell.closest('aec-audit-trail'));
     const vendorColumn = (el: HTMLElement) =>
-      [...el.querySelectorAll('tbody th[scope="row"]')].map((th) => th.textContent?.trim());
+      inviteCells(el, 'tbody th[scope="row"]').map((th) => th.textContent?.trim());
     const inviteHeader = (el: HTMLElement, label: string) =>
-      [...el.querySelectorAll<HTMLTableCellElement>('thead th')].find((th) =>
+      inviteCells<HTMLTableCellElement>(el, 'thead th').find((th) =>
         th.textContent?.trim().startsWith(label),
       );
 
@@ -542,5 +585,143 @@ describe('UserDetail', () => {
     const link = about.querySelector('a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('https://www.linkedin.com/in/rita');
     expect(link.getAttribute('rel')).toBe('noopener nofollow');
+  });
+
+  describe('audit trail (AECI-693)', () => {
+    const section = (el: HTMLElement) =>
+      el.querySelector('section[aria-labelledby="admin-user-audit"]') as HTMLElement;
+    const scopeButton = (el: HTMLElement, label: string) =>
+      buttonByText(section(el).querySelector('[role="group"]') as HTMLElement, label)!;
+
+    it('is headed "Audit trail" and never says "Activity"', async () => {
+      const { el } = await setup();
+      const heading = el.querySelector('#admin-user-audit');
+      expect(heading?.tagName).toBe('H3');
+      expect(heading?.textContent?.trim()).toBe('Audit trail');
+      expect(el.textContent).not.toMatch(/activity/i);
+    });
+
+    it('loads page 1 of everything once the account resolves, and renders the rows', async () => {
+      const { el, api } = await setup();
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+      expect(api.listAudit).toHaveBeenCalledWith(USER_ID, { page: 1, perPage: 25, scope: 'all' });
+      const trail = el.querySelector('aec-audit-trail') as HTMLElement;
+      expect(trail.querySelectorAll('tbody tr').length).toBeGreaterThan(0);
+      expect(trail.textContent).toContain('Ops Admin');
+    });
+
+    it('does not fetch a trail for an unknown account', async () => {
+      const api = makeApiMock();
+      api.getUser.mockRejectedValueOnce({ status: 404 });
+      await setup(api);
+      expect(api.listAudit).not.toHaveBeenCalled();
+    });
+
+    it('marks the selected scope with aria-pressed, refetches, and resets to page 1', async () => {
+      const api = makeApiMock(makeUser(), makeAudit([makeAuditRow()], { total: 60 }));
+      const { el, fixture } = await setup(api);
+      expect(scopeButton(el, 'Everything').getAttribute('aria-pressed')).toBe('true');
+      expect(scopeButton(el, 'Done to this person').getAttribute('aria-pressed')).toBe('false');
+
+      await click(
+        fixture,
+        buttonByText(el.querySelector('aec-audit-trail') as HTMLElement, 'Next')!,
+      );
+      expect(api.listAudit).toHaveBeenLastCalledWith(USER_ID, {
+        page: 2,
+        perPage: 25,
+        scope: 'all',
+      });
+
+      await click(fixture, scopeButton(el, 'Done by this person'));
+      expect(api.listAudit).toHaveBeenLastCalledWith(USER_ID, {
+        page: 1,
+        perPage: 25,
+        scope: 'actor',
+      });
+      expect(scopeButton(el, 'Done by this person').getAttribute('aria-pressed')).toBe('true');
+      expect(scopeButton(el, 'Everything').getAttribute('aria-pressed')).toBe('false');
+
+      await click(fixture, scopeButton(el, 'Done to this person'));
+      expect(api.listAudit).toHaveBeenLastCalledWith(USER_ID, {
+        page: 1,
+        perPage: 25,
+        scope: 'entity',
+      });
+
+      // Pressing the selected scope again does not refetch.
+      const calls = api.listAudit.mock.calls.length;
+      await click(fixture, scopeButton(el, 'Done to this person'));
+      expect(api.listAudit).toHaveBeenCalledTimes(calls);
+    });
+
+    it('fails soft with a retry that refetches the trail alone', async () => {
+      const api = makeApiMock();
+      api.listAudit.mockRejectedValueOnce({ status: 500 });
+      const { el, fixture } = await setup(api);
+      expect(el.textContent).toContain('Rita Reviewer');
+      const trail = el.querySelector('aec-audit-trail') as HTMLElement;
+      expect(trail.querySelector('[role="alert"]')).not.toBeNull();
+
+      await click(fixture, buttonByText(trail, 'Try again')!);
+      expect(api.listAudit).toHaveBeenCalledTimes(2);
+      expect(api.getUser).toHaveBeenCalledTimes(1);
+      expect(el.querySelector('aec-audit-trail [role="alert"]')).toBeNull();
+    });
+
+    it('reloads the trail at page 1 after a ban', async () => {
+      const api = makeApiMock(makeUser(), makeAudit([makeAuditRow()], { total: 60 }));
+      const { el, fixture } = await setup(api);
+      await click(
+        fixture,
+        buttonByText(el.querySelector('aec-audit-trail') as HTMLElement, 'Next')!,
+      );
+      expect(api.listAudit).toHaveBeenLastCalledWith(USER_ID, expect.objectContaining({ page: 2 }));
+
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      const textarea = el.querySelector('textarea')!;
+      textarea.value = 'Coordinated spam.';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+
+      expect(api.listAudit).toHaveBeenCalledTimes(3);
+      expect(api.listAudit).toHaveBeenLastCalledWith(USER_ID, {
+        page: 1,
+        perPage: 25,
+        scope: 'all',
+      });
+    });
+
+    it('reloads the trail after a reinstate', async () => {
+      const api = makeApiMock(
+        makeUser({ banned_at: '2026-08-01T00:00:00.000Z', ban_reason: 'Spam.' }),
+      );
+      const { el, fixture } = await setup(api);
+      await click(fixture, buttonByText(el, 'Reinstate')!);
+      expect(api.listAudit).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not reload the trail when the ban fails', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({ status: 500 });
+      const api = makeApiMock(
+        makeUser({ banned_at: '2026-08-01T00:00:00.000Z', ban_reason: 'Spam.' }),
+      );
+      const { el, fixture } = await setup(api, bans);
+      await click(fixture, buttonByText(el, 'Reinstate')!);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+    });
+
+    it('links into the global audit log by actor and by profile entity', async () => {
+      const { el } = await setup();
+      const hrefs = [...section(el).querySelectorAll(':scope > p a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(hrefs).toEqual([
+        `/admin/audit?actor_id=${USER_ID}`,
+        `/admin/audit?entity_type=profile&entity_id=${USER_ID}`,
+      ]);
+    });
   });
 });

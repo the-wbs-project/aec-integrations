@@ -45,17 +45,17 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
  * The `audit_log` viewer, as a table (AECI-694).
  *
  * Extracted from `/admin/vendors/:id`. Since then `/admin/connectors/:id`
- * (AECI-722) and `/admin/claims/:id` (AECI-1276) render it too. It is a
+ * (AECI-722), `/admin/claims/:id` (AECI-1276) and `/admin/users/:id` (AECI-693)
+ * render it too. It is a
  * component rather than markup in one page because "audit trail" is a shape the
  * console keeps wanting, and each new one should be a drop-in rather than a
  * second divergent renderer.
  *
  * ── PRESENTATION ONLY ────────────────────────────────────────────────────────
  * It owns the table, the collapsed diffs and the paginator; it owns no fetching
- * and no scope filter. Scope is vendor-specific (`?scope=all|entity|actor`, four
- * OR'd disjuncts server-side) and stays with the page that knows what a scope
- * means there, so a future user-scoped trail is not forced to inherit a control
- * that would be wrong for it.
+ * and no scope filter. Scope (`?scope=all|entity|actor`) means something
+ * different on each page that has one, the vendor and user pages, so the
+ * toggle stays with the page that knows what a scope means there.
  *
  * ── WHY A TABLE AND NOT CARDS ────────────────────────────────────────────────
  * Every field is short and every row has the same fields, which is the case a
@@ -69,7 +69,7 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
  * line, because "nothing for this scope" is wrong when the operator chose the
  * filters. `linkEntities` turns the entity cell into a link to that entity's
  * full history in the global log. Both default to the scoped behaviour, so the
- * three detail pages render exactly as before.
+ * detail pages render exactly as before.
  *
  * ── CURSOR PAGING AND THE GLOBAL LOG'S EXTRAS ────────────────────────────────
  * The follow-up to AECI-653 gave the global log keyset paging (ADR 0046) and a
