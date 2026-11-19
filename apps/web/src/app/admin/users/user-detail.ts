@@ -354,9 +354,17 @@ export class UserDetail {
     void this.loadAudit();
   }
 
+  /**
+   * The newest audit request's number. Every write after the await checks it,
+   * so a superseded response (an earlier scope or page that resolves last) is
+   * dropped and cannot overwrite the rows the pressed button asked for.
+   */
+  private auditRequestSeq = 0;
+
   private async loadAudit(): Promise<void> {
     const id = this.userId();
     if (!id) return;
+    const seq = ++this.auditRequestSeq;
     this.auditLoading.set(true);
     this.auditFailed.set(false);
     try {
@@ -365,15 +373,17 @@ export class UserDetail {
         perPage: this.auditPerPage,
         scope: this.auditScope(),
       });
+      if (seq !== this.auditRequestSeq) return;
       this.auditRows.set(response.data);
       this.auditTotal.set(response.total);
       this.auditEmailsAvailable.set(response.actor_emails_available);
     } catch {
+      if (seq !== this.auditRequestSeq) return;
       this.auditFailed.set(true);
       this.auditRows.set([]);
       this.auditTotal.set(0);
     } finally {
-      this.auditLoading.set(false);
+      if (seq === this.auditRequestSeq) this.auditLoading.set(false);
     }
   }
 

@@ -655,6 +655,40 @@ describe('UserDetail', () => {
       expect(api.listAudit).toHaveBeenCalledTimes(calls);
     });
 
+    it('drops a superseded response that resolves after the newer one', async () => {
+      const api = makeApiMock();
+      const { el, fixture } = await setup(api);
+
+      // Two quick scope presses. The first request (actor) resolves LAST.
+      let resolveActor!: (r: AdminUserAuditResponse) => void;
+      let resolveEntity!: (r: AdminUserAuditResponse) => void;
+      api.listAudit
+        .mockImplementationOnce(() => new Promise((r) => (resolveActor = r)))
+        .mockImplementationOnce(() => new Promise((r) => (resolveEntity = r)));
+      scopeButton(el, 'Done by this person').click();
+      scopeButton(el, 'Done to this person').click();
+
+      resolveEntity(
+        makeAudit([
+          makeAuditRow({ actor: { id: ADMIN_ID, display_name: 'Entity Row', email: null } }),
+        ]),
+      );
+      await settle();
+      resolveActor(
+        makeAudit([
+          makeAuditRow({ actor: { id: ADMIN_ID, display_name: 'Stale Row', email: null } }),
+        ]),
+      );
+      await settle();
+      fixture.detectChanges();
+
+      const trail = el.querySelector('aec-audit-trail') as HTMLElement;
+      expect(scopeButton(el, 'Done to this person').getAttribute('aria-pressed')).toBe('true');
+      expect(trail.textContent).toContain('Entity Row');
+      expect(trail.textContent).not.toContain('Stale Row');
+      expect(trail.getAttribute('aria-busy')).not.toBe('true');
+    });
+
     it('fails soft with a retry that refetches the trail alone', async () => {
       const api = makeApiMock();
       api.listAudit.mockRejectedValueOnce({ status: 500 });
