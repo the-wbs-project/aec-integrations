@@ -46,6 +46,10 @@ on:
     - cron: '40 5 * * *'
   # Manual run on any branch. Never alerts.
   workflow_dispatch:
+  # TEMP (AECI-1875 verification, revert before the PR): GitHub cannot dispatch
+  # a workflow that is not on main yet.
+  push:
+    branches: [chris/aeci-1875-a11y-nightly-1-workflow-surface-manifest]
 
 # One group per measured SHA, never cancelled. Two runs for the same SHA queue.
 concurrency:
