@@ -5,6 +5,7 @@ import {
   INTEGRATION_EDIT_REQUIRED_FIELDS,
   integrationEditFieldSchema,
 } from './integration-edits';
+import { IntegrationRetiredBySchema } from './integration-retire';
 import { IntegrationMechanismKindSchema } from './integrations';
 
 /**
@@ -12,6 +13,8 @@ import { IntegrationMechanismKindSchema } from './integrations';
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7).
  *
  *   POST /api/vendor/integrations — the caller's vendor lists a new integration (201).
+ *   GET  /api/vendor/integrations/possible-duplicates — the same strong matches,
+ *        before the create (AECI-1953).
  *
  * Six rules the shapes encode:
  *
@@ -32,6 +35,9 @@ import { IntegrationMechanismKindSchema } from './integrations';
  *    which becomes the row's source.
  * 6. **A duplicate is never refused** (decision 10, AECI-1012 ruling 2026-09-22).
  *    The 201 lists the strong matches in `possible_duplicates` as a warning.
+ *    Since AECI-1953 the same matches are readable BEFORE the create, through
+ *    `GET /api/vendor/integrations/possible-duplicates`, so the form shows them
+ *    when the vendor picks the other product.
  *
  * i18n note: framework-agnostic package (no `$localize`). The messages below are
  * for API consumers and logs; the portal renders its own copy.
@@ -78,10 +84,11 @@ export type CreateVendorIntegrationInput = z.input<typeof CreateVendorIntegratio
 export type CreateVendorIntegrationParsed = z.output<typeof CreateVendorIntegrationSchema>;
 
 /**
- * An existing integration that strongly matches the one just created (AECI-1012,
+ * An existing integration that strongly matches the one being created (AECI-1012,
  * option 1C): the same two products in either order, the same connector (none),
  * and an owner that is the caller or unknown. Retired rows are included, marked,
- * so a vendor that retired its own row can restore it instead.
+ * so a vendor that retired its own row can restore it instead. `retired_by` says
+ * who retired it, because only AEC Integrations restores an AECi retire.
  */
 export const PossibleDuplicateIntegrationSchema = z.object({
   id: z.string().uuid(),
@@ -95,8 +102,38 @@ export const PossibleDuplicateIntegrationSchema = z.object({
   owner: z.object({ id: z.string(), name: z.string() }).nullable(),
   claimed: z.boolean(),
   retired: z.boolean(),
+  /** Who retired the row (AECI-1046), or `null` while it is live. A retired row
+   *  with no stored value predates migration 0046 and reads as `owner`. */
+  retired_by: IntegrationRetiredBySchema.nullable(),
 });
 export type PossibleDuplicateIntegration = z.infer<typeof PossibleDuplicateIntegrationSchema>;
+
+/**
+ * `GET /api/vendor/integrations/possible-duplicates` (AECI-1953). The create's own
+ * endpoint pair, read before the create: `product_id` is the caller's product and
+ * `counterpart_product_id` the other one. The same `404` as the create for either
+ * miss, and the same `400` for equal ids.
+ *
+ * `.strict()`: an unknown query key is a `400`.
+ */
+export const PossibleDuplicatesQuerySchema = z
+  .object({
+    product_id: z.string().uuid(),
+    counterpart_product_id: z.string().uuid(),
+  })
+  .strict()
+  .refine((query) => query.product_id !== query.counterpart_product_id, {
+    path: ['counterpart_product_id'],
+    message: 'An integration needs two different products',
+  });
+export type PossibleDuplicatesQuery = z.infer<typeof PossibleDuplicatesQuerySchema>;
+
+/** The strong matches the create would report for this pair, oldest first. Empty
+ *  when there are none. A warning, never a refusal. */
+export const PossibleDuplicatesResponseSchema = z.object({
+  possible_duplicates: z.array(PossibleDuplicateIntegrationSchema),
+});
+export type PossibleDuplicatesResponse = z.infer<typeof PossibleDuplicatesResponseSchema>;
 
 /** The row as the create left it. Timestamps are ISO-8601. */
 export const CreatedVendorIntegrationSchema = z.object({

@@ -279,6 +279,7 @@ import {
   createRetireIntegrationHandler,
 } from './routes/vendor-integration-retire';
 import { createCreateVendorIntegrationHandler } from './routes/vendor-integration-create';
+import { createPossibleDuplicatesHandler } from './routes/vendor-integration-duplicates';
 import {
   createDeleteIntegrationLinkHandler,
   createPutIntegrationLinkHandler,
@@ -1566,6 +1567,15 @@ authVendor.post(
 );
 // AECI-301. No path overlap with the product routes above, so ordering is free.
 authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());
+// AECI-1953 (§4.7.2): the create's duplicate warning, read before the create. The
+// create's endpoint checks and its one strong-match query. A read: `requireVendor()`
+// only, never a limiter. Registered before any `/api/vendor/integrations/:id` GET, so
+// a later `:id` route cannot swallow the literal segment.
+authVendor.get(
+  '/api/vendor/integrations/possible-duplicates',
+  requireVendor(),
+  createPossibleDuplicatesHandler(),
+);
 // AECI-1011 / ADR 0035 decision 7: a vendor CREATES an integration on one of its own
 // products. A SEAT IS THE WHOLE GATE (decision 15): no `requireCapability`. The
 // endpoint checks (own product 404, promoted counterpart 404) are in the handler. The

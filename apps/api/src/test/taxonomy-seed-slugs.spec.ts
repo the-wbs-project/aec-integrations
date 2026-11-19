@@ -101,7 +101,7 @@ describe('seeded taxonomy slugs round-trip through slugify (AECI-925)', () => {
   it('is not a vacuous scan — the whole seeded vocabulary is in range', () => {
     // Pinned counts, so a parser that silently stops early cannot pass by
     // checking three rows and declaring the file clean.
-    expect(seedRows('taxonomy_categories')).toHaveLength(32);
+    expect(seedRows('taxonomy_categories')).toHaveLength(33);
     expect(seedRows('taxonomy_audiences')).toHaveLength(36);
     expect(seedRows('taxonomy_phases')).toHaveLength(5);
   });

@@ -1288,7 +1288,11 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 
 > **`acceptance_without_retention_date` means acceptance records the legal prune can never delete**
 > (AECI-1914). It is a count only (ruling 50): its one line gives the number of acceptance rows and
-> grant rows whose vendor has no `vendors` row and no `vendor.deleted` audit row. To find the vendor
+> grant rows whose vendor has no `vendors` row and no `vendor.deleted` audit row. A second line
+> (AECI-1718) gives the number of Terms acceptances whose profile has no `profiles` row and no
+> `account.deleted` audit row. Only `DELETE /api/account` deletes a profile and it writes that
+> row, so look for a hand delete. Write the missing `account.deleted` row by an ops script, with
+> `entity_type = 'profile'`, `entity_id` = the profile id and the best known deletion date. To find the vendor
 > ids, run the same test in D1 against `agreement_acceptances.vendor_id` and `license_grants.vendor_id`. The prune dates a deleted company's records from that audit
 > row, so without it they are kept forever, which breaks the Privacy Policy. `ops:retract-vendor`
 > always writes the row, so look for a hand delete in D1. Write the missing `vendor.deleted` row by an
@@ -1705,12 +1709,15 @@ If step 2 returns any rows, the prune will skip — backfill those days first (F
 The same 03:00 tick enqueues a second job, `legal-retention-prune`, on `RECONCILE_QUEUE`
 (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). It deletes `audit_log` rows older than four
 years, except the exempt actions (`retention.pruned`, `litigation_hold.*`, `agreement.*`, `terms.*`,
-`account.deleted`, and a `vendor.deleted` row while an acceptance or grant of that gone vendor
-remains). It also deletes agreement acceptances and subscription grants six years after the
+a `vendor.deleted` row while an acceptance or grant of that gone vendor remains, and an
+`account.deleted` row while a Terms acceptance of that profile remains). It also deletes agreement acceptances and subscription grants six years after the
 vendor account ends, or five years after a grant ends if later. Since AECI-1914 no acceptance is
 kept forever: one of a claim never approved goes six years after the claim was rejected, one with
 no company and no claim six years after it was given, and one of a deleted company six years
-after its `vendor.deleted` row, which goes in the same batch as the last of them. It writes one `retention.pruned` row
+after its `vendor.deleted` row, which goes in the same batch as the last of them. Since AECI-1718 it
+also deletes a Terms of Service acceptance (`terms_acceptances`) six years after the account was
+deleted, dated by the account's `account.deleted` row, which goes in the same batch as the
+account's last Terms acceptance. It writes one `retention.pruned` row
 per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
 Nothing falls due before about 2030.
 
@@ -2083,9 +2090,10 @@ Two windows left orphans that no log or metric recorded. Before AECI-530 no depl
 had the key, so every erasure was skipped. Before AECI-531 a skip logged nothing. That set is
 found only by reconciliation:
 
-1. Read every production erasure. The legal retention prune never deletes an
-   `account.deleted` row (AECI-1638, `apps/api/src/lib/legal-retention-prune.ts`), so this list
-   is complete. Staging and demo
+1. Read every production erasure. The legal retention prune keeps an `account.deleted` row
+   for at least four years, and longer while a Terms acceptance of that account remains
+   (AECI-1718, `apps/api/src/lib/legal-retention-prune.ts`). So this list is complete for
+   erasures in the last four years. An older orphan is no longer findable here. Staging and demo
    erasures are not orphans. Since AECI-1468 those tiers keep the shared login on purpose.
 
 ```bash

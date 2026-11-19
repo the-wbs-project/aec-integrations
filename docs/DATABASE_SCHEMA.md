@@ -145,7 +145,7 @@ Tables grouped by domain:
 - `legal_versions` — one announced version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy Policy: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688, AECI-1637)
 - `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
 - `legal_notice_reader_deliveries` — where each account's change notice for a published Terms of Service or Privacy Policy version stands (§8.6l, AECI-1637)
-- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion (§8.6k, AECI-1637)
+- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion, pruned six years after it (§8.6k, AECI-1637, AECI-1718)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -1852,7 +1852,10 @@ and while no litigation hold is open (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0
 `agreement.*` rows go with their acceptance (§8.6d), the `litigation_hold.*` rows four years
 after their hold's release (§8.15), and `retention.pruned` rows are kept. A `vendor.deleted` row
 is exempt on a condition (AECI-1914): while its vendor row is gone and an acceptance or grant
-still names that vendor. It goes with the last of them (§8.6d).
+still names that vendor. It goes with the last of them (§8.6d). The `terms.*` rows go with their
+Terms acceptance (§8.6k, AECI-1718). An `account.deleted` row is exempt on a condition too: while
+a `terms_acceptances` row names its profile. It goes with the last of them (§8.6k). A deleted
+account that never accepted a Terms version leaves an ordinary four-year row.
 
 ```sql
 create table audit_log (
@@ -2554,7 +2557,9 @@ create unique index agreement_acceptances_stripe_session_key
   grant names that vendor, after the acceptance and grant deletes and before the four-year part.
   The four-year audit prune skips a `vendor.deleted` row while its vendor row is gone and an
   acceptance or grant still names it. A malformed value, or one with no non-empty array, is kept. The 90-day
-  IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete.
+  IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete. The same job
+  prunes the reader twin, `terms_acceptances`, six years after the account's `account.deleted`
+  audit row (§8.6k, AECI-1718).
 - **IP and user agent removed after 90 days (AECI-1636 — 2026-11-10, ruling 11, counsel Q27b;
   migration `0116_aromatic_doctor_octopus`, a plain `ADD COLUMN`).** The Privacy Policy
   "Retention" and Vendor Terms "Accepting these terms" promise it. The daily
@@ -3132,8 +3137,22 @@ create unique index terms_acceptances_profile_document_version_key
   account plus 6 years, even after the account is deleted. There is no FK to `profiles`, so
   deleting the account does not delete the row. The IP address and browser are nulled 90 days
   after `accepted_at` by `lib/acceptance-evidence-removal.ts`, which stamps `evidence_removed_at`
-  and writes its own `terms.evidence_removed` audit rows. In `NEVER_PRUNED`
-  (`lib/retention-prune.ts`). The account deletion screen says so.
+  and writes its own `terms.evidence_removed` audit rows. The account deletion screen says so.
+- **The prune (AECI-1718, Chris's rulings of 2026-11-19).** The legal retention prune
+  (`lib/legal-retention-prune.ts`, ADR 0058) deletes a row once all of these hold:
+  `accepted_at` is six calendar years old, no global hold is open, no `profiles` row has its
+  `profile_id`, and the latest `account.deleted` audit row for that profile (`entity_type =
+  'profile'`, `entity_id` = the profile id) is six calendar years old. Ruling 1: that audit row
+  dates the end of the account, so the table has no end-date column. `DELETE /api/account`
+  writes it in the batch that deletes the profile, and that is the only path that deletes a
+  profile. A profile that exists again keeps its rows. Ruling 2: a row whose profile is gone with
+  no `account.deleted` row is kept, and the `acceptance_without_retention_date` data-quality
+  check counts it. In the same batch, after the row delete, the prune deletes its
+  `terms.accepted` row (`entity_id` = the acceptance id), every `terms.evidence_removed` row
+  whose `metadata.acceptance_ids` are all gone, and the profile's `account.deleted` rows once no
+  Terms row names the profile. At most 200 rows a run, like the agreement table. The
+  `retention.pruned` row reports the count with no ids, because the acceptance chain does not
+  cover this table.
 - **No CHECK and no FK**, the house rule (§8.6d). The migration is two `CREATE TABLE`s and two
   `CREATE UNIQUE INDEX`es with nothing recreated (`src/test/migration-0122.spec.ts`,
   `docs/migrations.md` §0).
@@ -6524,7 +6543,7 @@ Backup policy is deferred to a dedicated operational document — `docs/runbooks
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: **four years** after the action, enforced since AECI-1638 by the legal retention prune, queued from the same 03:00 tick (`STAGE_1_SPEC.md` §26.6, ADR 0058). Exempt actions and open litigation holds keep rows longer (§8.4, §8.15). No R2 copy is made first: the deletion is the promise
-- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). Since AECI-1914 no acceptance is kept forever: a claim never approved goes six years after its rejection, a row with no company or claim six years after acceptance, and a row of a deleted company six years after its `vendor.deleted` audit row. `terms_acceptances` is not pruned yet (a follow-up)
+- `agreement_acceptances` and `license_grants` retention: six years after the vendor account ends, or five after a grant ends if later, enforced by the same legal prune (§8.6d). Since AECI-1914 no acceptance is kept forever: a claim never approved goes six years after its rejection, a row with no company or claim six years after acceptance, and a row of a deleted company six years after its `vendor.deleted` audit row. `terms_acceptances` retention: six years after the account's `account.deleted` audit row, enforced by the same legal prune since AECI-1718 (§8.6k)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11

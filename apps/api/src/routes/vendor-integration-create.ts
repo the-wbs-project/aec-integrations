@@ -30,8 +30,10 @@
  * Decision 9 would otherwise freeze the new row against its own owner.
  *
  * ── 5. DUPLICATES WARN, NEVER REFUSE ────────────────────────────────────────
- * One strong-match query (`lib/integration-twins.ts`), both orientations. The
- * matches go back in `possible_duplicates` and their ids into the audit row's
+ * One strong-match query (`lib/integration-twins.ts`), both orientations, through
+ * `findPossibleDuplicates` (`lib/integration-create.ts`), which the pre-check read
+ * `routes/vendor-integration-duplicates.ts` shares (AECI-1953). The matches go back
+ * in `possible_duplicates` and their ids into the audit row's
  * `metadata.possibleDuplicateIds` (AECI-1012 ruling). Decision 10 holds.
  *
  * ── 6. ONE BATCH, THEN THE SAME TAIL AS A RETIRE ────────────────────────────
@@ -58,13 +60,12 @@ import {
   type ContextDirection,
   type CreateVendorIntegrationResponse,
   type IntegrationEditField,
-  type PossibleDuplicateIntegration,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
-import { getDb, type Db } from '../db/client';
-import { integrations, products, productVendors, vendors } from '../db/schema';
+import { getDb } from '../db/client';
+import { integrations, productVendors, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
@@ -73,9 +74,13 @@ import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { claimColumns } from '../lib/integration-claims';
 import { EDIT_FIELD_COLUMNS } from '../lib/integration-contests';
-import { createNotificationAudit, INTEGRATION_CREATED_ACTION } from '../lib/integration-create';
+import {
+  createNotificationAudit,
+  findPossibleDuplicates,
+  INTEGRATION_CREATED_ACTION,
+  visibleProduct,
+} from '../lib/integration-create';
 import { endpointSlugs } from '../lib/integration-owner-writes';
-import { findStrongMatches, type StrongMatchRow } from '../lib/integration-twins';
 import { publicSiteBase } from '../lib/public-urls';
 import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
 import { pairCacheTag } from './promote-pair';
@@ -92,48 +97,6 @@ import {
   vendorAuditEntry,
   stampCauseProductPlan,
 } from './vendor-shared';
-
-/** Is this a promoted product, and (when `vendorId` is given) one that vendor
- *  holds? `false` for both misses, which the handler answers with the same 404. */
-async function visibleProduct(db: Db, productId: string, vendorId?: string): Promise<boolean> {
-  if (vendorId) {
-    const hit = await db
-      .select({ id: products.id })
-      .from(products)
-      .innerJoin(
-        productVendors,
-        and(eq(productVendors.productId, products.id), eq(productVendors.vendorId, vendorId)),
-      )
-      .where(and(eq(products.id, productId), eq(products.promotionStatus, 'promoted')))
-      .limit(1);
-    return hit.length > 0;
-  }
-  const hit = await db
-    .select({ id: products.id })
-    .from(products)
-    .where(and(eq(products.id, productId), eq(products.promotionStatus, 'promoted')))
-    .limit(1);
-  return hit.length > 0;
-}
-
-function toPossibleDuplicate(
-  row: StrongMatchRow,
-  ownProductId: string,
-): PossibleDuplicateIntegration {
-  return {
-    id: row.id,
-    name: row.name,
-    mechanism_kind: row.mechanismKind as PossibleDuplicateIntegration['mechanism_kind'],
-    mechanism_name: row.mechanismName,
-    orientation: row.sourceProductId === ownProductId ? 'same' : 'reversed',
-    owner:
-      row.builtByVendorId && row.ownerName
-        ? { id: row.builtByVendorId, name: row.ownerName }
-        : null,
-    claimed: row.claimedAt !== null,
-    retired: row.retiredAt !== null,
-  };
-}
 
 export function createCreateVendorIntegrationHandler(
   dbFor: DbFactory = getDb,
@@ -185,17 +148,13 @@ export function createCreateVendorIntegrationHandler(
     }
 
     // 4. Everything the batch and the tail need, in one wave. The duplicate query
-    //    is the one strong-match SELECT; it never refuses anything.
-    const [owner, duplicates, pairSlugs, endpointVendors] = await Promise.all([
+    //    is the one strong-match SELECT the pre-check also runs; it never refuses.
+    const [owner, possibleDuplicates, pairSlugs, endpointVendors] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { id: true, slug: true, companyName: true },
         where: eq(vendors.id, vendorId),
       }),
-      findStrongMatches(db, {
-        productIds: [sourceId, targetId],
-        poweredByProductId: null,
-        ownerVendorId: vendorId,
-      }),
+      findPossibleDuplicates(db, vendorId, sourceId, targetId),
       endpointSlugs(db, sourceId, targetId),
       db
         .select({ vendorId: productVendors.vendorId })
@@ -208,7 +167,6 @@ export function createCreateVendorIntegrationHandler(
     const recipients = [...new Set(endpointVendors.map((row) => row.vendorId))]
       .filter((id) => id !== vendorId)
       .sort();
-    const possibleDuplicates = duplicates.map((row) => toPossibleDuplicate(row, sourceId));
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
