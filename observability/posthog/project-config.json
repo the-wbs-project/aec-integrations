@@ -441,10 +441,9 @@
         "cron": "0 18 * * *",
         "metric": "aeci.acceptance_chain.run",
         "maxAgeMinutes": 1560,
-        "activeFrom": "2026-11-25T19:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1680. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped or failed, so its absence means the job stopped running. A failed DigiCert timestamp is logged as aeci.acceptance_chain.timestamp_failed and the run stays ok. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+        "_note": "AECI-1680. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped or failed, so its absence means the job stopped running. A failed DigiCert timestamp is logged as aeci.acceptance_chain.timestamp_failed and the run stays ok. The first production heartbeat landed 2026-11-18, so activeFrom was removed."
       },
       {
         "job": "stripe-reconcile",
