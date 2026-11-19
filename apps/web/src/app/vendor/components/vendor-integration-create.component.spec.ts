@@ -354,7 +354,8 @@ describe('submitting', () => {
     expect(revalidate).toHaveBeenCalledWith(['integrations']);
     expect(panel(fixture)).toBeNull();
     const dupes = q(fixture, '[data-testid="create-duplicates"]');
-    expect(dupes?.textContent).toContain('Procore sync, no owner on file');
+    expect(dupes?.textContent).toContain('Procore sync');
+    expect(dupes?.textContent).toContain('No owner on file');
   });
 
   it('renders a refusal in an alert and keeps the form open', async () => {
@@ -637,26 +638,40 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     expect(api.getPossibleDuplicates).toHaveBeenCalledWith(OWN.id, PROCORE.id);
 
     const panelNode = q(fixture, '[data-testid="create-dupes"]')!;
-    expect(panelNode.textContent).toContain(
-      'Already on record for these two products (4). If one is yours, use it instead of adding a copy.',
+    expect(q(fixture, '[data-testid="create-dupes-title"]')?.textContent?.trim()).toBe(
+      'Already on record for these two products',
     );
+    expect(q(fixture, '[data-testid="create-dupes-count"]')?.textContent?.trim()).toBe(
+      '4 integrations',
+    );
+    expect(panelNode.textContent).toContain(
+      'If one of them is yours, use it instead of adding a copy.',
+    );
+    const status = (id: string) =>
+      row(fixture, id)?.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim();
+    expect(status(CLAIMABLE.id)).toBe('Yours, not claimed yet');
+    // An own match never repeats the caller's company name.
+    expect(panelNode.textContent).not.toContain(ME.company_name);
     expect(
       row(fixture, CLAIMABLE.id)?.querySelector('[data-testid="create-dupe-claim"]'),
     ).not.toBeNull();
     expect(
       href(row(fixture, CLAIMABLE.id)!.querySelector('[data-testid="create-dupe-open"]')),
     ).toBe(`/products/${OWN.slug}/integrations/${CLAIMABLE.id}`);
-    expect(row(fixture, CLAIMED.id)?.textContent).toContain('Yours already');
+    expect(status(CLAIMED.id)).toBe('Yours');
     expect(row(fixture, CLAIMED.id)?.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
     expect(
       row(fixture, CLAIMED.id)?.querySelector('[data-testid="create-dupe-open"]'),
     ).not.toBeNull();
-    expect(row(fixture, RETIRED.id)?.textContent).toContain('Retired');
+    expect(status(RETIRED.id)).toBe('Yours, retired');
     expect(row(fixture, RETIRED.id)?.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
     expect(
       href(row(fixture, RETIRED.id)!.querySelector('[data-testid="create-dupe-restore"]')),
     ).toBe(`/products/${OWN.slug}/integrations/${RETIRED.id}`);
-    expect(row(fixture, NO_OWNER.id)?.textContent).toContain('Row 4, no owner on file');
+    expect(
+      row(fixture, NO_OWNER.id)?.querySelector('[data-testid="create-dupe-name"]')?.textContent,
+    ).toContain('Row 4');
+    expect(status(NO_OWNER.id)).toBe('No owner on file');
     expect(
       row(fixture, NO_OWNER.id)?.querySelector('[data-testid="create-dupe-ask"]')?.textContent,
     ).toContain('Ask to be recorded as the owner');
@@ -783,5 +798,33 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     expect(late.textContent).toContain('Added meanwhile');
     expect(late.textContent).not.toContain('Row 2');
     expect(late.querySelector('[data-testid="create-dupe-ask"]')).not.toBeNull();
+
+    // The close button in the corner: named, and it returns focus to the trigger.
+    const dismiss = q<HTMLButtonElement>(fixture, '[data-testid="create-result-dismiss"]')!;
+    expect(dismiss.getAttribute('aria-label')).toBe('Dismiss');
+    dismiss.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-result"]')).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, '[data-testid="add-integration"]'));
+  });
+
+  it("names another company's match as its owner, and a retired one as retired", async () => {
+    const OTHER = dup(5, { owner: { id: 'other-vendor', name: 'Procore Technologies' } });
+    const OTHER_RETIRED = dup(6, {
+      owner: { id: 'other-vendor', name: 'Procore Technologies' },
+      retired: true,
+    });
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [OTHER, OTHER_RETIRED] });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const status = (id: string) =>
+      row(fixture, id)?.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim();
+    expect(status(OTHER.id)).toBe('Offered by Procore Technologies');
+    expect(status(OTHER_RETIRED.id)).toBe('Offered by Procore Technologies, retired');
+    expect(q(fixture, '[data-testid="create-dupes-count"]')?.textContent?.trim()).toBe(
+      '2 integrations',
+    );
   });
 });

@@ -46,6 +46,11 @@ import {
   type ProductComboboxItem,
   type ProductComboboxSearch,
 } from '../../shared/product-combobox/product-combobox';
+import {
+  ICON_BUTTON,
+  ID_STYLES,
+  ROW_ACTION,
+} from '../integration-detail/integration-detail-styles';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -179,7 +184,7 @@ function emptyDraft(): Draft {
     RouterLink,
     VendorDocsLink,
   ],
-  styles: [':host { display: block; }'],
+  styles: [ID_STYLES],
   template: `
     <div class="space-y-4" data-testid="integration-create">
       <div class="flex flex-wrap items-center gap-3">
@@ -204,65 +209,99 @@ function emptyDraft(): Draft {
       </div>
 
       @if (result(); as created) {
-        <div
-          class="max-w-3xl space-y-3 rounded-(--radius-md) border border-(--border-default) p-4"
-          data-testid="create-result"
-        >
-          <p
-            #resultHeading
-            tabindex="-1"
-            class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            data-testid="create-result-title"
-          >
-            {{ resultTitle(created) }}
-          </p>
-          <div class="flex flex-wrap items-center gap-3">
-            @if (linkTo(created.id, created.own.slug); as link) {
-              <a
-                [routerLink]="link"
-                [class]="primaryLinkClass"
-                data-testid="create-result-open"
-                i18n="@@vendor.integrationCreate.done.open"
-                >Open your integration</a
+        <!-- AECI-1953: one compact success block. A check, the title, one action row,
+             and a close button in the corner. The claim receipt uses the same layout. -->
+        <div class="id-card max-w-3xl py-3 ps-4 pe-2" data-testid="create-result">
+          <div class="flex items-start gap-3">
+            <svg
+              class="mt-0.5 h-5 w-5 shrink-0 text-(--accent-primary)"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+            <div class="min-w-0 flex-1 space-y-1.5">
+              <p
+                #resultHeading
+                tabindex="-1"
+                class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                data-testid="create-result-title"
               >
-            }
-            <a
-              [href]="publicHref(created)"
-              target="_blank"
-              rel="noopener"
-              [attr.aria-label]="publicAria(created)"
-              [class]="publicLinkClass"
-              data-testid="create-result-public"
-              ><span i18n="@@vendor.integrationCreate.done.viewPublic">View public page</span>
-              <aec-new-tab-icon [announce]="false"
-            /></a>
+                {{ resultTitle(created) }}
+              </p>
+              <div class="flex flex-wrap items-center gap-x-1 gap-y-1">
+                @if (linkTo(created.id, created.own.slug); as link) {
+                  <a
+                    [routerLink]="link"
+                    [class]="rowActionClass"
+                    data-testid="create-result-open"
+                    i18n="@@vendor.integrationCreate.done.open"
+                    >Open your integration</a
+                  >
+                }
+                <a
+                  [href]="publicHref(created)"
+                  target="_blank"
+                  rel="noopener"
+                  [attr.aria-label]="publicAria(created)"
+                  [class]="publicLinkClass"
+                  data-testid="create-result-public"
+                  ><span i18n="@@vendor.integrationCreate.done.viewPublic">View public page</span>
+                  <aec-new-tab-icon [announce]="false"
+                /></a>
+              </div>
+            </div>
+            <button
+              type="button"
+              [class]="iconButtonClass"
+              aria-label="Dismiss"
+              i18n-aria-label="@@vendor.integrationCreate.done.dismiss"
+              (click)="dismissResult()"
+              data-testid="create-result-dismiss"
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           @if (created.duplicates.length > 0) {
-            <p
-              class="max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@vendor.integrationCreate.done.lateDupes"
-            >
-              These integrations are also on record for the same two products. If one of them is the
-              same integration, retire the one you just added from its page, then use the existing
-              one.
-            </p>
-            <ul class="space-y-2 text-sm text-(--text-primary)" data-testid="create-duplicates">
-              @for (dup of created.duplicates; track dup.id) {
-                <ng-container
-                  [ngTemplateOutlet]="duplicateRow"
-                  [ngTemplateOutletContext]="{ $implicit: dup, receipt: true }"
-                />
-              }
-            </ul>
+            <div class="mt-3 space-y-2 pe-2 ps-8">
+              <p
+                class="max-w-prose text-sm text-(--text-secondary)"
+                i18n="@@vendor.integrationCreate.done.lateDupes"
+              >
+                These integrations are also on record for the same two products. If one of them is
+                the same integration, retire the one you just added from its page, then use the
+                existing one.
+              </p>
+              <ul
+                class="m-0 list-none divide-y divide-(--border-default) border-t border-(--border-default) p-0"
+                data-testid="create-duplicates"
+              >
+                @for (dup of created.duplicates; track dup.id) {
+                  <ng-container
+                    [ngTemplateOutlet]="duplicateRow"
+                    [ngTemplateOutletContext]="{ $implicit: dup, receipt: true }"
+                  />
+                }
+              </ul>
+            </div>
           }
-          <button
-            type="button"
-            [class]="secondaryButtonClass"
-            (click)="dismissResult()"
-            i18n="@@vendor.integrationCreate.done.dismiss"
-          >
-            Dismiss
-          </button>
         </div>
       }
 
@@ -496,18 +535,38 @@ function emptyDraft(): Draft {
                 } @else if (duplicates().length > 0) {
                   <!-- AECI-1953: the create's own strong matches, before the create. -->
                   <div
-                    class="max-w-2xl space-y-3 rounded-(--radius-md) bg-(--surface-sunken) p-4"
+                    class="id-card max-w-2xl"
                     role="group"
-                    aria-labelledby="vendor-create-dupes-title"
+                    aria-labelledby="vendor-create-dupes-title vendor-create-dupes-count"
                     data-testid="create-dupes"
                   >
-                    <p
-                      id="vendor-create-dupes-title"
-                      class="max-w-prose text-sm font-semibold text-(--text-primary)"
+                    <div class="px-4 py-3">
+                      <div class="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <p
+                          id="vendor-create-dupes-title"
+                          class="text-sm font-semibold text-(--text-primary)"
+                          data-testid="create-dupes-title"
+                          i18n="@@vendor.integrationCreate.dupes.heading"
+                        >
+                          Already on record for these two products
+                        </p>
+                        <span
+                          id="vendor-create-dupes-count"
+                          class="text-sm text-(--text-secondary) tabular-nums"
+                          data-testid="create-dupes-count"
+                          >{{ duplicatesCount() }}</span
+                        >
+                      </div>
+                      <p
+                        class="mt-0.5 max-w-prose text-sm text-(--text-secondary)"
+                        i18n="@@vendor.integrationCreate.dupes.help"
+                      >
+                        If one of them is yours, use it instead of adding a copy.
+                      </p>
+                    </div>
+                    <ul
+                      class="m-0 list-none divide-y divide-(--border-default) border-t border-(--border-default) p-0"
                     >
-                      {{ duplicatesTitle() }}
-                    </p>
-                    <ul class="space-y-3 text-sm text-(--text-primary)">
                       @for (dup of duplicates(); track dup.id) {
                         <ng-container
                           [ngTemplateOutlet]="duplicateRow"
@@ -724,89 +783,97 @@ function emptyDraft(): Draft {
         </div>
       }
 
-      <!-- One match: its line, its status, and the one action that fits it. The
+      <!-- One match: its name, a status line under it, and the one action that fits
+           it on the right. On a narrow column the action wraps under the text. The
            receipt offers links only, so a claim there goes through the row's page. -->
       <ng-template #duplicateRow let-dup let-receipt="receipt">
-        <li class="space-y-1" [attr.data-duplicate]="dup.id">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>{{ duplicateLine(dup) }}</span>
-            @if (statusFor(dup); as status) {
-              <span [class]="statusClass" data-testid="create-dupe-status">{{ status }}</span>
-            }
-          </div>
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-            @switch (actionFor(dup)) {
-              @case ('claim') {
-                @if (!receipt) {
-                  <button
-                    type="button"
-                    [class]="secondaryButtonClass"
-                    [disabled]="claimingId() !== null"
-                    [attr.aria-label]="claimAria(dup)"
-                    (click)="onClaimDuplicate(dup)"
-                    data-testid="create-dupe-claim"
-                  >
-                    @if (claimingId() === dup.id) {
-                      <span i18n="@@vendor.integrationCreate.dupes.claiming">Claiming…</span>
-                    } @else {
-                      <span i18n="@@vendor.integrationCreate.dupes.claim"
-                        >Claim this one instead</span
-                      >
-                    }
-                  </button>
+        <li [class]="receipt ? 'py-2.5' : 'px-4 py-3'" [attr.data-duplicate]="dup.id">
+          <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+            <div class="min-w-0 flex-1 basis-48">
+              <p
+                class="text-sm font-medium break-words text-(--text-primary)"
+                data-testid="create-dupe-name"
+              >
+                {{ duplicateName(dup) }}
+              </p>
+              <p class="text-sm text-(--text-secondary)" data-testid="create-dupe-status">
+                {{ statusLine(dup) }}
+              </p>
+            </div>
+            <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+              @switch (actionFor(dup)) {
+                @case ('claim') {
+                  @if (linkTo(dup.id); as link) {
+                    <a
+                      [routerLink]="link"
+                      [attr.aria-label]="openAria(dup, 'open')"
+                      [class]="receipt ? rowActionClass : quietActionClass"
+                      data-testid="create-dupe-open"
+                      i18n="@@vendor.integrationCreate.dupes.open"
+                      >Open it</a
+                    >
+                  }
+                  @if (!receipt) {
+                    <button
+                      type="button"
+                      [class]="rowActionClass"
+                      [disabled]="claimingId() !== null"
+                      [attr.aria-label]="claimAria(dup)"
+                      (click)="onClaimDuplicate(dup)"
+                      data-testid="create-dupe-claim"
+                    >
+                      @if (claimingId() === dup.id) {
+                        <span i18n="@@vendor.integrationCreate.dupes.claiming">Claiming…</span>
+                      } @else {
+                        <span i18n="@@vendor.integrationCreate.dupes.claim"
+                          >Claim this one instead</span
+                        >
+                      }
+                    </button>
+                  }
                 }
-                @if (linkTo(dup.id); as link) {
-                  <a
-                    [routerLink]="link"
-                    [attr.aria-label]="openAria(dup, 'open')"
-                    [class]="textButtonClass"
-                    data-testid="create-dupe-open"
-                    i18n="@@vendor.integrationCreate.dupes.open"
-                    >Open it</a
-                  >
+                @case ('restore') {
+                  @if (linkTo(dup.id); as link) {
+                    <a
+                      [routerLink]="link"
+                      [attr.aria-label]="openAria(dup, 'restore')"
+                      [class]="rowActionClass"
+                      data-testid="create-dupe-restore"
+                      i18n="@@vendor.integrationCreate.dupes.restore"
+                      >Open it to restore</a
+                    >
+                  }
+                }
+                @case ('ask') {
+                  @if (linkTo(dup.id); as link) {
+                    <a
+                      [routerLink]="link"
+                      [attr.aria-label]="openAria(dup, 'ask')"
+                      [class]="rowActionClass"
+                      data-testid="create-dupe-ask"
+                      i18n="@@vendor.integrationCreate.dupes.ask"
+                      >Ask to be recorded as the owner</a
+                    >
+                  }
+                }
+                @default {
+                  @if (linkTo(dup.id); as link) {
+                    <a
+                      [routerLink]="link"
+                      [attr.aria-label]="openAria(dup, 'open')"
+                      [class]="rowActionClass"
+                      data-testid="create-dupe-open"
+                      i18n="@@vendor.integrationCreate.dupes.open"
+                      >Open it</a
+                    >
+                  }
                 }
               }
-              @case ('restore') {
-                @if (linkTo(dup.id); as link) {
-                  <a
-                    [routerLink]="link"
-                    [attr.aria-label]="openAria(dup, 'restore')"
-                    [class]="textButtonClass"
-                    data-testid="create-dupe-restore"
-                    i18n="@@vendor.integrationCreate.dupes.restore"
-                    >Open it to restore</a
-                  >
-                }
-              }
-              @case ('ask') {
-                @if (linkTo(dup.id); as link) {
-                  <a
-                    [routerLink]="link"
-                    [attr.aria-label]="openAria(dup, 'ask')"
-                    [class]="textButtonClass"
-                    data-testid="create-dupe-ask"
-                    i18n="@@vendor.integrationCreate.dupes.ask"
-                    >Ask to be recorded as the owner</a
-                  >
-                }
-              }
-              @default {
-                @if (linkTo(dup.id); as link) {
-                  <a
-                    [routerLink]="link"
-                    [attr.aria-label]="openAria(dup, 'open')"
-                    [class]="textButtonClass"
-                    data-testid="create-dupe-open"
-                    i18n="@@vendor.integrationCreate.dupes.open"
-                    >Open it</a
-                  >
-                }
-              }
-            }
+            </div>
           </div>
           @if (claimNotice(); as notice) {
             @if (notice.id === dup.id) {
-              <p role="alert" [class]="errorClass" data-testid="create-dupe-notice">
+              <p role="alert" [class]="errorClass + ' mt-2'" data-testid="create-dupe-notice">
                 {{ notice.message }}
               </p>
             }
@@ -973,9 +1040,12 @@ export class VendorIntegrationCreate implements OnInit {
     return check.state === 'ready' && check.key === this.pairKey() ? check.rows : [];
   });
 
-  protected readonly duplicatesTitle = computed(() => {
+  /** The neutral count beside the panel's heading. */
+  protected readonly duplicatesCount = computed(() => {
     const count = this.duplicates().length;
-    return $localize`:@@vendor.integrationCreate.dupes.title:Already on record for these two products (${count}:count:). If one is yours, use it instead of adding a copy.`;
+    return count === 1
+      ? $localize`:@@vendor.integrationCreate.dupes.countOne:1 integration`
+      : $localize`:@@vendor.integrationCreate.dupes.countMany:${count}:count: integrations`;
   });
 
   private readonly pairKey = computed(() => {
@@ -1438,15 +1508,25 @@ export class VendorIntegrationCreate implements OnInit {
     return dup.claimed ? 'open' : 'claim';
   }
 
-  /** The status beside a match, when it needs one. */
-  protected statusFor(dup: PossibleDuplicateIntegration): string | null {
-    if (dup.owner !== null && dup.owner.id === this.myVendorId()) {
-      if (dup.retired) return $localize`:@@vendor.integrationCreate.dupes.retired:Retired`;
-      if (dup.claimed) return $localize`:@@vendor.integrationCreate.dupes.yours:Yours already`;
-    } else if (dup.retired) {
-      return $localize`:@@vendor.integrationCreate.dupes.retired:Retired`;
+  /** The muted line under a match's name: who owns it, and whether it is retired.
+   *  An own match never repeats the caller's company name. */
+  protected statusLine(dup: PossibleDuplicateIntegration): string {
+    if (dup.owner === null) {
+      return dup.retired
+        ? $localize`:@@vendor.integrationCreate.dupes.status.noOwnerRetired:No owner on file, retired`
+        : $localize`:@@vendor.integrationCreate.dupes.status.noOwner:No owner on file`;
     }
-    return null;
+    if (dup.owner.id === this.myVendorId()) {
+      if (dup.retired)
+        return $localize`:@@vendor.integrationCreate.dupes.status.yoursRetired:Yours, retired`;
+      return dup.claimed
+        ? $localize`:@@vendor.integrationCreate.dupes.status.yours:Yours`
+        : $localize`:@@vendor.integrationCreate.dupes.status.yoursUnclaimed:Yours, not claimed yet`;
+    }
+    const owner = dup.owner.name;
+    return dup.retired
+      ? $localize`:@@vendor.integrationCreate.dupes.status.otherRetired:Offered by ${owner}:owner:, retired`
+      : $localize`:@@vendor.integrationCreate.dupes.status.other:Offered by ${owner}:owner:`;
   }
 
   /** The portal route of an integration on the own product, or `null` with no
@@ -1535,16 +1615,8 @@ export class VendorIntegrationCreate implements OnInit {
     }
   }
 
-  private duplicateName(dup: PossibleDuplicateIntegration): string {
+  protected duplicateName(dup: PossibleDuplicateIntegration): string {
     return dup.name ?? dup.mechanism_name ?? mechanismKindLabel(dup.mechanism_kind) ?? '';
-  }
-
-  protected duplicateLine(dup: PossibleDuplicateIntegration): string {
-    const name = this.duplicateName(dup);
-    const owner = dup.owner?.name;
-    return owner
-      ? $localize`:@@vendor.integrationCreate.dup.owned:${name}:name:, offered by ${owner}:owner:`
-      : $localize`:@@vendor.integrationCreate.dup.noOwner:${name}:name:, no owner on file`;
   }
 
   protected groupLabel(key: (typeof EDIT_GROUPS)[number]['key']): string {
@@ -1619,14 +1691,17 @@ export class VendorIntegrationCreate implements OnInit {
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   protected readonly secondaryButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly primaryLinkClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly publicLinkClass =
-    'inline-flex items-center gap-1.5 rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly statusClass =
-    'rounded-(--radius-sm) bg-(--surface-base) px-2 py-0.5 text-xs font-medium text-(--text-secondary)';
+  /** The portal's row action ("Claim to edit", "Request a change"). */
+  protected readonly rowActionClass = `${ROW_ACTION} cursor-pointer`;
+  /** A row's second, quieter link: the same shape as the row action, out of accent. */
+  protected readonly quietActionClass =
+    'inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm font-medium text-(--text-secondary) underline-offset-4 hover:text-(--text-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly iconButtonClass = ICON_BUTTON;
   protected readonly textButtonClass =
     'cursor-pointer rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** DESIGN.md's standalone link (the `aec-view-public-link` spelling). */
+  protected readonly publicLinkClass =
+    'inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
 
 /** The refusals `POST /api/vendor/product-requests` can answer (AECI-1377). */
