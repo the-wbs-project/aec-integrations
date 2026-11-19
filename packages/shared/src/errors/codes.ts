@@ -299,6 +299,10 @@ export const ApiErrorCode = {
   LICENSE_INTERVAL_MISMATCH: 'LICENSE_INTERVAL_MISMATCH',
   STRIPE_SUBSCRIPTION_REQUIRED: 'STRIPE_SUBSCRIPTION_REQUIRED',
   STRIPE_PAYMENT_INCOMPLETE: 'STRIPE_PAYMENT_INCOMPLETE',
+  // AECI-1865: `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` (409): checkout or add that would
+  // leave subscriptions on no product, without `unused_acknowledged` equal to the count
+  // the server works out. `details.unused` names it.
+  UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED: 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED',
   // AECI-1535 private row threads (`API_CONTRACTS.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md`
   // §15.6). `THREAD_NOT_ATTESTABLE` (409): the row is not attestable by two companies
   // (§15.2). `THREAD_CLOSED` (409): a write to a closed thread. `MESSAGE_NOT_AUTHOR`

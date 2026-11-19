@@ -15,7 +15,15 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  licenses,
+  productVendors,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -51,6 +59,7 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0
 const VENDOR = uuid(1);
 const OWNER = uuid(100);
 const MEMBER = uuid(101);
+const OWNER_2 = uuid(102);
 const SITE = 'https://www.aecintegrations.com';
 const SUB = 'sub_123';
 
@@ -119,7 +128,9 @@ function fakeStripe(over: Partial<Record<keyof StripeClient, unknown>> = {}) {
       ok({ id: 'bps_1', url: 'https://billing.stripe.com/p/session/1' }),
     ),
     retrieveSubscription: vi.fn(async () => ok(subscription())),
-    updateSubscription: vi.fn(async () => ok(subscription())),
+    updateSubscription: vi.fn(async (_id: string, _params: unknown, _key: string) =>
+      ok(subscription()),
+    ),
     listSubscriptions: vi.fn(async (_params?: unknown) =>
       ok({ subscriptions: [] as StripeSubscription[], truncated: false }),
     ),
@@ -140,8 +151,27 @@ beforeEach(async () => {
   await t.db.insert(profiles).values([
     { id: OWNER, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true },
     { id: MEMBER, role: 'vendor_admin', vendorId: VENDOR, seatOwner: false },
+    { id: OWNER_2, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true },
   ]);
+  // AECI-1865: room for every purchase below, so none trips the unused-subscriptions
+  // gate. The gate's own tests clear these and seed what they need.
+  await seedProducts(SPARE_PRODUCTS);
 });
+
+const SPARE_PRODUCTS = 12;
+
+/** `n` products owned by the vendor, none holding a license. Returns their ids. */
+async function seedProducts(n: number, prefix = 'spare'): Promise<string[]> {
+  if (n === 0) return [];
+  const ids = Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`);
+  await t.db
+    .insert(products)
+    .values(ids.map((id) => ({ id, slug: id, name: id, promotionStatus: 'promoted' as const })));
+  await t.db
+    .insert(productVendors)
+    .values(ids.map((productId) => ({ productId, vendorId: VENDOR, isPrimary: true })));
+  return ids;
+}
 afterEach(() => t.dispose());
 
 type Route = 'checkout' | 'licenses/add' | 'portal';
@@ -831,8 +861,10 @@ describe('POST /api/vendor/billing/licenses/add', () => {
         proration_behavior: 'always_invoice',
         // The quantity rises only once the pro-rated invoice is paid.
         payment_behavior: 'pending_if_incomplete',
+        // AECI-1865: nothing unused, so both keys are cleared.
+        metadata: { unused_acknowledged: '', unused_acknowledged_by: '' },
       },
-      `aeci-add-${SUB}-3-2`,
+      `aeci-add-${SUB}-3-2-u0`,
     );
     expect(await t.db.select().from(licenses)).toEqual(before);
   });
@@ -867,7 +899,7 @@ describe('POST /api/vendor/billing/licenses/add', () => {
     expect(stripe.updateSubscription).toHaveBeenCalledWith(
       SUB,
       expect.anything(),
-      `aeci-add-${SUB}-3-2-1800000123`,
+      `aeci-add-${SUB}-3-2-u0-1800000123`,
     );
   });
 
@@ -983,5 +1015,249 @@ describe('POST /api/vendor/billing/portal', () => {
   it('refuses a member seat with 403', async () => {
     const { status } = await call('portal', {}, { auth: session({ userId: MEMBER }) });
     expect(status).toBe(403);
+  });
+});
+
+describe('the unused-subscriptions gate (AECI-1865)', () => {
+  /** Leave the vendor with exactly `n` products, none holding a license. */
+  async function onlyProducts(n: number): Promise<string[]> {
+    await t.db.delete(productVendors);
+    await t.db.delete(products);
+    return seedProducts(n, 'p');
+  }
+
+  const buy = (quantity: number, extra: Record<string, unknown> = {}) =>
+    call('checkout', { quantity, interval: 'year', signer_title: 'CEO', ...extra });
+
+  it('refuses checkout with 1 product and 3 subscriptions, naming the count, before Stripe', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyProducts(1);
+
+    const { status, body } = await buy(3);
+    expect(status).toBe(409);
+    expect(body.error).toMatchObject({
+      code: ApiErrorCode.UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED,
+      details: { unused: 2, pool: 0, products_without_subscription: 1 },
+    });
+    expect(stripe.listSubscriptions).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong count, and opens Checkout with the right one in the metadata', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyProducts(1);
+
+    expect((await buy(3, { unused_acknowledged: 1 })).status).toBe(409);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+
+    const { status } = await buy(3, { unused_acknowledged: 2 });
+    expect(status).toBe(200);
+    const [params] = stripe.createCheckoutSession.mock.calls[0]!;
+    expect(params.metadata).toMatchObject({ unused_acknowledged: '2' });
+    // The subscription's own metadata does not carry the evidence.
+    expect(params.subscription_data?.metadata).not.toHaveProperty('unused_acknowledged');
+  });
+
+  it('asks nothing with 2 products and 2 subscriptions, and leaves the key out', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyProducts(2);
+
+    const { status } = await buy(2);
+    expect(status).toBe(200);
+    const [params] = stripe.createCheckoutSession.mock.calls[0]!;
+    expect(params.metadata).not.toHaveProperty('unused_acknowledged');
+  });
+
+  it('counts a product holding a live license as taken, and an ended license as free', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    const [taken, free] = await onlyProducts(2);
+    await seedLicense(t.db, VENDOR, { productId: taken });
+    await seedLicense(t.db, VENDOR, {
+      productId: free,
+      endedAt: '2026-06-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
+
+    const { status, body } = await buy(2);
+    expect(status).toBe(409);
+    expect(body.error.details).toEqual({ unused: 1, pool: 0, products_without_subscription: 1 });
+  });
+
+  it('changes the idempotency key with the count', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyProducts(1);
+
+    await buy(3, { unused_acknowledged: 2 });
+    // A spare lands in the pool: the same purchase now leaves 3 unused.
+    await seedLicense(t.db, VENDOR, { source: 'invoice' });
+    await buy(3, { unused_acknowledged: 3 });
+
+    const keys = stripe.createCheckoutSession.mock.calls.map((call) => call[1]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('expires an open session opened under another count, then opens a new one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyProducts(1);
+    const open = {
+      id: 'cs_old',
+      url: 'https://checkout.stripe.com/c/pay/cs_old',
+      status: 'open',
+      customer: 'cus_1',
+      metadata: {
+        billing_account_id: account,
+        vendor_id: VENDOR,
+        profile_id: OWNER,
+        terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+        plans_version: PLANS_PAGE_CURRENT_VERSION,
+        signer_title: 'CEO',
+        unused_acknowledged: '1',
+      },
+      created: Math.floor(Date.now() / 1000),
+      line_items: {
+        data: [{ id: 'li_1', quantity: 3, price: { id: 'price_annual' } }],
+        has_more: false,
+      },
+    } as StripeCheckoutSession;
+    stripe = fakeStripe({ listOpenCheckoutSessions: vi.fn(async () => ok([open])) });
+
+    const { status, body } = await buy(3, { unused_acknowledged: 2 });
+    expect(status).toBe(200);
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_old', 'aeci-expire-cs_old');
+    expect(body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
+  });
+
+  it('records the accepted count on the customer-link audit row', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    await onlyProducts(1);
+
+    expect((await buy(3, { unused_acknowledged: 2 })).status).toBe(200);
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({ unused_acknowledged: 2 });
+  });
+
+  /** Stripe's plan holds `quantity` subscriptions. */
+  const stripeQuantity = (quantity: number) =>
+    fakeStripe({
+      retrieveSubscription: vi.fn(async () =>
+        ok(
+          subscription({
+            items: {
+              data: [
+                {
+                  id: 'si_1',
+                  quantity,
+                  price: { id: 'price_a', recurring: { interval: 'year' } },
+                  current_period_end: 1_800_000_000,
+                },
+              ],
+            },
+          } as Partial<StripeSubscription>),
+        ),
+      ),
+    });
+
+  it('refuses an add with 1 product and one spare in the pool, then sends the count to Stripe', async () => {
+    await onlyProducts(1);
+    // The Stripe license is the spare: it holds no product. Stripe agrees on one.
+    await seedStripeLicense('year');
+    stripe = stripeQuantity(1);
+
+    const refused = await call('licenses/add', { quantity: 1 });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({
+      code: ApiErrorCode.UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED,
+      details: { unused: 1, pool: 1, products_without_subscription: 1 },
+    });
+    expect(stripe.updateSubscription).not.toHaveBeenCalled();
+
+    const { status } = await call('licenses/add', { quantity: 1, unused_acknowledged: 1 });
+    expect(status).toBe(200);
+    expect(stripe.updateSubscription).toHaveBeenCalledWith(
+      SUB,
+      expect.objectContaining({
+        metadata: { unused_acknowledged: '1', unused_acknowledged_by: OWNER },
+      }),
+      `aeci-add-${SUB}-1-1-u1-${OWNER}`,
+    );
+  });
+
+  // Review finding: Stripe was paid for more than D1 holds yet. Those land in the pool.
+  it('counts paid subscriptions the webhook has not landed yet', async () => {
+    const [assigned] = await onlyProducts(2);
+    const live = await seedStripeLicense('year');
+    await t.db.update(licenses).set({ assignedProductId: assigned! }).where(eq(licenses.id, live));
+    stripe = stripeQuantity(3);
+
+    const { status, body } = await call('licenses/add', { quantity: 1 });
+    expect(status).toBe(409);
+    expect(body.error.details).toEqual({ unused: 2, pool: 2, products_without_subscription: 1 });
+    expect(stripe.updateSubscription).not.toHaveBeenCalled();
+  });
+
+  // Review finding: a webhook that lands during the Stripe read must not count twice.
+  it('counts a webhook that lands during the Stripe read once, not twice', async () => {
+    const [assigned] = await onlyProducts(2);
+    const live = await seedStripeLicense('year');
+    await t.db.update(licenses).set({ assignedProductId: assigned! }).where(eq(licenses.id, live));
+    const paid = subscription({
+      items: {
+        data: [
+          {
+            id: 'si_1',
+            quantity: 3,
+            price: { id: 'price_a', recurring: { interval: 'year' } },
+            current_period_end: 1_800_000_000,
+          },
+        ],
+      },
+    } as Partial<StripeSubscription>);
+    stripe = fakeStripe({
+      // The earlier purchase's webhook commits its two licenses while Stripe answers.
+      retrieveSubscription: vi.fn(async () => {
+        await seedStripeLicense('year');
+        await seedStripeLicense('year');
+        return ok(paid);
+      }),
+    });
+
+    // 2 products, 1 on a product, 2 spares: adding 1 leaves 2 unused, not 4.
+    const { status, body } = await call('licenses/add', { quantity: 1, unused_acknowledged: 2 });
+    expect(body.error).toBeUndefined();
+    expect(status).toBe(200);
+  });
+
+  // Review finding: the metadata names the owner, so two owners never share a key.
+  it('keys each acknowledging owner apart, so Stripe never sees one key with two bodies', async () => {
+    await onlyProducts(1);
+    await seedStripeLicense('year');
+    stripe = stripeQuantity(1);
+
+    await call('licenses/add', { quantity: 1, unused_acknowledged: 1 });
+    await call(
+      'licenses/add',
+      { quantity: 1, unused_acknowledged: 1 },
+      { auth: session({ userId: OWNER_2 }) },
+    );
+    const keys = stripe.updateSubscription.mock.calls.map((call) => call[2]);
+    expect(keys).toEqual([`aeci-add-${SUB}-1-1-u1-${OWNER}`, `aeci-add-${SUB}-1-1-u1-${OWNER_2}`]);
+  });
+
+  it('lets an add through with no field when every subscription has a product', async () => {
+    const [assigned] = await onlyProducts(2);
+    const live = await seedStripeLicense('year');
+    await t.db.update(licenses).set({ assignedProductId: assigned! }).where(eq(licenses.id, live));
+
+    // Stripe agrees with D1: one subscription, on a product.
+    stripe = stripeQuantity(1);
+
+    const { status } = await call('licenses/add', { quantity: 1 });
+    expect(status).toBe(200);
   });
 });

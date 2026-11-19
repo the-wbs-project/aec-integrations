@@ -11,6 +11,18 @@ export interface StripeBillingError {
   /** A `409`: the account's subscription is not what this tab showed. The section
    *  re-reads billing so the panel shows the right controls. */
   readonly stale: boolean;
+  /** AECI-1865: the API counted a different number of unused subscriptions than the
+   *  tab showed. Not stale: the form stays where it is, the tab re-reads billing so the
+   *  warning shows the new count, and focus goes to the cleared box. */
+  readonly recount?: boolean;
+  /** With `recount`: the counts the API used, from `details`, when it sent them. The tab
+   *  warns from these until the next purchase, because its own read can lag them (a
+   *  webhook still in flight). */
+  readonly counts?: { readonly pool: number; readonly productsWithout: number };
+}
+
+function countOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function intervalLabel(interval: unknown): string | null {
@@ -72,6 +84,16 @@ export function stripeBillingErrorMessage(
       return plain(
         $localize`:@@vendor.billing.stripe.error.paymentIncomplete:Your card was not charged, so no subscriptions were added. Check your payment method with Manage billing in Stripe, then try again.`,
       );
+    case 'UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED': {
+      const pool = countOf(info.details?.['pool']);
+      const productsWithout = countOf(info.details?.['products_without_subscription']);
+      return {
+        message: $localize`:@@vendor.billing.stripe.error.unused:The number of unused subscriptions has changed. Check the warning, then tick the box again.`,
+        stale: false,
+        recount: true,
+        ...(pool !== null && productsWithout !== null ? { counts: { pool, productsWithout } } : {}),
+      };
+    }
     case 'DEPENDENCY_FAILURE':
       return plain(
         $localize`:@@vendor.billing.stripe.error.dependency:Stripe did not answer. Nothing was charged. Try again in a minute.`,
