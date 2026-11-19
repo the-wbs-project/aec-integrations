@@ -2,15 +2,16 @@
  * The legal retention prune (AECI-1638, counsel Q23a and Q27c, ADR 0058). The Privacy
  * Policy's "Retention" section makes three promises this module keeps:
  *
- *   - **Audit record:** kept for four years after the action. The deletion pauses while we
- *     are under a legal duty to preserve records. The audit record of an agreement
+ *   - **Audit record:** kept for four years after the action. The deletion pauses while a
+ *     legal hold is open, for every audit record. The audit record of an agreement
  *     acceptance, a Terms of Service acceptance, an account deletion or a company deletion
  *     is kept for as long as the acceptance record it belongs to.
  *   - **Agreement acceptance records:** kept while the company has a vendor account and
  *     for six years after it ends, or for five years after a granted subscription ends, if
- *     later, or longer while a legal hold requires it. A claim never approved: six years
- *     after the claim is closed. A record with no such date: six years after the latest
- *     date we hold for it (AECI-1914).
+ *     later, or longer while a legal hold requires it. A claim declined, withdrawn or expired:
+ *     six years after that day. A listing request form acceptance, or one whose claim
+ *     record is gone: six years after it was given. A deleted company's acceptances: six
+ *     years after the company was deleted (AECI-1914, counsel Q67).
  *   - **Terms of Service acceptance records:** kept for as long as the account exists and
  *     for six years after it ends, even after the account is deleted (AECI-1718).
  *
