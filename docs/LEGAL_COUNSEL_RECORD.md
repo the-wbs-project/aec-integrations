@@ -1924,6 +1924,8 @@ Legal process. This one is close. The catch is that receiving legal process does
 56. **How long a saved software list is kept (2026-11-19).** For as long as the account exists. It is deleted when the reader deletes it or the account.
 57. **The first saved-list notice names the vendor total (Q55, Q60, 2026-11-19).** The notice at first save names the vendor total as a use, and the opt-out switch ships in the same step. The total itself stays off until its own step ships.
 58. **A company that never accepts the in-force Vendor Terms (Q69, 2026-11-19).** Ruling 24 is confirmed on purpose, after counsel asked for a decision. The portal opens only the acceptance screen, the listing stays claimed, and no deadline ends the claim. The first in-force version says so in its own text.
+59. **Account deletion screen wording (Q70, 2026-11-19).** Counsel's wording said we remove the name and profile from reviews. A build check showed a review never shows either. The screen will read: "Reviews you've published stay online. They never showed your name or profile, and they are no longer linked to your account. The text stays as written, so anything in it that identifies you will remain visible." This replaces the wording of ruling 47. Not built yet.
+60. **Audit rows of an acceptance that no longer exists (Q66, 2026-11-19).** They are deleted four years after the action. The Privacy Policy then gains "or for four years if there is no acceptance record" (AECI-1971).
 
 Rulings 52 to 58 were first recorded on a branch as 43 to 49, before rulings 43 to 51 reached it from `main`. Linear comments dated 2026-11-19 on AECI-1363 use the old numbers, and a later comment there gives the mapping.
 
