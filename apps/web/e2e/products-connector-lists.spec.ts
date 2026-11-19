@@ -343,5 +343,56 @@ for (const slug of ['fixture-connector-hub', 'fixture-hybrid-via']) {
         await expectNoSidewaysScroll(page, `${slug} table at ${width}px`);
       });
     }
+
+    // Chris, 2026-11-19: no curved header inside a square card, and more columns.
+    for (const width of [1440, 768, 390, 320]) {
+      test(`the hub table has square corners inside its card at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/products/${slug}`);
+        await untilHydrated(page.locator('#powers-filter'));
+        await viewButton(page, 'Table').click();
+        const frames = page.locator(`${section} [data-testid="powered-table-frame"]`);
+        await expect(frames.first()).toBeVisible();
+        const radii = await frames.evaluateAll((els) =>
+          els.map((el) => {
+            const style = getComputedStyle(el);
+            return [style.borderTopLeftRadius, style.borderTopRightRadius, style.boxShadow];
+          }),
+        );
+        for (const [left, right, shadow] of radii) {
+          expect([left, right, shadow]).toEqual(['0px', '0px', 'none']);
+        }
+        // The visible column headers at this width, the Integrations table's way.
+        const heads = await page
+          .locator(`${section} table`)
+          .first()
+          .locator('thead th:visible')
+          .allInnerTexts();
+        const expected =
+          width >= 1024
+            ? ['Integrates with', 'Direction', 'How it connects', 'Types of data', 'Details']
+            : width >= 768
+              ? ['Integrates with', 'Direction', 'How it connects', 'Details']
+              : ['Integrates with', 'Details'];
+        expect(heads.map((h) => h.trim())).toEqual(expected);
+        await expectNoSidewaysScroll(page, `${slug} table at ${width}px`);
+      });
+    }
   });
 }
+
+// Chris, 2026-11-19: a Via lane's table sits inside its lane card, so it has no rounded
+// frame of its own either. The standalone Integrations table keeps its rounded frame.
+test('a Via lane table has square corners inside its lane card (AECI-1924)', async ({ page }) => {
+  await page.goto('/products/fixture-hybrid-via');
+  const integrations = page.locator('#integrations');
+  await untilHydrated(page.locator('#integrations-filter'));
+  await integrations.locator('[aria-label="Choose a view"] button', { hasText: 'Table' }).click();
+  const frames = integrations.locator('[data-testid="integrations-table-frame"]');
+  await expect(frames.first()).toBeVisible();
+  const radii = await frames.evaluateAll((els) =>
+    els.map((el) => getComputedStyle(el).borderTopLeftRadius),
+  );
+  expect(radii.length).toBeGreaterThan(0);
+  expect(new Set(radii)).toEqual(new Set(['0px']));
+});

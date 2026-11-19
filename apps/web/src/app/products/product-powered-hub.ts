@@ -9,6 +9,7 @@ import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
+  mechanismDisplay,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -813,10 +814,24 @@ export class ProductPoweredHub {
       products: [partner.partner],
       pairGlyph: null,
       direction: this.hubDirection(partner),
-      directionUnknown: this.hubDirection(partner) === null,
-      mechanism: this.mechanismSummary(partner),
+      ...this.mechanismColumns(partner),
       dataObjects: this.dataObjectLabel(partner),
     }));
+  }
+
+  /**
+   * The table's "How it connects" (AECI-1924, 2026-11-19): every kind as its own chip and
+   * the mechanism's name, through `mechanismDisplay`, the Integrations table's rule, so a
+   * name that only repeats a kind is not printed twice. Several names on one pair (its
+   * edges collapsed) are joined. The card keeps its one-chip summary.
+   */
+  private mechanismColumns(pair: PoweredConnection): {
+    mechanismLabels: readonly string[];
+    mechanismName: string | null;
+  } {
+    const kinds = pair.mechanismKinds.map((kind) => mechanismKindLabel(kind)).filter(Boolean);
+    const shown = mechanismDisplay(kinds, pair.mechanismNames.join(', ') || null);
+    return { mechanismLabels: shown.labels, mechanismName: shown.name };
   }
 
   /** The hubless pairs' table rows (AECI-1924), in the cards' order, with their words. */
@@ -830,8 +845,7 @@ export class ProductPoweredHub {
         products: [pair.a, pair.b],
         pairGlyph: pair.direction ? directionGlyph(pair.direction) : '·',
         direction: label ? { label, glyph: null } : null,
-        directionUnknown: false,
-        mechanism: this.mechanismSummary(pair),
+        ...this.mechanismColumns(pair),
         dataObjects: this.dataObjectLabel(pair),
       };
     });

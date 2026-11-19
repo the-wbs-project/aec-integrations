@@ -748,6 +748,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 [deferred]="laneCut().direct.deferred"
                 [contextSlug]="slug()"
                 ariaLabelledby="integrations-direct"
+                [nested]="true"
               />
             }
           </aec-integration-group-card>
@@ -789,6 +790,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 [deferred]="lane.deferred"
                 [contextSlug]="slug()"
                 [ariaLabelledby]="'integrations-via-' + lane.lane.key"
+                [nested]="true"
               />
             }
           </aec-integration-group-card>

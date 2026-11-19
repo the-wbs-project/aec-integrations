@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import {
   INTEGRATION_TABLE_BODY_CLASS,
   INTEGRATION_TABLE_CLASS,
   INTEGRATION_TABLE_FRAME_CLASS,
+  INTEGRATION_TABLE_NESTED_FRAME_CLASS,
   INTEGRATION_TABLE_HEAD_CLASS,
   INTEGRATION_TABLE_TH_CLASS,
   INTEGRATION_TABLE_TH_LINK_CLASS,
@@ -46,7 +47,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
          re-breaks that dock into a horizontal scroll. -->
     <!-- AECI-1720 (mock-up 6, .table-wrap): the table sits in a white card with a Bone
          header row. -->
-    <div [class]="frameClass" data-testid="integrations-table-frame">
+    <div [class]="frameClass()" data-testid="integrations-table-frame">
       <table
         [class]="tableClass"
         [attr.aria-label]="ariaLabel()"
@@ -137,9 +138,17 @@ export class ProductIntegrationsTable {
   readonly ariaLabel = input<string | null>(null);
   /** …or the id of the group's `<h3>`, for a named lane. */
   readonly ariaLabelledby = input<string | null>(null);
+  /**
+   * The table sits inside a group card (a lane card): no frame radius or shadow of its
+   * own, so no curved header sits inside the card's square edge (AECI-1924, 2026-11-19).
+   * The standalone table keeps its rounded frame.
+   */
+  readonly nested = input(false);
 
   // The table recipe, shared with the hub tables of "Integrations it powers" (AECI-1924).
-  protected readonly frameClass = INTEGRATION_TABLE_FRAME_CLASS;
+  protected readonly frameClass = computed(() =>
+    this.nested() ? INTEGRATION_TABLE_NESTED_FRAME_CLASS : INTEGRATION_TABLE_FRAME_CLASS,
+  );
   protected readonly tableClass = INTEGRATION_TABLE_CLASS;
   protected readonly headClass = INTEGRATION_TABLE_HEAD_CLASS;
   protected readonly thClass = INTEGRATION_TABLE_TH_CLASS;

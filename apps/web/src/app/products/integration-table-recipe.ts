@@ -17,6 +17,14 @@ export const INTEGRATION_TABLE_FRAME_CLASS =
   'overflow-x-auto rounded-card bg-(--surface-base) shadow-card';
 
 /**
+ * The same box inside a group card (a Via lane, a hub): no radius and no shadow of its
+ * own, so the Bone header row runs edge to edge with square corners and the group card's
+ * own radius clips the table's foot. A rounded frame there drew a curved shape inside a
+ * square one (Chris, 2026-11-19, AECI-1924). A wide table still scrolls inside it.
+ */
+export const INTEGRATION_TABLE_NESTED_FRAME_CLASS = 'overflow-x-auto bg-(--surface-base)';
+
+/**
  * The table. 34rem from `md` fits the 608px body column when the facts sidebar docks at
  * `lg` (see `product-integrations-table.ts`). Below `md` the table has two columns and
  * no floor, so it never scrolls the page sideways.

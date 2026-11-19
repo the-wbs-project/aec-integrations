@@ -602,8 +602,10 @@ describe('ProductPoweredHub', () => {
       const [hub, flat] = [...el.querySelectorAll('table')];
       const heads = (t: Element) =>
         [...t.querySelectorAll('thead th')].map((th) => th.textContent!.trim());
-      expect(heads(hub!)).toEqual(['Integrates with', 'Connection', 'Details']);
-      expect(heads(flat!)).toEqual(['Products', 'Connection', 'Details']);
+      // AECI-1924, 2026-11-19: Direction, How it connects and Types of data as columns.
+      const columns = ['Direction', 'How it connects', 'Types of data', 'Details'];
+      expect(heads(hub!)).toEqual(['Integrates with', ...columns]);
+      expect(heads(flat!)).toEqual(['Products', ...columns]);
       const flatRow = flat!.querySelector('tbody tr')!;
       const shown = [...flatRow.querySelectorAll('[data-testid=powered-table-name]')].map(
         (n) => n.textContent,
@@ -613,6 +615,55 @@ describe('ProductPoweredHub', () => {
       const hubRow = hub!.querySelector('tbody tr')!;
       expect(hubRow.textContent).toContain('Sends to Acumatica');
       expect(hubRow.querySelectorAll('a')).toHaveLength(1);
+    });
+
+    it('fills Direction, How it connects and Types of data from the pair (AECI-1924)', () => {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      const sage = link('sage', 'Sage');
+      fixture.componentInstance.view.set(
+        groupPoweredIntegrations(
+          [
+            {
+              ...poweredEdge(HUB, sage),
+              mechanism_name: 'Sage connector',
+              data_object_slugs: ['rfi', 'submittal'],
+            },
+            { ...poweredEdge(HUB, link('cmic', 'CMiC')), direction: null, mechanism_kind: null },
+          ],
+          'agave-erp-sync',
+        ),
+      );
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      showTable(fixture, el);
+      const rows = [...el.querySelectorAll('tbody tr')];
+      const cell = (row: Element, id: string) =>
+        row.querySelector(`[data-testid=${id}]`)!.textContent!.replace(/\s+/g, ' ').trim();
+      // The cards' order: CMiC, then Sage.
+      expect(cell(rows[1]!, 'powered-table-direction')).toContain('Sends to Sage');
+      const connects = rows[1]!.querySelector('[data-testid=powered-table-connects]')!;
+      expect(connects.querySelector('aec-chip')!.textContent!.trim()).toBe('API');
+      expect(connects.textContent).toContain('Sage connector');
+      expect(cell(rows[1]!, 'powered-table-data')).toBe('2 types of data');
+      expect(cell(rows[0]!, 'powered-table-direction')).toBe('–');
+      expect(
+        rows[0]!
+          .querySelector('[data-testid=powered-table-connects] [aria-label]')!
+          .getAttribute('aria-label'),
+      ).toBe('Mechanism not listed');
+      expect(cell(rows[0]!, 'powered-table-data')).toContain('No types of data on record');
+    });
+
+    it('draws no rounded frame of its own inside the group card (AECI-1924)', () => {
+      const { fixture, el } = setupMixed();
+      showTable(fixture, el);
+      for (const frame of el.querySelectorAll('[data-testid=powered-table-frame]')) {
+        expect(frame.className).not.toMatch(/rounded|shadow/);
+        expect(frame.className).toContain('overflow-x-auto');
+      }
     });
 
     it('filters both views alike: the same rows, the same "Showing n of m"', () => {
