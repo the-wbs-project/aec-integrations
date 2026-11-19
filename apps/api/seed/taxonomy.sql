@@ -23,9 +23,15 @@
 --   id        = uuidv5(slug, NAMESPACE)
 --
 -- (URL_NS = 6ba7b811-9dad-11d1-80b4-00c04fd430c8, RFC 9562 §6.6.) The six audience terms
--- at display_order 53/56/145/155/165/185 are the first minted this way. Categories and
--- phases have no post-540 additions yet; when they get one, use the same construction with
--- `/vocabulary/category` and `/vocabulary/phase`.
+-- at display_order 53/56/145/155/165/185 are the first minted this way. Categories use the
+-- same construction with `/vocabulary/category`:
+--
+--   NAMESPACE = UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/category')
+--             = e7f44a2e-d4c4-5b01-9ff8-7efa179f2dc6
+--
+-- `procurement-materials-management` (display_order 225, AECI-559) is the first category
+-- minted this way. Phases have no post-540 additions yet; when they get one, use
+-- `/vocabulary/phase`.
 --
 -- DISPLAY_ORDER. The audience block is two runs: disciplines (10..210, alphabetical) then
 -- job titles (220..300, curated). Values are spaced in tens precisely so a term can be
@@ -84,6 +90,7 @@ INSERT INTO "taxonomy_categories" ("id","slug","name","description","display_ord
   ('ff8475ec-cbb8-52d5-8c81-8c37898e97b7', 'mep-design', 'MEP Design', 'Mechanical, electrical, and plumbing system design, sizing, and layout. General model authoring belongs under BIM Authoring.', 200, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('15e9b2aa-7fec-5004-af40-2300b5d5159a', 'payment-management', 'Payment Management', 'Moving money on a project: pay applications, lien waivers, compliance, and subcontractor payments. The books themselves are Accounting & ERP.', 210, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('66df2fe0-ecf3-555c-a138-1077c3e0722a', 'prefabrication-modular', 'Prefabrication & Modular', 'Offsite fabrication, shop drawings, panelization, and modular assembly workflows. Automated machinery on the line belongs under Robotics.', 220, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('1ebf866a-9842-5a3c-a572-1b2f76dc861a', 'procurement-materials-management', 'Procurement & Materials Management', 'Sourcing, purchase orders, and ordering, tracking, and delivery of construction materials. Company-wide spend platforms belong under Accounting & ERP.', 225, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('66360a76-bb37-59bc-9efe-af99d0b968eb', 'project-management', 'Project Management', 'Planning, tracking, and coordinating project work across tasks, budgets, and team workflow. All-in-one build platforms are Construction Management.', 230, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('930f27c4-5c8c-5b55-a5f3-bbbbbd4128dc', 'punch-list-qa-qc', 'Punch List & QA/QC', 'Quality inspections, observations, punch lists, and closeout verification. Worker safety programs belong under Safety & Compliance.', 240, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('39e40d09-b52b-52ae-ae00-28b3495e5980', 'reality-capture', 'Reality Capture', 'Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.', 250, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
