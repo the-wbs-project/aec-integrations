@@ -2384,9 +2384,12 @@ unchanged.
 A section at the foot of `/admin/legal`, after "Who has accepted", in its own component
 (`litigation-holds.ts`). A litigation hold stops the legal retention prune
 (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058) from deleting records a legal matter needs.
-Chris's ruling 3 of 2026-11-17 sets what a hold stops:
+Chris's ruling 3 of 2026-11-17 sets what a hold stops, narrowed by ruling 55 of 2026-11-19
+(AECI-1970):
 
-- **Any open hold**, global or vendor, pauses the whole four-year `audit_log` prune.
+- **A vendor hold** keeps that vendor's audit rows, by the ties in `DATABASE_SCHEMA.md` §8.4
+  "Whose row it is, for a hold". Every other audit row, other companies' and readers', is deleted
+  on schedule.
 - **A vendor hold** also keeps that vendor's agreement acceptances and subscription grants. That
   includes the acceptances of a rejected claim on the company and of a deleted company with that
   id (AECI-1914). An acceptance with no company or claim has no vendor to hold, so only a global

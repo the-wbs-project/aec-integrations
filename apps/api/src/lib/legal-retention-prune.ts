@@ -2,8 +2,9 @@
  * The legal retention prune (AECI-1638, counsel Q23a and Q27c, ADR 0058). The Privacy
  * Policy's "Retention" section makes three promises this module keeps:
  *
- *   - **Audit record:** kept for four years after the action. The deletion pauses while a
- *     legal hold is open, for every audit record. The audit record of an agreement
+ *   - **Audit record:** kept for four years after the action. A hold on one company pauses
+ *     the deletion only for that company's records; a global hold pauses it for every
+ *     record (ruling 55, AECI-1970, counsel Q66). The audit record of an agreement
  *     acceptance, a Terms of Service acceptance, an account deletion or a company deletion
  *     is kept for as long as the acceptance record it belongs to.
  *   - **Agreement acceptance records:** kept while the company has a vendor account and
@@ -24,12 +25,14 @@
  * ─── The hold gate comes first ───────────────────────────────────────────────
  *
  * Open `litigation_holds` rows are read before anything is planned (Chris's ruling 3 of
- * 2026-11-17):
+ * 2026-11-17, narrowed by ruling 55 of 2026-11-19, AECI-1970):
  *
  *   - **A global hold** stops the run. It deletes nothing and reports `skipped`.
- *   - **Any open hold**, global or vendor, pauses the whole four-year `audit_log` part.
- *   - **A vendor hold** keeps that vendor's acceptance and grant rows. Other vendors are
- *     pruned as usual.
+ *   - **A vendor hold** keeps that vendor's acceptance and grant rows, and every audit row
+ *     that belongs to that vendor ({@link auditRowOfVendor}). Every other audit row, other
+ *     companies' and readers', goes on schedule. Other vendors are pruned as usual.
+ *   - **A hold placed after planning** aborts the batch: the first sentinel fires on any
+ *     open hold the plan did not read.
  *
  * ─── The four-year audit part ────────────────────────────────────────────────
  *
@@ -41,6 +44,7 @@
  * row while its vendor row is gone and an acceptance or grant still names that vendor
  * (AECI-1914), and an `account.deleted` row while a `terms_acceptances` row still names that
  * profile (AECI-1718). The cutoff is {@link AUDIT_LOG_RETENTION_DAYS} days before today's UTC midnight.
+ * A row that belongs to a company under an open vendor hold is kept ({@link auditRowOfVendor}).
  *
  * The primary key is a UUID, not monotonic, so the chunks page the `(created_at, id)` row
  * value off `audit_log_created_at_idx`. Each chunk reads up to `PRUNE_CHUNK_ROWS` keys in
@@ -140,8 +144,10 @@
  *
  * **Released holds.** A `litigation_holds` row and its `litigation_hold.*` audit rows go
  * four years after `released_at` (the audit cutoff), never while the hold is open. The row's
- * `reason` is free text that can name a person. Any open hold pauses this cleanup, like the
- * four-year part. The table is not chained, so the run record carries its count, no ids.
+ * `reason` is free text that can name a person. An open hold on the same company keeps a
+ * released vendor hold, and any open hold keeps a released global hold, whose matter may
+ * concern anyone (AECI-1970). The table is not chained, so the run record carries its count,
+ * no ids.
  *
  * **`retention.pruned` rows are never deleted.** They hold ids and counts only, and the
  * acceptance chain verify reads all of them.
@@ -233,7 +239,8 @@ export interface LegalPrunedTable {
   rowsDeleted: number;
   /** True when a cap stopped the run short. The next run continues. */
   truncated: boolean;
-  /** `audit_log` only: true when an open hold paused the four-year part. */
+  /** True only on a `skipped` run, when an open global hold paused the whole table. A vendor
+   *  hold no longer pauses a table: it keeps that company's rows (ruling 55, AECI-1970). */
   paused?: boolean;
   /** `audit_log` only: the `agreement.*` rows deleted because their acceptances are gone
    *  (`agreement.accepted`, `agreement.linked`, `agreement.evidence_removed`), the
@@ -323,6 +330,9 @@ function likePrefix(prefix: string): string {
  * (AECI-1718): it dates the six years those rows are kept. The legal prune deletes it in the
  * batch that removes the last of them. A deleted account that never accepted a Terms version
  * leaves an ordinary four-year row. Correlated EXISTS only, no bind.
+ *
+ * No open global hold, and no open vendor hold whose company the row belongs to
+ * ({@link auditRowOfVendor}, ruling 55, AECI-1970).
  */
 export function auditPrunePredicate(cutoff: string): SQL {
   return and(
@@ -339,11 +349,93 @@ export function auditPrunePredicate(cutoff: string): SQL {
     ))`,
     sql`(${auditLog.action} <> ${ACCOUNT_DELETED_ACTION}
       OR NOT EXISTS (SELECT 1 FROM "terms_acceptances" "ap_t" WHERE "ap_t"."profile_id" = "audit_log"."entity_id"))`,
+    // Ruling 55 (AECI-1970): a global hold keeps every row (the run stops on one before
+    // planning, and the guarded DELETE repeats it), a vendor hold keeps only its company's.
+    NO_GLOBAL_HOLD,
+    sql`NOT ${AUDIT_ROW_UNDER_VENDOR_HOLD}`,
   ) as SQL;
 }
 
-/** Any open hold, global or vendor. */
-const ANY_OPEN_HOLD = sql`EXISTS (SELECT 1 FROM "litigation_holds" "lh_any" WHERE "lh_any"."released_at" IS NULL)`;
+/**
+ * True when the `audit_log` row of the enclosing statement belongs to the company `vendorId`
+ * names (an SQL expression). Ruling 55 (AECI-1970, counsel Q66): a vendor hold pauses the
+ * four-year deletion only for that company's records. The enclosing statement must read
+ * `audit_log` unaliased.
+ *
+ * A row belongs to the company when any of these ties holds. Each is a key the row itself
+ * carries, read against the current state of the tables it names:
+ *
+ *   1. **The `vendor_id` column** names it (every row about a vendor since migration `0063`,
+ *      AECI-1192: the acting vendor, the vendor holding the entity, a notice's recipient).
+ *   2. **It is filed under the company**: `entity_type` `vendor` or `vendor_entitlement`,
+ *      whose `entity_id` is the vendor id.
+ *   3. **Its legacy metadata names it**: `metadata.vendor_id` or `metadata.vendorId`, the
+ *      only vendor key on rows written before `0063` (no backfill, ruling 2026-10-04).
+ *   4. **It is about one of the company's products** (`product_vendors`): the `product_id`
+ *      column, a `product` row, an `integration` row with that product at either end or as
+ *      its connector, a `claim` or `attestation` row of such an integration, or a `review`
+ *      of that product. Promote writes and product retractions name no vendor, so this is
+ *      how they are reached.
+ *   5. **It is about a claim on the company**: a `vendor_request` row whose request targets
+ *      the company, or one of its products (the legacy product-target shape).
+ *   6. **One of the company's current seats wrote it** (`profiles.vendor_id`), whatever it
+ *      is about.
+ *
+ * A row none of these reach is not the company's, and goes on schedule. The gap is a row
+ * whose only link was an entity already deleted, written before `0063` with no vendor key,
+ * or by a former seat before `0063`. The runbook (`docs/runbooks/legal.md`) says to place a
+ * global hold when the matter needs those, or when its scope is not yet known.
+ *
+ * The JSON test is behind `CASE WHEN json_valid(…)`: a malformed value is never parsed, so
+ * it can neither match nor raise the "malformed JSON" error the race sentinel uses. No bind
+ * except the fixed action literals, so the bind count does not grow with the hold count.
+ */
+export function auditRowOfVendor(vendorId: SQL): SQL {
+  const productsOf = sql`SELECT "ov_pv"."product_id" FROM "product_vendors" "ov_pv" WHERE "ov_pv"."vendor_id" = ${vendorId}`;
+  const integrationOfVendor = (integrationId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "integrations" "ov_i"
+      WHERE "ov_i"."id" = ${integrationId}
+        AND ("ov_i"."source_product_id" IN (${productsOf})
+          OR "ov_i"."target_product_id" IN (${productsOf})
+          OR "ov_i"."powered_by_product_id" IN (${productsOf}))
+    )`;
+  return sql`(
+    "audit_log"."vendor_id" = ${vendorId}
+    OR ("audit_log"."entity_type" IN ('vendor', 'vendor_entitlement') AND "audit_log"."entity_id" = ${vendorId})
+    OR (CASE WHEN json_valid("audit_log"."metadata") THEN
+          json_extract("audit_log"."metadata", '$.vendor_id') = ${vendorId}
+          OR json_extract("audit_log"."metadata", '$.vendorId') = ${vendorId}
+        ELSE 0 END)
+    OR "audit_log"."product_id" IN (${productsOf})
+    OR ("audit_log"."entity_type" = 'product' AND "audit_log"."entity_id" IN (${productsOf}))
+    OR ("audit_log"."entity_type" = 'integration' AND ${integrationOfVendor(sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'claim' AND EXISTS (
+          SELECT 1 FROM "claims" "ov_c" WHERE "ov_c"."id" = "audit_log"."entity_id"
+            AND ${integrationOfVendor(sql`"ov_c"."integration_id"`)}))
+    OR ("audit_log"."entity_type" = 'attestation' AND EXISTS (
+          SELECT 1 FROM "attestations" "ov_at"
+          JOIN "claims" "ov_c2" ON "ov_c2"."id" = "ov_at"."claim_id"
+          WHERE "ov_at"."id" = "audit_log"."entity_id"
+            AND ${integrationOfVendor(sql`"ov_c2"."integration_id"`)}))
+    OR ("audit_log"."entity_type" = 'review' AND EXISTS (
+          SELECT 1 FROM "reviews" "ov_r" WHERE "ov_r"."id" = "audit_log"."entity_id"
+            AND "ov_r"."product_id" IN (${productsOf})))
+    OR ("audit_log"."entity_type" = 'vendor_request' AND EXISTS (
+          SELECT 1 FROM "vendor_requests" "ov_q" WHERE "ov_q"."id" = "audit_log"."entity_id"
+            AND (("ov_q"."target_type" = 'vendor' AND "ov_q"."target_id" = ${vendorId})
+              OR ("ov_q"."target_type" = 'product' AND "ov_q"."target_id" IN (${productsOf})))))
+    OR "audit_log"."actor_id" IN (SELECT "ov_p"."id" FROM "profiles" "ov_p" WHERE "ov_p"."vendor_id" = ${vendorId})
+  )`;
+}
+
+/** True when an open vendor hold covers the `audit_log` row of the enclosing statement. */
+const AUDIT_ROW_UNDER_VENDOR_HOLD = sql`EXISTS (
+  SELECT 1 FROM "litigation_holds" "lh_vh"
+  WHERE "lh_vh"."released_at" IS NULL
+    AND "lh_vh"."scope" = 'vendor'
+    AND "lh_vh"."vendor_id" IS NOT NULL
+    AND ${auditRowOfVendor(sql`"lh_vh"."vendor_id"`)}
+)`;
 
 /**
  * True when the vendor named by `vendorId` (an SQL expression) has an ended account, ended
@@ -800,7 +892,11 @@ export async function runLegalRetentionPrune(
   });
 
   const holds = await db
-    .select({ scope: litigationHolds.scope, vendorId: litigationHolds.vendorId })
+    .select({
+      id: litigationHolds.id,
+      scope: litigationHolds.scope,
+      vendorId: litigationHolds.vendorId,
+    })
     .from(litigationHolds)
     .where(isNull(litigationHolds.releasedAt));
   const vendorHolds = holds.filter((h) => h.scope === 'vendor').length;
@@ -966,24 +1062,30 @@ export async function runLegalRetentionPrune(
     accountDeleted;
 
   // ── The four-year audit part, and holds released four years ago ──────────
-  const auditPaused = holds.length > 0;
-  const audit: AuditPlan = auditPaused
-    ? { statements: [], rowsDeleted: 0, truncated: false }
-    : await planAuditChunks(db, cutoffs.audit);
+  // Ruling 55 (AECI-1970): an open vendor hold no longer pauses this part. The predicate
+  // keeps the rows of each held company ({@link auditRowOfVendor}) and deletes the rest.
+  const audit: AuditPlan = await planAuditChunks(db, cutoffs.audit);
+  // A released vendor hold is kept while an open hold covers the same company, and a
+  // released global hold while any hold is open: its matter may concern anyone.
   const releasedHoldWhere = and(
     isNotNull(litigationHolds.releasedAt),
     lt(litigationHolds.releasedAt, cutoffs.audit),
+    sql`NOT EXISTS (
+      SELECT 1 FROM "litigation_holds" "lh_open"
+      WHERE "lh_open"."released_at" IS NULL
+        AND ("lh_open"."scope" = 'global'
+          OR "litigation_holds"."scope" = 'global'
+          OR "lh_open"."vendor_id" = "litigation_holds"."vendor_id")
+    )`,
   ) as SQL;
-  const releasedHolds = auditPaused
-    ? { ids: [] as string[], truncated: false }
-    : await capIds(
-        db
-          .select({ id: litigationHolds.id })
-          .from(litigationHolds)
-          .where(releasedHoldWhere)
-          .orderBy(asc(litigationHolds.releasedAt), asc(litigationHolds.id))
-          .limit(LEGAL_RETENTION_IDS_PER_TABLE + 1),
-      );
+  const releasedHolds = await capIds(
+    db
+      .select({ id: litigationHolds.id })
+      .from(litigationHolds)
+      .where(releasedHoldWhere)
+      .orderBy(asc(litigationHolds.releasedAt), asc(litigationHolds.id))
+      .limit(LEGAL_RETENTION_IDS_PER_TABLE + 1),
+  );
   const holdAuditWhere = and(
     eq(auditLog.entityType, 'litigation_hold'),
     sql`${auditLog.action} LIKE ${likePrefix('litigation_hold.')} ESCAPE '\\'`,
@@ -997,7 +1099,6 @@ export async function runLegalRetentionPrune(
       cutoff: cutoffs.audit,
       rowsDeleted: audit.rowsDeleted + companions + holdAudit,
       truncated: audit.truncated || evidence.truncated || termsEvidence.truncated,
-      ...(auditPaused ? { paused: true } : {}),
       ...(companions > 0 ? { companionRowsDeleted: companions } : {}),
       ...(holdAudit > 0 ? { holdAuditRowsDeleted: holdAudit } : {}),
     },
@@ -1018,7 +1119,6 @@ export async function runLegalRetentionPrune(
       cutoff: cutoffs.audit,
       rowsDeleted: releasedHolds.ids.length,
       truncated: releasedHolds.truncated,
-      ...(auditPaused ? { paused: true } : {}),
     },
     {
       table: 'terms_acceptances',
@@ -1043,15 +1143,13 @@ export async function runLegalRetentionPrune(
   // four-year predicate, so it must be gone before that predicate is counted again. The
   // `retention.pruned` insert comes last.
   const statements: BatchStmt[] = [];
-  // A hold placed after the read: a global one stops everything, and any one stops the
-  // four-year part and the released-hold cleanup. The acceptance predicate checks vendor
-  // holds itself.
+  // A hold placed after the read aborts the batch, whatever its scope: the plan was read
+  // without it, so a row it covers may be in a chunk. The replan reads it. Every predicate
+  // also checks the holds itself, so this is the explicit form of the same rule.
   statements.push(
     abortWhen(
       db,
-      audit.rowsDeleted > 0 || releasedHolds.ids.length > 0
-        ? ANY_OPEN_HOLD
-        : sql`EXISTS (SELECT 1 FROM "litigation_holds" "lh_g" WHERE "lh_g"."released_at" IS NULL AND "lh_g"."scope" = 'global')`,
+      sql`EXISTS (SELECT 1 FROM "litigation_holds" "lh_new" WHERE "lh_new"."released_at" IS NULL AND "lh_new"."id" NOT IN (SELECT value FROM json_each(${JSON.stringify(holds.map((h) => h.id))})))`,
     ),
   );
   if (acceptances.ids.length > 0) {
@@ -1205,6 +1303,9 @@ export async function runLegalRetentionPrune(
     metadata: {
       source: LEGAL_RETENTION_SOURCE,
       rowsDeleted,
+      // The open vendor holds whose companies' rows this run kept (ruling 55). A count, no
+      // vendor id and no reason.
+      ...(vendorHolds > 0 ? { vendorHolds } : {}),
       tables: tables
         .filter((t) => t.rowsDeleted > 0)
         .map((t) => ({
@@ -1294,8 +1395,8 @@ export const LEGAL_RETENTION_TRUNCATED_METRIC = 'aeci.legal_retention.prune.trun
 /**
  * The metrics of one completed run. `rows_deleted` goes out for every table on every run,
  * zeros included, so a threshold monitor has a continuous series. The run count doubles as
- * the liveness heartbeat. `audit:paused` marks a run an open vendor hold kept off
- * `audit_log`.
+ * the liveness heartbeat. `audit:scoped` marks a run that kept the rows of a company under an
+ * open vendor hold and deleted the rest (ruling 55, AECI-1970).
  */
 export function emitLegalRetentionPruneMetrics(
   sink: LegalRetentionMetricSink,
@@ -1310,7 +1411,6 @@ export function emitLegalRetentionPruneMetrics(
       sink.count(LEGAL_RETENTION_TRUNCATED_METRIC, 1, [...base, `table:${t.table}`]);
     }
   }
-  const paused = result.tables.some((t) => t.table === 'audit_log' && t.paused);
   sink.count(
     LEGAL_RETENTION_RUN_METRIC,
     1,
@@ -1319,7 +1419,7 @@ export function emitLegalRetentionPruneMetrics(
       : [
           ...base,
           'outcome:ok',
-          paused ? 'audit:paused' : 'audit:run',
+          result.vendorHolds > 0 ? 'audit:scoped' : 'audit:run',
           ...(result.replanned ? ['replanned:true'] : []),
         ],
   );
