@@ -15,9 +15,11 @@ import {
 } from '@angular/core';
 
 import { Router, RouterLink } from '@angular/router';
+import type { ClaimStatus } from '@aeci/shared';
 
 import { SMOOTH_SCROLL_CLASS } from '../../core/in-page-smooth-scroll';
 import { BrandLogo } from '../../layout/brand-logo';
+import { Chip } from '../chip/chip';
 import { injectInPageHrefFor } from '../in-page-href';
 
 /**
@@ -49,6 +51,10 @@ const FADE_PX = 40;
  * 9, ADR 0059). There is no input that could put one there. The brand link renders only while
  * the bar is stuck, so it never sits beside the header's own home link, and the server HTML
  * (never stuck) carries neither it nor the name.
+ *
+ * **An unclaimed listing adds an "Unclaimed" tag** beside the name (ruling 41, Q61 in
+ * `docs/LEGAL_COUNSEL_RECORD.md`), from `claimStatus`. It is the stuck cluster's last item, so
+ * it too renders only while stuck. Below `md` it follows the monogram. A static chip, no link.
  *
  * **Links keep the query (AECI-1843).** The app ships `<base href="/">`, so a bare `href="#id"`
  * resolves to `/#id`. The hrefs come from `injectInPageHrefFor()` (`shared/in-page-href.ts`):
@@ -103,7 +109,7 @@ const FADE_PX = 40;
  */
 @Component({
   selector: 'aec-section-nav',
-  imports: [BrandLogo, NgOptimizedImage, RouterLink],
+  imports: [BrandLogo, Chip, NgOptimizedImage, RouterLink],
   // Sticky lives on the HOST, not an inner element: position:sticky only travels within its
   // containing block. The host itself must be projected into DetailLayout's `nav` slot, which
   // renders it bare into the page container, so it stays pinned for the whole page.
@@ -210,6 +216,19 @@ const FADE_PX = 40;
               <span class="truncate">{{ name }}</span>
             </span>
           }
+          <!-- Ruling 41 (Q61, LEGAL_COUNSEL_RECORD.md): an unclaimed listing carries a short
+               "Unclaimed" tag beside the name, at every width (below md it follows the
+               monogram, because the name is not shown there). The hero's status chip recipe.
+               Information, not a link. It never shrinks; the name truncates first. -->
+          @if (claimStatus() === 'unclaimed') {
+            <aec-chip
+              class="shrink-0"
+              tone="quiet"
+              data-testid="section-nav-unclaimed"
+              i18n="@@products.detail.nav.unclaimed"
+              >Unclaimed</aec-chip
+            >
+          }
         </div>
       }
       <nav
@@ -281,6 +300,13 @@ export class SectionNav {
    * Integrations › Bluebeam Revu"). Text only: the bar never draws the entity's logo.
    */
   readonly pageName = input<string | null>(null);
+  /**
+   * The page subject's claim status, from its payload (`claim_status`). `'unclaimed'` adds the
+   * "Unclaimed" tag beside the name once the bar sticks (ruling 41, Q61). Listing data, never
+   * visitor state, and the tag renders only while stuck, so the server HTML is unchanged.
+   * Null (the default) or `'claimed'` adds nothing.
+   */
+  readonly claimStatus = input<ClaimStatus | null>(null);
   /**
    * The bar at rest. `solid` (default) is white with its hairline at rest and stuck. `clear` is
    * for a bar that sits on a band at rest (the product band shell, where it crosses the Bone

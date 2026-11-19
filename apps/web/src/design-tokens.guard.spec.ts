@@ -450,6 +450,41 @@ describe('design tokens', () => {
     });
   });
 
+  // AECI-1928: Source Serif never renders below 20px (DESIGN.md §3 "The Serif-Floor
+  // Rule"). `--t-12` to `--t-16` are sans. This is the source half of the guard: a
+  // class string that names the serif face never names a sub-floor size. The
+  // rendered half, which also catches a small size inheriting the serif from an
+  // `h1` to `h3`, is `e2e/serif-floor.spec.ts`.
+  describe('the Serif-Floor Rule (AECI-1928, DESIGN.md §3)', () => {
+    /** A sub-floor size utility, with any variant prefix (`md:`, `hover:`). */
+    const SUB_FLOOR = /(?:^|\s)(?:[\w-]+:)*text-(?:xs|sm|base|t-12|t-13|t-14|t-16)(?=\s|$)/;
+    const SERIF = /(?:^|\s)font-display(?=\s|$)/;
+
+    it('never pairs the serif face with a size below 20px in one class string', () => {
+      const offenders: string[] = [];
+      for (const file of walk(join(SRC_DIR, 'app'))) {
+        if (/\.spec\.ts$/.test(file)) continue;
+        const text = readFileSync(file, 'utf8');
+        // Every quoted run: a `class="…"` attribute, a TS string or a template literal.
+        for (const m of text.matchAll(/(["'`])((?:(?!\1)[^\n\\]|\\.)*)\1/g)) {
+          if (SERIF.test(m[2]) && SUB_FLOOR.test(m[2])) {
+            offenders.push(`${file.slice(SRC_DIR.length + 1)}: "${m[2].slice(0, 80)}"`);
+          }
+        }
+      }
+      expect(offenders, 'use font-body below 20px, or a serif step of --t-20 or more').toEqual([]);
+    });
+
+    it('draws the 32px initial tile in the body face, as mock-ups 10 to 12 do', () => {
+      const tile = readFileSync(
+        join(SRC_DIR, 'app', 'shared', 'logo-or-initial', 'logo-or-initial.ts'),
+        'utf8',
+      );
+      expect(tile).toContain("'font-body text-sm'");
+      expect(tile).not.toMatch(/\bfont-display \$\{this\.initialClass\(\)\}/);
+    });
+  });
+
   // AECI-1927: glyphs are drawn as the approved mock-ups draw them, from one shared rule
   // per role in styles.css (DESIGN.md §3 "How glyphs are drawn").
   describe('how glyphs are drawn (AECI-1927, DESIGN.md §3)', () => {

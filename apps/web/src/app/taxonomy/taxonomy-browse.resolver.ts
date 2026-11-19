@@ -48,7 +48,7 @@ import {
 } from '@angular/core';
 import { Router, type ParamMap, type ResolveFn } from '@angular/router';
 
-import { isPublishedTrade } from '@aeci/shared';
+import { isPublishedTrade } from '@aeci/shared/api/trade-publish';
 
 import { fetchIndexPage, storeIndexPage } from '../shared/paginated-index/paginated-index.resolver';
 

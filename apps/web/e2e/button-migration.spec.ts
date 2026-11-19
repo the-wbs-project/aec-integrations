@@ -17,8 +17,27 @@ const FOREST = 'rgb(30, 58, 47)';
 const WHITE = 'rgb(255, 255, 255)';
 const BORDER_STRONG = 'rgb(212, 212, 216)';
 
-/** Computed colours come back as `oklch(…)` in some engines, so read them via a canvas. */
+/**
+ * Computed colours come back as `oklch(…)` in some engines, so read them via a canvas.
+ *
+ * Read the settled value only (AECI-1922). Hydration rewrites the button's class
+ * attribute in two steps: it first writes the template's static class (`mt-12`),
+ * which drops the fill, and the host binding adds the recipe back in the update
+ * pass. No frame paints between the two (AECI-1937), but a style read from a
+ * script in that gap, such as this test polling the element, resolves the button
+ * with no fill. The recipe's `background-color` transition then fades Forest back
+ * in over `--duration-fast`. A read during the fade gets a part-transparent Forest,
+ * and the canvas readback rounds a channel one step off: CI saw rgb(31, 58, 47),
+ * a local run 2 failures in 50. The token itself is exact: oklch(32.24% 0.0397
+ * 166.73) is rgb(30.03, 58.00, 47.01). So wait for hydration, move the pointer
+ * off the page (a hover is a different fill), and let every transition finish.
+ */
 async function style(loc: Locator) {
+  await loc.page().mouse.move(0, 0);
+  await untilHydrated(loc);
+  await loc.evaluate((el) =>
+    Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))),
+  );
   return loc.evaluate((el) => {
     const toRgb = (c: string) => {
       const ctx = document.createElement('canvas').getContext('2d')!;

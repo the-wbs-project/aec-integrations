@@ -163,6 +163,14 @@ Use the `host: { ... }` metadata property on `@Component` / `@Directive`. Never 
 
 Lint: ✅ `@angular-eslint/prefer-host-metadata-property`.
 
+**A static `class` beside a class binding is briefly dropped at hydration (AECI-1937).** When Angular hydrates or creates an element, it writes the element's static classes with one `setAttribute('class', …)` (`setupStaticAttributes`). That covers the template's `class="mt-12"` plus any static host `class`. On a hydrated node, that write replaces the server's full class list with the static part alone. Bound classes (`[class]`, `[class.x]`, a directive's host `[class]`) come back in the first update pass. The zoneless scheduler runs that pass before any rendering step, so no frame paints the bare state.
+
+- **What was measured.** A MutationObserver sees the reduced list on every load of the 404 page and the home page, for example `aecButton` and `aecCard` hosts. Across more than 70 throttled loads, a style probe saw the browser resolve style in the gap zero times. No reader-visible state was measured.
+- **What makes it visible.** A script that reads style during the gap, such as `getComputedStyle` or a test tool polling an element, resolves the element without its bound classes. A later change then starts any transition it has. That is what made the AECI-1922 e2e flaky: Playwright read the 404 button mid-fade as rgb(31, 58, 47). Don't read style in a hydration callback or during creation.
+- **The rule for new code.** Give an element one class binding, with no static `class` beside it. That applies to an element that binds `[class]` and to an element carrying a directive that binds `[class]`, such as `aecButton` or `aecCard`. Write `[class]="'mt-5 flex ' + layout()"`, not `class="mt-5 flex" [class.lg:grid]="split()"`. An element with no static class is never touched by the write, so a hydrated node keeps the server's list until the update pass. Existing pairs are tracked in AECI-1938, at low priority.
+- **The guard.** `e2e/hydration-class-recipe.spec.ts` injects a 1ms animation for an `aecButton` or `aecCard` without its recipe's first class, and fails on `animationstart`. It loads five routes passively. It fails only if something starts resolving style in the gap. It reads no style itself, because its own read would start the transitions it looks for.
+- **Upstream.** On a hydrated node, Angular rewrites a class attribute that already holds the server's list. That could be reported to Angular. No report has been filed.
+
 ---
 
 ## 11. Signals over RxJS

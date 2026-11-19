@@ -529,6 +529,11 @@ Why it is shaped this way:
   future probe of `/products` or `/vendors` needs the same treatment; probes of
   `/api/health` / `/api/version` do not.
 
+  **Since AECI-840 that script runs on every promote, from a GitHub runner.** It is the
+  blocking post-smoke step in `promote-to-demo.yml` and `promote-to-prod.yml`. A change
+  to this rule that challenges a browser UA from a datacenter IP on `/products` would
+  turn every promote red. Run the script from a runner before shipping such a change.
+
   Two failures stacked here, and only the second one is fixed by the UA. Until
   **AECI-753** the challenge was also _silent_: `curl -f` threw the 403 away, the script
   called the empty body a SKIP, and the run printed **"RESULT: PASS, with 2 page(s)
@@ -1053,7 +1058,10 @@ re-checked on the Enterprise zone, so assume it still holds. Setting
 **Definitely automated traffic** to _Block_ or _Managed Challenge_ applies domain-wide.
 `scripts/smoke-test.sh` and the `/api/health` + `/api/version` probes all run `curl` from
 GitHub Actions and score as definitely automated. §2 deliberately excludes those paths.
-SBFM would not. If you ever need to tighten it, add the `Skip` → _All Super Bot Fight
+SBFM would not. Since AECI-840 the promote workflows also curl `/products` and three
+taxonomy hubs from a runner (`scripts/check-ssr-listings.sh`, browser UA). A challenge
+there fails every promote, so the `Skip` rule must cover those paths too. A trial on
+2026-11-18 got 45 of 45 `200`s from a runner on staging, demo and production. If you ever need to tighten it, add the `Skip` → _All Super Bot Fight
 Mode rules_ custom rule for those paths **first**.
 
 **2. JavaScript Detections is currently pure cost.** Every SBFM action is set to _Allow_,

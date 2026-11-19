@@ -106,6 +106,7 @@ import { ONE_ROW } from '../lib/integration-claims';
 import {
   hasThreadAcknowledgment,
   isThreadParticipant,
+  threadAcknowledgmentState,
   threadParticipantWhere,
 } from '../lib/claim-threads';
 import { assertIntegrationLive, integrationRetiredError } from '../lib/live-integration';
@@ -704,7 +705,14 @@ export function createPostThreadMessageHandler(
 
       // AECI-1616 (counsel Q9, §15.17): the company's first post to this company on
       // this integration carries the acknowledgment, and lands it in this batch.
-      const acknowledged = await hasThreadAcknowledgment(db, vendorId, integrationId, recipient);
+      // AECI-1641: a row older than the material version no longer counts, and the
+      // new acceptance records which version it supersedes.
+      const { acknowledged, latestVersion } = await threadAcknowledgmentState(
+        db,
+        vendorId,
+        integrationId,
+        recipient,
+      );
       if (!acknowledged && ackVersion === undefined) throw ackRequired(recipient);
       const ackId = acknowledged ? null : crypto.randomUUID();
 
@@ -747,6 +755,7 @@ export function createPostThreadMessageHandler(
               integrationId,
               otherVendorId: recipient,
               textVersion: THREAD_ACK_TEXT_VERSION,
+              ...(latestVersion === null ? {} : { supersedesVersion: latestVersion }),
             },
             { threadId, claimId, integrationId },
           ),

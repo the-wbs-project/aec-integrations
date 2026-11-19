@@ -622,7 +622,9 @@ behind it:
 > ```
 >
 > It counts product links in the raw HTML of five listing pages and exits non-zero
-> if any is a dead end. Run it after any change to `createPaginatedIndex`, the
+> if any is a dead end. Since AECI-840 both promote workflows run it as a blocking
+> step against the host they just deployed, so a manual run is a spot check, not
+> the gate. Run it after any change to `createPaginatedIndex`, the
 > listing routes, or the SSR data path — and as a spot check when Search Console
 > coverage looks wrong.
 >

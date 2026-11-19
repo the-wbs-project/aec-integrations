@@ -6,10 +6,19 @@
 #   ./scripts/check-ssr-listings.sh http://localhost:8790  # local dev, other port
 #   ./scripts/check-ssr-listings.sh https://www.aecintegrations.com
 #
+#   A host behind Cloudflare Access (staging, demo) needs the service token:
+#   CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... \
+#     ./scripts/check-ssr-listings.sh https://demo.aecintegrations.com
+#
+# CI runs it after every promote (AECI-840): promote-to-demo.yml and
+# promote-to-prod.yml, after the smoke and Algolia steps. The caller owns the retry:
+# exit 1 fails the promote at once, exit 2 is retried before it fails.
+#
 # Exit codes:
 #   0  every listing page answered 200 AND shipped product links. Verified.
 #   1  a real finding — a page answered with a non-200, or answered 200 and sent
-#      no products. Either way a crawler reaches no catalogue through it.
+#      no products, or redirected off-host. Any way, a crawler reaches no catalogue
+#      through it.
 #   2  could not check — a page returned no HTTP response at all (DNS, timeout,
 #      connection refused). Nothing was verified. This is "unknown", not "fine".
 #
@@ -28,11 +37,12 @@
 #
 # READING THE RESULT
 #   PASS = the page answered 200 and shipped product links. Google can crawl onward.
-#   FAIL = a crawler reaches no catalogue through this page. Three ways to earn it:
+#   FAIL = a crawler reaches no catalogue through this page. Four ways to earn it:
 #     - a non-200 status. A 403 challenge is a dead end to a crawler exactly as a
 #       blank page is, so it is a finding, not a skip (AECI-753).
 #     - 200 carrying the "Couldn't load products" error branch.
 #     - 200 carrying zero product links.
+#     - a redirect to another host (an Access login page, most often).
 #   COULD NOT CHECK = no HTTP response at all. Not a FAIL — nothing was measured, so
 #     the run reports exit 2 rather than exit 1.
 #
@@ -74,11 +84,35 @@
 #   which was true when it was filed and stopped being true when AECI-659 extended the
 #   host set on 2026-09-03. Verified 2026-09-10: `curl` with its default UA gets 403 on
 #   `https://www.aecintegrations.com/products`. Nothing is incidentally protected now.
+#
+# WHY IT SENDS THE ACCESS SERVICE TOKEN, AND FAILS AN OFF-HOST REDIRECT
+#   Staging and demo sit behind Cloudflare Access (demo since 2026-10-29, AECI-1530).
+#   Without the token, Access answers 302 to its login page on another host. `-L`
+#   follows it, the login page answers 200 with no product links, and the run would
+#   report the AECI-746 regression for a reason that has nothing to do with crawlers.
+#   So: the token headers are attached when BOTH env vars are set, the same rule as
+#   scripts/verify-version.sh. And any page that redirects to a different host than
+#   the one asked about is a FAIL that names that host. The script follows redirects
+#   itself and never requests the off-host URL, so the token is never sent there. A crawler
+#   sent off-host reaches no catalogue on ours either, so it is a finding, not a skip.
+#   On production the token is inert (the host is public) and CI passes it anyway.
 
 set -uo pipefail
 
 BASE="${1:-http://localhost:8788}"
 BASE="${BASE%/}"
+# scheme://host[:port] -> host[:port], for the off-host redirect check.
+BASE_HOST="${BASE#*://}"
+BASE_HOST="${BASE_HOST%%/*}"
+
+# Access service-token headers, only when both are provided (see above).
+# `${hdrs[@]+"${hdrs[@]}"}` expands to nothing for an empty array under `set -u`,
+# on bash 3.2 (macOS) as well as bash 5 (CI).
+hdrs=()
+if [ -n "${CF_ACCESS_CLIENT_ID:-}" ] && [ -n "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
+  hdrs+=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID")
+  hdrs+=(-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+fi
 
 # Not a disguise — see "WHY IT SENDS A BROWSER USER AGENT" above.
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -107,27 +141,59 @@ printf "  %-38s %14s   %s\n" "--------------------------------------" "---------
 dead_ends=0    # answered 200, and a crawler still sees no catalogue
 bad_status=0   # answered, but with something other than 200
 unreachable=0  # never answered at all
+off_host=0     # the redirect chain ended on another host
 
 for page in "${PAGES[@]}"; do
-  # Truncate first: on a transport failure curl may never open -o, which would
-  # leave the PREVIOUS page's body here to be graded a second time.
-  : > "$BODY_FILE"
-
+  # Redirects are followed by hand, one hop at a time, and never off our host.
+  # `curl -L` would send every `-H` header to each host in the chain, so the Access
+  # client secret would leave for whatever an off-host redirect named. Here the next
+  # hop is requested only once its host is checked, so the token reaches ours alone.
+  # Up to 3 redirects, as `--max-redirs 3` allowed; a longer chain is graded on its
+  # last 3xx, as before. Following at all matters: Googlebot follows redirects, and
+  # this probe claims to see what Googlebot sees.
+  #
   # No `-f`. `-f` is exactly what threw the status code away and produced the
-  # AECI-753 false pass. `-L` because Googlebot follows redirects and this probe
-  # claims to see what Googlebot sees; --max-redirs stops a loop.
+  # AECI-753 false pass.
   #
   # curl itself writes "000" into %{http_code} when it never received an HTTP
   # response, so do NOT write `code=$(...) || code="000"` — that would clobber a
-  # real status on the paths where curl exits non-zero while still knowing one
-  # (a chain that exceeds --max-redirs reports its last 301).
-  code="$(curl -sS -L --max-redirs 3 --max-time 30 -A "$UA" \
-    -o "$BODY_FILE" -w '%{http_code}' "${BASE}${page}" 2>/dev/null)"
-  [ -n "$code" ] || code="000"
+  # real status on a path where curl exits non-zero while still knowing one.
+  url="${BASE}${page}"
+  code="000"
+  off_host_to=""
+  for hop in 0 1 2 3; do
+    # Truncate first: on a transport failure curl may never open -o, which would
+    # leave the PREVIOUS page's body here to be graded a second time.
+    : > "$BODY_FILE"
+    # %{redirect_url} is the absolute Location of a 3xx. A tab separates it from
+    # the status: neither can contain one.
+    out="$(curl -sS --max-time 30 -A "$UA" ${hdrs[@]+"${hdrs[@]}"} \
+      -o "$BODY_FILE" -w '%{http_code}\t%{redirect_url}' "$url" 2>/dev/null)"
+    code="${out%%$'\t'*}"
+    [ -n "$code" ] || code="000"
+    next=""
+    case "$out" in *$'\t'*) next="${out#*$'\t'}" ;; esac
+    case "$code" in 3??) ;; *) break ;; esac
+    [ -n "$next" ] && [ "$hop" -lt 3 ] || break
+    next_host="${next#*://}"
+    next_host="${next_host%%/*}"
+    # The apex 301s to www (AECI-1441), so `www.` + the asked-for host is the same site.
+    if [ "$next_host" != "$BASE_HOST" ] && [ "$next_host" != "www.${BASE_HOST}" ]; then
+      off_host_to="$next_host"
+      break
+    fi
+    url="$next"
+  done
 
   if [ "$code" = "000" ]; then
     printf "  %-38s %14s   %s\n" "$page" "-" "COULD NOT CHECK (no response — DNS, timeout, or refused)"
     unreachable=$((unreachable + 1))
+    continue
+  fi
+
+  if [ -n "$off_host_to" ]; then
+    printf "  %-38s %14s   %s\n" "$page" "-" "FAIL (redirected off-host to ${off_host_to}, Access login?)"
+    off_host=$((off_host + 1))
     continue
   fi
 
@@ -165,6 +231,14 @@ if [ "$bad_status" -gt 0 ]; then
   echo
 fi
 
+if [ "$off_host" -gt 0 ]; then
+  echo "${off_host} page(s) redirected to a different host than ${BASE_HOST}. On staging or demo"
+  echo "that is the Cloudflare Access login page: set CF_ACCESS_CLIENT_ID and"
+  echo "CF_ACCESS_CLIENT_SECRET to the aeci-gh-actions service token. On production it is"
+  echo "a real finding: a crawler sent off-host reaches no catalogue on ours."
+  echo
+fi
+
 if [ "$dead_ends" -gt 0 ]; then
   echo "${dead_ends} page(s) answered 200 and sent no products to crawlers. This is the AECI-746"
   echo "regression. Confirm by eye — a count of 1 means broken, 0 means fine:"
@@ -179,8 +253,8 @@ if [ "$unreachable" -gt 0 ]; then
   echo
 fi
 
-if [ $((bad_status + dead_ends)) -gt 0 ]; then
-  echo "RESULT: FAIL — $((bad_status + dead_ends)) of ${#PAGES[@]} listing page(s) are a dead end for crawlers."
+if [ $((bad_status + dead_ends + off_host)) -gt 0 ]; then
+  echo "RESULT: FAIL — $((bad_status + dead_ends + off_host)) of ${#PAGES[@]} listing page(s) are a dead end for crawlers."
   exit 1
 fi
 

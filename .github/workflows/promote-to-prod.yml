@@ -1149,6 +1149,57 @@ jobs:
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:push-docs --env production
 
+      # AECI-840: the AECI-746 question against the deployed host, on every promote.
+      # Do listing pages ship product links in the raw HTML a crawler reads? Local
+      # `wrangler dev` cannot reproduce that bug, so this is the only automated check
+      # that can. It runs after the smoke step, so both Workers are at the SHA, and the
+      # edge cache key includes the Worker version, so it reads freshly rendered HTML.
+      # It sits after the Algolia steps so a red result still lets them finish.
+      #
+      # Blocking, and deliberately NOT a rollback trigger. The rollback step keys on
+      # steps.smoke, and this step has its own id. The likeliest red is a Cloudflare
+      # zone setting that 403s the runner, which a Worker rollback cannot fix. A real
+      # AECI-746 regression is a red promote, and the operator rolls back by hand.
+      # Trial 2026-11-18: 45/45 pages 200 from a runner on staging, demo and prod.
+      #
+      # Exit 1 is a finding and fails at once. Exit 2 means a page never answered,
+      # so it is retried before it fails. Production is public, so the Access token is inert, as on the smoke step.
+      # The probe comes from the workflow's own revision (the dispatched ref, main),
+      # not from the SHA being promoted. A release that predates AECI-840 carries the
+      # old probe, which sends no Access token and would fail every demo page. Same
+      # sparse-checkout pattern as scripts/resolve-promote-sha.sh above.
+      - name: Fetch the crawler probe from the workflow revision
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/check-ssr-listings.sh
+          sparse-checkout-cone-mode: false
+          path: probe
+      - name: Crawler check, listing pages ship product links (production)
+        id: crawler
+        env:
+          HOST: https://www.aecintegrations.com
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          # The runner's shell is `bash -e`, and `set -uo` does not turn -e off. A bare
+          # call would end the step on exit 2 before the retry below could read it.
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            rc=0
+            bash probe/scripts/check-ssr-listings.sh "$HOST" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$rc" -ne 2 ]; then
+              echo "::error::Listing pages on $HOST are a dead end for crawlers (check-ssr-listings.sh exit $rc). See the failure runbook."
+              exit 1
+            fi
+            echo "Attempt $attempt: a listing page on $HOST never answered. Retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Listing pages on $HOST never answered after 3 attempts (check-ssr-listings.sh exit 2). Nothing was verified."
+          exit 1
+
       # -----------------------------------------------------------------------
       # AECI-91: auto-rollback BOTH production Workers when the post-deploy
       # SMOKE step fails after both Workers went live. `wrangler rollback` with
@@ -1219,6 +1270,7 @@ jobs:
           INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
           ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
+          CRAWLER_OUTCOME: ${{ steps.crawler.outcome }}
         run: |
           {
             echo "## :rotating_light: promote-to-prod FAILURE runbook (AECI-91)"
@@ -1245,6 +1297,13 @@ jobs:
             echo "# 2) Restore to an ISO-8601 timestamp (or a --bookmark from step 1) just before the promote:"
             echo "pnpm exec wrangler d1 time-travel restore aeci-app-production --env production --timestamp=<ISO8601-before-promote>"
             echo '```'
+            echo
+            echo "### Crawler check (AECI-840)"
+            echo "Outcome: \`${CRAWLER_OUTCOME:-not run}\`. On \`failure\` the Workers are live and were NOT auto-rolled back."
+            echo "- \`FAIL (HTTP 403 ...)\`: usually Cloudflare, not the app. Find the layer with docs/waf-rate-limits.md §6.4 and §3b before rolling back."
+            echo "- \`FAIL (renders the error message)\` or \`no product links\`: the AECI-746 regression. Roll back with the commands above."
+            echo "- \`redirected off-host\`: the Access service token is missing or wrong (\`CF_ACCESS_CLIENT_ID\` / \`CF_ACCESS_CLIENT_SECRET\`)."
+            echo "- \`never answered\` after 3 attempts: nothing was checked. Re-run by hand: \`./scripts/check-ssr-listings.sh https://www.aecintegrations.com\`."
             echo
             echo "See **docs/CICD_PLAN.md §6** (rollback strategy) and **§9.2** (smoke + failure path)."
           } >> "$GITHUB_STEP_SUMMARY"

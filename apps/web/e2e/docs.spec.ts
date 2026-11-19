@@ -365,6 +365,64 @@ test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', (
     });
   }
 
+  // AECI-1918: a table wider than a phone scrolls in its own box, never the page.
+  // Every page whose Markdown holds a table: the six live docs articles, the two
+  // recorded Plans versions and the methodology page. A new table page joins here.
+  const TABLE_PATHS = [
+    '/docs/getting-started/checking-before-you-buy',
+    '/docs/getting-started/taxonomy',
+    '/docs/vendors/editing-profile-and-products',
+    '/docs/vendors/notifications-and-messages',
+    '/docs/vendors/confirming-integration-data',
+    '/docs/vendors/owning-an-integration',
+    '/docs/vendors/plans/v1.0',
+    '/docs/vendors/plans/v1.1',
+    '/methodology',
+  ];
+
+  for (const width of [320, 390]) {
+    test(`no page with a prose table scrolls sideways at ${width}px (AECI-1918)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of TABLE_PATHS) {
+        await page.goto(path);
+        await expect(page.locator('.aec-prose table').first(), path).toBeVisible();
+        await expectNoSidewaysScroll(page, `${path} at ${width}px`);
+      }
+    });
+  }
+
+  test('a wide prose table stays a table, in a named scroll box that is a stop only while it overflows (AECI-1918)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto('/docs/getting-started/checking-before-you-buy');
+    const box = page.locator('.aec-prose-table-scroll').first();
+    const table = box.locator('table');
+    // Still a table to assistive tech: never `display: block`.
+    await expect(table).toHaveCSS('display', 'table');
+    await expect(page.getByRole('table')).toHaveCount(1);
+    // It overflows at 320px, so the box is a named keyboard stop.
+    await expect(box).toHaveAttribute('tabindex', '0');
+    await expect(box).toHaveAttribute('role', 'region');
+    const name = await box.getAttribute('aria-label');
+    expect(name?.trim()).toBeTruthy();
+    await expect(page.getByRole('region', { name: name! }).getByRole('table')).toHaveCount(1);
+    // A keyboard reader can reach it and scroll it, and sees the ring.
+    await box.focus();
+    await expect(box).toBeFocused();
+    await expect(box).toHaveCSS('outline-style', 'solid');
+    await expect(box).toHaveCSS('outline-width', '3px');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => box.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    // Wide enough to fit, it is no stop and no landmark.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(box).not.toHaveAttribute('tabindex', /.*/);
+    await expect(box).not.toHaveAttribute('role', /.*/);
+    await expect(box).not.toHaveAttribute('aria-label', /.*/);
+  });
+
   test('every sidebar, guide and index link is at least 44px tall at 1280px', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     for (const path of ['/docs', '/docs/reviewers']) {

@@ -33,6 +33,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { AecProseTableScroll } from '../shared/prose-blocks/prose-table-scroll';
 import { type DocsSnapshot, getDocsSnapshot } from './docs-archive-content';
 import { docsVersionedPagePath } from './docs-page-versions';
 
@@ -41,7 +42,7 @@ const PLANS_PAGE = 'vendors/plans';
 
 @Component({
   selector: 'app-docs-archive-page',
-  imports: [RouterLink],
+  imports: [RouterLink, AecProseTableScroll],
   template: `
     <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10">
       <article class="mx-auto w-full max-w-[42rem] min-w-0">
@@ -76,7 +77,7 @@ const PLANS_PAGE = 'vendors/plans';
             </p>
           }
         </header>
-        <div class="aec-prose mt-6">
+        <div class="aec-prose mt-6" aecProseTableScroll>
           @for (block of snapshot.blocks; track $index) {
             @if (block.heading; as heading) {
               @if (heading.level === 2) {

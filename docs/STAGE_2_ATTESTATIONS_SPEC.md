@@ -3573,7 +3573,7 @@ its `audit_log` row in the same `db.batch` as the mutation, through `auditInsert
 | `thread.message.posted` | `claim_thread_message` | `{ threadId, claimId, vendorId, length }` |
 | `thread.message.deleted` | `claim_thread_message` | `{ deletedAt }`. A new row, never an update of the post's row |
 | `thread.help_requested` | `claim_thread` | `{ helpRequestedAt }` |
-| `thread.acknowledged` | `claim_thread_acknowledgment` | `{ vendorId, integrationId, otherVendorId, textVersion }`. In the batch of the first post that carries it (§15.17) |
+| `thread.acknowledged` | `claim_thread_acknowledgment` | `{ vendorId, integrationId, otherVendorId, textVersion }`, plus `supersedesVersion` when it replaces an acceptance older than the material version (AECI-1641). In the batch of the first post that carries it (§15.17) |
 | `thread.closed` | `claim_thread` | `{ closedAt, closedReason }` |
 | `thread.retention_deleted` | `claim_thread` | `{ count, threadIds }`. One summary row per page of the 2-year sweep (§15.10) |
 
@@ -3851,6 +3851,7 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1551 | A thread's permanent page, draft loss, focus, preview mock (second review, 2026-10-30) | §15.11 |
 | AECI-1553 | The `THREADS_ENABLED` release switch, so the feature merges to `main` dark | §15.16 |
 | AECI-1616 | Counsel Q9 and Q10: the header warning, the first-use acknowledgment, the deletion-screen notice (2026-11-04) | §15.17 |
+| AECI-1641 | A material acknowledgment version asks every company again (`THREAD_ACK_MATERIAL_SINCE`, migration `0128`) | §15.17 |
 
 ### 15.15 Legal prerequisites
 
@@ -3924,15 +3925,16 @@ changed.
   2026-11-06 (Chris): the text names the company the messages go to, and a co-owned endpoint can
   give two rows on one integration different counterparties. One seat's acknowledgment covers
   every seat of its company.
-  - **Table.** `claim_thread_acknowledgments` (`DATABASE_SCHEMA.md` §8.10, migration `0107`):
-    `vendor_id`, `integration_id` and `other_vendor_id`, unique together, plus `profile_id` (the
-    acknowledging seat), `text_version` and `acknowledged_at`. The three ids carry no FK. The row
+  - **Table.** `claim_thread_acknowledgments` (`DATABASE_SCHEMA.md` §8.10, migrations `0107` and
+    `0128`): `vendor_id`, `integration_id`, `other_vendor_id` and `text_version`, unique together,
+    plus `profile_id` (the acknowledging seat) and `acknowledged_at`. Migration `0128` (AECI-1641)
+    added `text_version` to the key, so each accepted version is its own row. The three ids carry no FK. The row
     is the record that a company accepted the rules, so it outlives a deleted integration or
     vendor, like `audit_log.vendor_id`. `profile_id` is SET NULL and is nulled explicitly by the
     `DELETE /api/account` batch, as §15.5 does for message authors.
   - **API.** `POST …/thread/messages` takes an optional `acknowledgment_version`, the
     `THREAD_ACK_TEXT_VERSION` constant (`packages/shared/src/api/vendor-threads.ts`, today `"1"`).
-    With no row for the caller's company and the recipient, a post without it answers
+    With no counting row for the caller's company and the recipient (see Versions), a post without it answers
     `409 THREAD_ACK_REQUIRED` and writes nothing. A post with it inserts the row and one
     `thread.acknowledged` audit row in the post's own batch. Once the row exists the field is
     ignored. Two seats acknowledging at once meet the unique index. The post's existing second
@@ -3954,10 +3956,16 @@ changed.
     The checkbox and the link incorporate it.
   - **Versions.** The row stores the version, not the words. `integration-row-thread.component.spec.ts`
     pins the exact words of each version, so git history and that test reconstruct what a company
-    saw. Change the words only with a new `THREAD_ACK_TEXT_VERSION`. A new version that only
-    clarifies is recorded on new rows only. A version that widens or narrows the rules must ask
-    every company again. The key has no version today, so that re-prompt is its own change
-    (AECI-1641).
+    saw. Change the words only with a new `THREAD_ACK_TEXT_VERSION`. Versions are positive-integer
+    strings. A new version that only clarifies changes `THREAD_ACK_TEXT_VERSION` alone, so it is
+    recorded on new rows only. A version that widens or narrows the rules must ask every company
+    again (legal read, 2026-11-06). It also sets `THREAD_ACK_MATERIAL_SINCE`, beside it in the same
+    file, to the new version (AECI-1641). Only a row whose `text_version` is at or after
+    `THREAD_ACK_MATERIAL_SINCE` counts, compared as integers. With an older row only, both reads
+    answer `acknowledged: false`, the post answers `409 THREAD_ACK_REQUIRED`, and the portal shows
+    the box again. The acknowledging post writes a new row and keeps the old one. Its
+    `thread.acknowledged` audit row adds `supersedesVersion`, the newest older version on record.
+    Either kind of bump is a text change that goes through the legal agent.
 - **The deletion notice.** `/account`, in the Delete account section and in its confirmation
   dialog: "If you sent messages to another company in a private conversation, they stay with the
   conversation for 2 years after its last message, with your name removed. The text may still

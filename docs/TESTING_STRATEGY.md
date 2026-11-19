@@ -29,7 +29,7 @@ Two guards, and they are different in kind:
 | Guard | What it is | When it runs |
 |---|---|---|
 | `apps/web/e2e/ssr-listing-crawlability.spec.ts` | Playwright, using the **`request`** fixture (raw HTTP, no JavaScript) to assert product links exist in the server HTML | every e2e run |
-| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages. Exit **1** on any dead end, including a non-200; exit **2** if a page never answered; exit **0** only when all five were seen and all five shipped links | manually, against a deployed env |
+| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages. Exit **1** on any dead end, including a non-200; exit **2** if a page never answered; exit **0** only when all five were seen and all five shipped links. Sends the Access service token when `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` are set, and fails a page that redirects off-host. Fixture-tested by `scripts/check-ssr-listings.test.mjs` (`pnpm test:scripts`) | every promote, against the host just deployed: the blocking post-smoke step in `promote-to-demo.yml` and `promote-to-prod.yml` (AECI-840). Also by hand, against any deployed env |
 
 **The e2e spec must keep using `request`, never `page`.** Rewriting it onto the
 `page` fixture would make it pass unconditionally and test nothing.
@@ -521,7 +521,7 @@ an older 1px allowance at the same strength. Do not raise it to make a real over
 - Tests assume seed data exists (Procore, Autodesk, etc.)
 - Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765), then `db:grant-vendor:local` seats `LOCAL_VENDOR_USER_ID` as a `vendor_admin` on `LOCAL_VENDOR_SLUG` (default `autodesk`) so `/vendor` is reachable too. Unset → each no-ops; both always exit 0 so they can never fail a seed run
 - `seed/long-list-fixtures.sql` (AECI-1868) seeds `fixture-long-list`: 14 integrations to 14 partner products in three local-only categories, so the product page's grouped integration list renders and `products-long-list.spec.ts` asserts against that slug instead of skipping. It adds 15 products, which gives `/products` a second page. Every name starts "Zz Fixture" and every `created_at` is 2020-01-01, so A to Z and Newest lists keep their top. The categories live in this file, not `taxonomy.sql`, because `taxonomy.sql` is applied to staging and production.
-- `seed/connector-lists-fixtures.sql` (AECI-1788) seeds `fixture-hybrid-via`, a hybrid with a Via lane past 20 rows that also powers 21 pairs, and `fixture-connector-hub`, a connector that powers 39 pairs, with two hubs and 25 partners. `products-connector-lists.spec.ts` asserts against those slugs and fails, never skips, when they are missing. It adds 29 products, all "Zz Fixture" names dated 2020-01-01, with one unverified vendor and no category or review. `src/test/seed-data-quality.spec.ts` runs the scheduled data-quality checks over the seed chain with and without this file and fails if it adds a finding at any severity.
+- `seed/connector-lists-fixtures.sql` (AECI-1788) seeds `fixture-hybrid-via`, a hybrid with a Via lane past 20 rows that also powers 21 pairs, and `fixture-connector-hub`, a connector that powers 39 pairs, with two hubs and 25 partners. `products-connector-lists.spec.ts` asserts against those slugs and fails, never skips, when they are missing. It adds 29 products, all "Zz Fixture" names dated 2020-01-01, with one unverified vendor and no category or review. `src/test/seed-data-quality.spec.ts` runs the scheduled data-quality checks over the seed chain with and without this file and fails if it adds a finding at any severity. Since AECI-1920 the same spec also holds the whole chain to a floor: zero error-severity findings, and the only nonzero check is `products_without_vendor` at 28, all fixtures that are vendorless on purpose (the connector-lane endpoints, pyRevit, the long-list product and its partners, `fixture-acme-connector`). A new finding at any severity, or a changed count, fails it. A seeded review with no reviewer carries an `anonymized_at` stamp, the state an account deletion leaves, because the check reports a review with neither. Since AECI-1936 the spec also applies the by-hand review seeder's output (`db:seed-reviews`, `@aeci/shared/seed-reviews`) over the chain and fails on any error-severity finding, so the seeder's rows carry the same stamp.
 
 ### 7.6 Auth in tests
 
@@ -944,6 +944,16 @@ stability focused "View all", the only link yet. The values then rendered above
 it, so the first link was not focused (AECI-1675, 7 of 80 runs without the gate,
 0 of 1,120 with it). Gate on `untilHydrated` even when the listener seems to
 answer already.
+
+A computed colour read is a race too (AECI-1922). Hydration rewrites an element's
+`class` attribute in two steps: it first writes the template's static classes,
+then the host binding adds the rest on the next pass. An `aecButton` with a static
+`class` loses its fill for one frame when a frame paints between the two, and its
+`background-color` transition fades the fill back in. A read during the fade gets
+a part-transparent colour, and the canvas readback is one step off
+(`rgb(31, 58, 47)` for Forest, 2 of 50 local runs). Before reading a colour, move
+the pointer off, `untilHydrated` the element, and await `el.getAnimations()`
+(`e2e/button-migration.spec.ts`, `style()`).
 
   **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
   then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and

@@ -723,3 +723,98 @@ function contrastOf(a: string, b: string): number {
   const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
   return (x! + 0.05) / (y! + 0.05);
 }
+
+/**
+ * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): on an unclaimed listing the stuck bar carries a
+ * short "Unclaimed" tag beside the product name. A claimed listing's bar is unchanged. The tag
+ * is listing data (`claim_status`), and the bar draws it only once stuck, so the cached server
+ * HTML never carries it.
+ */
+test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
+  const UNCLAIMED = 'revit';
+  const CLAIMED = 'fixture-procore';
+
+  test.beforeEach(async ({ request }) => {
+    const status = async (slug: string) => {
+      const res = await request.get(`/api/products/${slug}`);
+      if (!res.ok()) return null;
+      return ((await res.json()) as { claim_status?: string }).claim_status ?? null;
+    };
+    const [u, c] = await Promise.all([status(UNCLAIMED), status(CLAIMED)]);
+    test.skip(
+      u !== 'unclaimed' || c !== 'claimed',
+      `seed missing: ${UNCLAIMED}=${u}, ${CLAIMED}=${c}`,
+    );
+  });
+
+  /** Opens the product, hydrates, and scrolls well past the hero so the bar sticks. */
+  async function stuckOn(page: Page, slug: string) {
+    await page.goto(`/products/${slug}`);
+    const nav = page.locator('aec-section-nav');
+    await untilHydrated(nav);
+    await page.evaluate(() =>
+      document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
+    );
+    await expect(nav).toHaveAttribute('data-stuck', '');
+    // The hero, and its Unclaimed note, have left the screen.
+    await expect(page.locator('aec-unclaimed-note').first()).not.toBeInViewport();
+    return nav;
+  }
+
+  // 640px is a 1280px screen at 200% zoom.
+  for (const width of [1440, 640, 390, 320]) {
+    test(`an unclaimed product's stuck bar shows the tag at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width > 500 ? 900 : 760 });
+      const nav = await stuckOn(page, UNCLAIMED);
+      const tag = nav.getByTestId('section-nav-unclaimed');
+      await expect(tag).toBeVisible();
+      await expect(tag).toHaveText('Unclaimed');
+      await expect(tag).toBeInViewport({ ratio: 1 });
+      // Information only: nothing to click or focus inside it.
+      await expect(tag.locator('a, button, [tabindex]')).toHaveCount(0);
+      // From md the name sits before it. Below md the monogram does, and there is no name.
+      if (width >= 768) {
+        const name = await page.locator('aec-product-detail h1').first().innerText();
+        await expect(nav.getByTestId('section-nav-brand')).toContainText(name.trim());
+      }
+      // The tag never covers the links: at least one link sits fully clear of it, in the row.
+      const box = (await tag.boundingBox())!;
+      const clear = await nav.locator('nav a').evaluateAll((links, edge) => {
+        const row = links[0]!.closest('.aec-section-nav-row')!.getBoundingClientRect();
+        return links
+          .map((l) => l.getBoundingClientRect())
+          .filter((r) => r.left >= edge - 1 && r.right <= row.right + 1).length;
+      }, box.x + box.width);
+      expect(clear, 'a section link is fully visible beside the tag').toBeGreaterThan(0);
+      await expectNoSidewaysScroll(page, 'the tag never makes the page scroll sideways');
+      // The bar keeps its height.
+      expect(Math.round(await navBottom(page))).toBe(width >= 768 ? 73 : 65);
+    });
+  }
+
+  test("a claimed product's stuck bar has no tag", async ({ page }) => {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${CLAIMED}`);
+      const nav = page.locator('aec-section-nav');
+      await untilHydrated(nav);
+      await page.evaluate(() =>
+        document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
+      );
+      await expect(nav).toHaveAttribute('data-stuck', '');
+      await expect(nav.getByTestId('section-nav-brand')).toBeVisible();
+      await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
+      await expect(nav).not.toContainText('Unclaimed');
+    }
+  });
+
+  test('the server HTML carries no tag, so the cached page is the same for every visitor', async ({
+    request,
+  }) => {
+    for (const slug of [UNCLAIMED, CLAIMED]) {
+      const html = await (await request.get(`/products/${slug}`)).text();
+      expect(html).toContain('<aec-section-nav');
+      expect(html).not.toContain('section-nav-unclaimed');
+    }
+  });
+});

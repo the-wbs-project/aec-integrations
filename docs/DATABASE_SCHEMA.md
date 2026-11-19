@@ -3457,7 +3457,7 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 - **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). So is `claim_thread_acknowledgments.profile_id` (AECI-1616). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
 - **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
 - **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
-- **First-use acknowledgments (AECI-1616, migration `0107`).** `claim_thread_acknowledgments` records that a company accepted the private-thread rules for messages to one other company on one integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). A post without one answers `409 THREAD_ACK_REQUIRED`. The first post that carries `acknowledgment_version` writes the row and its `thread.acknowledged` audit row in its batch.
+- **First-use acknowledgments (AECI-1616, migration `0107`; AECI-1641, migration `0128`).** `claim_thread_acknowledgments` records that a company accepted one version of the private-thread rules for messages to one other company on one integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). A post without a counting one answers `409 THREAD_ACK_REQUIRED`. A row counts only when `text_version` is at or after `THREAD_ACK_MATERIAL_SINCE`, compared as integers. A material bump therefore adds a second row for the same three ids and keeps the first. The first post that carries `acknowledgment_version` writes the row and its `thread.acknowledged` audit row in its batch.
 
   ```sql
   create table claim_thread_acknowledgments (
@@ -3469,8 +3469,8 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
     text_version text not null,          -- THREAD_ACK_TEXT_VERSION, today '1'
     acknowledged_at text not null
   );
-  create unique index claim_thread_acknowledgments_key
-    on claim_thread_acknowledgments(vendor_id, integration_id, other_vendor_id);
+  create unique index claim_thread_acknowledgments_key  -- text_version added by 0128 (AECI-1641)
+    on claim_thread_acknowledgments(vendor_id, integration_id, other_vendor_id, text_version);
   create index claim_thread_acknowledgments_profile_idx on claim_thread_acknowledgments(profile_id);
   ```
 

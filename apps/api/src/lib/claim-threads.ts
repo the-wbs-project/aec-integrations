@@ -12,7 +12,8 @@
  * row already loaded. Keep the two in lockstep.
  */
 
-import { and, eq, or, type SQL } from 'drizzle-orm';
+import { THREAD_ACK_MATERIAL_SINCE } from '@aeci/shared';
+import { and, eq, or, sql, type SQL } from 'drizzle-orm';
 import type { MiddlewareHandler } from 'hono';
 
 import type { Db } from '../db/client';
@@ -60,20 +61,31 @@ export function isThreadParticipant(
   return thread.vendorAId === vendorId || thread.vendorBId === vendorId;
 }
 
+/** What {@link threadAcknowledgmentState} found for one company, integration and
+ *  other company. */
+export interface ThreadAcknowledgmentState {
+  /** A row at or after the material version exists: no new acknowledgment is due. */
+  readonly acknowledged: boolean;
+  /** The newest version on record, counting or not. `null` with no row at all. */
+  readonly latestVersion: string | null;
+}
+
 /**
  * Has this company acknowledged the private-thread rules for messages to
  * `otherVendorId` on this integration (AECI-1616, `STAGE_2_ATTESTATIONS_SPEC.md`
- * §15.17)? One company's acknowledgment covers every seat of it. The post refuses
- * a first message without one, and both thread reads report it as `acknowledged`.
+ * §15.17)? One company's acknowledgment covers every seat of it. Only a row at or
+ * after `materialSince` counts (AECI-1641): a material bump of the text asks every
+ * company again. Versions are positive-integer strings, so they compare as integers.
  */
-export async function hasThreadAcknowledgment(
+export async function threadAcknowledgmentState(
   db: Db,
   vendorId: string,
   integrationId: string,
   otherVendorId: string,
-): Promise<boolean> {
+  materialSince: string = THREAD_ACK_MATERIAL_SINCE,
+): Promise<ThreadAcknowledgmentState> {
   const [row] = await db
-    .select({ id: claimThreadAcknowledgments.id })
+    .select({ textVersion: claimThreadAcknowledgments.textVersion })
     .from(claimThreadAcknowledgments)
     .where(
       and(
@@ -82,6 +94,24 @@ export async function hasThreadAcknowledgment(
         eq(claimThreadAcknowledgments.otherVendorId, otherVendorId),
       ),
     )
+    .orderBy(sql`CAST(${claimThreadAcknowledgments.textVersion} AS INTEGER) DESC`)
     .limit(1);
-  return row !== undefined;
+  if (!row) return { acknowledged: false, latestVersion: null };
+  return {
+    acknowledged: Number(row.textVersion) >= Number(materialSince),
+    latestVersion: row.textVersion,
+  };
+}
+
+/**
+ * {@link threadAcknowledgmentState}, reduced to the yes or no. The post refuses a
+ * first message without one, and both thread reads report it as `acknowledged`.
+ */
+export async function hasThreadAcknowledgment(
+  db: Db,
+  vendorId: string,
+  integrationId: string,
+  otherVendorId: string,
+): Promise<boolean> {
+  return (await threadAcknowledgmentState(db, vendorId, integrationId, otherVendorId)).acknowledged;
 }
