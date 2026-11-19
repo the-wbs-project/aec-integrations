@@ -69,6 +69,9 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q59 | Terms of Service | An employee records their employer's software and office names on our site without authority | Alexander Coffin | 2026-11-16 |
 | Q60 | Privacy Policy | Adding new sections to a legal page before its first effective date: is the 30-day notice owed | Travis Russell | 2026-11-15 |
 | Q61 | Terms of Service | A product's name in plain text in a sticky bar on an unclaimed listing, without the not-affiliated note beside it | Brian D. Lerner | 2026-11-17 |
+| Q63 | Terms of Service | Is a visible line beside the sign-in buttons enough acceptance for a change that reduces a reader's rights | Alexander Morton | 2026-11-19 |
+| Q64 | Privacy Policy | How long we may keep a copyright notice and counter-notice, and the privacy wording for it | Alexander Coffin | 2026-11-19 |
+| Q68 | Vendor Terms | Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms | Travis Russell | 2026-11-19 |
 
 ## Questions and answers
 
@@ -1578,6 +1581,98 @@ Question: on an unclaimed listing, may the fixed bar show the product name in te
 The bar may show the name without repeating the line. Nominative fair use permits using a product’s name to identify it if you use only what is needed and nothing suggests sponsorship. Plain text, no logo, smaller than your own wordmark, which comes first and identifies you as the source, meets that standard. A disclaimer helps but is not required, and Lanham Act 43(a) does not require you to repeat it wherever the name appears. Courts in the Eleventh Circuit, which covers Florida, ask whether the overall page is likely to confuse users about affiliation, so keep the bar free of “official,” vendor colors or styling, and claim language. If you want extra margin at low cost, add a short “Unclaimed” tag beside the name in the bar.
 
 **What we did:** Our view holds. The sticky bar keeps the product name for every product, as built. The bar stays free of vendor colours, vendor styling, the word "official" and any claim language. Counsel offers an optional "Unclaimed" tag beside the name. Ruling 41 adds it as a trial. Recorded on AECI-1826.
+
+Q63 to Q70 are batch 6, asked on 2026-11-19: the items that gate the first effective date. Only the answered ones are recorded here.
+
+### Q63. Is a visible line beside the sign-in buttons enough acceptance for a change that reduces a reader's rights
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Readers may create a free account to write reviews. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 6, 2026 that "continued use" is weak against an existing account holder, that we should email every account holder before a material change, and that a change which cuts back a reader's rights should sit "behind a click at the next sign-in", with the click, the version and the time logged for each user.
+
+We built it this way. Sign-in is by an emailed link or by Google, so every sign-in is a deliberate click. The sign-in page always shows this line directly beside the sign-in buttons:
+
+"By signing in, you agree to our Terms of Service and Privacy Policy."
+
+Both names are links. Each sign-in writes a record: the user, the Terms version in force, the time, the wording of the line, and for 90 days the IP address and browser. There is no separate screen and no checkbox. We chose this because a full-screen prompt drives free readers away. We email every account holder before a material change takes effect.
+
+Our Terms of Service say:
+
+"A change that reduces your rights, such as a change to the liability limit or the disputes section, applies to an account holder only after they accept it at their next sign-in, and never to a claim that arose before it took effect."
+
+Our view: the email gives actual notice, and a logged sign-in beside a clear and always-present line is the click your colleague described. A reader who never signs in again stays on the earlier version.
+
+Question: is a visible line beside the sign-in buttons, with each sign-in logged against the version in force, enough to bind an existing account holder to a change that reduces their rights, or must it be a box the reader ticks?
+
+**Answer (Alexander Morton, 2026-11-19):**
+
+You'll need the check box for an affirmative agreement.
+
+**What we did:** Our view was wrong. A line beside the sign-in buttons, with the sign-in logged, does not bind an account holder to a change that reduces their rights. It needs a box the reader ticks. The answer is one sentence and gives no reasoning. Nothing is in force yet, so no reader is affected today. The Terms promise acceptance "at their next sign-in", so the tick box must exist before the first rights-reducing change after an effective date (AECI-1637). Chris's ruling on where the box shows is open.
+
+### Q64. How long we may keep a copyright notice and counter-notice, and the privacy wording for it
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Readers post reviews, and vendors upload logos, screenshots and text. We have a registered DMCA designated agent. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 10, 2026 on our copyright complaints section. Our Terms now say "we keep a log of every notice and counter-notice we receive". We have built that log.
+
+A notice or counter-notice holds the sender's name, postal address, phone number, email address and signature, the work claimed, and the material identified. The sender may have no account with us. Where the material was posted from an account, we record that account with the notice.
+
+We keep each notice and counter-notice for three years after we close the matter. We chose three years because it is the limitation period for a civil copyright claim under 17 U.S.C. 507(b). We keep them after the account involved is deleted. At that point the link to the account is removed, and the sender's own details stay.
+
+Our Privacy Policy says, under Retention:
+
+"Copyright notices and counter-notices: for three years after we close the matter, as evidence if a copyright claim is brought. We keep them even if you delete your account. They are then no longer linked to your account."
+
+Our view: three years after closing is a reasonable period tied to a real limitation period, and the sentence above is enough disclosure.
+
+Question: is three years after the matter closes the right period to keep a copyright notice and counter-notice, including the sender's contact details after an account is deleted, and is the retention sentence above sufficient, or should the period or the wording change?
+
+**Answer (Alexander Coffin, 2026-11-19):**
+
+Three years is defensible. I'd keep it, but add a legal-hold carve-out and fix the wording. The period. Section 507(b) gives three years from when the claim accrues, not from when you close the file. Courts mostly apply a discovery rule, so a claim can arrive later than you'd expect. In Warner Chappell v. Nimmer (2024), the Supreme Court held that a timely claim can recover damages going back more than three years. Your clock starts at closing, which is usually later than accrual, so you mostly have cover. The likeliest claim is a § 512(f) misrepresentation suit, which is also under Title 17 and so also subject to 507(b). The gap is a late-discovered claim. The fix is easy: add "or longer if a claim, dispute or legal hold is pending." Also, deleting the account link is fine, but check that you can still enforce your repeat-infringer policy under § 512(i) if someone re-registers. The sentence. It's close, but it has three problems:
+
+It's written to account holders. Many senders have no account, so "if you delete your account" doesn't speak to them at all. It leaves out sharing. Under § 512(g), you have to send the counter-notice, contact details included, to the person who filed the original notice. You'll probably forward notices to the uploader too. People should know that before they send one. It doesn't say what you keep. Name, address, phone, email, signature. If you hit CCPA thresholds, you need retention periods by category anyway, and CalOPPA expects you to say what you collect. Florida's Digital Bill of Rights almost certainly doesn't reach you, because its threshold is $1B in revenue.
+
+**What we did:** Three years stays. Not applied yet. The retention sentence is rewritten to add "or longer if a claim, dispute or legal hold is pending", to speak to senders who have no account, to name what we keep, and to say who we send a notice or counter-notice to. One build check follows: after an account is deleted and the link removed, can we still count that person's notices if they register again. The case counsel cites is reproduced as written. We believe its name is Warner Chappell Music v. Nealy.
+
+### Q68. Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website. Vendors claim their listings under our Vendor Terms. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 4, 2026 to name the policies our Vendor Terms incorporate by version and date, and we did. Our Vendor Terms say:
+
+"The Listing Accuracy Policy and the Review Guidelines, each as numbered and dated at those links, are part of these terms and bind you as if set out in them."
+
+They also say, under Changes to these terms:
+
+"When we change these terms, we email every seat at the company and the billing email at least 30 days before the new version takes effect, unless the change is required by law or fixes an error, in which case it may take effect sooner."
+
+The two policies are public pages that also govern readers and unclaimed listings. When we change one of them, we show a notice on every page of the site for 30 days before the new version takes effect. We do not send the vendor email for a policy change. We record, on each claim, which version of each policy the vendor accepted.
+
+Our view: a policy change is not a change to the Vendor Terms document, so the 30-day site notice is enough, and the vendor email is owed only when the Vendor Terms themselves change.
+
+Question: when we change the Listing Accuracy Policy or the Review Guidelines, do our Vendor Terms require us to send claimed vendors the 30-day email, and does a vendor stay bound to the policy version it accepted until it accepts a new one?
+
+**Answer (Travis Russell, 2026-11-19):**
+
+Yes, I would send the email. And yes, the vendor likely stays bound to the version it accepted.
+
+Your terms say the policies, as numbered and dated, are part of the terms and bind the vendor as if set out in them. That makes them part of the contract. So a new policy version is a change to what the vendor agreed to, even if the Vendor Terms page itself doesn't change.
+
+If a court finds the clause unclear and can't sort it out from the rest of the contract, Florida law lets it read the language against the party that wrote it, which is you. And a site banner probably won't count as the email you promised.
+
+Because you tied the policies to a specific number and date, the vendor is bound to that version. A new version likely doesn't bind it until you follow the change process in your terms, or it accepts the new version.
+
+The simple fix is to send the 30 day email for policy changes too, or use the email process once to amend the change clause so it spells out how policy updates work.
+
+**What we did:** Our view was wrong. A change to the Listing Accuracy Policy or the Review Guidelines is a change to what a vendor agreed to. The site notice is not the promised email. A vendor stays on the policy version it accepted until we follow the change process. Nothing is in force yet, so no vendor is affected today. Two routes: the publish flow sends the 30-day email for the two policies as well, or the change clause is amended to say how policy updates work. Chris's ruling is open. It closes the open item in the legal README.
 
 ## Chris's rulings
 
