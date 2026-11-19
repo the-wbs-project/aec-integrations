@@ -24,6 +24,8 @@ import {
   litigationHolds,
   products,
   productVendors,
+  profiles,
+  termsAcceptances,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -32,6 +34,7 @@ import { pruneAuditIds } from './acceptance-chain';
 import {
   emitLegalRetentionPruneMetrics,
   isLegalRetentionRaceError,
+  LEGAL_PRUNABLE,
   LEGAL_RETENTION_IDS_PER_TABLE,
   LEGAL_RETENTION_ROWS_METRIC,
   LEGAL_RETENTION_RUN_METRIC,
@@ -1329,6 +1332,217 @@ describe('two runs at once (a queued run beside an inline fallback)', () => {
   });
 });
 
+describe('the Terms acceptance part (AECI-1718)', () => {
+  const termsIds = async () =>
+    (await t.db.select({ id: termsAcceptances.id }).from(termsAcceptances)).map((r) => r.id).sort();
+
+  async function seedTerms(id: string, profileId: string, acceptedAt = yearsAgo(10)) {
+    await t.db.insert(termsAcceptances).values({
+      id,
+      document: 'terms',
+      version: id,
+      profileId,
+      email: 'reader@example.test',
+      acceptedAt,
+      checkboxLabel: 'By signing in, you agree to our Terms of Service and Privacy Policy.',
+      checkboxLabelSha256: 'a'.repeat(64),
+      checkboxDefaultUnticked: false,
+    });
+  }
+
+  /** The `account.deleted` row `DELETE /api/account` writes in the batch that deletes the
+   *  profile (`routes/account.ts`). */
+  async function seedAccountDeleted(profileId: string, createdAt: string, id = `ad-${profileId}`) {
+    await t.db.insert(auditLog).values({
+      id,
+      actorType: 'user',
+      action: 'account.deleted',
+      entityType: 'profile',
+      entityId: profileId,
+      createdAt,
+    });
+    return id;
+  }
+
+  async function seedTermsAccepted(acceptanceId: string, createdAt = yearsAgo(10)) {
+    const id = `ta-${acceptanceId}`;
+    await t.db.insert(auditLog).values({
+      id,
+      actorType: 'user',
+      action: 'terms.accepted',
+      entityType: 'terms_acceptance',
+      entityId: acceptanceId,
+      createdAt,
+    });
+    return id;
+  }
+
+  async function seedTermsEvidenceRemoved(id: string, acceptanceIds: string[], createdAt: string) {
+    await t.db.insert(auditLog).values({
+      id,
+      actorType: 'system',
+      action: 'terms.evidence_removed',
+      entityType: 'terms_acceptance',
+      metadata: { source: 'acceptance-evidence-removal', acceptance_ids: acceptanceIds },
+      createdAt,
+    });
+    return id;
+  }
+
+  it('deletes a row six years and a day after the account ended, and keeps one a day short', async () => {
+    await seedTerms('t-old', 'p-old');
+    await seedAccountDeleted('p-old', yearsAgo(6, 1));
+    await seedTerms('t-young', 'p-young');
+    await seedAccountDeleted('p-young', yearsAgo(6, -1));
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await termsIds()).toEqual(['t-young']);
+    expect(result.tables.find((x) => x.table === 'terms_acceptances')).toEqual({
+      table: 'terms_acceptances',
+      cutoff: CUT.acceptance,
+      rowsDeleted: 1,
+      truncated: false,
+    });
+  });
+
+  it('keeps the row of a live account, and of a gone profile with no account.deleted row', async () => {
+    await seedTerms('t-live', 'p-live');
+    await t.db.insert(profiles).values({ id: 'p-live' });
+    // The shared staging login signing in again after a deletion: the profile is back.
+    await seedAccountDeleted('p-live', yearsAgo(8));
+    // Ruling 2 of 2026-11-19: no date, so the row is kept and the data-quality check counts it.
+    await seedTerms('t-undated', 'p-undated');
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await termsIds()).toEqual(['t-live', 't-undated']);
+  });
+
+  it('keeps every Terms row under a global hold', async () => {
+    await seedTerms('t-old', 'p-old');
+    await seedAccountDeleted('p-old', yearsAgo(8));
+    await seedHold('global', null);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'litigation_hold' });
+    expect(await termsIds()).toEqual(['t-old']);
+  });
+
+  it('deletes terms.accepted, terms.evidence_removed and account.deleted with the last row', async () => {
+    await seedTerms('t-a', 'p-old');
+    await seedTerms('t-b', 'p-old');
+    const deleted = await seedAccountDeleted('p-old', yearsAgo(7));
+    const acceptedA = await seedTermsAccepted('t-a');
+    const acceptedB = await seedTermsAccepted('t-b');
+    const evidenceGone = await seedTermsEvidenceRemoved('ev-gone', ['t-a', 't-b'], yearsAgo(9));
+    // Lists one kept row too, so it stays.
+    await seedTerms('t-kept', 'p-young');
+    const youngDeleted = await seedAccountDeleted('p-young', yearsAgo(5));
+    const evidenceMixed = await seedTermsEvidenceRemoved(
+      'ev-mixed',
+      ['t-a', 't-kept'],
+      yearsAgo(9),
+    );
+    const acceptedKept = await seedTermsAccepted('t-kept');
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await termsIds()).toEqual(['t-kept']);
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of [deleted, acceptedA, acceptedB, evidenceGone]) expect(ids).not.toContain(id);
+    for (const id of [evidenceMixed, youngDeleted, acceptedKept]) expect(ids).toContain(id);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: 4,
+      companionRowsDeleted: 4,
+    });
+  });
+
+  it('in the four-year part, keeps account.deleted while a Terms row names the profile', async () => {
+    // Deleted five years ago: past the four-year audit cutoff, inside the six-year period.
+    await seedTerms('t-a', 'p-terms', yearsAgo(7));
+    const withTerms = await seedAccountDeleted('p-terms', yearsAgo(5));
+    // A deleted account that never accepted a Terms version: an ordinary four-year row.
+    const withoutTerms = await seedAccountDeleted('p-none', yearsAgo(5));
+    const young = await seedAccountDeleted('p-young', shift(CUT.audit, 1));
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toContain(withTerms);
+    expect(ids).not.toContain(withoutTerms);
+    expect(ids).toContain(young);
+    expect(await termsIds()).toEqual(['t-a']);
+  });
+
+  it('reports the table in the retention.pruned row, with no ids and no email', async () => {
+    await seedTerms('t-old', 'p-old');
+    await seedAccountDeleted('p-old', yearsAgo(7));
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const rows = await pruneRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({
+      rowsDeleted: 2,
+      tables: [
+        { table: 'audit_log', rowsDeleted: 1, companionRowsDeleted: 1 },
+        { table: 'terms_acceptances', cutoff: CUT.acceptance, rowsDeleted: 1 },
+      ],
+    });
+    const terms = (rows[0]!.metadata as { tables: { table: string }[] }).tables.find(
+      (x) => x.table === 'terms_acceptances',
+    );
+    expect(terms).not.toHaveProperty('ids');
+    expect(JSON.stringify(rows[0]!.metadata)).not.toContain('reader@example.test');
+  });
+
+  it('stops at the per-table cap, reports truncated, and keeps account.deleted until the last row', async () => {
+    const n = LEGAL_RETENTION_IDS_PER_TABLE + 1;
+    t.raw
+      .prepare(
+        `WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?)
+         INSERT INTO terms_acceptances (id, document, version, profile_id, email, accepted_at,
+           checkbox_label, checkbox_label_sha256, checkbox_default_unticked, created_at)
+         SELECT printf('t-%06d', i), 'terms', printf('v%06d', i), 'p-many', 'reader@example.test',
+           ?, 'line', 'hash', 0, ? FROM s`,
+      )
+      .run(n, yearsAgo(10), yearsAgo(10));
+    const deleted = await seedAccountDeleted('p-many', yearsAgo(7));
+
+    const first = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(first.tables.find((x) => x.table === 'terms_acceptances')).toMatchObject({
+      rowsDeleted: LEGAL_RETENTION_IDS_PER_TABLE,
+      truncated: true,
+    });
+    expect(await termsIds()).toEqual(['t-000201']);
+    expect((await auditRows()).map((r) => r.id)).toContain(deleted);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await termsIds()).toEqual([]);
+    expect((await auditRows()).map((r) => r.id)).not.toContain(deleted);
+  });
+
+  it('aborts when the profile comes back after planning', async () => {
+    await seedTerms('t-old', 'p-old');
+    await seedAccountDeleted('p-old', yearsAgo(7));
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db.insert(profiles).values({ id: 'p-old' });
+      return batch(stmts);
+    });
+
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    spy.mockRestore();
+    expect(await termsIds()).toEqual(['t-old']);
+  });
+});
+
 describe('metrics', () => {
   it('emits rows_deleted for every table, zeros included, and tags a skip and a pause', async () => {
     const counts: { metric: string; value: number; tags: string[] }[] = [];
@@ -1340,7 +1554,9 @@ describe('metrics', () => {
     await seedHold('vendor', 'v-x');
     const paused = await runLegalRetentionPrune(t.db, NOW);
     emitLegalRetentionPruneMetrics(sink, paused, 5);
-    expect(counts.filter((c) => c.metric === LEGAL_RETENTION_ROWS_METRIC)).toHaveLength(4);
+    expect(counts.filter((c) => c.metric === LEGAL_RETENTION_ROWS_METRIC)).toHaveLength(
+      LEGAL_PRUNABLE.length,
+    );
     expect(counts.find((c) => c.metric === LEGAL_RETENTION_RUN_METRIC)?.tags).toEqual([
       'trigger:cron',
       'outcome:ok',

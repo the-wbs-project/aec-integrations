@@ -388,8 +388,9 @@ check.
 - **The Terms acceptance record is kept (AECI-1637, ruling 1 of 2026-11-13).** The same screen
   says that signing in records your acceptance of the Terms of Service, and that the record is
   kept for 6 years after deletion. It holds the
-  email, version and time, with no link to the account, so deletion does not remove it
-  (`DATABASE_SCHEMA.md` §8.6k).
+  email, version and time, keyed by the profile id with no foreign key, so deletion does not remove it
+  (`DATABASE_SCHEMA.md` §8.6k). The legal retention prune deletes it six years after the
+  deletion, dated by the `account.deleted` audit row (AECI-1718).
 
 ## 10. Analytics
 

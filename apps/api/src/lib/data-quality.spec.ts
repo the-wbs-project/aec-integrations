@@ -37,6 +37,7 @@ import {
   taxonomyDataObjects,
   taxonomyPhases,
   taxonomyTrades,
+  termsAcceptances,
   licenseGrants,
   vendorRequests,
   vendors,
@@ -874,6 +875,42 @@ describe('checkAcceptanceWithoutRetentionDate', () => {
     });
     // Ruling 50: a count only. No vendor id reaches the digest.
     expect(finding.lines.join(' ')).not.toContain('v-gone');
+  });
+
+  it('flags a Terms acceptance whose profile is gone with no account.deleted row (AECI-1718)', async () => {
+    const seedTerms = (id: string, profileId: string) =>
+      t.db.insert(termsAcceptances).values({
+        id,
+        document: 'terms',
+        version: id,
+        profileId,
+        email: 'reader@example.test',
+        acceptedAt: OLD,
+        checkboxLabel: 'line',
+        checkboxLabelSha256: 'hash',
+        checkboxDefaultUnticked: false,
+      });
+    // Gone, no record: flagged.
+    await seedTerms('t-undated', 'p-gone');
+    // Gone, with its record: the prune dates it.
+    await seedTerms('t-dated', 'p-dated');
+    await t.db.insert(auditLog).values({
+      actorType: 'user',
+      action: 'account.deleted',
+      entityType: 'profile',
+      entityId: 'p-dated',
+      createdAt: OLD,
+    });
+    // A live account: not a finding.
+    await t.db.insert(profiles).values({ id: 'p-live' });
+    await seedTerms('t-live', 'p-live');
+
+    const finding = await checkAcceptanceWithoutRetentionDate(t.db);
+    expect(finding.lines).toEqual([
+      '1 Terms acceptance(s) name a profile with no profile row and no account.deleted record, so they can never be pruned',
+    ]);
+    expect(finding.count).toBe(1);
+    expect(finding.lines.join(' ')).not.toContain('p-gone');
   });
 
   it('puts the row count, not the line count, on the gauge', async () => {
