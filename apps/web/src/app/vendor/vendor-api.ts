@@ -38,6 +38,7 @@ import type {
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
   CreateVendorIntegrationResponse,
+  PossibleDuplicatesResponse,
   CreateVendorProductInput,
   CreateVendorProductResponse,
   CreateProductRequestInput,
@@ -927,6 +928,20 @@ export class VendorApi {
   }
 
   // ─── Vendor create (AECI-1011) ─────────────────────────────────────────────
+
+  /** `GET /api/vendor/integrations/possible-duplicates` (AECI-1953) — the strong
+   *  matches the create would report for this pair, read before the create. The
+   *  same `404` as the create for a product the caller cannot use. */
+  getPossibleDuplicates(
+    productId: string,
+    counterpartProductId: string,
+  ): Promise<PossibleDuplicatesResponse> {
+    return firstValueFrom(
+      this.http.get<PossibleDuplicatesResponse>('/api/vendor/integrations/possible-duplicates', {
+        params: { product_id: productId, counterpart_product_id: counterpartProductId },
+      }),
+    );
+  }
 
   /** `POST /api/vendor/integrations` — list a new integration between one of the
    *  caller's products and a promoted counterpart. Goes live with no moderation.

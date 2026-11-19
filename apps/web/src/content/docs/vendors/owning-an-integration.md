@@ -94,11 +94,20 @@ If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrati
 
 ## Add an integration
 
-If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. The form has two steps. In the first, find the other product by name. In the second, fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The second step lists any integrations already on record for the two products, so you can check first. **Change** takes you back to the first step and keeps what you typed.
+If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. The form has two steps. In the first, find the other product by name. In the second, fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. **Change** takes you back to the first step and keeps what you typed.
+
+When you choose the other product, we check for integrations already on record for the two products that could be yours. Any we find are listed at the top of the second step, each with one choice:
+
+- **Claim this one instead.** Your company is recorded as its owner but has not claimed it yet. Claim it rather than add a copy.
+- **Open it.** Your company already holds it.
+- **Open it to restore.** Your company retired it. Restore it from its page.
+- **Ask to be recorded as the owner.** Nobody is on file as its owner. Its page lets you ask us to record your company.
+
+You can still add yours. The list never stops you.
 
 The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
 
-If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
+Once you add it, the confirmation links to your integration and to its public page. If another similar integration was added for the same two products while you filled in the form, the confirmation lists it too. If you added a copy anyway, retire the one you added from its page. Then claim the existing one if it is yours, or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
 
 ### When the other product is not listed
 

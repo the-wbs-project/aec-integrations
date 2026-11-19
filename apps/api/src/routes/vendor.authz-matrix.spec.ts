@@ -173,6 +173,7 @@ import {
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
+import { createPossibleDuplicatesHandler } from './vendor-integration-duplicates';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import {
   createListVendorProductRequestsHandler,
@@ -509,6 +510,12 @@ function makeApp() {
     requireVendor(guard),
     createListVendorIntegrationsHandler(t.factory),
   );
+  // AECI-1953 — seat only; a read, so no limiter.
+  app.get(
+    '/api/vendor/integrations/possible-duplicates',
+    requireVendor(guard),
+    createPossibleDuplicatesHandler(t.factory),
+  );
   // AECI-1011 — seat only; the endpoint checks are inside the handler.
   app.post(
     '/api/vendor/integrations',
@@ -803,6 +810,11 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     ok: 204,
   },
   { path: '/api/vendor/integrations', method: 'GET' },
+  // AECI-1953: the create's duplicate warning, read before the create.
+  {
+    path: `/api/vendor/integrations/possible-duplicates?product_id=${PRODUCT_A}&counterpart_product_id=${PRODUCT_B}`,
+    method: 'GET',
+  },
   { path: '/api/vendor/product-requests', method: 'GET' },
   {
     path: '/api/vendor/product-requests',

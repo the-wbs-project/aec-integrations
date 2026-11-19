@@ -10747,13 +10747,43 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **Order: shape → endpoints → values.** A shape error, a missing required field, or equal ids is `400`. A `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`. A value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming it, including a connector-delivered kind (`iPaaS`, `integrator`): a vendor-created row is never connector-powered (decision 9).
 
-**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. The kind is **not** in this key: promote's twin skip adds `mechanism_kind` (ruled 2026-09-22), and this warning keeps the broader match, so a vendor still hears about a curated row it would duplicate under a different kind. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`.
+**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. The kind is **not** in this key: promote's twin skip adds `mechanism_kind` (ruled 2026-09-22), and this warning keeps the broader match, so a vendor still hears about a curated row it would duplicate under a different kind. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`. The same query runs before the create, through the pre-check GET below (AECI-1953). Both call `findPossibleDuplicates` in `apps/api/src/lib/integration-create.ts`.
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
 **After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds a live subscription (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
+
+#### Vendor create pre-check — `GET /api/vendor/integrations/possible-duplicates`
+
+Stage 2.1 (AECI-1953, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.2). The create's duplicate warning, read before the create. The portal calls it when the vendor picks the other product. Zod in `packages/shared/src/api/integration-create.ts`, handler in `apps/api/src/routes/vendor-integration-duplicates.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/integrations/possible-duplicates?product_id=&counterpart_product_id=` | seat, `product_id` held by the caller | `200 { possible_duplicates }` |
+
+**No rate limit.** It is a read (`waf-rate-limits.md` §6). No capability gate, as for the create.
+
+```typescript
+export const PossibleDuplicatesQuerySchema = z
+  .object({
+    product_id: z.string().uuid(),              // the caller's product
+    counterpart_product_id: z.string().uuid(),  // any promoted product
+  })
+  .strict()                                     // an unknown key is a 400
+  .refine((q) => q.product_id !== q.counterpart_product_id);   // equal ids: 400
+
+export const PossibleDuplicatesResponseSchema = z.object({
+  possible_duplicates: z.array(PossibleDuplicateIntegrationSchema),   // the create's item, unchanged
+});
+```
+
+**Order: shape, then endpoints.** A missing or malformed id, an unknown key, or equal ids is `400`. The endpoint check is the create's: a `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`.
+
+**The list is the create's.** The same strong-match query, oldest first, with the caller as owner and no connector. So a create run straight after returns the same `possible_duplicates`, unless a row landed in between.
+
+**Nothing else.** No audit row, no purge, no cache tag. The response is `private, no-store`. It exposes nothing new: every match sits on the caller's own product, so `GET /api/vendor/integrations` already lists it.
 
 #### Product requests — `POST` + `GET /api/vendor/product-requests`
 

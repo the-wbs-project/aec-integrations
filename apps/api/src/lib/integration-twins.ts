@@ -23,11 +23,15 @@
  * undefined), because a vendor fixing a wrong kind on its own row must still be
  * told about its curated twin.
  *
- * Two callers, one rule, so they cannot drift:
+ * Three callers, one rule, so they cannot drift:
  *
  *   - the vendor create (`routes/vendor-integration-create.ts`) WARNS with every
  *     strong match, curated or vendor-held, live or retired, with no kind in the
  *     key. It never refuses (AECI-1003 decision 10);
+ *   - the create's pre-check read (`routes/vendor-integration-duplicates.ts`,
+ *     AECI-1953) returns the same warning before the create, so the form can show
+ *     it when the vendor picks the other product. Both go through
+ *     `findPossibleDuplicates` (`lib/integration-create.ts`), one call;
  *   - promote (`routes/promote.ts`) SKIPS a write that would leave a curated row
  *     strongly matching a **vendor-held** row, live or retired, with the kind in the
  *     key, and reports it as `VENDOR_OWNED_TWIN`. Three writes can do that: an
