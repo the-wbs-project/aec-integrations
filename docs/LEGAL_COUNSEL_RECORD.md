@@ -1826,7 +1826,7 @@ The new number doesn't create a gap, but there is a window. Version 1.4 doesn't 
 
 So have 1.4 say it replaces all drafts, and spell out how it treats existing listings and content. Decide now what happens to a listing if a company never accepts. Keep a record of who accepted, when, and which version, and make sure that person had authority to bind the company.
 
-**What we did:** Our view holds. The first in-force Vendor Terms take a new version number, which closes the open item in the legal README. Not applied yet. The new version gains two statements: it replaces every draft, and it covers listings and content the vendor already gave us. Ruling 24 already says a company that never accepts keeps its claimed listing behind the acceptance screen with no deadline. Counsel asks us to decide that on purpose, so Chris confirms it or changes it. The acceptance record already holds who, when, which version and the authority statement.
+**What we did:** Our view holds. The first in-force Vendor Terms take a new version number, which closes the open item in the legal README. Not applied yet. The new version gains two statements: it replaces every draft, and it covers listings and content the vendor already gave us. Ruling 24 already says a company that never accepts keeps its claimed listing behind the acceptance screen with no deadline. Counsel asks us to decide that on purpose. Ruling 49 confirms it. The acceptance record already holds who, when, which version and the authority statement.
 
 ### Q70. Three sentences changed since your colleagues' reviews: a wording check
 
@@ -1923,6 +1923,7 @@ Legal process. This one is close. The catch is that receiving legal process does
 46. **A legal hold pauses only the held company's records (Q66, 2026-11-19).** The deletion job is changed so a hold on one company no longer pauses audit deletion for everyone. The trigger wording becomes "when we reasonably anticipate or are subject to a legal duty".
 47. **How long a saved software list is kept (2026-11-19).** For as long as the account exists. It is deleted when the reader deletes it or the account.
 48. **The first saved-list notice names the vendor total (Q55, Q60, 2026-11-19).** The notice at first save names the vendor total as a use, and the opt-out switch ships in the same step. The total itself stays off until its own step ships.
+49. **A company that never accepts the in-force Vendor Terms (Q69, 2026-11-19).** Ruling 24 is confirmed on purpose, after counsel asked for a decision. The portal opens only the acceptance screen, the listing stays claimed, and no deadline ends the claim. The first in-force version says so in its own text.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
 
