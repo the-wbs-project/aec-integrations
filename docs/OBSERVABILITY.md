@@ -574,10 +574,11 @@ entry with an `activeFrom` (AECI-1221).** The sweep reads production, where a ne
 run, so its row would report MISSING from merge until the first production run. Before
 `activeFrom` a missing heartbeat prints `PENDING` and does not fail the sweep. After it the row
 is ordinary. Delete `activeFrom` once the cron's first production heartbeat is in. `gsc-inspect`
-carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368), `traffic-classify` (AECI-1345), `sitemap-rebuild` (AECI-1505), `vendor-claim-nudge` (AECI-1305), `brand-asset-removal` (AECI-1618), `acceptance-evidence-removal` (AECI-1636), `plan-snapshot` (AECI-1621) and `acceptance-chain` (AECI-1680). AECI-1232 removed it from
+carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368), `traffic-classify` (AECI-1345), `sitemap-rebuild` (AECI-1505), `vendor-claim-nudge` (AECI-1305), `brand-asset-removal` (AECI-1618), `acceptance-evidence-removal` (AECI-1636) and `plan-snapshot` (AECI-1621). AECI-1232 removed it from
 `protest-reply-reminder` and `vendor-snapshot` on 2026-10-05, after both heartbeats appeared in
 production. AECI-1439 removed it from `request-confirmation-expiry` on 2026-10-22, after its first
-production run at 2026-10-21 14:30 UTC. The rule is
+production run at 2026-10-21 14:30 UTC. AECI-1680 removed it from `acceptance-chain` on
+2026-11-19, after its first production export passed the verify. The rule is
 `observability/posthog/README.md` §"New crons: activeFrom".
 `cron-schedules.spec.ts` fails if a cron has no entry.
 
