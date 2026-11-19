@@ -380,6 +380,7 @@ describe('POST /api/vendor/integrations — possible duplicates warn, never refu
         owner: null,
         claimed: false,
         retired: false,
+        retired_by: null,
       },
     ]);
     const audit = await t.db
@@ -402,6 +403,7 @@ describe('POST /api/vendor/integrations — possible duplicates warn, never refu
       owner: { id: VENDOR_A, name: 'Autodesk' },
       claimed: true,
       retired: true,
+      retired_by: 'owner',
     });
   });
 });

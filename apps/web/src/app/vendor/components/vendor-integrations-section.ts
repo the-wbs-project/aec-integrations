@@ -32,7 +32,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { VendorIntegrationCreate } from './vendor-integration-create';
+import { VendorIntegrationCreate, type VendorIntegrationLink } from './vendor-integration-create';
 import { VendorProductRequestsList } from './vendor-product-requests-list';
 import {
   type CounterpartSide,
@@ -107,6 +107,7 @@ import {
       <aec-vendor-integration-create
         [contextProductId]="contextProductId()"
         [deepLink]="urlState()"
+        [integrationLink]="createLink"
         (requested)="requests.reload()"
       />
       <!-- AECI-1377: the vendor's product requests. Renders nothing when there are none. -->
@@ -532,10 +533,19 @@ export class VendorIntegrationsSection implements OnInit {
   /** The page's route. Relative from the routed list (`…/integrations`), and from
    *  the portal root on the single-page concept, which has no route of its own. */
   protected linkFor(integration: VendorIntegration): readonly string[] {
-    return this.urlState()
-      ? ['..', 'integrations', integration.id]
-      : ['products', integration.context_product.slug, 'integrations', integration.id];
+    return this.integrationRoute(integration.id, integration.context_product.slug);
   }
+
+  private integrationRoute(id: string, productSlug: string): readonly string[] {
+    return this.urlState()
+      ? ['..', 'integrations', id]
+      : ['products', productSlug, 'integrations', id];
+  }
+
+  /** The create form's links to a likely duplicate and to its receipt's row
+   *  (AECI-1953). The same route as {@link linkFor}, by id and product slug. */
+  protected readonly createLink: VendorIntegrationLink = (id, productSlug) =>
+    this.integrationRoute(id, productSlug);
 
   protected primaryName(integration: VendorIntegration, nested: boolean): string {
     if (!nested) return integration.other_product.name;

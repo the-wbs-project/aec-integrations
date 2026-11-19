@@ -22,6 +22,18 @@
  *      the search, with Back to search, the receipt, and the 409 sentence.
  *  10. The `?create=open&counterpart={slug}` deep link: a hit lands on step 2, a
  *      404 or the tab's own product stays on step 1, and the params are removed.
+ *
+ * AECI-1953 (§4.7.5) adds:
+ *  11. The pick reads the create's own strong matches and lists them at the top of
+ *      step 2, each with its one action: Claim, Open, Open to restore, or Ask.
+ *  12. A claim closes the form and shows the claimed receipt. A refusal shows its
+ *      sentence. A failed check fails open. Change drops a stale answer.
+ *  13. The receipt links to the portal row and the public pair page, and after a
+ *      201 it lists only matches the pre-check did not show.
+ *  14. The receipt names the pair that was submitted. Change is disabled while a
+ *      create or a claim is in flight, and a form change mid-flight is ignored.
+ *  15. An own match AEC Integrations retired only opens: the restore route refuses
+ *      the vendor, so it never offers Open it to restore.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -29,7 +41,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductListItem } from '@aeci/shared';
+import type { PossibleDuplicateIntegration, ProductListItem } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
@@ -72,6 +84,8 @@ const product = (id: string, name: string): ProductListItem => ({
 const PROCORE = product('00000000-0000-4000-8000-000000005301', 'Procore');
 
 let api: {
+  getPossibleDuplicates: ReturnType<typeof vi.fn>;
+  claimIntegration: ReturnType<typeof vi.fn>;
   searchProducts: ReturnType<typeof vi.fn>;
   createIntegration: ReturnType<typeof vi.fn>;
   getIntegrations: ReturnType<typeof vi.fn>;
@@ -86,6 +100,8 @@ function apiError(status: number, code: string): HttpErrorResponse {
 function configure(startOpen?: boolean): void {
   TestBed.resetTestingModule();
   api = {
+    getPossibleDuplicates: vi.fn().mockResolvedValue({ possible_duplicates: [] }),
+    claimIntegration: vi.fn(),
     searchProducts: vi.fn().mockResolvedValue({
       data: [PROCORE, product(OWN.id, OWN.name)],
       total: 2,
@@ -293,21 +309,6 @@ describe('the counterpart search', () => {
     expect(q(fixture, '[data-testid="create-counterpart"]')).toBeNull();
     expect(q(fixture, '#vendor-create-search')).not.toBeNull();
   });
-
-  it('lists what is already on record for the chosen pair, without blocking', async () => {
-    await TestBed.inject(VendorPortalStore).reload('integrations');
-    const onRecord = VENDOR_INTEGRATIONS_FIXTURE.integrations.filter(
-      (i) => i.context_product.id === OWN.id && i.other_product.id === PROCORE.id,
-    );
-    expect(onRecord.length).toBeGreaterThan(0);
-    const fixture = await mount();
-    await open(fixture);
-    await pickProcore(fixture);
-    expect(q(fixture, '[data-testid="create-on-record"]')?.textContent).toContain(
-      `(${new Set(onRecord.map((i) => i.id)).size})`,
-    );
-    expect(q<HTMLButtonElement>(fixture, '[data-testid="create-submit"]')!.disabled).toBe(false);
-  });
 });
 
 describe('submitting', () => {
@@ -333,6 +334,7 @@ describe('submitting', () => {
           owner: null,
           claimed: false,
           retired: false,
+          retired_by: null,
         },
       ],
     });
@@ -357,7 +359,8 @@ describe('submitting', () => {
     expect(revalidate).toHaveBeenCalledWith(['integrations']);
     expect(panel(fixture)).toBeNull();
     const dupes = q(fixture, '[data-testid="create-duplicates"]');
-    expect(dupes?.textContent).toContain('Procore sync, no owner on file');
+    expect(dupes?.textContent).toContain('Procore sync');
+    expect(dupes?.textContent).toContain('No owner on file');
   });
 
   it('renders a refusal in an alert and keeps the form open', async () => {
@@ -593,5 +596,364 @@ describe('the deep link (AECI-1377)', () => {
     unrouted.componentRef.setInput('contextProductId', OWN.id);
     await settle(unrouted);
     expect(panel(unrouted)).toBeNull();
+  });
+});
+
+describe('a likely duplicate, before the create (AECI-1953)', () => {
+  const ME = VENDOR_ME_FIXTURE.vendor;
+  const dup = (
+    n: number,
+    over: Partial<PossibleDuplicateIntegration>,
+  ): PossibleDuplicateIntegration => ({
+    id: `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`,
+    name: `Row ${n}`,
+    mechanism_kind: 'api',
+    mechanism_name: null,
+    orientation: 'same',
+    owner: { id: ME.id, name: ME.company_name },
+    claimed: false,
+    retired: false,
+    retired_by: null,
+    ...over,
+  });
+  const CLAIMABLE = dup(1, {});
+  const CLAIMED = dup(2, { claimed: true });
+  const RETIRED = dup(3, { claimed: true, retired: true, retired_by: 'owner' });
+  const AECI_RETIRED = dup(7, { claimed: true, retired: true, retired_by: 'aeci' });
+  const NO_OWNER = dup(4, { owner: null, orientation: 'reversed' });
+  const ALL = [CLAIMABLE, CLAIMED, RETIRED, NO_OWNER];
+
+  const link = (id: string, slug: string) => ['products', slug, 'integrations', id];
+
+  async function mountLinked(): Promise<ComponentFixture<VendorIntegrationCreate>> {
+    const fixture = TestBed.createComponent(VendorIntegrationCreate);
+    fixture.componentRef.setInput('contextProductId', OWN.id);
+    fixture.componentRef.setInput('integrationLink', link);
+    await settle(fixture);
+    return fixture;
+  }
+  const row = (fixture: ComponentFixture<unknown>, id: string) =>
+    q(fixture, `[data-testid="create-dupes"] [data-duplicate="${id}"]`);
+  const href = (node: Element | null) => node?.getAttribute('href') ?? null;
+
+  it('reads the matches on the pick and lists each with its one action', async () => {
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: ALL });
+    const fixture = await mountLinked();
+    await open(fixture);
+    expect(api.getPossibleDuplicates).not.toHaveBeenCalled();
+    await pickProcore(fixture);
+    expect(api.getPossibleDuplicates).toHaveBeenCalledWith(OWN.id, PROCORE.id);
+
+    const panelNode = q(fixture, '[data-testid="create-dupes"]')!;
+    expect(q(fixture, '[data-testid="create-dupes-title"]')?.textContent?.trim()).toBe(
+      'Already on record for these two products',
+    );
+    expect(q(fixture, '[data-testid="create-dupes-count"]')?.textContent?.trim()).toBe(
+      '4 integrations',
+    );
+    expect(panelNode.textContent).toContain(
+      'If one of them is yours, use it instead of adding a copy.',
+    );
+    const status = (id: string) =>
+      row(fixture, id)?.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim();
+    expect(status(CLAIMABLE.id)).toBe('Yours, not claimed yet');
+    // An own match never repeats the caller's company name.
+    expect(panelNode.textContent).not.toContain(ME.company_name);
+    expect(
+      row(fixture, CLAIMABLE.id)?.querySelector('[data-testid="create-dupe-claim"]'),
+    ).not.toBeNull();
+    expect(
+      href(row(fixture, CLAIMABLE.id)!.querySelector('[data-testid="create-dupe-open"]')),
+    ).toBe(`/products/${OWN.slug}/integrations/${CLAIMABLE.id}`);
+    expect(status(CLAIMED.id)).toBe('Yours');
+    expect(row(fixture, CLAIMED.id)?.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
+    expect(
+      row(fixture, CLAIMED.id)?.querySelector('[data-testid="create-dupe-open"]'),
+    ).not.toBeNull();
+    expect(status(RETIRED.id)).toBe('Yours, retired');
+    expect(row(fixture, RETIRED.id)?.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
+    expect(
+      href(row(fixture, RETIRED.id)!.querySelector('[data-testid="create-dupe-restore"]')),
+    ).toBe(`/products/${OWN.slug}/integrations/${RETIRED.id}`);
+    expect(
+      row(fixture, NO_OWNER.id)?.querySelector('[data-testid="create-dupe-name"]')?.textContent,
+    ).toContain('Row 4');
+    expect(status(NO_OWNER.id)).toBe('No owner on file');
+    expect(
+      row(fixture, NO_OWNER.id)?.querySelector('[data-testid="create-dupe-ask"]')?.textContent,
+    ).toContain('Ask to be recorded as the owner');
+    // Never a block.
+    expect(q<HTMLButtonElement>(fixture, '[data-testid="create-submit"]')!.disabled).toBe(false);
+  });
+
+  it('shows a checking line while the read is in flight', async () => {
+    api.getPossibleDuplicates.mockReturnValue(new Promise(() => undefined));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    expect(q(fixture, '[data-testid="create-dupes-loading"]')?.textContent).toContain(
+      'Checking for integrations already on record',
+    );
+    expect(q<HTMLInputElement>(fixture, '#vendor-create-name')!.disabled).toBe(false);
+  });
+
+  it('claims instead: closes the form, shows the claimed receipt, announces and revalidates', async () => {
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [CLAIMABLE] });
+    api.claimIntegration.mockResolvedValue({ integration: { id: CLAIMABLE.id } });
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const revalidate = vi.spyOn(TestBed.inject(VendorPortalStore), 'revalidate');
+    const fixture = await mountLinked();
+    document.body.appendChild(el(fixture));
+    await open(fixture);
+    await pickProcore(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-dupe-claim"]')!.click();
+    await settle(fixture);
+
+    expect(api.claimIntegration).toHaveBeenCalledWith(CLAIMABLE.id);
+    expect(api.createIntegration).not.toHaveBeenCalled();
+    expect(panel(fixture)).toBeNull();
+    const title = q(fixture, '[data-testid="create-result-title"]')!;
+    expect(title.textContent?.trim()).toBe('You now own Row 1.');
+    expect(document.activeElement).toBe(title);
+    expect(announce).toHaveBeenCalledWith(
+      'You now own Row 1. AEC Integrations no longer updates it.',
+    );
+    expect(revalidate).toHaveBeenCalledWith(['integrations']);
+    expect(href(q(fixture, '[data-testid="create-result-open"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${CLAIMABLE.id}`,
+    );
+    expect(href(q(fixture, '[data-testid="create-result-public"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${PROCORE.slug}`,
+    );
+    el(fixture).remove();
+  });
+
+  it('shows the claim refusal on the row and keeps the form open', async () => {
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [CLAIMABLE] });
+    api.claimIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_NOT_OWNER'));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-dupe-claim"]')!.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-form"]')).not.toBeNull();
+    const notice = q(fixture, '[data-testid="create-dupe-notice"]')!;
+    expect(notice.getAttribute('role')).toBe('alert');
+    expect(notice.textContent).toContain('Another company is now recorded as the owner');
+  });
+
+  it('fails open when the read fails: no panel, and the create still runs', async () => {
+    api.getPossibleDuplicates.mockRejectedValue(apiError(500, 'INTERNAL'));
+    api.createIntegration.mockResolvedValue({
+      integration: { id: '00000000-0000-4000-8000-000000000777' },
+      possible_duplicates: [],
+    });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    expect(q(fixture, '[data-testid="create-dupes"]')).toBeNull();
+    expect(q(fixture, '[data-testid="create-dupes-loading"]')).toBeNull();
+    await fillRequired(fixture);
+    await submit(fixture);
+    expect(api.createIntegration).toHaveBeenCalled();
+    expect(q(fixture, '[data-testid="create-result"]')).not.toBeNull();
+  });
+
+  it('drops a stale answer after Change', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.getPossibleDuplicates
+      .mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+      .mockResolvedValue({ possible_duplicates: [] });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!.click();
+    await settle(fixture);
+    await pickProcore(fixture);
+    expect(api.getPossibleDuplicates).toHaveBeenCalledTimes(2);
+    answer({ possible_duplicates: ALL });
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-dupes"]')).toBeNull();
+  });
+
+  it('links the receipt to the new row and its public page, listing only matches not shown before', async () => {
+    const LATE = dup(9, { owner: null, name: 'Added meanwhile' });
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [CLAIMED] });
+    api.createIntegration.mockResolvedValue({
+      integration: { id: '00000000-0000-4000-8000-000000000777' },
+      possible_duplicates: [CLAIMED, LATE],
+    });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    await fillRequired(fixture);
+    await submit(fixture);
+
+    expect(q(fixture, '[data-testid="create-result-title"]')?.textContent?.trim()).toBe(
+      'Your integration is live on the public site.',
+    );
+    expect(href(q(fixture, '[data-testid="create-result-open"]'))).toBe(
+      `/products/${OWN.slug}/integrations/00000000-0000-4000-8000-000000000777`,
+    );
+    const pub = q(fixture, '[data-testid="create-result-public"]')!;
+    expect(href(pub)).toBe(`/products/${OWN.slug}/integrations/${PROCORE.slug}`);
+    expect(pub.getAttribute('target')).toBe('_blank');
+    expect(pub.getAttribute('aria-label')).toBe(
+      `View public page: the ${OWN.name} and Procore integration (opens in a new tab)`,
+    );
+    const late = q(fixture, '[data-testid="create-duplicates"]')!;
+    expect(late.textContent).toContain('Added meanwhile');
+    expect(late.textContent).not.toContain('Row 2');
+    expect(late.querySelector('[data-testid="create-dupe-ask"]')).not.toBeNull();
+
+    // The close button in the corner: named, and it returns focus to the trigger.
+    const dismiss = q<HTMLButtonElement>(fixture, '[data-testid="create-result-dismiss"]')!;
+    expect(dismiss.getAttribute('aria-label')).toBe('Dismiss');
+    dismiss.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-result"]')).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, '[data-testid="add-integration"]'));
+  });
+
+  it("names another company's match as its owner, and a retired one as retired", async () => {
+    const OTHER = dup(5, { owner: { id: 'other-vendor', name: 'Procore Technologies' } });
+    const OTHER_RETIRED = dup(6, {
+      owner: { id: 'other-vendor', name: 'Procore Technologies' },
+      retired: true,
+      retired_by: 'owner',
+    });
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [OTHER, OTHER_RETIRED] });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const status = (id: string) =>
+      row(fixture, id)?.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim();
+    expect(status(OTHER.id)).toBe('Offered by Procore Technologies');
+    expect(status(OTHER_RETIRED.id)).toBe('Offered by Procore Technologies, retired');
+    expect(q(fixture, '[data-testid="create-dupes-count"]')?.textContent?.trim()).toBe(
+      '2 integrations',
+    );
+  });
+
+  it('offers only Open it on an own match AEC Integrations retired, and says who retired it', async () => {
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [AECI_RETIRED, RETIRED] });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const aeciRow = row(fixture, AECI_RETIRED.id)!;
+    expect(aeciRow.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim()).toBe(
+      'Yours, retired by AEC Integrations. Only AEC Integrations can restore it.',
+    );
+    expect(aeciRow.querySelector('[data-testid="create-dupe-restore"]')).toBeNull();
+    expect(aeciRow.querySelector('[data-testid="create-dupe-claim"]')).toBeNull();
+    const openLink = aeciRow.querySelector('[data-testid="create-dupe-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open it');
+    expect(href(openLink)).toBe(`/products/${OWN.slug}/integrations/${AECI_RETIRED.id}`);
+    // An owner retire still offers the restore.
+    expect(
+      row(fixture, RETIRED.id)?.querySelector('[data-testid="create-dupe-restore"]'),
+    ).not.toBeNull();
+  });
+
+  it('offers only Open it on an ownerless match that is retired, and Ask on a live one', async () => {
+    const NO_OWNER_RETIRED = dup(8, { owner: null, retired: true, retired_by: 'aeci' });
+    api.getPossibleDuplicates.mockResolvedValue({
+      possible_duplicates: [NO_OWNER_RETIRED, NO_OWNER],
+    });
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+
+    const retiredRow = row(fixture, NO_OWNER_RETIRED.id)!;
+    expect(
+      retiredRow.querySelector('[data-testid="create-dupe-status"]')?.textContent?.trim(),
+    ).toBe('No owner on file, retired by AEC Integrations. Only AEC Integrations can restore it.');
+    expect(retiredRow.querySelector('[data-testid="create-dupe-ask"]')).toBeNull();
+    const openLink = retiredRow.querySelector('[data-testid="create-dupe-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open it');
+    expect(href(openLink)).toBe(`/products/${OWN.slug}/integrations/${NO_OWNER_RETIRED.id}`);
+    // A live ownerless match still offers the owner request.
+    const liveRow = row(fixture, NO_OWNER.id)!;
+    expect(liveRow.querySelector('[data-testid="create-dupe-ask"]')?.textContent).toContain(
+      'Ask to be recorded as the owner',
+    );
+    expect(liveRow.querySelector('[data-testid="create-dupe-open"]')).toBeNull();
+  });
+
+  /** Back to step 1 past the disabled button, then pick another product. This
+   *  stands in for any form change that lands while a request is in flight. */
+  async function changeToBluebeam(fixture: ComponentFixture<VendorIntegrationCreate>) {
+    const BLUEBEAM = product('00000000-0000-4000-8000-000000005305', 'Bluebeam Revu');
+    api.searchProducts.mockResolvedValue({ data: [BLUEBEAM], total: 1, page: 1, perPage: 8 });
+    (fixture.componentInstance as unknown as { onChangeCounterpart(): void }).onChangeCounterpart();
+    await settle(fixture);
+    await searchFor(fixture, 'blu');
+    const pick = options().find((o) => o.textContent?.includes('Bluebeam'))!;
+    pick.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    pick.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle(fixture);
+  }
+
+  it('builds the create receipt from the submitted pair, and disables Change while saving', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    api.createIntegration.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    await fillRequired(fixture);
+    await submit(fixture);
+
+    const change = q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!;
+    expect(change.disabled).toBe(true);
+    change.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="create-change-counterpart"]')).not.toBeNull();
+
+    await changeToBluebeam(fixture);
+    finish({
+      integration: { id: '00000000-0000-4000-8000-000000000777' },
+      possible_duplicates: [],
+    });
+    await settle(fixture);
+
+    expect(href(q(fixture, '[data-testid="create-result-public"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${PROCORE.slug}`,
+    );
+    const openLink = q(fixture, '[data-testid="create-result-open"]');
+    expect(openLink?.textContent?.trim()).toBe('Open your integration');
+    expect(href(openLink)).toBe(
+      `/products/${OWN.slug}/integrations/00000000-0000-4000-8000-000000000777`,
+    );
+  });
+
+  it('builds the claim receipt from the pair it claimed from, and disables Change while claiming', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    api.getPossibleDuplicates.mockResolvedValue({ possible_duplicates: [CLAIMABLE] });
+    api.claimIntegration.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const fixture = await mountLinked();
+    await open(fixture);
+    await pickProcore(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-dupe-claim"]')!.click();
+    await settle(fixture);
+
+    expect(
+      q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!.disabled,
+    ).toBe(true);
+
+    await changeToBluebeam(fixture);
+    finish({ integration: { id: CLAIMABLE.id } });
+    await settle(fixture);
+
+    expect(q(fixture, '[data-testid="create-result-title"]')?.textContent?.trim()).toBe(
+      'You now own Row 1.',
+    );
+    expect(href(q(fixture, '[data-testid="create-result-public"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${PROCORE.slug}`,
+    );
+    expect(href(q(fixture, '[data-testid="create-result-open"]'))).toBe(
+      `/products/${OWN.slug}/integrations/${CLAIMABLE.id}`,
+    );
   });
 });
