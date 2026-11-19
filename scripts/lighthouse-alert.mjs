@@ -351,13 +351,17 @@ function operationName(query) {
   return m ? m[1] : 'unknown';
 }
 
-/** Dry-run stand-in: prints each payload and answers with canned data. */
+/**
+ * Dry-run stand-in: prints each payload and answers with canned data. Matches operations by
+ * suffix (`…AlertContext`, `…AlertLabel`, `…AlertIssue`, `…AlertComment`), so
+ * `scripts/a11y-nightly-alert.mjs` reuses it with its own operation names.
+ */
 export function dryRunLinearClient(log, { openIssue = false } = {}) {
   return async function graphql(query, variables) {
     const op = operationName(query);
     log(`--- Linear ${op} (dry run, not sent) ---`);
     log(JSON.stringify({ query, variables }, null, 2));
-    if (op === 'LighthouseAlertContext') {
+    if (op.endsWith('AlertContext')) {
       return {
         teams: { nodes: [{ id: 'dry-run-team-id', key: TEAM_KEY }] },
         openIssues: {
@@ -367,7 +371,7 @@ export function dryRunLinearClient(log, { openIssue = false } = {}) {
                   id: 'dry-run-issue-id',
                   identifier: 'AECI-0',
                   url: 'https://linear.app/dry-run/issue/AECI-0',
-                  title: 'Lighthouse regression on main (dry run)',
+                  title: 'Open regression issue (dry run)',
                 },
               ]
             : [],
@@ -377,10 +381,10 @@ export function dryRunLinearClient(log, { openIssue = false } = {}) {
         users: { nodes: [{ id: 'dry-run-user-id', email: ASSIGNEE_EMAIL }] },
       };
     }
-    if (op === 'LighthouseAlertLabel') {
+    if (op.endsWith('AlertLabel')) {
       return { issueLabelCreate: { success: true, issueLabel: { id: 'dry-run-label-id' } } };
     }
-    if (op === 'LighthouseAlertIssue') {
+    if (op.endsWith('AlertIssue')) {
       return {
         issueCreate: {
           success: true,
@@ -392,7 +396,7 @@ export function dryRunLinearClient(log, { openIssue = false } = {}) {
         },
       };
     }
-    if (op === 'LighthouseAlertComment') {
+    if (op.endsWith('AlertComment')) {
       return { commentCreate: { success: true, comment: { id: 'dry-run-comment-id' } } };
     }
     throw new Error(`dry run has no canned answer for ${op}`);

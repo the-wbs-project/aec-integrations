@@ -10,13 +10,16 @@
 
 ## 1. Scope — surfaces to test (AECI-244)
 
+`apps/web/e2e-a11y/surfaces.ts` mirrors this list for the accessibility nightly (AECI-1875). Change both together.
+
 1. **Home** (`/`)
 2. **Product detail** (`/products/:slug`)
 3. **Review submission** (`/products/:slug/review`) — the full flow
 4. **Login** (`/auth/login`)
 5. **Account** (`/account`)
 6. **Admin moderation queue** (`/admin/reviews`, and `/admin/requests`)
-7. **Vendor portal** (`/vendor/:vendorSlug/products` and `/integrations`) — added
+7. **Vendor portal** (`/vendor/:vendorSlug/products` and
+   `/vendor/:vendorSlug/products/:productSlug/integrations`) — added
    after Stage 2; the list above predates it. Two things here are only evaluable by
    a human: the portal's **one polite live region** in the shell (a background poll
    lands announcements into it from sections the reader is not looking at,
