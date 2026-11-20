@@ -18,10 +18,19 @@
  * routed: the page's own same-origin GETs pass, other origins are aborted, the one
  * write each test makes is answered here, and any other write fails the test.
  *
+ * Analytics. Where the stack serves a PostHog key (CI's `dev:bound` uses the committed
+ * per-env `phc_` var), the client asks PostHog for its config and flags and may send
+ * events. Those requests are answered here with empty payloads, so none leaves the
+ * machine. Each one is decoded (URL, raw body, gzip, base64 `data=`) and checked: no
+ * value a test types may appear in it, so the spec also proves analytics does not
+ * receive form answers.
+ *
  * `AECI_CPU_THROTTLE=4` runs every test with the CPU slowed four times (CDP).
  */
+import { gunzipSync } from 'node:zlib';
+
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
 
@@ -47,7 +56,52 @@ interface Guard {
   readonly sent: { path: string; body: Record<string, unknown> }[];
   /** Anything else: a write nobody allowed, or a request to another origin. */
   readonly unexpected: string[];
+  /** PostHog requests, answered here. Expected wherever the stack serves a key. */
+  readonly analytics: string[];
+  /** A typed test value found in a PostHog request: a leak of a form answer. */
+  readonly leaks: string[];
   release(): void;
+}
+
+/** PostHog's hosts: `us.i.posthog.com`, `us-assets.i.posthog.com` and the like. */
+function isPostHog(url: URL): boolean {
+  return url.hostname === 'posthog.com' || url.hostname.endsWith('.posthog.com');
+}
+
+/** Everything a PostHog request could carry, decoded as far as the client encodes it. */
+function analyticsText(req: Request): string {
+  const parts = [req.url()];
+  try {
+    parts.push(decodeURIComponent(req.url()));
+  } catch {
+    // A malformed escape: the raw URL is already in.
+  }
+  const body = req.postDataBuffer();
+  if (body) {
+    const raw = body.toString('utf8');
+    parts.push(raw);
+    try {
+      parts.push(gunzipSync(body).toString('utf8'));
+    } catch {
+      // Not gzip.
+    }
+    const data = new URLSearchParams(raw).get('data');
+    if (data) parts.push(Buffer.from(data, 'base64').toString('utf8'));
+  }
+  return parts.join('\n');
+}
+
+/** An empty answer for each PostHog endpoint the client calls. */
+function analyticsAnswer(url: URL): string {
+  if (url.pathname.includes('/flags')) {
+    return JSON.stringify({
+      featureFlags: {},
+      featureFlagPayloads: {},
+      errorsWhileComputingFlags: false,
+    });
+  }
+  if (url.pathname.includes('/config')) return '{}';
+  return JSON.stringify({ status: 1 });
 }
 
 /** Hold the entry bundle until `release()`, and route every request. */
@@ -56,9 +110,23 @@ async function holdScripts(page: Page, origin: string, allowWrite: string): Prom
   const held = new Promise<void>((resolve) => (release = resolve));
   const sent: Guard['sent'] = [];
   const unexpected: string[] = [];
+  const analytics: string[] = [];
+  const leaks: string[] = [];
   await page.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
+    if (isPostHog(url)) {
+      analytics.push(`${req.method()} ${url.origin}${url.pathname}`);
+      const text = analyticsText(req);
+      for (const value of TYPED_VALUES) {
+        if (text.includes(value)) leaks.push(`${value} in ${req.method()} ${url.pathname}`);
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: analyticsAnswer(url),
+      });
+    }
     if (url.origin !== origin) {
       unexpected.push(`${req.method()} ${url.origin}${url.pathname}`);
       return route.abort();
@@ -82,7 +150,13 @@ async function holdScripts(page: Page, origin: string, allowWrite: string): Prom
     if (/\/main-[^/]+\.js$/.test(url.pathname)) await held;
     return route.continue();
   });
-  return { sent, unexpected, release };
+  return { sent, unexpected, analytics, leaks, release };
+}
+
+/** Nothing unexpected was sent, and no PostHog request carried a typed answer. */
+function expectClean(guard: Guard): void {
+  expect(guard.unexpected, 'no request outside the app, its one write and analytics').toEqual([]);
+  expect(guard.leaks, 'no form answer reached analytics').toEqual([]);
 }
 
 /** Open the page with the scripts held, and check it is not hydrated yet. */
@@ -116,6 +190,22 @@ const ANSWERS = {
   '#claim-email': 'jane@procore.com',
   '#claim-legal-name': 'Procore Technologies, Inc.',
 } as const;
+
+const LIST_ANSWERS = {
+  '#claim-dialog-listing-name': 'Fixture Planner',
+  '#claim-dialog-website': 'https://planner.example.com',
+  '#claim-dialog-name': 'Jane Example',
+} as const;
+const LATE_TITLE = 'Typed after the app took over';
+
+/** Every value a test here types. None may appear in a PostHog request. */
+const TYPED_VALUES: readonly string[] = [
+  ...Object.values(ANSWERS),
+  ...Object.values(LIST_ANSWERS),
+  'jane@procore.com',
+  'planner.example.com',
+  LATE_TITLE,
+];
 
 test.describe('early input survives hydration (AECI-1720)', () => {
   for (const r of CLAIM_PAGES) {
@@ -159,7 +249,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
         company_legal_name: ANSWERS['#claim-legal-name'],
         accepted_terms: true,
       });
-      expect(guard.unexpected).toEqual([]);
+      expectClean(guard);
     });
 
     test(`${r.name}: a consent box is never carried, whatever ticks it before hydration`, async ({
@@ -209,7 +299,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       await expect(page.locator(CLAIM_SUBMIT), 'the box still gates the submit').toBeDisabled();
       await expect(page.locator('#claim-name')).toHaveValue('');
       expect(guard.sent).toEqual([]);
-      expect(guard.unexpected).toEqual([]);
+      expectClean(guard);
     });
   }
 
@@ -221,11 +311,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/listing');
     await openHeld(page, '/vendor-program/list-your-product', form);
 
-    const early = {
-      '#claim-dialog-listing-name': 'Fixture Planner',
-      '#claim-dialog-website': 'https://planner.example.com',
-      '#claim-dialog-name': 'Jane Example',
-    } as const;
+    const early = LIST_ANSWERS;
     for (const [id, value] of Object.entries(early)) await page.locator(id).fill(value);
 
     await hydrate(page, guard, form);
@@ -243,7 +329,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     }
     await expect(page.locator('#claim-dialog-email')).toHaveAttribute('aria-invalid', 'true');
     expect(guard.sent).toEqual([]);
-    expect(guard.unexpected).toEqual([]);
+    expectClean(guard);
   });
 
   test('/products: an early address in the mailing list card reaches the subscribe', async ({
@@ -259,7 +345,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     await page.locator(`${form} button[type="submit"]`).click();
     await expect.poll(() => guard.sent.length).toBe(1);
     expect(guard.sent[0].body).toMatchObject({ email: 'jane@procore.com' });
-    expect(guard.unexpected).toEqual([]);
+    expectClean(guard);
   });
 
   test('/vendor-program: the claim dialog has no form before hydration, so nothing is lost', async ({
@@ -273,7 +359,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     guard.release();
     await untilHydrated(page.getByRole('link', { name: 'Claim your listing' }).first());
     await expect(page.locator('#claim-dialog-form, #claim-dialog-terms')).toHaveCount(0);
-    expect(guard.unexpected).toEqual([]);
+    expectClean(guard);
   });
 
   test('the recorder stops once the app is stable: no global, nothing kept after', async ({
@@ -296,7 +382,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     await hydrate(page, guard, CLAIM_FORM);
     await untilRecorderStopped(page);
 
-    await page.locator('#claim-title').fill('Typed after the app took over');
+    await page.locator('#claim-title').fill(LATE_TITLE);
     const after = await page.evaluate(() => {
       const probe = (window as unknown as Record<string, { take(el: Element): unknown }>)[
         '__probe'
@@ -307,7 +393,7 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       };
     });
     expect(after).toEqual({ global: false, kept: null });
-    expect(guard.unexpected).toEqual([]);
+    expectClean(guard);
   });
 
   test('the server HTML of a claim page is the same for every visitor, the box disabled', async ({
@@ -348,7 +434,7 @@ test.describe('a disabled consent box passes axe (AECI-1720)', () => {
         await hydrate(page, guard, s.form);
         await untilRecorderStopped(page);
         expect(await seriousViolations(page), 'after hydration').toEqual([]);
-        expect(guard.unexpected).toEqual([]);
+        expectClean(guard);
       });
     }
   }
