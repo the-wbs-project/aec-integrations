@@ -169,27 +169,34 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
       await openHeld(page, r.path, CLAIM_FORM);
 
-      // A script ticks the box: a box.click(), a label.click() and a dispatched click.
-      // In Chromium each fires input and change with isTrusted true, disabled box or not,
-      // so the recorder cannot tell them from the visitor. It keeps no checkbox at all.
+      // What a script can do to the disabled box, measured in Chromium: box.click() and
+      // label.click() do nothing. A dispatched synthetic click still ticks it and fires
+      // input and change with isTrusted true. Once the attribute is stripped, box.click()
+      // ticks it the same way. The recorder cannot tell these from the visitor, so it
+      // keeps no checkbox at all.
       const before = await page.locator('#claim-terms').evaluate((box: HTMLInputElement) => {
         const label = document.querySelector<HTMLLabelElement>('label[for="claim-terms"]')!;
         const trusted: boolean[] = [];
         box.addEventListener('change', (e) => trusted.push(e.isTrusted));
-        const clicks = [
-          () => box.click(),
-          () => label.click(),
-          () => box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
-        ];
-        for (const click of clicks) if (!box.checked) click();
-        if (!box.checked) {
-          box.removeAttribute('disabled');
-          box.click();
-        }
-        return { ticked: box.checked, trustedChange: trusted.includes(true) };
+        box.click();
+        label.click();
+        const afterClicks = box.checked;
+        box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const afterDispatch = box.checked;
+        box.checked = false;
+        box.removeAttribute('disabled');
+        box.click();
+        return {
+          afterClicks,
+          afterDispatch,
+          afterEnabledClick: box.checked,
+          trustedChange: trusted.length > 0 && trusted.every(Boolean),
+        };
       });
-      expect(before, 'the script ticked the box with a trusted change').toEqual({
-        ticked: true,
+      expect(before).toEqual({
+        afterClicks: false,
+        afterDispatch: true,
+        afterEnabledClick: true,
         trustedChange: true,
       });
       // The visitor types an answer and clears it again: the empty value is theirs.

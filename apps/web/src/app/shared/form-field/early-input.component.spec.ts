@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { LegalInForceClient } from '../../legal/legal-in-force-client';
 import { VendorTermsBox } from '../../requests/vendor-terms-box';
-import { AecConsentBox } from './consent-box';
+import { AecConsentBox, AppLive } from './consent-box';
 import {
   AecEarlyInput,
   EARLY_INPUT_KEY,
@@ -200,10 +200,46 @@ describe('AecEarlyInput (AECI-1720)', () => {
   });
 });
 
+@Component({
+  imports: [AecConsentBox],
+  template: `
+    <p>Page</p>
+    @if (show()) {
+      <input id="late" type="checkbox" aecConsent />
+    }
+    <input id="gated" type="checkbox" [aecConsent]="ready()" />
+  `,
+})
+class LateBoxHost {
+  readonly show = signal(false);
+  readonly ready = signal(false);
+}
+
 describe('AecConsentBox (AECI-1720)', () => {
   it('is enabled once the app has rendered in the browser', async () => {
     const fixture = await render(ChangeListenerHost);
     expect(el<HTMLInputElement>(fixture.nativeElement, 'box').disabled).toBe(false);
+  });
+
+  it('a box first drawn after bootstrap is enabled on its first frame', async () => {
+    // As App does at bootstrap: start AppLive before any box exists.
+    TestBed.inject(AppLive);
+    const fixture = await render(LateBoxHost);
+    expect(TestBed.inject(AppLive).live()).toBe(true);
+    fixture.componentInstance.show.set(true);
+    fixture.detectChanges();
+    const late = el<HTMLInputElement>(fixture.nativeElement, 'late');
+    expect(late).not.toBeNull();
+    expect(late.disabled).toBe(false);
+  });
+
+  it('with a ready input, stays disabled until the page says it is ready', async () => {
+    const fixture = await render(LateBoxHost);
+    const gated = el<HTMLInputElement>(fixture.nativeElement, 'gated');
+    expect(gated.disabled).toBe(true);
+    fixture.componentInstance.ready.set(true);
+    fixture.detectChanges();
+    expect(gated.disabled).toBe(false);
   });
 });
 

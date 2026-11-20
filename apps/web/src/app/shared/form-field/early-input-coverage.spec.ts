@@ -10,7 +10,7 @@
  *    tick. This rule keeps the box from being tickable before it can work.
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const APP_DIR = join(__dirname, '..', '..');
@@ -35,8 +35,70 @@ function inputTags(text: string): string[] {
   return [...text.matchAll(/<input\b[^>]*>/g)].map((m) => m[0]);
 }
 
-/** A checkbox whose bindings or test id name an acceptance or a consent. */
-const ACCEPTANCE = /accept|consent/i;
+/**
+ * The checkboxes that are not consent: filters, row selections and taxonomy choices.
+ * Each entry is a file and a fragment of the one `<input>` tag it allows. Every other
+ * checkbox must carry `aecConsent`. Add a box here only if ticking it agrees to
+ * nothing.
+ */
+const NON_CONSENT_BOXES: readonly { file: string; tag: string; why: string }[] = [
+  {
+    file: 'account/profile-details/profile-details-form.ts',
+    tag: 'isChosen(term.id)',
+    why: 'About you: the taxonomy terms the reader works with',
+  },
+  {
+    file: 'account/review-update-panel.html',
+    tag: 'rerate()',
+    why: 'review update: also change my ratings',
+  },
+  {
+    file: 'admin/activity/activity-feed.html',
+    tag: 'excludeInternal()',
+    why: 'admin filter: hide internal traffic',
+  },
+  { file: 'admin/dmca/dmca-notices.html', tag: 'openOnly()', why: 'admin filter: open only' },
+  {
+    file: 'admin/traffic/traffic.html',
+    tag: 'excludeInternal()',
+    why: 'admin filter: hide internal traffic',
+  },
+  {
+    file: 'admin/vendors/admin-field-corrections.html',
+    tag: 'terms().has(term.slug)',
+    why: 'admin correction: taxonomy terms',
+  },
+  {
+    file: 'admin/vendors/ban-term-licenses-control.html',
+    tag: 'rowFor(c.productId).include',
+    why: 'admin: which licenses a ban covers',
+  },
+  {
+    file: 'admin/vendors/billing-licenses-table.html',
+    tag: 'allSelected()',
+    why: 'admin table: select all rows',
+  },
+  {
+    file: 'admin/vendors/billing-licenses-table.html',
+    tag: 'isSelected(row)',
+    why: 'admin table: select a row',
+  },
+  {
+    file: 'search/widgets/search-refinement-list.ts',
+    tag: '',
+    why: 'search facet filters (both boxes)',
+  },
+  {
+    file: 'vendor/components/vendor-product-create.ts',
+    tag: 'chosen().has(term.slug)',
+    why: 'portal: taxonomy terms of a new product',
+  },
+  {
+    file: 'vendor/components/vendor-product-facet-editor.ts',
+    tag: 'row.checked',
+    why: 'portal: taxonomy terms of a product',
+  },
+];
 
 /** The component's template: the inline one, plus its `templateUrl` file if any. */
 function templateOf(path: string): string {
@@ -81,30 +143,53 @@ describe('AecEarlyInput coverage (AECI-1720)', () => {
 describe('consent boxes carry aecConsent (AECI-1720)', () => {
   const boxes = sources(APP_DIR, ['.ts', '.html']).flatMap((path) =>
     inputTags(readFileSync(path, 'utf8'))
-      .filter((tag) => /type="checkbox"/.test(tag) && ACCEPTANCE.test(tag))
-      .map((tag) => ({ file: relative(APP_DIR, path), tag })),
+      .filter((tag) => /type="checkbox"/.test(tag))
+      .map((tag) => ({ file: relative(APP_DIR, path).split(sep).join('/'), tag })),
   );
+  const marked = boxes.filter((b) => /\baecConsent\b/.test(b.tag));
 
   it('finds the acceptance boxes, the Vendor Terms and /auth/terms ones included', () => {
-    const files = boxes.map((b) => b.file);
-    expect(files).toContain(join('requests', 'vendor-terms-box.ts'));
-    expect(files).toContain(join('auth', 'terms-accept.ts'));
-    expect(files).toContain(join('vendor', 'components', 'vendor-legal-acceptance.ts'));
-    expect(files).toContain(join('vendor', 'components', 'vendor-pending-grant-card.ts'));
+    const files = marked.map((b) => b.file);
+    for (const file of [
+      'requests/vendor-terms-box.ts',
+      'auth/terms-accept.ts',
+      'vendor/components/vendor-legal-acceptance.ts',
+      'vendor/components/vendor-pending-grant-card.ts',
+      'vendor/components/vendor-billing-unused-warning.ts',
+      'vendor/integration-detail/integration-row-thread.ts',
+      'admin/vendors/grant-licenses-control.html',
+      'home/home-feedback-form.ts',
+    ]) {
+      expect(files).toContain(file);
+    }
   });
 
-  it('every acceptance checkbox carries aecConsent', () => {
-    const unmarked = boxes.filter((b) => !/\baecConsent\b/.test(b.tag)).map((b) => b.file);
+  it('every checkbox carries aecConsent unless it is on the non-consent list', () => {
+    const unmarked = boxes
+      .filter((b) => !/\baecConsent\b/.test(b.tag))
+      .filter((b) => !NON_CONSENT_BOXES.some((n) => n.file === b.file && b.tag.includes(n.tag)))
+      .map((b) => `${b.file}: ${b.tag.slice(0, 120)}`);
     expect(unmarked).toEqual([]);
   });
 
-  it('a component with an aecConsent box imports AecConsentBox', () => {
+  it('no entry on the non-consent list is stale or names a marked box', () => {
+    const stale = NON_CONSENT_BOXES.filter(
+      (n) =>
+        !boxes.some(
+          (b) => b.file === n.file && b.tag.includes(n.tag) && !/\baecConsent\b/.test(b.tag),
+        ),
+    ).map((n) => `${n.file}: ${n.tag}`);
+    expect(stale).toEqual([]);
+  });
+
+  it('a component with an aecConsent box imports AecConsentBox, template file included', () => {
     const missing = sources(APP_DIR, ['.ts'])
       .filter((path) => {
-        const text = readFileSync(path, 'utf8');
+        const template = templateOf(path);
+        const imports = decoratorImports(readFileSync(path, 'utf8'));
         return (
-          inputTags(text).some((tag) => /\baecConsent\b/.test(tag)) &&
-          !/\bAecConsentBox\b/.test(decoratorImports(text))
+          inputTags(template).some((tag) => /\baecConsent\b/.test(tag)) &&
+          !/\bAecConsentBox\b/.test(imports)
         );
       })
       .map((path) => relative(APP_DIR, path));

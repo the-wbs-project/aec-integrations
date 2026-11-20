@@ -15,6 +15,7 @@ import { LegalNoticeBand } from './legal/legal-notice-band';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
 import { SkipLink } from './layout/skip-link';
+import { AppLive } from './shared/form-field/consent-box';
 import { stopEarlyInput } from './shared/form-field/early-input';
 import { WaitlistWelcome } from './waitlist/waitlist-welcome';
 
@@ -55,6 +56,9 @@ export class App {
   private readonly arrivalCapture = inject(ArrivalCaptureService);
   private readonly appUpdate = inject(AppUpdateService);
   private readonly appRef = inject(ApplicationRef);
+  // AECI-1720 — injected here so `AppLive` starts at bootstrap, and a consent box drawn
+  // after the first render is enabled from its first frame (`shared/form-field/consent-box.ts`).
+  protected readonly appLive = inject(AppLive);
   private readonly document = inject(DOCUMENT);
 
   constructor() {

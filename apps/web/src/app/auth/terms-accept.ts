@@ -66,8 +66,8 @@ const LINK_CLASS =
  *
  * The box starts unticked, and its label is `TERMS_CHANGE_BOX_LABEL` word for word
  * (`terms-accept.component.spec.ts` pins it). The box is disabled until the app is live
- * (`aecConsent`, AECI-1720), so it cannot be ticked before the page can show what it
- * accepts. If the server's pending version differs from the one the page showed from
+ * and the pending read has ended (`[aecConsent]="settled()"`, AECI-1720), so it cannot be
+ * ticked before the page shows what it accepts. A failed read enables it too. If the server's pending version differs from the one the page showed from
  * `?version=`, the box is unticked again, so a tick always follows the version on screen.
  * "Accept and continue" stays disabled until
  * hydration, as on the login form, so an early click cannot submit the form natively and
@@ -180,7 +180,7 @@ const LINK_CLASS =
                   id="terms-accept-box"
                   type="checkbox"
                   data-testid="terms-accept-box"
-                  aecConsent
+                  [aecConsent]="settled()"
                   [checked]="ticked()"
                   (change)="onTick($event)"
                   [attr.aria-invalid]="showError() ? 'true' : null"
@@ -288,6 +288,13 @@ export class TermsAcceptPage {
   protected readonly attempted = signal(false);
   protected readonly saving = signal(false);
   protected readonly failed = signal(false);
+  /**
+   * AECI-1720: true once the pending read has ended, however it ended: the summary
+   * arrived, the read failed, or nothing waits. The box stays disabled until then, so it
+   * is never ticked before the page shows what it accepts. A failed read enables it,
+   * because the page works without the summary and a disabled box would trap the reader.
+   */
+  protected readonly settled = signal(false);
   protected readonly showError = computed(() => this.attempted() && !this.ticked());
 
   constructor() {
@@ -299,12 +306,22 @@ export class TermsAcceptPage {
     afterNextRender(() => {
       this.hydrated.set(true);
       // No version to accept: nothing waits for this reader, so go on.
-      if (this.version() === null) void this.leave();
-      else void this.load();
+      if (this.version() === null) {
+        this.settled.set(true);
+        void this.leave();
+      } else void this.load();
     });
   }
 
   private async load(): Promise<void> {
+    try {
+      await this.readPending();
+    } finally {
+      this.settled.set(true);
+    }
+  }
+
+  private async readPending(): Promise<void> {
     let res;
     try {
       res = await this.api.getTermsPending();

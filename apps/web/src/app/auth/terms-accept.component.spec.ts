@@ -271,7 +271,6 @@ describe('TermsAcceptPage: ticks and the version shown (AECI-1720)', () => {
       const { fixture, el, api } = await setup();
       const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
       expect(box.checked).toBe(false);
-      expect(box.hasAttribute('aecConsent')).toBe(true);
       expect(box.disabled).toBe(false);
       await submit(fixture, el);
       expect(api.acceptTerms).not.toHaveBeenCalled();
@@ -291,6 +290,36 @@ describe('TermsAcceptPage: ticks and the version shown (AECI-1720)', () => {
       },
     };
   }
+
+  const boxOf = (el: HTMLElement) =>
+    el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+
+  it('keeps the box disabled while the pending read is out, then enables it with the summary', async () => {
+    const pending = deferredPending('1.2');
+    const { fixture, el } = await setup(undefined, undefined, pending.read);
+    expect(boxOf(el).disabled).toBe(true);
+    expect(el.textContent).not.toContain(PENDING.summary[0]);
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(boxOf(el).disabled).toBe(false);
+    expect(el.textContent).toContain(PENDING.summary[0]);
+  });
+
+  it('enables the box after a failed read, so the page still works without the summary', async () => {
+    const { el } = await setup(undefined, undefined, async () => {
+      throw new HttpErrorResponse({ status: 503 });
+    });
+    expect(boxOf(el).disabled).toBe(false);
+    expect(el.textContent).not.toContain(PENDING.summary[0]);
+  });
+
+  it('enables the box when nothing is pending any more, as the page goes on', async () => {
+    const { el, navigate } = await setup(undefined, undefined, async () => ({ pending: null }));
+    expect(navigate).toHaveBeenCalledWith('/account');
+    expect(boxOf(el).disabled).toBe(false);
+  });
 
   it("unticks when the server's pending version differs from the one shown", async () => {
     const pending = deferredPending('1.3');

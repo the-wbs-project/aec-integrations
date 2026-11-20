@@ -450,7 +450,7 @@ before the scripts load. The box is `disabled` in the server HTML until the app 
 No tick is ever carried across hydration: no checkbox is restored, whoever or whatever ticked it.
 Typed answers are carried (`AecEarlyInput`). The box also unticks, and asks for a fresh tick, if
 the policy version line beside it changes after it was ticked (`LegalInForceClient.refresh()`), so
-a tick always sits beside the versions on screen. `e2e/forms-early-input.spec.ts` and
+a tick always sits beside the versions on screen. The `/auth/terms` box waits the same way for its summary of changes (`[aecConsent]="settled()"`). `e2e/forms-early-input.spec.ts` and
 `early-input.component.spec.ts` pin this.
 
 *As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the

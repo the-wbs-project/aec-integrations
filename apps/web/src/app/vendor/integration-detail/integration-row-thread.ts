@@ -23,6 +23,7 @@ import {
   type VendorThreadSummary,
 } from '@aeci/shared';
 
+import { AecConsentBox } from '../../shared/form-field/consent-box';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -107,6 +108,7 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
 
 @Component({
   selector: 'aec-integration-row-thread',
+  imports: [AecConsentBox],
   // The divider is component CSS: a layered border-color utility never applies
   // (see ID_STYLES).
   styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
@@ -332,6 +334,7 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                     <label class="mt-2 flex items-start gap-2 text-(--text-primary)">
                       <input
                         type="checkbox"
+                        aecConsent
                         class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         [checked]="ackChecked()"
                         [attr.aria-describedby]="baseId() + '-ack-text'"

@@ -33,14 +33,16 @@
       app's scripts load. Hydration then writes each field's starting value over the control,
       so the answer was lost. This keeps the last value of each text field, select and radio
       group, from input and change events the browser dispatched, whether the visitor, an
-      extension or a script's click() caused them (a script's dispatchEvent is not kept). So
+      extension or a script's click() caused them (an input or change event a script
+      dispatches itself is not trusted and is not kept). So
       it holds nothing the same action after hydration would not have put in the form. A
       value the browser restored on Back fires no event and is not kept. No checkbox is ever
       kept: consent boxes are disabled until the app is live and are never carried.
       AecEarlyInput (app/shared/form-field/early-input.ts) reads each value once. Once the
       app is stable, App calls stop(): the listeners go, the values go, and the global is
-      deleted. The global is a non-writable property, so another script cannot replace it.
-      It stays configurable because stop() must be able to delete it. Element keys are held
+      deleted. The global is a non-writable property, so plain assignment cannot replace it.
+      It stays configurable because stop() must be able to delete it, so a script could still
+      redefine it with Object.defineProperty. Element keys are held
       weakly. Static, so the cached HTML stays the same for every visitor.
     -->
     <script>
