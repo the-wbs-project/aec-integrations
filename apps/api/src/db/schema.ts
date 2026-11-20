@@ -2526,8 +2526,9 @@ export const dmcaNotices = sqliteTable(
  * is one hold an admin placed on `/admin/legal`. An open row (`released_at IS NULL`) stops
  * the legal retention prune (`lib/legal-retention-prune.ts`):
  *
- *   - any open hold, global or vendor, pauses the whole four-year `audit_log` prune.
- *   - a `vendor` hold also keeps that vendor's `agreement_acceptances` and `license_grants`.
+ *   - a `vendor` hold keeps that vendor's `audit_log` rows (`auditRowOfVendor`), its
+ *     `agreement_acceptances` and `license_grants`. Other rows go on schedule (ruling 55,
+ *     AECI-1970).
  *   - a `global` hold keeps everything: the run deletes nothing.
  *
  * `scope` is `global` or `vendor`, with no CHECK (the house rule for enum-like text, a CHECK

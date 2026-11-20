@@ -1723,8 +1723,8 @@ Nothing falls due before about 2030.
 
 **Metrics:**
 - `aeci.legal_retention.prune{outcome:ok|skipped|failed}`: one heartbeat per run, the liveness
-  signal (`legal-retention-prune`, 26 h, in the CI sweep). On `ok`, `audit:paused` means an open
-  vendor hold kept the audit part from running, and `replanned:true` means the first plan lost a
+  signal (`legal-retention-prune`, 26 h, in the CI sweep). On `ok`, `audit:scoped` means an open
+  vendor hold kept that company's audit rows and the rest were deleted (AECI-1970), and `replanned:true` means the first plan lost a
   race and the run replanned at once. On `skipped`, `reason:litigation_hold` means a global hold
   is open, and `reason:concurrent_run` means the plan lost a race twice in a row: another run of
   the job, or a hold, reclaim or license landing mid-run. Nothing was deleted, no failure email

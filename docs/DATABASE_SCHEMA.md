@@ -1846,7 +1846,9 @@ create index workflow_transitions_workflow_idx on workflow_transitions(workflow_
 
 Every state-changing event in the platform. Rows are never updated. They are deleted only by
 the legal retention prune four years after the action, outside a fixed list of exempt actions
-and while no litigation hold is open (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0058). The exempt
+and while no litigation hold covers them (AECI-1638, `STAGE_1_SPEC.md` §26.6, ADR 0058). A global
+hold covers every row. A vendor hold covers only the rows that are that company's (AECI-1970,
+ruling 55, "Whose row it is, for a hold" below). The exempt
 `agreement.*` rows go with their acceptance (§8.6d), the `litigation_hold.*` rows four years
 after their hold's release (§8.15), and `retention.pruned` rows are kept. A `vendor.deleted` row
 is exempt on a condition (AECI-1914): while its vendor row is gone and an acceptance or grant
@@ -1978,6 +1980,28 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 - **Not stamped.** AECi promote writes and ops product retractions name no vendor; a retraction's
   tombstones carry `product_id` only. Claim rejections and claim notes are about a request, not a
   vendor-held entity. The one-click mute holds no session and names no vendor.
+
+**Whose row it is, for a hold (AECI-1970, ruling 55, ADR 0058 decision 3).** A vendor hold on
+company V keeps an expired row only when the row is V's. `auditRowOfVendor` in
+`lib/legal-retention-prune.ts` is the one definition. A row is V's when any of these holds:
+
+| Tie | Reaches |
+|---|---|
+| `vendor_id = V` | every row about V since migration `0063` |
+| `entity_type IN ('vendor', 'vendor_entitlement') AND entity_id = V` | rows filed under V |
+| `metadata.vendor_id` or `metadata.vendorId` = V, behind `json_valid` | rows before `0063`, never backfilled |
+| `product_id`, or a `product` row, naming a product of V (`product_vendors`) | product edits, promote writes, retractions |
+| an `integration` V built (`built_by_vendor_id`) or with V's product at either end or as `powered_by` | integration rows, which leave `product_id` NULL |
+| a `connector_evidenced_pair` V built or with V's product at either end or as the connector; a `connector_pair` whose catalog is V's connector's or whose stub maps to V's product (`connector_stub_mappings`); a `connector_catalog` of V's connector | connector-backed relationships (Addenda B and C) |
+| a `claim` on any of those three anchors, or an `attestation` of such a claim | claim and attestation rows, which name no vendor on promote |
+| a `review` row of V's product | moderation of reviews of V's products |
+| a `vendor_request` row whose request targets V, or V's product | claims on V, including rejections, which name no vendor |
+| `actor_id` is a profile with `vendor_id = V` | what V's current seats did |
+
+The ties read the tables as they are at the run. A row whose only link was an entity already
+deleted, or one a former seat wrote before `0063` with no vendor key, may not be reached: the
+runbook says to place a global hold for such a matter (`docs/runbooks/legal.md`). The ties are
+correlated lookups on the row, evaluated only while a vendor hold is open.
 
 **Actions the AECI-514 attestations epic added** (`STAGE_2_ATTESTATIONS_SPEC.md`). Listed together
 because `action` carries no CHECK — this comment block is the only enumeration, so an omission here
@@ -3674,11 +3698,11 @@ The switch that stops the legal retention prune (counsel Q23a, ADR 0058, `ADMIN_
 
 Indexes: `litigation_holds_open_global_idx`, unique on `(scope) WHERE released_at IS NULL AND scope = 'global'` (one open global hold), `litigation_holds_open_vendor_idx`, unique on `(vendor_id) WHERE released_at IS NULL AND vendor_id IS NOT NULL` (one open hold per vendor), and `litigation_holds_placed_at_idx` on `(placed_at)`.
 
-- **What an open hold stops** (Chris's ruling 3 of 2026-11-17). Any open hold, global or vendor, pauses the whole four-year `audit_log` prune (§8.4). A vendor hold keeps that vendor's `agreement_acceptances` and `license_grants` rows, including the rows of a rejected claim on that company and of a deleted vendor with that id (§8.6d). An acceptance with no company or claim has no vendor to hold, so only a global hold keeps it. A global hold keeps everything: the run deletes nothing and reports `skipped`. The prune reads the open holds before it plans, and its batch opens with a sentinel that aborts when a hold landed after the read.
+- **What an open hold stops** (Chris's ruling 3 of 2026-11-17, narrowed by ruling 55 of 2026-11-19, AECI-1970). A vendor hold keeps that vendor's `audit_log` rows, by the ties in §8.4 "Whose row it is, for a hold", and every other audit row goes on schedule. It also keeps that vendor's `agreement_acceptances` and `license_grants` rows, including the rows of a rejected claim on that company and of a deleted vendor with that id (§8.6d). An acceptance with no company or claim has no vendor to hold, so only a global hold keeps it. A global hold keeps everything: the run deletes nothing and reports `skipped`. The prune reads the open holds before it plans, and its batch opens with a sentinel that aborts when any hold it did not read is open. The run's `retention.pruned` row carries `vendorHolds`, a count, when a vendor hold was open.
 - **No FK and no CHECK**, on the `dmca_notices` (§8.14) precedent. The migration is one `CREATE TABLE` and three `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/litigation-holds.ts`.
 - **Writers.** `routes/admin-litigation-holds.ts` only. The place inserts a row with its `litigation_hold.placed` audit row in one `db.batch`. A second open hold of the same scope is refused with `409 LITIGATION_HOLD_EXISTS`, by an early read and by the partial unique index. The release is a guarded `UPDATE … WHERE id = ? AND released_at IS NULL` behind a sentinel, with its `litigation_hold.released` audit row in the same batch. A second release is `409 LITIGATION_HOLD_RELEASED`. There is no delete route.
 - **Never public.** Only the admin routes read it, behind `requireAdmin()`. No page renders it, so no cache tag applies.
-- **Retention.** Four years after `released_at`, the legal retention prune deletes the row and its `litigation_hold.*` audit rows in one batch (Chris's ruling of 2026-11-17): `reason` is free text that can name a person. Never while the hold is open, and not while any other hold is open. The run's `retention.pruned` row counts the rows, with no ids: the table is not chained.
+- **Retention.** Four years after `released_at`, the legal retention prune deletes the row and its `litigation_hold.*` audit rows in one batch (Chris's ruling of 2026-11-17): `reason` is free text that can name a person. Never while the hold is open. A released vendor hold is also kept while an open hold covers the same company, and a released global hold while any hold is open (AECI-1970). The run's `retention.pruned` row counts the rows, with no ids: the table is not chained.
 
 ---
 
