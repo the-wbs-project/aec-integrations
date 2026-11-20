@@ -32,6 +32,11 @@ export const RANKING_PAGE_KNOWN_VERSIONS: readonly string[] = ['1.0', '1.1', '1.
 export const RANKING_PAGE_RECORDED_ON: Readonly<Record<string, string>> = {
   '1.0': 'November 16, 2026',
   '1.1': 'November 18, 2026',
+  // PLACEHOLDER (AECI-1894, the legal agent's verdict of 2026-11-20): 1.2's recorded
+  // date must be set to the day the redesign reaches production, not this date. Set
+  // the same day in four places together: this entry, the live page's frontmatter
+  // `last_updated` and its `## Versions` line (docs/trust/how-ranking-works.md), and
+  // the archive copy's `recorded_on` (docs/trust/versions/how-ranking-works/v1.2.md).
   '1.2': 'November 18, 2026',
 };
 

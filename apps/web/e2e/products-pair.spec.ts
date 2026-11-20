@@ -423,6 +423,19 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     await expect(page.getByTestId('pair-matches-order')).toContainText(
       'Products run A to Z by name.',
     );
+    // AECI-1894: the ranking page's words on the page too, in the server HTML.
+    await expect(page.getByTestId('pair-matches-order')).toContainText(
+      'Searching narrows the list. It does not change the order.',
+    );
+    await expect(page.getByTestId('pair-matches-order')).toContainText(
+      "The order never reads a vendor's plan.",
+    );
+    await expect(page.getByTestId('pair-matches-order')).not.toContainText(
+      'Plan or license status has no effect',
+    );
+    await expect(page.getByTestId('pair-matches-order')).toContainText(
+      'No vendor pays for a position in this list.',
+    );
     await context.close();
   });
 

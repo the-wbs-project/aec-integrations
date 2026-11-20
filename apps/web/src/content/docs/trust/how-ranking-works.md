@@ -61,7 +61,7 @@ Filters change which products you see, not their order.
 - **Audiences** lists the seven audiences with the most products.
 - **Trades** lists the seven trades with the most products. A trade is listed once at least one product carries it.
 
-When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each of the other four columns ends with a link to its full list. The counts are the products tagged with each one, and the tags come from the listings themselves.
+When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each of the other four columns ends with a link to its full list. The counts are the products tagged with each one. We set every tag when we list a product. A vendor that has claimed a product can change that product's categories, on any plan. A vendor can change a product's audiences and trades only when that product is on a paid plan. So a vendor's changes can move these counts, and for audiences and trades that takes a paid plan. The counts never move a product in any list.
 
 ## A product page
 
@@ -72,11 +72,11 @@ When two have the same number of products, they are listed A to Z. A category, a
 - **Integrations it powers**, on a connector's own page, groups the pairs it connects around the products they share. The group with the most partners comes first, then A to Z by product name. Partners inside a group, and pairs that share no product, are listed A to Z.
 - **Extensions built within** a product, and the products an extension is **Built within**, are listed A to Z by name.
 - **Categories**, **phases** and **trades** follow a fixed order we set, the same on every product page. Phases follow project order. Where we have set no order, they are listed A to Z. **Audiences** are listed A to Z.
-- **Similar products**, near the end of a product page, lists up to six products that share a category with it, A to Z by name, ignoring capital letters. When more than six do, the first six in that order are shown.
+- **Similar products**, near the end of a product page, lists up to six products that share a category with it, A to Z by name, ignoring capital letters. When more than six do, the first six in that order are shown. A product whose name comes later in that order is not shown.
 
 ## A pair page with no integration
 
-- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. Plan or license status has no effect on who appears or the order.
+- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.
 
 ## What does not count
 

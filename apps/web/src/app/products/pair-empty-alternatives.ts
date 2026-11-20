@@ -433,8 +433,13 @@ function objectIcon(slug: string): AecIconName | null {
           >
             <div>
               <dt class="font-semibold" i18n="@@pair.empty.matches.orderAz">A to Z</dt>
-              <dd class="m-0 mt-1 text-(--text-secondary)" i18n="@@pair.empty.matches.orderAzBody">
-                Products run A to Z by name. Nothing else changes the order.
+              <dd class="m-0 mt-1 text-(--text-secondary)">
+                <span i18n="@@pair.empty.matches.orderAzBody"
+                  >Products run A to Z by name. Nothing else changes the order.</span
+                >&ngsp;<!-- AECI-1894: the ranking page's search sentence (STAGE_1_5_SPEC.md 11.3,
+                the same text on both). --><span i18n="@@pair.empty.matches.orderSearch"
+                  >Searching narrows the list. It does not change the order.</span
+                >
               </dd>
             </div>
             <div>
@@ -446,13 +451,21 @@ function objectIcon(slug: string): AecIconName | null {
               </dd>
             </div>
             <div>
-              <dt class="font-semibold" i18n="@@pair.empty.matches.orderPaid">No paid places</dt>
-              <dd
-                class="m-0 mt-1 text-(--text-secondary)"
-                i18n="@@pair.empty.matches.orderPaidBody"
-              >
-                No vendor pays for a place here. Plan or license status has no effect on who appears
-                or the order.
+              <dt class="font-semibold" i18n="@@pair.empty.matches.orderPaidPositions">
+                No paid positions
+              </dt>
+              <!-- AECI-1894: the legal agent's two passes of 2026-11-20. The heading and the
+                   first sentence are its second pass; the three sentences after it are the
+                   ranking page's, in place of an absolute sentence about plans. -->
+              <dd class="m-0 mt-1 text-(--text-secondary)">
+                <span i18n="@@pair.empty.matches.orderNoPaidPosition"
+                  >No vendor pays for a position in this list.</span
+                >&ngsp;<span i18n="@@pair.empty.matches.orderPlan"
+                  >The order never reads a vendor's plan. Who appears depends only on the
+                  integrations and data on record. A vendor on a paid plan can add data to its own
+                  integrations, so its product can match a data filter it would not match
+                  otherwise.</span
+                >
               </dd>
             </div>
           </dl>
