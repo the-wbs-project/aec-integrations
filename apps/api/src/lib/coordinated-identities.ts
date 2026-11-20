@@ -223,7 +223,9 @@ export function findCoordinatedGroups(
   const memberRowIds = new Set<number>();
   for (const [cfAsn, list] of members) {
     if (list.length < COORDINATED_MIN_IDENTITIES) continue;
-    const hashes = list.map((m) => m.hash).sort(compareText);
+    const hashes = list
+      .map((m) => m.hash)
+      .sort((a, b) => compareText(a, b) || (a < b ? -1 : a > b ? 1 : 0));
     const firsts: number[] = [];
     const pathSets: Set<string>[] = [];
     let views = 0;

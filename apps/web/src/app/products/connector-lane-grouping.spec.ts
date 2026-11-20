@@ -1,4 +1,5 @@
 import type { ContextDirection, ProductIntegrationItem, ProductLink } from '@aeci/shared';
+import { CASE_TIE_EXPECTED_IDS, CASE_TIE_ROWS } from '@aeci/shared/text-sort-fixture';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -388,5 +389,16 @@ describe('countLaneUnderReview (AECI-1666)', () => {
     );
     expect(view.rowCount).toBe(1);
     expect(countLaneUnderReview(view)).toBe(1);
+  });
+});
+
+describe('case-only name tie (AECI-1840)', () => {
+  it('orders the direct lane like SQL: name case-blind, then id', () => {
+    // Same partner, so the partner-name term ties and the edge name decides.
+    const edges = CASE_TIE_ROWS.map((row) =>
+      edge({ ...{ source: procore, target: sage }, id: row.id, name: row.name }),
+    );
+    const view = splitIntegrationLanes(edges, []);
+    expect(view.direct.map((r) => r.integration.id)).toEqual([...CASE_TIE_EXPECTED_IDS]);
   });
 });
