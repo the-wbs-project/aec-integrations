@@ -255,6 +255,8 @@ maxDate(p.incidentDate, today);   // pass `today` in; don't call new Date() at r
 
 **SSR.** Forms render visitor-neutral and empty on the server; any `validateHttp` check skips its request for blank/invalid values so no HTTP fires during SSR. Submission (`HttpClient.post`) runs only on user action, post-hydration.
 
+**Early input (AECI-1720).** Import `AecEarlyInput` (`shared/form-field/early-input.ts`) beside `FormField` in every component that binds `[formField]`; `early-input-coverage.spec.ts` fails a component that does not. On hydration Signal Forms writes the model's starting value over each native control, and its `input` listener is added in code, so event replay never delivers the early events: a visitor's answers and ticks made before the scripts loaded were wiped. The directive restores the value the inline recorder in `src/index.html` kept, once, after the field's first render, by firing `input` then `change`. Only trusted events are recorded, so a consent box can carry only the visitor's own tick. A plain control whose state lives in a template `(change)` listener opts in with the `aecEarlyInput` attribute. Do not seed a model from the DOM yourself, and do not add a timer or a second read.
+
 Lint: 🟡 review-only.
 
 ---

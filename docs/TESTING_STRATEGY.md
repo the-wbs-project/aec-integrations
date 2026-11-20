@@ -981,6 +981,15 @@ can cancel itself out. Wait with `untilHydrated` and click once instead. Replay 
 added in code (`addEventListener`, `Renderer2.listen`) or controls that render
 only on the client, so keep the remedy below.
 
+Signal Forms is the main listener added in code: `[formField]` adds its `input`
+listener with `addEventListener`, and hydration writes the model's starting value
+over the control. So a `fill` or `check` on a `[formField]` control before
+hydration was wiped (AECI-1720). The claim form's submit then stayed disabled after
+the test ticked the box, on cold first loads only. `AecEarlyInput` now restores the
+value from the inline recorder in `src/index.html`, so filling before hydration is
+what a visitor does and the form keeps it. `e2e/forms-early-input.spec.ts` pins it.
+A test that clicks a toggle and asserts in-app handling still gates on `untilHydrated`.
+
 There is now one clean DOM signal. Angular removes an element's `jsaction`
 attribute once the app is stable after hydration, and its listener is live from
 then on. `untilHydrated(locator)` in `apps/web/e2e/hydration.ts` waits for that.

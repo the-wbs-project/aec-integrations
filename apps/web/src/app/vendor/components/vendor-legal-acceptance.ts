@@ -44,6 +44,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorLegalAcceptanceState } from '../vendor-legal-acceptance-state';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecEarlyInput } from '../../shared/form-field/early-input';
 
 const SUPPORT_EMAIL = 'support@aecintegrations.com';
 
@@ -154,7 +155,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
  */
 @Component({
   selector: 'aec-vendor-legal-acceptance',
-  imports: [FormField],
+  imports: [FormField, AecEarlyInput],
   host: { class: 'block' },
   template: `
     @let it = item();

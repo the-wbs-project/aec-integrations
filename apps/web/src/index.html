@@ -29,6 +29,35 @@
     -->
     <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
     <!--
+      Early input (AECI-1720). A visitor can type in a server-rendered form field or tick
+      its box before the app's scripts load. Hydration then writes each field's starting
+      value over the control, so the answer and the tick were lost. This records the last
+      value of each field the visitor changed, from the browser's own input and change
+      events only (isTrusted): a script cannot fake one, and a value the browser restored
+      on Back fires no event. AecEarlyInput (app/shared/form-field/early-input.ts) puts the
+      value back once the field is live. It holds element keys weakly, so it keeps nothing
+      alive. Static, so the cached HTML stays the same for every visitor.
+    -->
+    <script>
+      (function (d, w) {
+        var kept = new WeakMap();
+        w.__aeciEarlyInput = kept;
+        function keep(e) {
+          var t = e.target;
+          if (!e.isTrusted || !t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+          if (t.type === 'file' || t.type === 'password') return;
+          if (t.type === 'radio' && t.name) {
+            var group = (t.form || d).querySelectorAll('input[type="radio"]');
+            for (var i = 0; i < group.length; i++)
+              if (group[i].name === t.name) kept.delete(group[i]);
+          }
+          kept.set(t, { value: t.value, checked: t.checked });
+        }
+        d.addEventListener('input', keep, true);
+        d.addEventListener('change', keep, true);
+      })(document, window);
+    </script>
+    <!--
       Font faces (AECI-1892). e2e/font-loading.spec.ts guards this block.
       The two web fonts are self-hosted: public/fonts/, licences beside them, served with
       a one-year immutable Cache-Control (public/_headers). A file never changes under its

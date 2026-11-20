@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TERMS_CHANGE_BOX_LABEL } from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
+import { EARLY_INPUT_KEY, type EarlyInputValue } from '../shared/form-field/early-input';
 import { TermsAcceptPage, termsAcceptNextPath, termsAcceptVersion } from './terms-accept';
 
 const PENDING = {
@@ -249,5 +250,54 @@ describe('termsAcceptVersion / termsAcceptNextPath', () => {
     expect(termsAcceptNextPath('//evil.com')).toBe('/');
     expect(termsAcceptNextPath('/auth/terms?version=1.2')).toBe('/');
     expect(termsAcceptNextPath(null)).toBe('/');
+  });
+});
+
+/**
+ * AECI-1720: a tick made before hydration. Hydration writes `[checked]="ticked()"`
+ * (false) over the box, so the tick was lost and the box unticked itself. The inline
+ * recorder in `src/index.html` keeps the visitor's own (trusted) value, and
+ * `aecEarlyInput` puts it back. Here a stand-in recorder answers by element id.
+ */
+describe('TermsAcceptPage: a tick before hydration (AECI-1720)', () => {
+  class KeptById extends WeakMap<object, EarlyInputValue> {
+    constructor(private readonly byId: Record<string, EarlyInputValue>) {
+      super();
+    }
+    override get(el: object): EarlyInputValue | undefined {
+      return this.byId[(el as Element).id];
+    }
+    override delete(el: object): boolean {
+      return delete this.byId[(el as Element).id];
+    }
+  }
+  const win = window as unknown as Record<string, unknown>;
+
+  it("keeps the visitor's early tick, and Continue posts the version", async () => {
+    win[EARLY_INPUT_KEY] = new KeptById({ 'terms-accept-box': { value: 'on', checked: true } });
+    try {
+      const { fixture, el, api, navigate } = await setup();
+      const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+      expect(box.checked).toBe(true);
+      await submit(fixture, el);
+      expect(api.acceptTerms).toHaveBeenCalledWith('1.2');
+      expect(navigate).toHaveBeenCalledWith('/account');
+    } finally {
+      delete win[EARLY_INPUT_KEY];
+    }
+  });
+
+  it('with no early tick recorded, the box starts unticked and Continue sends nothing', async () => {
+    win[EARLY_INPUT_KEY] = new KeptById({});
+    try {
+      const { fixture, el, api } = await setup();
+      expect(el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!.checked).toBe(
+        false,
+      );
+      await submit(fixture, el);
+      expect(api.acceptTerms).not.toHaveBeenCalled();
+    } finally {
+      delete win[EARLY_INPUT_KEY];
+    }
   });
 });

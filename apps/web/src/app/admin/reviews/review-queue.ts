@@ -43,6 +43,7 @@ import { AdminSummaryStore } from '../admin-summary.store';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecEarlyInput } from '../../shared/form-field/early-input';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -105,6 +106,7 @@ const BanReasonSchema = z.object({
     OverlayModule,
     RouterLink,
     FormField,
+    AecEarlyInput,
     BrnDialog,
     BrnDialogContent,
     BrnDialogTitle,

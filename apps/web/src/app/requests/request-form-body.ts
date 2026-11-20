@@ -54,6 +54,7 @@ import {
   FIELD_OPTIONAL_CLASS,
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -126,6 +127,7 @@ interface RequestModel {
     AecCard,
     AecIcon,
     FormField,
+    AecEarlyInput,
     RouterLink,
     ClaimantFields,
     ClaimRoutedNotice,

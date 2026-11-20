@@ -5,6 +5,7 @@ import { type FieldTree, FormField } from '@angular/forms/signals';
 import { LegalInForceClient } from '../legal/legal-in-force-client';
 import { legalPath } from '../legal/legal-slugs';
 import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /**
  * The vendor terms box on every claim form (AECI-1366, `docs/VENDOR_SIGNUP_PROCESS.md`
@@ -18,6 +19,9 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  *
  * Rendered by the claim dialog's You step, the routed claim pages and the claim drawer
  * (`RequestFormBody`), on both the found and the typed-in path. The host owns the model.
+ *
+ * A tick made before hydration is kept (AECI-1720): `AecEarlyInput` restores the
+ * claimant's own tick into the model, and nothing else can (`shared/form-field/early-input.ts`).
  *
  * The error shows once the box was touched and left unchecked, or when the server
  * refused the submit on `accepted_terms` (`rejected`, a stale bundle). It is tied to the
@@ -34,7 +38,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  */
 @Component({
   selector: 'aec-vendor-terms-box',
-  imports: [FormField],
+  imports: [FormField, AecEarlyInput],
   host: { class: 'block space-y-1.5' },
   template: `
     <p

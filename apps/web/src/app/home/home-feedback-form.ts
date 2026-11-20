@@ -19,6 +19,7 @@ import { AecButton } from '../shared/button/button';
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -58,7 +59,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   selector: 'aec-home-feedback-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecButton, FormField, FoundViaField],
+  imports: [AecButton, FormField, AecEarlyInput, FoundViaField],
   template: `
     @if (submitted()) {
       <p

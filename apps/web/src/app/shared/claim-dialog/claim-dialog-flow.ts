@@ -50,6 +50,7 @@ import {
   type ClaimListing,
 } from './claim-dialog.service';
 import { AecFormSubmit } from '../form-field/form-submit';
+import { AecEarlyInput } from '../form-field/early-input';
 
 /** The three numbered steps, in order. `done` is the receipt, outside the count. The
  *  plan step was removed by AECI-1365. */
@@ -141,6 +142,7 @@ interface ClaimDialogModel {
     ClaimRoutedNotice,
     CompanyCountryField,
     FormField,
+    AecEarlyInput,
     FoundViaField,
     SearchAutocomplete,
     VendorTermsBox,
@@ -815,9 +817,15 @@ export class ClaimDialogFlow implements OnInit {
       // form, so the focused field can start below the fold (§2.5, ruling 2026-10-24).
       this.path.set('typed');
       this.show('you', false);
+      // AECI-1720: the page is server-rendered, so the visitor may already be typing in
+      // the form when the app takes over. Focus stays where they put it: moving it would
+      // send their next keys to the first field.
       afterNextRender(
-        () =>
-          this.document.getElementById('claim-dialog-listing-name')?.focus({ preventScroll: true }),
+        () => {
+          const form = this.document.getElementById('claim-dialog-form');
+          if (form?.contains(this.document.activeElement)) return;
+          this.document.getElementById('claim-dialog-listing-name')?.focus({ preventScroll: true });
+        },
         { injector: this.injector },
       );
       return;

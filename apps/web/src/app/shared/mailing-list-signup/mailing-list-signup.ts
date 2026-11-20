@@ -11,6 +11,7 @@ import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecIcon } from '../icon/icon';
+import { AecEarlyInput } from '../form-field/early-input';
 
 interface SubscribeModel {
   email: string;
@@ -63,7 +64,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecButton, AecCard, AecIcon, FormField, FoundViaField],
+  imports: [AecButton, AecCard, AecIcon, FormField, AecEarlyInput, FoundViaField],
   template: `
     <section [class]="groundClass()">
       <div [class]="wrap">

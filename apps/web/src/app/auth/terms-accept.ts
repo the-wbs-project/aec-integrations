@@ -24,6 +24,7 @@ import { safeReturnPath } from './return-path';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /** A Terms version as `/auth/callback` writes it: dotted digits only. */
 const VERSION_RE = /^\d{1,4}(?:\.\d{1,4}){0,3}$/;
@@ -64,7 +65,10 @@ const LINK_CLASS =
  * the page usable without the summary.
  *
  * The box starts unticked, and its label is `TERMS_CHANGE_BOX_LABEL` word for word
- * (`terms-accept.component.spec.ts` pins it). "Accept and continue" stays disabled until
+ * (`terms-accept.component.spec.ts` pins it). A tick the reader made before hydration
+ * is kept: `aecEarlyInput` puts it back after hydration writes `ticked()` over the box, and
+ * only the reader's own (trusted) click or key can make one (AECI-1720).
+ * "Accept and continue" stays disabled until
  * hydration, as on the login form, so an early click cannot submit the form natively and
  * lose the version and `next`. After that it is never disabled except while sending.
  * Without the tick it shows the error, marks the box invalid and moves focus to it, and
@@ -84,7 +88,7 @@ const LINK_CLASS =
  */
 @Component({
   selector: 'aec-terms-accept-page',
-  imports: [AecButton, AecCard, DatePipe],
+  imports: [AecButton, AecCard, AecEarlyInput, DatePipe],
   template: `
     <section
       class="mx-auto w-full max-w-md px-6 py-16 text-(--text-primary) md:py-24"
@@ -175,6 +179,7 @@ const LINK_CLASS =
                   id="terms-accept-box"
                   type="checkbox"
                   data-testid="terms-accept-box"
+                  aecEarlyInput
                   [checked]="ticked()"
                   (change)="onTick($event)"
                   [attr.aria-invalid]="showError() ? 'true' : null"

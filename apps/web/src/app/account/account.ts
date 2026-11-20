@@ -38,6 +38,7 @@ import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../shared/form-field/form-submit';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -78,6 +79,7 @@ const REVIEWS_PER_PAGE = 24;
     AecCard,
     DatePipe,
     FormField,
+    AecEarlyInput,
     RouterLink,
     ProfileDetailsForm,
     ReviewStatusBadge,

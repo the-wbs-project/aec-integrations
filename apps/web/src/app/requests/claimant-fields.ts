@@ -3,6 +3,7 @@ import { isFreeEmailAddress } from '@aeci/shared/free-email-domains';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /**
  * The claim form's identity fields (AECI-847, AECI-1293): name, title, LinkedIn
@@ -23,7 +24,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
  */
 @Component({
   selector: 'aec-claimant-fields',
-  imports: [FormField],
+  imports: [FormField, AecEarlyInput],
   host: { class: 'block space-y-6' },
   template: `
     <div class="space-y-1.5">
