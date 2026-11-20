@@ -17,6 +17,16 @@ import { type Event, NavigationEnd, NavigationStart, Router } from '@angular/rou
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  NEW_TAB_ANSWER_WAIT_MS,
+  NEW_TAB_CHANNEL_NAME,
+  NEW_TAB_INPUT_EVENTS,
+  NEW_TAB_MENU_WINDOW_MS,
+  NEW_TAB_OPEN_LIMIT,
+  NEW_TAB_OPEN_WINDOW_MS,
+  linkAddress,
+  recordNewTabOpen,
+} from './new-tab-evidence';
 import { NAVIGATION_INPUT_EVENTS, PageViewTracker } from './page-view-tracker';
 import { TURNSTILE_VERDICT_URL, TurnstileService } from './turnstile.service';
 
@@ -1161,6 +1171,518 @@ describe('PageViewTracker', () => {
         expect(listener).toBeDefined();
         TestBed.resetTestingModule();
         expect(removeSpy).toHaveBeenCalledWith('click', listener, { capture: true });
+      });
+    });
+
+    // AECI-1988, ruling 2026-11-20: a link the visitor opens in a new tab counts. The
+    // opening tab remembers the address of a trusted new-tab input. The new tab's landing
+    // view asks over a BroadcastChannel and marks itself touched on a yes.
+    describe('a link opened in a new tab (AECI-1988)', () => {
+      /**
+       * An in-memory BroadcastChannel. Delivery is async, like the browser's, and never
+       * reaches the sender. `peer()` is the other tab, driven by the test.
+       */
+      class FakeChannel {
+        static all: FakeChannel[] = [];
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        closed = false;
+        readonly sent: unknown[] = [];
+        constructor(readonly name: string) {
+          FakeChannel.all.push(this);
+        }
+        postMessage(data: unknown): void {
+          if (this.closed) throw new Error('closed');
+          this.sent.push(data);
+          for (const other of FakeChannel.all) {
+            if (other === this || other.closed || other.name !== this.name) continue;
+            queueMicrotask(() => other.onmessage?.({ data } as MessageEvent));
+          }
+        }
+        close(): void {
+          this.closed = true;
+          FakeChannel.all = FakeChannel.all.filter((c) => c !== this);
+        }
+      }
+
+      let addSpy: ReturnType<typeof vi.spyOn>;
+      let now: number;
+      let link: HTMLAnchorElement;
+
+      beforeEach(() => {
+        FakeChannel.all = [];
+        vi.stubGlobal('BroadcastChannel', FakeChannel);
+        addSpy = vi.spyOn(window, 'addEventListener');
+        now = 1_000_000;
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        link = document.createElement('a');
+        link.href = '/products/procore';
+        document.body.appendChild(link);
+      });
+
+      afterEach(() => {
+        link.remove();
+      });
+
+      /** The tracker's own channel, or undefined when it opened none. */
+      const trackerChannel = (peer?: FakeChannel) =>
+        FakeChannel.all.find((c) => c !== peer && c.name === NEW_TAB_CHANNEL_NAME);
+
+      /** The other tab: a raw channel that records what it hears. */
+      function peer(): { channel: FakeChannel; heard: unknown[] } {
+        const channel = new FakeChannel(NEW_TAB_CHANNEL_NAME);
+        const heard: unknown[] = [];
+        channel.onmessage = (e) => heard.push(e.data);
+        return { channel, heard };
+      }
+
+      /**
+       * The tracker's new-tab listener for `type`. It registers before the AECI-1987
+       * input listener, so for `click` it is the first capture listener, not the last.
+       */
+      function newTabListener(type: string): ((e: globalThis.Event) => void) | undefined {
+        const call = addSpy.mock.calls.find(
+          ([t, , options]: unknown[]) =>
+            t === type && (options as AddEventListenerOptions | undefined)?.capture === true,
+        );
+        return call?.[1] as ((e: globalThis.Event) => void) | undefined;
+      }
+
+      /** A visitor input as the browser would deliver it. jsdom cannot make one trusted. */
+      function input(
+        type: (typeof NEW_TAB_INPUT_EVENTS)[number],
+        init: Partial<MouseEvent> & { isTrusted?: boolean } = {},
+        target: EventTarget = link,
+      ): void {
+        const listener = newTabListener(type);
+        expect(listener).toBeDefined();
+        listener!({
+          type,
+          isTrusted: true,
+          button: 0,
+          ctrlKey: false,
+          metaKey: false,
+          shiftKey: false,
+          target,
+          ...init,
+        } as unknown as globalThis.Event);
+      }
+
+      /** The landing document, loaded by a plain navigation to `path`. */
+      function landingEntry(path: string, type = 'navigate'): void {
+        vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+          {
+            type,
+            name: location.origin + path,
+            serverTiming: [{ name: 'cfray', description: LANDING_RAY }],
+          },
+        ] as unknown as PerformanceEntryList);
+      }
+
+      const ask = (other: FakeChannel, address: string, tag = 'q1') =>
+        other.postMessage({ kind: 'ask', tag, address });
+
+      describe('the opening tab', () => {
+        function startOpener() {
+          const { events, tracker } = configure('browser');
+          tracker.start();
+          events.next(nav(1, '/'));
+          return tracker;
+        }
+
+        it.each([
+          ['a Ctrl-click', 'click', { ctrlKey: true }],
+          ['a Cmd-click', 'click', { metaKey: true }],
+          ['a Shift-click', 'click', { shiftKey: true }],
+          ['a middle click', 'auxclick', { button: 1 }],
+          ['a context menu', 'contextmenu', { button: 2 }],
+        ] as const)('answers yes once for %s on our link', async (_label, type, init) => {
+          startOpener();
+          input(type, init);
+          const other = peer();
+          ask(other.channel, '/products/procore');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'q1' }]);
+
+          // The answer used the record up: a second tab of the same address gets nothing.
+          ask(other.channel, '/products/procore', 'q2');
+          await settle();
+          expect(other.heard).toHaveLength(1);
+        });
+
+        it('answers for a plain click on a link with target="_blank"', async () => {
+          link.target = '_blank';
+          startOpener();
+          input('click');
+          const other = peer();
+          ask(other.channel, '/products/procore');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'q1' }]);
+        });
+
+        it('answers each of two opens of one address once', async () => {
+          startOpener();
+          input('auxclick', { button: 1 });
+          now += 2_000;
+          input('auxclick', { button: 1 });
+          const other = peer();
+          ask(other.channel, '/products/procore', 'a');
+          ask(other.channel, '/products/procore', 'b');
+          ask(other.channel, '/products/procore', 'c');
+          await settle();
+          expect(other.heard).toEqual([
+            { kind: 'yes', tag: 'a' },
+            { kind: 'yes', tag: 'b' },
+          ]);
+        });
+
+        it('counts a middle auxclick and a middle click from one press as one open', async () => {
+          startOpener();
+          input('auxclick', { button: 1 });
+          input('click', { button: 1 });
+          const other = peer();
+          ask(other.channel, '/products/procore', 'a');
+          ask(other.channel, '/products/procore', 'b');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'a' }]);
+        });
+
+        it('matches on path and query, ignoring the fragment and a trailing slash', async () => {
+          link.href = '/search/?q=revit#results';
+          startOpener();
+          input('click', { ctrlKey: true });
+          const other = peer();
+          ask(other.channel, '/search?q=other', 'wrong-query');
+          ask(other.channel, '/search?q=revit', 'right');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'right' }]);
+        });
+
+        it('says nothing for a wrong address', async () => {
+          startOpener();
+          input('click', { ctrlKey: true });
+          const other = peer();
+          ask(other.channel, '/vendors/autodesk');
+          await settle();
+          expect(other.heard).toEqual([]);
+        });
+
+        it('says nothing once the click is stale', async () => {
+          startOpener();
+          input('click', { ctrlKey: true });
+          now += NEW_TAB_OPEN_WINDOW_MS + 1;
+          const other = peer();
+          ask(other.channel, '/products/procore');
+          await settle();
+          expect(other.heard).toEqual([]);
+        });
+
+        it('gives a context menu the longer window, and no longer', async () => {
+          startOpener();
+          input('contextmenu', { button: 2 });
+          now += NEW_TAB_OPEN_WINDOW_MS + 1;
+          const other = peer();
+          ask(other.channel, '/products/procore', 'inside');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'inside' }]);
+
+          input('contextmenu', { button: 2 });
+          now += NEW_TAB_MENU_WINDOW_MS + 1;
+          ask(other.channel, '/products/procore', 'outside');
+          await settle();
+          expect(other.heard).toHaveLength(1);
+        });
+
+        it('records nothing for an untrusted input', async () => {
+          startOpener();
+          input('click', { ctrlKey: true, isTrusted: false });
+          input('auxclick', { button: 1, isTrusted: false });
+          input('contextmenu', { isTrusted: false });
+          expect(trackerChannel()).toBeUndefined();
+          const other = peer();
+          ask(other.channel, '/products/procore');
+          await settle();
+          expect(other.heard).toEqual([]);
+        });
+
+        it('records nothing for a same-tab click, a right button, a download or a non-link', async () => {
+          startOpener();
+          input('click');
+          input('auxclick', { button: 2 });
+          const download = document.createElement('a');
+          download.href = '/products/procore';
+          download.setAttribute('download', '');
+          input('click', { ctrlKey: true }, download);
+          input('click', { ctrlKey: true }, document.body);
+          expect(trackerChannel()).toBeUndefined();
+        });
+
+        it('records nothing for another origin or an untracked route', () => {
+          startOpener();
+          link.href = 'https://example.com/products/procore';
+          input('click', { ctrlKey: true });
+          link.href = '/admin/reviews';
+          input('click', { ctrlKey: true });
+          expect(trackerChannel()).toBeUndefined();
+        });
+
+        it(`keeps at most ${NEW_TAB_OPEN_LIMIT} links, dropping the oldest`, async () => {
+          startOpener();
+          for (let i = 0; i <= NEW_TAB_OPEN_LIMIT; i += 1) {
+            link.href = `/products/p${i}`;
+            input('click', { ctrlKey: true });
+          }
+          const other = peer();
+          ask(other.channel, '/products/p0', 'oldest');
+          ask(other.channel, `/products/p${NEW_TAB_OPEN_LIMIT}`, 'newest');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'newest' }]);
+        });
+
+        it('records a row open made by our own code from a trusted click', async () => {
+          startOpener();
+          recordNewTabOpen({ isTrusted: false } as globalThis.Event, '/vendors/autodesk');
+          expect(trackerChannel()).toBeUndefined();
+          recordNewTabOpen({ isTrusted: true } as globalThis.Event, '/vendors/autodesk');
+          const other = peer();
+          ask(other.channel, '/vendors/autodesk');
+          await settle();
+          expect(other.heard).toEqual([{ kind: 'yes', tag: 'q1' }]);
+        });
+
+        it('opens its channel only while a record is live, and closes it after', () => {
+          vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+          try {
+            startOpener();
+            expect(trackerChannel()).toBeUndefined();
+            input('click', { ctrlKey: true });
+            expect(trackerChannel()).toBeDefined();
+            now += NEW_TAB_OPEN_WINDOW_MS + 2;
+            vi.advanceTimersByTime(NEW_TAB_OPEN_WINDOW_MS + 2);
+            expect(trackerChannel()).toBeUndefined();
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it('stops answering and closes the channel when the injector is destroyed', async () => {
+          startOpener();
+          input('click', { ctrlKey: true });
+          const own = trackerChannel()!;
+          TestBed.resetTestingModule();
+          expect(own.closed).toBe(true);
+          recordNewTabOpen({ isTrusted: true } as globalThis.Event, '/vendors/autodesk');
+          expect(trackerChannel()).toBeUndefined();
+        });
+      });
+
+      describe('the new tab', () => {
+        function startNewTab(path = '/products/procore') {
+          const { events, tracker } = configure('browser');
+          tracker.start();
+          events.next(nav(1, path));
+          return tracker;
+        }
+
+        it('asks with its own address and posts `interacted` on a yes', async () => {
+          landingEntry('/products/procore?tab=integrations');
+          const other = peer();
+          other.channel.onmessage = (e) => {
+            other.heard.push(e.data);
+            const q = e.data as { tag: string };
+            other.channel.postMessage({ kind: 'yes', tag: q.tag });
+          };
+          startNewTab('/products/procore?tab=integrations');
+          await settle();
+          expect(other.heard).toEqual([
+            {
+              kind: 'ask',
+              tag: expect.any(String),
+              address: '/products/procore?tab=integrations',
+            },
+          ]);
+          expect(reports()).toEqual([
+            { cf_ray: LANDING_RAY, evidence: 'ran' },
+            { cf_ray: LANDING_RAY, evidence: 'interacted' },
+          ]);
+          // One word per view: a touch after the yes posts nothing more.
+          interact();
+          expect(reports()).toHaveLength(2);
+        });
+
+        it('stays `ran` when no tab answers, and closes its channel after the wait', async () => {
+          landingEntry('/products/procore');
+          const other = peer();
+          vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+          try {
+            startNewTab();
+            expect(trackerChannel(other.channel)).toBeDefined();
+            now += NEW_TAB_ANSWER_WAIT_MS + 2;
+            vi.advanceTimersByTime(NEW_TAB_ANSWER_WAIT_MS + 2);
+            expect(trackerChannel(other.channel)).toBeUndefined();
+          } finally {
+            vi.useRealTimers();
+          }
+          await settle();
+          expect(other.heard).toHaveLength(1);
+          expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+        });
+
+        it('ignores a yes to another tab’s question and a malformed message', async () => {
+          landingEntry('/products/procore');
+          const other = peer();
+          startNewTab();
+          await settle();
+          other.channel.postMessage({ kind: 'yes', tag: 'not-mine' });
+          other.channel.postMessage({ kind: 'yes' });
+          other.channel.postMessage('yes');
+          other.channel.postMessage(null);
+          await settle();
+          expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+        });
+
+        it('takes one yes only, even when two tabs answer', async () => {
+          landingEntry('/products/procore');
+          const a = peer();
+          const b = peer();
+          // Each answers only a question, never the other's answer.
+          const yes = (p: ReturnType<typeof peer>) => (e: MessageEvent) => {
+            const data = e.data as { kind: string; tag: string };
+            if (data.kind === 'ask') p.channel.postMessage({ kind: 'yes', tag: data.tag });
+          };
+          a.channel.onmessage = yes(a);
+          b.channel.onmessage = yes(b);
+          startNewTab();
+          await settle();
+          await settle();
+          expect(reports().filter((r) => r.evidence === 'interacted')).toHaveLength(1);
+        });
+
+        it.each(['reload', 'back_forward'])('does not ask after a %s', async (type) => {
+          landingEntry('/products/procore', type);
+          const other = peer();
+          startNewTab();
+          await settle();
+          expect(other.heard).toEqual([]);
+          expect(trackerChannel(other.channel)).toBeUndefined();
+        });
+
+        it('does not ask from an untracked route, which has no row', async () => {
+          landingEntry('/account');
+          const other = peer();
+          startNewTab('/account');
+          await settle();
+          expect(other.heard).toEqual([]);
+        });
+
+        it('never reads the referrer: a same-origin referrer with no answer stays `ran`', async () => {
+          landingEntry('/products/procore');
+          Object.defineProperty(document, 'referrer', {
+            value: location.origin + '/products',
+            configurable: true,
+          });
+          try {
+            startNewTab();
+            await settle();
+            expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+          } finally {
+            Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+          }
+        });
+
+        it('does nothing in a browser with no BroadcastChannel', async () => {
+          vi.stubGlobal('BroadcastChannel', undefined);
+          landingEntry('/products/procore');
+          startNewTab();
+          await settle();
+          expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+        });
+      });
+
+      describe('the gates hold in both roles', () => {
+        it.each([
+          ['no tier flag', () => setFlag(false)],
+          [
+            'Do-Not-Track',
+            () =>
+              Object.defineProperty(window.navigator, 'doNotTrack', {
+                value: '1',
+                configurable: true,
+              }),
+          ],
+          [
+            'Global Privacy Control',
+            () =>
+              Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+                value: true,
+                configurable: true,
+              }),
+          ],
+          [
+            'a geo=eu stamp',
+            () =>
+              vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+                {
+                  type: 'navigate',
+                  name: location.origin + '/products/procore',
+                  serverTiming: [
+                    { name: 'cfray', description: LANDING_RAY },
+                    { name: 'geo', description: 'eu' },
+                  ],
+                },
+              ] as unknown as PerformanceEntryList),
+          ],
+        ])('with %s it neither asks nor answers', async (_label, arrange) => {
+          landingEntry('/products/procore');
+          arrange();
+          try {
+            const other = peer();
+            other.channel.onmessage = (e) => {
+              other.heard.push(e.data);
+              other.channel.postMessage({ kind: 'yes', tag: (e.data as { tag: string }).tag });
+            };
+            const { events, tracker } = configure('browser');
+            tracker.start();
+            events.next(nav(1, '/products/procore'));
+            for (const type of NEW_TAB_INPUT_EVENTS) expect(newTabListener(type)).toBeUndefined();
+            recordNewTabOpen({ isTrusted: true } as globalThis.Event, '/products/procore');
+            ask(other.channel, '/products/procore');
+            await settle();
+            expect(other.heard).toEqual([]);
+            expect(trackerChannel(other.channel)).toBeUndefined();
+            expect(fetchMock).not.toHaveBeenCalled();
+          } finally {
+            Object.defineProperty(window.navigator, 'doNotTrack', {
+              value: null,
+              configurable: true,
+            });
+            Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+              value: undefined,
+              configurable: true,
+            });
+          }
+        });
+
+        it('on the server it neither asks nor answers', async () => {
+          landingEntry('/products/procore');
+          const other = peer();
+          const { events, tracker } = configure('server');
+          tracker.start();
+          events.next(nav(1, '/products/procore'));
+          for (const type of NEW_TAB_INPUT_EVENTS) expect(newTabListener(type)).toBeUndefined();
+          ask(other.channel, '/products/procore');
+          await settle();
+          expect(other.heard).toEqual([]);
+          expect(trackerChannel(other.channel)).toBeUndefined();
+        });
+      });
+
+      it('linkAddress keeps path and query, and refuses another origin', () => {
+        const origin = 'https://www.aecintegrations.com';
+        expect(linkAddress('/products/procore/#x', origin)).toBe('/products/procore');
+        expect(linkAddress('/?q=1', origin)).toBe('/?q=1');
+        expect(linkAddress('https://www.aecintegrations.com/a?b=c', origin)).toBe('/a?b=c');
+        expect(linkAddress('https://aecintegrations.com/a', origin)).toBeNull();
+        expect(linkAddress('http://[', origin)).toBeNull();
       });
     });
   });
