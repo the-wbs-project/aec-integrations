@@ -305,3 +305,28 @@ and one straggler advisory are outside this placement fix. The full home suite p
 but passes when run alone. It also fails in a full-suite run with one worker. That existing
 search-selection timing issue is outside this CSS change; no pair-finder code or assertions
 were changed.
+
+## 10. Ban form and ban-term panel (AECI-1607, 2026-11-20)
+
+**Scope:** `/admin/users/:id` (the ban form on a vendor's last unbanned seat) and
+`/admin/vendors/:id?tab=billing` (the ban-term panel, with a banned subscription whose term end is
+unknown). Run against local `pnpm dev:agent` with a real admin session, using `@axe-core/playwright`
+(WCAG 2.0 to 2.2 A and AA tags) and a scripted keyboard pass in Chromium. This is not a
+screen-reader speech audit.
+
+| State | axe critical or serious | axe other |
+| --- | --- | --- |
+| User page, ban form closed | 0 | 0 |
+| User page, after the last-seat refusal | 0 | 0 |
+| Billing tab, ban-term panel closed | 0 | 0 |
+| Billing tab, ban-term panel open | 0 | 0 |
+
+**Keyboard.** Every control is reachable with Tab and works with Enter. The last-seat refusal is
+announced (`role="alert"`). The "Term end unknown: enter the date the vendor had paid through" row
+keeps "Grant complimentary subscriptions for the ban term" disabled until a date is entered. The
+"Enter a date after today (UTC)." error is tied to its input with `aria-describedby` and
+`aria-invalid`, but it has no live region.
+
+**Finding (AECI-1989).** Focus falls to `<body>` after four actions: opening the ban form,
+submitting it, opening the ban-term panel, and cancelling the panel. The next Tab restarts at
+"Skip to main content". WCAG 2.2 SC 2.4.3, Focus Order.
