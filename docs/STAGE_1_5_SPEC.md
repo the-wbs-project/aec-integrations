@@ -666,7 +666,7 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 - Nothing in the order reads a rating, a review count, a plan, a license or a claim state.
 - The mock-up orders by data objects in common, then shared categories, then product quality, then review count. That order must not ship (PLAN.md §7.3).
 - The "How these are ordered" disclosure is required. It must say the list is A to Z by name. The mock-up's wording must not be copied.
-- The same text goes on the "How ranking works" help page before the code ships (PLAN.md §8.3).
+- The same text goes on the "How ranking works" help page before the code ships (PLAN.md §8.3). Since AECI-1894 (the legal agent's verdict of 2026-11-20, ranking page version 1.2) the disclosure carries the page's search sentence and its three sentences about plans, word for word, in place of the absolute "Plan or license status has no effect on who appears or the order.". The disclosure's "No vendor pays for a place here." and its "No paid places" heading are unchanged and await their own ruling.
 - Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs.
 - "Confirmed by both companies" is a label on a card or row only. There is no filter or sort on it.
 - The ordering is algorithmic. No pay-for-placement, ever. The legal verdict for the ordered lists is `none`.
@@ -725,6 +725,8 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 | Unclaimed note | Unclaimed · not affiliated with or endorsed by this vendor |
 | Hero medallion | No integration on record (source: mock-up 5, `.medal-label`, not the legal review) |
 | Under review flag | Under review (source: Chris's ruling of 2026-11-14, asked on AECI-343, not the legal review) |
+| Ordering note, search | Searching narrows the list. It does not change the order. (source: the legal agent's verdict of 2026-11-20 on AECI-1894, the ranking page's words) |
+| Ordering note, plans | The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise. (source: the same verdict; it replaced "Plan or license status has no effect on who appears or the order.") |
 
 - Never write that a product "does not integrate".
 - The caveat also appears in the page title and the meta description. The legal review asked for this.
