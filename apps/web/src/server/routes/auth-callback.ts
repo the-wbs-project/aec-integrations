@@ -16,7 +16,11 @@
  * Terms acceptance (AECI-1637): signing in is the acceptance. The ensure call carries the
  * eyeball request's `CF-Connecting-IP` and `User-Agent` ({@link signInEvidenceHeaders}), and
  * the API records the acceptance of the Terms version in force with them. That write never
- * fails the ensure, so it never fails the sign-in.
+ * fails the ensure, so it never fails the sign-in. At the first sign-in after a Terms version
+ * that reduces the reader's rights, the ensure writes nothing and names the version instead
+ * (`terms_acceptance`). The callback then sends the reader to `/auth/terms`, the one tick
+ * box (counsel Q63, ruling 53), with the usual destination as `next`
+ * ({@link termsAcceptRedirect}).
  *
  * Profile-ensure: under ADR 0016 the authoritative `profiles` row lives in D1
  * and there is NO `handle_new_user` trigger, so the API Worker's
@@ -48,7 +52,7 @@
  * session was created but its profile could not be, AECI-770).
  */
 
-import { arrivalQueryString } from '@aeci/shared';
+import { arrivalQueryString, type EnsureProfileResponse } from '@aeci/shared';
 import type { Context } from 'hono';
 
 import type { WebEnv } from '../../env';
@@ -73,10 +77,18 @@ export function normalizeAuthMethod(raw: string | null | undefined): AuthMethod 
  * redirect). Anything that isn't a plain absolute-path reference — empty,
  * scheme-relative (`//evil.com`), backslash-disguised (`/\evil.com`, which
  * browsers normalize to `//`), or a full URL — collapses to `/`.
+ *
+ * Control characters and any backslash also collapse to `/` (AECI-1637 review): a
+ * browser strips a tab or newline from a `Location` before parsing it, so a decoded
+ * `/<TAB>/evil.example` would become `//evil.example`, an off-site redirect. The same
+ * rules as the browser's `safeReturnPath` (`app/auth/return-path.ts`).
  */
 export function sanitizeReturnPath(raw: string | null | undefined): string {
   if (!raw || !raw.startsWith('/')) return '/';
-  if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
+  if (raw.startsWith('//')) return '/';
+  if (raw.includes('\\')) return '/';
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return '/';
   return raw;
 }
 
@@ -113,6 +125,48 @@ export function postSignInPath(returnPath: string, created: boolean): string {
   if (returnPath === WELCOME_PATH || returnPath.startsWith(`${WELCOME_PATH}?`)) return returnPath;
   if (returnPath === '/') return WELCOME_PATH;
   return `${WELCOME_PATH}?${new URLSearchParams({ next: returnPath }).toString()}`;
+}
+
+/** The tick-box page for a Terms version that reduces rights (AECI-1637, ruling 53). */
+export const TERMS_ACCEPT_PATH = '/auth/terms';
+
+/** A Terms version as the ensure names it: dotted digits, never anything that needs escaping. */
+const TERMS_VERSION_RE = /^\d{1,4}(?:\.\d{1,4}){0,3}$/;
+
+/**
+ * The `?return=` for a signed-out visitor the SSR Worker bounces from `/auth/terms`
+ * (AECI-1637 review): the destination the page carried in `next`, validated, never the
+ * box page itself. The sign-in that follows asks for the box again if it still waits.
+ */
+export function termsAcceptSignInReturnPath(url: URL): string {
+  return unwrapTermsAcceptPath(sanitizeReturnPath(url.pathname + url.search));
+}
+
+/**
+ * A return that is itself the tick-box page (a stale bookmark, an old login return) is
+ * replaced by the destination it carried, so a second wrap never buries the original `next`
+ * (a seat invitation, say). With no `next` inside, it is `/`. Any other path is unchanged.
+ */
+export function unwrapTermsAcceptPath(path: string): string {
+  if (!/^\/auth\/terms(?:[/?#]|$)/.test(path)) return path;
+  const query = path.includes('?') ? path.slice(path.indexOf('?') + 1).split('#')[0] : '';
+  const inner = sanitizeReturnPath(new URLSearchParams(query).get('next'));
+  return /^\/auth\/terms(?:[/?#]|$)/.test(inner) ? '/' : inner;
+}
+
+/**
+ * Where a completed sign-in goes when the ensure reports a Terms version that reduces the
+ * reader's rights and waits for their tick (AECI-1637, counsel Q63, ruling 53):
+ * `/auth/terms?version=<v>&next=<path>`, where `next` is where the sign-in would otherwise
+ * have gone ({@link postSignInPath}). A missing or malformed version returns `next`
+ * unchanged: every ordinary sign-in shows no box.
+ */
+export function termsAcceptRedirect(next: string, version: string | null | undefined): string {
+  next = unwrapTermsAcceptPath(next);
+  if (!version || !TERMS_VERSION_RE.test(version)) return next;
+  const params = new URLSearchParams({ version });
+  if (next !== '/') params.set('next', next);
+  return `${TERMS_ACCEPT_PATH}?${params.toString()}`;
 }
 
 /**
@@ -244,19 +298,24 @@ export function createAuthCallbackHandler(
     let attempts = 0;
     let lastError: unknown = null;
     let created = false;
+    let termsVersion: string | null = null;
     while (attempts < PROFILE_ENSURE_ATTEMPTS) {
       if (attempts > 0) await sleep(PROFILE_ENSURE_BACKOFF_MS[attempts - 1] ?? 0);
       attempts += 1;
       try {
-        const ensured = await api.request<{ created: boolean }>('/api/auth/profile/ensure', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${data.session.access_token}`,
-            ...signInEvidenceHeaders(c.req.raw.headers),
+        const ensured = await api.request<Partial<EnsureProfileResponse>>(
+          '/api/auth/profile/ensure',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${data.session.access_token}`,
+              ...signInEvidenceHeaders(c.req.raw.headers),
+            },
           },
-        });
+        );
         // Strictly `true`: an older API without the field must not divert anyone.
         created = ensured?.created === true;
+        termsVersion = ensured?.terms_acceptance?.version ?? null;
         lastError = null;
         break;
       } catch (ensureError) {
@@ -291,6 +350,6 @@ export function createAuthCallbackHandler(
     emitSignin(c, method, 'success');
 
     c.header('Cache-Control', NO_STORE);
-    return c.redirect(postSignInPath(returnPath, created), 303);
+    return c.redirect(termsAcceptRedirect(postSignInPath(returnPath, created), termsVersion), 303);
   };
 }

@@ -23,6 +23,7 @@ export const ignores = {
     '**/coverage/**',
     '**/.lighthouseci/**',
     '**/playwright-report/**',
+    '**/playwright-report-a11y/**',
     '**/test-results/**',
     '**/*.min.js',
     '**/generated/**',

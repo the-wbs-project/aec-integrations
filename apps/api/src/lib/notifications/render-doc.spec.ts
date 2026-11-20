@@ -103,8 +103,9 @@ governs them.
 
 CI also alerts the operator, outside PostHog. A red nightly Lighthouse run files or
 updates a \`lighthouse-regression\` Linear issue, and a new issue also emails
-\`support@aecintegrations.com\` (\`.github/workflows/lighthouse.yml\`). \`docs/OBSERVABILITY.md\`
-describes it.
+\`support@aecintegrations.com\` (\`.github/workflows/lighthouse.yml\`). A red nightly
+accessibility run files or updates an \`a11y-nightly-regression\` Linear issue, with no email
+(\`.github/workflows/a11y-nightly.yml\`). \`docs/OBSERVABILITY.md\` describes both.
 `;
 
 describe('renderNotificationsDoc', () => {

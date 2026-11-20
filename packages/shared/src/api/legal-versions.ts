@@ -187,8 +187,9 @@ export const LegalSummarySchema = z
  * must accept before the version applies to its company (Vendor Terms: a change to
  * liability, indemnity, disputes or the content license; Managed plan agreement: a
  * material change monthly customers click to accept), or for the Terms of Service, the
- * version applies to an account only from its holder's next sign-in, never on continued
- * use (a change that reduces a reader's rights, AECI-1637; signing in is the acceptance). Both are the operator's call at publish,
+ * version applies to an account only once its holder ticks the box shown at their next
+ * sign-in, never on continued use (a change that reduces a reader's rights, AECI-1637,
+ * ruling 53). Both are the operator's call at publish,
  * and `requires_acceptance` needs `material`. A Privacy Policy version never takes
  * `requires_acceptance` (ruling 4 of 2026-11-13), and only a Vendor Terms version may
  * be expedited. Since AECI-1969 (ruling 54) a Listing Accuracy Policy or Review Guidelines

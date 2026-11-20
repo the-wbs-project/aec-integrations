@@ -2526,8 +2526,9 @@ export const dmcaNotices = sqliteTable(
  * is one hold an admin placed on `/admin/legal`. An open row (`released_at IS NULL`) stops
  * the legal retention prune (`lib/legal-retention-prune.ts`):
  *
- *   - any open hold, global or vendor, pauses the whole four-year `audit_log` prune.
- *   - a `vendor` hold also keeps that vendor's `agreement_acceptances` and `license_grants`.
+ *   - a `vendor` hold keeps that vendor's `audit_log` rows (`auditRowOfVendor`), its
+ *     `agreement_acceptances` and `license_grants`. Other rows go on schedule (ruling 55,
+ *     AECI-1970).
  *   - a `global` hold keeps everything: the run deletes nothing.
  *
  * `scope` is `global` or `vendor`, with no CHECK (the house rule for enum-like text, a CHECK
@@ -2651,9 +2652,11 @@ export const legalNoticeReaderDeliveries = sqliteTable(
  * Sign-in acceptances of a Terms of Service version (AECI-1637, counsel Q34, ruling 12;
  * `DATABASE_SCHEMA.md` §8.6k). Signing in is the acceptance (ruling of 2026-11-13): the
  * login page shows one line beside the sign-in buttons, and one row is one account holder
- * signing in while one Terms version was in force. Written for every Terms version in
- * force, whatever its `requires_acceptance` flag. For a version published with the flag,
- * this row is the moment it starts to apply to that account.
+ * signing in while one Terms version was in force. A version published with
+ * `requires_acceptance` reduces rights: at the first sign-in after it an existing account
+ * gets no line row and ticks a box instead (counsel Q63, ruling 53), and the tick writes the
+ * row with the box label and `checkbox_default_unticked = 1`. That row is the moment the
+ * version starts to apply to that account.
  *
  * EVIDENCE, NOT AN ACCOUNT LINK (ruling 1 of 2026-11-13, the vendor rule). `profile_id` has
  * NO FK to `profiles`, so the row survives the account's deletion, and keeps the user, the
@@ -2667,9 +2670,9 @@ export const legalNoticeReaderDeliveries = sqliteTable(
  * the account holder could read. The unique `(profile_id, document, version)` index keeps
  * it once per account per version: a racing second sign-in fails its batch whole.
  *
- * Domain state: the one writer, `lib/reader-legal-acceptance.ts` (called from
- * `POST /api/auth/profile/ensure`), inserts with its `terms.accepted` audit row in one
- * `db.batch`. Append-only but for the evidence sweep. The legal retention prune
+ * Domain state: one module writes it, `lib/reader-legal-acceptance.ts`, called from
+ * `POST /api/auth/profile/ensure` (the line row) and `POST /api/auth/terms/accept` (the
+ * tick-box row). Each inserts with its `terms.accepted` audit row in one `db.batch`. Append-only but for the evidence sweep. The legal retention prune
  * (`lib/legal-retention-prune.ts`, AECI-1718) deletes a row six years after the account's
  * `account.deleted` audit row, once the profile is gone.
  */
@@ -2693,13 +2696,15 @@ export const termsAcceptances = sqliteTable(
     ip: text('ip'),
     /** Truncated to 512 characters. Nulled 90 days after `accepted_at`. */
     userAgent: text('user_agent'),
-    /** The exact line shown beside the sign-in buttons (`SIGN_IN_TERMS_LINE`). The name
-     *  is the vendor table's: there is no box. */
+    /** The exact text the reader agreed to: the line beside the sign-in buttons
+     *  (`SIGN_IN_TERMS_LINE`), or on a tick-box row the box label (`TERMS_CHANGE_BOX_LABEL`,
+     *  ruling 53). The name is the vendor table's. */
     checkboxLabel: text('checkbox_label').notNull(),
     /** SHA-256 (lowercase hex, UTF-8) of `checkbox_label`. */
     checkboxLabelSha256: text('checkbox_label_sha256').notNull(),
-    /** Always 0: there is no box (the sign-in is the act). 1 would mean an unticked box was
-     *  shown, kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34). */
+    /** 0 on a line row: no box, the sign-in is the act. 1 on a tick-box row: the reader
+     *  ticked a box that started unticked, at the first sign-in after a version that reduces
+     *  their rights (counsel Q63, ruling 53, `POST /api/auth/terms/accept`). */
     checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }).notNull(),
     /** The published version's `legal_versions.pdf_sha256`. NULL with `legal_version_id`. */
     pdfSha256: text('pdf_sha256'),

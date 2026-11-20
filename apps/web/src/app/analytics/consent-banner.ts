@@ -3,12 +3,14 @@ import {
   DestroyRef,
   ElementRef,
   afterNextRender,
+  computed,
   effect,
   inject,
   signal,
   viewChild,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { filter } from 'rxjs';
 
 import { ConsentService } from './consent';
 
@@ -31,12 +33,23 @@ import { ConsentService } from './consent';
  * spacer (the last child of the app shell's column, after the footer) is sized
  * to the banner's measured height, so the footer's bottom row can scroll clear
  * of it. No global scroll offset is involved.
+ *
+ * Held off `/auth/terms` (AECI-1637, legal agent 2026-11-20): that page has one decision and
+ * one "Accept", the Terms tick box, so a second "Accept" for cookies could be taken for it.
+ * Only the banner is held: an undecided visitor stays undecided there, so product
+ * analytics stays off (no choice means no Tier 3), Do-Not-Track and GPC work as anywhere
+ * else, and the banner comes back on the next page.
  */
+/** Routes that hold the banner off. Path only, query and fragment ignored. */
+export function bannerHeldOn(url: string): boolean {
+  return /^\/auth\/terms(?:[/?#]|$)/.test(url);
+}
+
 @Component({
   selector: 'aec-consent-banner',
   imports: [RouterLink],
   template: `
-    @if (show()) {
+    @if (visible()) {
       <div aria-hidden="true" [style.height.px]="reserve()"></div>
       <div
         #region
@@ -101,8 +114,16 @@ export class ConsentBanner {
   private readonly consent = inject(ConsentService);
   private readonly destroyRef = inject(DestroyRef);
 
+  private readonly router = inject(Router);
+
   /** SSR-neutral: hidden until reconciled in the browser. */
   protected readonly show = signal(false);
+
+  /** The current URL, for the routes that hold the banner off. */
+  private readonly url = signal(this.router.url);
+
+  /** Shown when undecided, except on a route that holds it off. */
+  protected readonly visible = computed(() => this.show() && !bannerHeldOn(this.url()));
 
   /** Height (px) the in-flow spacer reserves below the footer while visible. */
   protected readonly reserve = signal(0);
@@ -127,6 +148,11 @@ export class ConsentBanner {
       observer.observe(el);
       this.reserve.set(el.offsetHeight);
     });
+
+    const sub = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe((e) => this.url.set(e.urlAfterRedirects));
+    this.destroyRef.onDestroy(() => sub.unsubscribe());
 
     // Browser-only (afterNextRender never runs during SSR), so reading consent
     // state here can't bake a visitor-specific banner into the cached HTML.

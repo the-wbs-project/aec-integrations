@@ -2292,8 +2292,9 @@ and an account in a list shows as its id with no company name. The Privacy Polic
 "Does it need acceptance?" question, because the API refuses `requires_acceptance` for it
 (ruling 4 of 2026-11-13) and the notice and the 30-day window are all a Privacy change gets. The
 Terms card keeps the question and its hint: answer Yes when the change reduces a reader's rights,
-because the version then applies to each account holder only from their next sign-in, never on
-continued use. Signing in is the acceptance, so nothing is blocked (`AUTH_AND_RLS.md` §3.1b).
+because the version then applies to each account holder only after they tick a box at their
+next sign-in (`/auth/terms`, counsel Q63, ruling 53, built 2026-11-19), never on continued use.
+Nothing else is blocked (`AUTH_AND_RLS.md` §3.1b).
 Neither reader card has an expedited reason: only a Vendor Terms change may be expedited. The
 re-send works as on an agreement.
 
@@ -2414,9 +2415,12 @@ unchanged.
 A section at the foot of `/admin/legal`, after "Who has accepted", in its own component
 (`litigation-holds.ts`). A litigation hold stops the legal retention prune
 (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058) from deleting records a legal matter needs.
-Chris's ruling 3 of 2026-11-17 sets what a hold stops:
+Chris's ruling 3 of 2026-11-17 sets what a hold stops, narrowed by ruling 55 of 2026-11-19
+(AECI-1970):
 
-- **Any open hold**, global or vendor, pauses the whole four-year `audit_log` prune.
+- **A vendor hold** keeps that vendor's audit rows, by the ties in `DATABASE_SCHEMA.md` §8.4
+  "Whose row it is, for a hold". Every other audit row, other companies' and readers', is deleted
+  on schedule.
 - **A vendor hold** also keeps that vendor's agreement acceptances and subscription grants. That
   includes the acceptances of a rejected claim on the company and of a deleted company with that
   id (AECI-1914). An acceptance with no company or claim has no vendor to hold, so only a global

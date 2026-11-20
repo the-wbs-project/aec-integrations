@@ -1,0 +1,363 @@
+# AEC Integrations — the accessibility nightly (AECI-1875, epic AECI-1874).
+#
+# WHAT. Runs the Playwright suite in apps/web/e2e-a11y/ (config
+#   apps/web/playwright.a11y-nightly.config.ts) against a local dev:bound, once a
+#   night. It is separate from the PR e2e job in deploy.yml, which never sees
+#   e2e-a11y/. Every surface in apps/web/e2e-a11y/surfaces.ts is visited. The
+#   checks come from the AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
+#
+# TRIGGERS.
+#   1. schedule, 05:40 UTC daily. Runs against main HEAD. Skips when that commit
+#      already carries an `a11y-nightly: success`, or a `failure` whose
+#      description ends `(nightly)`. A quiet main costs nothing. A nightly failure
+#      is first posted as `(nightly, alert pending)`. Only the `confirm-alert` job
+#      rewrites it to `(nightly)`, after Linear accepted the alert. So a failed
+#      alert leaves the commit unskipped, and the next night runs and alerts again.
+#   2. workflow_dispatch on any branch. Runs against the dispatched ref. Never
+#      skips, never alerts.
+#
+# THE RESULT LIVES ON THE COMMIT. Each run posts a commit status, context
+#   `a11y-nightly`: `pending` first, then `success`, `failure`, or `error` when
+#   cancelled. The description ends `(nightly)` or `(manual)`. Same rule as
+#   lighthouse.yml. Only statuses posted by github-actions[bot] count.
+#
+# ALERT. On a SCHEDULED run only, the `alert` job runs scripts/a11y-nightly-alert.mjs:
+#   - red run: comment on the open Linear issue labelled `a11y-nightly-regression`,
+#     or file a new AECI Bug if none is open.
+#   - green run: comment "Recovered" on the open issue, if any. Never closes it.
+#   Linear only, no email. docs/OBSERVABILITY.md owns the alert description.
+#
+# No event text (titles, messages, refs) reaches a run block. The only inputs
+# are the SHA, the event name and the repo name, all passed through env.
+#
+# Required repo secrets:
+#   - SUPABASE_ANON_KEY, SUPABASE_TEST_USER_*, SUPABASE_VENDOR_TEST_USER_*: the
+#     signed-in surfaces mint real sessions, as in the PR e2e job. Unset, those
+#     surfaces skip green and the step warns.
+#   - LINEAR_API_KEY: the alert job (scheduled runs only). Absent, the alert step
+#     exits 2 and the run goes red.
+
+name: a11y-nightly
+
+on:
+  # 05:40 UTC daily. Clear of the other crons (00:20, every 3 h at :20, 07:00,
+  # 08:00, 09:00). Skips when main HEAD already has a result (see `resolve`).
+  schedule:
+    - cron: '40 5 * * *'
+  # Manual run on any branch. Never alerts.
+  workflow_dispatch:
+
+# One group per measured SHA, never cancelled. Two runs for the same SHA queue.
+concurrency:
+  group: a11y-nightly-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # ===========================================================================
+  # Which commit, and does it still need a run?
+  # ===========================================================================
+  resolve:
+    name: Resolve the commit to test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      measure: ${{ steps.resolve.outputs.measure }}
+      trigger: ${{ steps.resolve.outputs.trigger }}
+    steps:
+      # The status lookup fails OPEN: if the API is unreachable, run anyway, so a
+      # GitHub hiccup can never silence the nightly alarm.
+      - name: Resolve the SHA and check for an existing a11y-nightly status
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha="$EVENT_SHA"
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            trigger="nightly"
+          else
+            trigger="manual"
+          fi
+          measure=true
+          if [ "$trigger" = "nightly" ]; then
+            # Newest first. Only statuses this workflow posted count.
+            if state="$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" \
+                --jq '[.[] | select(.context == "a11y-nightly" and .creator.login == "github-actions[bot]")][0] | [(.state // ""), (.target_url // ""), (.description // "")] | @tsv')"; then
+              IFS=$'\t' read -r existing url description <<<"$state" || true
+              # Skip on any success, and on a failure only when its description
+              # ends `(nightly)`: confirm-alert posts that after Linear accepted
+              # the alert. A manual failure never alerted, and `(nightly, alert
+              # pending)` means the alert did not land, so run again and alert.
+              skip=false
+              case "${existing:-}" in
+                success) skip=true ;;
+                failure) case "${description:-}" in *"(nightly)") skip=true ;; esac ;;
+              esac
+              case "$skip/${existing:-}" in
+                true/*)
+                  measure=false
+                  echo "Skipping: main HEAD $sha already has a11y-nightly=$existing (${url:-no run link}). Nothing merged since it ran."
+                  echo "Skipped. main HEAD \`$sha\` already has \`a11y-nightly: $existing\` ([run](${url:-#}))." >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                */failure)
+                  echo "main HEAD $sha has a11y-nightly=failure that never alerted (${description:-no description}). Running."
+                  ;;
+                *)
+                  echo "main HEAD $sha has no terminal a11y-nightly status (found: '${existing:-none}'). Running."
+                  ;;
+              esac
+            else
+              echo "::warning::Could not read commit statuses for $sha. Running anyway."
+            fi
+          fi
+          echo "Running: $measure. SHA: $sha. Trigger: $trigger"
+          {
+            echo "sha=$sha"
+            echo "measure=$measure"
+            echo "trigger=$trigger"
+          } >> "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # Run the suite, then record the result on the commit
+  # ===========================================================================
+  suite:
+    name: Accessibility nightly suite
+    needs: resolve
+    if: needs.resolve.outputs.measure == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      TRIGGER: ${{ needs.resolve.outputs.trigger }}
+      REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          # This job's token can write commit statuses. Do not leave it in
+          # .git/config, where `pnpm install` scripts could read it.
+          persist-credentials: false
+      # `pending` first, so a run that dies before the last step leaves a
+      # non-terminal status, which the nightly skip treats as "not run".
+      # GH_TOKEN reaches the two status steps only, never the whole job.
+      - name: Mark the a11y-nightly status pending
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
+            -f state=pending -f context=a11y-nightly -f target_url="$RUN_URL" \
+            -f description="Accessibility nightly is running on this commit ($TRIGGER)" > /dev/null
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      # `dev:preview` serves the prebuilt dist/ and does not build, so the bundle
+      # must exist before dev:bound boots. No cross-workflow artifact to reuse.
+      - run: pnpm --filter @aeci/web build
+      # Playwright browsers, cached per runner image. Same steps as the PR e2e job.
+      - uses: actions/cache@v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The runner's Google Chrome apt source fails `apt-get update` during a
+      # mirror sync. Chromium's deps come from Ubuntu's repos, so drop it.
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps chromium
+      # The shared-auth Supabase config for both local Workers, as in the PR e2e
+      # job. The app DB is local D1: dev:bound migrates and seeds it.
+      - name: Write the .dev.vars files for `pnpm dev:bound`
+        env:
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' > apps/api/.dev.vars
+          if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
+            printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+          else
+            echo "::warning::SUPABASE_ANON_KEY not set. The signed-in surfaces will skip."
+          fi
+      # Wait on /api/health, not `/`: it answers 200 only once the service
+      # binding is up and D1 answers `SELECT 1`.
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # PLAYWRIGHT_BASE_URL set, so the config skips its own webServer.
+      - name: Accessibility nightly (Playwright)
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8788
+          A11Y_COMMIT_SHA: ${{ needs.resolve.outputs.sha }}
+          A11Y_TRIGGER: ${{ needs.resolve.outputs.trigger }}
+          SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
+          SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+          SUPABASE_VENDOR_TEST_USER_EMAIL: ${{ secrets.SUPABASE_VENDOR_TEST_USER_EMAIL }}
+          SUPABASE_VENDOR_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_VENDOR_TEST_USER_PASSWORD }}
+        run: |
+          if [ -z "$SUPABASE_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_TEST_USER_EMAIL/PASSWORD not set. The reviewer and admin surfaces will skip."
+          fi
+          if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
+          fi
+          pnpm test:a11y:nightly
+      # The alert job reads the summary. AECI-1682 will read it for the dated record.
+      - name: Keep the test summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: a11y-nightly-summary
+          path: apps/web/a11y-nightly-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Keep the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-a11y
+          path: apps/web/playwright-report-a11y
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
+      # Runs on success, failure and cancellation, so every finished run leaves
+      # a terminal status. A cancelled run posts `error`, which the nightly skip
+      # does not treat as a result. A failure here turns the job red.
+      - name: Record the a11y-nightly status on the commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success; description="Accessibility nightly passed ($TRIGGER)" ;;
+            failure)
+              state=failure
+              # A nightly failure is not final until the alert lands. The
+              # skip rule matches only a description ending `(nightly)`, so
+              # `(nightly, alert pending)` makes the next night run again.
+              if [ "$TRIGGER" = "nightly" ]; then
+                description="Accessibility nightly failed (nightly, alert pending)"
+              else
+                description="Accessibility nightly failed ($TRIGGER)"
+              fi
+              ;;
+            *) state=error; description="Accessibility nightly was cancelled before a result ($TRIGGER)" ;;
+          esac
+          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
+            -f state="$state" -f context=a11y-nightly -f target_url="$RUN_URL" \
+            -f description="$description" > /dev/null
+          echo "Posted a11y-nightly=$state on $MEASURED_SHA ($RUN_URL)"
+          echo "\`a11y-nightly: $state\` posted on \`$MEASURED_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Alert a human (scheduled runs only)
+  # ===========================================================================
+  # Not on workflow_dispatch: someone is already watching. Not on the skip path:
+  # `suite` is skipped then, which matches neither result below.
+  alert:
+    name: Alert on the nightly result
+    needs: [resolve, suite]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'schedule' &&
+      needs.resolve.outputs.measure == 'true' &&
+      (needs.suite.result == 'failure' || needs.suite.result == 'success') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      OUTCOME: ${{ needs.suite.result }}
+    steps:
+      # Pinned to full commit SHAs, the same ones as lighthouse.yml: this job
+      # holds a write-capable Linear key, so a moved tag must not swap the code
+      # that runs next to it.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      # No pnpm here, so turn off setup-node's package-manager cache (see
+      # lighthouse.yml for the failure it caused there).
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      # Missing on a run that failed before the reporter wrote it. The script
+      # then files the alert with "no test summary, see the run log".
+      - name: Fetch the test summary
+        if: needs.suite.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: a11y-nightly-summary
+          path: a11y-results
+      - name: Linear (file, comment, or recover)
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: node scripts/a11y-nightly-alert.mjs linear --outcome="$OUTCOME" --summary=a11y-results/a11y-nightly-summary.json
+
+  # ===========================================================================
+  # Mark a nightly failure as alerted (only after Linear accepted the alert)
+  # ===========================================================================
+  # Separate from `alert` so the job holding the Linear key gets no
+  # statuses:write token, and this one gets no Linear key. If `alert` failed,
+  # this job does not run, the status keeps `(nightly, alert pending)`, and the
+  # next scheduled run tests the same commit again and retries the alert.
+  confirm-alert:
+    name: Mark the nightly failure as alerted
+    needs: [resolve, suite, alert]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'schedule' &&
+      needs.suite.result == 'failure' && needs.alert.result == 'success' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Record the alerted failure on the commit
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
+            -f state=failure -f context=a11y-nightly -f target_url="$RUN_URL" \
+            -f description="Accessibility nightly failed (nightly)" > /dev/null
+          echo "Posted a11y-nightly=failure (nightly, alerted) on $MEASURED_SHA"

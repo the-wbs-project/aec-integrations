@@ -16,8 +16,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   agreementAcceptances,
+  attestations,
   auditLog,
   billingAccounts,
+  claims,
+  connectorCatalogs,
+  connectorEvidencedPairs,
+  connectorPairs,
+  connectorStubMappings,
+  connectorStubs,
+  integrations,
   licenseGrants,
   licenses,
   listingRequests,
@@ -25,6 +33,8 @@ import {
   products,
   productVendors,
   profiles,
+  reviews,
+  taxonomyDataObjects,
   termsAcceptances,
   vendorRequests,
   vendors,
@@ -1099,16 +1109,36 @@ describe('released litigation holds', () => {
     });
   });
 
-  it('a new open hold pauses the cleanup of old released holds', async () => {
-    await seedReleasedHold('h-old', releasedDaysBeforeCutoff(1));
-    await seedHold('vendor', 'v-new');
+  it('an open hold on the same company keeps a released hold; one on another company does not (ruling 55)', async () => {
+    await seedReleasedHold('h-same', releasedDaysBeforeCutoff(1));
+    await seedReleasedHold('h-other', releasedDaysBeforeCutoff(1));
+    // `seedReleasedHold` holds `v-<id>`. A new hold on `v-h-same` covers the first only.
+    await seedHold('vendor', 'v-h-same');
     const result = await runLegalRetentionPrune(t.db, NOW);
-    expect(await holdIds()).toContain('h-old');
-    expect(await holdAuditFor('h-old')).toBe(2);
+    expect(await holdIds()).toContain('h-same');
+    expect(await holdIds()).not.toContain('h-other');
+    expect(await holdAuditFor('h-same')).toBe(2);
+    expect(await holdAuditFor('h-other')).toBe(0);
     expect(result.tables.find((x) => x.table === 'litigation_holds')).toMatchObject({
-      paused: true,
-      rowsDeleted: 0,
+      rowsDeleted: 1,
     });
+    expect(result.tables.find((x) => x.table === 'litigation_holds')).not.toHaveProperty('paused');
+  });
+
+  it('any open hold keeps a released global hold, whose matter may concern anyone', async () => {
+    await t.db.insert(litigationHolds).values({
+      id: 'h-global-old',
+      scope: 'global',
+      reason: 'Old matter',
+      placedBy: 'admin-1',
+      placedAt: '2025-01-01T00:00:00.000Z',
+      releasedAt: releasedDaysBeforeCutoff(1),
+      releasedBy: 'admin-1',
+      releaseReason: 'Closed',
+    });
+    await seedHold('vendor', 'v-new');
+    await runLegalRetentionPrune(t.db, NOW);
+    expect(await holdIds()).toContain('h-global-old');
   });
 });
 
@@ -1134,7 +1164,7 @@ describe('litigation holds', () => {
     expect((await auditRows()).map((r) => r.id)).toEqual([old]);
   });
 
-  it('a vendor hold keeps that vendor and pauses the whole audit prune; others are pruned', async () => {
+  it('a vendor hold keeps that vendor; others and unrelated audit rows are pruned (ruling 55)', async () => {
     const old = await seedDue();
     await seedHold('vendor', 'v-held');
 
@@ -1142,12 +1172,15 @@ describe('litigation holds', () => {
 
     expect(await acceptanceIds()).toEqual(['acc-held']);
     expect(await grantIds()).toEqual(['g-held']);
-    expect((await auditRows()).map((r) => r.id)).toContain(old);
+    // `old` names no company, so the hold on `v-held` does not keep it.
+    expect((await auditRows()).map((r) => r.id)).not.toContain(old);
     expect(result).toMatchObject({ status: 'pruned', vendorHolds: 1 });
     expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
-      paused: true,
-      rowsDeleted: 0,
+      rowsDeleted: 1,
     });
+    expect(result.tables.find((x) => x.table === 'audit_log')).not.toHaveProperty('paused');
+    const [run] = await pruneRows();
+    expect(run!.metadata).toMatchObject({ vendorHolds: 1 });
   });
 
   it('a released hold no longer stops anything', async () => {
@@ -1184,6 +1217,34 @@ describe('litigation holds', () => {
     expect((await auditRows()).map((r) => r.id)).toEqual([old]);
   });
 
+  it('a vendor hold placed after planning aborts the batch, and nothing is deleted', async () => {
+    await seedVendor('v-late', { claimEndedAt: null });
+    const free = await seedAudit('vendor.updated', shift(CUT.audit, -1));
+    await t.db.insert(auditLog).values({
+      id: 'au-late',
+      actorType: 'admin',
+      action: 'vendor.updated',
+      entityType: 'vendor',
+      entityId: 'v-late',
+      createdAt: shift(CUT.audit, -1),
+    });
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await seedHold('vendor', 'v-late');
+      return batch(stmts);
+    });
+
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    spy.mockRestore();
+    expect((await auditRows()).map((r) => r.id).sort()).toEqual(['au-late', free].sort());
+    // The replan reads the hold, keeps the held company's row and deletes the other.
+    await runLegalRetentionPruneWithReplan(t.db, NOW);
+    expect((await auditRows()).map((r) => r.id)).toContain('au-late');
+    expect((await auditRows()).map((r) => r.id)).not.toContain(free);
+  });
+
   it('a reclaim after planning aborts the batch too', async () => {
     await seedVendor('v-race', { claimEndedAt: yearsAgo(7) });
     await seedAcceptance('acc-race', 'v-race', { acceptedAt: yearsAgo(10) });
@@ -1199,6 +1260,315 @@ describe('litigation holds', () => {
     spy.mockRestore();
     expect(await acceptanceIds()).toEqual(['acc-race']);
     expect(await pruneRows()).toEqual([]);
+  });
+});
+
+describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1970)', () => {
+  const OLD = shift(CUT.audit, -1);
+
+  /**
+   * Two companies, A (held) and B, a product each, two products with no company, a seat
+   * of A, a reader, and every kind of tie `auditRowOfVendor` reads. Every audit row is past
+   * the four-year cutoff. Returns the ids that belong to A and the ids that do not.
+   */
+  async function seedTwoCompanies() {
+    for (const v of ['v-a', 'v-b']) await seedVendor(v, { claimEndedAt: null });
+    for (const [p, v] of [
+      ['p-a', 'v-a'],
+      ['p-b', 'v-b'],
+      ['p-c', null],
+      ['p-d', null],
+      ['p-e', null],
+    ] as const) {
+      await t.db.insert(products).values({ id: p, slug: p, name: p });
+      if (v) await t.db.insert(productVendors).values({ productId: p, vendorId: v });
+    }
+    await t.db.insert(profiles).values({ id: 'seat-a', vendorId: 'v-a', role: 'vendor_admin' });
+    await t.db.insert(profiles).values({ id: 'reader-1' });
+    await t.db.insert(taxonomyDataObjects).values({ id: 'do-1', slug: 'do-1', name: 'Data' });
+    // i-a has A's product at one end; i-b joins B's product to the unowned one.
+    await t.db.insert(integrations).values([
+      { id: 'i-a', sourceProductId: 'p-c', targetProductId: 'p-a' },
+      { id: 'i-b', sourceProductId: 'p-b', targetProductId: 'p-c' },
+      { id: 'i-via-a', sourceProductId: 'p-c', targetProductId: 'p-d', poweredByProductId: 'p-a' },
+    ]);
+    await t.db.insert(claims).values([
+      { id: 'c-a', integrationId: 'i-a', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-b', integrationId: 'i-b', dataObjectId: 'do-1', direction: 'a_to_b' },
+    ]);
+    // A built i-built between two products it owns neither of.
+    await t.db.insert(integrations).values({
+      id: 'i-built',
+      sourceProductId: 'p-d',
+      targetProductId: 'p-e',
+      builtByVendorId: 'v-a',
+    });
+    // Connector-backed relationships (Addenda B and C). ep-a has A's product at one end,
+    // ep-built was built by A between unowned products, ep-b is B's.
+    await t.db.insert(connectorEvidencedPairs).values([
+      { id: 'ep-a', connectorProductId: 'p-c', productAId: 'p-a', productBId: 'p-d' },
+      {
+        id: 'ep-built',
+        connectorProductId: 'p-c',
+        productAId: 'p-d',
+        productBId: 'p-e',
+        builtByVendorId: 'v-a',
+      },
+      { id: 'ep-b', connectorProductId: 'p-c', productAId: 'p-b', productBId: 'p-d' },
+    ]);
+    // cat-a is A's connector's catalog. cat-x is an unowned connector's, with one stub
+    // mapped to A's product.
+    const stamps = {
+      firstSeenAt: '2025-01-01T00:00:00.000Z',
+      lastSeenAt: '2025-01-01T00:00:00.000Z',
+    };
+    await t.db.insert(connectorCatalogs).values([
+      { id: 'cat-a', connectorProductId: 'p-a' },
+      { id: 'cat-x', connectorProductId: 'p-c' },
+    ]);
+    await t.db.insert(connectorStubs).values([
+      { id: 's-a1', catalogId: 'cat-a', slug: 's1', ...stamps },
+      { id: 's-a2', catalogId: 'cat-a', slug: 's2', ...stamps },
+      { id: 's-x1', catalogId: 'cat-x', slug: 's1', ...stamps },
+      { id: 's-x2', catalogId: 'cat-x', slug: 's2', ...stamps },
+      { id: 's-x3', catalogId: 'cat-x', slug: 's3', ...stamps },
+    ]);
+    await t.db.insert(connectorStubMappings).values({
+      id: 'm-x1',
+      stubId: 's-x1',
+      catalogId: 'cat-x',
+      productId: 'p-a',
+      status: 'mapped',
+      decidedBy: 'chris',
+    });
+    await t.db.insert(connectorPairs).values([
+      { id: 'cp-a', catalogId: 'cat-a', stubAId: 's-a1', stubBId: 's-a2', ...stamps },
+      { id: 'cp-map', catalogId: 'cat-x', stubAId: 's-x1', stubBId: 's-x2', ...stamps },
+      { id: 'cp-x', catalogId: 'cat-x', stubAId: 's-x2', stubBId: 's-x3', ...stamps },
+    ]);
+    await t.db.insert(claims).values([
+      { id: 'c-ep', connectorEvidencedPairId: 'ep-a', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-ep-b', connectorEvidencedPairId: 'ep-b', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-cp', connectorPairId: 'cp-a', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-map', connectorPairId: 'cp-map', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-cp-x', connectorPairId: 'cp-x', dataObjectId: 'do-1', direction: 'a_to_b' },
+    ]);
+    await t.db.insert(attestations).values([
+      { id: 'at-a', claimId: 'c-a', source: 'vendor_a' },
+      { id: 'at-b', claimId: 'c-b', source: 'vendor_a' },
+      { id: 'at-ep', claimId: 'c-ep', source: 'vendor_a' },
+      { id: 'at-cp', claimId: 'c-map', source: 'vendor_a' },
+    ]);
+    for (const [id, product] of [
+      ['r-a', 'p-a'],
+      ['r-b', 'p-b'],
+    ] as const) {
+      await t.db.insert(reviews).values({
+        id,
+        productId: product,
+        reviewerId: 'reader-1',
+        ratingOverall: 4,
+        ratingOnboarding: 4,
+        title: 'Review',
+        body: 'Body',
+      });
+    }
+    await seedClaim('q-a', { status: 'rejected', targetType: 'vendor', targetId: 'v-a' });
+    await seedClaim('q-pa', { status: 'rejected', targetType: 'product', targetId: 'p-a' });
+    await seedClaim('q-b', { status: 'rejected', targetType: 'vendor', targetId: 'v-b' });
+
+    const row = async (
+      id: string,
+      fields: Partial<typeof auditLog.$inferInsert> = {},
+    ): Promise<string> => {
+      await t.db.insert(auditLog).values({
+        id,
+        actorType: 'admin',
+        action: 'test.action',
+        createdAt: OLD,
+        ...fields,
+      });
+      return id;
+    };
+    const kept = [
+      // 1. The vendor_id column, even on a row filed under a product no company holds.
+      await row('a-column', { vendorId: 'v-a', entityType: 'product', entityId: 'p-c' }),
+      // 2. Filed under the company.
+      await row('a-vendor', { entityType: 'vendor', entityId: 'v-a' }),
+      await row('a-entitlement', { entityType: 'vendor_entitlement', entityId: 'v-a' }),
+      // 3. Legacy metadata, both spellings.
+      await row('a-meta-snake', {
+        action: 'vendor_seat.invited',
+        entityType: 'vendor_seat_invite',
+        entityId: 'inv-1',
+        metadata: { vendor_id: 'v-a' },
+      }),
+      await row('a-meta-camel', { entityType: 'value', metadata: { vendorId: 'v-a' } }),
+      // 4. About one of A's products, its integrations, their claims and attestations, and
+      //    its reviews: a reader's review of A's product is A's record too.
+      await row('a-product-col', {
+        entityType: 'product_version',
+        entityId: 'pv-1',
+        productId: 'p-a',
+      }),
+      await row('a-product', { actorType: 'system', entityType: 'product', entityId: 'p-a' }),
+      await row('a-integration', { entityType: 'integration', entityId: 'i-a' }),
+      await row('a-powered-by', { entityType: 'integration', entityId: 'i-via-a' }),
+      await row('a-claim', { entityType: 'claim', entityId: 'c-a' }),
+      await row('a-attestation', { entityType: 'attestation', entityId: 'at-a' }),
+      await row('a-review', {
+        actorId: 'reader-1',
+        actorType: 'user',
+        entityType: 'review',
+        entityId: 'r-a',
+      }),
+      // 5. A claim on A, by the company or by its product.
+      await row('a-request', { entityType: 'vendor_request', entityId: 'q-a' }),
+      await row('a-request-product', { entityType: 'vendor_request', entityId: 'q-pa' }),
+      // 4b. Relationships A built, and connector-backed ones: the pair, its claims and their
+      //     attestations, A's connector's catalog, and a pair whose stub maps to A.
+      await row('a-built-integration', { entityType: 'integration', entityId: 'i-built' }),
+      await row('a-evpair', { entityType: 'connector_evidenced_pair', entityId: 'ep-a' }),
+      await row('a-evpair-built', { entityType: 'connector_evidenced_pair', entityId: 'ep-built' }),
+      await row('a-ep-claim', { entityType: 'claim', entityId: 'c-ep' }),
+      await row('a-ep-attestation', { entityType: 'attestation', entityId: 'at-ep' }),
+      await row('a-catalog', { entityType: 'connector_catalog', entityId: 'cat-a' }),
+      await row('a-cp-claim', { entityType: 'claim', entityId: 'c-cp' }),
+      await row('a-mapped-pair', { entityType: 'connector_pair', entityId: 'cp-map' }),
+      await row('a-mapped-claim', { entityType: 'claim', entityId: 'c-map' }),
+      await row('a-mapped-attestation', { entityType: 'attestation', entityId: 'at-cp' }),
+      // 6. Written by A's seat, whatever it is about.
+      await row('a-seat', {
+        actorId: 'seat-a',
+        actorType: 'user',
+        action: 'profile.updated',
+        entityType: 'profile',
+        entityId: 'seat-a',
+      }),
+    ];
+    const deleted = [
+      await row('b-column', { vendorId: 'v-b', entityType: 'vendor', entityId: 'v-b' }),
+      await row('b-meta', { action: 'vendor_seat.invited', metadata: { vendor_id: 'v-b' } }),
+      await row('b-product', { entityType: 'product', entityId: 'p-b', productId: 'p-b' }),
+      await row('b-integration', { entityType: 'integration', entityId: 'i-b' }),
+      await row('b-claim', { entityType: 'claim', entityId: 'c-b' }),
+      await row('b-attestation', { entityType: 'attestation', entityId: 'at-b' }),
+      await row('b-review', {
+        actorId: 'reader-1',
+        actorType: 'user',
+        entityType: 'review',
+        entityId: 'r-b',
+      }),
+      await row('b-request', { entityType: 'vendor_request', entityId: 'q-b' }),
+      await row('b-evpair', { entityType: 'connector_evidenced_pair', entityId: 'ep-b' }),
+      await row('b-ep-claim', { entityType: 'claim', entityId: 'c-ep-b' }),
+      // A connector catalog, pair and claim no company holds.
+      await row('unowned-catalog', { entityType: 'connector_catalog', entityId: 'cat-x' }),
+      await row('unowned-pair', { entityType: 'connector_pair', entityId: 'cp-x' }),
+      await row('unowned-pair-claim', { entityType: 'claim', entityId: 'c-cp-x' }),
+      // A reader's own account row, and a system row about nothing.
+      await row('reader-profile', {
+        actorId: 'reader-1',
+        actorType: 'user',
+        action: 'profile.updated',
+        entityType: 'profile',
+        entityId: 'reader-1',
+      }),
+      await row('system-row', { actorType: 'system' }),
+      // An unowned product, and A's id only as free text a tie does not read.
+      await row('unowned-product', { entityType: 'product', entityId: 'p-c' }),
+      await row('a-in-free-text', { afterState: { note: 'v-a' } }),
+    ];
+    // Metadata that is not JSON: never parsed, never matched, and no "malformed JSON" abort.
+    await t.db.run(
+      sql`INSERT INTO "audit_log" ("id", "actor_type", "action", "metadata", "created_at") VALUES ('bad-json', 'system', 'test.action', 'not json {', ${OLD})`,
+    );
+    deleted.push('bad-json');
+    return { kept, deleted };
+  }
+
+  // Ids only: reading `metadata` would make Drizzle parse the malformed row.
+  const remaining = async () =>
+    new Set((await t.db.select({ id: auditLog.id }).from(auditLog)).map((r) => r.id));
+
+  it('deletes other companies’ and readers’ expired rows, and keeps every row of the held company', async () => {
+    const { kept, deleted } = await seedTwoCompanies();
+    await seedHold('vendor', 'v-a');
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const left = await remaining();
+    for (const id of kept) expect(left.has(id), `kept ${id}`).toBe(true);
+    for (const id of deleted) expect(left.has(id), `deleted ${id}`).toBe(false);
+    expect(result).toMatchObject({ status: 'pruned', vendorHolds: 1 });
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: deleted.length,
+      truncated: false,
+    });
+    // One run record, in the same batch, counting exactly the deletes.
+    const runs = await pruneRows();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.metadata).toMatchObject({
+      rowsDeleted: deleted.length,
+      vendorHolds: 1,
+      tables: [{ table: 'audit_log', rowsDeleted: deleted.length }],
+    });
+  });
+
+  it('a hold on B instead keeps B’s rows and deletes A’s', async () => {
+    const { kept, deleted } = await seedTwoCompanies();
+    await seedHold('vendor', 'v-b');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of kept) expect(left.has(id), `deleted ${id}`).toBe(false);
+    for (const id of [
+      'b-column',
+      'b-meta',
+      'b-product',
+      'b-integration',
+      'b-claim',
+      'b-attestation',
+      'b-review',
+      'b-request',
+      'b-evpair',
+      'b-ep-claim',
+    ]) {
+      expect(left.has(id), `kept ${id}`).toBe(true);
+    }
+    expect(left.has('reader-profile')).toBe(false);
+    expect(deleted).toContain('reader-profile');
+  });
+
+  it('holds on both companies keep both, and still delete the reader’s and the system rows', async () => {
+    await seedTwoCompanies();
+    await seedHold('vendor', 'v-a');
+    await seedHold('vendor', 'v-b');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    expect(left.has('a-seat')).toBe(true);
+    expect(left.has('b-review')).toBe(true);
+    for (const id of ['reader-profile', 'system-row', 'unowned-product', 'bad-json']) {
+      expect(left.has(id), `deleted ${id}`).toBe(false);
+    }
+  });
+
+  it('a global hold still keeps every row', async () => {
+    const { kept, deleted } = await seedTwoCompanies();
+    await seedHold('global', null);
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    expect(result).toMatchObject({ status: 'skipped', reason: 'litigation_hold' });
+    const left = await remaining();
+    for (const id of [...kept, ...deleted]) expect(left.has(id), `kept ${id}`).toBe(true);
+  });
+
+  it('once the hold is released, the held rows go on the next run', async () => {
+    const { kept, deleted } = await seedTwoCompanies();
+    await seedHold('vendor', 'v-a');
+    await runLegalRetentionPrune(t.db, NOW);
+    await t.db.update(litigationHolds).set({ releasedAt: '2034-06-01T00:00:00.000Z' });
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of [...kept, ...deleted]) expect(left.has(id), `deleted ${id}`).toBe(false);
   });
 });
 
@@ -1544,7 +1914,7 @@ describe('the Terms acceptance part (AECI-1718)', () => {
 });
 
 describe('metrics', () => {
-  it('emits rows_deleted for every table, zeros included, and tags a skip and a pause', async () => {
+  it('emits rows_deleted for every table, zeros included, and tags a skip and a scoped run', async () => {
     const counts: { metric: string; value: number; tags: string[] }[] = [];
     const sink = {
       count: (metric: string, value: number, tags: string[]) =>
@@ -1552,15 +1922,15 @@ describe('metrics', () => {
       distribution: () => undefined,
     };
     await seedHold('vendor', 'v-x');
-    const paused = await runLegalRetentionPrune(t.db, NOW);
-    emitLegalRetentionPruneMetrics(sink, paused, 5);
+    const scoped = await runLegalRetentionPrune(t.db, NOW);
+    emitLegalRetentionPruneMetrics(sink, scoped, 5);
     expect(counts.filter((c) => c.metric === LEGAL_RETENTION_ROWS_METRIC)).toHaveLength(
       LEGAL_PRUNABLE.length,
     );
     expect(counts.find((c) => c.metric === LEGAL_RETENTION_RUN_METRIC)?.tags).toEqual([
       'trigger:cron',
       'outcome:ok',
-      'audit:paused',
+      'audit:scoped',
     ]);
 
     counts.length = 0;

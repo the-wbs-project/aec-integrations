@@ -358,18 +358,28 @@ and the acceptances of a deleted company six years after the deletion. A litigat
 off switch, and the only one any job has.
 
 1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
-2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
+2. Pick the scope. For any real legal process, start with **Everything (global)**. Narrow it to
+   one vendor only once the attorney confirms the scope, as "Unsure of the scope"
+   below describes. **One vendor** when the matter is about one company: enter its vendor id from
    `/admin/vendors`. **Everything (global)** when the matter is wider, or you do not yet know its
-   scope.
+   scope. Also choose global when the matter needs a record a vendor hold does not reach (see
+   step 4): a row whose only link to the company is a product, integration or claim already
+   deleted, or something a former team member did before October 2026.
 3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
-4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
-   released four years ago. A vendor hold also keeps that
-   vendor's agreement acceptances and subscription grants, including the acceptances of a
+4. What it stops. A vendor hold keeps that company's audit records and lets every other audit
+   record be deleted on schedule, as the Privacy Policy says (ruling 55, AECI-1970). An audit
+   record is the company's when it names the company, is about one of its products or their
+   reviews, is about an integration or connector link it built or its products take part in,
+   or a claim or attestation on one, is about a claim on the company, or was written
+   by one of its current team members. The full list is `docs/DATABASE_SCHEMA.md` §8.4 "Whose row
+   it is, for a hold". It also keeps old released holds on the same company. A vendor hold also
+   keeps that vendor's agreement acceptances and subscription grants, including the acceptances of a
    rejected claim on that company and of a deleted company with that id. An acceptance with no
    company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
    it. A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the
-   `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
+   `legal-retention-prune` row as `ok` for a vendor hold, with other records still deleted and the
+   run metric tagged `audit:scoped`, or as `skipped` for a global hold.
 5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose
    **Release hold**, give the reason, and the prune resumes on its next run.
 
