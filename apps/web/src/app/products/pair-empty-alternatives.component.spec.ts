@@ -430,5 +430,15 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     const order = text(el.querySelector('[data-testid="pair-matches-order"]'));
     expect(order).toContain('Products run A to Z by name.');
     expect(order).not.toMatch(/Merit only|common with your picks come first/);
+    // AECI-1894: the ranking page's words, approved 2026-11-20 (STAGE_1_5_SPEC.md 11.3).
+    expect(order).toContain('Searching narrows the list. It does not change the order.');
+    expect(order).toContain(
+      "The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.",
+    );
+    expect(order).not.toContain('Plan or license status has no effect');
+    // The legal agent's second pass of 2026-11-20.
+    expect(order).toContain('No paid positions');
+    expect(order).toContain('No vendor pays for a position in this list.');
+    expect(order).not.toMatch(/No paid places|pays for a place here/);
   });
 });
