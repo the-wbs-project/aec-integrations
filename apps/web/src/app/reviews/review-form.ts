@@ -51,6 +51,7 @@ import {
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../shared/form-field/form-submit';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /**
  * One "would you recommend" segment (AECI-1807): the segmented control recipe of the
@@ -126,6 +127,7 @@ interface ReviewModel {
     AecCard,
     AecIcon,
     FormField,
+    AecEarlyInput,
     Listbox,
     Option,
     Combobox,

@@ -2,6 +2,7 @@ import { Component, ElementRef, computed, input, model, viewChild } from '@angul
 
 import { unusedAfterPurchase } from '@aeci/shared';
 
+import { AecConsentBox } from '../../shared/form-field/consent-box';
 import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
@@ -18,6 +19,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
  */
 @Component({
   selector: 'aec-vendor-billing-unused-warning',
+  imports: [AecConsentBox],
   template: `
     <div role="status" [attr.id]="idPrefix() + '-unused-text'">
       @if (unused() > 0) {
@@ -95,6 +97,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
             #box
             [id]="idPrefix() + '-unused-box'"
             type="checkbox"
+            aecConsent
             [checked]="accepted()"
             aria-required="true"
             [attr.aria-invalid]="error() ? 'true' : null"

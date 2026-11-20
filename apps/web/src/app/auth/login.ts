@@ -25,6 +25,7 @@ import { hasLiveSession } from './session-recovery';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /**
  * Magic-link model schema, local to the auth folder: there is no API endpoint
@@ -106,7 +107,7 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
  */
 @Component({
   selector: 'aec-login-page',
-  imports: [AecButton, AecCard, FormField, NgTemplateOutlet, RouterLink],
+  imports: [AecButton, AecCard, FormField, AecEarlyInput, NgTemplateOutlet, RouterLink],
   templateUrl: './login.html',
 })
 export class LoginPage {

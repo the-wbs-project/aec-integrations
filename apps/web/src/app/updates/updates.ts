@@ -57,6 +57,7 @@ import { AecIcon } from '../shared/icon/icon';
 import { AecButton } from '../shared/button/button';
 import { BoneBand } from '../shared/bone-band/bone-band';
 import { AecCard } from '../shared/card/card';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 interface SubscribeModel {
   email: string;
@@ -71,7 +72,16 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 
 @Component({
   selector: 'app-updates',
-  imports: [AecButton, AecCard, AecIcon, BoneBand, RouterLink, FormField, FoundViaField],
+  imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
+    BoneBand,
+    RouterLink,
+    FormField,
+    AecEarlyInput,
+    FoundViaField,
+  ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- The page's one Bone band, as on /about. The page is all hero. -->

@@ -33,6 +33,8 @@ import { VendorApi } from '../vendor-api';
 import { licenseActionErrorCode } from './vendor-license-action-errors';
 import { acceptanceHref } from './vendor-agreement-href';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecEarlyInput } from '../../shared/form-field/early-input';
+import { AecConsentBox } from '../../shared/form-field/consent-box';
 
 /** The two fields the owner gives. The shared schema's own rules: `accepted` is
  *  `z.literal(true)`, so the form stays invalid until the box is ticked. */
@@ -152,7 +154,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
  */
 @Component({
   selector: 'aec-vendor-pending-grant-card',
-  imports: [FormField],
+  imports: [FormField, AecEarlyInput, AecConsentBox],
   // One entry in the waiting panel. The panel is the only container: entries are split
   // by the section's dividers, never a card inside a card.
   host: { class: 'block py-5 first:pt-0 last:pb-0' },
@@ -268,6 +270,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
             <input
               [id]="id('accept')"
               type="checkbox"
+              aecConsent
               [formField]="form.accepted"
               [attr.aria-invalid]="acceptError() ? 'true' : null"
               [attr.aria-describedby]="acceptError() ? id('accept-error') : null"

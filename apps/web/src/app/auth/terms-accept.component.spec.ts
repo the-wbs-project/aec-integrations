@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TERMS_CHANGE_BOX_LABEL } from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
+import { EARLY_INPUT_KEY } from '../shared/form-field/early-input';
 import { TermsAcceptPage, termsAcceptNextPath, termsAcceptVersion } from './terms-accept';
 
 const PENDING = {
@@ -249,5 +250,111 @@ describe('termsAcceptVersion / termsAcceptNextPath', () => {
     expect(termsAcceptNextPath('//evil.com')).toBe('/');
     expect(termsAcceptNextPath('/auth/terms?version=1.2')).toBe('/');
     expect(termsAcceptNextPath(null)).toBe('/');
+  });
+});
+
+/**
+ * AECI-1720. Before hydration the page shows the version from `?version=` and no summary,
+ * and the server's pending version can differ. So the box is disabled until the app is
+ * live (`aecConsent`), no tick made before hydration is ever carried, and a tick given
+ * while another version was shown is taken away when the server's version arrives.
+ */
+describe('TermsAcceptPage: ticks and the version shown (AECI-1720)', () => {
+  const win = window as unknown as Record<string, unknown>;
+
+  it('never carries a tick the recorder kept from before hydration', async () => {
+    win[EARLY_INPUT_KEY] = {
+      take: () => ({ value: 'on', checked: true }),
+      stop() {},
+    };
+    try {
+      const { fixture, el, api } = await setup();
+      const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+      expect(box.checked).toBe(false);
+      expect(box.disabled).toBe(false);
+      await submit(fixture, el);
+      expect(api.acceptTerms).not.toHaveBeenCalled();
+    } finally {
+      delete win[EARLY_INPUT_KEY];
+    }
+  });
+
+  function deferredPending(version: string) {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    return {
+      release: () => resolve(),
+      read: async () => {
+        await gate;
+        return { pending: { ...PENDING, version } };
+      },
+    };
+  }
+
+  const boxOf = (el: HTMLElement) =>
+    el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+
+  it('keeps the box disabled while the pending read is out, then enables it with the summary', async () => {
+    const pending = deferredPending('1.2');
+    const { fixture, el } = await setup(undefined, undefined, pending.read);
+    expect(boxOf(el).disabled).toBe(true);
+    expect(el.textContent).not.toContain(PENDING.summary[0]);
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(boxOf(el).disabled).toBe(false);
+    expect(el.textContent).toContain(PENDING.summary[0]);
+  });
+
+  it('enables the box after a failed read, so the page still works without the summary', async () => {
+    const { el } = await setup(undefined, undefined, async () => {
+      throw new HttpErrorResponse({ status: 503 });
+    });
+    expect(boxOf(el).disabled).toBe(false);
+    expect(el.textContent).not.toContain(PENDING.summary[0]);
+  });
+
+  it('enables the box when nothing is pending any more, as the page goes on', async () => {
+    const { el, navigate } = await setup(undefined, undefined, async () => ({ pending: null }));
+    expect(navigate).toHaveBeenCalledWith('/account');
+    expect(boxOf(el).disabled).toBe(false);
+  });
+
+  it("unticks when the server's pending version differs from the one shown", async () => {
+    const pending = deferredPending('1.3');
+    const { fixture, el, api } = await setup(undefined, undefined, pending.read);
+    tick(el);
+    fixture.detectChanges();
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+
+    const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+    expect(box.checked).toBe(false);
+    await submit(fixture, el);
+    expect(api.acceptTerms).not.toHaveBeenCalled();
+
+    tick(el);
+    fixture.detectChanges();
+    await submit(fixture, el);
+    expect(api.acceptTerms).toHaveBeenCalledWith('1.3');
+  });
+
+  it("keeps the tick when the server's version is the one shown", async () => {
+    const pending = deferredPending('1.2');
+    const { fixture, el, api } = await setup(undefined, undefined, pending.read);
+    tick(el);
+    fixture.detectChanges();
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!.checked).toBe(
+      true,
+    );
+    await submit(fixture, el);
+    expect(api.acceptTerms).toHaveBeenCalledWith('1.2');
   });
 });
