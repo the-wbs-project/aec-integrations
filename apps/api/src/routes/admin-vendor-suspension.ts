@@ -993,11 +993,32 @@ export function createRetryTerminationRefundsHandler(
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
     const { db } = writeDb(c, dbFor);
     const vendor = await loadVendor(db, vendorId);
+    // The newest termination that still owes a refund, else the newest one. A vendor
+    // terminated twice can hold a failed refund on the older termination (AECI-1985).
+    // Each click settles one termination, newest first.
+    const [owing] = await db
+      .select({ id: vendorSuspensions.id })
+      .from(vendorSuspensions)
+      .innerJoin(
+        vendorTerminationRefunds,
+        eq(vendorTerminationRefunds.suspensionId, vendorSuspensions.id),
+      )
+      .where(
+        and(
+          eq(vendorSuspensions.vendorId, vendorId),
+          eq(vendorSuspensions.resolution, 'terminated'),
+          inArray(vendorTerminationRefunds.status, ['failed', 'pending']),
+        ),
+      )
+      .orderBy(desc(vendorSuspensions.resolvedAt))
+      .limit(1);
     const row = await db.query.vendorSuspensions.findFirst({
-      where: and(
-        eq(vendorSuspensions.vendorId, vendorId),
-        eq(vendorSuspensions.resolution, 'terminated'),
-      ),
+      where: owing
+        ? eq(vendorSuspensions.id, owing.id)
+        : and(
+            eq(vendorSuspensions.vendorId, vendorId),
+            eq(vendorSuspensions.resolution, 'terminated'),
+          ),
       orderBy: [desc(vendorSuspensions.resolvedAt)],
     });
     if (!row) {
