@@ -699,13 +699,16 @@ gh run watch --repo the-wbs-project/aec-integrations
 
 4. Open each Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's identity and scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
 
-**The `GITHUB_TOKEN` scope.** `deploy.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
+**The `GITHUB_TOKEN` scope.** `deploy.yml`, `lighthouse.yml` and `a11y-nightly.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
 
 | Workflow | Job | Extra scope | Why |
 |---|---|---|---|
 | `deploy.yml` | `changes` | `pull-requests: read` | `dorny/paths-filter` lists the PR's files through the pulls API |
 | `lighthouse.yml` | `resolve` | `statuses: read` | Reads the existing `lighthouse` status |
 | `lighthouse.yml` | `lighthouse` | `statuses: write` | Posts the `lighthouse` status |
+| `a11y-nightly.yml` | `resolve` | `statuses: read` | Reads the existing `a11y-nightly` status |
+| `a11y-nightly.yml` | `suite` | `statuses: write` | Posts the `a11y-nightly` status |
+| `a11y-nightly.yml` | `confirm-alert` | `statuses: write` only | Rewrites a nightly failure to `(nightly)` after the alert lands. It has no `contents: read` and no Linear key |
 | `promote-to-demo.yml` | `lighthouse-lookup` | `statuses: read`, `actions: read` | Reads the status, then the run it links to |
 | `promote-to-demo.yml` | `lighthouse-measure` | `statuses: write` | Ceiling for the called `lighthouse.yml` jobs, which post the status |
 
