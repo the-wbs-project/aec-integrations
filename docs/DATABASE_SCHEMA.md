@@ -145,7 +145,7 @@ Tables grouped by domain:
 - `legal_versions` — one announced version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy Policy: summary, the two operator answers, and the PDF fingerprint (§8.6i, AECI-1688, AECI-1637)
 - `legal_notice_deliveries` — where each company's change notice for a published legal version stands: queued, delivered, no recipients, dropped or expired (§8.6j, AECI-1620)
 - `legal_notice_reader_deliveries` — where each account's change notice for a published Terms of Service or Privacy Policy version stands (§8.6l, AECI-1637)
-- `terms_acceptances` — one sign-in acceptance of one Terms of Service version: signing in is the acceptance; evidence that survives account deletion, pruned six years after it (§8.6k, AECI-1637, AECI-1718)
+- `terms_acceptances` — one acceptance of one Terms of Service version, by sign-in line or, for a rights-reducing version, by a ticked box; evidence that survives account deletion, pruned six years after it (§8.6k, AECI-1637, AECI-1718)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -2987,7 +2987,7 @@ create table legal_versions (
   effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
   summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
   material integer not null,       -- 0/1: the change is summarised and noticed
-  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only from its next sign-in; implies material; never 1 for 'privacy'
+  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only after it ticks the box at its next sign-in (ruling 53); implies material; never 1 for 'privacy'
   expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
   pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
   pdf_sha256 text not null,        -- of the exact bytes read at publish
@@ -3107,12 +3107,13 @@ create unique index legal_notice_deliveries_version_vendor_key
 
 ### 8.6k `terms_acceptances` (AECI-1637, migration `0122_clever_roughhouse`)
 
-One account holder signing in while one Terms of Service version was in force. Signing in is
-the acceptance (Chris's ruling of 2026-11-13, `STAGE_1_SPEC.md` §27.4, `AUTH_AND_RLS.md`
-§3.1b). The login page shows one line beside the sign-in buttons: "By signing in, you agree to
-our Terms of Service and Privacy Policy." The row is written for every Terms version in force,
-whatever its `requires_acceptance` flag (§8.6i). For a version published with the flag, the row
-is the moment the version starts to apply to that account. The reader twin of
+One account holder accepting one Terms of Service version. Signing in is the acceptance
+(Chris's ruling of 2026-11-13, `STAGE_1_SPEC.md` §27.4, `AUTH_AND_RLS.md` §3.1b). The login
+page shows one line beside the sign-in buttons: "By signing in, you agree to our Terms of
+Service and Privacy Policy." The sign-in writes the row for the Terms version in force, except
+when a box is pending (below). For a version published with `requires_acceptance` (§8.6i), the
+row is the moment the version starts to apply to that account, and since 2026-11-19 (counsel
+Q63, ruling 53) that row comes from a ticked box, not the line. The reader twin of
 `agreement_acceptances` (§8.6d).
 
 ```sql
@@ -3123,12 +3124,12 @@ create table terms_acceptances (
   legal_version_id text,                 -- a legal_versions.id; NO FK; NULL for a version with no row
   profile_id text not null,              -- a profiles.id; NO FK, so the row survives deletion
   email text not null,                   -- from the verified session; '' if the token has none
-  accepted_at text not null,             -- ISO-8601, the sign-in
+  accepted_at text not null,             -- ISO-8601, the sign-in or the tick
   ip text,                               -- CF-Connecting-IP; nulled at 90 days
   user_agent text,                       -- cut to 512; nulled at 90 days
-  checkbox_label text not null,          -- the exact sign-in line (SIGN_IN_TERMS_LINE); there is no box
+  checkbox_label text not null,          -- the sign-in line (SIGN_IN_TERMS_LINE) or the box label (TERMS_CHANGE_BOX_LABEL)
   checkbox_label_sha256 text not null,
-  checkbox_default_unticked integer not null, -- always 0: no box was shown (see below)
+  checkbox_default_unticked integer not null, -- 0 on a line row, 1 on a box row (see below)
   pdf_sha256 text,                       -- the legal_versions row's hash; NULL with legal_version_id
   evidence_removed_at text,              -- when the sweep nulled ip and user_agent
   created_at text not null
@@ -3138,9 +3139,13 @@ create unique index terms_acceptances_profile_document_version_key
   on terms_acceptances (profile_id, document, version);
 ```
 
-- **The one writer.** `POST /api/auth/profile/ensure` (`routes/auth-profile.ts`), which the SSR
-  `/auth/callback` calls on every sign-in, calls `recordSignInTermsAcceptance`
-  (`lib/reader-legal-acceptance.ts`) after the profile exists. It inserts the row and a
+- **Two writers (as built 2026-11-19, AECI-1637, ruling 53).** The line row comes from
+  `POST /api/auth/profile/ensure` (`routes/auth-profile.ts`), which the SSR `/auth/callback`
+  calls on every sign-in. It calls `recordSignInTermsAcceptance`
+  (`lib/reader-legal-acceptance.ts`) after the profile exists, and writes no row when a box is
+  pending (`termsBoxPendingVersion`). The box row comes from `POST /api/auth/terms/accept`
+  (`writeTermsBoxAcceptance`), with `metadata.source` `terms-box` and `checkbox: true` in the
+  audit `afterState`. The line row keeps `metadata.source` `auth-callback`. Each inserts the row and a
   `terms.accepted` audit row (`entity_type = 'terms_acceptance'`, no email, IP or user agent in
   it) in one `db.batch`. Once per account per version: a row already held writes nothing, and a
   racing second sign-in trips the unique index, which fails that batch whole. A failure is logged
@@ -3151,10 +3156,14 @@ create unique index terms_acceptances_profile_document_version_key
   dated `LEGAL_READER_EFFECTIVE_ON` entry whose day has come, or the upcoming version once a
   `legal_versions` row published it and its moment has come. A draft is never in force, so today
   a sign-in reads and writes nothing.
-- **The column names are the vendor table's.** `checkbox_label` holds the sign-in line, and
-  `checkbox_default_unticked` is always 0 because no box is shown. A 1 would mean an unticked box
-  was shown. That is kept for the counsel fallback (`LEGAL_COUNSEL_RECORD.md`, Q34): one unticked
-  box on the sign-in page after a rights-reducing change. No migration was needed.
+- **The column names are the vendor table's.** A line row holds the sign-in line in
+  `checkbox_label` and `checkbox_default_unticked = 0`. A box row holds `TERMS_CHANGE_BOX_LABEL`
+  ("I have read and accept the updated Terms of Service."), its hash and
+  `checkbox_default_unticked = 1`: an unticked box was shown and the reader ticked it. Counsel
+  required the box in Q63. No migration was needed.
+- **When a box is pending.** A published Terms version with `requires_acceptance = 1` is in force,
+  took effect after `profiles.created_at`, and no row exists for a version whose effective moment
+  is at or after it. An account created by that sign-in never gets a box. It gets the line row.
 - **Retention (ruling 1, 2026-11-13).** Email, version and time are kept for the life of the
   account plus 6 years, even after the account is deleted. There is no FK to `profiles`, so
   deleting the account does not delete the row. The IP address and browser are nulled 90 days

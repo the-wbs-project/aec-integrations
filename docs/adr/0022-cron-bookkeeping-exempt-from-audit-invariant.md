@@ -540,8 +540,9 @@ public surface and nothing ranks on it. The re-send reads it to skip accounts al
 `delivered`, a transport choice and not a domain decision.
 
 **Not exempt: `terms_acceptances`.** The sign-in acceptance (`DATABASE_SCHEMA.md` §8.6k) is
-domain state. Its one writer, `lib/reader-legal-acceptance.ts` (called from
-`POST /api/auth/profile/ensure` at sign-in), inserts the row and a `terms.accepted` audit row
+domain state. Its writers, both in `lib/reader-legal-acceptance.ts` (the sign-in line from
+`POST /api/auth/profile/ensure`, and since 2026-11-19 the tick box from
+`POST /api/auth/terms/accept`), insert the row and a `terms.accepted` audit row
 in the same `db.batch`. The evidence sweep audits its own UPDATE
 (`terms.evidence_removed`). The legal retention prune deletes the row six years after the
 account ends (AECI-1718) and writes its `retention.pruned` row in the same batch, so the

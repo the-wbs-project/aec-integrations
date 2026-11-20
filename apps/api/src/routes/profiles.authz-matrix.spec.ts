@@ -20,6 +20,7 @@
  *       PATCH  /api/account             anon → 401 · banned → 403
  *       DELETE /api/account             anon → 401 · banned → 403
  *       PATCH  /api/admin/reviewers/:id non-admin → 403 · banned admin → 403
+ *       POST   /api/auth/terms/accept  anon → 401 · banned → 403 (AECI-1637)
  *
  * There is NO app surface that returns an arbitrary other user's profile — the
  * "anon/authenticated can't read any profile but their own" rule holds *by
@@ -50,6 +51,7 @@ import {
   createUpdateAccountHandler,
 } from './account';
 import { createBanReviewerHandler, createBannedReviewersListHandler } from './admin-reviewers';
+import { createAcceptTermsHandler, createTermsPendingHandler } from './auth-profile';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
@@ -107,6 +109,8 @@ function makeApp() {
   app.patch('/api/account', requireAuth(guard), createUpdateAccountHandler(t.factory));
   app.delete('/api/account', requireAuth(guard), createDeleteAccountHandler(t.factory));
   app.patch('/api/admin/reviewers/:id', requireAdmin(guard), createBanReviewerHandler(t.factory));
+  app.post('/api/auth/terms/accept', requireAuth(guard), createAcceptTermsHandler(t.factory));
+  app.get('/api/auth/terms/pending', requireAuth(guard), createTermsPendingHandler(t.factory));
   return app;
 }
 
@@ -115,7 +119,7 @@ function get(url: string, token?: string) {
   return makeApp().request(url, { headers }, ENV, fakeExecutionContext());
 }
 
-function send(method: 'PATCH' | 'DELETE', url: string, token?: string) {
+function send(method: 'PATCH' | 'DELETE' | 'POST', url: string, token?: string) {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   return makeApp().request(url, { method, headers }, ENV, fakeExecutionContext());
 }
@@ -190,6 +194,18 @@ describe('profiles deny-matrix — write paths reject at the guard, before the h
 
   it('DELETE /api/account — a banned owner → 403', async () => {
     expect((await send('DELETE', '/api/account', await tokenFor(BANNED))).status).toBe(403);
+  });
+
+  it('GET /api/auth/terms/pending — anon (no token) → 401', async () => {
+    expect((await get('/api/auth/terms/pending')).status).toBe(401);
+  });
+
+  it('POST /api/auth/terms/accept — anon (no token) → 401', async () => {
+    expect((await send('POST', '/api/auth/terms/accept')).status).toBe(401);
+  });
+
+  it('POST /api/auth/terms/accept — a banned owner → 403', async () => {
+    expect((await send('POST', '/api/auth/terms/accept', await tokenFor(BANNED))).status).toBe(403);
   });
 
   it('PATCH /api/admin/reviewers/:id — an authenticated non-admin → 403', async () => {

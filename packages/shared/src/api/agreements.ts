@@ -319,6 +319,21 @@ export const SIGN_IN_TERMS_LINE =
   'By signing in, you agree to our Terms of Service and Privacy Policy.';
 
 /**
+ * The label of the one box a reader ticks at the first sign-in after a Terms of Service
+ * version that reduces their rights (AECI-1637, counsel Q63, ruling 53, which narrows
+ * ruling 43). "Reduces their rights" is the version's `requires_acceptance` publish flag,
+ * set on `/admin/legal`, never read from the text. Every other sign-in keeps
+ * {@link SIGN_IN_TERMS_LINE} and shows no box.
+ *
+ * The box starts unticked on `/auth/terms`, and Continue does nothing until it is ticked.
+ * `POST /api/auth/terms/accept` stores exactly this text (`terms_acceptances.checkbox_label`)
+ * with its SHA-256 and `checkbox_default_unticked = 1`. The page renders it in en-US
+ * (`@@auth.terms.boxLabel`), and `terms-accept.component.spec.ts` (web) pins the rendered
+ * text to this constant. Change both together, and only with the legal text that names it.
+ */
+export const TERMS_CHANGE_BOX_LABEL = 'I have read and accept the updated Terms of Service.';
+
+/**
  * The Plans page (`/docs/vendors/plans`) as versioned content (AECI-1619, ruling 16). A
  * checkout or grant acceptance records the version current when it was given
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot

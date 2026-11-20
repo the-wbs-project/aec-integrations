@@ -981,7 +981,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_1_SPEC.md §27',
     summary:
-      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only from the account holder's next sign-in, or (Privacy Policy) from its date.",
+      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only after the account holder ticks the acceptance box at their next sign-in, or (Privacy Policy) from its date.",
     note: 'Always on: a service notice the Terms promise, so it has no unsubscribe, ignores the marketing mute and cannot be paused. Same template and checks as legal-terms-change: the consumer re-hashes the PDF on every message and sends nothing on a mismatch, and an account email lookup that is unavailable retries the whole message. The send carries an attachment, so it blind-copies no one. Each account has a legal_notice_reader_deliveries row, and /admin/legal counts and lists the accounts not reached.',
   },
   'license-unassigned-reminder': {

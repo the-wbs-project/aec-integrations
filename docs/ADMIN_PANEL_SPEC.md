@@ -2288,8 +2288,9 @@ and an account in a list shows as its id with no company name. The Privacy Polic
 "Does it need acceptance?" question, because the API refuses `requires_acceptance` for it
 (ruling 4 of 2026-11-13) and the notice and the 30-day window are all a Privacy change gets. The
 Terms card keeps the question and its hint: answer Yes when the change reduces a reader's rights,
-because the version then applies to each account holder only from their next sign-in, never on
-continued use. Signing in is the acceptance, so nothing is blocked (`AUTH_AND_RLS.md` §3.1b).
+because the version then applies to each account holder only after they tick a box at their
+next sign-in (`/auth/terms`, counsel Q63, ruling 53, built 2026-11-19), never on continued use.
+Nothing else is blocked (`AUTH_AND_RLS.md` §3.1b).
 Neither reader card has an expedited reason: only a Vendor Terms change may be expedited. The
 re-send works as on an agreement.
 

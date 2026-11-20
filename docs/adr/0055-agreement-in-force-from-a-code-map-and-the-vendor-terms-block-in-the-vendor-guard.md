@@ -105,6 +105,25 @@ extended to readers: signing in is the acceptance.
 
 **Consequence.** No read is added to any guard. The cost is two small reads on each sign-in,
 and only while a Terms version can be in force. Whether the line is enough for a
-rights-reducing change is an open counsel question (`LEGAL_COUNSEL_RECORD.md`, Q34). Its
-fallback is one unticked box on the sign-in page, shown only after a rights-reducing change;
-`terms_acceptances.checkbox_default_unticked` is kept for it.
+rights-reducing change was an open counsel question (Q34). Counsel answered it as Q63 (see the
+2026-11-19 amendment below).
+
+## Amendment 2026-11-19 — a tick box for a rights-reducing Terms change (AECI-1637, Q63, ruling 53)
+
+Counsel answered Q63: a line beside the sign-in buttons does not bind a reader to a change that
+reduces their rights. Chris's ruling 53 narrows ruling 43. Points 2 and 4 above still hold for
+every other sign-in. Point 3 still holds: no guard reads the Terms rows and nothing is blocked.
+
+- **When the box shows.** A published Terms version with `requires_acceptance` is in force, took
+  effect after the account was created, and no `terms_acceptances` row covers it
+  (`termsBoxPendingVersion`). An account created by that sign-in never sees it. It gets the line
+  row, which covers the change on later sign-ins.
+- **What the sign-in does.** With a box pending, `POST /api/auth/profile/ensure` writes no row and
+  answers `terms_acceptance: { version }`. The callback sends the reader to `/auth/terms`
+  (`termsAcceptRedirect`).
+- **The write.** `POST /api/auth/terms/accept` writes the row with `TERMS_CHANGE_BOX_LABEL`, its
+  hash and `checkbox_default_unticked = 1`, and its audit row, in one `db.batch`. The line row
+  keeps `checkbox_default_unticked = 0`. The table now has two writers.
+- **Leaving.** A reader who leaves without ticking stays signed in on the earlier version. The next
+  sign-in asks again.
+- **No migration.** `checkbox_default_unticked` already existed for this.
