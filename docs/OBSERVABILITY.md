@@ -1618,6 +1618,31 @@ Details a reader needs:
 - **Secrets.** `LINEAR_API_KEY` and `RESEND_API_KEY` are repo secrets (`docs/CICD_PLAN.md` §7.1). Missing either one fails that step red.
 - **Test without sending.** `node scripts/lighthouse-alert.mjs linear --outcome=failure --dry-run --results=<file>` prints every GraphQL payload. `email --dry-run` prints the Resend payload. Unit tests: `scripts/lighthouse-alert.test.mjs`.
 
+### CI operator alert: the nightly accessibility run
+
+A red nightly accessibility run alerts a human through Linear only. It sends no email. Like the Lighthouse alert, it is not a PostHog alert or a registry entry. `docs/NOTIFICATIONS.md` points here.
+
+The alert runs in the `alert` job of `.github/workflows/a11y-nightly.yml`, on scheduled runs only. The logic is `scripts/a11y-nightly-alert.mjs`, which reuses the Linear client of `scripts/lighthouse-alert.mjs`. `docs/CICD_PLAN.md` §11a-quater covers the trigger and the skip rule.
+
+| Nightly result | Linear (team AECI) |
+| --- | --- |
+| Red, no open `a11y-nightly-regression` issue | Files a Bug. Labels `Bug` and `a11y-nightly-regression`. Assigned to Chris. The title names the failing surfaces. The body has the SHA, the run link, the totals, a table of failing tests, and a note that main regressed. |
+| Red, an open `a11y-nightly-regression` issue exists | Comments on it with the SHA, run link and failing tests. |
+| Green, an open issue exists | Comments "Recovered at `<sha>`, run `<url>`". Never closes the issue. |
+| Green, no open issue | Nothing |
+| Skipped: main HEAD already passed, or an earlier nightly already alerted on its failure | Nothing |
+
+Details a reader needs:
+
+- **"Open" means any state except completed or canceled.** Close the issue when the fix lands and a nightly passes. The next red then files a fresh issue.
+- **The label is created on demand.** If no `a11y-nightly-regression` label is usable on AECI, the first alert creates it on the team. A missing `Bug` label or assignee logs a warning and files the issue anyway.
+- **No email.** AECI-1875 asked for Linear only. If the Linear step fails, the run goes red with an `::error::` annotation, and that red run is the only signal.
+- **A failed alert retries the next night.** The suite posts a nightly failure as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear step succeeds. The skip rule matches only `(nightly)`, so an alert that did not land is sent again on the next scheduled run, even with no new commit.
+- **A run that fails before the tests still alerts.** If `a11y-nightly-summary.json` is missing, for example because `dev:bound` never booted, the issue says "No test summary, see the run log".
+- **A known failure is not a red.** A test marked with `knownFailure('AECI-<n>', …)` passes while it fails. It goes red, and alerts, only when it starts to pass (`docs/TESTING_STRATEGY.md` §8.4).
+- **Secret.** `LINEAR_API_KEY` is a repo secret (`docs/CICD_PLAN.md` §7.1). Missing, the step exits 2 and the run goes red.
+- **Test without sending.** `node scripts/a11y-nightly-alert.mjs linear --outcome=failure --dry-run --summary=<file>` prints every GraphQL payload. Add `--dry-run-open-issue` to see the comment path. Unit tests: `scripts/a11y-nightly-alert.test.mjs`.
+
 ## Browser search telemetry (`search_performed`)
 
 Search is queried **client-side**, direct to Algolia with the search-only key

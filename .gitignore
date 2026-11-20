@@ -12,6 +12,8 @@ dist
 
 # Test artifacts (Playwright, Vitest coverage, Lighthouse CI)
 playwright-report/
+playwright-report-a11y/
+a11y-nightly-summary.json
 test-results/
 .lighthouseci/
 coverage/
