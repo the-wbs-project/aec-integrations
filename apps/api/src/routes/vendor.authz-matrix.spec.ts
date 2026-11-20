@@ -937,7 +937,7 @@ describe('/api/vendor/* — guard deny cells (every route)', () => {
     async ({ path, method, body }) => {
       const { status, body: res } = await call(path, method, SEAT_BANNED, body);
       expect(status).toBe(403);
-      expect(res.error.message).toBe('Portal abuse');
+      expect(res.error.message).toBe('Account suspended');
     },
   );
 
@@ -1067,7 +1067,7 @@ describe('/api/vendor/* — a company that must accept the Vendor Terms (AECI-16
     expect((await call('/api/vendor/legal-acceptance', 'POST', SEAT_A, body)).status).toBe(403);
     const banned = await call('/api/vendor/legal-acceptance', 'POST', SEAT_BANNED, body);
     expect(banned.status).toBe(403);
-    expect(banned.body.error.message).toBe('Portal abuse');
+    expect(banned.body.error.message).toBe('Account suspended');
   });
 
   it('with nothing in force, no write is blocked (the invariant)', async () => {

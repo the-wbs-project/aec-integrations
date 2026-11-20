@@ -54,6 +54,7 @@ import {
   type AuthzOptions,
   type AuthzVariables,
 } from './authz';
+import { TERMINATED_SEAT_BAN_REASON } from './ban-message';
 import type { DbFactory } from './handler-utils';
 import type { Db } from '../db/client';
 
@@ -250,13 +251,22 @@ describe('requireAuth', () => {
     expect(dbCalls).toBe(1); // the DB WAS queried (after verify) and returned no row
   });
 
-  it('rejects a banned user with 403 FORBIDDEN (default) and surfaces the ban reason', async () => {
+  it("a seat banned by Terminate reads Terminate's own vendor-facing reason", async () => {
+    await seedProfile('user-terminated', { ...BANNED, banReason: TERMINATED_SEAT_BAN_REASON });
+    const token = await mintToken({ sub: 'user-terminated' });
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
+    expect(status).toBe(403);
+    expect(body.error?.message).toBe(TERMINATED_SEAT_BAN_REASON);
+  });
+
+  it("rejects a banned user with 403 FORBIDDEN (default) and keeps the admin's ban reason internal", async () => {
     await seedProfile('user-banned', BANNED);
     const token = await mintToken({ sub: 'user-banned' });
     const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
-    expect(body.error?.message).toBe('Spam reviews');
+    expect(body.error?.message).toBe('Account suspended');
+    expect(JSON.stringify(body)).not.toContain('Spam reviews');
   });
 
   it('rejects a banned user with 403 REVIEW_BANNED on a review write', async () => {
@@ -442,9 +452,10 @@ describe('requireVendor', () => {
     const token = await mintToken({ sub: 'user-banned-vendor' });
     const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
     expect(status).toBe(403);
-    // The ban reason surfaces, which is only possible if the ban check ran
-    // BEFORE the role check — the §7 / AECI-524 gate ordering.
-    expect(body.error?.message).toBe('Portal abuse');
+    // The ban message surfaces, which is only possible if the ban check ran
+    // BEFORE the role check — the §7 / AECI-524 gate ordering. The admin's reason
+    // stays internal (AECI-1973).
+    expect(body.error?.message).toBe('Account suspended');
   });
 
   it('accepts a granted seat and threads vendorId onto the session', async () => {
@@ -688,7 +699,7 @@ describe('requireVendor — the plan from licenses', () => {
     // ban rather than the plan.
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
-    expect(body.error?.message).toBe('Portal abuse');
+    expect(body.error?.message).toBe('Account suspended');
   });
 
   it('takes exactly ONE round-trip — the batch replaces the profile read', async () => {

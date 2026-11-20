@@ -93,6 +93,7 @@ import {
   type PublishedVersionLite,
 } from './legal-acceptance';
 import type { MissingProfileHook } from './profile-provisioning';
+import { bannedAccountMessage } from './ban-message';
 import { extractBearer, unauthenticated, verifySupabaseJwt } from './user-auth';
 
 /** The verified session a guarded handler receives via `c.get('auth')`. */
@@ -694,7 +695,7 @@ function createAuthzMiddleware(
       throw new ApiError(
         403,
         options.bannedCode ?? ApiErrorCode.FORBIDDEN,
-        profile.banReason ?? 'Account suspended',
+        bannedAccountMessage(profile.banReason),
       );
     }
     if (requiredRole === 'admin' && profile.role !== 'admin') {

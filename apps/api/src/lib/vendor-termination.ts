@@ -74,6 +74,7 @@ import {
   seatRaceSentinels,
   type VendorReturnBatch,
 } from './vendor-handback';
+import { TERMINATED_SEAT_BAN_REASON } from './ban-message';
 import { liveInvitesFor, revokeInviteStatements } from './vendor-seat-invites';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import type { RefundablePayment, RefundAllocation } from './vendor-termination-refund';
@@ -84,7 +85,7 @@ export type TerminationContext = Context<{ Bindings: Env; Variables: AuthzVariab
 export const VENDOR_TERMINATED_CAUSE = 'vendor-terminated';
 
 /** What a seat sees in the 403 once it is banned by a termination. */
-export const TERMINATED_SEAT_BAN_REASON = "This company's vendor account has ended.";
+export { TERMINATED_SEAT_BAN_REASON };
 
 /** The refund pass gives up after this long. Anything left stays `pending` for the retry. */
 export const TERMINATION_REFUND_DEADLINE_MS = 15_000;

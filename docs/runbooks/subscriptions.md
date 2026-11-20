@@ -271,7 +271,7 @@ One database batch then does all of this.
   `ends_at` when Stripe could not be read.
 - `vendors.owned_at` is cleared and the records return to AECi: markers back to `aeci`, integrations
   un-claimed, open contests moved to AECi, open product proposals deleted. The audit row is
-  `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. `usefulness_source` stays
+  `vendor.records_returned` with `metadata.cause = 'vendor-terminated'`. `usefulness_source` stays
   `vendor`. The claim ends too (`vendors.claim_ended_at`, AECI-1618), so pages read Unclaimed at once, and the
   daily brand asset removal clears `logo_source = 'vendor'` logos within 14 days (see `docs/runbooks/alerts.md` "Brand asset removal (AECI-1618)").
 - Every pending seat invite is revoked.
@@ -387,8 +387,8 @@ grant answers 200 and writes nothing, even though the products are subscribed no
 
 **Any other grant waits for the unban.** Unban first, then grant. The ordinary "Grant subscriptions"
 control refuses a vendor whose every owner seat is banned with `VENDOR_STILL_BANNED` and writes
-nothing (ruled 2026-11-03). A vendor nobody has claimed yet, with no seat at all, is still
-grantable. If the last seat is banned while you grant, the grant answers `VENDOR_SEATS_CHANGED`
+nothing (ruled 2026-11-03). A vendor nobody has claimed yet is not
+grantable: it has no billing account until a claim is approved or a seat is added (AECI-1975). If the last seat is banned while you grant, the grant answers `VENDOR_SEATS_CHANGED`
 and writes nothing. A retry of a grant made before the ban still answers 200.
 
 **One-off: a vendor banned before AECI-1589.** Before 2026-11-03 a last-seat ban only flagged the
