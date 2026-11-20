@@ -4292,7 +4292,7 @@ Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The ei
 | `POST /suspension/cost-log/:entryId/void` | `{ reason }` | Voids an entry, never edits it. `404` for an unknown or already voided entry. Audits `vendor.abuse_cost_voided` |
 | `POST /suspension/lift` | `{ reason }` | Closes the row `lifted`, audits `vendor.suspension_lifted`, sends `vendor-suspension-lifted`. No purge |
 | `POST /suspension/terminate` | `{ manual_payments: [{ license_id, paid_cents }], expected_gross_cents, expected_cost_cents }` | See below |
-| `POST /suspension/refunds/retry` | none | Retries `failed` refund rows of the latest terminated suspension under their original idempotency keys, then sends the statement again |
+| `POST /suspension/refunds/retry` | none | Retries `failed` and stranded `pending` refund rows of the newest terminated suspension that still owes a refund (else the newest terminated suspension, AECI-1985) under their original idempotency keys, then sends the statement again |
 
 **The window.** 7 business days: Monday to Friday, US federal holidays excluded as observed, dates in America/New_York. It runs from the first confirmed send of that stage's notice. A send is confirmed only on `sent`, and on `suppressed` outside production. `unknown` and `duplicate` start no clock. A refused accept on the invite page and a refused review each show their own suspended message. Before a confirmed send, each resend carries its own dedupe key, because a timed-out send holds its key. The end is computed (`lib/business-days.ts`), never stored, and falls up to an hour late and never early. A failed send leaves `notice_sent_at` NULL and no clock. `can_start_stage_2` and `can_terminate` on `VendorSuspension` say what is allowed now.
 

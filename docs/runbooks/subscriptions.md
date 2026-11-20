@@ -312,7 +312,7 @@ the log has `aeci.stripe.ban_period_end_unavailable`.
 **A refund failed.** The refund row is `failed`, the audit row is `vendor.termination_refund_failed`
 and the log line is `aeci.stripe.termination_refund_failed` with the reason. The termination stands and
 the vendor is owed the money. The `termination_refund_unsettled` digest check lists a `failed` or
-stranded `pending` row after a day. Fix the cause, then choose Retry refunds on the vendor page. Retry
+stranded `pending` row after a day. Fix the cause, then choose Retry refunds on the vendor page. Retry works on the newest termination that still owes a refund, so a vendor terminated twice gets one click per termination with a failed refund (AECI-1985). Retry
 looks up the payment's refunds first and treats one carrying this row's `aeci_refund_id` as paid, so a
 first attempt that took the refund but lost its response cannot pay twice, however late the retry is. A
 lookup that cannot answer pays nothing and leaves the row `failed`. Stripe replays a stored error for the
