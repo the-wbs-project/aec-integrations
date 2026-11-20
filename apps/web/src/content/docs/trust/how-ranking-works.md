@@ -61,7 +61,7 @@ Filters change which products you see, not their order.
 - **Audiences** lists the seven audiences with the most products.
 - **Trades** lists the seven trades with the most products. A trade is listed once at least one product carries it.
 
-When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each of the other four columns ends with a link to its full list. The counts are the products tagged with each one, and the tags come from the listings themselves.
+When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each of the other four columns ends with a link to its full list. The counts are the products tagged with each one. We set every tag when we list a product. A vendor that has claimed a product can change that product's categories, on any plan. A vendor can change a product's audiences and trades only when that product is on a paid plan. So a vendor's changes can move these counts, and for audiences and trades that takes a paid plan. The counts never move a product in any list.
 
 ## A product page
 

@@ -436,5 +436,9 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
       "The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.",
     );
     expect(order).not.toContain('Plan or license status has no effect');
+    // The legal agent's second pass of 2026-11-20.
+    expect(order).toContain('No paid positions');
+    expect(order).toContain('No vendor pays for a position in this list.');
+    expect(order).not.toMatch(/No paid places|pays for a place here/);
   });
 });

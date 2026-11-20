@@ -433,6 +433,9 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     await expect(page.getByTestId('pair-matches-order')).not.toContainText(
       'Plan or license status has no effect',
     );
+    await expect(page.getByTestId('pair-matches-order')).toContainText(
+      'No vendor pays for a position in this list.',
+    );
     await context.close();
   });
 

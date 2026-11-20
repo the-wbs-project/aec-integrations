@@ -451,13 +451,15 @@ function objectIcon(slug: string): AecIconName | null {
               </dd>
             </div>
             <div>
-              <dt class="font-semibold" i18n="@@pair.empty.matches.orderPaid">No paid places</dt>
-              <!-- AECI-1894: the ranking page's three sentences, approved by the legal agent
-                   on 2026-11-20, in place of an absolute sentence about plans. The first
-                   sentence is unchanged and waits on its own ruling. -->
+              <dt class="font-semibold" i18n="@@pair.empty.matches.orderPaidPositions">
+                No paid positions
+              </dt>
+              <!-- AECI-1894: the legal agent's two passes of 2026-11-20. The heading and the
+                   first sentence are its second pass; the three sentences after it are the
+                   ranking page's, in place of an absolute sentence about plans. -->
               <dd class="m-0 mt-1 text-(--text-secondary)">
-                <span i18n="@@pair.empty.matches.orderNoPaidPlace"
-                  >No vendor pays for a place here.</span
+                <span i18n="@@pair.empty.matches.orderNoPaidPosition"
+                  >No vendor pays for a position in this list.</span
                 >&ngsp;<span i18n="@@pair.empty.matches.orderPlan"
                   >The order never reads a vendor's plan. Who appears depends only on the
                   integrations and data on record. A vendor on a paid plan can add data to its own
