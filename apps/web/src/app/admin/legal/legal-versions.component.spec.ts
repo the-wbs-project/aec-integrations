@@ -5,7 +5,9 @@
  * What these tests hold in place:
  *
  *  1. **Neither question has a default**, and Publish stays off until both are answered
- *     and the summary is valid. "Needs acceptance: Yes" needs "material: Yes".
+ *     and the summary is valid. "Needs acceptance: Yes" needs "material: Yes". Since
+ *     AECI-1977 (ruling 62) only the Terms of Service and the Privacy Policy ask the material
+ *     question: every agreement and policy version is material.
  *  2. **The summary is checked like the API checks it**, and its error is tied to the field.
  *  3. **Hints for one document never show on the other's card.** The expedited reason is
  *     on the Vendor Terms card only.
@@ -192,7 +194,9 @@ async function openDialog(
 ) {
   const doc = answers.doc ?? 'vendor_terms';
   const c = card(ctx.el, doc);
-  await choose(radio(c, doc, 'material', answers.material), ctx.rerender);
+  // AECI-1977 (ruling 62): only the Terms of Service and the Privacy Policy ask it.
+  const material = radio(c, doc, 'material', answers.material);
+  if (material) await choose(material, ctx.rerender);
   await choose(radio(c, doc, 'acceptance', answers.acceptance), ctx.rerender);
   await type(c, doc, 'Claims end after 90 days without a seat.', ctx.rerender);
   publishButton(c).click();
@@ -238,45 +242,57 @@ describe('AdminLegalVersions', () => {
     expect(el.querySelector('[data-testid="legal-card"]')).toBeNull();
   });
 
-  it('starts with no answer chosen and Publish off', async () => {
+  it('starts with no answer chosen and Publish off, and asks no material question', async () => {
     const { el } = await setup();
     const c = card(el, 'vendor_terms');
     const radios = [...c.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios).toHaveLength(4);
+    // AECI-1977 (ruling 62): every agreement version is material, so only acceptance is asked.
+    expect(radios).toHaveLength(2);
+    expect(radio(c, 'vendor_terms', 'material', 'yes')).toBeNull();
+    expect(text(c.querySelector('[data-testid="legal-agreement-notice"]'))).toBe(
+      'This agreement promises an email for every new version, so every version is a material change. Publishing emails every affected company at least 30 days before it takes effect.',
+    );
     expect(radios.some((r) => r.checked)).toBe(false);
     expect(publishButton(c).disabled).toBe(true);
-    expect(text(c)).toContain('Answer both questions and write the summary to publish.');
+    expect(text(c)).toContain('Answer the question and write the summary to publish.');
     expect(text(c)).toContain('Takes effect January 15, 2027 at 12:00 UTC');
   });
 
-  it('enables Publish only once both questions are answered and the summary is valid', async () => {
+  it('enables Publish only once the acceptance question is answered and the summary is valid', async () => {
     const ctx = await setup();
     const c = card(ctx.el, 'vendor_terms');
     await type(c, 'vendor_terms', 'One change.', ctx.rerender);
     expect(publishButton(c).disabled).toBe(true);
-    await choose(radio(c, 'vendor_terms', 'material', 'no'), ctx.rerender);
-    expect(publishButton(c).disabled).toBe(true);
+    // Acceptance Yes is open at once: the version is always material.
+    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').disabled).toBe(false);
     await choose(radio(c, 'vendor_terms', 'acceptance', 'no'), ctx.rerender);
     expect(publishButton(c).disabled).toBe(false);
     await type(c, 'vendor_terms', '', ctx.rerender);
     expect(publishButton(c).disabled).toBe(true);
   });
 
-  it('allows "Needs acceptance: Yes" only on a material change, and clears it when material goes to No', async () => {
-    const ctx = await setup();
-    const c = card(ctx.el, 'vendor_terms');
-    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').disabled).toBe(true);
+  // The Terms of Service card still asks both questions (AECI-1637).
+  it('on the Terms card, allows "Needs acceptance: Yes" only on a material change, and clears it when material goes to No', async () => {
+    const ctx = await setup({
+      data: {
+        publish_enabled: true,
+        upcoming: [entry({ document: 'terms', version: '1.2', current_version: '1.1' })],
+      },
+    });
+    const c = card(ctx.el, 'terms');
+    expect(text(c)).toContain('Answer both questions and write the summary to publish.');
+    expect(radio(c, 'terms', 'acceptance', 'yes').disabled).toBe(true);
     expect(text(c)).toContain('Yes is available once you answer Yes to the first question.');
 
-    await choose(radio(c, 'vendor_terms', 'material', 'yes'), ctx.rerender);
-    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').disabled).toBe(false);
-    await choose(radio(c, 'vendor_terms', 'acceptance', 'yes'), ctx.rerender);
-    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').checked).toBe(true);
+    await choose(radio(c, 'terms', 'material', 'yes'), ctx.rerender);
+    expect(radio(c, 'terms', 'acceptance', 'yes').disabled).toBe(false);
+    await choose(radio(c, 'terms', 'acceptance', 'yes'), ctx.rerender);
+    expect(radio(c, 'terms', 'acceptance', 'yes').checked).toBe(true);
 
-    await choose(radio(c, 'vendor_terms', 'material', 'no'), ctx.rerender);
-    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').disabled).toBe(true);
-    expect(radio(c, 'vendor_terms', 'acceptance', 'yes').checked).toBe(false);
-    expect(radio(c, 'vendor_terms', 'acceptance', 'no').checked).toBe(false);
+    await choose(radio(c, 'terms', 'material', 'no'), ctx.rerender);
+    expect(radio(c, 'terms', 'acceptance', 'yes').disabled).toBe(true);
+    expect(radio(c, 'terms', 'acceptance', 'yes').checked).toBe(false);
+    expect(radio(c, 'terms', 'acceptance', 'no').checked).toBe(false);
   });
 
   it('ties the summary error to the field', async () => {
@@ -313,7 +329,7 @@ describe('AdminLegalVersions', () => {
       'This records version 1.4, which takes effect on January 15, 2027 at 12:00 UTC, with your summary and the stored PDF.',
     );
     expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
-      'You said this is a material change. Publishing emails every affected company your summary, a link to this version and its PDF.',
+      'Every version of this agreement is a material change. Publishing emails every affected company your summary, a link to this version and its PDF.',
     );
     expect(text(d.querySelector('[data-testid="legal-dialog-acceptance"]'))).toBe(
       'You said it needs acceptance. An owner of each company will have to accept version 1.4 before it applies to that company.',
@@ -322,9 +338,14 @@ describe('AdminLegalVersions', () => {
     expect(text(d)).not.toMatch(/\b1 bullets\b|goes to The/);
   });
 
-  it('says what "not material, no acceptance" means', async () => {
-    const ctx = await setup();
-    await openDialog(ctx, { material: 'no', acceptance: 'no' });
+  it('says what "not material, no acceptance" means on the Terms card', async () => {
+    const ctx = await setup({
+      data: {
+        publish_enabled: true,
+        upcoming: [entry({ document: 'terms', version: '1.2', current_version: '1.1' })],
+      },
+    });
+    await openDialog(ctx, { material: 'no', acceptance: 'no', doc: 'terms' });
     const d = dialogEl()!;
     expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
       'You said this is not a material change. No one will be emailed about it.',
@@ -397,7 +418,7 @@ describe('AdminLegalVersions', () => {
     ],
     [
       'too_soon',
-      'This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.',
+      'This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms or a policy they include give an expedited reason.',
     ],
   ])('gives the window advice for reason %s', async (reason, expected) => {
     const ctx = await setup({
@@ -459,7 +480,6 @@ describe('AdminLegalVersions', () => {
   it('keeps Publish off and says why when the tier has publishing turned off', async () => {
     const ctx = await setup({ data: { ...BOTH, publish_enabled: false } });
     const c = card(ctx.el, 'vendor_terms');
-    await choose(radio(c, 'vendor_terms', 'material', 'no'), ctx.rerender);
     await choose(radio(c, 'vendor_terms', 'acceptance', 'no'), ctx.rerender);
     await type(c, 'vendor_terms', 'One change.', ctx.rerender);
     expect(publishButton(c).disabled).toBe(true);
@@ -827,5 +847,63 @@ describe('AdminLegalVersions: the reader documents (AECI-1637)', () => {
       [...c.querySelectorAll('[data-testid="legal-notice-not-reached"] li')].map(text),
     ).toEqual(['Account 7a1b2c3d: The account has no email address to send to.']);
     expect(text(c)).not.toMatch(/compan/i);
+  });
+});
+
+// AECI-1969 (counsel Q68, ruling 54): the two policies the Vendor Terms incorporate publish
+// here too. Every version is material and emailed to every claimed company, and no one is
+// asked to accept it.
+describe('AdminLegalVersions: the two policies (AECI-1969)', () => {
+  const POLICIES: AdminLegalVersionsResponse = {
+    publish_enabled: true,
+    upcoming: [
+      entry({ document: 'listing_accuracy', version: '1.1', current_version: '1.0' }),
+      entry({ document: 'review_guidelines', version: '1.1', current_version: '1.0' }),
+    ],
+  };
+
+  it('renders a card for each with no material or acceptance question', async () => {
+    const ctx = await setup({ data: POLICIES });
+    const la = card(ctx.el, 'listing_accuracy');
+    const rg = card(ctx.el, 'review_guidelines');
+    expect(text(la.querySelector('h3'))).toBe('Listing Accuracy Policy version 1.1');
+    expect(text(rg.querySelector('h3'))).toBe('Review Guidelines version 1.1');
+    for (const [c, doc] of [
+      [la, 'listing_accuracy'],
+      [rg, 'review_guidelines'],
+    ] as const) {
+      expect(radio(c, doc, 'material', 'yes')).toBeNull();
+      expect(c.querySelector('[data-testid="legal-acceptance-question"]')).toBeNull();
+      expect(text(c.querySelector('[data-testid="legal-policy-notice"]'))).toBe(
+        'The Vendor Terms include this policy, so every version is a material change. Publishing emails every claimed company at least 30 days before it takes effect. A company the email does not reach stays on the version it accepted.',
+      );
+      expect(c.querySelector(`#admin-legal-${doc}-expedited-hint`)).not.toBeNull();
+    }
+  });
+
+  it('publishes on the summary alone, as material, never asking for acceptance', async () => {
+    const ctx = await setup({ data: POLICIES });
+    const c = card(ctx.el, 'review_guidelines');
+    expect(publishButton(c).disabled).toBe(true);
+    expect(text(c)).toContain('Write the summary to publish.');
+    await type(c, 'review_guidelines', 'A response may link a help page.', ctx.rerender);
+    expect(publishButton(c).disabled).toBe(false);
+    publishButton(c).click();
+    await ctx.rerender();
+    const d = dialogEl()!;
+    expect(text(d.querySelector('[data-testid="legal-dialog-material"]'))).toBe(
+      'Every policy version is a material change. Publishing emails every claimed company your summary, a link to this version and its PDF. A company the email does not reach stays on the version it accepted.',
+    );
+    expect(d.querySelector('[data-testid="legal-dialog-acceptance"]')).toBeNull();
+    dialogButton('Publish version').click();
+    await ctx.rerender();
+    expect(ctx.api.publish).toHaveBeenCalledWith({
+      document: 'review_guidelines',
+      version: '1.1',
+      material: true,
+      requires_acceptance: false,
+      summary: ['A response may link a help page.'],
+      expedited_reason: null,
+    });
   });
 });

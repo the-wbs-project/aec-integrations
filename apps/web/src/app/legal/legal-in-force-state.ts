@@ -42,7 +42,7 @@ import {
 import type { LegalDoc } from './legal-render';
 import { legalDateLabel } from './legal-versions';
 
-/** slug → publishable document, for the four slugs that need a published row. */
+/** slug → publishable document, for the six slugs that need a published row. */
 const PUBLISHABLE_OF_SLUG = new Map<string, LegalPublishableDocument>(
   (Object.entries(LEGAL_DOCUMENT_SLUGS) as [LegalPublishableDocument, string][]).map(
     ([document, slug]) => [slug, document],
@@ -50,9 +50,9 @@ const PUBLISHABLE_OF_SLUG = new Map<string, LegalPublishableDocument>(
 );
 
 /**
- * The publishable document a slug is (an agreement, or since AECI-1637 the Terms of
- * Service or the Privacy Policy), or `undefined` for the two policies, which have no
- * publish record.
+ * The publishable document a slug is (an agreement, since AECI-1637 the Terms of
+ * Service or the Privacy Policy, and since AECI-1969 the two policies), or `undefined`
+ * for a slug with no publish record.
  */
 export function publishableOfSlug(slug: LegalSlug): LegalPublishableDocument | undefined {
   return PUBLISHABLE_OF_SLUG.get(slug);
@@ -65,7 +65,7 @@ export function legalEntryMomentMs(entry: LegalUpcomingEntry): number {
 
 /**
  * Whether `entry` is in force at `nowMs`. A publishable document needs its published row
- * (`published`); a policy switches on its date alone.
+ * (`published`). Since AECI-1969 (ruling 54) that includes the two policies.
  */
 export function legalEntrySwitched(
   entry: LegalUpcomingEntry,

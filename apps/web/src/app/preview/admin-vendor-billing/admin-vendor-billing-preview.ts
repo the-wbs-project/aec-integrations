@@ -225,6 +225,27 @@ function billing(grants: AdminLicenseGrant[]): AdminVendorBillingResponse {
     release_requests: [],
     grants,
     grants_truncated: false,
+    // AECI-1969: one policy moved on by its change email, one still on the accepted version.
+    policy_versions: [
+      {
+        policy: 'listing_accuracy',
+        version: '1.1',
+        basis: 'notice',
+        since: '2027-01-15T12:00:00.000Z',
+        notice_delivered_at: '2026-12-02T09:00:00.000Z',
+        missed_versions: [],
+        upcoming: null,
+      },
+      {
+        policy: 'review_guidelines',
+        version: '1.0',
+        basis: 'acceptance',
+        since: '2026-06-04T13:55:00.000Z',
+        notice_delivered_at: null,
+        missed_versions: ['1.1'],
+        upcoming: null,
+      },
+    ],
   };
 }
 

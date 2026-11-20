@@ -25,9 +25,20 @@ const MAPS: LegalInForceMaps = {
   ...LEGAL_IN_FORCE_MAPS,
   policyUpcoming: { listing_accuracy: { version: '1.1', effectiveOn: DAY } },
 };
-const res = (now: number): LegalPublishedResponse => ({
+/** What the API answers: since AECI-1969 (ruling 54) the policy switches only on its
+ *  published row, which the read lists once the moment has come. */
+const res = (now: number, row = true): LegalPublishedResponse => ({
   now: new Date(now).toISOString(),
-  published: [],
+  published:
+    row && now >= MOMENT
+      ? [
+          {
+            document: 'listing_accuracy',
+            version: '1.1',
+            effective_at: new Date(MOMENT).toISOString(),
+          },
+        ]
+      : [],
 });
 
 function setup(platform: 'browser' | 'server', maps: LegalInForceMaps = MAPS) {
@@ -83,6 +94,14 @@ describe('LegalInForceClient', () => {
     t.advance(1000 * HOUR);
     await t.client.refresh();
     t.http.expectNone(PATH);
+  });
+
+  it('an unpublished policy version never switches, whatever the clock', async () => {
+    const t = setup('browser');
+    const first = t.client.refresh();
+    t.http.expectOne(PATH).flush(res(MOMENT + 1, false));
+    await first;
+    expect(t.client.versions().policies.listing_accuracy).toBe('1.0');
   });
 
   it('a failed read keeps the build versions and asks again next time', async () => {

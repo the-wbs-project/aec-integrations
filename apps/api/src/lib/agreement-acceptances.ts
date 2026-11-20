@@ -239,6 +239,12 @@ export interface AgreementAcceptanceParams {
    */
   policyVersions?: AcceptancePolicyVersions | null;
   /**
+   * AECI-1969: the upcoming policy map a recorded policy version may also come from (a
+   * published version in force before bump day). Absent: `LEGAL_POLICY_UPCOMING_VERSIONS`.
+   * Injected by specs only.
+   */
+  policyUpcoming?: Parameters<typeof isKnownLegalPolicyVersion>[2];
+  /**
    * AECI-1619: the Plans page version current at acceptance. Checkout and grant only,
    * and since AECI-1677 a `portal` acceptance of the Managed plan agreement: any other
    * with it set is refused. The builder stamps `plans_page_sha256` from it.
@@ -260,8 +266,8 @@ export interface AcceptancePolicyVersions {
 
 /**
  * The policy versions the claim box names at request time: the ones in force
- * (`inForce`, AECI-1689). A policy switches on its date alone, so without `inForce` the
- * answer is computed from the clock with no D1 read.
+ * (`inForce`, AECI-1689). Since AECI-1969 a policy switches only once published, so
+ * without `inForce` (no published rows) the answer is the build's current versions.
  */
 export function currentPolicyVersions(
   inForce: LegalInForceVersions = legalVersionsInForce([], Date.now()),
@@ -429,13 +435,25 @@ export function agreementAcceptanceStatements(
         'Only a claim or a portal Vendor Terms acceptance records policy versions',
       );
     }
-    if (!isKnownLegalPolicyVersion('listing_accuracy', policyVersions.listingAccuracy)) {
+    if (
+      !isKnownLegalPolicyVersion(
+        'listing_accuracy',
+        policyVersions.listingAccuracy,
+        p.policyUpcoming,
+      )
+    ) {
       throw validationFailed(
         'listing_accuracy_version',
         `Version ${policyVersions.listingAccuracy} of the Listing Accuracy Policy was never published`,
       );
     }
-    if (!isKnownLegalPolicyVersion('review_guidelines', policyVersions.reviewGuidelines)) {
+    if (
+      !isKnownLegalPolicyVersion(
+        'review_guidelines',
+        policyVersions.reviewGuidelines,
+        p.policyUpcoming,
+      )
+    ) {
       throw validationFailed(
         'review_guidelines_version',
         `Version ${policyVersions.reviewGuidelines} of the Review Guidelines was never published`,

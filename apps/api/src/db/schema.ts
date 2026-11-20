@@ -2426,7 +2426,7 @@ export const legalVersions = sqliteTable(
     summaryJson: text('summary_json').notNull(),
     material: integer('material', { mode: 'boolean' }).notNull(),
     requiresAcceptance: integer('requires_acceptance', { mode: 'boolean' }).notNull(),
-    /** `LEGAL_EXPEDITED_REASONS`: `law` | `error`. Vendor Terms only. No CHECK. */
+    /** `LEGAL_EXPEDITED_REASONS`: `law` | `error`. Vendor Terms or (AECI-1969) a policy only. No CHECK. */
     expeditedReason: text('expedited_reason'),
     pdfKey: text('pdf_key').notNull(),
     /** 64 lowercase hex characters. */

@@ -60,6 +60,7 @@ function makeBilling(grants: AdminLicenseGrant[]): AdminVendorBillingResponse {
     release_requests: [],
     grants,
     grants_truncated: false,
+    policy_versions: [],
   };
 }
 

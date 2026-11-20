@@ -64,6 +64,14 @@
  * completed. The re-send route refuses then too, and its own outcome write is guarded on
  * the version not yet being in effect.
  *
+ * ── THE TWO POLICIES (AECI-1969, counsel Q68, ruling 54) ─────────────────────────
+ * The Vendor Terms make the Listing Accuracy Policy and the Review Guidelines "part of
+ * these terms", so a published policy version goes to the `vendor_terms` audience with the
+ * `vendor_terms` recipients, on this company path, keyed and recorded the same way
+ * (`legal-terms-change:listing_accuracy:…`). Its closing is `vendor-policy`. A company
+ * whose row never reaches `delivered` stays on the version it accepted
+ * (`companyPolicyVersion`, `lib/policy-binding.ts`).
+ *
  * ── THE TERMS OF SERVICE AND THE PRIVACY POLICY (AECI-1637) ─────────────────────
  * A material Terms or Privacy version notifies every ACCOUNT, not a company (counsel Q34,
  * ruling 12): every unbanned `profiles` row of this tier, vendor seats included.
@@ -79,10 +87,11 @@
  */
 
 import {
+  isLegalPolicyDocument,
   isLegalReaderDocument,
-  LegalAgreementDocumentSchema,
+  LegalCompanyNoticeDocumentSchema,
   LegalReaderDocumentSchema,
-  type LegalAgreementDocument,
+  type LegalCompanyNoticeDocument,
   type LegalReaderDocument,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -220,7 +229,7 @@ export function isLegalNoticeQueue(queueName: string): boolean {
 
 /** The dedupe key of one address's notice from one company. */
 export function legalNoticeDedupeKey(
-  document: LegalAgreementDocument,
+  document: LegalCompanyNoticeDocument,
   version: string,
   vendorId: string,
   hash: string,
@@ -238,10 +247,12 @@ function binarySort(ids: Iterable<string>): string[] {
 /** The companies a published version of `document` notifies (module header), sorted. */
 export async function legalNoticeVendorIds(
   db: Db,
-  document: LegalAgreementDocument,
+  document: LegalCompanyNoticeDocument,
 ): Promise<string[]> {
+  // A policy version (AECI-1969) reaches the Vendor Terms audience: the Vendor Terms
+  // incorporate both policies, so every claimed company is bound by them.
   const rows =
-    document === 'vendor_terms'
+    document !== 'managed_plan'
       ? await db
           .selectDistinct({ vendorId: profiles.vendorId })
           .from(profiles)
@@ -306,7 +317,7 @@ export function strictSeatEmails(fetchResult: FetchSeatEmailsResult): FetchSeatE
 export async function legalNoticeRecipients(
   env: Env,
   db: Db,
-  document: LegalAgreementDocument,
+  document: LegalCompanyNoticeDocument,
   vendorId: string,
   fetchSeatEmails: FetchSeatEmails,
 ): Promise<string[]> {
@@ -340,10 +351,12 @@ export function legalReaderClosingFor(
 
 /** The closing line for one company (`LegalTermsChangeClosing`). */
 export function legalClosingFor(
-  document: LegalAgreementDocument,
+  document: LegalCompanyNoticeDocument,
   requiresAcceptance: boolean,
   monthly: boolean,
 ): LegalTermsChangeClosing {
+  // AECI-1969: a policy never needs acceptance (the publish schema refuses it).
+  if (isLegalPolicyDocument(document)) return 'vendor-policy';
   if (document === 'vendor_terms') {
     return requiresAcceptance ? 'vendor-terms-accept' : 'vendor-terms';
   }
@@ -585,7 +598,7 @@ export async function fanOutLegalNotice(
   let vendorIds: string[];
   try {
     const [audience, delivered] = await Promise.all([
-      legalNoticeVendorIds(db, LegalAgreementDocumentSchema.parse(row.document)),
+      legalNoticeVendorIds(db, LegalCompanyNoticeDocumentSchema.parse(row.document)),
       loadDeliveredVendorIds(db, row.id),
     ]);
     // A re-send reaches only the companies not yet delivered.
@@ -1307,7 +1320,7 @@ export async function deliverLegalNotice(
       message.ack();
       return;
     }
-    const document = LegalAgreementDocumentSchema.parse(row.document);
+    const document = LegalCompanyNoticeDocumentSchema.parse(row.document);
     if (!env.PUBLIC_SITE_URL?.trim()) {
       await failLoud(
         'no_site_url',

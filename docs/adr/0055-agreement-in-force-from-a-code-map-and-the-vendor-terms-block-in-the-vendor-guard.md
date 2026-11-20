@@ -127,3 +127,12 @@ every other sign-in. Point 3 still holds: no guard reads the Terms rows and noth
 - **Leaving.** A reader who leaves without ticking stays signed in on the earlier version. The next
   sign-in asks again.
 - **No migration.** `checkbox_default_unticked` already existed for this.
+
+## Amendment 2026-11-19 — the policies are row-gated too (AECI-1969, ruling 54)
+
+The Listing Accuracy Policy and the Review Guidelines no longer switch on their date alone. Like
+the agreements and the reader documents, an upcoming policy version is in force only once a
+`legal_versions` row published it with the same moment, because the publish is what sends the
+Vendor Terms change email to claimed companies (counsel Q68). The block in the vendor guard is
+not extended to them: no one accepts a policy. ADR 0054's 2026-11-19 amendment has the rest.
+

@@ -19,6 +19,7 @@ import type {
   AdminBillingOwnerSeat,
   AdminLicenseReleaseRequest,
   AdminVendorBillingResponse,
+  CompanyPolicyVersion,
 } from '@aeci/shared';
 
 import { formatTermDate } from '../../shared/term-date/format-term-date';
@@ -387,6 +388,46 @@ export class BillingLicensesTable {
       label: $localize`:@@admin.vendors.billing.acceptances.plansPage:Plans page ${version}:VERSION:`,
       href: plansSnapshotHref(version),
     };
+  }
+
+  /** AECI-1969: which policy version the company is on. Defaulted: an older API sends none. */
+  protected readonly policyVersions = computed<readonly CompanyPolicyVersion[]>(
+    () => this.billing()?.policy_versions ?? [],
+  );
+
+  protected policyTitle(policy: CompanyPolicyVersion['policy']): string {
+    return policy === 'listing_accuracy'
+      ? $localize`:@@admin.vendors.billing.policies.listingAccuracy:Listing Accuracy Policy`
+      : $localize`:@@admin.vendors.billing.policies.reviewGuidelines:Review Guidelines`;
+  }
+
+  /** Where the company stands, in one sentence. */
+  protected policyLine(p: CompanyPolicyVersion): string {
+    const version = p.version ?? '';
+    const since = p.since ? formatTermDate(p.since, this.locale) : '';
+    if (p.basis === 'notice') {
+      const delivered = p.notice_delivered_at
+        ? formatTermDate(p.notice_delivered_at, this.locale)
+        : '';
+      return $localize`:@@admin.vendors.billing.policies.byNotice:Version ${version}:VERSION:, in effect since ${since}:SINCE:. Its change email reached the company on ${delivered}:DELIVERED:.`;
+    }
+    if (p.basis === 'acceptance') {
+      return $localize`:@@admin.vendors.billing.policies.byAcceptance:Version ${version}:VERSION:, recorded when the company accepted the Vendor Terms on ${since}:SINCE:.`;
+    }
+    return $localize`:@@admin.vendors.billing.policies.none:No version recorded. No acceptance named one, and no change email has reached the company.`;
+  }
+
+  protected policyMissedLine(p: CompanyPolicyVersion): string {
+    const versions = p.missed_versions.join(', ');
+    return $localize`:@@admin.vendors.billing.policies.missed:Not bound by version ${versions}:VERSIONS:: its change email did not reach the company before it took effect.`;
+  }
+
+  protected policyUpcomingLine(next: NonNullable<CompanyPolicyVersion['upcoming']>): string {
+    const version = next.version;
+    const date = formatTermDate(next.effective_at, this.locale);
+    return next.delivered
+      ? $localize`:@@admin.vendors.billing.policies.upcomingDelivered:Version ${version}:VERSION: takes effect on ${date}:DATE:. Its change email has reached the company.`
+      : $localize`:@@admin.vendors.billing.policies.upcomingPending:Version ${version}:VERSION: takes effect on ${date}:DATE:. Its change email has not reached the company yet. Send it again from the Legal page.`;
   }
 
   protected readonly acceptances = computed<readonly AdminAgreementAcceptance[]>(

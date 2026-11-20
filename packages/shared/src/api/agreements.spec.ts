@@ -118,6 +118,9 @@ describe('reader documents (AECI-1637)', () => {
       'managed_plan',
       'terms',
       'privacy',
+      // AECI-1969 (ruling 54): the two policies the Vendor Terms incorporate.
+      'listing_accuracy',
+      'review_guidelines',
     ]);
     for (const d of LEGAL_READER_DOCUMENTS) {
       expect(LEGAL_AGREEMENT_DOCUMENTS as readonly string[]).not.toContain(d);
@@ -166,5 +169,17 @@ describe('compareLegalVersions (AECI-1677)', () => {
     expect(compareLegalVersions('1.9', '1.10')).toBe(-1);
     expect(compareLegalVersions('1.3', '1.3.0')).toBe(0);
     expect(compareLegalVersions('2.0', '1.99')).toBe(1);
+  });
+});
+
+// AECI-1969: a published policy version is in force before bump day appends it to the known
+// list, so a claim made then must be able to record it.
+describe('isKnownLegalPolicyVersion', () => {
+  it('accepts a known version and the upcoming one, and nothing else', () => {
+    const upcoming = { listing_accuracy: { version: '1.1', effectiveOn: '2027-03-31' } };
+    expect(isKnownLegalPolicyVersion('listing_accuracy', '1.0', upcoming)).toBe(true);
+    expect(isKnownLegalPolicyVersion('listing_accuracy', '1.1', upcoming)).toBe(true);
+    expect(isKnownLegalPolicyVersion('review_guidelines', '1.1', upcoming)).toBe(false);
+    expect(isKnownLegalPolicyVersion('listing_accuracy', '1.1')).toBe(false);
   });
 });

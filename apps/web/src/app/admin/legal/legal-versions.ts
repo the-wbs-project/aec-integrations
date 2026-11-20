@@ -22,7 +22,10 @@ import {
   LEGAL_SUMMARY_MAX_BULLETS,
   LegalSummarySchema,
   hasForbiddenSummaryChar,
+  isLegalPolicyDocument,
   isLegalReaderDocument,
+  legalDocumentAlwaysMaterial,
+  legalDocumentMayBeExpedited,
   legalVersionPagePath,
   type AdminLegalUpcomingEntry,
   type AdminLegalVersionsResponse,
@@ -272,13 +275,28 @@ export class AdminLegalVersions {
    *  publishing on for the tier. */
   protected canPublish(document: LegalPublishableDocument): boolean {
     const d = this.draft(document);
+    const material = this.materialOf(document);
     return (
       this.publishEnabled() &&
-      d.material !== null &&
+      material !== null &&
       (!this.asksAcceptance(document) || d.acceptance !== null) &&
-      !(d.material === 'no' && d.acceptance === 'yes') &&
+      !(material === 'no' && d.acceptance === 'yes') &&
       summaryProblem(summaryBullets(d.summary)) === null
     );
+  }
+
+  /**
+   * The material answer. Only the Terms of Service and the Privacy Policy ask the question.
+   * Every version of the two agreements (AECI-1977, ruling 62) and of the two policies
+   * (AECI-1969, ruling 54) is material, because each one is emailed to the affected companies.
+   */
+  protected materialOf(document: LegalPublishableDocument): Answer {
+    return this.asksMaterial(document) ? this.draft(document).material : 'yes';
+  }
+
+  /** Whether the card asks "Is this a material change?": the two reader documents only. */
+  protected asksMaterial(document: LegalPublishableDocument): boolean {
+    return !legalDocumentAlwaysMaterial(document);
   }
 
   protected onMaterial(document: LegalPublishableDocument, answer: 'yes' | 'no'): void {
@@ -290,7 +308,7 @@ export class AdminLegalVersions {
   }
 
   protected onAcceptance(document: LegalPublishableDocument, answer: 'yes' | 'no'): void {
-    if (answer === 'yes' && this.draft(document).material !== 'yes') return;
+    if (answer === 'yes' && this.materialOf(document) !== 'yes') return;
     this.patch(document, { acceptance: answer });
   }
 
@@ -419,10 +437,10 @@ export class AdminLegalVersions {
       await this.api.publish({
         document: entry.document,
         version: entry.version,
-        material: d.material === 'yes',
+        material: this.materialOf(entry.document) === 'yes',
         requires_acceptance: this.asksAcceptance(entry.document) && d.acceptance === 'yes',
         summary: summaryBullets(d.summary),
-        ...(entry.document === 'vendor_terms' ? { expedited_reason: d.expedited } : {}),
+        ...(this.mayExpedite(entry.document) ? { expedited_reason: d.expedited } : {}),
       });
       this.focusAfterClose = entry.document;
       const title = this.documentTitle(entry.document);
@@ -463,6 +481,11 @@ export class AdminLegalVersions {
         return $localize`:@@admin.legal.doc.terms:Terms of Service`;
       case 'privacy':
         return $localize`:@@admin.legal.doc.privacy:Privacy Policy`;
+      // AECI-1969: the two policies the Vendor Terms incorporate.
+      case 'listing_accuracy':
+        return $localize`:@@admin.legal.doc.listingAccuracy:Listing Accuracy Policy`;
+      case 'review_guidelines':
+        return $localize`:@@admin.legal.doc.reviewGuidelines:Review Guidelines`;
     }
   }
 
@@ -484,9 +507,27 @@ export class AdminLegalVersions {
     return isLegalReaderDocument(document);
   }
 
-  /** The acceptance question applies to every document but the Privacy Policy (ruling 4). */
+  /** The acceptance question applies to every document but the Privacy Policy (ruling 4)
+   *  and the two policies (AECI-1969), which no one is asked to accept. */
   protected asksAcceptance(document: LegalPublishableDocument): boolean {
-    return document !== 'privacy';
+    return document !== 'privacy' && !this.isPolicy(document);
+  }
+
+  /** A Listing Accuracy Policy or Review Guidelines card (AECI-1969, ruling 54). */
+  protected isPolicy(document: LegalPublishableDocument): boolean {
+    return isLegalPolicyDocument(document);
+  }
+
+  /** The Vendor Terms and the two policies they incorporate may be expedited. */
+  protected mayExpedite(document: LegalPublishableDocument): boolean {
+    return legalDocumentMayBeExpedited(document);
+  }
+
+  /** The expedited select's id prefix. The Vendor Terms keep the original one. */
+  protected expeditedId(document: LegalPublishableDocument): string {
+    return document === 'vendor_terms'
+      ? 'admin-legal-expedited'
+      : `admin-legal-${document}-expedited`;
   }
 
   /** Why a delivered company is worth checking, in plain words. */
@@ -584,7 +625,7 @@ function messageForError(err: unknown): string {
       case 'LEGAL_NOTICE_WINDOW':
         return errorDetail(err, 'reason') === 'passed'
           ? $localize`:@@admin.legal.error.windowPassed:This version's effective date has already passed. Move the effective date in the repository and deploy again. An expedited reason does not help.`
-          : $localize`:@@admin.legal.error.window:This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms give an expedited reason.`;
+          : $localize`:@@admin.legal.error.window:This version takes effect less than 30 days from now. Move its effective date, or for the Vendor Terms or a policy they include give an expedited reason.`;
       case 'LEGAL_PDF_MISSING':
         return $localize`:@@admin.legal.error.pdf:No valid PDF is stored for this version. Run the legal PDF workflow for it, then publish again.`;
       case 'LEGAL_NOTICE_NOT_MATERIAL':

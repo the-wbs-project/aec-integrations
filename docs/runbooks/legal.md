@@ -574,7 +574,7 @@ the queue line says the notice did not finish, or when a company says it never g
 | Not reached: "The site address is not set, so the link could not be built." | `PUBLIC_SITE_URL` is unset | Set the var, deploy, send again |
 | Not reached: "A database or service read failed." | A D1 or R2 read threw on every attempt | Check D1 and R2 health, then send again |
 | Not reached: "No seat or billing email to send to." | The company has no unbanned seat (Vendor Terms) or owner seat (Managed plan) with an address, and no billing email | Ask the company for a billing email, or add a seat, then send again |
-| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect |
+| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect. For a Listing Accuracy Policy or Review Guidelines version (AECI-1969) the company stays on its earlier policy version, and its admin Billing tab says so |
 
 **Read the logs** for detail. In PostHog Logs, search `aeci.legal_notice`. Each error names the
 `legal_version_id`, the `vendor_id` and the version, and carries `reason_code`. The last attempt

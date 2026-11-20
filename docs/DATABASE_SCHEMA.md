@@ -2971,8 +2971,9 @@ create index license_grants_account_idx on license_grants(billing_account_id);
 
 ### 8.6i `legal_versions` (AECI-1688, migration `0119_violet_warpath`)
 
-One version of the Vendor Terms, the Managed plan agreement, the Terms of Service or the Privacy
-Policy that an operator published on `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
+One version of the Vendor Terms, the Managed plan agreement, the Terms of Service, the Privacy
+Policy or, since AECI-1969 (ruling 54), the Listing Accuracy Policy or the Review Guidelines
+that an operator published on `/admin/legal` before it takes effect (`STAGE_1_SPEC.md` §27.5, `ADMIN_PANEL_SPEC.md` §5.22,
 ADR 0054). A row is the record that the version was announced: its summary, the operator's two
 answers, and the fingerprint of the PDF a customer can save. A material version's publish queues
 its change-notice email (AECI-1620, and for the two reader documents the account email,
@@ -2982,13 +2983,13 @@ sign-in Terms acceptance (AECI-1637, §8.6k) read the row later.
 ```sql
 create table legal_versions (
   id text primary key,
-  document text not null,          -- 'vendor_terms' | 'managed_plan' | 'terms' | 'privacy' (LegalPublishableDocument); NO CHECK
-  version text not null,           -- the upcoming-version map entry (LEGAL_AGREEMENT_ or LEGAL_READER_UPCOMING_VERSIONS), e.g. '1.4'
+  document text not null,          -- 'vendor_terms' | 'managed_plan' | 'terms' | 'privacy' | 'listing_accuracy' | 'review_guidelines' (LegalPublishableDocument); NO CHECK
+  version text not null,           -- the upcoming-version map entry (LEGAL_AGREEMENT_, LEGAL_READER_ or LEGAL_POLICY_UPCOMING_VERSIONS), e.g. '1.4'
   effective_at integer not null,   -- epoch ms, 12:00 UTC of the entry's effectiveOn day (legalEffectiveAtMs)
   summary_json text not null,      -- JSON array: 1 to 10 one-line bullets, each up to 300 characters
-  material integer not null,       -- 0/1: the change is summarised and noticed
-  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only after it ticks the box at its next sign-in (ruling 53); implies material; never 1 for 'privacy'
-  expedited_reason text,           -- 'law' | 'error'; Vendor Terms inside the 30-day window only, else NULL; NO CHECK
+  material integer not null,       -- 0/1: the change is summarised and noticed; always 1 for a policy (AECI-1969) and, from AECI-1977, for an agreement
+  requires_acceptance integer not null, -- 0/1: agreements: an owner seat must accept before it applies; Terms: rights-reducing, binds an account only after it ticks the box at its next sign-in (ruling 53); implies material; never 1 for 'privacy' or a policy
+  expedited_reason text,           -- 'law' | 'error'; Vendor Terms or a policy inside the 30-day window only, else NULL; NO CHECK
   pdf_key text not null,           -- legal/<slug>/v<version>.pdf in UPLOADS
   pdf_sha256 text not null,        -- of the exact bytes read at publish
   pdf_bytes integer not null,      -- at most 5 MB
@@ -3099,9 +3100,15 @@ create unique index legal_notice_deliveries_version_vendor_key
 - **Log-class** (ADR 0022, amendment 2026-11-12): the publish, each fan-out outcome and the
   expiry carry their own `audit_log` rows. No CHECK and no FK, the house rule.
 - **Readers.** `GET /api/admin/legal-versions` (`notice_deliveries`: totals and the first 100
-  companies not reached, by name) and the re-send's skip of delivered companies.
-- **Retention.** Kept. One row per company per version is the record that a legal notice went.
-  Not in `PRUNABLE`.
+  companies not reached, by name) and the re-send's skip of delivered companies. Since AECI-1969,
+  `GET /api/admin/vendors/:id/billing` (`policy_versions`, `apps/api/src/lib/policy-binding.ts`):
+  a `delivered` row of a published Listing Accuracy Policy or Review Guidelines version, once its
+  effective moment has passed, is what moves the company onto that version (counsel Q68,
+  ruling 54). Its `updated_at` is shown as the day the email reached the company.
+- **Retention.** Kept. One row per company per version is the record that a legal notice went,
+  and for a policy version the record of which version binds the company. Not in `PRUNABLE`. A
+  future prune must keep a policy version's `delivered` rows as long as the company's Vendor
+  Terms acceptance is kept.
 - **Migration.** One `CREATE TABLE` and one `CREATE UNIQUE INDEX`, nothing else
   (`src/test/migration-0120.spec.ts`), so no existing table is recreated (`docs/migrations.md` §0).
 

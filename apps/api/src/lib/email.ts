@@ -85,6 +85,7 @@ import {
   REQUEST_CONFIRMATION_DAYS,
   claimOwnerReviewDeadline,
   countryName,
+  legalDocumentMayBeExpedited,
   legalVersionPagePath,
   orderedPairSlugs,
   type AttestationDetector,
@@ -1686,6 +1687,9 @@ export function sendAttestationOpsDigestEmail(
  *     Terms 1.3 "Changes to these terms"). Adds the portal button.
  *   - `managed-binds`: a Managed plan version with no acceptance, and the acceptance case
  *     for every company that is not on a live monthly card subscription.
+ *   - `vendor-policy`: a Listing Accuracy Policy or Review Guidelines version (AECI-1969,
+ *     ruling 54). The Vendor Terms incorporate both, so it restates their change clause:
+ *     continued use binds, and a company that does not agree gives up its claim.
  *   - `managed-monthly-accept`: a Managed plan version that needs acceptance, to a company
  *     with a live monthly card subscription. Adds the portal button. It says nothing about
  *     what happens without an acceptance: that sentence of the agreement is being rewritten.
@@ -1702,6 +1706,7 @@ export function sendAttestationOpsDigestEmail(
 export type LegalTermsChangeClosing =
   | 'vendor-terms'
   | 'vendor-terms-accept'
+  | 'vendor-policy'
   | 'managed-binds'
   | 'managed-monthly-accept'
   | 'reader-terms'
@@ -1723,7 +1728,8 @@ export interface LegalTermsChangeSubject {
   /** The published bullets, plain text. Escaped here. */
   summary: readonly string[];
   closing: LegalTermsChangeClosing;
-  /** The row's `expedited_reason`. Only a Vendor Terms version carries one. */
+  /** The row's `expedited_reason`. Only a Vendor Terms or (AECI-1969) policy version
+   *  carries one. */
   expeditedReason: LegalExpeditedReason | null;
   /** The company's portal is `/vendor/{slug}`. Null falls back to `/vendor`. */
   vendorSlug: string | null;
@@ -1757,6 +1763,8 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
   switch (closing) {
     case 'vendor-terms':
       return `If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
+    case 'vendor-policy':
+      return `The Vendor Terms make this policy part of your company's agreement with us. If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
     case 'vendor-terms-accept':
       return `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.`;
     case 'managed-monthly-accept':
@@ -1785,7 +1793,8 @@ function bulletBlock(items: readonly string[]): { text: string; html: string } {
 
 /**
  * `legal-terms-change` (AECI-1620, counsel Q3): the change notice for a published version
- * of the Vendor Terms or the Managed plan agreement. Both agreements' "Changes" sections
+ * of the Vendor Terms or the Managed plan agreement, and since AECI-1969 (ruling 54) of the
+ * Listing Accuracy Policy or the Review Guidelines, which the Vendor Terms incorporate. Both agreements' "Changes" sections
  * promise four things, so this always carries all four: the version and its effective
  * date, the summary of every material change, the absolute link to that fixed version,
  * and the PDF attached. The consumer (`lib/legal-notice.ts`) refuses to call it without a
@@ -1820,7 +1829,7 @@ export function sendLegalTermsChangeEmail(
   const bullets = bulletBlock(opts.summary);
   const pdf = 'A PDF copy is attached so you can save it.';
   const expedited =
-    opts.document === 'vendor_terms' && opts.expeditedReason
+    legalDocumentMayBeExpedited(opts.document) && opts.expeditedReason
       ? LEGAL_EXPEDITED_SENTENCE[opts.expeditedReason]
       : null;
   const closing = legalClosingLine(opts.closing, opts.version, date);
@@ -1829,7 +1838,9 @@ export function sendLegalTermsChangeEmail(
   const reader = isReaderLegalClosing(opts.closing);
   const note = reader
     ? 'You are receiving this notice because you have an account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.'
-    : "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
+    : opts.closing === 'vendor-policy'
+      ? "You are receiving this notice because the Vendor Terms that cover your company's account on AEC Integrations include this policy. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question."
+      : "You are receiving this notice because this agreement covers your company's account on AEC Integrations. It is a legal notice, so it has no unsubscribe link. Reply to this email with any question.";
 
   const render = (link: LinkTagger): EmailContent => {
     const text = [lead, changes, bullets.text];

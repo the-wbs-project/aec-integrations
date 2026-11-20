@@ -139,6 +139,7 @@ function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendo
     release_requests: [],
     grants: [],
     grants_truncated: false,
+    policy_versions: [],
     ...over,
   };
 }

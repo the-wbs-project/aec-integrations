@@ -12,16 +12,19 @@
  * version is in force from its effective moment, 12:00 UTC of `effectiveOn`
  * (`legalEffectiveAtMs`), when:
  *
- *   - the document is one of the four PUBLISHABLE documents (Vendor Terms, Managed plan
- *     agreement, and since AECI-1637 the Terms of Service and the Privacy Policy), and a
+ *   - the document is one of the six PUBLISHABLE documents (Vendor Terms, Managed plan
+ *     agreement, since AECI-1637 the Terms of Service and the Privacy Policy, and since
+ *     AECI-1969 the Review Guidelines and the Listing Accuracy Policy), and a
  *     `legal_versions` row names that version with the same effective moment. A row means
  *     it was published, so its change notice went out. No row, no switch, on every surface
- *     (ruling 2 of 2026-11-13 for the reader documents). Publishing is refused in demo and
- *     production while `LEGAL_PUBLISH_ENABLED` is "false", so a first effective date waits
- *     for that release;
- *   - or the document is one of the two policies (Review Guidelines, Listing Accuracy
- *     Policy). They have no publish record, so the date alone switches it. The manifest
- *     entry is a reviewed commit, and their notice is the site-wide band.
+ *     (ruling 2 of 2026-11-13 for the reader documents, ruling 54 for the policies).
+ *     Publishing is refused in demo and production while `LEGAL_PUBLISH_ENABLED` is
+ *     "false", so a first effective date waits for that release.
+ *
+ * Before AECI-1969 a policy switched on its date alone, with the site-wide band as its
+ * notice. Counsel's Q68 answer: a policy change is a change to what a vendor agreed to, so
+ * it takes the Vendor Terms email. A company whose email did not go stays on the policy
+ * version it accepted (`companyPolicyVersion` in `./policy-binding`).
  *
  * Otherwise the build's current version stays in force. Before the moment nothing changes.
  * A row whose moment differs from the manifest's (the date moved after a publish) does not
@@ -84,9 +87,9 @@ export function legalMomentReached(effectiveAtMs: number, nowMs: number): boolea
 }
 
 /**
- * Whether `upcoming` has replaced the current version at `nowMs`. `published` is `null` for
- * a document with no publish record (the date alone decides), and the document's rows for
- * an agreement (a matching row is required).
+ * Whether `upcoming` has replaced the current version at `nowMs`. `published` is the
+ * document's rows (a matching row is required). `null` lets the date alone decide: no
+ * document is read that way since AECI-1969, and the branch stays for a spec's fixture.
  */
 export function legalUpcomingInForce(
   document: string,
@@ -168,14 +171,16 @@ export function legalPublishableUpcomingOf(
 ): LegalAgreementUpcomingVersion | undefined {
   return (
     maps.agreementUpcoming[document as LegalAgreementDocument] ??
-    legalReaderUpcomingOf(maps)[document as LegalReaderDocument]
+    legalReaderUpcomingOf(maps)[document as LegalReaderDocument] ??
+    maps.policyUpcoming[document as LegalPolicyDocument]
   );
 }
 
 /**
- * Every publishable document with an upcoming entry, agreements first, in vocabulary
- * order (AECI-1637). `/admin/legal`, the public read and the data-quality checks list
- * these, so the four documents are handled alike.
+ * Every publishable document with an upcoming entry, agreements first, then the reader
+ * documents, then the policies, in vocabulary order (AECI-1637, AECI-1969). `/admin/legal`,
+ * the public read and the data-quality checks list these, so the six documents are
+ * handled alike.
  */
 export function legalPublishableUpcoming(
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
@@ -188,6 +193,10 @@ export function legalPublishableUpcoming(
   const reader = legalReaderUpcomingOf(maps);
   for (const document of LEGAL_READER_DOCUMENTS) {
     const upcoming = reader[document];
+    if (upcoming) out.push({ document, upcoming });
+  }
+  for (const document of LEGAL_POLICY_DOCUMENTS) {
+    const upcoming = maps.policyUpcoming[document];
     if (upcoming) out.push({ document, upcoming });
   }
   return out;
@@ -239,14 +248,21 @@ export function legalReaderVersionInForce(
     : (maps.readerCurrent ?? LEGAL_READER_CURRENT_VERSIONS)[document];
 }
 
-/** The version of a policy in force at `nowMs`. Its date alone switches it. */
+/**
+ * The version of a policy in force at `nowMs`, given its published rows. Since AECI-1969
+ * (ruling 54) the agreements' rule: the upcoming version switches in at its moment only
+ * once a `legal_versions` row published it, which emailed every claimed company. This is
+ * the version the page shows and a new claim records. Which version an existing company
+ * is on is `companyPolicyVersion`.
+ */
 export function legalPolicyVersionInForce(
   policy: LegalPolicyDocument,
+  published: readonly LegalPublishedLite[],
   nowMs: number,
   maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): string {
   const upcoming = maps.policyUpcoming[policy];
-  return upcoming && legalUpcomingInForce(policy, upcoming, nowMs, null)
+  return upcoming && legalUpcomingInForce(policy, upcoming, nowMs, published)
     ? upcoming.version
     : maps.policyCurrent[policy];
 }
@@ -269,15 +285,15 @@ export function legalVersionsInForce(
   }
   const policies = {} as Record<LegalPolicyDocument, string>;
   for (const p of LEGAL_POLICY_DOCUMENTS) {
-    policies[p] = legalPolicyVersionInForce(p, nowMs, maps);
+    policies[p] = legalPolicyVersionInForce(p, published, nowMs, maps);
   }
   return { agreements, policies };
 }
 
 /**
  * Whether the answer at `nowMs` can depend on a `legal_versions` row: some upcoming
- * publishable document's moment has come (an agreement, or since AECI-1637 the Terms of
- * Service or the Privacy Policy). False means every one is on its build version whatever
+ * publishable document's moment has come (an agreement, since AECI-1637 the Terms of
+ * Service or the Privacy Policy, and since AECI-1969 a policy). False means every one is on its build version whatever
  * D1 holds, so a caller may skip the read. True today never: the maps are empty.
  */
 export function legalInForceNeedsPublished(
